@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# virtual environment (macOS dev env; Windows build creates its own)
+mtk_gui/
+
+# build output
+build/
+dist/
+dist_win/
+
+# runtime output
+logs/
+event/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

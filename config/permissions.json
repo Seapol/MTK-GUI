@@ -1,0 +1,11 @@
+{
+  "save_yaml": false,
+  "edit_ict": false,
+  "edit_fct": false,
+  "edit_product_info": false,
+  "edit_run_control": false,
+  "edit_serial_params": false,
+  "manage_channels": false,
+  "equipment_config": false,
+  "sn_format_check": true
+}
