@@ -149,28 +149,26 @@ Quick commands are generic serial snippets, not tied to any particular command s
 
 | Platform | Command | Output |
 |---|---|---|
-| Windows | `scripts\build_windows.bat` | `dist\MTK_GUI\MTK_GUI.exe` |
+| Windows | `scripts\build_windows.bat` | `dist\MTK_GUI\MTK_GUI.exe` + `dist\MTK_GUI_win64.zip` |
 | macOS | `bash scripts/build_macos.sh` | `dist/MTK_GUI.app` |
 | Linux | `bash scripts/build_linux.sh` | `dist/MTK_GUI/MTK_GUI` |
 
-Each script creates the `mtk_gui` virtual environment if needed, installs dependencies and runs the build.
+Each script creates the `mtk_gui` virtual environment if needed, installs dependencies and runs the build. The Windows script builds from `MTK_GUI_windows.spec`, which **bundles the `config/` folder into the package** (`_internal/config/`, where the packaged app looks for it first) and also packs the distributable zip.
 
 ### Option 2 — manual build
 
 Create and activate the `mtk_gui` environment and install the requirements first, then:
 
-**Windows / Linux:**
+**Windows (recommended — bundles the `config/` folder):**
+
+```bash
+pyinstaller --noconfirm MTK_GUI_windows.spec
+```
+
+**macOS / Linux (generic):**
 
 ```bash
 pyinstaller --noconfirm --windowed --name MTK_GUI --collect-submodules serial main.py
-```
-
-**macOS (with a bundle identifier):**
-
-```bash
-pyinstaller --noconfirm --windowed --name MTK_GUI \
-    --osx-bundle-identifier com.mtk.gui \
-    --collect-submodules serial main.py
 ```
 
 Flag reference:
@@ -182,11 +180,60 @@ Flag reference:
 - Add `--onefile` for a single executable (slower startup; unpacks to a temp directory on each run).
 - Add an icon with `--icon=assets/icon.ico` on Windows or `--icon=assets/icon.icns` on macOS.
 
+### Option 3 — cloud build with GitHub Actions
+
+`.github/workflows/build_windows.yml` builds the Windows exe on GitHub's servers — no local Python setup needed on the build machine:
+
+- **Manual run:** repo page → **Actions** → *Build Windows exe* → **Run workflow**; download `MTK_GUI_win64` (a zip of `MTK_GUI\`) from the run's artifacts.
+- **Tag release:** push a `v*` tag and the zip is additionally attached to a GitHub Release:
+
+  ```bash
+  git tag v2.0.0 && git push origin v2.0.0
+  ```
+
+The workflow uses `MTK_GUI_windows.spec`, so the `config/` folder is bundled automatically.
+
 ### Distribution
 
 - **Windows:** copy the entire `dist\MTK_GUI\` folder; users run `MTK_GUI.exe`.
 - **macOS:** copy `MTK_GUI.app` to `/Applications`.
 - **Linux:** copy the entire `dist/MTK_GUI/` folder and run the `MTK_GUI` binary (create a `.desktop` file if desired).
+
+## Syncing code between the Mac (dev) and Windows (build) machines
+
+The repository lives on GitHub; both machines share the same `main` branch. Core rule: **Mac pushes, Windows pulls — and always commit from whichever side you edited.**
+
+**macOS side, after code changes:**
+
+```bash
+git add <changed files>
+git commit -m "what changed"
+git push
+```
+
+**Windows side, to pick up the update:**
+
+```bat
+cd MTK-GUI
+git pull
+scripts\build_windows.bat
+```
+
+`dist/` and `mtk_gui/` are not tracked by git (see `.gitignore`), so **re-run the build script after every pull** — the existing `.exe` still contains the old code until rebuilt.
+
+Notes:
+
+1. **Commit from Windows too** when you change files there (e.g. a tuned `config/` project YAML), otherwise the two sides diverge and conflict:
+
+   ```bat
+   git add .
+   git commit -m "update from windows"
+   git push
+   ```
+
+2. **Edit one copy of a file on one side at a time.** The project YAMLs in `config/` are touched on both machines — commit and push right after editing to avoid conflicts.
+3. **Git on Windows** needs to be installed once: <https://git-scm.com/download/win> (default options are fine). Without git you can only re-download the ZIP from GitHub, which **loses local edits made on the Windows side**.
+4. No Windows build machine at hand? Use the cloud build (**Option 3** above) — the exe comes back as a workflow artifact.
 
 ## Platform notes
 
