@@ -46,6 +46,7 @@ PERMISSION_LABELS = {
     "edit_fct": "Edit FCT test cases (double-click rows)",
     "edit_product_info": "Edit Product Information",
     "edit_run_control": "Edit Long Run / Interval",
+    "toggle_stages": "Enable / disable ICT / FCT stages (Overall Flow EN)",
     "edit_serial_params": "Configure serial / SSH channel parameters",
     "manage_channels": "Add / Remove console channels",
     "equipment_config": "Open Equipment page configuration windows",

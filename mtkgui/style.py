@@ -312,6 +312,21 @@ QTableWidget {
 QTableWidget::item { padding: 3px 6px; }
 QTableWidget::item:selected { background-color: @sel_bg; color: @sel_text; }
 
+/* ------------------------------------------------------- list widgets
+   Without this rule an unstyled QListWidget falls back to the macOS
+   system palette (dark in dark mode) next to theme-styled widgets -
+   dark text on a dark background, unreadable. */
+QListWidget, QListView {
+    background-color: @card;
+    alternate-background-color: @alt;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 5px;
+}
+QListWidget::item { padding: 4px 8px; }
+QListWidget::item:selected { background-color: @sel_bg; color: @sel_text; }
+QListWidget::item:hover { background-color: @alt; }
+
 /* --------------------------------------------------------- splitter */
 QSplitter::handle { background-color: @border; }
 QSplitter::handle:hover { background-color: @accent; }
@@ -350,9 +365,13 @@ def build_qss(name="Light"):
     t = GUI_THEMES.get(name, GUI_THEMES["Light"])
     t = dict(t, accent_hover=t.get("accent_hover", _hover(t["accent"])))
     qss = _TEMPLATE
-    for key, value in t.items():
-        if isinstance(value, str):
-            qss = qss.replace("@" + key, value)
+    # longest token first: "@accent_text" / "@accent_press" must be
+    # replaced before "@accent", or their leftovers become invalid
+    # colors like "#2f6fb3_text"
+    for key in sorted(
+            (k for k, v in t.items() if isinstance(v, str)),
+            key=len, reverse=True):
+        qss = qss.replace("@" + key, t[key])
     return qss
 
 

@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 from . import __version__, project_config
 from .equipment_page import EquipmentPage
 from .permissions import (
+    ROLE_OPERATOR,
     ROLE_SUPERVISOR,
     LoginDialog,
     PermissionsDialog,
@@ -58,10 +59,20 @@ from .style import (
     saved_theme,
 )
 from .theme import DEFAULT_BACKGROUND, THEMES, theme_for
+from .virtual_dut import (
+    VirtualDutDialog,
+    load_dut_profile,
+    save_dut_profile,
+)
 from .virtual_mode import (
     VirtualFaultDialog,
     load_fault_config,
     save_fault_config,
+)
+from .virtual_dut import (
+    VirtualDutDialog,
+    load_dut_profile,
+    save_dut_profile,
 )
 
 # Event Log auto-save: one plain-text file per GUI session (start->exit)
@@ -155,18 +166,78 @@ class InstrumentStatusBar(QWidget):
                 f"{self.titles[abbr]}: {LED_TEXT[self.states[abbr]]}")
 
 
+class SerialStatusBar(QWidget):
+    """'Consoles:' caption plus one LED + channel key per console
+    channel (serial + SSH).
+
+    Rebuilt whenever the console channel set changes (add / remove) and
+    re-colored on every connect / disconnect (multi_console's
+    connection_changed signal -> sync_channels)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(6, 0, 6, 0)
+        self._row.setSpacing(6)
+        caption = QLabel("Consoles:")
+        caption.setObjectName("muted")
+        self._row.addWidget(caption)
+        self._leds = {}
+
+    def sync_channels(self, channels):
+        """Mirror the multi-console channel set and connection states
+        (full rebuild - channel sets change rarely)."""
+        while self._row.count() > 1:          # keep the caption at 0
+            item = self._row.takeAt(self._row.count() - 1)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._leds = {}
+        for i, (key, ch) in enumerate(channels.items()):
+            led = StatusLed()
+            lbl = QLabel(key)
+            lbl.setObjectName("strong")
+            self._row.addWidget(led)
+            self._row.addWidget(lbl)
+            if i < len(channels) - 1:
+                self._row.addSpacing(8)
+            state = "connected" if ch.get("connected") else "disconnected"
+            led.set_state(state)
+            lbl.setToolTip(f"{key}: {LED_TEXT[state]}")
+            self._leds[key] = (led, lbl)
+
+
 class DialogCenterer(QObject):
     """QApplication event filter: every dialog window (config dialogs,
     message boxes, the login box, ...) shows up centered on the screen
-    it appears on - re-centered each time it is re-shown."""
+    it appears on - re-centered each time it is re-shown.
+
+    On its FIRST show a dialog is also enlarged to 1.5x its natural
+    sizeHint (never shrunk, capped to 92% of the screen) - the dialogs
+    were all too small. Manual resizes after that first show are kept."""
 
     def eventFilter(self, obj, event):
         if (event.type() == QEvent.Type.Show
                 and isinstance(obj, QDialog) and obj.isWindow()):
             screen = obj.screen() or QApplication.primaryScreen()
             if screen is not None:
+                avail = screen.availableGeometry()
+                # QMessageBox sizes itself to its content by design:
+                # only center it, do not force-enlarge
+                if not isinstance(obj, QMessageBox):
+                    if obj.property("_dlg_enlarged") is None:
+                        obj.setProperty("_dlg_enlarged", True)
+                        hint = obj.sizeHint()
+                        target_w = min(int(hint.width() * 1.5),
+                                       int(avail.width() * 0.92))
+                        target_h = min(int(hint.height() * 1.5),
+                                       int(avail.height() * 0.92))
+                        if (obj.width() < target_w
+                                or obj.height() < target_h):
+                            obj.resize(max(obj.width(), target_w),
+                                       max(obj.height(), target_h))
                 fg = obj.frameGeometry()
-                fg.moveCenter(screen.availableGeometry().center())
+                fg.moveCenter(avail.center())
                 obj.move(fg.topLeft())
         return False
 
@@ -274,7 +345,8 @@ class MainWindow(QMainWindow):
         fm = QFontMetrics(self.event_log.font())
         six_rows = (fm.lineSpacing() * 6
                     + 2 * self.event_log.frameWidth() + 6)
-        self.event_log.setMinimumHeight(six_rows)
+        # Event Log is 50% taller than the original 6-row design
+        self.event_log.setMinimumHeight(int(six_rows * 1.5))
         log_layout.addWidget(self.event_log)
 
         # one auto-saved session log file per GUI run (start -> exit)
@@ -285,45 +357,73 @@ class MainWindow(QMainWindow):
         self.workflow_page.log_line.connect(self._append_event_log)
         self.workflow_page.log_cleared.connect(self._clear_event_log)
 
-        # --- status bar: Instruments | Version | Progress | Station | ...
+        # --- status bar, flat left -> right:
+        # Version | Role | Mode | Station ID | User | Progress (adaptive)
+        # | Instruments | Consoles | Date
         sb = self.statusBar()
-
-        # instrument connection lights (leftmost permanent widgets)
-        self.instr_status = InstrumentStatusBar(INSTRUMENTS)
-        sb.addPermanentWidget(self.instr_status)
 
         self.status_version = QLabel(f"Version: {__version__}")
         self.status_version.setObjectName("muted")
         self.status_version.setStyleSheet("padding: 0 6px;")
-        sb.addWidget(self.status_version)  # left zone -> far left
+        sb.addWidget(self.status_version)
 
-        self.status_progress = QProgressBar()
-        self.status_progress.setFixedWidth(300)
-        self.status_progress.setTextVisible(True)
-        self.status_progress.setFormat("Idle")
-        self.status_progress.setRange(0, 1)
-        self.status_progress.setValue(0)
-        sb.addPermanentWidget(self.status_progress, 1)  # stretch = 1 (~50%)
+        # Role / Mode badges: colored background + bold white text,
+        # refreshed on File > Switch Account
+        self.status_role = QLabel()
+        self.status_mode = QLabel()
+        sb.addWidget(self.status_role)
+        sb.addWidget(self.status_mode)
+        self._update_identity_status()
 
         station = platform.node() or "UNKNOWN"
         self.status_station = QLabel(f"Station ID: {station}")
         self.status_station.setObjectName("muted")
         self.status_station.setStyleSheet("padding: 0 6px;")
-        sb.addPermanentWidget(self.status_station)
+        sb.addWidget(self.status_station)
 
         self.status_user = QLabel(f"User: {getpass.getuser()}")
         self.status_user.setObjectName("muted")
         self.status_user.setStyleSheet("padding: 0 6px;")
-        sb.addPermanentWidget(self.status_user)
+        sb.addWidget(self.status_user)
 
-        # wire run progress to the status bar progress bar
-        self.workflow_page.run_progress.connect(self._update_run_progress)
+        # run progress: adaptive width (wired to the workflow page below)
+        self.status_progress = QProgressBar()
+        self.status_progress.setTextVisible(True)
+        self.status_progress.setFormat("Idle")
+        self.status_progress.setRange(0, 1)
+        self.status_progress.setValue(0)
+        sb.addWidget(self.status_progress, 1)  # stretch = adaptive
+        self._last_progress = (0, 1)
+
+        # Instruments connection LEDs
+        self.instr_status = InstrumentStatusBar(INSTRUMENTS)
+        sb.addPermanentWidget(self.instr_status)
+
+        # Consoles: one LED per console channel, updated live on
+        # channel add / remove / connect / disconnect
+        self.serial_status = SerialStatusBar()
+        sb.addPermanentWidget(self.serial_status)
+        mcw = self.workflow_page.multi_console
+        mcw.connection_changed.connect(
+            lambda: self.serial_status.sync_channels(mcw.channels))
+        self.serial_status.sync_channels(mcw.channels)
+
+        # current date (far right)
+        self.status_date = QLabel(
+            f"{datetime.now():%Y-%m-%d}")
+        self.status_date.setObjectName("muted")
+        self.status_date.setStyleSheet("padding: 0 6px;")
+        sb.addPermanentWidget(self.status_date)
 
         # instrument connection lights:
         # running -> all connected; virtual fault -> red, auto-recover;
         # run end -> clear any red back to connected
         self.workflow_page.run_progress.connect(
             lambda *_: self.instr_status.set_all("connected"))
+        # wire run progress to the status bar progress bar
+        self.workflow_page.run_progress.connect(self._update_run_progress)
+        # background phases (console connect, ...) -> busy progress bar
+        self.workflow_page.phase_changed.connect(self._on_run_phase)
         self.workflow_page.instrument_error.connect(self._on_instrument_error)
         self.workflow_page.run_finished.connect(
             lambda: self.instr_status.set_all("connected"))
@@ -339,9 +439,10 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        # initial sizes: top = all rows, bottom = 6 log rows, middle = rest
+        # initial sizes: top = all rows, bottom = log (1.5x of the
+        # original 6 rows), middle = rest
         top_h = max(top.sizeHint().height(), 180)
-        bottom_h = six_rows + 40
+        bottom_h = int(six_rows * 1.5) + 40
         middle_h = max(300, self.height() - top_h - bottom_h)
         self.splitter.setSizes([top_h, middle_h, bottom_h])
 
@@ -419,13 +520,36 @@ class MainWindow(QMainWindow):
         self.workflow_page.apply_permissions(perm, supervisor)
         self.equipment_page.set_config_allowed(
             supervisor or perm.get("equipment_config", False))
+        # Virtual mode drives the instrument dialog's connect / test behavior
+        self.equipment_page.set_virtual_mode(self.mode == "Virtual")
         # Virtual mode (supervisor only): fault-injection menu + pages
         virtual = supervisor and self.mode == "Virtual"
         self.act_fault_inject.setEnabled(virtual)
         self.workflow_page.set_mode(self.mode)
         self.workflow_page.set_virtual_fault(self.fault_config)
         self.workflow_page.multi_console.set_virtual_mode(virtual)
-        self.statusBar().showMessage(f"Logged in: {self.role}", 5000)
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Logged in: {self.role}")
+
+    def _update_identity_status(self):
+        """Status bar identity badges: Role + Mode with distinct
+        background colors (File > Switch Account refreshes both)."""
+        badge = ("padding: 1px 10px; border-radius: 9px;"
+                 "font-weight: bold; font-size: 12px;")
+        role_colors = {
+            ROLE_SUPERVISOR: "background:#2f6fb3; color:#ffffff;",
+            ROLE_OPERATOR: "background:#b45309; color:#ffffff;",
+        }
+        mode_colors = {
+            "Real": "background:#1d7a3c; color:#ffffff;",
+            "Virtual": "background:#7c3aed; color:#ffffff;",
+        }
+        self.status_role.setText(f"Role: {self.role}")
+        self.status_role.setStyleSheet(
+            badge + role_colors.get(self.role, ""))
+        self.status_mode.setText(f"Mode: {self.mode}")
+        self.status_mode.setStyleSheet(
+            badge + mode_colors.get(self.mode, ""))
 
     def switch_account(self):
         """File > Switch Account: re-login without restarting the GUI."""
@@ -438,6 +562,7 @@ class MainWindow(QMainWindow):
         self.mode = mode if role == ROLE_SUPERVISOR else "Real"
         self.permissions = load_permissions()
         self.apply_permissions()
+        self._update_identity_status()
 
     def _open_fault_dialog(self):
         """Settings > Virtual Fault Injection (Virtual mode + supervisor)."""
@@ -453,10 +578,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Virtual Fault Injection",
                                 f"Failed to save configuration: {exc}")
         self.workflow_page.set_virtual_fault(cfg)
-        self.statusBar().showMessage(
-            f"Virtual Fault Injection updated "
-            f"(fail {cfg['test_fail_ratio']:.2f} %, "
-            f"equipment error {cfg['equipment_error_ratio']:.2f} %)", 5000)
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Virtual Fault Injection "
+            f"updated (fail {cfg['test_fail_ratio']:.2f} %, "
+            f"equipment error {cfg['equipment_error_ratio']:.2f} %)")
 
     def _open_permissions_dialog(self):
         """Settings > Operator Permissions (supervisor only)."""
@@ -516,7 +641,8 @@ class MainWindow(QMainWindow):
             config, self.workflow_page, self.equipment_page)
         self._project_path = path
         self.workflow_page.set_project_file(path)
-        self.statusBar().showMessage(f"Yaml loaded: {path}", 5000)
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.
@@ -553,7 +679,8 @@ class MainWindow(QMainWindow):
             return
         self._project_path = path
         self.workflow_page.set_project_file(path)
-        self.statusBar().showMessage(f"Yaml saved: {path}", 5000)
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Yaml saved: {path}")
 
     # ------------------------------------------------------------ theme
     def apply_gui_theme(self, name):
@@ -622,9 +749,12 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
 
+    # ------------------------------------------------ instrument lights
     def _update_run_progress(self, current, total):
         """Update the status-bar progress bar during a test run."""
-        if total <= 0:
+        if total > 1:
+            self._last_progress = (current, total)  # restore point after
+        if total <= 0:                              # a busy phase
             self.status_progress.setRange(0, 1)
             self.status_progress.setValue(0)
             self.status_progress.setFormat("Idle")
@@ -634,7 +764,23 @@ class MainWindow(QMainWindow):
             self.status_progress.setFormat(
                 f"{current}/{total} ({current * 100 // total}%)")
 
-    # ------------------------------------------------ instrument lights
+    def _on_run_phase(self, text):
+        """Reflect background run phases on the progress bar: a busy
+        (indeterminate) pulse while e.g. console channels connect, the
+        numeric position once the sequence steps again."""
+        if text == "Connecting console...":
+            self.status_progress.setRange(0, 0)   # busy pulse
+            self.status_progress.setFormat("Connecting console...")
+        elif text:
+            cur, total = self._last_progress
+            if total > 1:
+                self.status_progress.setRange(0, total)
+                self.status_progress.setValue(cur)
+                self.status_progress.setFormat(
+                    f"{cur}/{total} ({cur * 100 // total}%)")
+        else:
+            self._update_run_progress(0, 0)
+
     def _connect_virtual_instruments(self):
         """Virtual mode: simulated instruments report connected at start."""
         self.instr_status.set_all("connected")
@@ -692,7 +838,8 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.critical(self, "Save Failed", str(exc))
             return
-        self.statusBar().showMessage(f"Event log saved: {path}", 5000)
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Event log saved: {path}")
 
     # ------------------------------------------------------------ close
     def closeEvent(self, event):

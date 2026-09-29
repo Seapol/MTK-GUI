@@ -29,6 +29,7 @@ from ..quick_commands import MAX_QUICK_COMMANDS, load_commands, save_commands
 from ..serial_params import BAUDRATES, BYTESIZE_MAP, STOPBITS_MAP, PARITY_MAP
 from ..serial_worker import SerialWorker
 from ..ssh_worker import SshWorker
+from ..virtual_dut import VirtualDutWorker, load_dut_profile
 from ..theme import (
     DEFAULT_BACKGROUND,
     THEMES,
@@ -604,7 +605,7 @@ class MultiConsoleWidget(QGroupBox):
     connection_changed = Signal()
 
     def __init__(self, parent=None):
-        super().__init__("Serial Console", parent)
+        super().__init__("Console", parent)
         self.bg_color = DEFAULT_BACKGROUND
         self.theme = THEMES[theme_for(self.bg_color)]
 
@@ -942,15 +943,19 @@ class MultiConsoleWidget(QGroupBox):
                     return
 
         if self.virtual_mode:
-            # Virtual mode: simulated connection, no real hardware needed
+            # Virtual mode: simulated connection, no real hardware needed.
+            # Serial channels get a configurable simulated DUT (boot log,
+            # shell prompt, rule-based command replies); SSH keeps the
+            # plain idle banner connection.
             p = channel["params"]
             if channel["kind"] == "serial":
                 detail = (f"{p.get('port') or 'virtual-serial'} "
                           f"@ {p.get('baudrate') or 115200}")
+                worker = VirtualDutWorker(load_dut_profile(), detail)
             else:
                 detail = (f"{p.get('username') or 'user'}"
                           f"@{p.get('host') or 'virtual-host'}")
-            worker = VirtualWorker(detail)
+                worker = VirtualWorker(detail)
         elif channel["kind"] == "serial":
             p = channel["params"]
             try:
@@ -997,6 +1002,13 @@ class MultiConsoleWidget(QGroupBox):
         """Disconnect every channel (called on application exit)."""
         for key in list(self.channels):
             self.close_channel(key)
+
+    def clear_channels(self):
+        """Remove every channel row entirely (no YAML loaded: the
+        console starts empty; Add Serial / Add SSH rebuilds rows)."""
+        for key in list(self.channels):
+            self.remove_channel(key)
+        self._yaml_channel_keys = None
 
     def on_connection_changed(self, key, connected):
         channel = self.channels.get(key)

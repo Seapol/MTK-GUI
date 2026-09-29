@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from mtkgui.main_window import MainWindow
 from mtkgui.style import QSS
@@ -25,12 +25,14 @@ app.setStyleSheet(QSS)
 w = MainWindow()
 w.show()
 
-# 1. Multi-console: starts with 1 serial tab; 1-4 serial + 0-1 SSH.
+# 1. Multi-console: no YAML loaded -> 0 channels; 1-4 serial + 0-1 SSH.
 from serial.tools import list_ports
 list(list_ports.comports())  # enumeration must not crash
 
 mc = w.workflow_page.multi_console
-assert len(mc.channels) == 1
+assert len(mc.channels) == 0  # no YAML loaded -> console starts empty
+assert w.workflow_page.rail_samples is None  # waveform starts empty
+mc.add_serial()
 assert mc.current_key() == "ser1"
 assert list(mc.channels)[0] == "ser1"
 mc.add_serial()
@@ -293,27 +295,82 @@ from mtkgui.project_config import load_config, apply_config
 cfg = load_config(str(Path("config/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
 apply_config(cfg, wf, w.equipment_page)
 assert wf.overall.rowCount() == 2
-assert wf.ict.rowCount() == 175
-assert wf.fct.rowCount() == 7
+assert wf.ict.rowCount() == 172
+assert wf.fct.rowCount() == 21
+# FCT Test Method (kind) loaded from the YAML per case: message tests,
+# console/CLI steps and the Power On/Off DUT + fixture teardown ops
+assert wf.fct_kinds[0] == "MessageYesNo"
+assert wf.fct_kinds[1] == "MessageGoStop"
+assert wf.fct_kinds[2] == "op"
+assert wf.fct_kinds[3] == "MessageOK"
+assert wf.fct_kinds[5] == "CapturefromConsole"
+assert wf.fct_kinds[7] == "SendtoCLI"
+assert wf.fct_kinds[12] == "MessageGoStop"
+assert wf.fct_kinds[16] == "WaitforConsole"
+assert wf.fct_kinds[18] == "op"
+assert wf.fct_kinds[20] == "op"
+assert wf.fct_op_params[4] == {"type": "power", "voltage": 5.0,
+                               "current": 1.0}
 wf.run_demo()
-assert wf.overall.item(0, 2).text() == "PASS"
+assert wf.overall.item(0, 3).text() == "PASS"
 assert wf.ict.item(0, 7).text() == "Done"
 # Row 4 = first impedance test (per-net), Row 84 = Power On DUT
 assert "Impedance Shorts" in wf.ict_steps[4][1]
 assert wf.ict_steps[84][1] == "Power On DUT"
 assert wf.ict.item(4, 7).text() == "PASS"
 assert wf.ict.item(84, 7).text() == "Done"
+# FCT row 0 = LED test -> PASS, row 1 = Flash FAT dialog -> PASS,
+# row 2 = Power Off DUT standard step -> Done
 assert wf.fct.item(0, 4).text() == "PASS"
+assert wf.fct.item(1, 4).text() == "PASS"
+assert wf.fct.item(2, 4).text() == "Done"
 assert wf.rail_csv_path is not None and wf.rail_csv_path.exists()
 with open(wf.rail_csv_path) as fh:
     header = fh.readline().strip()
 assert header.startswith("time_ms") and "VDD_SNVS_3V3" in header
 assert "VDD_PCIE_1V8" in header
-assert wf.rail_widget.data and len(wf.rail_widget.data) == 12
+# DAQ AI capture is ICT row 85 (right after Power On DUT, before the
+# voltage tests): samples + CSV, but NO waveform drawn
+daq = next(i for i, s in enumerate(wf.ict_steps) if s[0] == "DAQ AI")
+assert daq == 85
+assert "Power Rails Up Sequence" in wf.ict_steps[daq][1]
+assert wf.ict.item(daq, 7).text() == "PASS"
+assert wf.rail_samples is not None and len(wf.rail_samples) == 12
+assert wf.rail_widget.data == []  # waveform display off
+# disable the DAQ AI row -> skipped as Ignore, no capture
+daq_wait, wf.ict_enables[daq] = wf.ict_enables[daq], False
 wf.clear_results()
-assert wf.overall.item(0, 2).text() == "Pending"
-assert wf.overall.item(0, 3).text() == "--"
+wf.run_demo()
+assert wf.ict.item(daq, 7).text() == "Ignore"
+wf.ict_enables[daq] = daq_wait
+wf.clear_results()
+assert wf.overall.item(0, 3).text() == "Pending"
+assert wf.overall.item(0, 4).text() == "--"
 print("test workflow demo ok")
+
+# 12b. Overall Flow EN: skip stages; refuse all-disabled runs.
+wf.set_overall_en([False, True])
+assert wf.overall.item(0, 2).checkState() == Qt.CheckState.Unchecked
+steps = wf._steps_template(len(wf.ict_steps), wf.fct.rowCount())
+assert not any(s[0] in ("ict", "rails") or s == ("stage", 0)
+               for s in steps), steps[:3]
+assert any(s[0] == "fct" for s in steps)
+wf.set_overall_en([True, False])
+steps = wf._steps_template(len(wf.ict_steps), wf.fct.rowCount())
+assert not any(s[0] in ("fct", "fctconn") or s == ("stage", 1)
+               for s in steps), steps[:3]
+assert any(s[0] == "ict" for s in steps)
+# both stages disabled -> Run blocked with a warning popup
+wf.set_overall_en([False, False])
+wf.project_path = "smoke-dummy.yaml"  # pass the no-yaml gate
+QTimer.singleShot(150, close_modal)
+wf.start_run()
+QTest.qWait(400)
+assert wf.run_state == "idle"
+wf.set_overall_en([True, True])
+steps = wf._steps_template(len(wf.ict_steps), wf.fct.rowCount())
+assert steps[0] == ("ict", 0) and ("stage", 0) in steps
+print("overall flow EN ok")
 
 # 15. Overall Flow stop policies: defaults + abort decisions.
 assert wf.stop_if_fail_cb.isChecked() is False
@@ -332,19 +389,20 @@ wf.stop_if_fail_cb.setChecked(True)
 assert wf._policy_abort_reason("ict", (4,))
 # non-short ICT failure only reacts to stop-on-fail
 wf.ict_sim_fail.discard(4)
-wf.ict_sim_fail.add(85)  # Power Voltage
-wf._exec_ict_row(85)
-assert wf.ict.item(85, 7).text() == "FAIL"
-assert wf._policy_abort_reason("ict", (85,))
+wf.ict_sim_fail.add(86)  # Power Voltage
+wf._exec_ict_row(86)
+assert wf.ict.item(86, 7).text() == "FAIL"
+assert wf._policy_abort_reason("ict", (86,))
 wf.stop_if_fail_cb.setChecked(False)
-assert wf._policy_abort_reason("ict", (85,)) is None
-# FCT failure follows stop-on-fail only
-wf.fct_sim_fail.add(0)
-wf._exec_fct_row(0)
-assert wf.fct.item(0, 4).text() == "FAIL"
-assert wf._policy_abort_reason("fct", (0,)) is None
+assert wf._policy_abort_reason("ict", (86,)) is None
+# FCT failure follows stop-on-fail only (rows 0/1 are message tests:
+# LED test, then the Flash FAT dialog)
+wf.fct_sim_fail.add(1)
+wf._exec_fct_row(1)
+assert wf.fct.item(1, 4).text() == "FAIL"
+assert wf._policy_abort_reason("fct", (1,)) is None
 wf.stop_if_fail_cb.setChecked(True)
-assert wf._policy_abort_reason("fct", (0,))
+assert wf._policy_abort_reason("fct", (1,))
 # restore defaults
 wf.stop_if_fail_cb.setChecked(False)
 wf.stop_if_short_cb.setChecked(True)
@@ -352,6 +410,44 @@ wf.ict_sim_fail.clear()
 wf.fct_sim_fail.clear()
 wf.clear_results()
 print("stop policies ok")
+
+# 13b. FCT message tests (MessageOK / MessageYesNo / MessageGoStop) pop
+# a modal operator dialog on a real run; the answer judges the row
+# (OK / Yes / GO -> PASS, No / STOP -> FAIL). The run timer must not
+# re-enter _run_step while the dialog is open.
+answers = iter(["Yes", "GO", "OK"])
+msg_timer = QTimer(w)
+msg_timer.setInterval(120)
+
+
+def answer_popup():
+    dlg = app.activeModalWidget()
+    if isinstance(dlg, QMessageBox):
+        want = next(answers, "OK")
+        for b in dlg.buttons():
+            if b.text().replace("&", "") == want:
+                b.click()
+                break
+
+
+msg_timer.timeout.connect(answer_popup)
+msg_timer.start()
+for r in (0, 1, 3):  # MessageYesNo, MessageGoStop, MessageOK rows
+    wf._exec_fct_row(r)
+msg_timer.stop()
+assert wf.fct.item(0, 4).text() == "PASS"
+assert wf.fct.item(1, 4).text() == "PASS"
+assert wf.fct.item(3, 4).text() == "PASS"
+# operator answers No / STOP -> the rows FAIL
+answers = iter(["No", "STOP"])
+msg_timer.start()
+for r in (0, 1):
+    wf._exec_fct_row(r)
+msg_timer.stop()
+assert wf.fct.item(0, 4).text() == "FAIL"
+assert wf.fct.item(1, 4).text() == "FAIL"
+wf.clear_results()
+print("FCT message dialogs ok")
 
 # 14. Operator account: default-deny permissions (supervisor keeps all).
 from mtkgui.permissions import (
@@ -374,6 +470,10 @@ assert wf2.batch_edit.isReadOnly() and wf2.serial_edit.isReadOnly()
 assert wf2.auto_sn.isEnabled() is False
 assert wf2.longrun_spin.isEnabled() is False
 assert wf2.interval_spin.isEnabled() is False
+# Overall Flow EN: grayed out for operator without the toggle right
+assert not (wf2.overall.item(0, 2).flags() & Qt.ItemFlag.ItemIsEnabled)
+assert (w.workflow_page.overall.item(0, 2).flags()
+        & Qt.ItemFlag.ItemIsEnabled)
 # Serial console: no channel add/remove, no parameter config dialogs
 mc2 = wf2.multi_console
 assert mc2.btn_add_serial.isEnabled() is False
@@ -413,7 +513,11 @@ save_fault_config({"test_fail_ratio": 0, "equipment_error_ratio": 0})
 wf3.set_virtual_fault({"test_fail_ratio": 100, "equipment_error_ratio": 0})
 wf3.run_demo()
 assert wf3.ict.item(4, 7).text() == "Virtual FAIL"
+# 100 % injected fail ratio -> every test row FAILs (message tests
+# included), "Virtual " prefix; the Power Off DUT op row reports Done
 assert wf3.fct.item(0, 4).text() == "Virtual FAIL"
+assert wf3.fct.item(1, 4).text() == "Virtual FAIL"
+assert wf3.fct.item(2, 4).text() == "Virtual Done"
 assert wf3.result_label.text() == "Virtual FAIL"
 wf3.clear_results()
 wf3.set_virtual_fault({"test_fail_ratio": 0, "equipment_error_ratio": 0})
@@ -445,12 +549,13 @@ print("virtual mode ok")
 
 # 16. Virtual console connection works without real hardware.
 mc3 = w3.workflow_page.multi_console
+mc3.add_serial()  # no YAML loaded -> w3's console starts empty
 mc3.open_channel("ser1")  # fake port: real mode would fail, virtual connects
 for _ in range(20):  # queued thread signals may need a few loop passes
     QTest.qWait(100)
-    if "Virtual mode" in mc3.console("ser1").view.toPlainText():
+    if "Virtual DUT" in mc3.console("ser1").view.toPlainText():
         break
-assert "Virtual mode" in mc3.console("ser1").view.toPlainText()
+assert "Virtual DUT" in mc3.console("ser1").view.toPlainText()
 assert mc3.channels["ser1"]["worker"].isRunning()
 mc3.close_channel("ser1")
 QTest.qWait(600)
@@ -473,6 +578,12 @@ print("dialog centering ok")
 from mtkgui.project_config import build_config, save_config
 wf.clear_results()
 mcw = wf.multi_console
+# the project YAML has console: [] -> the reset left one default serial
+# channel; add the two more serials this round-trip test relies on
+if "ser2" not in mcw.channels:
+    mcw.add_serial()
+if "ser3" not in mcw.channels:
+    mcw.add_serial()
 mcw.set_channel_params("ser1", {"port": "/dev/ttySMOKE1", "baudrate": 9600})
 mcw.set_channel_params("ser2", {"port": "/dev/ttySMOKE2", "baudrate": 115200})
 ssh18 = mcw.add_ssh()
@@ -560,14 +671,34 @@ wf3.run_state = "running"
 wf3.btn_run.setEnabled(False)
 wf3.btn_stop.setEnabled(True)
 wf3.product_group.setEnabled(False)
+# FCT message tests pop operator dialogs during the real run; an
+# auto-clicker answers them (OK / Yes / GO -> PASS)
+click_timer = QTimer(w3)
+click_timer.setInterval(120)
+
+
+def click_fct_popup():
+    dlg = app.activeModalWidget()
+    if isinstance(dlg, QMessageBox):
+        for b in dlg.buttons():
+            if b.text().replace("&", "") in ("OK", "Yes", "GO"):
+                b.click()
+                break
+
+
+click_timer.timeout.connect(click_fct_popup)
+click_timer.start()
 wf3._run_step()  # opens the virtual channel, then the run continues
 for _ in range(150):  # wait for the whole (virtual) run to finish
     QTest.qWait(100)
     if wf3.run_state == "idle":
         break
+click_timer.stop()
 assert wf3.run_state == "idle"
 assert mc3.channel_connected("ser1")  # opened automatically
 assert wf3.fct.item(0, 4).text() == "Virtual PASS"
+assert wf3.fct.item(2, 4).text() == "Virtual Done"
+assert wf3.fct.item(20, 4).text() == "Virtual Done"  # Reset Instruments
 assert wf3.result_label.text() == "Virtual PASS"
 mc3.close_channel("ser1")
 wf3.fct_connect_timeout = 10.0

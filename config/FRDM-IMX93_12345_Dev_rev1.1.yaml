@@ -1,7 +1,7 @@
 project:
   software: mtk-gui v2.0.0
   revision: '1.1'
-  created: '2026-09-28T20:27:45'
+  created: '2026-09-29T10:19:25'
 product:
   part_number: FRDM-IMX93
   core_id: '12345'
@@ -225,12 +225,15 @@ equipment:
       Nets: TP_GPIO0 - TP_GPIO23 (24 ch)
       Driven by: U2355A DIO via level shifter
       Tests: drive HI/LO, read back, toggle
+console: []
 test_workflow:
   overall_flow:
   - stage: ICT
-    description: 'In-Circuit Test: 80 power nets impedance -> voltage -> clocks'
+    description: 'In-Circuit Test: 80 power nets impedance -> voltage -> RTC/CLKOUT1/CLKOUT2 clocks'
+    enable: true
   - stage: FCT
     description: 'Functional Test: LED -> Serial Console (Linux) -> Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE'
+    enable: true
   stop_if_failure: false
   stop_if_any_short: true
   ict_test_cases:
@@ -242,6 +245,12 @@ test_workflow:
     unit: —
     threshold_min: —
     threshold_max: —
+    op_params:
+      type: instruments
+      instruments:
+      - DAQM
+      - DAQ
+      - PSU
   - name: Fixture Clamp Down
     kind: op
     enable: true
@@ -250,6 +259,10 @@ test_workflow:
     unit: —
     threshold_min: —
     threshold_max: —
+    op_params:
+      type: fixture
+      signal: press
+      level: H
   - name: Fixture Lock
     kind: op
     enable: true
@@ -258,6 +271,10 @@ test_workflow:
     unit: —
     threshold_min: —
     threshold_max: —
+    op_params:
+      type: fixture
+      signal: inpos
+      level: H
   - name: Fixture E-Stop Healthy
     kind: op
     enable: true
@@ -266,645 +283,649 @@ test_workflow:
     unit: —
     threshold_min: —
     threshold_max: —
+    op_params:
+      type: fixture
+      signal: estop
+      level: L
   - name: 'Impedance Shorts: VDD_SNVS_3V3 (TP_P01)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_HIGH_3V3 (TP_P02)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_1V8 (TP_P03)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DDR_1V1 (TP_P04)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: NVCC_DRAM_1V2 (TP_P05)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_SOC_0V8 (TP_P06)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_ARM_0V85 (TP_P07)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_PHY_1V8 (TP_P08)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_USB_3V3 (TP_P09)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: NVCC_SD1_3V3 (TP_P10)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: NVCC_EMC_3V3 (TP_P11)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_PCIE_1V8 (TP_P12)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DDR_1V1_VDDQ (TP_P13)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: NVCC_DRAM_VTT (TP_P14)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: DDR_VREF_DDR (TP_P15)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: DDR_ZQ_DDR (TP_P16)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_HIGH_IN_3V3 (TP_P17)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_LDO1_1V8 (TP_P18)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_LDO2_1V2 (TP_P19)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_LDO3_3V3 (TP_P20)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_LDO4_0V9 (TP_P21)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_BUCK1_1V1 (TP_P22)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_BUCK2_0V8 (TP_P23)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_BUCK3_1V8 (TP_P24)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_BUCK4_3V3 (TP_P25)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: PMIC_VSNVS_3V0 (TP_P26)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_AUDIO_1V8 (TP_P27)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_MIC_3V3 (TP_P28)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_CAM_2V8 (TP_P29)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_CAM_1V2 (TP_P30)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDDA_DDR_0V6 (TP_P31)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_USB_OTG1_3V3 (TP_P32)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_USB_OTG2_3V3 (TP_P33)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_PCIE_3V3 (TP_P34)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_SD1_3V3 (TP_P35)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_SD2_1V8 (TP_P36)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_WiFi_3V3 (TP_P37)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_BT_3V3 (TP_P38)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_EMMC_3V3 (TP_P39)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_EMMC_1V8 (TP_P40)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_QSPI_3V3 (TP_P41)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_QSPI_1V8 (TP_P42)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAN_5V (TP_P43)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAN_3V3 (TP_P44)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_LIN_12V (TP_P45)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_LIN_3V3 (TP_P46)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_ETH_3V3 (TP_P47)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_ETH_1V2 (TP_P48)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_FAN_5V (TP_P49)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_FAN_3V3 (TP_P50)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_LED_3V3 (TP_P51)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_LED_5V (TP_P52)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_BUZZER_5V (TP_P53)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_RTC_3V (TP_P54)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_BAT_3V (TP_P55)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_NAND_3V3 (TP_P56)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_NAND_1V8 (TP_P57)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_TOUCH_3V3 (TP_P58)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_TOUCH_1V8 (TP_P59)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DISP_3V3 (TP_P60)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DISP_1V8 (TP_P61)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DISP_12V (TP_P62)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAM_3V3 (TP_P63)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAM_1V8 (TP_P64)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAM_2V8 (TP_P65)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_CAM_1V2 (TP_P66)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_USB3_3V3 (TP_P67)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_USB3_1V8 (TP_P68)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GPIO_3V3 (TP_P69)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GPIO_1V8 (TP_P70)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GPIO_5V (TP_P71)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GPIO_12V (TP_P72)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GPIO_24V (TP_P73)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_ADC_3V3 (TP_P74)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_DAC_3V3 (TP_P75)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_PWM_3V3 (TP_P76)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_I2C_3V3 (TP_P77)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_SPI_3V3 (TP_P78)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_UART_3V3 (TP_P79)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: 'Impedance Shorts: VDD_GND_REF (TP_P80)'
-    kind: test
+    kind: Static Impedance
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: Ω
-    threshold_min: 1.5 Ω
+    threshold_min: '1.5'
     threshold_max: —
   - name: Power On DUT
     kind: op
@@ -914,678 +935,690 @@ test_workflow:
     unit: —
     threshold_min: —
     threshold_max: —
+    op_params:
+      type: power
+      voltage: 5.0
+      current: 1.0
+  - name: DAQ AI Capture： Power Rails Up Sequence
+    kind: DAQ AI
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
   - name: 'Power Voltages: VDD_SNVS_3V3 (TP_P01)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_HIGH_3V3 (TP_P02)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDDA_1V8 (TP_P03)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_DDR_1V1 (TP_P04)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.078'
+    threshold_max: '1.122'
   - name: 'Power Voltages: NVCC_DRAM_1V2 (TP_P05)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.176'
+    threshold_max: '1.224'
   - name: 'Power Voltages: VDD_SOC_0V8 (TP_P06)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.784'
+    threshold_max: '0.816'
   - name: 'Power Voltages: VDD_ARM_0V85 (TP_P07)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.833'
+    threshold_max: '0.867'
   - name: 'Power Voltages: VDD_PHY_1V8 (TP_P08)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_USB_3V3 (TP_P09)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: NVCC_SD1_3V3 (TP_P10)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: NVCC_EMC_3V3 (TP_P11)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_PCIE_1V8 (TP_P12)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_DDR_1V1_VDDQ (TP_P13)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.078'
+    threshold_max: '1.122'
   - name: 'Power Voltages: NVCC_DRAM_VTT (TP_P14)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.539'
+    threshold_max: '0.561'
   - name: 'Power Voltages: DDR_VREF_DDR (TP_P15)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±1%
-    threshold_max: —
+    threshold_min: '0.5445'
+    threshold_max: '0.5555'
   - name: 'Power Voltages: DDR_ZQ_DDR (TP_P16)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.539'
+    threshold_max: '0.561'
   - name: 'Power Voltages: VDD_HIGH_IN_3V3 (TP_P17)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: PMIC_LDO1_1V8 (TP_P18)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: PMIC_LDO2_1V2 (TP_P19)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.176'
+    threshold_max: '1.224'
   - name: 'Power Voltages: PMIC_LDO3_3V3 (TP_P20)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: PMIC_LDO4_0V9 (TP_P21)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.882'
+    threshold_max: '0.918'
   - name: 'Power Voltages: PMIC_BUCK1_1V1 (TP_P22)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.078'
+    threshold_max: '1.122'
   - name: 'Power Voltages: PMIC_BUCK2_0V8 (TP_P23)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.784'
+    threshold_max: '0.816'
   - name: 'Power Voltages: PMIC_BUCK3_1V8 (TP_P24)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: PMIC_BUCK4_3V3 (TP_P25)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: PMIC_VSNVS_3V0 (TP_P26)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '2.91'
+    threshold_max: '3.09'
   - name: 'Power Voltages: VDDA_AUDIO_1V8 (TP_P27)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDDA_MIC_3V3 (TP_P28)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDDA_CAM_2V8 (TP_P29)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '2.744'
+    threshold_max: '2.856'
   - name: 'Power Voltages: VDDA_CAM_1V2 (TP_P30)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.176'
+    threshold_max: '1.224'
   - name: 'Power Voltages: VDDA_DDR_0V6 (TP_P31)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '0.588'
+    threshold_max: '0.612'
   - name: 'Power Voltages: VDD_USB_OTG1_3V3 (TP_P32)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_USB_OTG2_3V3 (TP_P33)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_PCIE_3V3 (TP_P34)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_SD1_3V3 (TP_P35)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_SD2_1V8 (TP_P36)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_WiFi_3V3 (TP_P37)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_BT_3V3 (TP_P38)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_EMMC_3V3 (TP_P39)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_EMMC_1V8 (TP_P40)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_QSPI_3V3 (TP_P41)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_QSPI_1V8 (TP_P42)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_CAN_5V (TP_P43)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '4.85'
+    threshold_max: '5.15'
   - name: 'Power Voltages: VDD_CAN_3V3 (TP_P44)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_LIN_12V (TP_P45)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±5%
-    threshold_max: —
+    threshold_min: '11.4'
+    threshold_max: '12.6'
   - name: 'Power Voltages: VDD_LIN_3V3 (TP_P46)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_ETH_3V3 (TP_P47)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_ETH_1V2 (TP_P48)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.176'
+    threshold_max: '1.224'
   - name: 'Power Voltages: VDD_FAN_5V (TP_P49)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '4.85'
+    threshold_max: '5.15'
   - name: 'Power Voltages: VDD_FAN_3V3 (TP_P50)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_LED_3V3 (TP_P51)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_LED_5V (TP_P52)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '4.85'
+    threshold_max: '5.15'
   - name: 'Power Voltages: VDD_BUZZER_5V (TP_P53)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '4.85'
+    threshold_max: '5.15'
   - name: 'Power Voltages: VDD_RTC_3V (TP_P54)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '2.91'
+    threshold_max: '3.09'
   - name: 'Power Voltages: VDD_BAT_3V (TP_P55)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '2.91'
+    threshold_max: '3.09'
   - name: 'Power Voltages: VDD_NAND_3V3 (TP_P56)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_NAND_1V8 (TP_P57)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_TOUCH_3V3 (TP_P58)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_TOUCH_1V8 (TP_P59)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_DISP_3V3 (TP_P60)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_DISP_1V8 (TP_P61)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_DISP_12V (TP_P62)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±5%
-    threshold_max: —
+    threshold_min: '11.4'
+    threshold_max: '12.6'
   - name: 'Power Voltages: VDD_CAM_3V3 (TP_P63)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_CAM_1V8 (TP_P64)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_CAM_2V8 (TP_P65)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '2.744'
+    threshold_max: '2.856'
   - name: 'Power Voltages: VDD_CAM_1V2 (TP_P66)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.176'
+    threshold_max: '1.224'
   - name: 'Power Voltages: VDD_USB3_3V3 (TP_P67)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_USB3_1V8 (TP_P68)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_GPIO_3V3 (TP_P69)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_GPIO_1V8 (TP_P70)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±2%
-    threshold_max: —
+    threshold_min: '1.764'
+    threshold_max: '1.836'
   - name: 'Power Voltages: VDD_GPIO_5V (TP_P71)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '4.85'
+    threshold_max: '5.15'
   - name: 'Power Voltages: VDD_GPIO_12V (TP_P72)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±5%
-    threshold_max: —
+    threshold_min: '11.4'
+    threshold_max: '12.6'
   - name: 'Power Voltages: VDD_GPIO_24V (TP_P73)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±5%
-    threshold_max: —
+    threshold_min: '22.8'
+    threshold_max: '25.2'
   - name: 'Power Voltages: VDD_ADC_3V3 (TP_P74)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_DAC_3V3 (TP_P75)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_PWM_3V3 (TP_P76)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_I2C_3V3 (TP_P77)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_SPI_3V3 (TP_P78)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_UART_3V3 (TP_P79)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
-    threshold_min: ±3%
-    threshold_max: —
+    threshold_min: '3.201'
+    threshold_max: '3.399'
   - name: 'Power Voltages: VDD_GND_REF (TP_P80)'
-    kind: test
+    kind: Power Voltage
     enable: true
-    wait_ms: 100
+    wait_ms: 0
     timeout_ms: 5000
     unit: V
     threshold_min: —
     threshold_max: —
   - name: 'Clock Hz: RTC_CLK (TP_C01)'
-    kind: test
+    kind: Clock Hz
     enable: true
     wait_ms: 100
     timeout_ms: 5000
     unit: Hz
-    threshold_min: 32.7664k
-    threshold_max: 32.7696k
+    threshold_min: '32766.4'
+    threshold_max: '32769.6'
   - name: 'Clock Hz: CLKOUT1 (TP_C02)'
-    kind: test
+    kind: Clock Hz
     enable: true
     wait_ms: 100
     timeout_ms: 5000
     unit: Hz
-    threshold_min: 3.9996M
-    threshold_max: 4.0004M
+    threshold_min: '3999600'
+    threshold_max: '4000400'
   - name: 'Clock Hz: CLKOUT2 (TP_C03)'
-    kind: test
+    kind: Clock Hz
     enable: true
     wait_ms: 100
     timeout_ms: 5000
     unit: Hz
-    threshold_min: 5.9994M
-    threshold_max: 6.0006M
+    threshold_min: '5999400'
+    threshold_max: '6000600'
   - name: ADC Stimulus AO0/AO1 -> TP_ADC
     kind: test
     enable: true
     wait_ms: 100
     timeout_ms: 5000
     unit: V
-    threshold_min: ±12 V 16-bit
-    threshold_max: —
+    threshold_min: '-12'
+    threshold_max: '12'
   - name: Fixture DIO (16 ch, 4 used)
     kind: test
     enable: true
@@ -1600,44 +1633,12 @@ test_workflow:
     wait_ms: 100
     timeout_ms: 5000
     unit: ch
-    threshold_min: drive/read/toggle
-    threshold_max: —
-  - name: Power Off DUT
-    kind: op
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    unit: —
-    threshold_min: —
-    threshold_max: —
-  - name: Fixture Unlock
-    kind: op
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    unit: —
-    threshold_min: —
-    threshold_max: —
-  - name: Fixture Release
-    kind: op
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    unit: —
-    threshold_min: —
-    threshold_max: —
-  - name: Reset Instruments
-    kind: op
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    unit: —
     threshold_min: —
     threshold_max: —
   power_rails_up_sequence:
     instrument: Keysight U2355A analog input
     channels: 12
-    duration_s: 10.0
+    duration_s: 6.0
     sample_rate_hz: 200
     judgment: record only - no pass/fail
     rails:
@@ -1691,44 +1692,141 @@ test_workflow:
       color: '#64748b'
   fct_test_cases:
   - name: 'MessageYesNo: LED Test (Power / Reset)'
+    kind: MessageYesNo
     enable: true
     wait_ms: 100
     timeout_ms: 5000
-    source: GUI (operator)
-    rule: operator confirms LED on/off
-  - name: 'CapturefromConsole: COM1, ''Linux version'' (expected)'
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    source: Serial output
-    rule: 'check: Linux version string'
-  - name: 'WaitforConsole: COM1, ''Pass'' or ''OK'' (expected)'
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    source: Serial output
-    rule: contains "Pass" or "OK"
-  - name: 'SendtoCLI: "wifi_test --scan", ''Pass''/''Success'' (expected)'
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    source: CLI (3rd-party)
-    rule: 'parse: "Pass"/"Success" in, "Fail"/"Error" out'
-  - name: 'SendtoCLI: "bt_test --scan", ''Pass''/''Success'' (expected)'
-    enable: true
-    wait_ms: 100
-    timeout_ms: 5000
-    source: CLI (3rd-party)
-    rule: same keyword rule
   - name: 'MessageGoStop: Flash FAT Firmware (3rd-party GUI)'
+    kind: MessageGoStop
     enable: true
     wait_ms: 100
     timeout_ms: 5000
-    source: GUI (J-Link Flash)
-    rule: operator dialog Pass / Fail
+  - name: Power Off DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+  - name: 'MessageOK: Reminder to switch to app mode'
+    kind: MessageOK
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: Power On DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+      voltage: 5.0
+      current: 1.0
+  - name: 'CapturefromConsole: COM1, ''Linux version'' (expected)'
+    kind: CapturefromConsole
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: 'WaitforConsole: COM1, ''Pass'' or ''OK'' (expected)'
+    kind: WaitforConsole
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: 'SendtoCLI: "wifi_test --scan", ''Pass''/''Success'' (expected)'
+    kind: SendtoCLI
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: 'SendtoCLI: "bt_test --scan", ''Pass''/''Success'' (expected)'
+    kind: SendtoCLI
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: Power Off DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+  - name: 'MessageOK: Reminder to switch to flash mode'
+    kind: MessageOK
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: Power On DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+      voltage: 5.0
+      current: 1.0
   - name: 'MessageGoStop: Flash OOBE Firmware (3rd-party GUI)'
+    kind: MessageGoStop
     enable: true
     wait_ms: 100
     timeout_ms: 5000
-    source: GUI (J-Link Flash)
-    rule: operator dialog + SW version check after quick boot
+  - name: Power Off DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+  - name: 'MessageOK: Reminder to switch to app mode'
+    kind: MessageOK
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: Power On DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+      voltage: 5.0
+      current: 1.0
+  - name: 'WaitforConsole: COM1, ''1.1.0.0'' (expected)'
+    kind: WaitforConsole
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  - name: Power Off DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: power
+  - name: Fixture Unlock
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: fixture
+      signal: inpos
+      level: L
+  - name: Fixture Release
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: fixture
+      signal: press
+      level: L
+  - name: Reset Instruments
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    op_params:
+      type: reset
+      instruments:
+      - DAQM
+      - DAQ
+      - PSU

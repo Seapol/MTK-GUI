@@ -16,12 +16,24 @@ Every named block is clickable and opens a configuration window.
 Demo mode: no real hardware is connected; all values are mock data.
 """
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QFont,
+    QGuiApplication,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
+    QGroupBox,
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
@@ -30,13 +42,18 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
+
+import random
 
 # ---------------------------------------------------------------- palette
 BLUE = "#2563eb"
@@ -57,6 +74,108 @@ TEXT = "#22303c"
 SUB = "#5b6b7a"
 
 W, H = 1440, 1120
+
+# --------------------------------------------------------------------------
+# instrument configuration-window data (keyed by block key)
+# --------------------------------------------------------------------------
+# editable parameters shown in the "Parameter Configuration" group
+_INSTRUMENT_PARAMS = {
+    "daq973a": [("Scan speed (ch/s)", "450"), ("Timeout (ms)", "2000"),
+                ("NPLC", "1.0")],
+    "m908a_1": [("Wire mode", "2-wire"), ("Bias source", "off")],
+    "m908a_2": [("Wire mode", "2-wire"), ("Bias source", "off")],
+    "m907a": [("Totalizer gate (s)", "1"), ("AO0 (V)", "0.0"),
+              ("AO1 (V)", "0.0")],
+    "u2355a": [("Sample rate (kSa/s)", "20"), ("Range (V)", "10"),
+               ("Averaging", "1")],
+    "psu": [("Voltage set (V)", "12.0"), ("Current limit (A)", "2.0"),
+            ("OVP (V)", "15.0")],
+}
+
+# simulated control / simple-test actions: (button label, result lambda)
+# p = list of current parameter-edit texts
+_INSTRUMENT_ACTIONS = {
+    "daq973a": [
+        ("Measure DCV",
+         lambda p: f"DCV = {random.uniform(3.28, 3.32):.4f} V "
+                   f"(nominal 3.30 V) -> PASS"),
+        ("Measure 2-wire Ω",
+         lambda p: f"R = {random.uniform(0.9, 1.4):.2f} Ω "
+                   f"(< 1.5 Ω threshold) -> PASS"),
+        ("Measure Frequency",
+         lambda p: "Frequency = 32768.0 Hz (CLK1) -> PASS"),
+        ("Self Test",
+         lambda p: "Self test completed - 0 errors"),
+    ],
+    "m908a_1": [
+        ("Scan CH101 - CH140",
+         lambda p: "Scan: 40/40 channels closed, contact check OK"),
+        ("Relay Self Test",
+         lambda p: "Relay self test -> OK"),
+    ],
+    "m908a_2": [
+        ("Scan CH201 - CH240",
+         lambda p: "Scan: 40/40 channels closed, contact check OK"),
+        ("Relay Self Test",
+         lambda p: "Relay self test -> OK"),
+    ],
+    "m907a": [
+        ("DIO Write",
+         lambda p: "DIO Port 1/2 <- 0x0F (fixture control board)"),
+        ("DIO Read",
+         lambda p: "DIO read -> 0x0F"),
+        ("Totalizer (CLK1)",
+         lambda p: f"Totalizer count = "
+                   f"{int(32768 * max(1.0, float(p[0] or 1)))} "
+                   f"(gate {p[0]} s) -> PASS"),
+        ("AO Output",
+         lambda p: f"AO0 = {p[1]} V, AO1 = {p[2]} V (16-bit)"),
+    ],
+    "u2355a": [
+        ("AI Read (12 rails)",
+         lambda p: f"AI: 12 critical rails captured @ {p[0]} kSa/s -> CSV"),
+        ("Counter CTR0 (CLK2)",
+         lambda p: "CTR0: 4.000 MHz -> PASS"),
+        ("Counter CTR1 (CLK3)",
+         lambda p: "CTR1: 6.000 MHz -> PASS"),
+        ("DIO Loopback",
+         lambda p: "DIO loopback 24 ch -> OK"),
+    ],
+    "psu": [
+        ("Power ON",
+         lambda p: f"Output ON: {p[0]} V / {p[1]} A limit "
+                   f"(OVP {p[2]} V)"),
+        ("Power OFF",
+         lambda p: "Output OFF"),
+        ("Read V/I",
+         lambda p: f"V = {p[0]} V, I = {random.uniform(0.3, 0.6):.2f} A "
+                   f"(readback ~1%)"),
+    ],
+}
+
+# connection interfaces: combo text -> default VISA-style address
+_INSTRUMENT_CONN = {
+    "daq973a": {"GPIB": "GPIB0::9::INSTR",
+                "LAN (LXI)": "TCPIP0::192.168.1.10::inst0",
+                "USB": "USB0::0x2A8D::0x0101::MY01000001::INSTR"},
+    "m908a_1": {"via DAQ973A": "DAQ973A slot 1 (GPIB0::9)"},
+    "m908a_2": {"via DAQ973A": "DAQ973A slot 2 (GPIB0::9)"},
+    "m907a": {"via DAQ973A": "DAQ973A slot 3 (GPIB0::9)"},
+    "u2355a": {"USB": "USB0::0x2A8D::0x3018::MY30180001::0::INSTR"},
+    "psu": {"LAN (LXI)": "TCPIP0::192.168.1.20::inst0",
+            "GPIB": "GPIB0::5::INSTR",
+            "USB": "USB0::0x2A8D::0x2A01::MY57000001::INSTR"},
+}
+
+# *IDN? replies used by Test Connection
+_INSTRUMENT_IDN = {
+    "daq973a": "Keysight Technologies,DAQ973A,MY01000001,A.01.10",
+    "m908a_1": "Keysight Technologies,DAQM908A,MY01000002,A.01.10",
+    "m908a_2": "Keysight Technologies,DAQM908A,MY01000003,A.01.10",
+    "m907a": "Keysight Technologies,DAQM907A,MY01000004,A.01.10",
+    "u2355a": "Keysight Technologies,U2355A,MY30180001,1.02",
+    "psu": "Keysight Technologies,N5747A,MY57000001,D.00.03",
+}
 
 # Text lines drawn inside each block on the diagram.
 DIAGRAM_LINES = {
@@ -559,11 +678,39 @@ class BlockDiagramView(QGraphicsView):
         self.zoomChanged.emit()
 
     def mouseReleaseEvent(self, event):
-        item = self.itemAt(event.position().toPoint())
-        if isinstance(item, BlockItem):
-            self._on_block(item)
+        # left button only: right button opens the context menu
+        if (event.button() == Qt.MouseButton.LeftButton
+                and isinstance(self.itemAt(event.position().toPoint()),
+                               BlockItem)):
+            self._on_block(self.itemAt(event.position().toPoint()))
             return
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        act_copy = menu.addAction("Copy Diagram as Image")
+        chosen = menu.exec(event.globalPos())
+        if chosen is act_copy:
+            self._copy_diagram_image()
+
+    def _copy_diagram_image(self):
+        """Render the whole diagram (2x for crisp pasting) to the clipboard."""
+        rect = self.scene().sceneRect()
+        if rect.isEmpty():
+            return
+        scale = 2.0
+        image = QImage(int(rect.width() * scale), int(rect.height() * scale),
+                       QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(QColor("#ffffff"))
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.scene().render(
+            painter,
+            QRectF(0, 0, rect.width() * scale, rect.height() * scale), rect)
+        painter.end()
+        QGuiApplication.clipboard().setImage(image)
+        QToolTip.showText(QCursor.pos(),
+                          "Block diagram copied to clipboard")
 
 
 def _polyline(scene, points, color=GRAY, width=2, dashed=False, arrow=True,
@@ -630,7 +777,7 @@ def _rect(scene, x, y, w, h, fill, border=None, radius=0, z=-2):
 def _form_dialog(parent, title, fields):
     dlg = QDialog(parent)
     dlg.setWindowTitle(f"{title} - Configuration")
-    dlg.setMinimumWidth(430)
+    dlg.setMinimumWidth(650)  # +50 % vs the original 430
     layout = QVBoxLayout(dlg)
     form = QFormLayout()
     form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -652,7 +799,7 @@ def _form_dialog(parent, title, fields):
 def _table_dialog(parent, title, rows):
     dlg = QDialog(parent)
     dlg.setWindowTitle(f"{title} - Configuration")
-    dlg.resize(600, 380)
+    dlg.resize(900, 570)  # +50 % vs the original 600x380
     layout = QVBoxLayout(dlg)
     table = QTableWidget(len(rows), 3)
     table.setHorizontalHeaderLabels(["Item", "Role", "Interface / Status"])
@@ -663,8 +810,8 @@ def _table_dialog(parent, title, rows):
         table.setItem(row, 1, QTableWidgetItem(role))
         table.setItem(row, 2, QTableWidgetItem(status))
     table.horizontalHeader().setStretchLastSection(True)
-    table.setColumnWidth(0, 180)
-    table.setColumnWidth(1, 280)
+    table.setColumnWidth(0, 270)
+    table.setColumnWidth(1, 420)
     layout.addWidget(table)
     note = QLabel("Demo mode - no hardware connected.")
     note.setObjectName("warn")
@@ -675,6 +822,189 @@ def _table_dialog(parent, title, rows):
     return dlg
 
 
+class _Led(QLabel):
+    """Small round status light used in the connection group."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(13, 13)
+        self.set_color("#9ca3af")
+
+    def set_color(self, color):
+        self.setStyleSheet(
+            f"background:{color}; border-radius:6px;"
+            "border:1px solid rgba(0,0,0,0.25);")
+
+
+class _InstrumentDialog(QDialog):
+    """Rich configuration window for instrument blocks on the diagram.
+
+    Four group boxes:
+      1. Instrument Information   - read-only identity / spec fields
+      2. Parameter Configuration  - editable instrument parameters
+      3. Connection               - interface + address, Connect /
+         Disconnect / Test Connection (succeeds in Virtual mode)
+      4. Control & Simple Tests   - IO control, impedance / voltage /
+         clock / AI tests, power on-off (simulated replies)
+    """
+
+    def __init__(self, parent, title, fields, key, virtual):
+        super().__init__(parent)
+        self._key = key
+        self._virtual = virtual
+        self._connected = False
+        self.setWindowTitle(f"{title} - Configuration")
+        self.resize(920, 720)
+        root = QVBoxLayout(self)
+
+        # 1 ---------------------------------------------------- information
+        info = QGroupBox("Instrument Information")
+        form = QFormLayout(info)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for label, value in fields:
+            edit = QLineEdit(value)
+            edit.setReadOnly(True)
+            form.addRow(f"{label}:", edit)
+        root.addWidget(info)
+
+        # 2 ------------------------------------------------------ parameters
+        params = QGroupBox("Parameter Configuration")
+        pform = QFormLayout(params)
+        pform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._param_edits = []
+        for label, value in _INSTRUMENT_PARAMS[key]:
+            edit = QLineEdit(value)
+            self._param_edits.append(edit)
+            pform.addRow(f"{label}:", edit)
+        root.addWidget(params)
+
+        # 3 ------------------------------------------------------- connection
+        conn = QGroupBox("Connection")
+        cv = QVBoxLayout(conn)
+        cform = QFormLayout()
+        cform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._iface = QComboBox()
+        self._iface.addItems(list(_INSTRUMENT_CONN[key]))
+        self._address = QLineEdit()
+        self._address.setText(
+            _INSTRUMENT_CONN[key][self._iface.currentText()])
+        self._iface.currentTextChanged.connect(self._iface_changed)
+        cform.addRow("Interface:", self._iface)
+        cform.addRow("Address:", self._address)
+        cv.addLayout(cform)
+
+        crow = QHBoxLayout()
+        self._led = _Led()
+        self._conn_state = QLabel("Disconnected")
+        self.btn_connect = QPushButton("Connect")
+        self.btn_disconnect = QPushButton("Disconnect")
+        self.btn_test = QPushButton("Test Connection")
+        self.btn_disconnect.setEnabled(False)
+        self.btn_test.setEnabled(False)
+        crow.addWidget(self._led)
+        crow.addWidget(self._conn_state)
+        crow.addStretch(1)
+        crow.addWidget(self.btn_connect)
+        crow.addWidget(self.btn_disconnect)
+        crow.addWidget(self.btn_test)
+        cv.addLayout(crow)
+        root.addWidget(conn)
+
+        # 4 ------------------------------------------- control & simple tests
+        ctl = QGroupBox("Control && Simple Tests")
+        cl = QVBoxLayout(ctl)
+        grid = QGridLayout()
+        self._action_buttons = []
+        for i, (label, _fn) in enumerate(_INSTRUMENT_ACTIONS[key]):
+            btn = QPushButton(label)
+            btn.setEnabled(False)
+            btn.clicked.connect(
+                lambda _=False, lab=label: self._run_action(lab))
+            grid.addWidget(btn, i // 2, i % 2)
+            self._action_buttons.append(btn)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        cl.addLayout(grid)
+        self._output = QPlainTextEdit()
+        self._output.setReadOnly(True)
+        self._output.setPlaceholderText("Action results appear here ...")
+        self._output.setFixedHeight(130)
+        cl.addWidget(self._output)
+        root.addWidget(ctl)
+
+        note = QLabel("Demo mode - no hardware connected."
+                      if not virtual else
+                      "Virtual mode - connect / test succeed (simulated).")
+        note.setObjectName("warn")
+        root.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        self.btn_connect.clicked.connect(self._connect)
+        self.btn_disconnect.clicked.connect(self._disconnect)
+        self.btn_test.clicked.connect(self._test_connection)
+
+    # ------------------------------------------------------------ helpers
+    def _iface_changed(self, text):
+        self._address.setText(_INSTRUMENT_CONN[self._key].get(text, ""))
+
+    def _log(self, text):
+        self._output.appendPlainText(text)
+
+    # -------------------------------------------------------- connection
+    def _connect(self):
+        addr = self._address.text().strip()
+        self.btn_connect.setEnabled(False)
+        self._conn_state.setText("Connecting ...")
+        self._log(f"Connecting to {addr} ...")
+        QTimer.singleShot(500, lambda: self._connect_done(addr))
+
+    def _connect_done(self, addr):
+        if self._virtual:
+            self._connected = True
+            self._led.set_color("#22c55e")
+            self._conn_state.setText("Connected (virtual)")
+            self._log("Connected (virtual mode - simulated link).")
+            for btn in self._action_buttons:
+                btn.setEnabled(True)
+            self.btn_test.setEnabled(True)
+            self.btn_disconnect.setEnabled(True)
+        else:
+            self._led.set_color("#ef4444")
+            self._conn_state.setText("Error: no hardware (demo)")
+            self._log("Error: instrument not found "
+                      "(demo build has no VISA layer).")
+            self.btn_connect.setEnabled(True)
+
+    def _disconnect(self):
+        self._connected = False
+        self._led.set_color("#9ca3af")
+        self._conn_state.setText("Disconnected")
+        self._log("Disconnected.")
+        for btn in self._action_buttons:
+            btn.setEnabled(False)
+        self.btn_test.setEnabled(False)
+        self.btn_disconnect.setEnabled(False)
+        self.btn_connect.setEnabled(True)
+
+    def _test_connection(self):
+        self._log("*IDN? ...")
+        QTimer.singleShot(
+            400,
+            lambda: self._log(
+                f"*IDN? -> {_INSTRUMENT_IDN[self._key]}\n"
+                f"Test Connection -> OK"))
+
+    # ------------------------------------------------- control & tests
+    def _run_action(self, label):
+        for text, fn in _INSTRUMENT_ACTIONS[self._key]:
+            if text == label:
+                params = [edit.text() for edit in self._param_edits]
+                self._log(f"[{label}] {fn(params)}")
+                return
+
+
 # --------------------------------------------------------------------------
 # the page
 # --------------------------------------------------------------------------
@@ -683,10 +1013,17 @@ class EquipmentPage(QWidget):
         super().__init__(parent)
         self.configs = _mock_configs()
         self.blocks = {}
+        # Virtual mode: the instrument dialog's Connect / Test Connection
+        # succeed with a simulated link (set from MainWindow on login)
+        self.virtual_mode = False
         # account permission: opening block-diagram configuration dialogs
         # (defaults = allowed until set_config_allowed)
         self._config_allowed = True
         self._build()
+
+    def set_virtual_mode(self, virtual):
+        """Virtual mode -> instrument connect / test succeed (simulated)."""
+        self.virtual_mode = bool(virtual)
 
     def set_config_allowed(self, allowed):
         """Operator permission: open the equipment configuration dialogs."""
@@ -717,7 +1054,8 @@ class EquipmentPage(QWidget):
         layout.addLayout(header)
 
         hint = QLabel(
-            "Click a block to open its configuration window. "
+            "Click a block to open its configuration window - "
+            "right-click to copy the diagram as an image. "
             "Final rack: DAQ973A + 2x DAQM908A + DAQM907A, U2355A, N5747A.")
         hint.setObjectName("muted")
         layout.addWidget(hint)
@@ -933,7 +1271,12 @@ class EquipmentPage(QWidget):
             return
         key = item.key
         cfg = self.configs[key]
-        if "table" in cfg:
+        if key in _INSTRUMENT_CONN:
+            # instruments: rich window with information / parameters /
+            # connection / control-and-tests group boxes
+            dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
+                                    self.virtual_mode)
+        elif "table" in cfg:
             dlg = _table_dialog(self, cfg["title"], cfg["table"])
         else:
             dlg = _form_dialog(self, cfg["title"], cfg["fields"])

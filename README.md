@@ -114,7 +114,7 @@ The window is organized as three tabs:
 |---|---|
 | **Equipment** | Block diagram of the final rack, in four layers (HOST PC + Flash/Debug probes + Test peripherals / Instruments / ATE fixture / DUT board). Every block, sub-module and signal cell is clickable and opens its own configuration window. Color-coded trunks show measurement, up-sequence, clock, AO, power/sense and ground paths. Demo mode: no hardware connected. |
 | **Test Work Flow** | Table-form overall flow (ICT → Flash FAT Firmware → FCT → Flash OOBE Firmware); ICT measurement table — 80-point impedance shorts (R_min threshold, 1.5 Ω tolerance), 80-point voltage (±0.1 %), three clocks (32.768 kHz / 4 MHz / 6 MHz), AO→ADC stimulus, fixture DIO and 24 DUT GPIO (ohm·V·Hz, in-range ⇒ PASS); 12-channel power-rails up-sequence waveform with CSV log; FCT message tests (serial / GUI dialog / CLI keyword rules). **Run Demo** simulates a full pass and writes a real CSV into `logs/`. |
-| **Serial Console** | The dual-UART console (DUT / companion board). |
+| **Console** | Serial (DUT / companion board) and SSH console channels. |
 
 Offscreen previews of the three tabs (no display needed):
 
