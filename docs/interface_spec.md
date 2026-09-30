@@ -190,6 +190,19 @@ No module can invent new yaml fields without updating this spec.
 > truth. Top-level sections: equipment (instrument addresses/options),
 > workflow (overall flow + stop strategies, ICT steps, FCT steps with
 > kind/op_params), console channels.
+>
+> Engine-consumed keys added by the P0 TestFlow baseline (already written by
+> `build_config` / read by `apply_config` / the engine):
+>
+> | Key | Meaning | Default |
+> |---|---|---|
+> | `test_workflow.retry` | basic fault-policy step retry: re-execute a FAIL/ERROR step up to N times before the stop strategies evaluate | `0` (off) |
+> | `test_workflow.stop_if_failure` | abort the whole run on any FAIL step | `false` |
+> | `test_workflow.stop_if_any_short` | abort before power-up on impedance shorts | `true` |
+> | `firmware.<slot>_image` | flash image path for slot `fat` / `oobe`; the ONLY source the engine reads (never guessed) | — (required by flash steps) |
+>
+> Flash steps are op steps with `op_params: {"type": "flash", "slot": "fat" |
+> "oobe", "image": <path from firmware.<slot>_image>}` (see §3).
 
 ## Conflict Prevention Rule
 
