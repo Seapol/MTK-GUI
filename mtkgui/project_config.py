@@ -221,9 +221,10 @@ def apply_config(config, workflow_page, equipment_page):
         workflow_page.stop_if_short_cb.setChecked(
             bool(tw["stop_if_any_short"]))
 
-    # basic fault-policy step retry (0 = off, engine default)
+    # basic fault-policy step retry (0 = off, engine default);
+    # set_retry() normalizes and records the "yaml" source for tracing
     if "retry" in tw:
-        workflow_page._runner.retry_count = max(0, int(tw["retry"]))
+        workflow_page._runner.set_retry(tw["retry"], source="yaml")
 
     # Overall Flow stage enable states (ICT / FCT EN checkboxes)
     stages = config.get("test_workflow", {}).get("overall_flow", [])
