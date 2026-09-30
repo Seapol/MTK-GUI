@@ -130,8 +130,14 @@ class TestRunner(QObject):
   (default **true** — abort before power-up on impedance shorts).
 - Basic fault-policy retry: `retry_count` (default **0** = off) re-executes a
   FAIL/ERROR step up to N times BEFORE the stop strategies are evaluated.
-  Configured via YAML `test_workflow.retry`; the headless demo also accepts
-  `--retry N` (CLI > YAML `test_workflow.retry` > 0).
+  Constraints: `N` is a non-negative integer (0–9 recommended bound; the
+  engine clamps negatives to 0); only FAIL/ERROR steps are retried — PASS /
+  "Done" and IGNORED steps are never re-executed; an operator Stop during a
+  step always wins over a retry. Configuration precedence:
+  demo CLI `--retry N` > YAML `test_workflow.retry` > default `0`.
+  Usage: transient instrument faults (bus glitches, one-shot timeouts);
+  limit FAILs that reflect real DUT defects are NOT expected to recover and
+  will still trigger the stop strategies after the retries are exhausted.
 - Firmware flash steps are op steps with `op_params`:
   `{"type": "flash", "slot": "fat" | "oobe", "image": <path>}`. The image
   path is taken ONLY from the YAML `firmware.<slot>_image` key — the engine
