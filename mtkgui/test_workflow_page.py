@@ -28,10 +28,7 @@ Demo mode: no real instruments are attached; the Run Demo button simulates
 a full pass run and writes a real CSV log.
 """
 
-import csv
 import random
-import re
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -76,8 +73,34 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+# Test flow engine (T2): the run state machine, step definitions and
+# result model live in mtkgui.engine (interface_spec.md §3); this page
+# keeps only the UI layer plus thin delegates for its historical
+# call-sites.  The underscore aliases below stay importable because
+# project_config imports them from this module.
+from .engine import (
+    CONSOLE_KINDS,
+    FCT_METHODS,
+    OP_STEPS,
+    SAMPLE_HZ,
+    StepStatus,
+    TestRunner,
+    ai_wave_review,
+    capture_samples,
+    console_keyword_fallback as _console_keyword_fallback,
+    display_text,
+    fct_kind_from_name as _fct_kind_from_name,
+    generate_rails,
+    is_impedance_short as is_impedance_short_row,
+    op_step as _op_step,
+    op_summary as _op_summary,
+    rail_plot_data,
+    steps_template,
+    write_csv,
+)
+from .engine.rails import DURATION_S
 from .style import gui_theme_color, saved_theme, text_for_card
-from .virtual_hardware import VirtualRack, tp_index
+from .virtual_hardware import VirtualRack
 from .widgets.multi_console import MultiConsoleWidget
 
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
@@ -87,45 +110,6 @@ _ICON_DIR = Path(__file__).resolve().parent / "assets"
 # the project file carries name / nominal_v / ramp_offset_s / color and
 # the rail set is empty until a project is loaded
 
-DURATION_S = 6.0
-SAMPLE_HZ = 200
-
-# FCT test methods (Test Method column in the step editor / YAML kind)
-FCT_METHODS = [
-    "MessageOK", "MessageYesNo", "MessageGoStop",
-    "SendtoConsole", "WaitforConsole", "CapturefromConsole",
-    "Delay",
-    "SendtoCLI", "WaitforCLI", "CapturefromCLI",
-    "WIFI", "Bluetooth",
-]
-
-
-def _fct_kind_from_name(name):
-    """Derive the FCT test method from a 'Method: description' name;
-    standard operation names -> kind "op"."""
-    if name.strip() in OP_STEPS:
-        return "op"
-    prefix = name.split(":", 1)[0].strip()
-    return prefix if prefix in FCT_METHODS else "MessageOK"
-
-
-# FCT test methods that drive a serial console channel.  In Virtual mode
-# they run for real against the simulated DUT (mtkgui.virtual_dut):
-# send the command, then search the channel read buffer for the expected
-# keyword(s) parsed from the step name.
-CONSOLE_KINDS = ("SendtoConsole", "WaitforConsole", "CapturefromConsole",
-                 "SendtoCLI", "WaitforCLI", "CapturefromCLI")
-
-# 'Pass' or "OK" / "wifi_test --scan" -> quoted segments of a step name
-_QUOTED_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"")
-
-
-def _console_keyword_fallback(rest):
-    """Keyword for console steps whose name carries no quoted segment:
-    the text after the last comma minus the '(expected)' marker."""
-    tail = rest.split(",")[-1]
-    return tail.replace("(expected)", "").strip().strip("'\"").strip()
-
 # ICT test cases: the sequence executes strictly top -> bottom. Standard
 # operations (fixture / instrument control) report Done/Error; measurement
 # tests report PASS/FAIL.
@@ -133,53 +117,7 @@ def _console_keyword_fallback(rest):
 # power risks damaging the board, so "Stop if any short" aborts the run
 # right here, before "Power On DUT".
 # (kind, name, unit, measured, min / threshold, max[, op_params])
-# standard ICT operation steps: name -> params dict.  The params are
-# stored on every op step (7th tuple element), saved to YAML as
-# "op_params", edited in the sequence editor (per-type fields) and
-# printed to the Event Log when the step executes.  "type" selects the
-# parameter UI and the log wording (instruments / reset / fixture /
-# power).
-OP_STEPS = {
-    "Init Instruments": {
-        "type": "instruments", "instruments": ["DAQM", "DAQ", "PSU"]},
-    "Reset Instruments": {
-        "type": "reset", "instruments": ["DAQM", "DAQ", "PSU"]},
-    "Fixture Clamp Down": {
-        "type": "fixture", "signal": "press", "level": "H"},
-    "Fixture Release": {
-        "type": "fixture", "signal": "press", "level": "L"},
-    "Fixture Lock": {
-        "type": "fixture", "signal": "inpos", "level": "H"},
-    "Fixture Unlock": {
-        "type": "fixture", "signal": "inpos", "level": "L"},
-    "Fixture E-Stop Healthy": {
-        "type": "fixture", "signal": "estop", "level": "L"},
-    "Power On DUT": {
-        "type": "power", "voltage": 5.0, "current": 1.0},
-    "Power Off DUT": {
-        "type": "power"},
-}
-
-
-def _op_step(name, params=None):
-    """Build a 7-tuple op step; params default from the catalog."""
-    if params is None:
-        params = OP_STEPS.get(name, {})
-    return ("op", name, "—", "—", "—", "—", dict(params))
-
-
-def _op_summary(params):
-    """Short parameter summary for the sequence list label."""
-    t = params.get("type")
-    if t in ("instruments", "reset"):
-        return "+".join(params.get("instruments", []))
-    if t == "fixture":
-        return f"{params.get('signal', '')}={params.get('level', '')}"
-    if t == "power" and "voltage" in params:
-        return (f"{params['voltage']:g}V/"
-                f"{params.get('current', 0):g}A")
-    return ""
-
+# standard op step tuples come from mtkgui.engine.steps (op_step).
 
 ICT_STEPS = [
     _op_step("Init Instruments"),
@@ -389,26 +327,17 @@ class TestWorkFlowPage(QWidget):
         # pre-test phase the serial number is verified against the
         # configured rule; both fields empty means no check.
         self.sn_format = None
-        # run control state machine: "idle" | "running"
-        self.run_state = "idle"
+        # run control state machine ("idle" | "running") + run timers +
+        # step sequencing live in the engine (mtkgui.engine.TestRunner,
+        # interface_spec.md §3).  This page keeps thin delegating
+        # properties (run_state, _run_steps, ...) for its historical
+        # call-sites; the runner reaches the UI through the RunnerEnv
+        # bridge methods defined at the bottom of this class.
         self.project_path = None  # loaded YAML; Run is blocked until set
-        self._interrupted = False
-        self._wait_done = False
-        self._run_steps = []
-        self._run_index = 0
-        # pre-FCT console connect step ("fctconn"): open every console
-        # channel the project YAML defines. The worker threads run in
-        # the background, so the step polls until they are up or the
-        # timeout (seconds) elapses.
-        self.fct_connect_timeout = 10.0
-        self._fctconn_pending = []
-        self._fctconn_failed = []
-        self._fctconn_deadline = 0.0
-        # pending FCT console step (Virtual mode): the step sent its
-        # command / armed its keyword wait on the simulated DUT and the
-        # run timer polls the channel read buffer until a keyword shows
-        # up or the step timeout elapses
-        self._fct_console_wait = None
+        self._runner = TestRunner(self)
+        self._runner.cycle_reset.connect(self._on_cycle_reset)
+        self._runner.stage_skipped.connect(self._on_stage_skipped)
+        self._runner.run_finished.connect(self._on_run_finished)
         # per-step properties (set up in _build_ict / _build_fct):
         #   *_enables  — list[bool],  controls whether the step runs
         #   *_waits    — list[int] ms,  100-9999,  pause before the step
@@ -423,11 +352,9 @@ class TestWorkFlowPage(QWidget):
         # report FAIL on the next run (used to exercise stop policies)
         self.ict_sim_fail = set()
         self.fct_sim_fail = set()
-        # FCT message tests (MessageOK / MessageYesNo / MessageGoStop)
-        # open a modal operator dialog during a real run; the run timer
-        # keeps ticking (100 ms) and must not re-enter _run_step while
-        # the dialog is open
-        self._fct_dialog_open = False
+        # operator Stop pressed -> Overall Result shows IGNORE until the
+        # next run starts (the engine tracks the state machine itself)
+        self._interrupted = False
         # Virtual mode: simulated HW, random fault injection, "Virtual "
         # result prefix (set from MainWindow according to the login mode)
         self.virtual_mode = False
@@ -435,15 +362,6 @@ class TestWorkFlowPage(QWidget):
         # currently executing row (highlighted + auto-scrolled into view)
         self._active_table = None
         self._active_row = -1
-        self._run_timer = QTimer(self)
-        self._run_timer.setInterval(100)  # one test step every 100 ms
-        self._run_timer.timeout.connect(self._run_step)
-        # long run: repeat whole cycles with a pause in between
-        self._lr_total = 1
-        self._lr_done = 0
-        self._lr_wait_timer = QTimer(self)
-        self._lr_wait_timer.setSingleShot(True)
-        self._lr_wait_timer.timeout.connect(self._start_next_cycle)
         # virtual serial number counter (Auto-SN)
         self._sn_counter = 0
         # account permissions (defaults = supervisor until apply_permissions)
@@ -461,6 +379,81 @@ class TestWorkFlowPage(QWidget):
         # no seeding here: with no YAML loaded the page starts empty
         # (Power Rails Up Sequence and Console are cleared in
         # clear_tables(), called by MainWindow right after construction)
+
+    # -------------------------------------------------- engine delegates
+    # The run state machine (timers, step sequencing, stop policies,
+    # result rollup) moved to mtkgui.engine.TestRunner.  These thin
+    # delegating properties keep the page's historical attributes
+    # working (smoke_test drives them directly).
+    @property
+    def run_state(self) -> str:
+        """Run control state machine: "idle" | "running" (engine-owned)."""
+        return self._runner.state
+
+    @run_state.setter
+    def run_state(self, value: str) -> None:
+        self._runner.state = value
+
+    @property
+    def _run_steps(self) -> list:
+        return self._runner._run_steps
+
+    @_run_steps.setter
+    def _run_steps(self, value: list) -> None:
+        self._runner._run_steps = value
+
+    @property
+    def _run_index(self) -> int:
+        return self._runner._run_index
+
+    @_run_index.setter
+    def _run_index(self, value: int) -> None:
+        self._runner._run_index = value
+
+    @property
+    def _run_start(self) -> float:
+        return self._runner._run_start
+
+    @_run_start.setter
+    def _run_start(self, value: float) -> None:
+        self._runner._run_start = value
+
+    @property
+    def _stage_start(self) -> float:
+        return self._runner._stage_start
+
+    @_stage_start.setter
+    def _stage_start(self, value: float) -> None:
+        self._runner._stage_start = value
+
+    @property
+    def fct_connect_timeout(self) -> float:
+        return self._runner.fct_connect_timeout
+
+    @fct_connect_timeout.setter
+    def fct_connect_timeout(self, value: float) -> None:
+        self._runner.fct_connect_timeout = value
+
+    # --- RunnerEnv bridge: live run-control data read by the engine ---
+    def overall_en(self) -> list:
+        """Overall Flow EN checkboxes (engine reads this live)."""
+        return self._overall_en
+
+    def _stop_flags(self) -> tuple:
+        """(stop_if_failure, stop_if_any_short) checkbox states."""
+        return (self.stop_if_fail_cb.isChecked(),
+                self.stop_if_short_cb.isChecked())
+
+    def _interval_s(self) -> float:
+        """Long Run interval pause (seconds) between cycles."""
+        return self.interval_spin.value()
+
+    def _stage_name(self, r: int) -> str:
+        """Overall Flow stage label of row r."""
+        return self.overall.item(r, 1).text()
+
+    def _fct_row_count(self) -> int:
+        return self.fct.rowCount()
 
     # ------------------------------------------------------------ UI
     def _build(self):
@@ -814,32 +807,10 @@ class TestWorkFlowPage(QWidget):
             return "FAIL"
         return None
 
-    @staticmethod
-    def _raw_status(text):
-        """Undo the 'Virtual ' prefix shown on results in Virtual mode."""
-        return text[8:] if text.startswith("Virtual ") else text
-
     def _judge_verdict(self):
-        """PASS/FAIL of the current tables; None when nothing judged yet."""
-        judged_any = False
-        failed = False
-        for r in range(self.ict.rowCount()):
-            text = self._raw_status(self.ict.item(r, 7).text())
-            if text in ("PASS", "Done"):
-                judged_any = True
-            elif text in ("FAIL", "Error"):
-                judged_any = True
-                failed = True
-        for r in range(self.fct.rowCount()):
-            text = self._raw_status(self.fct.item(r, 4).text())
-            if text == "PASS":
-                judged_any = True
-            elif text in ("FAIL", "Error"):
-                judged_any = True
-                failed = True
-        if not judged_any:
-            return None
-        return "FAIL" if failed else "PASS"
+        """PASS/FAIL of the executed steps; None when nothing judged yet
+        (rollup lives in the engine, interface_spec.md §3)."""
+        return self._runner.verdict()
 
     def _update_result(self):
         """Refresh the big verdict + the per-product statistics."""
@@ -1183,93 +1154,11 @@ class TestWorkFlowPage(QWidget):
 
     # ------------------------------------------------- AI waveform review
     def _ai_wave_review(self):
-        """Rule-based AI review of the sampled power-rail waveforms.
-
-        Grades every rail's parameters - steady level, start delay, rise
-        time, overshoot, settling, ripple and ramp monotonicity - and
-        returns a plain-text report page."""
-        if not self.rail_samples:
-            return ("AI Waveform Review\n"
-                    "==================\n"
-                    "No waveform captured yet - run a sequence first.")
-        hz = self.cap_rate
-        kind = ("virtual demo data" if self.virtual_mode
-                else "DAQ capture")
-        lines = [
-            "AI Waveform Review - Power Rails Up Sequence",
-            "=" * 62,
-            f"Capture : {self.cap_start:+.2f} s .. {self.cap_end:.2f} s "
-            f"@ {hz} Hz, {len(self.rail_samples)} rails ({kind})",
-            "Windows : level +/-3 %, overshoot <=5 %, ripple <=1 % p-p,",
-            "          monotonic ramp, settle within 1 %",
-            "",
-        ]
-        grades = []
-        for (label, _color, vnom, _off), s in zip(self.rails,
-                                                  self.rail_samples):
-            # steady level & ripple from the last 20 % of the capture
-            tail = s[int(len(s) * 0.8):]
-            level = sum(tail) / len(tail)
-            dev = (level - 1.0) * 100
-            p2p = (max(tail) - min(tail)) * 100
-            # timing: first 10 % / 90 % crossings during the ramp
-            i10 = next((i for i, v in enumerate(s) if v >= 0.1), None)
-            i90 = None
-            if i10 is not None:
-                i90 = next((i for i in range(i10, len(s))
-                            if s[i] >= 0.9), None)
-            rise_ms = ((i90 - i10) * 1000 / hz
-                       if i10 is not None and i90 is not None else 0.0)
-            t10 = (i10 / hz) if i10 is not None else 0.0
-            over = (max(s) - 1.0) * 100
-            # settling: first moment |v-1| stays within 1 % for 50 ms
-            win = max(1, int(hz * 0.05))
-            settle_ms = None
-            if i10 is not None and i90 is not None:
-                for j in range(i90, max(i90 + 1, len(s) - win)):
-                    if all(abs(v - 1.0) <= 0.01 for v in s[j:j + win]):
-                        settle_ms = (j - i10) * 1000 / hz
-                        break
-            # monotonicity: biggest downward step inside the ramp
-            drop = 0.0
-            if i10 is not None and i90 is not None and i90 > i10 + 1:
-                seg = s[i10:i90 + 1]
-                drop = max(a - b for a, b in zip(seg, seg[1:])) * 100
-            lvl_ok = abs(dev) <= 3.0
-            over_ok = over <= 5.0
-            rip_ok = p2p <= 1.0
-            mono_ok = drop <= 2.0
-            ok_all = lvl_ok and over_ok and rip_ok and mono_ok
-            grades.append(ok_all)
-            lines += [
-                f"{label}  (nominal {vnom:.2f} V)  ->  "
-                f"{'Good' if ok_all else 'Check'}",
-                f"  steady level    : {level * 100:6.1f} % of nominal "
-                f"({dev:+.2f} %)  "
-                f"{'ok' if lvl_ok else 'OUT of +/-3 % window'}",
-                f"  start (10 %)    : t = {t10:+.3f} s",
-                f"  rise 10 -> 90 % : {rise_ms:6.1f} ms",
-                f"  overshoot       : {over:+.2f} %  "
-                f"{'ok' if over_ok else 'too high (>5 %)'}",
-                f"  settle in 1 %   : "
-                + (f"{settle_ms:.0f} ms" if settle_ms is not None
-                   else "not settled"),
-                f"  ripple p-p      : {p2p:.2f} %  "
-                f"{'ok' if rip_ok else 'noisy (>1 %)'}",
-                f"  ramp monotonic  : "
-                f"{'ok' if mono_ok else f'dip of {drop:.2f} %'}",
-                "",
-            ]
-        n_good = sum(grades)
-        n_all = len(grades)
-        if n_good == n_all:
-            overall = (f"OVERALL: {n_good}/{n_all} rails pass all windows "
-                       f"- waveform is realistic and healthy.")
-        else:
-            overall = (f"OVERALL: {n_good}/{n_all} rails pass all windows; "
-                       f"review the CHECK items above.")
-        lines += ["-" * 62, overall]
-        return "\n".join(lines)
+        """Rule-based AI review of the sampled power-rail waveforms
+        (engine data service, mtkgui.engine.rails)."""
+        return ai_wave_review(self.rails, self.rail_samples,
+                              self.cap_start, self.cap_end, self.cap_rate,
+                              self.virtual_mode)
 
     def _edit_rail_props(self):
         """Double-click the waveform -> edit capture & rail properties,
@@ -1477,17 +1366,9 @@ class TestWorkFlowPage(QWidget):
              else self.fct_sim_fail.discard)(row)
 
     def _is_impedance_short_row(self, r):
-        """True for every Impedance Shorts test row — the scope of the
-        'Stop if any short' policy. Detected by the Static Impedance
-        test method, by unit Ω (per-net rows), or by the legacy
-        aggregate name containing 'impedance short'."""
-        if self.ict_steps[r][0] == "Static Impedance":
-            return True
-        unit = self.ict_steps[r][2].strip()
-        if unit == "Ω":
-            return True
-        name = self.ict_steps[r][1].lower()
-        return "impedance" in name and "short" in name
+        """True for every Impedance Shorts test row (engine helper,
+        mtkgui.engine.steps.is_impedance_short)."""
+        return is_impedance_short_row(self.ict_steps[r])
 
     def _fill_fct_row(self, r):
         """Fill one FCT row: # / Test / Enable / Duration / Result."""
@@ -1605,86 +1486,24 @@ class TestWorkFlowPage(QWidget):
 
     # ------------------------------------------------------------ demo data
     def _gen_rails(self):
-        """Generate simulated rail waveforms.
-
-        start_s can be negative — the capture begins before power-on
-        (all rails flat at 0 V until t = 0, then ramps begin).
-        """
-        start_s = self.cap_start
-        end_s = self.cap_end
-        rng = random.Random(42)
-        n = int((end_s - start_s) * self.cap_rate)
-        power_on_idx = int(abs(start_s) * self.cap_rate)
-        samples = []
-        for label, color, vnom, ramp_off in self.rails:
-            ramp_pts = max(1, int((0.25 + ramp_off) * self.cap_rate))
-            # realistic converters slightly overshoot (1-4 %) when the
-            # ramp completes, then settle within ~20 ms
-            overshoot = rng.uniform(0.01, 0.04)
-            series = []
-            for i in range(n):
-                if i < power_on_idx:
-                    frac = 0.0
-                elif i < power_on_idx + ramp_pts:
-                    local_i = i - power_on_idx
-                    frac = local_i / ramp_pts
-                    frac = frac * frac * (3 - 2 * frac)  # smoothstep
-                else:
-                    frac = 1.0
-                ripple = 0.004 * (1 - frac) * rng.uniform(-1, 1)
-                noise = 0.0015 * rng.uniform(-1, 1) if frac >= 1 else 0
-                over = 0.0
-                if frac >= 1.0 and overshoot:
-                    settle = (i - power_on_idx - ramp_pts) / SAMPLE_HZ
-                    over = overshoot * 2.718 ** (-settle / 0.02)
-                series.append(min(1.06, max(
-                    0.0, frac + ripple + noise + over)))
-            samples.append(series)
-        return samples, n
+        """Legacy demo rail waveforms (engine data service,
+        mtkgui.engine.rails.generate_rails)."""
+        return generate_rails(self.rails, self.cap_start, self.cap_end,
+                              self.cap_rate)
 
     def _generate_rail_samples(self, inject_faults=True):
-        """Return (fractions, volts) for one up-sequence capture.
-
-        Virtual mode: the simulated U2355A produces stochastic volts
-        tied to the virtual PSU state (fresh entropy per capture);
-        Real mode without a driver keeps the legacy normalized demo
-        waveform and returns volts = None.  inject_faults=False gives a
-        guaranteed-healthy preview for the properties dialog."""
-        if self.rack is not None:
-            force = None if inject_faults else "PASS"
-            frac, volts, _anomaly = self.rack.capture_rails(
-                self.rails, self.cap_start, self.cap_end, self.cap_rate,
-                force=force)
-            return frac, volts
-        samples, _n = self._gen_rails()
-        return samples, None
+        """Return (fractions, volts) for one up-sequence capture
+        (engine data service, mtkgui.engine.rails.capture_samples)."""
+        return capture_samples(self.rack, self.rails, self.cap_start,
+                               self.cap_end, self.cap_rate,
+                               inject_faults=inject_faults)
 
     def _rail_plot_data(self, samples):
-        return [(label, color, vnom, series)
-                for (label, color, vnom, _), series
-                in zip(self.rails, samples)]
+        return rail_plot_data(self.rails, samples)
 
     def _write_csv(self, samples, volts=None):
-        LOGS_DIR.mkdir(exist_ok=True)
-        mid = "_virtual" if self.virtual_mode else ""
-        name = f"power_rails{mid}_{datetime.now():%Y%m%d_%H%M%S}.csv"
-        path = LOGS_DIR / name
-        start_s = self.cap_start
-        with open(path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["time_ms"] + [r[0] for r in self.rails])
-            for i in range(len(samples[0])):
-                t_ms = (start_s + i / self.cap_rate) * 1000
-                row = [f"{t_ms:.1f}"]
-                for j, series in enumerate(samples):
-                    # a real U2355A logs volts; the legacy demo path has
-                    # only normalized fractions of each rail's nominal
-                    if volts is not None:
-                        row.append(f"{volts[j][i]:.6f}")
-                    else:
-                        row.append(f"{series[i]:.6f}")
-                writer.writerow(row)
-        return path
+        return write_csv(LOGS_DIR, self.rails, samples, volts,
+                         self.cap_start, self.cap_rate, self.virtual_mode)
 
     # ------------------------------------------------------------ actions
     def _set_status(self, table, row, col, status):
@@ -1749,498 +1568,90 @@ class TestWorkFlowPage(QWidget):
                     item.setBackground(QBrush())
         self._active_table, self._active_row = None, -1
 
-    @staticmethod
-    def _op_instrument_abbr(params):
-        """Status-bar instrument behind an operation step."""
-        t = (params or {}).get("type") or ""
-        if t == "power":
-            return "PSU"
-        if t == "fixture":
-            return "DAQM"   # fixture control board sits on DAQM907A DIO
-        return "DAQM"
+    # --- RunnerEnv bridge: rendering hooks called by the engine ---
+    def _emit_progress(self, done, total):
+        """Status-bar progress (current, total) for the running cycle."""
+        self.run_progress.emit(done, total)
 
-    @staticmethod
-    def _meas_instrument_abbr(kind, name):
-        """Status-bar instrument behind a measurement step."""
-        tp = tp_index(name)
-        # CLK2/CLK3 (TP_C02/C03) and DUT GPIO run on the U2355A;
-        # everything else (OHM/DCV, totalizer CLK1, AO, fixture DIO)
-        # runs on the DAQ973A mainframe
-        if "gpio" in name.lower():
-            return "DAQ"
-        if kind == "Clock Hz" and tp and tp[0] == "C" and tp[1] >= 2:
-            return "DAQ"
-        return "DAQM"
+    def _highlight_step(self, kind, row):
+        """Highlight the table row being executed (engine hook)."""
+        if kind == "ict":
+            self._highlight_row(self.ict, row)
+        elif kind == "fct":
+            self._highlight_row(self.fct, row)
 
-    def _exec_rail_capture_row(self, r):
-        """Power-rails up-sequence capture (the ICT 'DAQ AI' row).
+    def _render_step(self, kind, row, status, measured, duration):
+        """Render one engine step result into its table cell(s) — the
+        same cell updates the legacy inline execution code performed."""
+        if kind == "ict":
+            step_kind = (self.ict_steps[row][0]
+                         if row < len(self.ict_steps) else "")
+            if measured is not None:
+                item = self.ict.item(row, 4)
+                if item is not None:
+                    item.setText(str(measured))
+            self._set_status(self.ict, row, 7,
+                             display_text(status,
+                                          "op" if step_kind == "op" else ""))
+        elif kind == "fct":
+            step_kind = (self.fct_kinds[row]
+                         if row < len(self.fct_kinds) else "")
+            self._set_status(self.fct, row, 4,
+                             display_text(status,
+                                          "op" if step_kind == "op" else ""))
+            if duration is not None:
+                self._set_status(self.fct, row, 3, f"{duration:.2f}")
+        elif kind == "stage":
+            self._set_status(self.overall, row, 3, display_text(status))
+            if duration is not None:
+                self.overall.item(row, 4).setText(f"{duration:.2f}")
 
-        The virtual U2355A acquires every rail in volts (CSV + AI
-        review, plot stays hidden during a run).  A test-fail fault
-        corrupts one rail so the AI review flags it; an equipment fault
-        aborts the acquisition."""
-        name = self.ict_steps[r][1]
-        if not self.rails:
-            self._set_status(self.ict, r, 7, "Error")
-            self.instrument_error.emit("DAQ")
-            self._log(f"ICT {name}: no rails defined (load a project "
-                      f"YAML first) -> Error")
-            return
-        force = "FAIL" if r in self.ict_sim_fail else None
-        if self.rack is not None:
-            frac, volts, anomaly = self.rack.capture_rails(
-                self.rails, self.cap_start, self.cap_end, self.cap_rate,
-                force=force)
-            if anomaly == "error":
-                self._set_status(self.ict, r, 7, "Error")
-                self.instrument_error.emit("DAQ")
-                self._log(f"ICT {name}: U2355A AI acquisition error "
-                          f"(virtual) -> Error")
-                return
-            self.rail_samples, self.rail_volts = frac, volts
-        else:
-            self.rail_samples, self.rail_volts =                 self._generate_rail_samples()
-            anomaly = None
-        self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
-        tag = " (virtual)" if self.virtual_mode else ""
-        if self.csv_export:
-            path = self._write_csv(self.rail_samples, self.rail_volts)
-            self.rail_csv_path = path
-            review = self._ai_wave_review()
-            self._ai_review_text = review
-            rpath = path.with_name(path.stem + "_ai_review.txt")
-            try:
-                rpath.write_text(review, encoding="utf-8")
-                saved = (f"CSV saved ({path.name}), "
-                         f"AI review ({rpath.name})")
-            except OSError:
-                saved = f"CSV saved ({path.name}), AI review save failed"
-        else:
-            self.rail_csv_path = None
-            self._ai_review_text = self._ai_wave_review()
-            saved = "display only, CSV export off"
-        n = len(self.rails)
-        if anomaly:
-            self._set_status(self.ict, r, 7, "FAIL")
-            self._log(f"ICT {name}: {n} rails captured{tag}, {saved}; "
-                      f"AI review flags '{anomaly}' (abnormal waveform, "
-                      f"virtual fail) -> FAIL")
-        else:
-            self._set_status(self.ict, r, 7, "PASS")
-            self._log(f"ICT {name}: {n} rails captured{tag}, {saved} "
-                      f"-> PASS")
+    def _store_rail_capture(self, samples, volts, plot_cache, csv_path,
+                            review):
+        """Keep the latest capture (samples / volts / plot cache / CSV
+        path / AI review text) on the page for the waveform widget and
+        the properties dialog (engine hook)."""
+        self.rail_samples = samples
+        self.rail_volts = volts
+        self._rail_plot_cache = plot_cache
+        self.rail_csv_path = csv_path
+        self._ai_review_text = review
 
+    def _mark_stage_skipped(self, r, text):
+        """Render a disabled Overall Flow stage as Skip (engine hook)."""
+        self._set_status(self.overall, r, 3, "Skip")
+        self._log(text)
+
+    def _instrument_error(self, abbr):
+        """Forward a virtual equipment fault to the status bar (hook)."""
+        self.instrument_error.emit(abbr)
+
+    def _connect_failed_popup(self, labels):
+        """Error popup when pre-FCT console connect failed (hook)."""
+        QMessageBox.warning(
+            self, "Console Connect Failed",
+            f"Could not connect console channel(s): {labels}\n\n"
+            "The test run was stopped. Check the console parameters "
+            "and connections, then run again.")
+
+    # --- engine delegates: historical call-sites (smoke test) ---
     def _exec_ict_row(self, r):
-        """Execute one ICT test-case row.
-
-        Virtual mode drives the simulated rack: op steps move the
-        fixture / PSU state machines, measurement rows receive
-        stochastic instrument readings judged against the YAML limits,
-        and the DAQ AI row captures the power-rails up sequence.  Rows
-        flagged through the context menu (ict_sim_fail) force a FAIL.
-        Real mode keeps the legacy placeholder verdict until the SCPI
-        instrument drivers are added.
-        """
-        self._fill_ict_row(r, placeholder=False)
-        self._highlight_row(self.ict, r)
-        step = self.ict_steps[r]
-        kind, name = step[0], step[1]
-        unit, measured, lo, hi = step[2], step[3], step[4], step[5]
-        params = step[6] if len(step) > 6 else None
-
-        if kind == "DAQ AI":
-            # power rails up sequence: samples (volts) + CSV + AI review
-            self._exec_rail_capture_row(r)
-            return
-
-        if kind == "op":
-            if self.rack is not None:
-                m = self.rack.execute_op(name, params)
-                for line in m.lines:
-                    self._log(f"ICT op {name}: {line}")
-                if m.verdict == "Error":
-                    self._set_status(self.ict, r, 7, "Error")
-                    self.instrument_error.emit(
-                        self._op_instrument_abbr(params))
-                    return
-                self._set_status(self.ict, r, 7, "Done")
-            else:
-                for line in self._op_status_lines(name, params):
-                    self._log(f"ICT op {name}: {line}")
-            self._log(f"ICT op {name}: Done")
-            return
-
-        # ------------------------------------------------ measurement rows
-        if self.rack is not None:
-            force = "FAIL" if r in self.ict_sim_fail else None
-            m = self.rack.measure_row(kind, name, unit, lo, hi, force=force)
-            item = self.ict.item(r, 4)
-            if item is not None:
-                item.setText(m.text)
-            for line in m.lines:
-                self._log(f"ICT {name}: {line}")
-            if m.verdict == "Error":
-                self._set_status(self.ict, r, 7, "Error")
-                self.instrument_error.emit(
-                    self._meas_instrument_abbr(kind, name))
-            else:
-                self._set_status(self.ict, r, 7, m.verdict)
-            return
-
-        # legacy placeholder path (Real mode, instrument drivers pending)
-        if r in self.ict_sim_fail:
-            if self._is_impedance_short_row(r):
-                self.ict.item(r, 4).setText("0.62")
-                self._set_status(self.ict, r, 7, "FAIL")
-                self._log(f"ICT {name}: 0.62 OHM below 1.5 OHM (short "
-                          f"risk) -> FAIL")
-            else:
-                self._set_status(self.ict, r, 7, "FAIL")
-                self._log(f"ICT {name}: {measured} {unit} out of limit "
-                          f"({lo}..{hi}) -> FAIL")
-            return
-        fault = self._virtual_fault_roll()
-        if fault == "Error":
-            self._set_status(self.ict, r, 7, "Error")
-            self.instrument_error.emit("DAQM")
-            self._log(f"ICT {name}: random equipment / serial fault "
-                      f"(virtual) -> Error")
-        elif fault == "FAIL":
-            self._set_status(self.ict, r, 7, "FAIL")
-            self._log(f"ICT {name}: {measured} {unit} out of limit "
-                      f"({lo}..{hi}) (virtual fail) -> FAIL")
-        else:
-            self._log(f"ICT {name}: {measured} {unit} "
-                      f"(threshold {lo}..{hi}) -> PASS")
-
-    def _op_status_lines(self, name, params):
-        """Per-sub-action Event Log status lines for one op step."""
-        p = dict(params) if params else {}
-        t = p.get("type") or OP_STEPS.get(name, {}).get("type", "generic")
-        if t in ("instruments", "reset"):
-            verb = "reset" if t == "reset" else "init"
-            return [f"{inst} {verb} OK"
-                    for inst in p.get("instruments", [])] or [f"{verb} OK"]
-        if t == "fixture":
-            sig, lvl = p.get("signal", "press"), p.get("level", "H")
-            return [f"drive {sig}={lvl} -> state verified"]
-        if t == "power":
-            if "voltage" in p:
-                return [f"N5747A set {p['voltage']:.2f} V / "
-                        f"{p.get('current', 0.0):.2f} A -> output ON, "
-                        f"readback OK"]
-            return ["N5747A output OFF"]
-        return [f"{name} executed"]
-
-    def _capture_rails(self, draw=True):
-        """Capture the power rails up sequence (ICT "DAQ AI" step).
-
-        draw=False (ICT table execution): record the samples and write
-        the CSV / AI review, but do NOT update the waveform plot."""
-        if not self.rails:
-            self._log("Power rails up sequence: no rails defined "
-                      "(load a project YAML first)")
-            return
-        self.rail_samples, self.rail_volts = self._generate_rail_samples()
-        if draw:
-            self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
-            self._apply_rail_filter()
-        # Virtual mode: simulated demo data (marked on the plot + CSV)
-        tag = " (virtual)" if self.virtual_mode else ""
-        if not draw:
-            tag += ", waveform display off"
-        if self.csv_export:
-            path = self._write_csv(self.rail_samples, self.rail_volts)
-            self.rail_csv_path = path
-            # AI review page: grade every rail's waveform parameters
-            review = self._ai_wave_review()
-            self._ai_review_text = review
-            rpath = path.with_name(path.stem + "_ai_review.txt")
-            try:
-                rpath.write_text(review, encoding="utf-8")
-                self._log(f"Power rails up sequence: captured 12 rails"
-                          f"{tag}, CSV saved ({path.name}), "
-                          f"AI review ({rpath.name})")
-            except OSError:
-                self._log(f"Power rails up sequence: captured 12 rails"
-                          f"{tag}, CSV saved ({path.name}), "
-                          f"AI review save failed")
-        else:
-            self.rail_csv_path = None
-            self._ai_review_text = self._ai_wave_review()
-            self._log(f"Power rails up sequence: captured 12 rails{tag} "
-                      f"(display only, CSV export off)")
+        """Execute one ICT test-case row (engine, TestRunner)."""
+        self._runner._exec_ict_row(r)
 
     def _exec_fct_row(self, r, interactive=True):
-        """Execute one FCT test case row.
+        """Execute one FCT test-case row (engine, TestRunner)."""
+        self._runner._exec_fct_row(r, interactive=interactive)
 
-        interactive=True (Run button): the MessageOK / MessageYesNo /
-        MessageGoStop methods pop a modal operator dialog and the
-        operator's answer judges the row.  interactive=False (Run Demo
-        / smoke test): the operator answer is simulated (PASS); the
-        sim-fail context-menu hook and the Virtual fault injection
-        still apply."""
-        self._highlight_row(self.fct, r)
-        name = self.fct.item(r, 1).text()
-        t0 = time.monotonic()
-        kind = (self.fct_kinds[r] if r < len(self.fct_kinds) else "")
-        if kind == "op":
-            # standard operation step: move fixture / PSU state, log
-            # every sub-action, Done or Error (equipment fault)
-            params = (self.fct_op_params[r]
-                      if r < len(self.fct_op_params) else None)
-            verdict = "Done"
-            if self.rack is not None:
-                m = self.rack.execute_op(name, params)
-                for line in m.lines:
-                    self._log(f"FCT op {name}: {line}")
-                verdict = m.verdict
-                if verdict == "Error":
-                    self.instrument_error.emit(
-                        self._op_instrument_abbr(params))
-            else:
-                for line in self._op_status_lines(name, params):
-                    self._log(f"FCT op {name}: {line}")
-            if verdict != "Error":
-                self._log(f"FCT op {name}: Done")
-            self._set_status(self.fct, r, 4, verdict)
-            self._set_status(self.fct, r, 3,
-                             f"{time.monotonic() - t0:.2f}")
-            return
-        verdict = None
-        if r in self.fct_sim_fail:
-            verdict = "FAIL"
-            self._log(f"FCT {name}: expected pass marker not found -> FAIL")
-        elif (interactive and self.virtual_mode
-                and kind in CONSOLE_KINDS + ("WIFI", "Bluetooth")):
-            # Virtual mode: console / RF methods run for real against
-            # the simulated DUT behind the virtual serial channel
-            self._exec_fct_console(r, kind, name, t0)
-            return
-        elif interactive and kind in ("MessageOK", "MessageYesNo",
-                                      "MessageGoStop"):
-            verdict = self._fct_message_dialog(kind, name)
-        if verdict is None:
-            fault = self._virtual_fault_roll()
-            if fault == "Error":
-                verdict = "Error"
-                self.instrument_error.emit(random.choice(("DAQ", "PSU")))
-                self._log(f"FCT {name}: random equipment / serial fault "
-                          f"(virtual) -> Error")
-            elif fault == "FAIL":
-                verdict = "FAIL"
-                self._log(f"FCT {name}: unexpected reply (virtual fail) "
-                          f"-> FAIL")
-            else:
-                verdict = "PASS"
-                if kind in ("MessageOK", "MessageYesNo", "MessageGoStop"):
-                    self._log(f"FCT {name}: operator confirmed -> PASS")
-                elif r < 5:
-                    self._log(f"FCT {name}: output contained 'Pass' "
-                              f"-> PASS")
-                else:
-                    self._log(f"FCT {name}: operator confirmed PASS")
-        if verdict == "Error":
-            self._set_status(self.fct, r, 4, "Error")
-        elif verdict == "FAIL":
-            self._set_status(self.fct, r, 4, "FAIL")
-        else:
-            self._set_status(self.fct, r, 4, "PASS")
-        duration = time.monotonic() - t0
-        self._set_status(self.fct, r, 3, f"{duration:.2f}")
+    def _run_step(self):
+        """Run-timer tick: execute the next step (engine, TestRunner)."""
+        self._runner._run_step()
 
-    # ------------------------------------------------ FCT console (virtual)
-    def _parse_console_step(self, name):
-        """Split an FCT console step name into its quoted segments and
-        the remaining text: "SendtoCLI: \\"wifi_test --scan\\",
-        'Pass'/'Success' (expected)" -> (["wifi_test --scan", "Pass",
-        "Success"], ': "wifi_test --scan", ...')."""
-        _, _, rest = name.partition(":")
-        quoted = [a or b for a, b in _QUOTED_RE.findall(rest)]
-        return quoted, rest
-
-    def _pick_serial_channel(self):
-        """First connected serial console channel (the simulated DUT
-        lives there); None when no serial channel is online."""
-        mc = self.multi_console
-        for key, ch in mc.channels.items():
-            if ch["kind"] == "serial" and mc.channel_connected(key):
-                return key
-        return None
-
-    def _exec_fct_console(self, r, kind, name, t0):
-        """Execute one FCT console-method step against the simulated
-        DUT (Virtual mode).  The step parameters are embedded in the
-        name: SendtoConsole / SendtoCLI send the first quoted segment
-        as a command line, WaitforConsole / WaitforCLI poll the channel
-        read buffer for the quoted keyword(s) (any match -> PASS), and
-        CapturefromConsole / CapturefromCLI search the whole buffer at
-        once.  Random Virtual faults arm the DUT: equipment error ->
-        no reply (timeout with no bytes -> Error), test fail -> a reply
-        without the expected keyword (-> FAIL)."""
-        quotes, rest = self._parse_console_step(name)
-        # WIFI / Bluetooth rows exercise the same simulated CLI path
-        # with the standard RF test commands and Pass/Success markers
-        if kind == "WIFI" and not quotes:
-            kind = "SendtoCLI"
-            name = 'SendtoCLI: "wifi_test --scan"'
-            quotes = ["wifi_test --scan", "Pass", "Success"]
-        elif kind == "Bluetooth" and not quotes:
-            kind = "SendtoCLI"
-            name = 'SendtoCLI: "bt_test --scan"'
-            quotes = ["bt_test --scan", "Pass", "Success"]
-        mc = self.multi_console
-        key = self._pick_serial_channel()
-
-        def finish(verdict, log):
-            self._set_status(self.fct, r, 4, verdict)
-            self._set_status(self.fct, r, 3,
-                             f"{time.monotonic() - t0:.2f}")
-            self._log(log)
-
-        if key is None:
-            finish("Error", f"FCT {name}: no connected serial console "
-                            f"channel -> Error")
-            return
-        worker = mc.channels[key]["worker"]
-        timeout_ms = (self.fct_timeouts[r]
-                      if r < len(self.fct_timeouts) else 5000)
-
-        if kind == "SendtoConsole":
-            # send only: the step passes when the payload was written
-            fault = self._virtual_fault_roll()
-            if fault == "Error":
-                finish("Error", f"FCT {name}: random serial fault "
-                                f"(virtual) -> Error")
-                return
-            payload = (quotes[0] if quotes
-                       else _console_keyword_fallback(rest))
-            payload = payload.strip().strip("'\"").strip()
-            if payload:
-                mc.write_to_channel(key, (payload + "\r\n").encode("utf-8"))
-            finish("PASS", f"FCT {name}: sent '{payload}' to the "
-                           f"simulated DUT -> PASS")
-            return
-
-        if kind == "SendtoCLI":
-            fault = self._virtual_fault_roll()
-            if fault == "Error":
-                worker.inject_fault("no_response")
-            elif fault == "FAIL":
-                worker.inject_fault("wrong_reply")
-            payload = (quotes[0] if quotes
-                       else rest.split(",")[0].strip())
-            payload = payload.strip().strip("'\"").strip()
-            keywords = [q for q in quotes[1:] if q]
-            from_len = len(mc.get_read_buffer(key))
-            if payload:
-                mc.write_to_channel(key, (payload + "\r\n").encode("utf-8"))
-            self._log(f"FCT {name}: sent '{payload}', waiting for "
-                      f"{' / '.join(keywords) or 'a reply'} ...")
-            self._fct_console_wait = {
-                "row": r, "key": key, "name": name,
-                "keywords": keywords, "from_len": from_len,
-                "t0": t0,
-                "deadline": time.monotonic() + max(0.1, timeout_ms / 1000.0),
-            }
-            self._set_status(self.fct, r, 4, "RUNNING")
-            return
-
-        if kind in ("WaitforConsole", "WaitforCLI"):
-            # search the whole accumulated buffer: the boot log may
-            # already contain the expected keyword
-            fault = self._virtual_fault_roll()
-            if fault == "Error":
-                finish("Error", f"FCT {name}: random serial fault "
-                                f"(virtual) -> Error")
-                return
-            if fault == "FAIL":
-                finish("FAIL", f"FCT {name}: expected keyword never "
-                               f"observed in the console output "
-                               f"(virtual fail) -> FAIL")
-                return
-            keywords = [q for q in quotes if q]
-            if not keywords:
-                fallback = _console_keyword_fallback(rest)
-                keywords = [fallback] if fallback else []
-            self._log(f"FCT {name}: waiting for "
-                      f"{' / '.join(keywords) or 'output'} ...")
-            self._fct_console_wait = {
-                "row": r, "key": key, "name": name,
-                "keywords": keywords, "from_len": 0,
-                "t0": t0,
-                "deadline": time.monotonic() + max(0.1, timeout_ms / 1000.0),
-            }
-            self._set_status(self.fct, r, 4, "RUNNING")
-            return
-
-        # CapturefromConsole / CapturefromCLI: instant buffer capture
-        fault = self._virtual_fault_roll()
-        if fault == "Error":
-            finish("Error", f"FCT {name}: random serial/equipment fault "
-                            f"(virtual) -> Error")
-            return
-        keywords = [q for q in quotes if q]
-        if not keywords:
-            fallback = _console_keyword_fallback(rest)
-            keywords = [fallback] if fallback else []
-        text = mc.get_read_buffer(key).decode("utf-8", "replace")
-        healthy = (not keywords) or any(k in text for k in keywords)
-        if fault == "FAIL":
-            healthy = False
-        if healthy:
-            finish("PASS", f"FCT {name}: buffer contains "
-                           f"{' / '.join(keywords)} -> PASS")
-        else:
-            expect = " / ".join(keywords) or "the expected output"
-            finish("FAIL", f"FCT {name}: buffer does not contain "
-                           f"{expect} -> FAIL")
-
-    def _poll_fct_console(self):
-        """Poll the pending console step: finish as soon as one of the
-        keywords shows up in the channel read buffer, or judge
-        Error (no reply at all) / FAIL (reply without the keyword) on
-        timeout."""
-        w = self._fct_console_wait
-        if self.run_state != "running":
-            self._fct_console_wait = None
-            return
-        mc = self.multi_console
-        if w["key"] not in mc.channels:
-            self._finish_console_wait(
-                "Error", f"FCT {w['name']}: console channel removed "
-                         f"-> Error")
-            return
-        buf = mc.get_read_buffer(w["key"])
-        text = buf[w["from_len"]:].decode("utf-8", "replace")
-        if w["keywords"] and any(k in text for k in w["keywords"]):
-            self._finish_console_wait(
-                "PASS", f"FCT {w['name']}: found "
-                        f"{' / '.join(w['keywords'])} -> PASS")
-            return
-        if time.monotonic() < w["deadline"]:
-            return  # keep waiting
-        if len(buf) - w["from_len"] == 0:
-            self.instrument_error.emit("DAQ")
-            self._finish_console_wait(
-                "Error", f"FCT {w['name']}: timeout, no reply from the "
-                         f"DUT -> Error")
-        else:
-            expect = " / ".join(w["keywords"]) or "the expected output"
-            self._finish_console_wait(
-                "FAIL", f"FCT {w['name']}: timeout, reply without "
-                        f"{expect} -> FAIL")
-
-    def _finish_console_wait(self, verdict, log):
-        """Finalize the pending console step (verdict + duration)."""
-        w = self._fct_console_wait
-        self._fct_console_wait = None
-        if w is None:
-            return
-        self._set_status(self.fct, w["row"], 4, verdict)
-        self._set_status(self.fct, w["row"], 3,
-                         f"{time.monotonic() - w['t0']:.2f}")
-        self._log(log)
+    def _policy_abort_reason(self, kind, args):
+        """Check the just-finished step against the Overall Flow stop
+        policies (engine, mtkgui.engine.policies). Returns an abort log
+        message, or None to continue."""
+        return self._runner._policy_abort_reason(kind, args)
 
     def _fct_message_dialog(self, kind, name):
         """Modal operator dialog for the FCT message test methods.
@@ -2250,9 +1661,9 @@ class TestWorkFlowPage(QWidget):
         MessageGoStop -> GO  -> PASS / STOP (or X-close) -> FAIL
 
         While the dialog is open the 100 ms run timer keeps ticking;
-        the _fct_dialog_open flag makes those ticks no-ops so the run
-        does not re-enter.  The dialog is centered by the app-level
-        event filter like every other dialog."""
+        the runner's _fct_dialog_open flag makes those ticks no-ops so
+        the run does not re-enter.  The dialog is centered by the
+        app-level event filter like every other dialog."""
         method, _, message = name.partition(":")
         message = message.strip() or name
         box = QMessageBox(self)
@@ -2273,11 +1684,11 @@ class TestWorkFlowPage(QWidget):
             go = box.addButton("GO", QMessageBox.ButtonRole.YesRole)
             box.addButton("STOP", QMessageBox.ButtonRole.NoRole)
             self._log(f"FCT {name}: waiting for operator GO / STOP ...")
-        self._fct_dialog_open = True
+        self._runner._fct_dialog_open = True
         try:
             box.exec()
         finally:
-            self._fct_dialog_open = False
+            self._runner._fct_dialog_open = False
         if kind == "MessageOK":
             return "PASS"
         clicked = box.clickedButton()
@@ -2292,49 +1703,10 @@ class TestWorkFlowPage(QWidget):
                   f"-> {'PASS' if ok else 'FAIL'}")
         return "PASS" if ok else "FAIL"
 
-    def _complete_stage(self, r):
-        """Mark one Overall Flow stage PASS and record its duration (s)."""
-        self._set_status(self.overall, r, 3, "PASS")
-        duration = time.monotonic() - self._stage_start
-        self.overall.item(r, 4).setText(f"{duration:.2f}")
-        self._stage_start = time.monotonic()
-
     def run_demo(self):
         """Synchronous full pass (used by smoke test); honors the
-        Overall Flow EN checkboxes."""
-        t0 = time.monotonic()
-        self._stage_start = t0
-        if self._overall_en[0]:
-            for r in range(len(self.ict_steps)):
-                if self.ict_enables[r]:
-                    self._exec_ict_row(r)
-                else:
-                    self._fill_ict_row(r, placeholder=False)
-                    self._set_status(self.ict, r, 7, "Ignore")
-                    self._log(f"ICT {self.ict_steps[r][1]} "
-                              f"-> Ignore (disabled)")
-            self._complete_stage(0)
-        else:
-            self._set_status(self.overall, 0, 3, "Skip")
-            self._log("Overall flow: ICT -> Skip (disabled)")
-        if self._overall_en[1]:
-            for r in range(self.fct.rowCount()):
-                if self.fct_enables[r]:
-                    # demo: the operator answer is simulated (PASS),
-                    # no message dialogs pop up
-                    self._exec_fct_row(r, interactive=False)
-                else:
-                    self._set_status(self.fct, r, 4, "Ignore")
-                    self._log(f"FCT {self.fct_rows[r]} -> Ignore (disabled)")
-            self._complete_stage(1)
-        else:
-            self._set_status(self.overall, 1, 3, "Skip")
-            self._log("Overall flow: FCT -> Skip (disabled)")
-        self._log("Overall flow: ICT -> FCT all PASS")
-        self.cycle_times.append(time.monotonic() - t0)
-        self._count_product()
-        self._update_result()
-        self.run_finished.emit()
+        Overall Flow EN checkboxes (engine, TestRunner.run_demo)."""
+        self._runner.run_demo()
 
     # ------------------------------------------------------------ run control
     def _pretest(self):
@@ -2405,22 +1777,15 @@ class TestWorkFlowPage(QWidget):
         self.serial_edit.setText(f"VS{self._sn_counter:010d}")
 
     def _steps_template(self, ict_count, fct_count):
-        """Run steps for the stages enabled in Overall Flow only."""
-        steps = []
-        if self._overall_en[0]:
-            # the DAQ AI capture is a regular ICT row (kind "DAQ AI")
-            steps += [("ict", r) for r in range(ict_count)]
-            steps.append(("stage", 0))
-        if self._overall_en[1]:
-            if fct_count:
-                steps.append(("fctconn",))  # console connect before FCT
-            steps += [("fct", r) for r in range(fct_count)]
-            steps.append(("stage", 1))
-        return steps
+        """Run steps for the stages enabled in Overall Flow only
+        (engine helper, mtkgui.engine.steps.steps_template)."""
+        return steps_template(ict_count, fct_count, self._overall_en)
 
     def start_run(self):
         """Run button: pre-test, then step through every test case.
-        Long Run > 1 repeats the whole cycle with a pause in between."""
+        Long Run > 1 repeats the whole cycle with a pause in between.
+        The Run gates + button state stay on the page; the run state
+        machine itself lives in the engine (TestRunner.start)."""
         if self.run_state == "running":
             return
         if not self.project_path:
@@ -2443,318 +1808,55 @@ class TestWorkFlowPage(QWidget):
         if not self._pretest():
             return
         self._set_phase("Init...")
-        self.run_state = "running"
         self._interrupted = False
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
         # long run skips product information input
         self.product_group.setEnabled(False)
-        self._lr_total = self.longrun_spin.value()
-        self._lr_done = 0
-        self._begin_cycle()
-
-    def _begin_cycle(self):
-        self.clear_results()
-        self._set_phase("Init...")
-        self._interrupted = False
-        self._wait_done = False
-        self._fct_console_wait = None
-        self._run_start = time.monotonic()
-        self._stage_start = self._run_start
-        # stages disabled in Overall Flow are skipped, Status -> Skip
-        for r, on in enumerate(self._overall_en):
-            if not on:
-                self._set_status(self.overall, r, 3, "Skip")
-                self._log(f"Overall Flow {self.overall.item(r, 1).text()}"
-                          f" -> Skip (disabled)")
-        self._run_steps = self._steps_template(
-            len(self.ict_steps), self.fct.rowCount())
-        self._run_index = 0
-        if self._lr_total > 1:
-            self._log(f"Long Run cycle {self._lr_done + 1}/"
-                      f"{self._lr_total} started.")
-        else:
-            self._log("Run started.")
-        self._run_timer.start()
-
-    def _start_next_cycle(self):
-        """Long Run pause elapsed -> auto-increment SN and start again."""
-        if self.run_state != "running":
-            return  # stopped during the interval
-        self._next_serial()
-        self._begin_cycle()
-
-    def _run_step(self):
-        if self._fct_dialog_open:
-            return  # operator message dialog open: timer ticks paused
-        if self._fct_console_wait is not None:
-            # a console FCT step is waiting for the DUT reply: poll the
-            # channel read buffer instead of advancing to the next step
-            self._poll_fct_console()
-            return
-        if self._run_index >= len(self._run_steps):
-            self._finish_run()
-            return
-        self.run_progress.emit(self._run_index, len(self._run_steps))
-        kind, *args = self._run_steps[self._run_index]
-        # disabled ICT / FCT steps are marked Ignore
-        if kind == "ict" and not self.ict_enables[args[0]]:
-            self._set_status(self.ict, args[0], 7, "Ignore")
-            self._log(f"ICT {self.ict_steps[args[0]][1]} -> Ignore (disabled)")
-            self._run_index += 1
-            self._wait_done = False
-            return
-        if kind == "fct" and not self.fct_enables[args[0]]:
-            self._set_status(self.fct, args[0], 4, "Ignore")
-            self._log(f"FCT {self.fct_rows[args[0]]} -> Ignore (disabled)")
-            self._run_index += 1
-            self._wait_done = False
-            return
-        # console channels must be connected before the FCT stage starts
-        if kind == "fctconn":
-            self._run_fct_connect_step()
-            return
-        # per-step wait time (ms): pause before executing
-        if kind in ("ict", "fct", "stage"):
-            if kind == "ict":
-                wait = self.ict_waits[args[0]]
-            elif kind == "fct":
-                wait = self.fct_waits[args[0]]
-            else:
-                wait = 0
-            if wait > 0 and not self._wait_done:
-                self._wait_done = True
-                self._log(f"Wait {wait} ms ...")
-                self._run_timer.stop()
-                QTimer.singleShot(wait, self._resume_step)
-                return
-        self._wait_done = False
-        self._run_index += 1
-        self._set_phase("Processing...")
-        if kind == "ict":
-            self._exec_ict_row(args[0])
-        elif kind == "fct":
-            self._exec_fct_row(args[0])
-        elif kind == "stage":
-            self._complete_stage(args[0])
-        self._update_result()
-        # Overall Flow stop policies (stop if failure / stop if any short)
-        reason = self._policy_abort_reason(kind, args)
-        if reason:
-            self._abort_run(reason)
-
-    def _policy_abort_reason(self, kind, args):
-        """Check the just-finished step against the Overall Flow stop
-        policies. Returns an abort log message, or None to continue."""
-        if kind == "ict":
-            r = args[0]
-            result = self._raw_status(self.ict.item(r, 7).text())
-            if result not in ("FAIL", "Error"):
-                return None
-            name = self.ict_steps[r][1]
-            if (self._is_impedance_short_row(r)
-                    and self.stop_if_short_cb.isChecked()):
-                return (f"Stop policy (Stop if any short): low impedance "
-                        f"detected at '{name}' -> run aborted BEFORE power "
-                        f"on. Overall Result: FAIL")
-            if self.stop_if_fail_cb.isChecked():
-                return (f"Stop policy (Stop if failure): '{name}' reported "
-                        f"{result} -> run aborted. Overall Result: FAIL")
-        elif kind == "fct":
-            r = args[0]
-            if (self._raw_status(self.fct.item(r, 4).text()) == "FAIL"
-                    and self.stop_if_fail_cb.isChecked()):
-                return (f"Stop policy (Stop if failure): FCT "
-                        f"'{self.fct_rows[r]}' reported FAIL -> run "
-                        f"aborted. Overall Result: FAIL")
-        return None
-
-    def _fct_connect_targets(self):
-        """Console channels that must be connected before the FCT stage:
-        the channels defined by the loaded project YAML (fallback: every
-        channel with an endpoint configured) that are still offline."""
-        mc = self.multi_console
-        keys = mc.yaml_channel_keys()
-        if keys is None:
-            keys = [k for k in mc.channels if mc.channel_endpoint(k)]
-        return [k for k in keys if not mc.channel_connected(k)]
-
-    def _run_fct_connect_step(self):
-        """("fctconn",) step: make sure every console channel from the
-        project YAML is connected before FCT starts. Channels the user
-        connected manually beforehand are skipped, missing ones are
-        opened now. Channels that cannot be connected stop the run with
-        an error popup and Overall Result FAIL (first FCT row -> Error)."""
-        targets = self._fct_connect_targets()
-        if not targets:
-            self._run_index += 1
-            self._wait_done = False
-            return  # run timer continues with the FCT stage
-        self._wait_done = True
-        self._run_timer.stop()
-        self._set_phase("Connecting console...")
-        self._log("Connecting console channel(s) before FCT: "
-                  + ", ".join(targets))
-        self._fctconn_failed = []
-        self._fctconn_pending = []
-        mc = self.multi_console
-        for key in targets:
-            if mc.virtual_mode or mc.channel_endpoint(key):
-                mc.open_channel(key)  # asynchronous worker thread
-                self._fctconn_pending.append(key)
-            else:
-                # Real mode, endpoint not configured -> cannot connect
-                self._fctconn_failed.append(key)
-        self._fctconn_deadline = time.monotonic() + self.fct_connect_timeout
-        self._poll_fct_connect()
-
-    def _poll_fct_connect(self):
-        """Poll the connecting channels every 300 ms until all of them
-        are up, their connect attempt has ended without a connection
-        (worker thread finished) or the timeout elapses (Stop pressed
-        -> just leave)."""
-        if self.run_state != "running":
-            return
-        mc = self.multi_console
-        still = []
-        for key in self._fctconn_pending:
-            if mc.channel_connected(key):
-                continue  # endpoint open
-            worker = mc.channels[key]["worker"]
-            if (worker is None
-                    or (hasattr(worker, "_running")
-                        and not worker.isRunning())):
-                # connect attempt ended without a connection
-                self._fctconn_failed.append(key)
-            else:
-                still.append(key)  # worker alive, still connecting
-        self._fctconn_pending = still
-        if (self._fctconn_pending
-                and time.monotonic() < self._fctconn_deadline):
-            QTimer.singleShot(300, self._poll_fct_connect)
-            return
-        self._fctconn_failed.extend(self._fctconn_pending)
-        self._fctconn_pending = []
-        self._finish_fct_connect()
-
-    def _finish_fct_connect(self):
-        """Connect phase over: resume the run, or abort it with an error
-        popup when any channel could not be connected."""
-        if self._fctconn_failed:
-            labels = ", ".join(
-                self.multi_console.channels[k]["label"]
-                for k in self._fctconn_failed)
-            self._abort_run(
-                f"Stop: console channel(s) {labels} could not be "
-                f"connected before FCT. Overall Result: FAIL")
-            # _abort_run blanked the remaining steps -> mark the first
-            # FCT row as Error afterwards, then re-judge the result
-            if self.fct.rowCount() > 0:
-                self._set_status(self.fct, 0, 4, "Error")
-            self._update_result()
-            QMessageBox.warning(
-                self, "Console Connect Failed",
-                f"Could not connect console channel(s): {labels}\n\n"
-                "The test run was stopped. Check the console parameters "
-                "and connections, then run again.")
-            return
-        self._log("Console channel(s) connected.")
-        self._set_phase("Processing...")
-        self._run_index += 1
-        self._wait_done = False
-        # polling stopped the run timer -> resume stepping from the
-        # next step (the timer drives the per-step wait handling)
-        self._run_timer.start()
-
-    def _abort_run(self, reason):
-        """Stop-policy abort: a FAIL/short triggered an Overall Flow
-        policy. Remaining items are blanked and the product is counted
-        FAIL — unlike the operator Stop button, which yields IGNORE."""
-        self._run_timer.stop()
-        self._lr_wait_timer.stop()
-        self._fct_console_wait = None
-        self._clear_highlight()
-        self._set_phase("")
-        self.run_state = "idle"
-        self._interrupted = False
-        self.btn_run.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-        self.product_group.setEnabled(True)
-        for step in self._run_steps[self._run_index:]:
-            kind = step[0]
-            if kind == "ict":
-                r = step[1]
-                self.ict.item(r, 4).setText("")
-                self.ict.item(r, 7).setText("")
-            elif kind == "fct":
-                self._set_status(self.fct, step[1], 4, "")
-            elif kind == "stage":
-                self._set_status(self.overall, step[1], 3, "")
-                self.overall.item(step[1], 4).setText("")
-        self._log(reason)
-        self.cycle_times.append(time.monotonic() - self._run_start)
-        self._count_product()
-        self._update_result()
-        self.run_finished.emit()
-
-    def _resume_step(self):
-        """Per-step wait elapsed -> continue the sequence."""
-        if self.run_state != "running":
-            return  # stopped during the wait
-        self._run_step()
-        self._run_timer.start()
-
-    def _finish_run(self):
-        """One cycle completed without interruption -> judge result;
-        Long Run may start the next cycle after the pause."""
-        self._run_timer.stop()
-        self.run_progress.emit(len(self._run_steps), len(self._run_steps))
-        self.cycle_times.append(time.monotonic() - self._run_start)
-        self._count_product()
-        self._update_result()
-        self._lr_done += 1
-        if self._lr_done < self._lr_total:
-            wait = self.interval_spin.value()
-            self._log(f"Long Run cycle {self._lr_done}/{self._lr_total} "
-                      f"finished; next cycle in {wait:g} s")
-            self._set_phase(f"Waiting {wait:g} s ...")
-            self._lr_wait_timer.start(int(wait * 1000))
-            return  # still "running": Run disabled, Stop enabled
-        # all cycles done
-        self.run_state = "idle"
-        self._clear_highlight()
-        self._set_phase("")
-        self.btn_run.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-        self.product_group.setEnabled(True)
-        self._update_result()
-        if self._judge_verdict() == "FAIL":
-            self._log("Run finished with failures (stop policy off) "
-                      "-> Overall Result: FAIL")
-        else:
-            self._log("Overall flow: ICT -> FCT all PASS")
-        if self._lr_total > 1:
-            self._log(f"Long Run complete: {self._lr_total} cycles.")
-        self.run_finished.emit()
+        self._runner.start(self.longrun_spin.value())
 
     def stop_run(self):
         """Stop button: interrupt the run. Remaining test items are left
-        blank and the Overall Result is IGNORE."""
-        if self.run_state != "running":
+        blank and the Overall Result is IGNORE (engine, TestRunner.abort;
+        the page renders the interrupted state via _on_run_finished)."""
+        self._runner.abort()
+
+    # --- RunnerEnv bridge: run-control state rendering -----------------
+    def _on_cycle_reset(self):
+        """Engine begins a cycle -> blank defaults + clear Event Log."""
+        self.clear_results()
+
+    def _on_stage_skipped(self, r, text):
+        """Engine marks a disabled Overall Flow stage as Skip."""
+        self._mark_stage_skipped(r, text)
+
+    def _on_run_finished(self, summary):
+        """Render the end-of-cycle state the legacy code performed
+        inline (abort / operator stop / cycle complete).  The engine
+        already wrote the run-control Event Log lines via its sink."""
+        reason = summary["reason"]
+        if reason == "cycle":
+            # mid long-run: count the finished cycle, show the pause
+            if summary["progress"]:
+                self.run_progress.emit(summary["total"], summary["total"])
+            self.cycle_times.append(summary["cycle_s"])
+            self._count_product()
+            self._update_result()
             return
-        self._run_timer.stop()
-        self._lr_wait_timer.stop()
-        self._fct_console_wait = None
-        self.run_progress.emit(0, 0)
-        self._clear_highlight()
-        self._set_phase("")
-        self.run_state = "idle"
-        self._interrupted = True
+        if reason == "stop":
+            self.run_progress.emit(0, 0)
+            self._interrupted = True
+        elif reason == "complete":
+            if summary["progress"]:
+                self.run_progress.emit(summary["total"], summary["total"])
+        if summary["reset_phase"]:
+            self._clear_highlight()
+            self._set_phase("")
         self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.product_group.setEnabled(True)
         # remaining (not yet executed) test items -> blank
-        for step in self._run_steps[self._run_index:]:
+        for step in summary["remaining"]:
             kind = step[0]
             if kind == "ict":
                 r = step[1]
@@ -2765,11 +1867,18 @@ class TestWorkFlowPage(QWidget):
             elif kind == "stage":
                 self._set_status(self.overall, step[1], 3, "")
                 self.overall.item(step[1], 4).setText("")
-        self._log("Run interrupted by operator -> Overall Result: IGNORE")
+        if summary["counted"]:
+            self.cycle_times.append(summary["cycle_s"])
+            self._count_product()
         self._update_result()
+        if reason != "stop":
+            # legacy: abort / complete emit run_finished (page jump);
+            # operator stop does not
+            self.run_finished.emit()
 
     def clear_results(self):
         self._interrupted = False
+        self._runner.reset_results()
         if self.rack is not None:
             self.rack.reset_cycle()  # new unit: PSU off, fixture released
         self._fill_ict(placeholder=True)
