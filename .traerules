@@ -1,0 +1,112 @@
+# .traerules for mtk-gui v2.0.0
+# Project: MTK Production Test GUI based on PySide6, ICT/FCT ATE platform for FRDM-IMXRT700
+# Target: Windows 11 / macOS / Linux cross-platform
+# Author: Principle TE, Hardware Automated Test Framework
+version: "1.0"
+project_name: mtk-gui
+project_version: "2.0.0"
+
+## 1. Core Tech Stack Definition
+tech_stack:
+  language: Python 3.11
+  gui_framework: PySide6
+  config_format: YAML
+  test_engine: custom pytest runner
+  instrument_lib:
+    - Keysight DAQ973A / DAQM908A / DAQM907A
+    - Keysight N5747A Power Supply
+    - Keysight U2355A USB DAQ / counter / DIO
+    - JLink, Serial UART, Paramiko SSH
+  logging: CSV test log + Qt log viewer
+  diagram: Block diagram / test flow table inside Qt Widget
+
+## 2. Project Folder Structure (DO NOT CHANGE THIS STRUCTURE)
+folder_spec:
+  root: ./
+  src: ./src          # Main PySide6 source code
+  config: ./config    # Per-product YAML test configs, DO NOT hardcode product params
+  tests: ./tests      # pytest test scripts, test cases simulation
+  assets: ./assets    # Icons, UI resource, block diagram SVG
+  logs: ./logs        # Auto generated CSV logs, exclude from git
+  docs: ./docs        # English spec, test procedure, instrument manual excerpts
+
+## 3. System Architecture & Test Flow (CRITICAL BUSINESS LOGIC)
+test_flow_sequence:
+  1. ICT: 80-point 2-wire resistance measurement (1.5Ω tolerance)
+  2. Power rail up sequencing, capture voltage waveform
+  3. 80-point rail voltage measurement (±0.1% tolerance)
+  4. Clock frequency measurement
+  5. DIO control via fixture for GPIO test
+  6. FAT firmware flash
+  7. FCT functional test: UART/SSH message parsing, PASS/FAIL by string match
+  8. RF test (WiFi/BLE): invoke external CLI tools
+  9. OOBE firmware flash
+  notes:
+    - ICT: prevent low impedance / overheat / short circuit
+    - Power rail: N5747A, star ground on fixture probe board
+    - Virtual mode: support DUT simulation + fault injection for offline debug
+roles:
+  - Supervisor: full edit, config modify, run all tests
+  - Operator: only run test, view log, no config edit
+run_modes:
+  - Real: connect physical instruments & DUT
+  - Virtual: simulated DUT, no hardware connection, fault injection available
+
+## 4. Code Generation Mandatory Rules
+code_rules:
+  language: English only for all code, comments, variable names, docstrings
+  type_hint: Mandatory Python type hint for all functions and class methods
+  exception: Use granular try/except, catch instrument IOError, serial timeout, GPIB error
+  logging: Every instrument action must write timestamped log to CSV
+  ui: PySide6 Widget only, no QtQuick. Block diagram page, click sub-block to open config dialog
+  yaml: All test thresholds, instrument address, rail sequence stored in ./config YAML, NO hardcode
+  naming_convention:
+    class_name: PascalCase
+    function_variable: snake_case
+    constant: UPPER_SNAKE_CASE
+  import: Group imports: standardlib → thirdparty → internal module
+  output: Always provide diff preview before file overwrite. Never delete existing code without confirmation.
+
+## 5. Instrument Constraints
+instrument_rules:
+  DAQ973A: GPIB interface, DAQM908A for voltage/resistance points, DAQM907A AO/ADC totalizer <100kHz
+  U2355A: 12 channel up-sequence, 2 counters up to 6MHz, 24 DIO
+  N5747A: 60V /12.5A /750W single channel power supply
+  ground: All DUT & instruments star-ground at fixture probe board
+  measurement: ICT resistance tolerance 1.5Ω; voltage tolerance ±0.1%
+
+## 6. Agent Behavior Rules (TRAE Core Instruction)
+agent_behavior:
+  # Project context
+  context: Read entire project first, understand existing code before modifying.
+  incremental_work: This is a half-finished project. DO NOT rewrite the whole project unless explicitly requested.
+  task_strategy:
+    1. Scan project structure, summarize current state
+    2. List affected files
+    3. Show diff for every file change
+    4. Suggest pytest validation script
+  # Output language rule
+  output_language:
+    - Code, docstring, yaml, comments: ENGLISH
+    - Explanation to user: Chinese
+  forbidden_action:
+    - Do NOT refactor unrelated modules
+    - Do NOT delete existing UI pages or test flow logic
+    - Do NOT add new pip dependencies without asking first
+    - Do NOT hardcode test limits, instrument IP/GPIB address
+    - Do NOT invent instrument commands not matching Keysight spec
+  # When user asks to implement new feature
+  feature_workflow:
+    1. Summarize requirement
+    2. List files to create / modify
+    3. Show code diff
+    4. Provide pytest case for validation
+    5. Give terminal command to run test
+
+## 7. UI Page Spec (MTK-GUI fixed pages)
+ui_pages:
+  - Login page: Supervisor / Operator role selection, Real / Virtual mode toggle
+  - Equipment page: Block diagram (HOST PC → Instruments → Fixture → DUT), click block to open config panel
+  - Test Work Flow page: Table view of full test sequence, plot power rail waveform, PASS/FAIL summary table
+  - Console page: Serial + SSH terminal view, log output
+  - Config page: YAML editor for product test parameters
