@@ -146,6 +146,7 @@ def _workflow_to_yaml(page):
         "overall_flow": overall_flow,
         "stop_if_failure": page.stop_if_fail_cb.isChecked(),
         "stop_if_any_short": page.stop_if_short_cb.isChecked(),
+        "retry": max(0, int(page._runner.retry_count)),
         "ict_test_cases": ict_cases,
         "power_rails_up_sequence": rails,
         "fct_test_cases": fct_cases,
@@ -219,6 +220,10 @@ def apply_config(config, workflow_page, equipment_page):
     if "stop_if_any_short" in tw:
         workflow_page.stop_if_short_cb.setChecked(
             bool(tw["stop_if_any_short"]))
+
+    # basic fault-policy step retry (0 = off, engine default)
+    if "retry" in tw:
+        workflow_page._runner.retry_count = max(0, int(tw["retry"]))
 
     # Overall Flow stage enable states (ICT / FCT EN checkboxes)
     stages = config.get("test_workflow", {}).get("overall_flow", [])
