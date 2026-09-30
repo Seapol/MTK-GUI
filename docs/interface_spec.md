@@ -120,7 +120,7 @@ class TestRunner(QObject):
     step_finished = Signal(int, StepResult)
     run_finished = Signal(dict)                   # summary report
     # control
-    def start(self, config: dict) -> None: ...
+    def start(self, lr_total: int = 1) -> None: ...   # Long Run cycle count
     def abort(self) -> None: ...
 ```
 
@@ -128,6 +128,14 @@ class TestRunner(QObject):
   `params` / `op_params`, limits (`min` / `max` / `unit`), `wait`, `timeout`.
 - Stop strategies: `stop_if_failure` (default **false**), `stop_if_any_short`
   (default **true** — abort before power-up on impedance shorts).
+- Basic fault-policy retry: `retry_count` (default **0** = off) re-executes a
+  FAIL/ERROR step up to N times BEFORE the stop strategies are evaluated.
+  Configured via YAML `test_workflow.retry`; the headless demo also accepts
+  `--retry N` (CLI > YAML `test_workflow.retry` > 0).
+- Firmware flash steps are op steps with `op_params`:
+  `{"type": "flash", "slot": "fat" | "oobe", "image": <path>}`. The image
+  path is taken ONLY from the YAML `firmware.<slot>_image` key — the engine
+  never guesses a path.
 - Overall Result rollup: FAIL if any non-ignored step FAIL/ERROR; otherwise PASS.
 - Waveform sample data: ordered samples `t -> {rail_name: voltage}` captured
   between `start_s` and `end_s` at `rate_hz` (negative `start_s` = pre-trigger).
