@@ -43,6 +43,23 @@ def policy_abort_reason(kind: str, raw_status: str | None, name: str,
     return None
 
 
+def normalize_retry_count(value) -> int:
+    """Validate / clamp a retry setting to a non-negative integer.
+
+    Single source of truth for the basic fault-policy retry parameter
+    (interface_spec.md §3).  Any invalid input (None, non-numeric
+    strings, negative values) is clamped to 0 so no illegal value can
+    reach the retry scheduling logic:
+      * int / numeric string / float -> max(0, int(value))
+      * bool (int subclass)          -> 0 / 1
+      * None / "abc" / other garbage -> 0
+    """
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def rollup(results: dict) -> str | None:
     """Overall result of the executed steps: "FAIL" if any non-ignored
     step FAIL/ERROR, "PASS" if at least one step judged good, None when

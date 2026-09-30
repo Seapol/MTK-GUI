@@ -30,7 +30,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .policies import policy_abort_reason, rollup
+from .policies import normalize_retry_count, policy_abort_reason, rollup
 from .rails import ai_wave_review
 from .results import StepResult, StepStatus
 from .steps import (
@@ -105,9 +105,21 @@ class TestRunner(QObject):
         self._lr_wait_timer = QTimer(self)
         self._lr_wait_timer.setSingleShot(True)
         self._lr_wait_timer.timeout.connect(self._start_next_cycle)
-        # basic fault-policy retry: 0 = off (legacy behavior); set from
-        # the YAML "test_flow.retry" key by the embedding environment
+        # basic fault-policy retry: 0 = off (legacy behavior).  Set via
+        # set_retry(count, source) so the parameter stays normalized and
+        # its origin stays traceable (default / yaml / cli)
         self.retry_count = 0
+        self.retry_source = "default"
+
+    def set_retry(self, count, source: str = "default") -> None:
+        """Configure the basic fault-policy retry (spec §3).
+
+        The count is normalized through the single clamping entry point
+        (policies.normalize_retry_count: non-negative integer, invalid
+        input -> 0) and the configuration source is recorded so every
+        run start can trace where the setting came from."""
+        self.retry_count = normalize_retry_count(count)
+        self.retry_source = str(source)
 
     # ------------------------------------------------------------ result
     def reset_results(self) -> None:
@@ -180,7 +192,8 @@ class TestRunner(QObject):
         a step that recovers never aborts the run; if the operator
         aborted during the step (e.g. Stop pressed while a message
         dialog was open) no retry is made."""
-        retries = max(0, int(getattr(self, "retry_count", 0) or 0))
+        retries = normalize_retry_count(
+            getattr(self, "retry_count", 0) or 0)
         attempt = 0
         while True:
             if kind == "ict":
@@ -795,6 +808,10 @@ class TestRunner(QObject):
         self._interrupted = False
         self._lr_total = max(1, int(lr_total))
         self._lr_done = 0
+        if self.retry_count:
+            self.env._log(
+                f"Step retry enabled: {self.retry_count} attempt(s) on "
+                f"FAIL/ERROR (source: {self.retry_source})")
         self._begin_cycle()
 
     def _begin_cycle(self) -> None:

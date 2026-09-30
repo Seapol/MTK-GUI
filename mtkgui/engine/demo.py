@@ -658,16 +658,17 @@ def main(argv: list[str] | None = None) -> int:
                       logs_dir=Path(args.logs_dir),
                       stop_on_fail=not args.no_stop_on_fail,
                       fast=not args.realtime)
-    # basic fault-policy retry: CLI > YAML test_workflow.retry > 0 (off)
-    if args.retry is not None:
-        runner_retry = max(0, int(args.retry))
-    else:
-        runner_retry = max(
-            0, int((config.get("test_workflow") or {}).get("retry", 0)))
     runner = TestRunner(env)
-    runner.retry_count = runner_retry
-    if runner_retry:
-        print(f"Step retry: {runner_retry} attempt(s) on FAIL/ERROR")
+    # basic fault-policy retry: CLI > YAML test_workflow.retry > 0 (off);
+    # the source is recorded and logged at run start for traceability
+    if args.retry is not None:
+        runner.set_retry(args.retry, source="cli")
+    else:
+        runner.set_retry((config.get("test_workflow") or {}).get("retry"),
+                         source="yaml")
+    if runner.retry_count:
+        print(f"Step retry: {runner.retry_count} attempt(s) on FAIL/ERROR "
+              f"(source: {runner.retry_source})")
     env.runner = runner
     if env.rack is not None:
         env.rack.set_fault_ratios(fail_pct, err_pct)

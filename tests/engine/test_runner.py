@@ -398,3 +398,83 @@ class TestStepRetry:
         # first FCT row fails once, retry recovers
         assert calls["n"] >= 2
         assert runner._step_result("fct", (0,)).status is StepStatus.PASS
+
+
+class TestRetryStandardization:
+    """P1 retry standardization: single normalization entry point,
+    traceable configuration source, operator Stop priority, and
+    stop strategies firing after the retries are exhausted."""
+
+    def test_normalize_retry_count_clamps_illegal_values(self):
+        from mtkgui.engine.policies import normalize_retry_count as n
+        assert n(0) == 0 and n(3) == 3
+        assert n(-5) == 0                        # negative -> 0
+        assert n(2.9) == 2                       # float -> truncated int
+        assert n("4") == 4                       # numeric string
+        assert n("abc") == 0                     # garbage -> 0
+        assert n(None) == 0
+        assert n(True) == 1 and n(False) == 0    # bool is an int subclass
+
+    def test_set_retry_normalizes_and_records_source(self, env):
+        runner = TestRunner(env)
+        runner.set_retry(-3, source="cli")
+        assert runner.retry_count == 0           # clamped, no illegal value
+        assert runner.retry_source == "cli"
+        runner.set_retry("2", source="yaml")
+        assert runner.retry_count == 2
+        assert runner.retry_source == "yaml"
+
+    def test_start_logs_retry_source(self, env):
+        lines = []
+        orig = env._log
+        env._log = lambda line: (lines.append(line), orig(line))
+        runner = TestRunner(env)
+        runner.set_retry(2, source="yaml")
+        runner.start(1)
+        assert any("Step retry enabled: 2 attempt(s) on FAIL/ERROR "
+                   "(source: yaml)" in line for line in lines)
+
+    def test_no_trace_log_without_retry(self, env):
+        lines = []
+        orig = env._log
+        env._log = lambda line: (lines.append(line), orig(line))
+        runner = TestRunner(env)
+        runner.start(1)
+        assert not any("Step retry enabled" in line for line in lines)
+
+    def test_operator_stop_wins_over_retry(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.set_retry(3, source="cli")
+        calls = {"n": 0}
+
+        def fake_exec(row):
+            calls["n"] += 1
+            runner._put("ict", row, StepStatus.FAIL, "flaky")
+
+        runner._exec_ict_row = fake_exec
+        runner.start(1)
+        runner._interrupted = True               # operator Stop happened
+        runner._run_step()
+        assert calls["n"] == 1                   # no retry after Stop
+
+    def test_exhausted_retries_then_stop_policy_fires(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.set_retry(1, source="yaml")
+        calls = {"n": 0}
+
+        def fake_exec(row):
+            calls["n"] += 1
+            runner._put("ict", row, StepStatus.FAIL, "flaky")
+
+        runner._exec_ict_row = fake_exec
+        runner.start(1)
+        for _ in range(10):
+            if runner.state != "running":
+                break
+            runner._run_step()
+        assert calls["n"] == 2                   # initial + 1 retry
+        # flow closed cleanly: policy abort, run finished, FAIL counted
+        assert runner.state == "idle"
+        assert runner.verdict() == "FAIL"
