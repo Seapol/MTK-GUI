@@ -360,7 +360,10 @@ class HeadlessEnv:
         if self.virtual_mode:
             from ..virtual_hardware import VirtualRack
 
-            self.rack = VirtualRack()
+            # fixed seed: the headless demo and the pytest suite must be
+            # deterministic (P0 acceptance: zero flaky runs); fault
+            # injection ratios are still set via set_fault_ratios()
+            self.rack = VirtualRack(seed=42)
         else:
             from .instruments import RealGateway
 
