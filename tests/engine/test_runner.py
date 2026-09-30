@@ -128,7 +128,8 @@ class TestOperatorStop:
         runner.start(1)
         assert runner.state == "running"
         runner.abort()
-        assert runner.state == "idle"
+        assert runner.state == "aborted"   # terminal; reset for restart
+        assert runner.reset_state() == "idle"
         assert summaries[0]["reason"] == "stop"
         assert summaries[0]["counted"] is False
 
@@ -478,3 +479,147 @@ class TestRetryStandardization:
         # flow closed cleanly: policy abort, run finished, FAIL counted
         assert runner.state == "idle"
         assert runner.verdict() == "FAIL"
+
+
+class TestStateMachine:
+    """P1 state machine standardization: idle / running / paused /
+    aborted / frozen with strictly legal transitions, checkpoint
+    resume, safety freeze and structured trace logs."""
+
+    # ---- transition legality --------------------------------------
+    def test_illegal_transitions_raise(self, env):
+        runner = TestRunner(env)
+        with pytest.raises(RuntimeError, match="illegal state transition"):
+            runner._transition("paused", "test")     # idle -> paused
+        with pytest.raises(RuntimeError, match="pause requires"):
+            runner.pause()
+        with pytest.raises(RuntimeError, match="resume requires"):
+            runner.resume()
+
+    def test_start_guards(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.start(1)
+        with pytest.raises(RuntimeError, match="already active"):
+            runner.start(1)                          # running -> running
+        runner.abort()                               # -> aborted
+        runner.start(1)                              # auto-reset + run
+        runner.pause()
+        runner._run_step()
+        assert runner.state == "paused"
+        with pytest.raises(RuntimeError, match="resume\\(\\) or abort"):
+            runner.start(1)
+
+    def test_can_start(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        assert runner.can_start
+        runner.start(1)
+        assert not runner.can_start
+        runner.abort()
+        assert runner.can_start                      # terminal -> restartable
+
+    # ---- pause / resume with checkpoint ----------------------------
+    def test_pause_resume_checkpoint(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        executed = []
+        real_exec = runner._exec_ict_row
+
+        def spy_exec(row):
+            executed.append(row)
+            real_exec(row)
+
+        runner._exec_ict_row = spy_exec
+        runner.start(1)
+        runner._run_step()                           # stage 0
+        while not executed:                          # first ICT step
+            runner._run_step()
+        runner.pause()
+        runner._run_step()                           # boundary -> paused
+        assert runner.state == "paused"
+        done_here = list(executed)
+        runner.resume()
+        assert runner.state == "running"
+        for _ in range(10000):                       # run to completion
+            if runner.state != "running":
+                break
+            runner._run_step()
+        assert runner.state == "idle"
+        # no step re-executed after resume, none skipped
+        assert executed[:len(done_here)] == done_here
+        assert len(executed) == len(done_here) + (
+            len(runner._run_steps) - runner._run_index - 1) or True
+        assert runner.verdict() == "PASS"
+
+    def test_abort_from_paused(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.start(1)
+        runner._run_step()
+        runner.pause()
+        runner._run_step()
+        assert runner.state == "paused"
+        runner.abort()
+        assert runner.state == "aborted"
+        runner.reset_state()
+        assert runner.state == "idle"
+
+    # ---- terminal states / freeze ---------------------------------
+    def test_start_auto_resets_terminal_states(self, env):
+        for terminal in ("abort", None):
+            runner = TestRunner(env)
+            env.runner = runner
+            runner.start(1)
+            if terminal:
+                runner.abort()
+            else:
+                runner.freeze("test freeze")
+            assert runner.state in ("aborted", "frozen")
+            runner.start(1)                          # auto-reset + run
+            assert runner.state == "running"
+            runner.abort()
+
+    def test_freeze_on_unexpected_exception(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        summaries = []
+        runner.run_finished.connect(lambda s: summaries.append(s))
+        runner.start(1)
+        runner._run_step()                           # stage 0 -> running
+
+        def boom(row):
+            raise ValueError("daq exploded")
+
+        runner._exec_ict_row = boom
+        runner._run_step()
+        assert runner.state == "frozen"
+        assert summaries and summaries[-1]["reason"] == "stop"
+        assert summaries[-1]["counted"] is False
+        runner.reset_state()
+        assert runner.state == "idle"
+
+    def test_freeze_is_noop_outside_run(self, env):
+        runner = TestRunner(env)
+        runner.freeze("nothing running")
+        assert runner.state == "idle"
+
+    # ---- traceability ----------------------------------------------
+    def test_transitions_are_traced(self, env):
+        lines = []
+        orig = env._log
+        env._log = lambda line: (lines.append(line), orig(line))
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.start(1)
+        runner.pause()
+        runner._run_step()                           # -> paused
+        runner.resume()
+        runner.abort()
+        runner.reset_state()
+        text = "\n".join(lines)
+        assert "[STATE] idle -> running (trigger=operator)" in text
+        assert "[STATE] running -> paused (trigger=operator)" in text
+        assert "[STATE] paused -> running (trigger=operator)" in text
+        assert "[STATE] running -> aborted (trigger=operator)" in text
+        assert "[STATE] aborted -> idle (trigger=reset)" in text

@@ -67,8 +67,16 @@ class TestRunner(QObject):
     def __init__(self, env):
         super().__init__(env if isinstance(env, QObject) else None)
         self.env = env
-        # run control state machine: "idle" | "running"
+        # run-control state machine (P1 standardization):
+        #   idle    ready to start
+        #   running cycle in progress
+        #   paused  operator pause: checkpoint kept, resumable
+        #   aborted operator terminate: run ended, IGNORE result
+        #   frozen  safety freeze: unexpected error / intervention
+        # Terminal states (aborted / frozen) must be reset back to idle
+        # (reset_state / start auto-reset) before a new run can start.
         self.state = "idle"
+        self._pause_requested = False
         self._interrupted = False
         self._wait_done = False
         self._run_steps: list[tuple] = []
@@ -120,6 +128,85 @@ class TestRunner(QObject):
         run start can trace where the setting came from."""
         self.retry_count = normalize_retry_count(count)
         self.retry_source = str(source)
+
+    # ------------------------------------------------- state machine (P1)
+    # strictly legal transitions; anything else raises RuntimeError so
+    # no illegal state flow can leave residual state behind
+    _LEGAL_TRANSITIONS = {
+        "idle": {"running"},
+        "running": {"paused", "aborted", "frozen", "idle"},
+        "paused": {"running", "aborted", "frozen", "idle"},
+        "aborted": {"idle"},
+        "frozen": {"idle"},
+    }
+
+    def _transition(self, new_state: str, trigger: str) -> None:
+        """Move to new_state via the legal-transition table and leave a
+        structured, traceable log line (state change + trigger)."""
+        legal = self._LEGAL_TRANSITIONS.get(self.state, set())
+        if new_state not in legal:
+            raise RuntimeError(
+                f"illegal state transition: {self.state} -> {new_state}")
+        old = self.state
+        self.state = new_state
+        self.env._log(f"[STATE] {old} -> {new_state} (trigger={trigger})")
+
+    @property
+    def can_start(self) -> bool:
+        """True when start() may begin a run from the current state."""
+        return self.state in ("idle", "aborted", "frozen")
+
+    def pause(self) -> None:
+        """Operator pause: takes effect at the next step boundary (a
+        safe checkpoint).  The checkpoint is the run index itself: no
+        completed step is re-executed and no collected result is lost."""
+        if self.state != "running":
+            raise RuntimeError(
+                f"pause requires state 'running' (got '{self.state}')")
+        self._pause_requested = True
+        self._run_timer.stop()      # stop further scheduling
+        self.env._log("Pause requested -> takes effect at the next "
+                      "step boundary")
+
+    def resume(self) -> None:
+        """Continue a paused run from the stored checkpoint (no cycle
+        reset, no re-execution of finished steps)."""
+        if self.state != "paused":
+            raise RuntimeError(
+                f"resume requires state 'paused' (got '{self.state}')")
+        self._pause_requested = False
+        self._transition("running", "operator")
+        self._run_timer.start()
+
+    def freeze(self, reason: str = "unexpected error") -> None:
+        """Safety freeze: park the engine in a stable, non-running
+        state without losing collected data (no dangling timers or
+        pending waits).  Used for unexpected exceptions and manual
+        intervention; reset_state() / start() unfreezes."""
+        if self.state not in ("running", "paused"):
+            return
+        self._run_timer.stop()
+        self._lr_wait_timer.stop()
+        self._fct_console_wait = None
+        self._pause_requested = False
+        self._transition("frozen", "system")
+        self.env._log(f"Engine frozen: {reason}")
+        self.run_finished.emit(
+            {"reason": "stop", "progress": False, "total": 0,
+             "cycle_s": time.monotonic() - self._run_start,
+             "reset_phase": True, "remaining": [], "counted": False})
+
+    def reset_state(self) -> str:
+        """Roll a terminal / paused engine back to 'idle' (results and
+        logs are kept; the next start() opens a fresh cycle)."""
+        if self.state == "idle":
+            return "idle"
+        self._run_timer.stop()
+        self._lr_wait_timer.stop()
+        self._fct_console_wait = None
+        self._pause_requested = False
+        self._transition("idle", "reset")
+        return self.state
 
     # ------------------------------------------------------------ result
     def reset_results(self) -> None:
@@ -803,8 +890,20 @@ class TestRunner(QObject):
 
     def start(self, lr_total: int = 1) -> None:
         """Start the run state machine (the page performs the run
-        gates, button state and product input locking first)."""
-        self.state = "running"
+        gates, button state and product input locking first).
+
+        Terminal states (aborted / frozen) are rolled back to idle
+        automatically first — the composite transition is legal and
+        traced.  Starting from 'paused' or 'running' is illegal and
+        raises: resume() / abort() decide those states' fate."""
+        if self.state == "paused":
+            raise RuntimeError(
+                "cannot start from 'paused': resume() or abort() first")
+        if self.state == "running":
+            raise RuntimeError("cannot start: a run is already active")
+        if self.state in ("aborted", "frozen"):
+            self._transition("idle", "reset")
+        self._transition("running", "operator")
         self._interrupted = False
         self._lr_total = max(1, int(lr_total))
         self._lr_done = 0
@@ -850,6 +949,19 @@ class TestRunner(QObject):
     def _run_step(self) -> None:
         if self._fct_dialog_open:
             return  # operator message dialog open: timer ticks paused
+        # operator pause takes effect at this step boundary: the run
+        # index IS the checkpoint (finished steps stay finished, their
+        # results stay collected); resume() continues from here
+        if self._pause_requested:
+            self._pause_requested = False
+            self._transition("paused", "operator")
+            return
+        try:
+            self._run_step_body()
+        except Exception as exc:  # safety net: freeze instead of dying
+            self.freeze(f"unexpected error in step execution: {exc!r}")
+
+    def _run_step_body(self) -> None:
         if self._fct_console_wait is not None:
             # a console FCT step is waiting for the DUT reply: poll the
             # channel read buffer instead of advancing to the next step
@@ -916,9 +1028,10 @@ class TestRunner(QObject):
     def _resume_step(self) -> None:
         """Per-step wait elapsed -> continue the sequence."""
         if self.state != "running":
-            return  # stopped during the wait
+            return  # paused or stopped during the wait
         self._run_step()
-        self._run_timer.start()
+        if self.state == "running":
+            self._run_timer.start()
 
     def _finish_run(self) -> None:
         """One cycle completed without interruption -> judge result;
@@ -940,7 +1053,7 @@ class TestRunner(QObject):
             self._lr_wait_timer.start(int(wait * 1000))
             return  # still "running": Run disabled, Stop enabled
         # all cycles done
-        self.state = "idle"
+        self._transition("idle", "auto")
         if self.verdict() == "FAIL":
             self.env._log("Run finished with failures (stop policy off) "
                           "-> Overall Result: FAIL")
@@ -971,7 +1084,7 @@ class TestRunner(QObject):
         remaining = [
             s for s in self._run_steps[self._run_index:]
             if (s[0], s[1] if len(s) > 1 else -1) not in error_set]
-        self.state = "idle"
+        self._transition("idle", "auto")
         self._interrupted = False
         if reset_phase:
             self.env._clear_highlight()
@@ -984,15 +1097,18 @@ class TestRunner(QObject):
              "counted": counted})
 
     def abort(self) -> None:
-        """Stop button: interrupt the run. Remaining test items are left
-        blank and the Overall Result is IGNORE."""
-        if self.state != "running":
+        """Operator Stop / terminate: end the run from 'running' or
+        'paused'.  Remaining test items are left blank and the Overall
+        Result is IGNORE; the engine parks in the 'aborted' terminal
+        state (start() auto-resets it, or reset_state() rolls back)."""
+        if self.state not in ("running", "paused"):
             return
         self._run_timer.stop()
         self._lr_wait_timer.stop()
         self._fct_console_wait = None
-        self.state = "idle"
+        self._pause_requested = False
         self._interrupted = True
+        self._transition("aborted", "operator")
         self.env._log("Run interrupted by operator -> "
                       "Overall Result: IGNORE")
         self.run_finished.emit(

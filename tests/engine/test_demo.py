@@ -113,7 +113,7 @@ class TestDemoEnv:
         env.runner = runner
         runner.start(1)
         runner.abort()
-        assert runner.state == "idle"
+        assert runner.state == "aborted"   # terminal (P1 state machine)
 
 
 class TestRetryFromYaml:
