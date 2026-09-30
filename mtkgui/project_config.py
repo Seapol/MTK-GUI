@@ -110,8 +110,9 @@ def _workflow_to_yaml(page):
     rails = {
         "instrument": "Keysight U2355A analog input",
         "channels": len(page.rails),
-        "duration_s": DURATION_S,
-        "sample_rate_hz": SAMPLE_HZ,
+        "duration_s": round(getattr(page, "cap_end", DURATION_S)
+                            - getattr(page, "cap_start", -0.5), 3),
+        "sample_rate_hz": getattr(page, "cap_rate", SAMPLE_HZ),
         "judgment": "record only - no pass/fail",
         "rails": [
             {"name": name, "nominal_v": vnom,
@@ -235,6 +236,9 @@ def apply_config(config, workflow_page, equipment_page):
          float(r.get("ramp_offset_s", 0.0)))
         for r in (pr.get("rails") or [])
     ])
+    workflow_page.set_capture_settings(
+        duration_s=pr.get("duration_s"),
+        rate_hz=pr.get("sample_rate_hz"))
 
     # per-step enable / wait / timeout for ICT. The step list itself
     # (name / kind / unit / thresholds) is rebuilt from the YAML so a

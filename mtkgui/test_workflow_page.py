@@ -77,6 +77,7 @@ from PySide6.QtWidgets import (
 )
 
 from .style import gui_theme_color, saved_theme, text_for_card
+from .virtual_hardware import VirtualRack, tp_index
 from .widgets.multi_console import MultiConsoleWidget
 
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
@@ -372,8 +373,12 @@ class TestWorkFlowPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.rail_samples = None
+        self.rail_volts = None
         self.rail_csv_path = None
         self._rail_plot_cache = []
+        # Virtual mode hardware rack (DAQ973A / U2355A / N5747A / fixture
+        # simulation); None in Real mode until the SCPI drivers land
+        self.rack = None
         self.cycle_times = []
         # production statistics: per PRODUCT (one complete test cycle),
         # not per individual test item
@@ -774,23 +779,38 @@ class TestWorkFlowPage(QWidget):
         """Virtual mode: simulated hardware, injected faults, prefix."""
         self.virtual_mode = (mode == "Virtual")
         self.rail_widget.set_virtual(self.virtual_mode)
+        if self.virtual_mode:
+            self.rack = VirtualRack(
+                self.fault_cfg.get("test_fail_ratio", 0),
+                self.fault_cfg.get("equipment_error_ratio", 0))
+        else:
+            self.rack = None
 
     def set_virtual_fault(self, cfg):
         """Fault-injection ratios (percent) used in Virtual mode only."""
-        if cfg:
-            self.fault_cfg = dict(cfg)
+        self.fault_cfg = dict(cfg or self.fault_cfg)
+        if self.rack is not None:
+            self.rack.set_fault_ratios(
+                self.fault_cfg.get("test_fail_ratio", 0),
+                self.fault_cfg.get("equipment_error_ratio", 0))
 
-    def _virtual_fault_roll(self):
-        """Random Virtual-mode fault injection.
+    def _virtual_fault_roll(self, allow_fail=True, allow_error=True):
+        """Random Virtual-mode fault injection: one single, mutually
+        exclusive draw (Error band first, then FAIL band).
 
         Returns "Error" (random equipment / serial fault), "FAIL"
         (random out-of-limit measurement / unexpected reply) or None."""
         if not self.virtual_mode:
             return None
-        if (random.random() * 100
-                < self.fault_cfg.get("equipment_error_ratio", 0)):
+        if self.rack is not None:
+            return self.rack.policy.roll(allow_fail=allow_fail,
+                                        allow_error=allow_error)
+        u = random.random() * 100
+        err = self.fault_cfg.get("equipment_error_ratio", 0)
+        fail = self.fault_cfg.get("test_fail_ratio", 0)
+        if allow_error and u < err:
             return "Error"
-        if random.random() * 100 < self.fault_cfg.get("test_fail_ratio", 0):
+        if allow_fail and u < err + fail:
             return "FAIL"
         return None
 
@@ -1094,6 +1114,7 @@ class TestWorkFlowPage(QWidget):
         # the waveform); they are not shown on the page itself.
         self.cap_start = -0.5      # s, negative = before power-on
         self.cap_end = DURATION_S  # s
+        self.cap_rate = SAMPLE_HZ  # U2355A AI sample rate (YAML defined)
         self.csv_export = True     # ticked = record waveform to DAQ csv
 
         self.rail_widget = WaveformWidget()
@@ -1110,6 +1131,19 @@ class TestWorkFlowPage(QWidget):
         layout.addLayout(self.rail_grid)
         self.set_rails(self.rails)
         return group
+
+    def set_capture_settings(self, duration_s=None, rate_hz=None):
+        """U2355A capture duration / sample rate from the project YAML."""
+        if rate_hz:
+            try:
+                self.cap_rate = int(min(250000, max(1, float(rate_hz))))
+            except (TypeError, ValueError):
+                pass
+        if duration_s:
+            try:
+                self.cap_end = float(duration_s)
+            except (TypeError, ValueError):
+                pass
 
     def set_rails(self, rails):
         """Replace the rail set (from the loaded YAML project): rebuild
@@ -1134,6 +1168,7 @@ class TestWorkFlowPage(QWidget):
             self.rail_checks[label] = cb
         # nothing captured for the (new) rail set yet
         self.rail_samples = None
+        self.rail_volts = None
         self._rail_plot_cache = []
         self.rail_csv_path = None
         self._apply_rail_filter()
@@ -1157,7 +1192,7 @@ class TestWorkFlowPage(QWidget):
             return ("AI Waveform Review\n"
                     "==================\n"
                     "No waveform captured yet - run a sequence first.")
-        hz = SAMPLE_HZ
+        hz = self.cap_rate
         kind = ("virtual demo data" if self.virtual_mode
                 else "DAQ capture")
         lines = [
@@ -1277,8 +1312,14 @@ class TestWorkFlowPage(QWidget):
         start_spin.valueChanged.connect(_upd_dur)
         end_spin.valueChanged.connect(_upd_dur)
 
-        sr_lbl = QLabel(f"{SAMPLE_HZ} Hz")
-        form.addRow("Sample Rate:", sr_lbl)
+        rate_spin = QSpinBox()
+        rate_spin.setRange(1, 250000)  # U2355A aggregate 250 kSa/s
+        rate_spin.setValue(int(self.cap_rate))
+        rate_spin.setSuffix(" Hz")
+        rate_spin.setSingleStep(100)
+        rate_spin.setToolTip("Per-channel analog input sample rate "
+                             "(project YAML: sample_rate_hz)")
+        form.addRow("Sample Rate:", rate_spin)
 
         csv_cb = QCheckBox("Record waveform data to DAQ csv file")
         csv_cb.setChecked(self.csv_export)
@@ -1336,13 +1377,14 @@ class TestWorkFlowPage(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # apply capture time / csv changes
+        # apply capture time / rate / csv changes
         self.cap_start = start_spin.value()
         self.cap_end = end_spin.value()
+        self.cap_rate = rate_spin.value()
         self.csv_export = csv_cb.isChecked()
         self.rail_widget.t_start = self.cap_start
-        # regenerate waveform with new time range
-        self.rail_samples, _ = self._gen_rails()
+        # regenerate waveform with the new time range (healthy preview)
+        self.rail_samples, self.rail_volts =             self._generate_rail_samples(inject_faults=False)
         self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
         self._apply_rail_filter()
 
@@ -1571,11 +1613,11 @@ class TestWorkFlowPage(QWidget):
         start_s = self.cap_start
         end_s = self.cap_end
         rng = random.Random(42)
-        n = int((end_s - start_s) * SAMPLE_HZ)
-        power_on_idx = int(abs(start_s) * SAMPLE_HZ)
+        n = int((end_s - start_s) * self.cap_rate)
+        power_on_idx = int(abs(start_s) * self.cap_rate)
         samples = []
         for label, color, vnom, ramp_off in self.rails:
-            ramp_pts = max(1, int((0.25 + ramp_off) * SAMPLE_HZ))
+            ramp_pts = max(1, int((0.25 + ramp_off) * self.cap_rate))
             # realistic converters slightly overshoot (1-4 %) when the
             # ramp completes, then settle within ~20 ms
             overshoot = rng.uniform(0.01, 0.04)
@@ -1600,12 +1642,29 @@ class TestWorkFlowPage(QWidget):
             samples.append(series)
         return samples, n
 
+    def _generate_rail_samples(self, inject_faults=True):
+        """Return (fractions, volts) for one up-sequence capture.
+
+        Virtual mode: the simulated U2355A produces stochastic volts
+        tied to the virtual PSU state (fresh entropy per capture);
+        Real mode without a driver keeps the legacy normalized demo
+        waveform and returns volts = None.  inject_faults=False gives a
+        guaranteed-healthy preview for the properties dialog."""
+        if self.rack is not None:
+            force = None if inject_faults else "PASS"
+            frac, volts, _anomaly = self.rack.capture_rails(
+                self.rails, self.cap_start, self.cap_end, self.cap_rate,
+                force=force)
+            return frac, volts
+        samples, _n = self._gen_rails()
+        return samples, None
+
     def _rail_plot_data(self, samples):
         return [(label, color, vnom, series)
                 for (label, color, vnom, _), series
                 in zip(self.rails, samples)]
 
-    def _write_csv(self, samples):
+    def _write_csv(self, samples, volts=None):
         LOGS_DIR.mkdir(exist_ok=True)
         mid = "_virtual" if self.virtual_mode else ""
         name = f"power_rails{mid}_{datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -1615,10 +1674,15 @@ class TestWorkFlowPage(QWidget):
             writer = csv.writer(f)
             writer.writerow(["time_ms"] + [r[0] for r in self.rails])
             for i in range(len(samples[0])):
-                t_ms = (start_s + i / SAMPLE_HZ) * 1000
+                t_ms = (start_s + i / self.cap_rate) * 1000
                 row = [f"{t_ms:.1f}"]
-                for series in samples:
-                    row.append(f"{series[i]:.6f}")
+                for j, series in enumerate(samples):
+                    # a real U2355A logs volts; the legacy demo path has
+                    # only normalized fractions of each rail's nominal
+                    if volts is not None:
+                        row.append(f"{volts[j][i]:.6f}")
+                    else:
+                        row.append(f"{series[i]:.6f}")
                 writer.writerow(row)
         return path
 
@@ -1685,59 +1749,169 @@ class TestWorkFlowPage(QWidget):
                     item.setBackground(QBrush())
         self._active_table, self._active_row = None, -1
 
+    @staticmethod
+    def _op_instrument_abbr(params):
+        """Status-bar instrument behind an operation step."""
+        t = (params or {}).get("type") or ""
+        if t == "power":
+            return "PSU"
+        if t == "fixture":
+            return "DAQM"   # fixture control board sits on DAQM907A DIO
+        return "DAQM"
+
+    @staticmethod
+    def _meas_instrument_abbr(kind, name):
+        """Status-bar instrument behind a measurement step."""
+        tp = tp_index(name)
+        # CLK2/CLK3 (TP_C02/C03) and DUT GPIO run on the U2355A;
+        # everything else (OHM/DCV, totalizer CLK1, AO, fixture DIO)
+        # runs on the DAQ973A mainframe
+        if "gpio" in name.lower():
+            return "DAQ"
+        if kind == "Clock Hz" and tp and tp[0] == "C" and tp[1] >= 2:
+            return "DAQ"
+        return "DAQM"
+
+    def _exec_rail_capture_row(self, r):
+        """Power-rails up-sequence capture (the ICT 'DAQ AI' row).
+
+        The virtual U2355A acquires every rail in volts (CSV + AI
+        review, plot stays hidden during a run).  A test-fail fault
+        corrupts one rail so the AI review flags it; an equipment fault
+        aborts the acquisition."""
+        name = self.ict_steps[r][1]
+        if not self.rails:
+            self._set_status(self.ict, r, 7, "Error")
+            self.instrument_error.emit("DAQ")
+            self._log(f"ICT {name}: no rails defined (load a project "
+                      f"YAML first) -> Error")
+            return
+        force = "FAIL" if r in self.ict_sim_fail else None
+        if self.rack is not None:
+            frac, volts, anomaly = self.rack.capture_rails(
+                self.rails, self.cap_start, self.cap_end, self.cap_rate,
+                force=force)
+            if anomaly == "error":
+                self._set_status(self.ict, r, 7, "Error")
+                self.instrument_error.emit("DAQ")
+                self._log(f"ICT {name}: U2355A AI acquisition error "
+                          f"(virtual) -> Error")
+                return
+            self.rail_samples, self.rail_volts = frac, volts
+        else:
+            self.rail_samples, self.rail_volts =                 self._generate_rail_samples()
+            anomaly = None
+        self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
+        tag = " (virtual)" if self.virtual_mode else ""
+        if self.csv_export:
+            path = self._write_csv(self.rail_samples, self.rail_volts)
+            self.rail_csv_path = path
+            review = self._ai_wave_review()
+            self._ai_review_text = review
+            rpath = path.with_name(path.stem + "_ai_review.txt")
+            try:
+                rpath.write_text(review, encoding="utf-8")
+                saved = (f"CSV saved ({path.name}), "
+                         f"AI review ({rpath.name})")
+            except OSError:
+                saved = f"CSV saved ({path.name}), AI review save failed"
+        else:
+            self.rail_csv_path = None
+            self._ai_review_text = self._ai_wave_review()
+            saved = "display only, CSV export off"
+        n = len(self.rails)
+        if anomaly:
+            self._set_status(self.ict, r, 7, "FAIL")
+            self._log(f"ICT {name}: {n} rails captured{tag}, {saved}; "
+                      f"AI review flags '{anomaly}' (abnormal waveform, "
+                      f"virtual fail) -> FAIL")
+        else:
+            self._set_status(self.ict, r, 7, "PASS")
+            self._log(f"ICT {name}: {n} rails captured{tag}, {saved} "
+                      f"-> PASS")
+
     def _exec_ict_row(self, r):
         """Execute one ICT test-case row.
 
-        op -> Done; test -> PASS, except rows flagged through the
-        context menu (ict_sim_fail) which simulate a real FAIL —
-        Impedance Shorts rows then show low-impedance (short) points.
+        Virtual mode drives the simulated rack: op steps move the
+        fixture / PSU state machines, measurement rows receive
+        stochastic instrument readings judged against the YAML limits,
+        and the DAQ AI row captures the power-rails up sequence.  Rows
+        flagged through the context menu (ict_sim_fail) force a FAIL.
+        Real mode keeps the legacy placeholder verdict until the SCPI
+        instrument drivers are added.
         """
         self._fill_ict_row(r, placeholder=False)
         self._highlight_row(self.ict, r)
         step = self.ict_steps[r]
         kind, name = step[0], step[1]
         unit, measured, lo, hi = step[2], step[3], step[4], step[5]
+        params = step[6] if len(step) > 6 else None
+
         if kind == "DAQ AI":
-            # power rails up sequence as a capture step: samples + CSV
-            # + AI review, no waveform drawing; judged like a test below
-            self._capture_rails(draw=False)
+            # power rails up sequence: samples (volts) + CSV + AI review
+            self._exec_rail_capture_row(r)
+            return
+
         if kind == "op":
-            # operation step: print each sub-action's status to the
-            # Event Log, then the overall Done marker
-            params = step[6] if len(step) > 6 else None
-            for line in self._op_status_lines(name, params):
-                self._log(f"ICT op {name}: {line}")
+            if self.rack is not None:
+                m = self.rack.execute_op(name, params)
+                for line in m.lines:
+                    self._log(f"ICT op {name}: {line}")
+                if m.verdict == "Error":
+                    self._set_status(self.ict, r, 7, "Error")
+                    self.instrument_error.emit(
+                        self._op_instrument_abbr(params))
+                    return
+                self._set_status(self.ict, r, 7, "Done")
+            else:
+                for line in self._op_status_lines(name, params):
+                    self._log(f"ICT op {name}: {line}")
             self._log(f"ICT op {name}: Done")
-        elif r in self.ict_sim_fail:
+            return
+
+        # ------------------------------------------------ measurement rows
+        if self.rack is not None:
+            force = "FAIL" if r in self.ict_sim_fail else None
+            m = self.rack.measure_row(kind, name, unit, lo, hi, force=force)
+            item = self.ict.item(r, 4)
+            if item is not None:
+                item.setText(m.text)
+            for line in m.lines:
+                self._log(f"ICT {name}: {line}")
+            if m.verdict == "Error":
+                self._set_status(self.ict, r, 7, "Error")
+                self.instrument_error.emit(
+                    self._meas_instrument_abbr(kind, name))
+            else:
+                self._set_status(self.ict, r, 7, m.verdict)
+            return
+
+        # legacy placeholder path (Real mode, instrument drivers pending)
+        if r in self.ict_sim_fail:
             if self._is_impedance_short_row(r):
-                # 2 of 80 points below the minimum resistance -> short risk
-                self.ict.item(r, 4).setText("2/80")
+                self.ict.item(r, 4).setText("0.62")
                 self._set_status(self.ict, r, 7, "FAIL")
-                self._log(f"ICT {name}: 2 low-impedance points < 1.5 Ω "
-                          f"(short risk) -> FAIL")
+                self._log(f"ICT {name}: 0.62 OHM below 1.5 OHM (short "
+                          f"risk) -> FAIL")
             else:
                 self._set_status(self.ict, r, 7, "FAIL")
                 self._log(f"ICT {name}: {measured} {unit} out of limit "
                           f"({lo}..{hi}) -> FAIL")
+            return
+        fault = self._virtual_fault_roll()
+        if fault == "Error":
+            self._set_status(self.ict, r, 7, "Error")
+            self.instrument_error.emit("DAQM")
+            self._log(f"ICT {name}: random equipment / serial fault "
+                      f"(virtual) -> Error")
+        elif fault == "FAIL":
+            self._set_status(self.ict, r, 7, "FAIL")
+            self._log(f"ICT {name}: {measured} {unit} out of limit "
+                      f"({lo}..{hi}) (virtual fail) -> FAIL")
         else:
-            fault = self._virtual_fault_roll()
-            if fault == "Error":
-                self._set_status(self.ict, r, 7, "Error")
-                self.instrument_error.emit("DAQM")
-                self._log(f"ICT {name}: random equipment / serial fault "
-                          f"(virtual) -> Error")
-            elif fault == "FAIL":
-                self._set_status(self.ict, r, 7, "FAIL")
-                self._log(f"ICT {name}: {measured} {unit} out of limit "
-                          f"({lo}..{hi}) (virtual fail) -> FAIL")
-            else:
-                if kind == "DAQ AI":
-                    self._log(f"ICT {name}: 12 rails captured"
-                              f"{' (virtual)' if self.virtual_mode else ''}"
-                              f" -> PASS")
-                else:
-                    self._log(f"ICT {name}: {measured} {unit} "
-                              f"(threshold {lo}..{hi}) -> PASS")
+            self._log(f"ICT {name}: {measured} {unit} "
+                      f"(threshold {lo}..{hi}) -> PASS")
 
     def _op_status_lines(self, name, params):
         """Per-sub-action Event Log status lines for one op step."""
@@ -1767,7 +1941,7 @@ class TestWorkFlowPage(QWidget):
             self._log("Power rails up sequence: no rails defined "
                       "(load a project YAML first)")
             return
-        self.rail_samples, _ = self._gen_rails()
+        self.rail_samples, self.rail_volts = self._generate_rail_samples()
         if draw:
             self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
             self._apply_rail_filter()
@@ -1776,7 +1950,7 @@ class TestWorkFlowPage(QWidget):
         if not draw:
             tag += ", waveform display off"
         if self.csv_export:
-            path = self._write_csv(self.rail_samples)
+            path = self._write_csv(self.rail_samples, self.rail_volts)
             self.rail_csv_path = path
             # AI review page: grade every rail's waveform parameters
             review = self._ai_wave_review()
@@ -1811,13 +1985,25 @@ class TestWorkFlowPage(QWidget):
         t0 = time.monotonic()
         kind = (self.fct_kinds[r] if r < len(self.fct_kinds) else "")
         if kind == "op":
-            # standard operation step: log sub-action statuses + Done
+            # standard operation step: move fixture / PSU state, log
+            # every sub-action, Done or Error (equipment fault)
             params = (self.fct_op_params[r]
                       if r < len(self.fct_op_params) else None)
-            for line in self._op_status_lines(name, params):
-                self._log(f"FCT op {name}: {line}")
-            self._log(f"FCT op {name}: Done")
-            self._set_status(self.fct, r, 4, "Done")
+            verdict = "Done"
+            if self.rack is not None:
+                m = self.rack.execute_op(name, params)
+                for line in m.lines:
+                    self._log(f"FCT op {name}: {line}")
+                verdict = m.verdict
+                if verdict == "Error":
+                    self.instrument_error.emit(
+                        self._op_instrument_abbr(params))
+            else:
+                for line in self._op_status_lines(name, params):
+                    self._log(f"FCT op {name}: {line}")
+            if verdict != "Error":
+                self._log(f"FCT op {name}: Done")
+            self._set_status(self.fct, r, 4, verdict)
             self._set_status(self.fct, r, 3,
                              f"{time.monotonic() - t0:.2f}")
             return
@@ -1826,9 +2012,9 @@ class TestWorkFlowPage(QWidget):
             verdict = "FAIL"
             self._log(f"FCT {name}: expected pass marker not found -> FAIL")
         elif (interactive and self.virtual_mode
-                and kind in CONSOLE_KINDS):
-            # Virtual mode: console methods run for real against the
-            # simulated DUT behind the virtual serial channel
+                and kind in CONSOLE_KINDS + ("WIFI", "Bluetooth")):
+            # Virtual mode: console / RF methods run for real against
+            # the simulated DUT behind the virtual serial channel
             self._exec_fct_console(r, kind, name, t0)
             return
         elif interactive and kind in ("MessageOK", "MessageYesNo",
@@ -1893,6 +2079,16 @@ class TestWorkFlowPage(QWidget):
         no reply (timeout with no bytes -> Error), test fail -> a reply
         without the expected keyword (-> FAIL)."""
         quotes, rest = self._parse_console_step(name)
+        # WIFI / Bluetooth rows exercise the same simulated CLI path
+        # with the standard RF test commands and Pass/Success markers
+        if kind == "WIFI" and not quotes:
+            kind = "SendtoCLI"
+            name = 'SendtoCLI: "wifi_test --scan"'
+            quotes = ["wifi_test --scan", "Pass", "Success"]
+        elif kind == "Bluetooth" and not quotes:
+            kind = "SendtoCLI"
+            name = 'SendtoCLI: "bt_test --scan"'
+            quotes = ["bt_test --scan", "Pass", "Success"]
         mc = self.multi_console
         key = self._pick_serial_channel()
 
@@ -1958,6 +2154,11 @@ class TestWorkFlowPage(QWidget):
                 finish("Error", f"FCT {name}: random serial fault "
                                 f"(virtual) -> Error")
                 return
+            if fault == "FAIL":
+                finish("FAIL", f"FCT {name}: expected keyword never "
+                               f"observed in the console output "
+                               f"(virtual fail) -> FAIL")
+                return
             keywords = [q for q in quotes if q]
             if not keywords:
                 fallback = _console_keyword_fallback(rest)
@@ -1974,12 +2175,20 @@ class TestWorkFlowPage(QWidget):
             return
 
         # CapturefromConsole / CapturefromCLI: instant buffer capture
+        fault = self._virtual_fault_roll()
+        if fault == "Error":
+            finish("Error", f"FCT {name}: random serial/equipment fault "
+                            f"(virtual) -> Error")
+            return
         keywords = [q for q in quotes if q]
         if not keywords:
             fallback = _console_keyword_fallback(rest)
             keywords = [fallback] if fallback else []
         text = mc.get_read_buffer(key).decode("utf-8", "replace")
-        if keywords and any(k in text for k in keywords):
+        healthy = (not keywords) or any(k in text for k in keywords)
+        if fault == "FAIL":
+            healthy = False
+        if healthy:
             finish("PASS", f"FCT {name}: buffer contains "
                            f"{' / '.join(keywords)} -> PASS")
         else:
@@ -2012,6 +2221,7 @@ class TestWorkFlowPage(QWidget):
         if time.monotonic() < w["deadline"]:
             return  # keep waiting
         if len(buf) - w["from_len"] == 0:
+            self.instrument_error.emit("DAQ")
             self._finish_console_wait(
                 "Error", f"FCT {w['name']}: timeout, no reply from the "
                          f"DUT -> Error")
@@ -2560,6 +2770,8 @@ class TestWorkFlowPage(QWidget):
 
     def clear_results(self):
         self._interrupted = False
+        if self.rack is not None:
+            self.rack.reset_cycle()  # new unit: PSU off, fixture released
         self._fill_ict(placeholder=True)
         for r in range(self.fct.rowCount()):
             self._set_status(self.fct, r, 3, "--")
