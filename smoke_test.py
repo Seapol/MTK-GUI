@@ -537,6 +537,16 @@ rtext = rpath.read_text()
 assert "AI Waveform Review" in rtext and "OVERALL:" in rtext, rtext[:200]
 assert "VDD_SNVS_3V3" in rtext and "overshoot" in rtext, rtext[:300]
 assert "12/12 rails pass" in rtext, rtext[-200:]
+# virtual CSV stores volts, not normalized fractions: the last sample
+# of every rail must sit near its YAML nominal voltage
+import csv as _csv
+with open(wf3.rail_csv_path) as _fh:
+    _rows = list(_csv.reader(_fh))
+_tail = [float(x) for x in _rows[-1][1:]]
+_noms = [_r[2] for _r in wf3.rails]
+assert len(_tail) == len(_noms)
+for _v, _nom in zip(_tail, _noms):
+    assert abs(_v - _nom) < 0.10 * _nom + 0.02, (_v, _nom)
 w3.close()
 # operator account is always forced back to Real mode
 w4 = MainWindow(role=ROLE_OPERATOR, mode="Virtual")
@@ -546,6 +556,172 @@ assert w4.act_fault_inject.isEnabled() is False
 assert w4.workflow_page.virtual_mode is False
 w4.close()
 print("virtual mode ok")
+
+# 15b. Virtual hardware rack: single-draw fault policy statistics.
+from mtkgui.virtual_hardware import FaultPolicy, VirtualRack
+assert all(FaultPolicy(0, 0).roll() is None for _ in range(300))
+assert all(FaultPolicy(100, 0).roll() == "FAIL" for _ in range(300))
+assert all(FaultPolicy(0, 100).roll() == "Error" for _ in range(300))
+_pm = FaultPolicy(50, 50, seed=7)
+_draws = [_pm.roll() for _ in range(4000)]
+assert set(_draws) == {"FAIL", "Error"}
+_frac = _draws.count("Error") / len(_draws)
+assert 0.45 < _frac < 0.55, _frac            # Error band first, then FAIL
+assert all(FaultPolicy(0, 100, seed=8).roll(allow_fail=False) == "Error"
+           for _ in range(100))
+assert all(FaultPolicy(100, 0, seed=9).roll(allow_error=False) == "FAIL"
+           for _ in range(100))
+# with the FAIL band disabled, the remaining draws must be healthy/Error only
+assert set(_pm.roll(allow_fail=False) for _ in range(400)) <= {"Error", None}
+print("fault policy mutex ok")
+
+# 15c. Virtual rack: healthy ICT sequence, stochastic readings in limit.
+rack = VirtualRack(0, 0, seed=1234)
+m = rack.execute_op("Init Instruments",
+                    {"type": "instruments",
+                     "instruments": ["DAQM", "DAQ", "PSU"]})
+assert m.verdict == "Done", m.lines
+for _nm, _pr in [
+        ("Fixture Clamp Down",
+         {"type": "fixture", "signal": "press", "level": "H"}),
+        ("Fixture Lock",
+         {"type": "fixture", "signal": "inpos", "level": "H"}),
+        ("E-Stop Healthy",
+         {"type": "fixture", "signal": "estop", "level": "L"})]:
+    assert rack.execute_op(_nm, _pr).verdict == "Done", _nm
+# locking a fresh, released fixture must be an Error
+r2 = VirtualRack(0, 0, seed=2)
+assert r2.execute_op("Fixture Lock",
+                     {"type": "fixture", "signal": "inpos",
+                      "level": "H"}).verdict == "Error"
+# 80 two-wire OHM points (DAQM908A slot1/slot2 routing), all >= 1.5 ohm
+for i in range(1, 81):
+    m = rack.measure_row("Static Impedance",
+                         f"Impedance Shorts: NET{i} (TP_P{i:02d})",
+                         "Ω", 1.5, 9999)
+    assert m.verdict == "PASS" and float(m.text) >= 1.5, (i, m.lines)
+# power on, then 80 DCV points inside the +/-3 % window
+m = rack.execute_op("Power On DUT",
+                    {"type": "power", "voltage": 5.0, "current": 1.0})
+assert m.verdict == "Done" and rack.psu.output_on
+for i in range(1, 81):
+    m = rack.measure_row("Power Voltage", f"NET{i} (TP_P{i:02d})",
+                         "V", 3.201, 3.399)
+    assert m.verdict == "PASS" and 3.201 <= m.value <= 3.399, m.lines
+# three clocks: RTC totalizer (DAQM907A) + two U2355A counters
+for _nm, _lo, _hi in [
+        ("Clock Hz: RTC_CLK (TP_C01)", 32766.4, 32769.6),
+        ("Clock Hz: CLKOUT1 (TP_C02)", 3_999_600, 4_000_400),
+        ("Clock Hz: CLKOUT2 (TP_C03)", 5_999_400, 6_000_600)]:
+    m = rack.measure_row("Clock Hz", _nm, "Hz", _lo, _hi)
+    assert m.verdict == "PASS" and _lo <= m.value <= _hi, m.lines
+# aggregate rows: AO stimulus, fixture DIO loopback, 24-ch GPIO
+assert rack.measure_row("test", "ADC Stimulus AO0/AO1 -> TP_ADC",
+                        "V", -12, 12).verdict == "PASS"
+assert rack.measure_row("test", "Fixture DIO (16 ch, 4 used)",
+                        "ch", None, None).verdict == "PASS"
+assert rack.measure_row("test", "DUT GPIO (24 ch)",
+                        "ch", None, None).verdict == "PASS"
+# sequencing: an unpowered rack must FAIL voltage and clock rows
+r3 = VirtualRack(0, 0, seed=3)
+assert r3.measure_row("Power Voltage", "x (TP_P01)", "V", 3.2, 3.4
+                      ).verdict == "FAIL"
+assert r3.measure_row("Clock Hz", "Clock Hz: RTC_CLK (TP_C01)", "Hz",
+                      32766, 32769).verdict == "FAIL"
+# forced FAIL / Error override the policy
+assert rack.measure_row("Static Impedance", "short (TP_P05)", "Ω",
+                        1.5, 9999, force="FAIL").verdict == "FAIL"
+assert rack.measure_row("Static Impedance", "to (TP_P05)", "Ω",
+                        1.5, 9999, force="Error").verdict == "Error"
+# E-Stop loop open -> PSU J1 inhibit keeps the output OFF
+r4 = VirtualRack(0, 0, seed=4)
+r4.execute_op("E-Stop Trigger",
+              {"type": "fixture", "signal": "estop", "level": "H"})
+m = r4.execute_op("Power On DUT",
+                  {"type": "power", "voltage": 5.0, "current": 1.0})
+assert m.verdict == "Error" and not r4.psu.output_on, m.lines
+print("virtual rack measurements ok")
+
+# 15d. Up-sequence capture: volts in the CSV, healthy tail at nominal;
+# forced FAIL corrupts exactly one rail; forced Error aborts capture.
+_rails = [("R1", "#ef4444", 3.3, 0.0), ("R2", "#22c55e", 1.8, 0.002),
+          ("R3", "#3b82f6", 5.0, 0.005), ("R4", "#a855f7", 12.0, 0.01)]
+_fr, _vv, _an = rack.capture_rails(_rails, -0.5, 6.0, 200, force="PASS")
+assert _an is None and len(_fr) == 4 and len(_vv) == 4
+for j, (_l, _c, vnom, _o) in enumerate(_rails):
+    assert abs(_vv[j][-1] - vnom) / vnom < 0.05, (j, _vv[j][-1])
+    assert abs(_fr[j][-1] - 1.0) < 0.1
+_f2, _v2, an2 = rack.capture_rails(_rails, -0.5, 6.0, 200, force="FAIL")
+assert an2 in [r[0] for r in _rails], an2
+_f3, _v3, an3 = rack.capture_rails(_rails, -0.5, 6.0, 200, force="Error")
+assert an3 == "error" and _f3 is None
+print("virtual rails capture ok")
+
+# 15e. 100 % equipment-error ratio: the first op already Errors and the
+# whole product is FAIL (FCT Power Off/On ops are never test-failed).
+wf3.set_virtual_fault({"test_fail_ratio": 0, "equipment_error_ratio": 100})
+wf3.clear_results()
+wf3.run_demo()
+assert wf3.ict.item(0, 7).text() == "Virtual Error", wf3.ict.item(0, 7).text()
+assert wf3.result_label.text() == "Virtual FAIL"
+wf3.set_virtual_fault({"test_fail_ratio": 0, "equipment_error_ratio": 0})
+print("virtual error run ok")
+
+# 15f. Virtual DUT: an injected wrong/no reply is one-shot - the next
+# command after it is answered normally again (no fault latching).
+# Cross-thread Qt signals drain one posted event per qWait pass in the
+# offscreen platform, so poll for the expected text with a deadline.
+from mtkgui.virtual_dut import VirtualDutWorker, DEFAULT_PROFILE
+
+
+def _dut_collect(worker, rx_list, needles, timeout=15.0):
+    """Pump the event loop until every needle (str) shows in the RX
+    buffer; return the decoded buffer at the end."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        QTest.qWait(50)
+        buf = b"".join(rx_list).decode("utf-8", "replace")
+        if all(n in buf for n in needles):
+            return buf
+    return b"".join(rx_list).decode("utf-8", "replace")
+
+
+# wrong_reply: bt command gets the error line once, later version works
+_rx = []
+dut = VirtualDutWorker(DEFAULT_PROFILE, "FAKE-PORT")
+dut.data_received.connect(_rx.append)
+dut.start()
+_dut_collect(dut, _rx, ["root@frdm"])
+dut.write(b"wifi_test --scan\n")
+_dut_collect(dut, _rx, ["RSSI"])
+dut.inject_fault("wrong_reply")
+dut.write(b"bt_test --scan\n")
+_dut_collect(dut, _rx, ["ERROR: simulated fault"])
+dut.write(b"iperf3 -c 192.168.1.1\n")
+_dtext = _dut_collect(dut, _rx, ["ERROR: simulated fault",
+                                "92.4 Mbits/sec"])
+dut.stop()
+assert "RSSI" in _dtext                    # wifi command answered
+assert "ERROR: simulated fault" in _dtext
+assert "hci0 up" not in _dtext             # bt reply replaced by the fault
+# the command AFTER the one-shot fault is answered normally again
+assert "92.4 Mbits/sec" in _dtext
+
+# no_response: one command stays silent, the next one works again
+_rx = []
+dut2 = VirtualDutWorker(DEFAULT_PROFILE, "FAKE-PORT2")
+dut2.data_received.connect(_rx.append)
+dut2.start()
+_dut_collect(dut2, _rx, ["root@frdm"])
+dut2.inject_fault("no_response")
+dut2.write(b"wifi_test --scan\n")
+QTest.qWait(900)  # allow the (silenced) command to be consumed
+dut2.write(b"iperf3 -c 192.168.1.1\n")
+_t2 = _dut_collect(dut2, _rx, ["92.4 Mbits/sec"])
+dut2.stop()
+assert "scan on wlan0" not in _t2          # silenced command produced nothing
+assert "92.4 Mbits/sec" in _t2             # following command still answered
+print("virtual DUT one-shot fault ok")
 
 # 16. Virtual console connection works without real hardware.
 mc3 = w3.workflow_page.multi_console
