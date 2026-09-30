@@ -1,0 +1,40 @@
+# Conventional Commit Message Template for mtk-gui
+#
+# Format:
+#   <type>(<scope>): <subject>
+#
+#   [optional body]
+#
+#   [optional footer(s)]
+#
+# ---------------------- type choices ----------------------
+#   feat:     new feature (e.g. new UI page, new test step type)
+#   fix:      bug fix
+#   docs:     documentation only changes
+#   style:    formatting, missing semicolons, no logic change
+#   refactor: code change that neither fixes a bug nor adds a feature
+#   perf:     performance improvement (e.g. waveform rendering cache)
+#   test:     adding or correcting test scripts
+#   chore:    build, packaging, git, tooling, CI changes
+#
+# ---------------------- scope (optional) ------------------
+#   Suggested scopes: workflow, console, equipment, config,
+#   virtual, login, theme, build, docs
+#
+# ---------------------- subject rules ---------------------
+#   - imperative mood: "add" not "added" / "adds"
+#   - max 50 characters, no trailing period
+#   - first letter lowercase after the prefix
+#
+# ---------------------- body (optional) -------------------
+#   - wrap lines at 72 characters
+#   - explain WHAT changed and WHY, not HOW
+#
+# ---------------------- footer (optional) -----------------
+#   - BREAKING CHANGE: <description of the breaking change>
+#   - Refs: <issue or ticket id>
+#
+# Examples:
+#   feat(workflow): add Long Run interval locking rule
+#   fix(console): track real connection state for fctconn steps
+#   chore(build): package config folder into Windows exe

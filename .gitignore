@@ -1,6 +1,5 @@
 # Python
 __pycache__/
-*.pyc
 
 # virtual environment (macOS dev env; Windows build creates its own)
 mtk_gui/
@@ -20,3 +19,44 @@ event/
 # IDE
 .idea/
 .vscode/
+
+# ---------------------------------------------------------------------------
+# Aligned with .trae/.ignore (TRAE index filter).
+# NOTE: *.spec is intentionally NOT ignored here — PyInstaller spec files
+# (MTK_GUI.spec, MTK_GUI_windows.spec) are versioned source files.
+# ---------------------------------------------------------------------------
+
+# Python cache artifacts (*.pyc / *.pyo / *.pyd all covered here)
+*.py[cod]
+*$py.class
+
+# virtual environments (mtk_gui/ handled above)
+.venv/
+venv/
+env/
+
+# build artifacts
+release/
+*.exe
+*.zip
+*.tar.gz
+
+# log files (logs/ and event/ handled above)
+*.csv
+*.log
+*.txt.tmp
+
+# OS junk (Windows)
+Thumbs.db
+desktop.ini
+
+# editor swap / workspace files
+*.swp
+*.sublime-workspace
+
+# temp dirs
+tmp/
+temp/
+
+# TRAE workspace local config (index filter only, not for versioning)
+.trae/
