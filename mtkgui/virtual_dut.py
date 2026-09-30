@@ -70,22 +70,36 @@ DEFAULT_PROFILE = {
     "cmd_delay_ms": 150,
     "rules": [
         {"match": "wifi_test", "response": [
-            "wifi_test: starting scan on wlan0 ...",
-            "wifi_test: 3 networks found",
-            "wifi_test: scan complete",
+            "wifi_test: wlan0 up, MAC 00:1a:7d:da:00:01",
+            "wifi_test: scan on wlan0 ... 3 networks found",
+            "wifi_test: associated with SSID 'MTK-TEST-AP' "
+            "(ch 6, 2412 MHz)",
+            "wifi_test: RSSI -42 dBm, link rate 72.2 Mbit/s, ping OK",
             "Success",
         ]},
         {"match": "bt_test", "response": [
-            "bt_test: initializing controller ...",
-            "bt_test: scanning devices ...",
-            "bt_test: 2 devices found, scan complete",
+            "bt_test: hci0 up, controller ready",
+            "bt_test: inquiry scan ... 2 devices found",
+            "bt_test: RSSI -55 dBm / -61 dBm, pairing OK",
             "Pass",
+        ]},
+        {"match": "iperf", "response": [
+            "iperf3: connecting to 192.168.1.1 ...",
+            "[  5] 0.00-10.00 sec  110 MBytes  92.4 Mbits/sec",
+            "iperf3: throughput test complete",
+            "Success",
+        ]},
+        {"match": "ping", "response": [
+            "PING 192.168.1.1: 56 data bytes, 0% packet loss",
+            "rtt min/avg/max = 0.8/1.2/3.1 ms",
+            "Success",
         ]},
         {"match": "uname", "response": [
             "Linux frdm-imx93 1.1.0.0 #1 SMP PREEMPT aarch64",
         ]},
         {"match": "help", "response": [
-            "Commands: help, uname, wifi_test, bt_test, version",
+            "Commands: help, uname, wifi_test, bt_test, iperf3, "
+            "ping, version",
         ]},
         {"match": "version", "response": ["1.1.0.0"]},
     ],
@@ -206,7 +220,10 @@ class VirtualDutWorker(QThread):
 
     def inject_fault(self, kind):
         """Arm a fault for the next command ("no_response" or
-        "wrong_reply"); used by the Virtual fault injection."""
+        "wrong_reply"); used by the Virtual fault injection.  The fault
+        is one-shot: the worker consumes and clears it when the next
+        command line is answered, so it can never latch onto every later
+        command.  Pass None to disarm."""
         with self._lock:
             self._fault = kind
 
@@ -256,20 +273,25 @@ class VirtualDutWorker(QThread):
             with self._lock:
                 chunk = bytes(self._inbuf)
                 self._inbuf.clear()
-                fault = self._fault
             if chunk:
                 linebuf += chunk
                 last_rx = time.monotonic()
             complete = b"\n" in linebuf or b"\r" in linebuf
             idle = bool(linebuf) and time.monotonic() - last_rx > 0.3
             if complete or idle:
+                # atomically take-and-clear the armed fault once for
+                # this batch of command lines (one-shot: an injected
+                # fault must never latch onto later commands)
+                with self._lock:
+                    fault = self._fault
+                    self._fault = None
                 parts = re.split(rb"\r\n|\n|\r", linebuf)
                 linebuf = parts.pop()  # trailing (incomplete) remainder
                 for raw in parts:
                     cmd = raw.decode("utf-8", "replace").strip()
                     if cmd:
                         self._respond(cmd, fault)
-                        fault = None  # one armed fault per command
+                        fault = None  # armed fault applies to first line only
             self.msleep(20)
 
     def _respond(self, cmd, fault):
