@@ -616,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="honor the YAML per-step wait times")
     parser.add_argument("--retry", type=int, default=None, metavar="N",
                         help="retry a FAIL/ERROR step up to N times "
-                        "(default: YAML test_flow.retry, else 0)")
+                        "(default: YAML test_workflow.retry, else 0)")
     parser.add_argument("--logs-dir", default="logs",
                         help="CSV / AI review output directory")
     args = parser.parse_args(argv)
@@ -658,12 +658,12 @@ def main(argv: list[str] | None = None) -> int:
                       logs_dir=Path(args.logs_dir),
                       stop_on_fail=not args.no_stop_on_fail,
                       fast=not args.realtime)
-    # basic fault-policy retry: CLI > YAML test_flow.retry > 0 (off)
+    # basic fault-policy retry: CLI > YAML test_workflow.retry > 0 (off)
     if args.retry is not None:
         runner_retry = max(0, int(args.retry))
     else:
         runner_retry = max(
-            0, int((config.get("test_flow") or {}).get("retry", 0)))
+            0, int((config.get("test_workflow") or {}).get("retry", 0)))
     runner = TestRunner(env)
     runner.retry_count = runner_retry
     if runner_retry:
