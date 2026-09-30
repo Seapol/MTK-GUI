@@ -19,11 +19,15 @@ def write_config(tmp_path, config: dict) -> str:
 
 
 def run_demo_main(tmp_path, monkeypatch, mode="virtual", inject="",
-                  stop_on_fail=True):
-    """Run demo.main() in-process on a temp config; returns (rc, env)."""
+                  stop_on_fail=True, extra_args=None, config_overrides=None):
+    """Run demo.main() in-process on a temp config; returns (rc, logs)."""
     from tests.engine.conftest import make_config
 
-    cfg_path = write_config(tmp_path, make_config())
+    cfg = make_config()
+    if config_overrides:
+        for section, values in config_overrides.items():
+            cfg.setdefault(section, {}).update(values)
+    cfg_path = write_config(tmp_path, cfg)
     logs = tmp_path / "logs"
     argv = ["demo", "--config", cfg_path, "--logs-dir", str(logs),
             "--mode", mode]
@@ -31,6 +35,7 @@ def run_demo_main(tmp_path, monkeypatch, mode="virtual", inject="",
         argv += ["--inject", inject]
     if not stop_on_fail:
         argv += ["--no-stop-on-fail"]
+    argv += list(extra_args or [])
     rc = main(argv[1:])
     return rc, logs
 
@@ -109,3 +114,27 @@ class TestDemoEnv:
         runner.start(1)
         runner.abort()
         assert runner.state == "idle"
+
+
+class TestRetryFromYaml:
+    """The authoritative YAML key is test_workflow.retry (spec): the
+    demo honors it, and the --retry CLI flag takes precedence."""
+
+    def test_yaml_retry_is_honored(self, tmp_path, monkeypatch, capsys):
+        rc, _ = run_demo_main(
+            tmp_path, monkeypatch,
+            config_overrides={"test_workflow": {"retry": 2}})
+        assert rc == 0
+        assert "Step retry: 2 attempt(s)" in capsys.readouterr().out
+
+    def test_cli_retry_overrides_yaml(self, tmp_path, monkeypatch, capsys):
+        rc, _ = run_demo_main(
+            tmp_path, monkeypatch, extra_args=["--retry", "1"],
+            config_overrides={"test_workflow": {"retry": 3}})
+        assert rc == 0
+        assert "Step retry: 1 attempt(s)" in capsys.readouterr().out
+
+    def test_no_retry_key_is_off(self, tmp_path, monkeypatch, capsys):
+        rc, _ = run_demo_main(tmp_path, monkeypatch)
+        assert rc == 0
+        assert "Step retry" not in capsys.readouterr().out
