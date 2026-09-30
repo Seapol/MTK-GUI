@@ -38,6 +38,7 @@ if str(_REPO_ROOT) not in sys.path:
 import yaml  # noqa: E402
 
 from mtkgui.drivers.base import MeasurementResult, Status, Transport  # noqa: E402
+from mtkgui.drivers.daq973a import CMD as DAQ_CMD  # noqa: E402
 from mtkgui.drivers.daq973a import DAQ973ADriver  # noqa: E402
 from mtkgui.drivers.bluetooth_rf import BluetoothRFTestDriver  # noqa: E402
 from mtkgui.drivers.rf_common import (  # noqa: E402
@@ -101,13 +102,159 @@ _SIM_BT_WATCH = "AABBCCDDEEFF -55\n"
 _SIM_BT_CONNECT = "CONNECT=Connected"
 _SIM_BT_PER = "ATTEMPTS=20\nFAILURES=1\n"
 
-#: scripted SCPI replies for the simulated DAQ973A transport
+#: base scripted SCPI replies for the simulated DAQ973A transport
+#: (per-point replies are generated from the ICT point list, see
+#: :func:`build_sim_scpi`)
 _SIM_SCPI = {
     "*IDN?": "Keysight Technologies,DAQ973A,DEMO00000001,A.01.00",
     "MEAS:RES? AUTO,DEF,(@101)": "+2.47300000E+02",
     "MEAS:RES? AUTO,DEF,(@102)": "+3.54800000E+02",
     "MEAS:VOLT:DC? AUTO,DEF,(@103)": "+3.29890000E+00",
 }
+
+#: SCPI templates imported from the driver so generated replies match
+#: the exact command strings it emits (single source of truth).
+_CMD = DAQ_CMD
+
+#: DAQM907A totalizer channels used by the demo for clock points
+#: (CLK1/CLK2/CLK3 -> 1201/1202/1203, per equipment YAML slot 3).
+_CLOCK_CHANNELS = ["1201", "1202", "1203"]
+
+
+def _num(value) -> float | None:
+    """Parse a YAML threshold string, returning ``None`` for the
+    ``"-"`` / ``"—"`` placeholders used in the station YAML.
+
+    Args:
+        value: Raw threshold value.
+
+    Returns:
+        The float value, or ``None`` when not numeric.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tp_to_channel(tp: str) -> str:
+    """Map a test point name to the DAQM908A multiplexer channel.
+
+    Mapping per the equipment YAML: TP_P01-40 -> CH101-140 (slot 1),
+    TP_P41-80 -> CH201-240 (slot 2).
+
+    Args:
+        tp: Test point name like ``"TP_P07"``.
+
+    Returns:
+        Channel string such as ``"107"``.
+    """
+    n = int(tp.replace("TP_P", ""))
+    return str(100 + n if n <= 40 else 200 + (n - 40))
+
+
+def load_station_config(path: str) -> dict:
+    """Derive the demo ``demo`` section from a station YAML file.
+
+    Parses ``test_workflow.ict_test_cases`` of the station config
+    (Impedance Shorts / Power Voltages / Clock entries) into the
+    flat ``ict_points`` list the demo ICT runner consumes.  FCT
+    (WiFi / Bluetooth) parameters keep the embedded demo defaults
+    when the station YAML does not define them.
+
+    Args:
+        path: Path to the station YAML (e.g. ``config/*.yaml``).
+
+    Returns:
+        A ``demo`` config dict with ``ict_points`` filled in.
+
+    Raises:
+        OSError / yaml.YAMLError: on unreadable / invalid YAML.
+    """
+    with open(path, "r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle)
+
+    points: list[dict] = []
+    clock_index = 0
+    for case in raw.get("test_workflow", {}).get("ict_test_cases", []):
+        if not case.get("enable", True):
+            continue
+        name = case.get("name", "")
+        if name.startswith("Impedance Shorts") and "(TP_" in name:
+            min_ohm = _num(case.get("threshold_min"))
+            if min_ohm is None:
+                continue
+            tp = "TP_" + name.rsplit("(TP_", 1)[-1].rstrip(")")
+            points.append({
+                "name": tp,
+                "method": "resistance",
+                "channel": _tp_to_channel(tp),
+                "min_ohm": min_ohm,
+            })
+        elif name.startswith("Power Voltages") and "(TP_" in name:
+            min_v = _num(case.get("threshold_min"))
+            max_v = _num(case.get("threshold_max"))
+            if min_v is None or max_v is None:
+                continue
+            tp = "TP_" + name.rsplit("(TP_", 1)[-1].rstrip(")")
+            points.append({
+                "name": tp,
+                "method": "dcv",
+                "channel": _tp_to_channel(tp),
+                "min_v": min_v,
+                "max_v": max_v,
+            })
+        elif name.startswith("Clock"):
+            min_hz = _num(case.get("threshold_min"))
+            max_hz = _num(case.get("threshold_max"))
+            if min_hz is None or max_hz is None:
+                continue
+            points.append({
+                "name": name,
+                "method": "freq",
+                "channel": _CLOCK_CHANNELS[clock_index % len(_CLOCK_CHANNELS)],
+                "min_hz": float(case["threshold_min"]),
+                "max_hz": float(case["threshold_max"]),
+            })
+            clock_index += 1
+
+    demo = dict(yaml.safe_load(DEFAULT_CONFIG_YAML)["demo"])
+    demo["ict_points"] = points
+    demo["station"] = {
+        "product": raw.get("product", {}),
+        "config_path": str(path),
+    }
+    return demo
+
+
+def build_sim_scpi(points: list[dict]) -> dict[str, str]:
+    """Generate scripted SCPI replies for the demo ICT point list.
+
+    Every point gets a passing reading at (or near) the middle of its
+    limit window, so the simulated run exercises the full judging
+    logic without hardware.
+
+    Args:
+        points: ICT point list (resistance / dcv / freq entries).
+
+    Returns:
+        Command -> reply mapping for :class:`DemoScriptTransport`.
+    """
+    script = dict(_SIM_SCPI)
+    for point in points:
+        chans = point["channel"]
+        if point["method"] == "resistance":
+            cmd = _CMD["meas_res"].format(range="AUTO", res="DEF", chans=chans)
+            script[cmd] = "+2.47300000E+02"
+        elif point["method"] == "dcv":
+            cmd = _CMD["meas_vdc"].format(range="AUTO", res="DEF", chans=chans)
+            mid = (point["min_v"] + point["max_v"]) / 2.0
+            script[cmd] = f"{mid:.8E}"
+        elif point["method"] == "freq":
+            cmd = _CMD["meas_freq"].format(chans=chans)
+            mid = (point["min_hz"] + point["max_hz"]) / 2.0
+            script[cmd] = f"{mid:.8E}"
+    return script
 
 
 class DemoScriptTransport(Transport):
@@ -193,16 +340,21 @@ def run_ict(config: dict) -> tuple[Status, list[MeasurementResult]]:
         ``(overall_status, results)`` tuple.
     """
     daq_cfg = config["daq973a"]
-    driver = DAQ973ADriver(transport=DemoScriptTransport(_SIM_SCPI))
+    points = config.get("ict_points", [])
+    driver = DAQ973ADriver(transport=DemoScriptTransport(build_sim_scpi(points)))
     driver.open(daq_cfg["address"], {})
     overall = Status.OK
     results: list[MeasurementResult] = []
-    for point in config.get("ict_points", []):
+    for point in points:
         if point["method"] == "resistance":
             result = driver.measure_resistance_2w(point["channel"])
             passed = (isinstance(result.value, float)
                       and result.value >= point["min_ohm"]
                       and result.value < 9.9e37)
+        elif point["method"] == "freq":
+            result = driver.measure_frequency(point["channel"])
+            passed = (isinstance(result.value, float)
+                      and point["min_hz"] <= result.value <= point["max_hz"])
         else:
             result = driver.measure_dcv(point["channel"])
             passed = (isinstance(result.value, float)
@@ -254,11 +406,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.config:
-        with open(args.config, "r", encoding="utf-8") as handle:
-            config = yaml.safe_load(handle)
+        demo = load_station_config(args.config)
+        product = demo.get("station", {}).get("product", {})
+        if product:
+            print(f"config: {product.get('part_number', '?')} "
+                  f"(core {product.get('core_id', '?')}, "
+                  f"batch {product.get('batch', '?')})")
     else:
-        config = yaml.safe_load(DEFAULT_CONFIG_YAML)
-    demo = config.get("demo", config)
+        demo = yaml.safe_load(DEFAULT_CONFIG_YAML)["demo"]
 
     print("=" * 72)
     print("MTK-GUI instrument driver demo (headless)")
