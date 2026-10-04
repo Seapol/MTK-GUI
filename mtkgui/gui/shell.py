@@ -40,8 +40,10 @@ from .cluster_page import ClusterPage
 from .audit_page import AuditPage
 from .resource_page import ResourcePage
 from .queue_page import QueuePage
+from .fleet_page import FleetPage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
+from mtkgui.engine.cluster_hub import ClusterHub
 from mtkgui.engine.resource_hub import PathHub, ResourceManager
 from mtkgui.engine.task_queue import TaskQueue
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
@@ -352,6 +354,13 @@ class MainWindow(QMainWindow):
         self.register_page("queue",
                            lambda: QueuePage(self.task_queue),
                            "Queue")
+        # P3-6: fleet middle-platform over the P2-10 scheduler
+        self.cluster_hub = ClusterHub()
+        self.register_page(
+            "fleet",
+            lambda: FleetPage(self.cluster_hub,
+                              self.cluster_scheduler),
+            "Fleet")
         # P2-11: RBAC + operation audit over shared stores
         self.audit_log = AuditLog(self._default_audit_path())
         self.access = AccessControl(self._default_accounts_path(),

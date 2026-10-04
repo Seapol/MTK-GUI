@@ -819,6 +819,45 @@ class TaskQueue(journal_path=None, now=None, poll=0.02):
 # (journal: <tenant_base>/_queue_journal.json)
 ```
 
+### 23. Cluster Device Hub & Fleet Management (NEW — owned by P3-6, `mtkgui/engine/cluster_hub.py`)
+
+Pure-increment fleet middle platform over the frozen P2-10
+`ClusterScheduler`: registration + heartbeat + online/offline
+judgement + remote ops + ledger/alerts.  No P1 driver, P2 lock or
+P2-10 scheduler code touched — remote enable/disable routes through
+the frozen scheduler contract (`report_fault` / `restore_device`).
+
+```python
+class NodeStatus(str, Enum): ONLINE OFFLINE ERROR
+@dataclass ClusterNode: device_id, host, kind="generic",
+    status=ONLINE, last_beat(monotonic), load=0, enabled=True,
+    capabilities=(), joined_at
+    as_row() -> {device_id, host, kind, status, load, enabled,
+                 beats_ago_s}
+@dataclass LedgerEvent: ts, device_id, event, detail
+    # event ∈ JOIN / ONLINE / OFFLINE / ERROR / DISABLE / ENABLE /
+    #          ALERT
+class ClusterHub(stale_after=10.0, now=None):   # alias: CH
+    register_node(device_id, host, kind, capabilities) -> ClusterNode
+        # idempotent; JOIN ledgered once
+    node(id) -> ClusterNode / nodes() -> [ClusterNode]
+    heartbeat(device_id, load=None)  # unknown id -> ALERT + ledger
+    monitor() -> n                   # stale sweep ONLINE->OFFLINE
+    set_enabled(device_id, enabled, scheduler=None) -> bool
+        # disable -> scheduler.report_fault(id, "remote disable");
+        # enable -> scheduler.restore_device(id); unknown scheduler
+        # device tolerated (hub ledger still records ENABLE/DISABLE)
+    attach_scheduler(scheduler)      # read-only load/state reflection
+        # completed count -> node.load; scheduler ERROR state ->
+        # NodeStatus.ERROR (recovery -> ONLINE); hub never writes
+    snapshot() -> [row]              # sorted by device_id
+    ledger_rows(device_id=None) -> [dict]   # audit-friendly history
+    on_alert(fn)                     # subscriber on every transition
+# GUI: FleetPage route "fleet" (fleet_alert Signal[str]) — node
+# board (6 cols), heartbeat intake, remote enable/disable, alert
+# list, stats bar; shell shares cluster_hub + cluster_scheduler
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
