@@ -42,10 +42,12 @@ from .resource_page import ResourcePage
 from .queue_page import QueuePage
 from .fleet_page import FleetPage
 from .balance_page import BalancePage
+from .pipeline_page import PipelinePage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from mtkgui.engine.cluster_hub import ClusterHub
 from mtkgui.engine.load_balancer import LoadBalancer
+from mtkgui.engine.batch_pipeline import BatchPipeline
 from mtkgui.engine.resource_hub import PathHub, ResourceManager
 from mtkgui.engine.task_queue import TaskQueue
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
@@ -370,6 +372,12 @@ class MainWindow(QMainWindow):
             lambda: BalancePage(self.load_balancer, self.cluster_hub,
                                 self.cluster_scheduler),
             "Balance")
+        # P3-8: unattended batch pipeline middle platform
+        self.batch_pipeline = BatchPipeline()
+        self.register_page(
+            "pipeline",
+            lambda: PipelinePage(self.batch_pipeline),
+            "Pipeline")
         # P2-11: RBAC + operation audit over shared stores
         self.audit_log = AuditLog(self._default_audit_path())
         self.access = AccessControl(self._default_accounts_path(),

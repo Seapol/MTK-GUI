@@ -893,6 +893,43 @@ class LoadBalancer(w_active=1.0, w_busy=1.0, w_offline=2.0,
 # cluster_hub + cluster_scheduler
 ```
 
+### 25. Batch Pipeline Automation Middle Platform (NEW — owned by P3-8, `mtkgui/engine/batch_pipeline.py`)
+
+Pure-increment UNATTENDED mass-production orchestrator: the P2
+engines (runner / metrics / uploader / archive) plug in as stage
+callbacks — no engine modified.  Per-unit failure isolation, batch
+circuit breaker, traceable ledger.
+
+```python
+class UnitState(Enum): PENDING DONE FAILED QUARANTINED
+@dataclass BatchUnit: unit_id(SN), state, stages{stage:OK/FAIL},
+    error; as_row()
+@dataclass BatchJob: batch_id, units{}, stage_cursor, started_at,
+    finished_at, aborted_reason; done -> bool
+class BatchError(Exception)
+class BatchPipeline(max_fail_ratio=0.5, now=None):   # alias: BP
+    create_batch(batch_id, unit_ids) -> BatchJob  # 批量初始化:
+        # dedupe + blank drop; duplicate/empty batch -> BatchError
+    batch(id) / batches()
+    run_stage(batch_id, stage, fn, fallback=None) -> {stage, ok, fail}
+        # 批量校验/测试/报表/归档上传 via fn(unit); per-unit
+        # isolation: exception -> only that unit FAILED (error kept),
+        # stage continues; fallback(unit, exc) -> QUARANTINED
+    execute(batch_id, plan, fallbacks=None) -> {stages, aborted,
+        reason}          # unattended: plan stages in order; batch
+        # circuit breaker: cumulative fail ratio > max_fail_ratio ->
+        # ABORT (later stages skipped, 异常兜底)
+    summarize(batch_id) -> {units, states, stages, yield,
+        finished_at, aborted_reason}      # 批量统计
+    monitor(batch_id) -> {pending, failed, cursor, healthy,
+        aborted_reason}                   # 流水线监控 (watchdog)
+    snapshot(batch_id) -> [row]           # sorted by unit_id
+    ledger_rows(batch_id=None) -> [dict]  # every transition (可溯源)
+# GUI: PipelinePage route "pipeline" — batch create box (batch id +
+# SN list), unit table (4 cols), yield stats bar, monitor dialog;
+# shell shares batch_pipeline
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
