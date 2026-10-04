@@ -219,6 +219,52 @@ No module can invent new yaml fields without updating this spec.
 > | `ict_test_cases[].ai_meta` | AI provenance `{gen_version, gen_time, sources, reviewed}` |
 > | `ict_case_audit` | generation audit + per-sync history snapshots (`{time, source, actor, added, removed, changed, rows_before, rows_after}`), `review_version`, `final` |
 
+### 6. GUI Shell Framework (NEW — owned by P2-1, `mtkgui/gui/`)
+
+Pure-additive application skeleton. The shell imports NOTHING from
+`mtkgui.engine`; later P2 stages mount business pages exclusively via
+`register_page`. No P1 module may depend on the shell (one-way edge:
+pages -> shell API).
+
+```python
+# mtkgui/gui/shell.py
+class MainWindow(QMainWindow):
+    def __init__(self, baseline_version: str = "V1.0-P2",
+                 spec: StyleSpec | None = None) -> None: ...
+    def register_page(self, key: str, factory: Callable[[], QWidget],
+                      title: str) -> None   # duplicate/empty key -> ValueError
+    def navigate(self, key: str) -> None    # lazy build + cache; unknown -> WARN log
+    route_keys: list[str]; cached_pages: list[str]
+    def mount_default_routes(self) -> None  # framework placeholders only
+    def set_engine_state(self, state: str) -> None
+    def set_devices_online(self, count: int) -> None
+    def set_progress(self, done: int, total: int) -> None
+    def log(self, level: str, message: str) -> None
+
+# mtkgui/gui/log_panel.py
+class LogPanelWidget(QWidget):
+    def append(self, level: str, message: str) -> None  # DEBUG/INFO/WARN/ERROR
+    def clear(self) -> None                             # view only, history kept
+    entry_count: int; visible_count() -> int
+
+# mtkgui/gui/status_bar.py
+class StatusBarWidget(QWidget):
+    def set_engine_state(self, state: str) -> None
+    def set_devices_online(self, count: int) -> None
+    def set_progress(self, done: int, total: int) -> None
+    def tick(self) -> None   # uptime refresh (1 Hz, owned by shell)
+
+# mtkgui/gui/theme.py
+class StyleSpec: ...                 # frozen palette/font/spacing constants
+def build_stylesheet(spec) -> str    # global QSS, single style source of truth
+```
+
+Rules: all P2 pages must consume `StyleSpec`/`build_stylesheet` (no hardcoded
+colors); engine state/device/progress values are pushed into the shell via
+the setters above — the shell never polls the engine; page cache is
+build-once per route key; close is guarded by a confirm dialog, then timers
+stop and resources flush (safe exit).
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
