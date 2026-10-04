@@ -389,6 +389,43 @@ Import diff report shape (P1-16 contract): ``added`` / ``removed``
 priority moves tagged in the GUI rendering) / ``ignored_columns``
 (dirty unknown columns filtered, never silently dropped).
 
+### 10. Quality Metrics Engine (NEW — owned by P2-5, `mtkgui/engine/metrics.py`)
+
+Pure-increment calculation layer over the P1 result base
+(``StepResult``/``StepStatus`` + six-kind ``FailureKind``); zero
+changes to runner / report / scheduler modules.  No GUI yet (P2-6).
+
+```python
+INVALID_KINDS = {RESOURCE, ENGINE_ERROR, OPERATOR_ABORT, FROZEN, TIMEOUT}
+@dataclass TestRecord: name, status, duration_s, measured, ts, batch,
+                       station, failure_kind
+TestRecord.from_step_result(name, StepResult, *, ts, batch, station,
+                            failure_kind)   # P1 adapter; non-numeric
+                                            # measured -> None
+filter_records(records, *, batch, shift, day, start, end)
+    # AND-combined time filter; shift = day(08-20)|night; records
+    # without ts never survive a non-empty filter
+compute_yield(records, top_n=5) -> YieldReport
+    # total/passed/failed/invalid; invalid_by_kind; real_yield =
+    # passed / (passed+failed)  (invalid excluded from denominator);
+    # top_defects = [(name, n, ratio)]
+compute_cycle_time(records, top_n=3) -> CycleReport
+    # samples/total/mean/max/min/sample-stdev/CV volatility,
+    # per_case_mean, bottlenecks (slowest cases by mean)
+compute_cpk(records, case, lsl, usl, unit) -> CpKReport
+    # n/mean/sample-stdev/Cp/CpK/grade (A+>=1.67 A>=1.33 B>=1.0
+    # C>=0.67 else D); n<2 -> capability fields None; zero stdev ->
+    # inf when centered
+compute_cpk_all(records, {case:(lsl,usl)}, units) -> {case: CpKReport}
+class MetricsEngine:
+    add(TestRecord) / add_step_result(name, StepResult, **meta)
+    yield_report(**flt) / cycle_report(**flt) /
+    cpk_report(case, lsl, usl, unit, **flt)   # flt = filter kwargs
+    batch_summary(batch) -> {"yield":…, "cycle":…}
+    audit: [(time, params, detail)]           # [METRICS] log lines;
+                                              # results reproducible
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
