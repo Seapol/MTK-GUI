@@ -470,6 +470,40 @@ class ReportPage(QWidget):
 # later stages); register_page("reports", ReportPage(engine))
 ```
 
+### 12. Report Archive (NEW — owned by P2-7, `mtkgui/engine/archive.py`)
+
+Pure-increment archival tool layer over the P1 report base (logs_dir
+CSV / review files): zero changes to test flow, report writers or the
+metrics engine.  Fully P1-format compatible — reports are packed
+as-is, lossless.
+
+```python
+is_junk(path) -> bool        # redundant filter: hidden, .tmp/.bak/
+                             # .pyc/... suffixes, __pycache__/.git dirs
+file_sha256(path) -> str     # chunked hash (integrity basis)
+@dataclass ArchiveEntry: zip_path, batch, ts, station, version,
+                         sha256, files, hashes, bytes; to_dict()
+class ArchiveManager:
+    __init__(root, *, station="S1", version="v2.0.0",
+             retain_days=90, max_capacity_mb=1024, now=None)
+                             # now = injectable clock (tests)
+    pack(files, *, batch, ts=None) -> ArchiveEntry
+        # zip name {batch}_{YYYYmmdd_HHMMSS}_{station}_{version}.zip,
+        # ZIP_DEFLATED, embedded manifest.json (per-file SHA-256 +
+        # metadata); canonical copy in history/, copies in daily/
+        # <YYYYmmdd>/ and batch/<batch>/ (3-tier layout)
+    verify(entry) -> [problems]   # empty = intact: archive hash +
+        # per-member hash vs manifest + unknown/missing member check
+    cleanup(*, now=None) -> {"removed": [names], "kept": n,
+                             "total_mb": f}
+        # 1) age: remove archives older than retain_days
+        # 2) capacity: history footprint > max_capacity_mb -> evict
+        #    oldest first; tier copies of the same name removed together
+    list_archives(*, tier="history") -> [dict]   # name/bytes/mtime
+    audit: [(time, action, detail)]   # [ARCHIVE] log lines, traceable
+# tier keys: "history" | "daily" | "batch"
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
