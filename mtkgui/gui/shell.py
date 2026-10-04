@@ -36,8 +36,10 @@ from .upload_page import UploadPage
 from .export_page import ExportPage
 from .cluster_page import ClusterPage
 from .audit_page import AuditPage
+from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
+from mtkgui.engine.project_context import TenantRegistry
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -98,6 +100,12 @@ class MainWindow(QMainWindow):
         self.nav_baseline = QLabel(baseline_version, self.top_nav)
         nav_lay.addWidget(title)
         nav_lay.addStretch(1)
+        # P3-1: resident multi-project tenant selector (additive)
+        self.tenant_registry = TenantRegistry(
+            self._default_tenant_base())
+        self.project_switcher = ProjectSwitcher(self.tenant_registry,
+                                                self, self._spec)
+        nav_lay.addWidget(self.project_switcher)
         nav_lay.addWidget(self.nav_baseline)
 
         # central column: nav + stack + status; log panel below split ----
@@ -242,6 +250,49 @@ class MainWindow(QMainWindow):
     def _default_accounts_path() -> str:
         import os
         return os.environ.get("MTKGUI_ACCOUNTS", "audit/accounts.json")
+
+    @staticmethod
+    def _default_tenant_base() -> str:
+        import os
+        return os.environ.get("MTKGUI_TENANT_BASE", "projects")
+
+    # P3-1: tenant application -----------------------------------------
+    def apply_tenant(self, ctx) -> None:
+        """Rebind every shared store to the tenant workspace and purge
+        cached pages so existing routes rebuild inside the tenant.
+        ctx=None -> P2 single-project legacy mode."""
+        if ctx is not None:
+            self.metrics_engine = ctx.slot("metrics", MetricsEngine)
+            self.upload_manager = SharePointUploader(
+                str(ctx.dir("outbox")),
+                state_dir=str(ctx.dir("metrics") / "upload_state"))
+            self.cluster_scheduler = ctx.slot(
+                "cluster", ClusterScheduler)
+            self.audit_log = AuditLog(
+                str(ctx.dir("audit") / "audit.jsonl"))
+            self.export_out_dir = str(ctx.dir("export"))
+            label = ctx.project_id
+        else:
+            self.metrics_engine = MetricsEngine()
+            self.upload_manager = SharePointUploader(
+                self._default_outbox_dir())
+            self.cluster_scheduler = ClusterScheduler()
+            self.audit_log = AuditLog(self._default_audit_path())
+            self.export_out_dir = self._default_export_dir()
+            label = "P2 单项目模式"
+        # rebind export route factory to the tenant export dir
+        self._routes["export"] = (
+            lambda: ExportPage(self.metrics_engine,
+                               out_dir=self.export_out_dir),
+            "Export")
+        # purge cached pages -> routes rebuild with tenant stores
+        for key in list(self._pages):
+            page = self._pages.pop(key)
+            self.stack.removeWidget(page)
+            page.deleteLater()
+        self.log_panel.append("INFO", f"tenant space -> {label}")
+        if self.audit_log is not None and ctx is not None:
+            self.audit_log.log("system", "tenant_switch", label)
 
     def mount_default_routes(self) -> None:
         """Framework routes; the config page is the P2-2 increment and
