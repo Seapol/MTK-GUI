@@ -45,6 +45,7 @@ from .balance_page import BalancePage
 from .pipeline_page import PipelinePage
 from .rbac_page import RbacPage
 from .compliance_page import CompliancePage
+from .api_page import ApiPage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from mtkgui.engine.cluster_hub import ClusterHub
@@ -52,6 +53,7 @@ from mtkgui.engine.load_balancer import LoadBalancer
 from mtkgui.engine.batch_pipeline import BatchPipeline
 from mtkgui.engine.rbac_hub import RbacHub
 from mtkgui.engine.audit_hub import AuditHub
+from mtkgui.engine.api_server import ApiServer, MesAdapter
 from mtkgui.engine.resource_hub import PathHub, ResourceManager
 from mtkgui.engine.task_queue import TaskQueue
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
@@ -399,6 +401,14 @@ class MainWindow(QMainWindow):
             "compliance",
             lambda: CompliancePage(self.audit_hub),
             "Compliance")
+        # P3-11: open API server + MES adapter
+        self.api_server = ApiServer(audit_log=self.audit_log)
+        self.mes_adapter = MesAdapter(enqueue=lambda body: None)
+        self.api_server.bind(mes=self.mes_adapter)
+        self.register_page(
+            "api",
+            lambda: ApiPage(self.api_server, self.mes_adapter),
+            "Api")
         self.register_page("audit",
                            lambda: AuditPage(self.access,
                                              self.audit_log),

@@ -92,7 +92,7 @@ def test_shell_registers_routes_and_navigates(qapp):
     win = MainWindow(baseline_version="V1.0-P2-1")
     win.mount_default_routes()
     assert win.route_keys == ["home", "workflow", "cases", "case_io",
-                              "reports", "upload", "export", "cluster", "resources", "queue", "fleet", "balance", "pipeline", "rbac", "compliance", "audit", "config"]
+                              "reports", "upload", "export", "cluster", "resources", "queue", "fleet", "balance", "pipeline", "rbac", "compliance", "api", "audit", "config"]
     win.navigate("workflow")
     win.navigate("reports")
     assert sorted(win.cached_pages) == ["home", "reports", "workflow"]
