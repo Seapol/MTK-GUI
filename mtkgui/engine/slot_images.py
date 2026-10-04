@@ -83,6 +83,7 @@ class SlotImageRegistry:
         self.skip_if_same_hash = skip_if_same_hash
         self._known: dict[str, str] = {}       # path -> last seen sha256
         self._flashed: dict[str, str] = {}     # slot -> last flashed sha
+        self._dirty: set[str] = set()          # rolled-back slots
 
     # ------------------------------------------------------- inspect
     def inspect(self, path: str, slot: str = "") -> ImageRecord:
@@ -149,6 +150,16 @@ class SlotImageRegistry:
 
     def mark_flashed(self, slot: str, sha256: str) -> None:
         self._flashed[slot] = sha256
+        self._dirty.discard(slot)
+
+    def mark_dirty(self, slot: str) -> None:
+        """Rollback marker (P1 Task8): a failed/rolled-back write must
+        never be treated as flashed - the next flash re-writes."""
+        self._dirty.add(slot)
+        self._flashed.pop(slot, None)
+
+    def is_dirty(self, slot: str) -> bool:
+        return slot in self._dirty
 
     def flashed_version(self, slot: str) -> str:
         return self._flashed.get(slot, "")

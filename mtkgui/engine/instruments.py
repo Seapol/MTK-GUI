@@ -285,17 +285,36 @@ class RealGateway:
                 "Done", value="reused",
                 lines=log_lines + ["[SLOT_IMG] identical image "
                                    "already flashed -> write skipped"])
-        result = drv.flash_firmware(
-            params.resolved_image(), verify=params.verify,
-            reset_and_run=params.reset_run,
-            erase=params.erase)
+        # P1 Task8: fault-tolerant execution - segmented timeouts,
+        # transient-disconnect retry, rollback on write/verify failure,
+        # forced driver release
+        from .flash_ft import (FlashVerifyFailed, FlashWriteFailed,
+                               FlashTolerance)
+        ft = FlashTolerance(
+            retries=params.retries,
+            log_fn=lambda line: log_lines.append(line))
+        try:
+            write = ft.execute_write(
+                lambda: drv.flash_firmware(
+                    params.resolved_image(), verify=params.verify,
+                    reset_and_run=params.reset_run,
+                    erase=params.erase).value,
+                self._slot_registry, params.slot)
+            verify = ft.execute_verify(
+                getattr(drv, "verify_firmware", None),
+                self._slot_registry, params.slot)
+        except (FlashWriteFailed, FlashVerifyFailed) as exc:
+            raise mod.InstrumentConfigError(str(exc))
+        finally:
+            ft.release(drv)
         slot = params.slot
         self._slot_registry.mark_flashed(slot, rec.sha256)
+        detail = write.detail or write.phase
         return GatewayOutcome(
-            "Done", value=result.value,
+            "Done", value=int(detail) if detail.isdigit() else detail,
             lines=log_lines[:1]
             + [f"J-Link flash {slot} {params.image}: "
-               f"{result.value} bytes OK",
+               f"{write.detail} bytes OK",
                "J-Link reset & run"]
             + log_lines[1:])
 
