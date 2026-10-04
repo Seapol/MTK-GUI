@@ -930,6 +930,41 @@ class BatchPipeline(max_fail_ratio=0.5, now=None):   # alias: BP
 # shell shares batch_pipeline
 ```
 
+### 26. Five-Role RBAC Permission Middle Platform (NEW — owned by P3-9, `mtkgui/engine/rbac_hub.py`)
+
+Pure-increment upgrade of the frozen P2-11 dual-role auth to an
+enterprise five-role, three-plane RBAC — P2-11 `AccessControl` /
+`AuditLog` reused (account storage + denial audit), never modified.
+
+```python
+class Role5(Enum): VIEWER(0) < OPERATOR(1) < ENGINEER(2)
+                   < MANAGER(3) < ADMIN(4)
+FROM_P2: {"ADMIN"->ADMIN, "OPERATOR"->OPERATOR}   # P2 Role compat
+PERM5: dict[Role5, set[str]]    # function plane; ADMIN={"*"}
+    # VIEWER view; OPERATOR +run_test/export_report/upload;
+    # ENGINEER +case_edit/config_edit/queue_manage;
+    # MANAGER +case_lock/device_manage/audit_view/report_manage
+PAGE_ACCESS: {route_key: min_level}   # page plane; default 4
+DATA_SCOPES: role -> "project"|"all"  # data plane
+class RbacError(Exception)
+class RbacHub(access=None):           # alias: RH
+    can(role, action) -> bool         # accepts P2 Role / Role5 / str
+    require(role, action, target="")  # PermissionError on denial
+    page_allowed(role, route_key) -> bool
+    set_page_min(route_key, role5)    # runtime page tuning
+    data_scope(role) / grant_project(role, pid) /
+    project_allowed(role, pid) -> bool   # multi-project isolation
+    set_permission(role, action, allow)  # runtime matrix tuning
+    matrix_snapshot() -> {role: [actions]} / pages_snapshot()
+    add_account(actor_role, username, password, role, project_ids=())
+        # escalation guard: actor cannot grant >= own level unless
+        # ADMIN; denial audited as account_add:DENY
+    assignable_roles(actor_role) -> [str]
+# GUI: RbacPage route "rbac" — matrix tab (5 roles x actions),
+# page-plane tab, account tab (escalation-guarded creation);
+# shell shares rbac_hub (wired to P2-11 access)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
