@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QMessageBox, QPushButton, QSizePolicy,
                                QStackedWidget, QVBoxLayout, QWidget)
 
+from .case_editor import CaseEditorPage
 from .log_panel import LogPanelWidget
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
@@ -210,10 +211,15 @@ class MainWindow(QMainWindow):
         return cands[0] if cands else "config/project.yaml"
 
     def mount_default_routes(self) -> None:
-        """Framework routes; the config page is the P2-2 increment."""
+        """Framework routes; the config page is the P2-2 increment and
+        the AI-case editor page is the P2-3 increment."""
         self.register_page("home", lambda: PlaceholderPage("Home"), "Home")
         self.register_page("workflow", lambda: PlaceholderPage("Workflow"),
                            "Test Workflow")
+        self.register_page("cases",
+                           lambda: CaseEditorPage(
+                               self._default_config_yaml()),
+                           "AI Case Editor")
         self.register_page("reports", lambda: PlaceholderPage("Reports"),
                            "Reports")
         self.register_page("config",
