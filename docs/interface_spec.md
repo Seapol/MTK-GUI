@@ -794,6 +794,31 @@ class RouteService(Service):        # route/service decoupling
     snapshot() -> {route: service}
 ```
 
+### 22. Persistent Priority Task Queue (NEW — owned by P3-5, `mtkgui/engine/task_queue.py`)
+
+Pure-increment queue capability; P2 immediate-execution paths
+untouched and unaffected.
+
+```python
+class TaskStatus(Enum): PENDING RUNNING DONE FAILED
+@dataclass QueuedTask: payload, priority(higher first),
+    max_retries, tid, attempts, status, result, error
+class TaskQueue(journal_path=None, now=None, poll=0.02):
+    submit(payload, priority=0, max_retries=2) -> QueuedTask
+    get(tid) -> QueuedTask
+    run(handler, workers=2) -> stats     # parallel drain, blocking;
+        # handler exception -> requeue (attempts+1) until
+        # max_retries exhausted -> FAILED with error captured
+    wait(timeout=30) -> bool             # quiescence helper
+    snapshot() -> [row]                  # tid/priority/status/...
+    stats() -> {PENDING,RUNNING,DONE,FAILED,total}
+    # journal: unfinished tasks persisted on EVERY transition,
+    # re-queued on restart -> crash never loses a task
+# GUI: QueuePage route "queue" — submit box (priority+retries),
+# live task table, stats bar; shell shares task_queue
+# (journal: <tenant_base>/_queue_journal.json)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
