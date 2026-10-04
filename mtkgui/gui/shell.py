@@ -35,7 +35,9 @@ from .report_page import ReportPage
 from .upload_page import UploadPage
 from .export_page import ExportPage
 from .cluster_page import ClusterPage
+from .audit_page import AuditPage
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
+from mtkgui.engine.auth_audit import AccessControl, AuditLog
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -231,6 +233,16 @@ class MainWindow(QMainWindow):
         import os
         return os.environ.get("MTKGUI_EXPORT_DIR", "reports_export")
 
+    @staticmethod
+    def _default_audit_path() -> str:
+        import os
+        return os.environ.get("MTKGUI_AUDIT_LOG", "audit/audit.jsonl")
+
+    @staticmethod
+    def _default_accounts_path() -> str:
+        import os
+        return os.environ.get("MTKGUI_ACCOUNTS", "audit/accounts.json")
+
     def mount_default_routes(self) -> None:
         """Framework routes; the config page is the P2-2 increment and
         the AI-case editor page is the P2-3 increment."""
@@ -266,6 +278,15 @@ class MainWindow(QMainWindow):
         self.register_page("cluster",
                            lambda: ClusterPage(self.cluster_scheduler),
                            "Cluster")
+        # P2-11: RBAC + operation audit over shared stores
+        self.audit_log = AuditLog(self._default_audit_path())
+        self.access = AccessControl(self._default_accounts_path(),
+                                    audit=self.audit_log)
+        self.access.ensure_default_accounts()
+        self.register_page("audit",
+                           lambda: AuditPage(self.access,
+                                             self.audit_log),
+                           "Audit")
         self.register_page("config",
                            lambda: ConfigPage(self._default_config_yaml()),
                            "Config")
