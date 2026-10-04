@@ -18,6 +18,8 @@ code; later P2 stages mount business pages purely via ``register_page``.
 """
 from __future__ import annotations
 
+import os
+
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -37,9 +39,11 @@ from .export_page import ExportPage
 from .cluster_page import ClusterPage
 from .audit_page import AuditPage
 from .resource_page import ResourcePage
+from .queue_page import QueuePage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from mtkgui.engine.resource_hub import PathHub, ResourceManager
+from mtkgui.engine.task_queue import TaskQueue
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
 from mtkgui.engine.project_context import TenantRegistry
 from .config_page import ConfigPage
@@ -341,6 +345,13 @@ class MainWindow(QMainWindow):
             lambda: ResourcePage(self.resource_manager,
                                  self.path_hub),
             "Resources")
+        # P3-5: persistent priority task queue over shared store
+        self.task_queue = TaskQueue(
+            journal_path=os.path.join(self._default_tenant_base(),
+                                      "_queue_journal.json"))
+        self.register_page("queue",
+                           lambda: QueuePage(self.task_queue),
+                           "Queue")
         # P2-11: RBAC + operation audit over shared stores
         self.audit_log = AuditLog(self._default_audit_path())
         self.access = AccessControl(self._default_accounts_path(),
