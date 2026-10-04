@@ -546,6 +546,32 @@ class SharePointUploader:
 # (outbox = $MTKGUI_OUTBOX_DIR or "outbox")
 ```
 
+### 14. Commercial Report Export (NEW — owned by P2-9, `mtkgui/gui/report_export.py` + `mtkgui/gui/export_page.py`)
+
+Pure-increment rendering & export layer over the P1 records + P2-5
+metric reports (read-only); zero changes to any producer.
+
+```python
+sparkline(points, width, height, color) -> str   # inline SVG trend
+                    # thumbnail; <2 points -> "暂无趋势数据"
+doc_hash(payload) -> str    # SHA-256 provenance digest (stable json)
+build_html_report(*, records, yield_report, cycle_report,
+                  cpk_reports, batch_summaries=None, meta=None,
+                  title=...) -> str
+    # standardized sections: header (part_number/batch/station/
+    # version/revision/generated_at/trace hash) -> KPI summary ->
+    # anomaly stats (invalid_by_kind + top_defects) -> yield trend
+    # SVG thumbnail -> CpK table -> batch comparison (yield dict from
+    # engine.batch_summary) -> full test detail -> footer (full hash)
+export_pdf(html_text, path) -> Path
+    # QPdfWriter A4 portrait rendering of the same HTML (printable)
+# GUI: ExportPage(QWidget) route "export"; Signal report_exported(str)
+# preview QTextBrowser; zoom(+1/-1/0 -> %label); find box (wraps);
+# export_html()/export_pdf_file()/export_batch_summary() (one HTML per
+# batch + merged SUMMARY); meta dict + cpk_case/lsl/usl config;
+# interactive flag; out_dir = $MTKGUI_EXPORT_DIR or "reports_export"
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
