@@ -504,6 +504,48 @@ class ArchiveManager:
 # tier keys: "history" | "daily" | "batch"
 ```
 
+### 13. SharePoint Upload Closed Loop (NEW — owned by P2-8, `mtkgui/engine/uploader.py` + `mtkgui/gui/upload_page.py`)
+
+Pure-increment upload & monitoring layer.  Reads the P2-2 visual
+config ``sharepoint.*`` section (wired since P2-2 as pass-through);
+zero changes to test flow / reports / metrics / archive.
+
+```python
+BLACKLIST_SUFFIXES = {.exe .bat .cmd .sh .dll .msi}   # never uploaded
+@dataclass UploadConfig: enabled, site_url, username, password, token,
+                         retry_count, resume_on_disconnect,
+                         overwrite_policy(overwrite|keep_both|skip),
+                         project_dir, whitelist
+UploadConfig.from_config(cfg_dict)     # P2-2 sharepoint.* section
+class FakeSharePoint:                  # injectable transport seam
+    head/mkdirs/exists/put; fail_next_put, fail_probe, deny_write,
+    online; uploaded: {remote_path: bytes}
+class HttpSharePoint:                  # real urllib transport, same seam
+    # Bearer token / basic auth; HTTPError -> TransportError,
+    # URLError -> ConnectionError
+@dataclass UploadResult: name, status(UPLOADED|DEDUPED|FAILED|BLOCKED),
+                         attempts, sha256, url, ts, detail
+filter_allowed(name, whitelist) -> reason|None   # black/white gate
+class SharePointUploader:
+    __init__(outbox, *, state_dir=None, transport=None, now=None,
+             sleep=time.sleep)
+    apply_config(cfg)            # hot update from P2-2 dict
+    precheck() -> [problems]     # connectivity + permission + writable
+    upload_file(path) -> UploadResult
+        # chain: filter -> configured -> sha256 dedup (ledger, by
+        # name+hash) -> skip-policy -> put with retry_count+1 attempts
+        # (ConnectionError retries when resume_on_disconnect,
+        # TransportError aborts) -> failure keeps file in outbox
+    upload_pending(source=None) -> [UploadResult]   # outbox sweep
+    records() -> [dict]          # ledger book for the GUI
+    ledger persisted to state_dir/upload_ledger.json (restart-safe)
+    audit: [(time, action, detail)]   # [UPLOAD] log lines
+# GUI: UploadPage(QWidget) route "upload"; Signal upload_done(int ok,
+# int bad); apply_config(cfg) hot-update hook; on_precheck/on_upload/
+# refresh; interactive flag; shell.upload_manager shared instance
+# (outbox = $MTKGUI_OUTBOX_DIR or "outbox")
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
