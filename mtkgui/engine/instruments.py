@@ -168,10 +168,43 @@ class RealGateway:
         self._drivers.clear()
 
     # ------------------------------------------------------- op steps
+    KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "power",
+                      "flash", "generic")
+
     def execute_op(self, name: str, params: dict | None) -> GatewayOutcome:
         """Standard operation step against the real rack."""
+        import time as _time
+        from .protocol import (CommandValidator, ProtocolAdapter,
+                               ProtocolError, ReplyParser,
+                               TimeoutPolicy)
+        if getattr(self, "_proto", None) is None:
+            self.proto = ProtocolAdapter(
+                policy=TimeoutPolicy(execute_s=120.0),
+                parser=ReplyParser(),
+                log_fn=lambda line: None)
         p = dict(params) if params else {}
         t = p.get("type") or "generic"
+        t0 = _time.monotonic()
+        try:
+            # P1 Task9: command pre-validation (unknown op types are
+            # rejected before touching any instrument)
+            self.proto.validate_command(t, CommandValidator(
+                set(self.KNOWN_OP_TYPES)))
+        except ProtocolError as exc:
+            return GatewayOutcome("Error", lines=[f"{name}: {exc}"])
+        try:
+            out = self._execute_op_by_type(name, t, p)
+        except DriverUnavailable as exc:
+            out = GatewayOutcome("Error", lines=[str(exc)])
+        except self._err_base() as exc:
+            out = GatewayOutcome("Error", lines=[f"{name}: {exc}"])
+        duration = _time.monotonic() - t0
+        out.lines.append(f"[INSTR_PROTO] op={t} duration="
+                         f"{duration:.3f}s verdict={out.verdict}")
+        return out
+
+    def _execute_op_by_type(self, name: str, t: str,
+                            p: dict) -> GatewayOutcome:
         try:
             if t in ("instruments", "reset"):
                 return self._op_instruments(p, reset=(t == "reset"))
