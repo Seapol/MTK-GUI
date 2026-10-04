@@ -95,8 +95,12 @@ def judge_limits(value: float, lo_s: str, hi_s: str) -> str | None:
 class RealGateway:
     """Real-mode instrument backend backed by mtkgui.drivers (T1)."""
 
-    def __init__(self, equipment: dict | None = None):
+    def __init__(self, equipment: dict | None = None,
+                 config: dict | None = None):
         self._equipment = dict(equipment or {})
+        # full project config (optional): the flash parameter layer
+        # resolves firmware-section defaults against it (P1 Task6)
+        self._flash_config = config or {}
         self._drivers: dict[str, object] = {}
         self._module = None
         try:
@@ -244,22 +248,34 @@ class RealGateway:
     def _op_flash(self, p: dict) -> GatewayOutcome:
         mod = self._require_module()
         drv = self._driver("JLINK")
-        image = p.get("image")
-        if not image:
+        # P1 Task6: structured parameter resolution + full validation
+        # BEFORE any driver call (illegal params never reach the flash)
+        from .flash_params import (flash_param_log_lines,
+                                   resolve_flash_params,
+                                   validate_flash_params)
+        params = resolve_flash_params(p, config=self._flash_config)
+        if not params.image:
             slot = p.get("slot", "")
             raise mod.InstrumentConfigError(
                 f"flash image for slot '{slot}' not configured "
                 f"(set firmware.{slot}_image in the project YAML)")
+        errors = validate_flash_params(params)
+        log_lines = flash_param_log_lines(params, errors)
+        if errors:
+            raise mod.InstrumentConfigError(
+                f"flash parameters rejected: {errors[0]}")
         result = drv.flash_firmware(
-            str(image), verify=bool(p.get("verify", True)),
-            reset_and_run=bool(p.get("reset_run", True)),
-            erase=bool(p.get("erase", False)))
-        slot = p.get("slot", "")
+            params.resolved_image(), verify=params.verify,
+            reset_and_run=params.reset_run,
+            erase=params.erase)
+        slot = params.slot
         return GatewayOutcome(
             "Done", value=result.value,
-            lines=[f"J-Link flash {slot} {image}: "
-                   f"{result.value} bytes OK",
-                   "J-Link reset & run"])
+            lines=log_lines[:1]
+            + [f"J-Link flash {slot} {params.image}: "
+               f"{result.value} bytes OK",
+               "J-Link reset & run"]
+            + log_lines[1:])
 
     # ------------------------------------------------- measurement rows
     def measure_row(self, kind: str, name: str, unit: str, lo_s: str,

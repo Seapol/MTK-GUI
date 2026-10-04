@@ -74,7 +74,7 @@ class TestVirtualMode:
 
 class TestRealMode:
     def test_scripted_drivers_full_pass(self, tmp_path, monkeypatch,
-                                        capsys):
+                                        capsys, firmware_image):
         monkeypatch.delitem(sys.modules, "mtkgui.drivers", raising=False)
         rc, _logs = run_demo_main(tmp_path, monkeypatch, mode="real")
         assert rc == 0
