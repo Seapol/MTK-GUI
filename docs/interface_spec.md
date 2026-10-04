@@ -740,6 +740,34 @@ def tenant_db(ctx, now=None) -> DbStore
     # P3-1 tenant slot "db" -> ctx.dir("metrics")/tenant.db
 ```
 
+### 20. Global Resource Hub & Path Hub (NEW — owned by P3-3, `mtkgui/engine/resource_hub.py`)
+
+Pure-increment platform hub over the P3-1 tenant kernel; P1/P2 device
+locks and state machines untouched.
+
+```python
+PATH_CATEGORIES = (config, cases, outbox, export, archive, audit,
+                   logs, metrics)
+class ResourceBusy(Exception)
+@dataclass ResourceLock: rtype, name, owner, tenant, token, acquired_at
+class PathHub(ctx=None):             # ctx=None -> legacy CWD mode
+    path(category, *parts) -> Path   # canonical, dirs auto-created
+    resolve(path) -> Path            # escape rejected (P3-1 guard)
+    snapshot() -> {category: location}
+class ResourceManager(now=None, default_ttl=600):
+    acquire(rtype, name, owner, tenant=None, ttl=None) -> ResourceLock
+        # exclusive; ResourceBusy when held; TenantError on
+        # cross-tenant tag mismatch vs active tenant
+    release(lock) / release_token(rtype, name, token) -> bool
+    owner_of(rtype, name) / is_busy(rtype, name)
+    snapshot() -> [row]              # monitoring board (sorted)
+    locks_view() -> [ResourceLock]   # for token-checked release
+    sweep() -> n                     # TTL auto-release orphaned locks
+# GUI: ResourcePage route "resources" — live lock table, tenant path
+# tree, refresh / TTL sweep / token-checked release; shell shares
+# resource_manager + path_hub (path_hub rebound on tenant switch)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

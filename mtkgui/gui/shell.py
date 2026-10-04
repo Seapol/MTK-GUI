@@ -36,8 +36,10 @@ from .upload_page import UploadPage
 from .export_page import ExportPage
 from .cluster_page import ClusterPage
 from .audit_page import AuditPage
+from .resource_page import ResourcePage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
+from mtkgui.engine.resource_hub import PathHub, ResourceManager
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
 from mtkgui.engine.project_context import TenantRegistry
 from .config_page import ConfigPage
@@ -271,6 +273,7 @@ class MainWindow(QMainWindow):
             self.audit_log = AuditLog(
                 str(ctx.dir("audit") / "audit.jsonl"))
             self.export_out_dir = str(ctx.dir("export"))
+            self.path_hub = PathHub(ctx)
             label = ctx.project_id
         else:
             self.metrics_engine = MetricsEngine()
@@ -279,6 +282,7 @@ class MainWindow(QMainWindow):
             self.cluster_scheduler = ClusterScheduler()
             self.audit_log = AuditLog(self._default_audit_path())
             self.export_out_dir = self._default_export_dir()
+            self.path_hub = PathHub()
             label = "P2 单项目模式"
         # rebind export route factory to the tenant export dir
         self._routes["export"] = (
@@ -329,6 +333,14 @@ class MainWindow(QMainWindow):
         self.register_page("cluster",
                            lambda: ClusterPage(self.cluster_scheduler),
                            "Cluster")
+        # P3-3: global resource & path monitor over shared hub
+        self.resource_manager = ResourceManager()
+        self.path_hub = PathHub()
+        self.register_page(
+            "resources",
+            lambda: ResourcePage(self.resource_manager,
+                                 self.path_hub),
+            "Resources")
         # P2-11: RBAC + operation audit over shared stores
         self.audit_log = AuditLog(self._default_audit_path())
         self.access = AccessControl(self._default_accounts_path(),
