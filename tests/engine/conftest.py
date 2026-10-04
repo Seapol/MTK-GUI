@@ -85,6 +85,19 @@ def make_env(config: dict | None = None, mode: str = "virtual",
     env = HeadlessEnv(stages, mode=mode, config=config,
                       logs_dir=tmp_path or "logs",
                       stop_on_fail=stop_on_fail, fast=True)
+    # capture engine log lines for assertions (additive test hook)
+    env._captured_log: list[str] = []
+    _orig_log = env._log
+
+    def _spying_log(line: str) -> None:
+        env._captured_log.append(line)
+        _orig_log(line)
+
+    def _log_lines() -> list[str]:
+        return list(env._captured_log)
+
+    env._log = _spying_log
+    env._log_lines = _log_lines
     return env, stages
 
 
