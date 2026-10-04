@@ -995,6 +995,42 @@ class AuditHub(audit):            # alias: AH; audit = P2-11 AuditLog
 # export box; shell shares audit_hub (wired to P2-11 audit_log)
 ```
 
+### 28. Open API Service & MES Line Adapter (NEW — owned by P3-11, `mtkgui/engine/api_server.py`)
+
+Zero-dependency RESTful dispatch layer over the platform middle
+platforms — engines are wired in via `bind()` provider callables,
+no engine modified.  HTTP framing pluggable (handler suitable for
+wsgiref / any framework).
+
+```python
+SCOPES = (read, write, admin)
+@dataclass ApiKey: key_id, key_hash(sha256), scopes, enabled
+class ApiError(code, message)
+class ApiServer(audit_log=None, now=None):        # alias: AS
+    issue_key(key_id, scopes=("read",)) -> secret  # plaintext ONCE
+    revoke_key(key_id)
+    route(method, path, scope, fn)     # custom route registration
+    bind(status_fn=, devices=, tasks=, enqueue=, report_fn=, mes=)
+    request(api_key, method, path, body=None) -> (code, json)
+        # framework-agnostic dispatch; scope enforcement
+        # (401 invalid / 403 disabled or missing scope); every
+        # call audited (api:METHOD, OK/denial code)
+    routes: GET status | GET devices | GET tasks | POST tasks
+            | GET reports/summary | POST mes/orders | GET audit
+@dataclass MesOrder: order_id, part_no, quantity, priority,
+    status(RECEIVED/QUEUED/DONE/REJECTED), result
+class MesAdapter(enqueue, deliver=None, log_fn=None):  # alias: MA
+    receive_order(body) -> {accepted, order_id, units, duplicate}
+        # inbound work order -> one platform task per unit;
+        # idempotent re-delivery (order_id dedupe); invalid rejected
+    push_result(order_id, payload) -> bool   # outbound to MES;
+        # delivery failure -> retry buffer (never lost)
+    retry_outbox() -> n / pending_outbox() -> int
+# GUI: ApiPage route "api" — key issuance (secret shown once),
+# request tester (method/path -> HTTP code), MES order intake box;
+# shell shares api_server + mes_adapter (audit wired to P2-11)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
