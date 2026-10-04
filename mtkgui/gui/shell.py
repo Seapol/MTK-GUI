@@ -26,11 +26,13 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from mtkgui.engine.metrics import MetricsEngine
+from mtkgui.engine.uploader import SharePointUploader
 
 from .case_editor import CaseEditorPage
 from .case_io_page import CaseIOPage
 from .log_panel import LogPanelWidget
 from .report_page import ReportPage
+from .upload_page import UploadPage
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -214,6 +216,12 @@ class MainWindow(QMainWindow):
         cands = sorted(glob.glob("config/PROJECT_*.yaml"))
         return cands[0] if cands else "config/project.yaml"
 
+    @staticmethod
+    def _default_outbox_dir() -> str:
+        """Local upload outbox (fallback layer, never auto-deleted)."""
+        import os
+        return os.environ.get("MTKGUI_OUTBOX_DIR", "outbox")
+
     def mount_default_routes(self) -> None:
         """Framework routes; the config page is the P2-2 increment and
         the AI-case editor page is the P2-3 increment."""
@@ -232,6 +240,12 @@ class MainWindow(QMainWindow):
         self.register_page("reports",
                            lambda: ReportPage(self.metrics_engine),
                            "Reports")
+        # P2-8: cloud archive monitor over a shared uploader
+        self.upload_manager = SharePointUploader(
+            self._default_outbox_dir())
+        self.register_page("upload",
+                           lambda: UploadPage(self.upload_manager),
+                           "Upload")
         self.register_page("config",
                            lambda: ConfigPage(self._default_config_yaml()),
                            "Config")
