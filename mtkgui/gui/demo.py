@@ -39,7 +39,8 @@ def main() -> int:
     # 2. window skeleton + default routes
     win = MainWindow(baseline_version="V1.0-P2-1", spec=spec)
     win.mount_default_routes()
-    assert win.route_keys == ["home", "workflow", "reports"], "routes wrong"
+    assert win.route_keys == ["home", "workflow", "reports", "config"], \
+        "routes wrong"
     assert win.stack.count() == 1, "home page not mounted on start"
 
     # 3. routing + page cache
@@ -47,6 +48,10 @@ def main() -> int:
     win.navigate("reports")
     assert win.stack.count() == 3, "pages not cached"
     assert win.cached_pages == ["home", "workflow", "reports"], "cache order"
+    # P2-2: config route builds the real ConfigPage over the project YAML
+    win.navigate("config")
+    assert "config" in win.cached_pages and win.stack.count() == 4, \
+        "config page mount"
     win.navigate("home")
     assert win.cached_pages.count("home") == 1, "home rebuilt (cache broken)"
     win.navigate("nope")  # unknown route -> logged WARN, no crash
