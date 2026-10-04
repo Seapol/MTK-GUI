@@ -209,6 +209,15 @@ No module can invent new yaml fields without updating this spec.
 >
 > Flash steps are op steps with `op_params: {"type": "flash", "slot": "fat" |
 > "oobe", "image": <path from firmware.<slot>_image>}` (see §3).
+>
+> Case-generation keys added by P1-16 (owned by `mtkgui.engine.casegen`,
+> consumed only by the generator/sync tools - the runner ignores them):
+>
+> | Key | Meaning |
+> |---|---|
+> | `ict_test_cases[].priority` / `power_domain` / `upstream` / `downstream` / `instrument` / `test_dim` / `notes` | optional review metadata exported to the human-review Excel and editable there; the engine treats them as pass-through |
+> | `ict_test_cases[].ai_meta` | AI provenance `{gen_version, gen_time, sources, reviewed}` |
+> | `ict_case_audit` | generation audit + per-sync history snapshots (`{time, source, actor, added, removed, changed, rows_before, rows_after}`), `review_version`, `final` |
 
 ## Conflict Prevention Rule
 
