@@ -30,6 +30,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .failures import FailureKind, classify_exception, failure_log_line
 from .policies import normalize_retry_count, policy_abort_reason, rollup
 from .rails import ai_wave_review
 from .results import StepResult, StepStatus
@@ -78,6 +79,7 @@ class TestRunner(QObject):
         self.state = "idle"
         self._pause_requested = False
         self._interrupted = False
+        self._timeout_retried = False
         self._wait_done = False
         self._run_steps: list[tuple] = []
         self._run_index = 0
@@ -958,8 +960,12 @@ class TestRunner(QObject):
             return
         try:
             self._run_step_body()
-        except Exception as exc:  # safety net: freeze instead of dying
-            self.freeze(f"unexpected error in step execution: {exc!r}")
+        except Exception as exc:
+            # P1 Task5: fine-grained failure branches replace the old
+            # blanket freeze (the state machine / retry core is
+            # untouched; this is the safety-net handler only)
+            self._handle_failure_event(classify_exception(exc,
+                                                          source="runner"))
 
     def _run_step_body(self) -> None:
         if self._fct_console_wait is not None:
@@ -1006,6 +1012,7 @@ class TestRunner(QObject):
                 QTimer.singleShot(wait, self._resume_step)
                 return
         self._wait_done = False
+        self._timeout_retried = False   # one reset+retry per step
         step_index = self._run_index
         self._run_index += 1
         env._set_phase("Processing...")
@@ -1032,6 +1039,36 @@ class TestRunner(QObject):
         self._run_step()
         if self.state == "running":
             self._run_timer.start()
+
+    def _handle_failure_event(self, event) -> None:
+        """Differentiated handling of one classified failure.
+
+        Priority: an operator abort intercepts every automatic branch.
+        TIMEOUT gets one reset+retry per step; RESOURCE terminates the
+        run; everything else freezes the engine (alarm + keep data)."""
+        if self._interrupted or self.state not in ("running", "paused"):
+            return  # operator stop wins; nothing to do when stopped
+        if event.kind is FailureKind.TIMEOUT and not self._timeout_retried:
+            # timeout-specific reset strategy: clear the wait state and
+            # re-dispatch the same step exactly once
+            self._timeout_retried = True
+            self._wait_done = False
+            self.env._log(failure_log_line(event, "reset+retry-once"))
+            try:
+                self._run_step_body()
+                return
+            except Exception as exc2:
+                # the retry failed too: fall through to the generic
+                # handling with the retry's own classification
+                event = classify_exception(exc2, source="runner")
+                self.env._log(failure_log_line(event, "retry failed"))
+        action = ("abort" if event.kind is FailureKind.RESOURCE
+                  else "freeze")
+        self.env._log(failure_log_line(event, action))
+        if event.kind is FailureKind.RESOURCE:
+            self.abort(trigger="system")   # terminate: no auto retry
+        else:
+            self.freeze(f"{event.kind.value}: {event.message}")
 
     def _finish_run(self) -> None:
         """One cycle completed without interruption -> judge result;
@@ -1096,11 +1133,13 @@ class TestRunner(QObject):
              "reset_phase": reset_phase, "remaining": remaining,
              "counted": counted})
 
-    def abort(self) -> None:
-        """Operator Stop / terminate: end the run from 'running' or
-        'paused'.  Remaining test items are left blank and the Overall
-        Result is IGNORE; the engine parks in the 'aborted' terminal
-        state (start() auto-resets it, or reset_state() rolls back)."""
+    def abort(self, trigger: str = "operator") -> None:
+        """Stop / terminate the run from 'running' or 'paused'
+        (trigger 'operator' for the Stop button, 'system' when a
+        resource-classified failure terminates the run).  Remaining
+        test items are left blank and the Overall Result is IGNORE;
+        the engine parks in the 'aborted' terminal state (start()
+        auto-resets it, or reset_state() rolls back)."""
         if self.state not in ("running", "paused"):
             return
         self._run_timer.stop()
@@ -1108,8 +1147,9 @@ class TestRunner(QObject):
         self._fct_console_wait = None
         self._pause_requested = False
         self._interrupted = True
-        self._transition("aborted", "operator")
-        self.env._log("Run interrupted by operator -> "
+        self._transition("aborted", trigger)
+        who = "operator" if trigger == "operator" else trigger
+        self.env._log(f"Run terminated ({who}) -> "
                       "Overall Result: IGNORE")
         self.run_finished.emit(
             {"reason": "stop", "progress": False, "total": 0,

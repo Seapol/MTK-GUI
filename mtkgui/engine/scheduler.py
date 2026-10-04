@@ -295,15 +295,51 @@ class TestScheduler(QObject):
                       f"(resource: station)")
             self._current = job
             self.job_started.emit(job)
+            requeued = False
             try:
                 self._run_job(job)
-            except Exception as exc:            # scheduler-level safety
-                self.freeze(f"unexpected error dispatching "
-                            f"'{job.name}': {exc!r}")
-                return
+            except Exception as exc:
+                # P1 Task5: fine-grained failure branches (timeout gets
+                # one reset+requeue, resource aborts, rest freezes)
+                requeued = self._handle_failure(exc, job)
+                if not requeued:
+                    self._current = None
+                    return
             self._current = None
+            self._release_current(job)
+            if requeued:
+                continue            # timeout reset: re-run, no bookkeeping
             self._executed.append(job)
             self.job_finished.emit(job)
+
+    def _handle_failure(self, exc: Exception, job) -> bool:
+        """Classify a dispatch-time failure and apply its policy.
+        Returns True when dispatching may continue."""
+        from .failures import FailureKind, classify_exception, \
+            failure_log_line
+        event = classify_exception(exc, source="scheduler")
+        retried = getattr(job, "_timeout_retried", False)
+        if event.kind is FailureKind.TIMEOUT and not retried:
+            job._timeout_retried = True
+            self._log(failure_log_line(event, "reset+requeue-once"))
+            self._queue.appendleft(job)     # reset strategy: re-run once
+            return True
+        action = ("abort" if event.kind is FailureKind.RESOURCE
+                  else "freeze")
+        self._log(failure_log_line(event, action))
+        if event.kind is FailureKind.RESOURCE:
+            self.abort()
+        else:
+            self.freeze(f"{event.kind.value}: {event.message}")
+        return False
+
+    def _release_current(self, job) -> None:
+        """Release the station token; a failed release must never
+        leave the scheduler hanging on a phantom resource."""
+        try:
+            self._log(f"resource released: {job.level} '{job.name}'")
+        except Exception as exc:            # release failure -> freeze
+            self.freeze(f"resource release failed: {exc!r}")
 
     def _run_job(self, job) -> None:
         ctx = JobContext(self)
