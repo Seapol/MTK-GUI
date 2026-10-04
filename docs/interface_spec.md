@@ -313,6 +313,52 @@ class ConfigPage(QWidget):
     on_rollback() / on_diff() / validate_form()
 ```
 
+### 8. AI-Case Visual Editor (NEW — owned by P2-3, `mtkgui/gui/`)
+
+Pure-increment GUI layer over the P1-16 casegen base (generator /
+excel_io / sync stay untouched).  Route key ``cases``.
+
+```python
+# mtkgui/gui/case_store.py
+GUI_EDITABLE = excel_io.EDITABLE + ("retry", "skip_if")
+DIMENSIONS = ("impedance", "voltage", "timing")   # 阻抗/电压/上电时序
+categorize(case) -> "电源网络"|"时钟网络"|"信号网络"|"操作流程"
+coerce_field(field, raw)         # same semantics as excel_io._coerce
+class LockedCaseError(RuntimeError)
+class CaseStore:
+    load/save(path)                              # project YAML
+    save_snapshot(cfg, note) -> snap_id / load_snapshot(snap_id)
+    is_locked(cfg, name) -> bool / set_locked(cfg, name, locked)
+    history(cfg) -> list[dict]                   # ict_case_audit.history
+    apply_case_edit(cfg, name, updates) -> [FieldChange]
+        # KeyError unknown case/non-editable field, ValueError illegal
+        # value, LockedCaseError when version-locked; appends an
+        # ict_case_audit.history entry (source="gui-editor")
+    set_dimension_enabled(cfg, dim, enabled) -> [FieldChange]
+        # batch toggle; locked cases are skipped
+    edit_and_save(cfg, name, updates, path) -> (new_cfg, changes)
+        # snapshot pre-edit -> edit -> formatted save
+```
+
+```python
+# mtkgui/gui/case_editor.py
+class CaseEditorPage(QWidget):                   # route: cases
+    cases_applied = Signal(dict)                 # hot-effect hook (P2-4+)
+    interactive: bool                            # headless-safe flag
+    refresh_tree() / reload()                    # rebuild from YAML
+    on_save() -> (cfg, changes) | None           # locked/illegal -> None
+    on_lock_toggle()                             # version lock/unlock
+    dim_boxes: dict[str, QCheckBox]              # 阻抗/电压/上电时序开关
+    # left tree: category groups with 优先级/维度/状态 badges
+    # right form: thresholds, wait/timeout, retry, skip_if, priority
+    # (power-tree level), instrument combo, notes, upstream/downstream
+    # topology view; bottom traceability panel (AI gen + manual edits)
+```
+
+Lock state is persisted under ``ict_case_audit.locks`` (name -> meta);
+manual edits append to ``ict_case_audit.history`` using the same entry
+shape as the P1-16 Excel sync — both stay backward compatible.
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

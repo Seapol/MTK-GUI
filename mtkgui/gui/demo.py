@@ -39,8 +39,8 @@ def main() -> int:
     # 2. window skeleton + default routes
     win = MainWindow(baseline_version="V1.0-P2-1", spec=spec)
     win.mount_default_routes()
-    assert win.route_keys == ["home", "workflow", "reports", "config"], \
-        "routes wrong"
+    assert win.route_keys == ["home", "workflow", "cases", "reports",
+                              "config"], "routes wrong"
     assert win.stack.count() == 1, "home page not mounted on start"
 
     # 3. routing + page cache

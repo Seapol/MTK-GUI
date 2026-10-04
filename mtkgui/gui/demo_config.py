@@ -105,7 +105,13 @@ def main() -> int:
     # 4. snapshot rollback + diff
     snaps = store.list_snapshots()
     assert len(snaps) >= 2, "snapshots missing (auto pre-save)"
-    restored, diffs = store.rollback(reloaded, snaps[0].snap_id)
+    # deterministic pick: same-second snapshot ids sort ambiguously,
+    # so select the pre-save snapshot BY CONTENT (retry still == 2)
+    cand = [s for s in snaps
+            if (ConfigStore.load(s.path).get("test_workflow")
+                or {}).get("retry") == 2]
+    assert cand, "pre-save snapshot (retry=2) missing"
+    restored, diffs = store.rollback(reloaded, cand[0].snap_id)
     assert get_path(restored, "test_workflow.retry") == 2, "rollback value"
     assert diffs, "rollback diff empty"
     assert len(page.store.diff(reloaded, restored)) == len(diffs), "diff"
