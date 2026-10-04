@@ -27,6 +27,7 @@ text file) in --logs-dir.  Exit code: 0 PASS, 1 FAIL.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -332,6 +333,13 @@ class HeadlessEnv:
             if p.get("type") == "flash" and not p.get("image"):
                 p["image"] = f"demo/{p.get('slot', 'fw')}_firmware.bin"
                 s.op_params = p
+                # the scripted demo image must pass the flash parameter
+                # existence check (P1 Task6) - create it on demand
+                if not os.path.isfile(p["image"]):
+                    os.makedirs(os.path.dirname(p["image"]) or ".",
+                                exist_ok=True)
+                    with open(p["image"], "wb") as fh:
+                        fh.write(b"\xde\xad\xbe\xef")
         self.fct_rows = [s.name for s in fct]
         self.fct_kinds = [s.kind for s in fct]
         self.fct_op_params = [s.op_params for s in fct]

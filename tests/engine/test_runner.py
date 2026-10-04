@@ -279,7 +279,8 @@ class TestRealModeWithoutDrivers:
 
 
 class TestRealModeWithStubDrivers:
-    def test_full_real_mode_pass(self, tmp_path, scripted_drivers):
+    def test_full_real_mode_pass(self, tmp_path, scripted_drivers,
+                                 firmware_image):
         env, _stages = make_env(mode="real", tmp_path=tmp_path)
         runner = TestRunner(env)
         env.runner = runner

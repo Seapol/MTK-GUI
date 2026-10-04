@@ -109,6 +109,17 @@ def env(tmp_path):
 
 
 @pytest.fixture
+def firmware_image(tmp_path, monkeypatch):
+    """A legal firmware image relative to the CWD (the flash parameter
+    layer validates image existence before any driver call)."""
+    fdir = tmp_path / "firmware"
+    fdir.mkdir()
+    (fdir / "fat.bin").write_bytes(b"\xde\xad\xbe\xef")
+    monkeypatch.chdir(tmp_path)
+    return fdir / "fat.bin"
+
+
+@pytest.fixture
 def scripted_drivers():
     """Install a mtkgui.drivers stub (T1 API shape) and remove it after
     the test - lets RealGateway run without the T1 branch merged."""
