@@ -33,6 +33,7 @@ from .case_io_page import CaseIOPage
 from .log_panel import LogPanelWidget
 from .report_page import ReportPage
 from .upload_page import UploadPage
+from .export_page import ExportPage
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -222,6 +223,12 @@ class MainWindow(QMainWindow):
         import os
         return os.environ.get("MTKGUI_OUTBOX_DIR", "outbox")
 
+    @staticmethod
+    def _default_export_dir() -> str:
+        """Deliverable report export directory."""
+        import os
+        return os.environ.get("MTKGUI_EXPORT_DIR", "reports_export")
+
     def mount_default_routes(self) -> None:
         """Framework routes; the config page is the P2-2 increment and
         the AI-case editor page is the P2-3 increment."""
@@ -246,6 +253,12 @@ class MainWindow(QMainWindow):
         self.register_page("upload",
                            lambda: UploadPage(self.upload_manager),
                            "Upload")
+        # P2-9: commercial report export over the shared engine
+        self.register_page("export",
+                           lambda: ExportPage(self.metrics_engine,
+                                              out_dir=self
+                                              ._default_export_dir()),
+                           "Export")
         self.register_page("config",
                            lambda: ConfigPage(self._default_config_yaml()),
                            "Config")
