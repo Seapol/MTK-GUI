@@ -34,6 +34,8 @@ from .log_panel import LogPanelWidget
 from .report_page import ReportPage
 from .upload_page import UploadPage
 from .export_page import ExportPage
+from .cluster_page import ClusterPage
+from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -259,6 +261,11 @@ class MainWindow(QMainWindow):
                                               out_dir=self
                                               ._default_export_dir()),
                            "Export")
+        # P2-10: multi-device cluster board over a shared scheduler
+        self.cluster_scheduler = ClusterScheduler()
+        self.register_page("cluster",
+                           lambda: ClusterPage(self.cluster_scheduler),
+                           "Cluster")
         self.register_page("config",
                            lambda: ConfigPage(self._default_config_yaml()),
                            "Config")
