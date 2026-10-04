@@ -671,6 +671,43 @@ Env seams: `MTKGUI_OUTBOX_DIR`, `MTKGUI_EXPORT_DIR`,
 admin/admin123, op/op123 (change before production).  Interface
 freeze: §1–§17; P3 platform work must extend, not rewrite.
 
+### 18. Multi-Project Tenant Context (NEW — owned by P3-1, `mtkgui/engine/project_context.py` + `mtkgui/gui/project_switcher.py`)
+
+Pure-increment platform base on top of the frozen P1+P2 core (§1–§17
+untouched).  Without an active tenant everything behaves exactly as
+P2 (single-project compatibility mode); legacy projects need no
+migration.
+
+```python
+TENANT_DIRS = (config, cases, outbox, export, archive, audit,
+               logs, metrics)          # per-tenant workspace layout
+class TenantError(Exception)           # lifecycle / cross-tenant violation
+@dataclass ProjectContext:
+    project_id, root
+    dir(name) -> Path                  # canonical tenant dir (created)
+    resolve(path) -> Path              # guard: no escape from root
+    slot(key, factory) -> obj          # per-tenant isolated runtime store
+    clear_slots()                      # switch/reset cache reset
+    set_current(ctx) / current()       # global pointer; None = legacy mode
+class TenantRegistry(base_dir):
+    register(pid) -> ProjectContext    # new tenant (id-safe, duplicate raise)
+    load(pid) -> ProjectContext        # on-disk tenant re-open
+    switch(pid) -> ProjectContext      # activate: leaving tenant slots cleared
+    unload(pid)                        # detach from memory, files kept
+    reset(pid)                         # wipe logs/metrics, keep config+cases
+    deactivate()                       # back to P2 single-project mode
+    list_projects() / get(pid)
+    guard(owner) -> ProjectContext     # cross-tenant bleed gate
+        # legacy -> LEGACY pseudo-tenant passes; mismatched owner raises
+# GUI: ProjectSwitcher (resident in shell top-nav), Signal
+# tenant_switched(str pid, ""=legacy); add_project/load_project;
+# shell.tenant_registry ($MTKGUI_TENANT_BASE, default "projects");
+# shell.apply_tenant(ctx): rebinds metrics_engine / upload_manager /
+# cluster_scheduler / audit_log / export dir into the tenant
+# workspace, purges cached pages (routes rebuild inside tenant),
+# audits "tenant_switch"
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
