@@ -768,6 +768,32 @@ class ResourceManager(now=None, default_ttl=600):
 # resource_manager + path_hub (path_hub rebound on tenant switch)
 ```
 
+### 21. Four-Layer Service Architecture (NEW — owned by P3-4, `mtkgui/engine/service_layer.py`)
+
+Pure WRAPPER kernel: shipped P1/P2/P3 objects are classified and
+their call direction enforced; no module rewritten, no external
+contract changed (shell keeps §8–§20 contracts verbatim).
+
+```python
+class LAYER(Enum): UI SERVICE CORE STORE
+allowed_calls(layer) -> set[LAYER]
+    # UI->{SERVICE}; SERVICE->{CORE,SERVICE}; CORE->{STORE,CORE};
+    # STORE->{STORE}
+check_call(caller, target)          # raises ArchError on violation
+CLASSIFICATION: dict[str, LAYER]    # shipped modules -> layer
+classify(name) -> LAYER
+@dataclass Service: name, layer; start()/stop()/healthy
+class ServiceRegistry:
+    register(svc) / wrap(name, target, layer)   # classify live object
+    resolve(name, caller) -> Service            # layer-checked
+    call(name, caller, method, *args, **kw)     # layer-checked invoke
+    start_all() / stop_all() / health() / names(layer=None)
+class RouteService(Service):        # route/service decoupling
+    bind(route_key, service_name) / service_for(key)
+    resolve_route(registry, key, caller=UI)
+    snapshot() -> {route: service}
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
