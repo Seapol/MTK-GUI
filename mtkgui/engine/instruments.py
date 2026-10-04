@@ -264,11 +264,33 @@ class RealGateway:
         if errors:
             raise mod.InstrumentConfigError(
                 f"flash parameters rejected: {errors[0]}")
+        # P1 Task7: slot image registry - integrity/tamper/reuse gate
+        # before the driver call (bad or illegal images never flash)
+        from .slot_images import SlotImageRegistry
+        if getattr(self, "_slot_registry", None) is None:
+            cfg_fw = self._flash_config.get("firmware") or {}
+            self._slot_registry = SlotImageRegistry(
+                skip_if_same_hash=bool(cfg_fw.get("skip_if_same_hash",
+                                                  False)))
+        rec = self._slot_registry.inspect(params.resolved_image(),
+                                          params.slot)
+        log_lines.extend(rec.log_lines())
+        if rec.state.value != "VALID":
+            raise mod.InstrumentConfigError(
+                f"slot image rejected: {rec.reason}")
+        if not self._slot_registry.should_flash(params.slot,
+                                                rec.sha256):
+            self._slot_registry.mark_flashed(params.slot, rec.sha256)
+            return GatewayOutcome(
+                "Done", value="reused",
+                lines=log_lines + ["[SLOT_IMG] identical image "
+                                   "already flashed -> write skipped"])
         result = drv.flash_firmware(
             params.resolved_image(), verify=params.verify,
             reset_and_run=params.reset_run,
             erase=params.erase)
         slot = params.slot
+        self._slot_registry.mark_flashed(slot, rec.sha256)
         return GatewayOutcome(
             "Done", value=result.value,
             lines=log_lines[:1]
