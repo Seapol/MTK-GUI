@@ -572,6 +572,42 @@ export_pdf(html_text, path) -> Path
 # interactive flag; out_dir = $MTKGUI_EXPORT_DIR or "reports_export"
 ```
 
+### 15. Multi-Device Cluster Scheduling (NEW — owned by P2-10, `mtkgui/engine/cluster_scheduler.py` + `mtkgui/gui/cluster_page.py`)
+
+Pure-increment dispatch layer composed on top of the P1
+`DeviceManager` (used, never modified): P1 state machine + lock
+tokens provide isolation; this layer adds balancing + failover.
+
+```python
+@dataclass Task: task_id, kind="*", weight=1.0, payload,
+                 status, device, token, attempts
+class TaskStatus(Enum): QUEUED RUNNING DONE FAILED MIGRATED
+@dataclass DeviceStats: name, kind, active, completed, failed,
+                        busy_s; load = active + busy_s/3600
+class ClusterScheduler:
+    __init__(dm=None, log_fn=None)
+    register_device(name, kind="station")   # P1 register + kind tag
+    submit(Task)                            # queue
+    assign_next() -> (task, device) | None
+        # idle-first, least-loaded (active, then busy_s) of matching
+        # kind; busy devices avoided -> task stays queued; exclusive
+        # P1 lock token per task (no preemption)
+    complete(task_id, ok=True)              # release + tally
+    report_fault(device, reason) -> [migrated task_ids]
+        # force-release + ERROR (un-acquireable); RUNNING tasks on
+        # it re-queued automatically (migration)
+    restore_device(device)                  # ERROR -> IDLE re-join
+    task_status / queue_depth / devices / snapshot
+    run(worker_fn(task, device) -> bool) -> {task_id: ok}
+        # ThreadPoolExecutor parallel run; refills idle devices as
+        # tasks finish; exceptions -> FAILED; blocking
+    audit: [(time, action, detail)]         # [CLUSTER] log lines
+# GUI: ClusterPage(QWidget) route "cluster"; Signal dispatched(int);
+# device board (设备/类型/状态/活跃/完成/失败/负载) + task board
+# (queue+running); on_assign/on_remove(on_restore)/refresh;
+# interactive flag; shell.cluster_scheduler shared instance
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
