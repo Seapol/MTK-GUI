@@ -608,6 +608,42 @@ class ClusterScheduler:
 # interactive flag; shell.cluster_scheduler shared instance
 ```
 
+### 16. RBAC + Operation Audit (NEW — owned by P2-11, `mtkgui/engine/auth_audit.py` + `mtkgui/gui/audit_page.py`)
+
+Pure-increment permission & traceability layer; zero changes to the
+test / device / engine core.  Pages opt in by calling the gate +
+ledger.
+
+```python
+class Role(Enum): ADMIN OPERATOR
+PERMISSIONS = {ADMIN: {"*"}, OPERATOR: {run_test, view,
+               export_report, upload}}     # single source of truth
+@dataclass Session: username, role; can(action) -> bool
+class AccessControl:
+    __init__(accounts_path, audit=None, now=None)
+    ensure_default_accounts()   # bootstrap admin/admin123 + op/op123
+                                # (idempotent, salted sha256, local JSON)
+    login(user, pwd) -> Session | None   # attempts audited
+        # ledger action: "login:GRANT" / "login:DENY"
+    require(session, action, target="")  # permission gate
+        # raises PermissionError on denial; both GRANT and DENY are
+        # audited as "<action>:GRANT|DENY"
+    add_account(user, pwd, role, actor)  # audited "account_add"
+    role_of(user) -> Role | None
+class AuditLog:
+    __init__(path, now=None)    # append-only JSONL ledger
+    log(user, action, target="", before=None, after=None, detail="")
+        # entry: ts/user/action/target/before/after/detail
+    entries() / query(action=, user=, since=, until=, text=)
+        # all criteria AND-combined, substring on action & text
+    export(path, fmt="csv"|"json") -> Path   # export itself audited
+# GUI: AuditPage(QWidget) route "audit"; Signal logged_in(str role);
+# login box + role badge, guarded 修改配置 demo (operator denial
+# visible + audited), ledger table with action/user/text filters,
+# CSV/JSON export; interactive flag; shell.access + shell.audit_log
+# shared instances ($MTKGUI_AUDIT_LOG / $MTKGUI_ACCOUNTS)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
