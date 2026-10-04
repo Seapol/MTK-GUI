@@ -858,6 +858,41 @@ class ClusterHub(stale_after=10.0, now=None):   # alias: CH
 # list, stats bar; shell shares cluster_hub + cluster_scheduler
 ```
 
+### 24. Cross-Host Load Balancer (NEW — owned by P3-7, `mtkgui/engine/load_balancer.py`)
+
+Pure-increment balancing STRATEGY layer over the frozen P2-10
+`ClusterScheduler` + P3-6 `ClusterHub`: both observed read-only via
+public contracts; original locks, state machines and dispatch path
+untouched — host-level weights, busy avoidance and cross-host
+migration suggestions only.
+
+```python
+@dataclass HostLoad: host, devices, active, completed, failed,
+    busy_s, offline, queue_hint
+    utilization -> float (active/devices, 0..1); as_row()
+@dataclass MigrationRecord: task_id, from_host, to_host, reason
+class LoadBalancer(w_active=1.0, w_busy=1.0, w_offline=2.0,
+                   skew=0.35):                 # alias: LB
+    observe(hub, scheduler=None) -> {host: HostLoad}
+        # per-HOST aggregation of hub nodes + scheduler stats/states
+    observe_kinds(hub)               # device->kind/host cache
+    rank() -> [HostLoad]             # weighted score: idle-first
+    best_host(kind=None) -> str|None # busy avoidance (util>=1 or
+        # dead host skipped), optional kind filter
+    imbalance() -> float             # max-min utilization spread
+    plan(hub, scheduler=None) -> [{action: MIGRATE, kind, from,
+        to, reason}]                 # hot host -> cold host proposals
+    record_migration(task_id, from_host, to_host, reason) / 
+    migrations() -> [dict]           # cross-host migration ledger
+    accel_stats(scheduler, wall_s) -> {devices, busy_s, wall_s,
+        speedup, efficiency}         # parallel speedup quantified
+    hosts_view() -> [row]            # sorted board rows
+# GUI: BalancePage route "balance" — host load table (8 cols),
+# imbalance meter, MIGRATE plan list, migration records, manual
+# migration recording, speedup label; shell shares load_balancer +
+# cluster_hub + cluster_scheduler
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

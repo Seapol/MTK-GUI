@@ -98,7 +98,8 @@ def test_shell_full_stack_routes_and_shared_stores(tmp_path,
     assert win.route_keys == ["home", "workflow", "cases", "case_io",
                               "reports", "upload", "export",
                               "cluster", "resources", "queue",
-                              "fleet", "audit", "config"], \
+                              "fleet", "balance", "audit",
+                              "config"], \
         "all P2+P3 routes mounted"
     assert win.metrics_engine is not None
     assert win.upload_manager is not None
