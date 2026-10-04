@@ -426,6 +426,50 @@ class MetricsEngine:
                                               # results reproducible
 ```
 
+### 11. Visual Report Dashboard (NEW — owned by P2-6, `mtkgui/gui/`)
+
+Pure-increment visualization layer over the P2-5 MetricsEngine: read-only
+consumption of engine records + `compute_*` pure functions; zero changes
+to the metrics engine, runner or any core module.  Charts are self-drawn
+with QPainter (`mtkgui/gui/charts.py`) — no external chart dependency.
+
+```python
+# mtkgui/gui/charts.py — self-drawn chart widgets (headless-testable)
+class LineChart(QWidget):
+    set_series(name, points)   # REPLACES only that named series
+    add_series(name, points)   # appends a series
+    point_count(name=None)     # points of one / all series
+class BarChart(QWidget):
+    set_data(items, highlight=None)  # items=[(label, value)];
+                                     # highlight label drawn in red
+    bar_count; _items; _highlight
+class PieChart(QWidget):
+    set_data(items)            # slices with v<=0 filtered out
+    slice_count; _items
+
+# mtkgui/gui/report_page.py — route key "reports"
+class ReportPage(QWidget):
+    __init__(engine: MetricsEngine | None, spec=StyleSpec(), parent=None)
+    report_refreshed = Signal(int)   # emitted per refresh with the
+                                     # filtered in-scope record count
+    interactive: bool                # False = no modal dialogs (headless)
+    cpk_case / cpk_lsl / cpk_usl     # CpK trend config (optional)
+    # filter bar: batch_combo (全部 + batches), shift_combo (全部/day/
+    # night), refresh_btn, reset_btn, detail_btn, auto_btn (QTimer 5s)
+    refresh()            # recompute all charts from filtered records
+    reset()              # combos back to 全部 + refresh
+    show_detail()        # in-page detail panel (+ QDialog if interactive)
+    _filtered()          # batch+shift AND-combined record view
+    # charts: yield_chart (time-bucketed real_yield trend),
+    # cycle_chart (per-case mean top8, slowest = bottleneck highlighted),
+    # cpk_chart (per-batch CpK trend, inf/zero-dispersion excluded),
+    # defect_chart (top_defects bars, #1 highlighted), pie_chart
+    # (product fails + invalid-by-kind shares), batch_table
+    # (批次/良率/平均工时s/测试数)
+# shell wiring: shell.metrics_engine = MetricsEngine() (shared, feeds
+# later stages); register_page("reports", ReportPage(engine))
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
