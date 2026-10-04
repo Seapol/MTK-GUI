@@ -25,9 +25,12 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QMessageBox, QPushButton, QSizePolicy,
                                QStackedWidget, QVBoxLayout, QWidget)
 
+from mtkgui.engine.metrics import MetricsEngine
+
 from .case_editor import CaseEditorPage
 from .case_io_page import CaseIOPage
 from .log_panel import LogPanelWidget
+from .report_page import ReportPage
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
@@ -224,7 +227,10 @@ class MainWindow(QMainWindow):
         self.register_page("case_io",
                            lambda: CaseIOPage(self._default_config_yaml()),
                            "Review Excel")
-        self.register_page("reports", lambda: PlaceholderPage("Reports"),
+        # P2-6: live dashboard over a shared MetricsEngine (P2-5 base)
+        self.metrics_engine = MetricsEngine()
+        self.register_page("reports",
+                           lambda: ReportPage(self.metrics_engine),
                            "Reports")
         self.register_page("config",
                            lambda: ConfigPage(self._default_config_yaml()),
