@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from .log_panel import LogPanelWidget
+from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
 
@@ -202,13 +203,22 @@ class MainWindow(QMainWindow):
         return list(self._pages)
 
     # default skeleton routes ---------------------------------------------
+    @staticmethod
+    def _default_config_yaml() -> str:
+        import glob
+        cands = sorted(glob.glob("config/PROJECT_*.yaml"))
+        return cands[0] if cands else "config/project.yaml"
+
     def mount_default_routes(self) -> None:
-        """Framework-only placeholders; replaced by real P2 modules later."""
+        """Framework routes; the config page is the P2-2 increment."""
         self.register_page("home", lambda: PlaceholderPage("Home"), "Home")
         self.register_page("workflow", lambda: PlaceholderPage("Workflow"),
                            "Test Workflow")
         self.register_page("reports", lambda: PlaceholderPage("Reports"),
                            "Reports")
+        self.register_page("config",
+                           lambda: ConfigPage(self._default_config_yaml()),
+                           "Config")
         self.navigate("home")
 
     # console-style helpers for future engine bridges ----------------------

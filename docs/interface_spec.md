@@ -265,6 +265,54 @@ the setters above — the shell never polls the engine; page cache is
 build-once per route key; close is guarded by a confirm dialog, then timers
 stop and resources flush (safe exit).
 
+### 7. Visual Config System (NEW — owned by P2-2, `mtkgui/gui/`)
+
+Schema-driven visual YAML editor.  Pure additive on top of the existing
+YAML base (`mtkgui.project_config` untouched); saving mutates ONLY
+registered paths and never drops unregistered keys.
+
+```python
+# mtkgui/gui/config_spec.py
+SECTIONS: dict[str, tuple[FieldSpec, ...]]   # project/firmware/equipment/sharepoint
+def get_path(cfg, dotted) / set_path(cfg, dotted, v) / iter_paths(cfg)
+def validate_value(spec, value) -> ValidationIssue | None   # field+value+reason
+def validate_config(cfg) -> list[ValidationIssue]
+def coerce_value(spec, value) -> Any                        # text -> typed
+```
+
+Registered engine-consumed keys (names MUST stay exact):
+`test_workflow.retry|stop_if_failure|stop_if_any_short`,
+`firmware.fat_image|oobe_image`, `project.*`, `product.*`.
+New additive keys (engine pass-through until wired): `test_workflow.
+global_timeout_s|schedule_mode|max_parallel`, `firmware.connect_timeout_s|
+write_timeout_s|verify_timeout_s|verify|version_rule`, `equipment.comm.*`,
+`equipment.host.fields.*`, and the whole `sharepoint` section
+(`enabled, site_url, username, password, token, upload_retry_count,
+resume_on_disconnect, overwrite_policy, project_dir, archive_whitelist`).
+
+```python
+# mtkgui/gui/config_store.py
+class ConfigStore:
+    load(path) -> dict                      # yaml.safe_load
+    save(cfg, path)                         # formatted: sort_keys=False,
+                                            #   allow_unicode, stable order
+    apply_and_save(cfg, updates, path, note) -> (cfg, [Change])
+                                            # auto-snapshot pre-save + [CFG] audit
+    save_snapshot/list_snapshots/load_snapshot/rollback(current, id)
+    diff(a, b) -> [Change(path, old, new)]
+apply_registered(cfg, updates) -> [Change]  # IN-PLACE; empty optional skipped;
+                                            # unknown path -> KeyError
+```
+
+```python
+# mtkgui/gui/config_page.py
+class ConfigPage(QWidget):
+    config_applied = Signal(dict)           # hot-effect hook (no restart)
+    interactive: bool                       # False = headless-safe (no modals)
+    on_save() -> (cfg, changes) | None      # blocked on validation issues
+    on_rollback() / on_diff() / validate_form()
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
