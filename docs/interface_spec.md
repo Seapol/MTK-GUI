@@ -644,6 +644,33 @@ class AuditLog:
 # shared instances ($MTKGUI_AUDIT_LOG / $MTKGUI_ACCOUNTS)
 ```
 
+### 17. P2 Freeze — Capability Map & Integration Contract (P2-12)
+
+P2 sealed on top of the P1 frozen base.  Full-chain integration is
+locked by `mtkgui/engine/demo_p2_e2e.py` (rc=0 gate) and
+`tests/engine/test_p2_integration.py` (parallel soak, failover under
+load, full-route mount, append-only ledger).  Zero producer changes.
+
+| Route | Increment | Owner module | Shared store on shell |
+|---|---|---|---|
+| workflow | P1 engine | runners/state machine | — |
+| cases | P2-3 case editor | case_store / case_editor | — |
+| case_io | P2-4 YAML↔Excel | case_io_page | — |
+| reports | P2-6 dashboard | report_page / charts | metrics_engine |
+| upload | P2-8 cloud loop | upload_page / uploader | upload_manager |
+| export | P2-9 HTML/PDF | export_page / report_export | (metrics_engine) |
+| cluster | P2-10 scheduling | cluster_page / cluster_scheduler | cluster_scheduler |
+| audit | P2-11 RBAC + trail | audit_page / auth_audit | access / audit_log |
+| config | P2-2 visual YAML | config_page / config_store | — |
+
+Chain of custody (all read-only over producers):
+records → MetricsEngine → ReportPage → ExportPage(HTML+PDF) →
+ArchiveManager(pack+verify) → SharePointUploader → audit trail.
+Env seams: `MTKGUI_OUTBOX_DIR`, `MTKGUI_EXPORT_DIR`,
+`MTKGUI_AUDIT_LOG`, `MTKGUI_ACCOUNTS`.  Default accounts
+admin/admin123, op/op123 (change before production).  Interface
+freeze: §1–§17; P3 platform work must extend, not rewrite.
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
