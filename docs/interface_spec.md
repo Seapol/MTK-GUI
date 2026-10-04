@@ -708,6 +708,38 @@ class TenantRegistry(base_dir):
 # audits "tenant_switch"
 ```
 
+### 19. Structured DB Persistence Base (NEW — owned by P3-2, `mtkgui/engine/db_store.py`)
+
+Pure-increment sqlite persistence BESIDE the P2 file stores (dual
+storage; file logic untouched, data never lost).  Per-tenant DB file
+(``metrics/tenant.db``) via the P3-1 slot mechanism -> data isolation
+by default.
+
+```python
+SCHEMA_VERSION = 1   # auto CREATE TABLE IF NOT EXISTS on open
+# tables: schema_version, projects, test_records, case_defs,
+#         config_kv, upload_records, audit_events
+class DbStore(path, project_id="LEGACY", now=None):
+    ensure_schema() / schema_version / close()   # thread-safe conn
+    register_project(pid, note) / list_projects()
+    add_record(TestRecord, project_id=None) -> id
+    list_records(project_id=None, batch=None, name=None,
+                 all_projects=False) -> [TestRecord]
+        # default scope = own project (isolation by default);
+        # typed round-trip keeps StepStatus/FailureKind enums + ts
+    count_records(project_id=None)
+    upsert_case(name, fields_dict, locked) / get_case(name)
+        # -> {"fields":..., "locked":...} | None / list_cases()
+    set_config(key, value) / get_config(key)     # per-project kv
+    add_upload(file, status, url, sha256) / list_uploads()
+    add_audit(ts, user, action, target, before, after, detail)
+    query_audits(project_id=, action=LIKE, user=)
+    import_from_engine(engine) -> n   # P2-5 file records -> DB
+    export_to_engine(engine) -> n     # DB rows -> fresh engine
+def tenant_db(ctx, now=None) -> DbStore
+    # P3-1 tenant slot "db" -> ctx.dir("metrics")/tenant.db
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.
