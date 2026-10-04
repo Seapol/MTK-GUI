@@ -359,6 +359,36 @@ Lock state is persisted under ``ict_case_audit.locks`` (name -> meta);
 manual edits append to ``ict_case_audit.history`` using the same entry
 shape as the P1-16 Excel sync — both stay backward compatible.
 
+### 9. Review-Excel GUI Import/Export (NEW — owned by P2-4, `mtkgui/gui/`)
+
+Pure-increment GUI wrapper over P1-16 ``export_review_excel`` /
+``import_review_excel`` / ``diff_rows`` / ``sync_review_excel``.
+Route key ``case_io``.
+
+```python
+# mtkgui/gui/case_io_page.py
+class CaseIOPage(QWidget):                       # route: case_io
+    cases_applied = Signal(dict)                 # after successful import
+    interactive: bool                            # headless-safe flag
+    last_report: dict | None                     # last diff report
+    on_export() -> path | None
+        # full 17-column review workbook; auto path
+        # config/review/ICT_REVIEW_<ts>.xlsx; empty case list -> None
+    on_import() -> diff_report | None
+        # pre-flight: dirty/empty workbook (ValueError) and
+        # version-locked-case conflicts block the WHOLE import,
+        # YAML untouched; then P1-16 sync_review_excel
+        # (import -> diff -> apply -> ict_case_audit.history
+        #  entry source="gui-import") -> post-import snapshot ->
+        # formatted YAML save; diff summary dialog (interactive)
+        # or in-page log; [XLS] audit lines + in-page traceability
+```
+
+Import diff report shape (P1-16 contract): ``added`` / ``removed``
+/ ``changed`` (name, field, old, new; instrument re-assignment and
+priority moves tagged in the GUI rendering) / ``ignored_columns``
+(dirty unknown columns filtered, never silently dropped).
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

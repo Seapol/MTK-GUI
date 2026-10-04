@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from .case_editor import CaseEditorPage
+from .case_io_page import CaseIOPage
 from .log_panel import LogPanelWidget
 from .config_page import ConfigPage
 from .status_bar import StatusBarWidget
@@ -220,6 +221,9 @@ class MainWindow(QMainWindow):
                            lambda: CaseEditorPage(
                                self._default_config_yaml()),
                            "AI Case Editor")
+        self.register_page("case_io",
+                           lambda: CaseIOPage(self._default_config_yaml()),
+                           "Review Excel")
         self.register_page("reports", lambda: PlaceholderPage("Reports"),
                            "Reports")
         self.register_page("config",
