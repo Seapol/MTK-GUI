@@ -965,6 +965,36 @@ class RbacHub(access=None):           # alias: RH
 # shell shares rbac_hub (wired to P2-11 access)
 ```
 
+### 27. Full-Chain Audit Hub & Compliance Reports (NEW — owned by P3-10, `mtkgui/engine/audit_hub.py`)
+
+Pure-increment compliance layer over the frozen P2-11 `AuditLog`
+(append-only JSONL store reused, never modified): categorized
+full-chain tagging, before/after change diffs, integrity check and
+ISO audit-report export.
+
+```python
+CATEGORIES = (login, config, case, task, device, data, report,
+              security)          # uncategorized -> data plane
+diff_of(before, after) -> [{field, old, new}]   # 前后对比
+class AuditHub(audit):            # alias: AH; audit = P2-11 AuditLog
+    track(user, category, action, target, before, after, detail)
+        # entry action stored as "category:action"
+    change(user, category, action, target, before, after)
+        # change record: diff summary written into detail
+    entries()                     # tolerant read (malformed skipped)
+    query(category=None, **kw)    # P2-11 filters + category prefix
+    changes_of(target) -> [{ts, user, action, diff}]  # 溯源
+    stats() -> {total, by_category, by_user, denied, changes}
+    verify() -> {raw_lines, parsed, malformed, ok}    # 篡改检测
+    compliance_report(path, since=None, until=None) -> summary
+        # ISO 审厂 report: coverage/uncovered_categories/
+        # change_records/denied_attempts/integrity; exports
+        # <path>.csv + <path>.json; export itself audited
+# GUI: CompliancePage route "compliance" — coverage table
+# (category counts), integrity verdict + stats bar, ISO report
+# export box; shell shares audit_hub (wired to P2-11 audit_log)
+```
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

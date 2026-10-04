@@ -44,12 +44,14 @@ from .fleet_page import FleetPage
 from .balance_page import BalancePage
 from .pipeline_page import PipelinePage
 from .rbac_page import RbacPage
+from .compliance_page import CompliancePage
 from .project_switcher import ProjectSwitcher
 from mtkgui.engine.cluster_scheduler import ClusterScheduler
 from mtkgui.engine.cluster_hub import ClusterHub
 from mtkgui.engine.load_balancer import LoadBalancer
 from mtkgui.engine.batch_pipeline import BatchPipeline
 from mtkgui.engine.rbac_hub import RbacHub
+from mtkgui.engine.audit_hub import AuditHub
 from mtkgui.engine.resource_hub import PathHub, ResourceManager
 from mtkgui.engine.task_queue import TaskQueue
 from mtkgui.engine.auth_audit import AccessControl, AuditLog
@@ -391,6 +393,12 @@ class MainWindow(QMainWindow):
                                     audit=self.audit_log)
         self.access.ensure_default_accounts()
         self.rbac_hub = RbacHub(self.access)
+        # P3-10: full-chain audit middle platform + compliance report
+        self.audit_hub = AuditHub(self.audit_log)
+        self.register_page(
+            "compliance",
+            lambda: CompliancePage(self.audit_hub),
+            "Compliance")
         self.register_page("audit",
                            lambda: AuditPage(self.access,
                                              self.audit_log),
