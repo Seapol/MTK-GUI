@@ -246,6 +246,16 @@ def test_window_geometry_persistence(qapp, monkeypatch):
     settings.sync()
 
 
+def _settle(window, width: int, height: int) -> None:
+    """Resize and pump the event loop until the paint-triggered
+    vertical floor lock and its window bump have fully applied."""
+    from PySide6.QtWidgets import QApplication
+    window.resize(width, height)
+    for _ in range(4):
+        QApplication.processEvents()
+    QApplication.processEvents()
+
+
 @pytest.mark.parametrize("width,height", ((1920, 1080), (1280, 800),
                                           (1024, 700), (640, 480)))
 def test_bottom_region_never_pushed_out(qapp, width, height):
@@ -256,12 +266,14 @@ def test_bottom_region_never_pushed_out(qapp, width, height):
     the bottom region."""
     from PySide6.QtWidgets import QApplication
 
-    qapp.resize(width, height)
-    QApplication.processEvents()
+    _settle(qapp, width, height)
     visible = qapp.rect()
     log = qapp.event_log
     assert log.isVisible() and log.height() >= 60, \
-        f"event log squeezed out at {width}x{height}"
+        (f"event log squeezed out at {width}x{height} "
+         f"(h={log.height()}, vis={log.isVisible()}, "
+         f"winH={qapp.height()}, winMin={qapp.minimumHeight()}, "
+         f"sizes={qapp.splitter.sizes()})")
     log_top = log.mapTo(qapp, log.rect().topLeft()).y()
     log_bottom = log_top + log.height()
     assert log_bottom <= visible.height() + 1

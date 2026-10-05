@@ -16,7 +16,8 @@ import platform
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QTimer
+from PySide6.QtCore import (QEvent, QObject, QSettings, Qt, QThread,
+                            QTimer, Signal)
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -244,6 +245,71 @@ class DialogCenterer(QObject):
         return False
 
 
+class _ToolsBatchWorker(QThread):
+    """Background runner for one Tools > Set All instruments batch.
+
+    Reuses the engine RealGateway public API only (execute_op with
+    the instruments/reset op types + close) - no engine change.  The
+    gateway is created lazily and cached on the main window so
+    Connect all / Disconnect all / Reset all / Test all connections
+    operate on the same session.
+    """
+
+    finished_sig = Signal(str, list, bool)
+
+    def __init__(self, action: str, abbrs: list, gateway,
+                 equipment: dict) -> None:
+        """Prepare one batch run.
+
+        Args:
+            action:    One of Connect all / Disconnect all /
+                       Reset all / Test all connections.
+            abbrs:     Configured instrument abbreviations.
+            gateway:   Cached RealGateway or None (created lazily).
+            equipment: Verified equipment configuration from the
+                       project YAML.
+        """
+        super().__init__()
+        self.action = action
+        self.abbrs = abbrs
+        self.equipment = equipment
+        self.gateway = gateway
+
+    def run(self) -> None:
+        """Execute the batch and emit the outcome (never raises)."""
+        ok, lines = True, []
+        try:
+            from .engine.instruments import RealGateway
+            gw = self.gateway
+            if gw is None:
+                gw = RealGateway(self.equipment)
+            if self.action == "Disconnect all":
+                gw.close()
+                lines.append("all instrument connections closed")
+            else:
+                if self.action == "Test all connections":
+                    # reconnect from scratch = a real connection test
+                    gw.close()
+                result = gw.execute_op(
+                    "Init Instruments",
+                    {"type": "instruments", "instruments": self.abbrs})
+                lines.extend(result.lines or [])
+                ok = result.verdict != "Error"
+                if ok and self.action == "Reset all":
+                    result = gw.execute_op(
+                        "Reset Instruments",
+                        {"type": "reset", "instruments": self.abbrs})
+                    lines.extend(result.lines or [])
+                    ok = result.verdict != "Error"
+                if ok:
+                    lines.append(f"{self.action}: all instruments OK")
+            self.gateway = gw
+        except Exception as exc:  # noqa: BLE001 - report, never crash
+            ok = False
+            lines.append(f"batch operation failed: {exc}")
+        self.finished_sig.emit(self.action, lines, ok)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, role=ROLE_SUPERVISOR, mode="Real"):
         super().__init__()
@@ -307,6 +373,46 @@ class MainWindow(QMainWindow):
         self.move(
             available.x() + (available.width() - width) // 2,
             available.y() + (available.height() - height) // 2)
+
+    def _lock_vertical_minimums(self):
+        """Lock the post-polish vertical minimums (window height floor
+        + Event Log pane floor) - scheduled after the first layout
+        pass, see the setCentralWidget comment."""
+        log = self.event_log
+        # recompute the 9-row floor with the CURRENT font (the
+        # construction-time value predates the global stylesheet, so
+        # its metrics can be far smaller than the polished reality)
+        fm = QFontMetrics(log.font())
+        rows = (fm.lineSpacing() * 6 + 2 * log.frameWidth() + 6) * 1.5
+        log.setMinimumHeight(max(log.minimumHeight(), int(rows)))
+        if self._log_group is not None:
+            self._log_group.setMinimumHeight(
+                max(self._log_group.minimumHeight(),
+                    self._log_group.minimumSizeHint().height()))
+        # monotonic: the floor may grow (fonts, polished styles) but
+        # never shrink back below an already-proven requirement
+        self.setMinimumHeight(max(self.minimumHeight(),
+                                  self.minimumSizeHint().height()))
+        # a window already shown smaller than the fresh floor is
+        # bumped up so the bottom region is never clipped
+        if self.isVisible() and self.height() < self.minimumHeight():
+            self.resize(self.width(), self.minimumHeight())
+
+    def paintEvent(self, event):
+        """First real paint == stylesheet polish is complete: lock the
+        vertical minimums exactly once (a construction- or show-time
+        snapshot still sees pre-polish font metrics)."""
+        if not self._vmin_locked:
+            self._vmin_locked = True
+            QTimer.singleShot(0, self._lock_vertical_minimums)
+        super().paintEvent(event)
+
+    def showEvent(self, event):
+        """Re-lock the vertical minimums on every show - GUI theme
+        switches change fonts, so the floor must follow the current
+        metrics, not a construction-time snapshot."""
+        super().showEvent(event)
+        QTimer.singleShot(0, self._lock_vertical_minimums)
 
     def _remember_geometry(self):
         """Persist the user's manually chosen window geometry so the
@@ -486,6 +592,7 @@ class MainWindow(QMainWindow):
         # hard vertical floors: the bottom region keeps at least the
         # full 9-row log plus caption under every sizing scenario
         log_group.setMinimumHeight(log_group.minimumSizeHint().height())
+        self._log_group = log_group
         # top and bottom keep their natural size; the tabs take the rest
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
@@ -502,6 +609,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.splitter.setSizes(initial))
 
         self.setCentralWidget(central)
+        # hard vertical threshold (B1 final rule 2): lock the window
+        # height minimum AFTER the first layout pass (stylesheets and
+        # fonts only reach full size at polish time) so neither
+        # programmatic resize nor user dragging can ever squeeze the
+        # Event Log / status bar out of the visible area.  Width stays
+        # flexible - horizontal squeeze is absorbed by internal
+        # scrollbars.
+        QTimer.singleShot(0, self._lock_vertical_minimums)
 
         # Apply the default background to every console channel.
         self.apply_background(self.bg_color)
@@ -561,7 +676,51 @@ class MainWindow(QMainWindow):
         # the Test Work Flow page queries this in its pre-test phase
         self.workflow_page.sn_format = lambda: dict(self.sn_config)
 
+        # ------------------------------------------- V4.0: Tools menu
+        # final menu order (fixed): File / View / Settings -> Tools ->
+        # Report -> Help (rightmost).  The menu bar is built once and
+        # never reordered by page, project or window state.
+        tools_menu = self.menuBar().addMenu("Tools")
+        set_all = tools_menu.addMenu("Set All instruments")
+        set_all.setToolTip("Batch operations on all instruments "
+                           "configured in the project YAML")
+        self.act_connect_all = set_all.addAction("Connect all")
+        self.act_connect_all.setToolTip(
+            "Batch connect all configured instruments and read the "
+            "identification")
+        self.act_connect_all.triggered.connect(
+            lambda: self._tools_batch("Connect all"))
+        self.act_disconnect_all = set_all.addAction("Disconnect all")
+        self.act_disconnect_all.setToolTip(
+            "Batch close all instrument connections")
+        self.act_disconnect_all.triggered.connect(
+            lambda: self._tools_batch("Disconnect all"))
+        self.act_reset_all = set_all.addAction("Reset all")
+        self.act_reset_all.setToolTip(
+            "Batch reset all configured instruments")
+        self.act_reset_all.triggered.connect(
+            lambda: self._tools_batch("Reset all"))
+        self.act_test_all = set_all.addAction("Test all connections")
+        self.act_test_all.setToolTip(
+            "Reconnect and identify every instrument to verify the "
+            "connections")
+        self.act_test_all.triggered.connect(
+            lambda: self._tools_batch("Test all connections"))
+        # persistent Tools gateway (lazily created, reused by the
+        # batch operations; the run flow builds its own per run)
+        self._tools_gateway = None
+        self._tools_thread = None
+        # one-shot paint-time vertical floor lock (see paintEvent)
+        self._vmin_locked = False
+
+        # ---------------------------------------------- V4.0: Report menu
+        self.report_menu = self.menuBar().addMenu("Report")
+        self.report_menu.addAction("DUT Report", self._open_dut_report)
+        self.report_menu.addAction("Event Log", self._open_report_event_log)
+        self.report_menu.addAction("Statistics", self._open_statistics)
+
         # ------------------------------------------------ V4.0: Help menu
+        # Help stays the rightmost menu of the fixed final order
         self.help_menu = self.menuBar().addMenu("Help")
         self.help_menu.addAction(
             "User Guide", lambda: self._open_help("user_guide"))
@@ -573,11 +732,72 @@ class MainWindow(QMainWindow):
             "Readme & Quick Start",
             lambda: self._open_help("readme_quickstart"))
 
-        # ---------------------------------------------- V4.0: Report menu
-        self.report_menu = self.menuBar().addMenu("Report")
-        self.report_menu.addAction("DUT Report", self._open_dut_report)
-        self.report_menu.addAction("Event Log", self._open_report_event_log)
-        self.report_menu.addAction("Statistics", self._open_statistics)
+    # ------------------------------------------------- V4.0 Tools batch
+    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU", "JLINK")
+
+    def _configured_instruments(self) -> list[str]:
+        """Instrument abbreviations configured in the current project.
+
+        Returns:
+            Abbreviations present in the Equipment page configuration
+            (the verified YAML equipment section), in fixed order.
+        """
+        configs = getattr(self.equipment_page, "configs", {}) or {}
+        return [k for k in self._TOOL_ABBRS
+                if (configs.get(k) or {}).get("fields")]
+
+    def _tools_batch(self, action: str) -> None:
+        """Tools > Set All instruments: run one batch operation over
+        every instrument configured in the project YAML.
+
+        The batch runs on a worker thread (the UI never freezes on
+        slow instruments); results land in the Event Log, failures
+        pop up with Equipment-page guidance.
+        """
+        abbrs = self._configured_instruments()
+        if not abbrs:
+            QMessageBox.warning(
+                self, "Set All instruments",
+                "No instruments are configured in the project "
+                "YAML.\n\nPlease go to the Equipment page and check "
+                "the instrument configuration, ports and connection "
+                "parameters first.")
+            return
+        if self._tools_thread is not None and self._tools_thread.isRunning():
+            QMessageBox.information(
+                self, "Set All instruments",
+                "A batch operation is already running - please wait "
+                "for it to finish.")
+            return
+        self._append_event_log(
+            f"[Tools] {action}: start ({', '.join(abbrs)})")
+        self.statusBar().showMessage(f"{action}…")
+        self._tools_thread = _ToolsBatchWorker(
+            action, abbrs, self._tools_gateway,
+            dict(self.equipment_page.configs))
+        self._tools_thread.finished_sig.connect(self._tools_batch_done)
+        self._tools_thread.start()
+
+    def _tools_batch_done(self, action: str, lines: list,
+                          ok: bool) -> None:
+        """Batch result: log every line, popup failures with
+        Equipment-page guidance."""
+        if self._tools_thread is not None:
+            # keep the gateway session (opened drivers) for reuse
+            self._tools_gateway = self._tools_thread.gateway
+        for line in lines:
+            self._append_event_log(f"[Tools] {action}: {line}")
+        if ok:
+            self.statusBar().showMessage(f"{action}: OK", 5000)
+        else:
+            self.statusBar().showMessage(f"{action}: FAILED", 5000)
+            QMessageBox.warning(
+                self, f"{action} failed",
+                "One or more instruments could not be operated.\n\n"
+                "Please go to the Equipment page and check the "
+                "instrument configuration, ports and connection "
+                "parameters.\n\n"
+                + "\n".join(lines))
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self, key):
@@ -821,6 +1041,9 @@ class MainWindow(QMainWindow):
             return
         QApplication.instance().setStyleSheet(build_qss(name))
         QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
+        # theme fonts restyle every metric: re-prove the vertical
+        # floor once the new stylesheet is polished
+        QTimer.singleShot(0, self._lock_vertical_minimums)
 
     def choose_background(self):
         color = QColorDialog.getColor(
