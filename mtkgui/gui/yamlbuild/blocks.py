@@ -34,6 +34,38 @@ from mtkgui.gui.yamlbuild.schema import (
 )
 from mtkgui.gui.yamlbuild.stages import STAGE_BY_KEY
 
+
+def spec_tooltip(spec: FieldSpec) -> str:
+    """Compose the standard hover tooltip for one parameter field
+    (rule 6.4: no empty tooltips - label, unit, range, choices,
+    requirement and usage notes are all derived from the schema).
+
+    Args:
+        spec: Field schema.
+
+    Returns:
+        A concise, informative tooltip text.
+    """
+    parts: list[str] = [f"用途：{spec.label}"]
+    if spec.minimum is not None and spec.maximum is not None:
+        parts.append(f"取值范围 {spec.minimum:g} – {spec.maximum:g}"
+                     + (f" {spec.unit}" if spec.unit else ""))
+    elif spec.minimum is not None:
+        parts.append(f"最小 {spec.minimum:g}"
+                     + (f" {spec.unit}" if spec.unit else ""))
+    elif spec.maximum is not None:
+        parts.append(f"最大 {spec.maximum:g}"
+                     + (f" {spec.unit}" if spec.unit else ""))
+    elif spec.unit:
+        parts.append(f"单位：{spec.unit}")
+    if spec.choices:
+        parts.append("可选：" + " / ".join(spec.choices))
+    if spec.required:
+        parts.append("必填项")
+    if spec.remarks:
+        parts.append(spec.remarks)
+    return "；".join(parts)
+
 #: modules with a dedicated import sub-dialog (V4.0 acceptance 3.1.1)
 _IMPORT_MODULES = {"design_input"}
 
@@ -108,10 +140,12 @@ class BlockConfigDialog(QDialog):
             editor.setPlainText(value)
             editor.setMinimumHeight(72)
             editor.setPlaceholderText(spec.remarks)
+            editor.setToolTip(spec_tooltip(spec))
             return editor
         if spec.ftype == T_BOOL:
             editor = QCheckBox()
             editor.setChecked(value.lower() in ("true", "1", "yes"))
+            editor.setToolTip(spec_tooltip(spec))
             return editor
         if spec.ftype == T_CHOICE:
             from PySide6.QtWidgets import QComboBox
@@ -119,9 +153,11 @@ class BlockConfigDialog(QDialog):
             editor.addItems(list(spec.choices))
             if value in spec.choices:
                 editor.setCurrentText(value)
+            editor.setToolTip(spec_tooltip(spec))
             return editor
         editor = QLineEdit(value)
         editor.setPlaceholderText(spec.remarks)
+        editor.setToolTip(spec_tooltip(spec))
         return editor
 
     def _editor_value(self, spec: FieldSpec) -> str:

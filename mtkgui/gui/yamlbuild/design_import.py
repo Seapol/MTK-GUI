@@ -60,7 +60,11 @@ class DesignImportDialog(QDialog):
         lay = QVBoxLayout(self)
         buttons = QHBoxLayout()
         self.btn_schematic = QPushButton("Import Schematic PDF…")
+        self.btn_schematic.setToolTip("导入原理图PDF抓取CoreID，"
+                                      "并提取图纸项目名称")
         self.btn_netlist = QPushButton("Import Netlist…")
+        self.btn_netlist.setToolTip("导入网表解析点位信息，"
+                                    "自动提取net name与TP测试点")
         buttons.addWidget(self.btn_schematic)
         buttons.addWidget(self.btn_netlist)
         buttons.addStretch(1)

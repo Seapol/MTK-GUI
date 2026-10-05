@@ -83,6 +83,15 @@ class YamlBuildPage(QWidget):
             btn.setMinimumWidth(170)
             buttons.addWidget(btn, 1)   # equal stretch -> uniform row
         root.addLayout(buttons)
+        # standard tooltips (rule 6.1, fixed wording)
+        self.btn_import_excel.setToolTip(
+            "批量导入流程配置Excel文件，快速回填所有模块参数与状态")
+        self.btn_export_excel.setToolTip(
+            "导出当前全流程模块配置为标准Excel归档文件")
+        self.btn_build_draft.setToolTip(
+            "生成草稿版流程配置YAML，可反复编辑调试，非最终归档版本")
+        self.btn_release_final.setToolTip(
+            "固化并发布最终版流程YAML，版本锁定用于正式测试归档")
 
         self.btn_import_excel.clicked.connect(self._import_excel)
         self.btn_export_excel.clicked.connect(self._export_excel)
@@ -97,6 +106,8 @@ class YamlBuildPage(QWidget):
         self.block_flow = BlockFlowWidget()
         self.block_flow.configure_requested.connect(self._open_block)
         self.block_flow.enable_requested.connect(self._set_enabled)
+        self.block_flow.enable_all_requested.connect(self._enable_all)
+        self.block_flow.disable_all_requested.connect(self._disable_all)
         splitter.addWidget(self.block_flow)
         self.yaml_preview = YamlPreviewWidget()
         self.yaml_preview.bind_model(self.model)
@@ -174,6 +185,18 @@ class YamlBuildPage(QWidget):
         """Enable / disable one module (parameters retained; disabled
         modules leave the effective YAML and flow validation)."""
         self.model.set_enabled(module_key, enabled)
+        self._after_model_change()
+
+    def _enable_all(self) -> None:
+        """Batch Enable All (right-click menu): every module joins
+        the flow, YAML generation and validation."""
+        self.model.enable_all()
+        self._after_model_change()
+
+    def _disable_all(self) -> None:
+        """Batch Disable All (right-click menu): no module takes part
+        in the flow compilation; parameters are silently retained."""
+        self.model.disable_all()
         self._after_model_change()
 
     def _after_model_change(self) -> None:

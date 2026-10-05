@@ -129,10 +129,14 @@ def test_disabled_modules_not_validated():
     assert model.validate_module("rails") == []
 
 
-def test_legacy_yaml_import_enables_all():
-    """Legacy compatibility: importing a legacy YAML (no yaml_build
-    section) enables all modules by default."""
+def test_default_all_enabled_and_legacy_import():
+    """Global default (rule 3.2): a fresh model, a new project and a
+    legacy YAML import all come up with every module ENABLED."""
     model = YamlBuildModel()
+    assert all(model.is_enabled(k) for k in STAGE_KEYS)
+    model.enable_all()   # legacy import path - stays all-enabled
+    assert all(model.is_enabled(k) for k in STAGE_KEYS)
+    model.disable_all()
     assert not any(model.is_enabled(k) for k in STAGE_KEYS)
     model.enable_all()
     assert all(model.is_enabled(k) for k in STAGE_KEYS)

@@ -83,12 +83,42 @@ class FlowLayout(QWidget):
         self.setMinimumHeight(y + row_height + 2)
 
 
+#: standard tooltips of the ten workflow modules (rule 6.2: every
+#: module describes its purpose; disabled blocks KEEP their tooltip)
+MODULE_TOOLTIPS = {
+    "design_input":
+        "录入产品ID、料号、软硬件版本与批次，导入原理图与网表，"
+        "作为全流程数据源头",
+    "power_dut":
+        "配置DUT上下电时序、电压电流阈值与保护策略，供电源模块执行",
+    "parse_ict":
+        "解析网表提取网络与测试点位，筛选有效ICT测试点",
+    "rails":
+        "生成电源轨上电时序、阻抗与电压测试及波形采样参数",
+    "clocks": "配置时钟频率、稳定时长与漂移检测参数",
+    "gpios": "配置GPIO分组、模式上下拉与电平阈值校验",
+    "programmer": "配置烧录调试器协议、速度、超时与重试策略",
+    "peripherals":
+        "配置Wi-Fi/蓝牙/串口/I2C/SPI/ADC等外设初始化与阈值",
+    "fct_parse": "解析产品功能接口与测试规范，定义FCT校验项",
+    "fct_build": "编排FCT功能测试流程、用例关联与良率判定",
+}
+
+#: context-menu tooltips (rule 6.3, fixed wording)
+TT_ENABLE_SINGLE = "单独开启/关闭当前模块流程能力"
+TT_DISABLE_SINGLE = "单独开启/关闭当前模块流程能力"
+TT_ENABLE_ALL = "一键启用全部流程模块，所有模块参与YAML生成与校验"
+TT_DISABLE_ALL = "一键禁用全部流程模块，所有模块暂不参与流程编译"
+
+
 class BlockCard(QFrame):
     """One workflow block: click opens the config dialog, right click
     opens the Enable / Disable menu."""
 
     configure_requested = Signal(str)
     enable_requested = Signal(str, bool)
+    enable_all_requested = Signal()
+    disable_all_requested = Signal()
 
     def __init__(self, stage: Stage, index: int, parent=None) -> None:
         """Create the block card.
@@ -101,6 +131,9 @@ class BlockCard(QFrame):
         super().__init__(parent)
         self.stage = stage
         self._enabled = False
+        # module tooltip (rule 6.2): present in enabled AND disabled
+        # state alike - disabling never hides the description
+        self.setToolTip(MODULE_TOOLTIPS.get(stage.key, stage.title))
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFixedWidth(280)
         self.setMinimumHeight(64)
@@ -131,10 +164,10 @@ class BlockCard(QFrame):
         self._apply_state_style()
 
     def _apply_state_style(self) -> None:
-        """Disabled blocks render grayed / faded with an explicit
-        badge (rule: visual distinction must be obvious).  Colors use
-        semi-transparent overlays so both light and dark GUI themes
-        stay readable."""
+        """Disabled blocks render grayed with an explicit badge
+        (rule 3.2: gray-only, NO strikethrough; visual distinction
+        must be obvious).  Colors use semi-transparent overlays so
+        both light and dark GUI themes stay readable."""
         if self._enabled:
             self.setStyleSheet(
                 "BlockCard { background: rgba(47,111,179,0.18); "
@@ -146,8 +179,7 @@ class BlockCard(QFrame):
                 "border: 1px dashed #9ca3af; border-radius: 8px; }"
                 "QLabel { color: #9ca3af; }")
             self.title_label.setStyleSheet(
-                "font-weight: bold; color: #9ca3af; text-decoration: "
-                "line-through;")
+                "font-weight: bold; color: #9ca3af;")
 
     # ------------------------------------------------------- interactions
     def mousePressEvent(self, event) -> None:
@@ -157,18 +189,45 @@ class BlockCard(QFrame):
             self.configure_requested.emit(self.stage.key)
         super().mousePressEvent(event)
 
-    def _context_menu(self, pos: QPoint) -> None:
-        """Right click -> Enable / Disable menu."""
+    def _build_menu(self) -> QMenu:
+        """Build the right-click menu (single + batch operations,
+        rule 3.2: Enable / Disable / Enable All / Disable All with
+        the fixed standard tooltips).
+
+        Returns:
+            The unexecuted :class:`QMenu`.
+        """
         menu = QMenu(self)
         act_enable = menu.addAction("Enable")
-        act_disable = menu.addAction("Disable")
+        act_enable.setToolTip(TT_ENABLE_SINGLE)
         act_enable.setEnabled(not self._enabled)
+        act_disable = menu.addAction("Disable")
+        act_disable.setToolTip(TT_DISABLE_SINGLE)
         act_disable.setEnabled(self._enabled)
+        menu.addSeparator()
+        act_enable_all = menu.addAction("Enable All")
+        act_enable_all.setToolTip(TT_ENABLE_ALL)
+        act_disable_all = menu.addAction("Disable All")
+        act_disable_all.setToolTip(TT_DISABLE_ALL)
+        menu._actions_map = {
+            "enable": act_enable, "disable": act_disable,
+            "enable_all": act_enable_all, "disable_all": act_disable_all,
+        }
+        return menu
+
+    def _context_menu(self, pos: QPoint) -> None:
+        """Right click -> open the Enable / Disable menu."""
+        menu = self._build_menu()
+        actions = menu._actions_map
         chosen = menu.exec(self.mapToGlobal(pos))
-        if chosen is act_enable:
+        if chosen is actions["enable"]:
             self.enable_requested.emit(self.stage.key, True)
-        elif chosen is act_disable:
+        elif chosen is actions["disable"]:
             self.enable_requested.emit(self.stage.key, False)
+        elif chosen is actions["enable_all"]:
+            self.enable_all_requested.emit()
+        elif chosen is actions["disable_all"]:
+            self.disable_all_requested.emit()
 
 
 class BlockFlowWidget(QWidget):
@@ -176,6 +235,8 @@ class BlockFlowWidget(QWidget):
 
     configure_requested = Signal(str)
     enable_requested = Signal(str, bool)
+    enable_all_requested = Signal()
+    disable_all_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         """Create the flow widget with all fixed blocks."""
@@ -195,6 +256,9 @@ class BlockFlowWidget(QWidget):
             card = BlockCard(stage, index)
             card.configure_requested.connect(self.configure_requested)
             card.enable_requested.connect(self.enable_requested)
+            card.enable_all_requested.connect(self.enable_all_requested)
+            card.disable_all_requested.connect(
+                self.disable_all_requested)
             self._cards[stage.key] = card
             self.flow.add_widget(card)
             if previous is not None:

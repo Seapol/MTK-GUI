@@ -279,6 +279,14 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- size
     def _init_size(self):
+        """Window sizing (V4.0 rule 6.7): a user-defined size from a
+        previous session always wins; only without any saved geometry
+        the window auto-fits the current screen (optimal size,
+        centered, never oversized) ."""
+        settings = QSettings(APP_ORG, APP_NAME)
+        saved = settings.value("window/geometry")
+        if saved is not None and self.restoreGeometry(saved):
+            return
         screen = self.screen() or QApplication.primaryScreen()
         available = screen.availableGeometry()
         width = min(DEFAULT_WIDTH, available.width() - 40)
@@ -287,6 +295,12 @@ class MainWindow(QMainWindow):
         self.move(
             available.x() + (available.width() - width) // 2,
             available.y() + (available.height() - height) // 2)
+
+    def _remember_geometry(self):
+        """Persist the user's manually chosen window geometry so the
+        next start reuses it (restore falls back to screen-fit)."""
+        QSettings(APP_ORG, APP_NAME).setValue(
+            "window/geometry", self.saveGeometry())
 
     # ---------------------------------------------------------------- UI
     def _build_ui(self):
@@ -933,6 +947,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ close
     def closeEvent(self, event):
+        # remember the user's window geometry for the next start
+        self._remember_geometry()
         # disconnect every serial / SSH console channel
         self.workflow_page.multi_console.close_all_channels()
         if self._event_log_file is not None:

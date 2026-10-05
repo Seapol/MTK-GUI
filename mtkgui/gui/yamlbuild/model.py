@@ -71,7 +71,10 @@ class YamlBuildModel:
             self._params[key] = {
                 f.name: f.default for f in MODULE_FIELDS.get(key, ())
             }
-            self._enabled[key] = False
+            # global default (V4.0 rule 3.2): every module starts
+            # ENABLED - new projects, fresh starts and legacy imports
+            # all come up fully enabled without manual switching
+            self._enabled[key] = True
         # imported design data (acceptance 3.1.1): schematic metadata
         # + parsed netlist + user TP resolutions.  Shared with every
         # downstream module through the effective YAML design_data
@@ -296,6 +299,16 @@ class YamlBuildModel:
         V4.0 compatibility rule: old files arrive all-enabled)."""
         for key in STAGE_KEYS:
             self._enabled[key] = True
+        self.changed = True
+
+    def disable_all(self) -> None:
+        """Disable every module (batch context-menu action).
+
+        Parameters are silently retained; re-enabling restores the
+        flow without any data loss.
+        """
+        for key in STAGE_KEYS:
+            self._enabled[key] = False
         self.changed = True
 
     # ---------------------------------------------------- validation

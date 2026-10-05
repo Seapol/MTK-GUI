@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
 
@@ -151,3 +152,74 @@ def test_block_cards_carry_sequence_badges(page):
     for index, stage in enumerate(WORKFLOW_STAGES):
         card = page.block_flow._cards[stage.key]
         assert card.title_label.text().startswith(f"{index + 1:02d} ·")
+
+
+def test_standard_button_tooltips(page):
+    """The four top buttons carry the fixed standard Chinese
+    tooltips (rule 6.1, exact wording)."""
+    assert page.btn_import_excel.toolTip() == \
+        "批量导入流程配置Excel文件，快速回填所有模块参数与状态"
+    assert page.btn_export_excel.toolTip() == \
+        "导出当前全流程模块配置为标准Excel归档文件"
+    assert page.btn_build_draft.toolTip() == \
+        "生成草稿版流程配置YAML，可反复编辑调试，非最终归档版本"
+    assert page.btn_release_final.toolTip() == \
+        "固化并发布最终版流程YAML，版本锁定用于正式测试归档"
+
+
+def test_module_cards_have_tooltips_even_disabled(page):
+    """Every module card shows a description tooltip - also in the
+    disabled state (rule 6.2)."""
+    from mtkgui.gui.yamlbuild.stages import WORKFLOW_STAGES
+    for stage in WORKFLOW_STAGES:
+        card = page.block_flow._cards[stage.key]
+        assert card.toolTip().strip(), stage.key
+    page._set_enabled("clocks", False)
+    assert page.block_flow._cards["clocks"].toolTip().strip()
+
+
+def test_context_menu_single_and_batch(page):
+    """The right-click menu offers single Enable/Disable plus batch
+    Enable All / Disable All with the standard tooltips, and the
+    batch actions really flip every module."""
+    card = page.block_flow._cards["clocks"]
+    page._disable_all()         # refresh cards to the disabled state
+    menu = card._build_menu()
+    actions = menu._actions_map
+    assert actions["enable_all"].toolTip() == \
+        "一键启用全部流程模块，所有模块参与YAML生成与校验"
+    assert actions["disable_all"].toolTip() == \
+        "一键禁用全部流程模块，所有模块暂不参与流程编译"
+    assert actions["enable"].toolTip() == \
+        "单独开启/关闭当前模块流程能力"
+    assert actions["enable"].isEnabled()
+    assert not actions["disable"].isEnabled()   # current state grayed
+
+    actions["enable_all"].trigger()
+    page._enable_all()          # menu signal -> page slot
+    assert all(page.model.is_enabled(k) for k in STAGE_KEYS)
+    page._disable_all()
+    assert not any(page.model.is_enabled(k) for k in STAGE_KEYS)
+    assert page.model.get_params("design_input")   # params retained
+
+
+def test_dialog_fields_all_have_tooltips(page, qapp):
+    """Every editor in every module config dialog carries a non-empty
+    tooltip (rule 6.4: no empty / duplicate prompts)."""
+    from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
+    seen = set()
+    for key in STAGE_KEYS:
+        dlg = BlockConfigDialog(key, page.model.get_params(key), page)
+        for name, editor in dlg._editors.items():
+            tip = editor.toolTip().strip()
+            assert tip, f"{key}.{name} has an empty tooltip"
+            seen.add((key, name))
+    assert ("design_input", "core_id") in seen
+
+
+def test_default_state_is_all_enabled(page):
+    """Fresh page default: every module enabled (rule 3.2)."""
+    assert all(page.model.is_enabled(k) for k in STAGE_KEYS)
+    for key in STAGE_KEYS:
+        assert page.block_flow._cards[key].state_label.text() == \
+            "Enabled"

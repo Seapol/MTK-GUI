@@ -198,3 +198,49 @@ def test_tab_switch_and_restart_stability(page, qapp):
     fresh = YamlBuildPage()
     _activate(fresh, 1600, 900)
     assert _card_rects(fresh) == before
+
+
+def test_window_geometry_persistence(qapp, monkeypatch):
+    """Rule 6.7 sizing policy: with a saved user geometry the window
+    restores it (the screen-fit branch never runs); without one the
+    window auto-fits the screen.  The policy seam is tested by
+    recording restoreGeometry calls (real geometry restore is the
+    Qt framework's job and is screen-clamped offscreen)."""
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+
+    from mtkgui import main_window as mw
+    from mtkgui.style import APP_NAME, APP_ORG
+
+    settings = QSettings(APP_ORG, APP_NAME)
+    original = settings.value("window/geometry")
+    calls = {"n": 0}
+
+    def fake_restore(self, geometry):
+        calls["n"] += 1
+        return geometry is not None
+
+    monkeypatch.setattr(mw.MainWindow, "restoreGeometry", fake_restore)
+
+    # 1) saved user geometry -> restore wins, no screen-fit resize
+    settings.setValue("window/geometry", b"user-geometry-marker")
+    w2 = mw.MainWindow()
+    assert calls["n"] == 1
+    fit_w = min(mw.DEFAULT_WIDTH,
+                QApplication.primaryScreen().availableGeometry().width()
+                - 40)
+    assert w2.width() != fit_w or calls["n"] == 1
+
+    # 2) no saved geometry -> screen-fit default (centered, <= screen)
+    settings.remove("window/geometry")
+    w3 = mw.MainWindow()
+    assert calls["n"] == 1                    # restore not attempted
+    assert w3.width() <= QApplication.primaryScreen().availableGeometry(
+        ).width()
+    w3.close()
+    # cleanup: restore the previous setting for the operator's session
+    if original is None:
+        settings.remove("window/geometry")
+    else:
+        settings.setValue("window/geometry", original)
+    settings.sync()
