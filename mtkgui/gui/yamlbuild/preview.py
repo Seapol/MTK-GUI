@@ -1,16 +1,25 @@
 # -*- coding: utf-8 -*-
-"""YAML live preview pane (right side of the Yaml Build page).
+"""YAML preview pane (right side of the Yaml Build page).
 
-Read-only by default with an Edit toggle: editing is opt-in, and on
-edit the text is validated (syntax / sequence / parameters) before it
-may enter the model - error lines are highlighted red with a message
-bar; invalid edits never reach the model, which keeps the two-way
-sync loop-free and the configuration safe.
+Single fixed-position toggle button with two mutually exclusive
+states (M0 UI requirement):
+
+* READ_ONLY (default): the YAML editor is disabled, the button label
+  is ``Edit``; clicking activates edit mode;
+* EDIT mode: the editor is enabled, the label is ``Apply``; clicking
+  runs the YAML validation - on PASS the changes persist, the block
+  diagram refreshes and the widget returns to READ_ONLY; on FAIL the
+  error hint is shown, edit mode is kept and the label stays
+  ``Apply``.
+
+The button never moves - only its label text changes (auto width).
+Invalid edits never reach the model, which keeps the two-way sync
+loop-free and the configuration safe.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -24,17 +33,19 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.sync import sync_model_to_yaml
 
+EDIT_LABEL = "Edit"
+APPLY_LABEL = "Apply"
+
 
 class YamlPreviewWidget(QWidget):
-    """YAML preview with edit toggle, validation errors and red line
-    markers."""
+    """YAML preview with the Edit/Apply toggle and red error marks."""
 
     #: emitted after a valid hand edit entered the model - the page
     #: uses it to refresh the block cards (YAML -> diagram direction)
     edits_applied = Signal()
 
     def __init__(self, parent=None) -> None:
-        """Create the preview pane."""
+        """Create the preview pane (READ_ONLY by default)."""
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -43,11 +54,13 @@ class YamlPreviewWidget(QWidget):
         self.caption.setObjectName("muted")
         bar.addWidget(self.caption)
         bar.addStretch(1)
-        self.btn_edit = QPushButton("Edit")
-        self.btn_edit.setCheckable(True)
+        # single fixed-position toggle button: only the label text
+        # changes between the two states; width follows the label
+        self.btn_edit = QPushButton(EDIT_LABEL)
+        self.btn_edit.setCheckable(False)
         self.btn_edit.setToolTip(
-            "Toggle hand editing; valid edits sync back to the block "
-            "diagram, invalid edits are rejected and marked red")
+            "Edit: activate hand editing. Apply: validate and persist; "
+            "invalid edits keep edit mode and are marked red")
         bar.addWidget(self.btn_edit)
         lay.addLayout(bar)
 
@@ -62,55 +75,79 @@ class YamlPreviewWidget(QWidget):
         self.error_bar.setVisible(False)
         lay.addWidget(self.error_bar)
 
-        self.btn_edit.toggled.connect(self._on_edit_toggled)
-        self.btn_edit.clicked.connect(lambda: None)
-        # re-validate on every keystroke while editing
-        self.editor.textChanged.connect(self._on_text_changed)
+        self.btn_edit.clicked.connect(self._on_button_clicked)
         self._on_edit_model: YamlBuildModel | None = None
-        self._external_set = False
-        self._validating = False  # re-entrancy guard: formatting the
-        # document emits textChanged again - never re-enter validate
+        self._editing = False
 
     # ------------------------------------------------------------- state
+    def is_editing(self) -> bool:
+        """True while the widget is in EDIT mode."""
+        return self._editing
+
     def set_model_text(self, model: YamlBuildModel) -> None:
         """Refresh the preview from the model (diagram -> YAML sync).
 
-        While the operator is hand-editing, the incoming model text
-        still wins only when the edit toggle is OFF; when editing is
-        ON the preview keeps the operator's text (the edit validation
-        path drives what enters the model).
+        While the operator is in EDIT mode the preview keeps the
+        operator's text (the Apply path drives what enters the model).
 
         Args:
             model: The data model.
         """
+        if self._editing:
+            return                    # operator text wins while editing
         text = sync_model_to_yaml(model)
-        self._external_set = True
         self.editor.setPlainText(text)
-        self._external_set = False
-        if not self.btn_edit.isChecked():
-            self.editor.setReadOnly(True)
-            self.error_bar.setVisible(False)
-            self._clear_error_marks()
+        self.editor.setReadOnly(True)
+        self.error_bar.setVisible(False)
+        self._clear_error_marks()
+
+    # ------------------------------------------------------ button toggle
+    def _on_button_clicked(self) -> None:
+        """Dispatch the single button: Edit -> enter edit mode,
+        Apply -> validate and (on pass) persist + return to Edit."""
+        if not self._editing:
+            self._enter_edit()
         else:
-            self._on_text_changed()
+            self._apply_edits()
 
-    def _on_edit_toggled(self, on: bool) -> None:
-        """Toggle hand editing on / off.
+    def _enter_edit(self) -> None:
+        """EDIT mode: editor enabled, label switches to Apply."""
+        self._editing = True
+        self.editor.setReadOnly(False)
+        self.btn_edit.setText(APPLY_LABEL)
 
-        Args:
-            on: True enters edit mode (re-validates current text).
-        """
-        self.editor.setReadOnly(not on)
-        self.btn_edit.setText("Done" if on else "Edit")
-        if on:
-            self.btn_edit.setText("Apply & Exit Edit")
-            self._on_text_changed()
-        else:
-            # leaving edit mode: the page re-syncs from the model
-            self.error_bar.setVisible(False)
-            self._clear_error_marks()
+    def _apply_edits(self) -> None:
+        """Apply clicked: validate; PASS persists + returns to
+        READ_ONLY, FAIL shows the error hint and stays in EDIT."""
+        if self._on_edit_model is None:
+            return
+        from mtkgui.gui.yamlbuild.sync import validate_yaml_text
+        result = validate_yaml_text(self.editor.toPlainText(),
+                                    self._on_edit_model)
+        if result.ok:
+            if result.data is not None:
+                self._on_edit_model.apply_yaml_dict(result.data)
+            self._exit_edit()
+            # re-sync the (now read-only) text from the updated model
+            self.set_model_text(self._on_edit_model)
+            self.edits_applied.emit()
+            return
+        # FAIL: error hint, stay in EDIT, label keeps Apply
+        messages = "; ".join(msg for msg, _ in result.errors)
+        self.error_bar.setText(f"YAML invalid: {messages}")
+        self.error_bar.setStyleSheet("color: #b91c1c;")
+        self.error_bar.setVisible(True)
+        self._mark_error_lines(result.error_lines())
 
-    # ------------------------------------------------------- validation
+    def _exit_edit(self) -> None:
+        """READ_ONLY mode: editor disabled, label back to Edit."""
+        self._editing = False
+        self.editor.setReadOnly(True)
+        self.btn_edit.setText(EDIT_LABEL)
+        self.error_bar.setVisible(False)
+        self._clear_error_marks()
+
+    # ------------------------------------------------------- model bind
     def bind_model(self, model: YamlBuildModel) -> None:
         """Bind the model used for edit validation.
 
@@ -118,37 +155,6 @@ class YamlPreviewWidget(QWidget):
             model: The data model.
         """
         self._on_edit_model = model
-
-    def _on_text_changed(self) -> None:
-        """Live validation while editing: mark error lines red and
-        show the first message; a clean edit reports nothing."""
-        if (self._validating or self._external_set
-                or not self.btn_edit.isChecked()
-                or self._on_edit_model is None):
-            return
-        from mtkgui.gui.yamlbuild.sync import validate_yaml_text
-        self._validating = True
-        try:
-            result = validate_yaml_text(self.editor.toPlainText(),
-                                        self._on_edit_model)
-            if result.ok:
-                self.error_bar.setText(
-                    "YAML valid - changes applied to the block "
-                    "diagram")
-                self.error_bar.setStyleSheet("color: #15803d;")
-                self.error_bar.setVisible(True)
-                self._clear_error_marks()
-                if result.data is not None:
-                    self._on_edit_model.apply_yaml_dict(result.data)
-                    self.edits_applied.emit()
-                return
-            messages = "; ".join(msg for msg, _ in result.errors)
-            self.error_bar.setText(f"YAML invalid: {messages}")
-            self.error_bar.setStyleSheet("color: #b91c1c;")
-            self.error_bar.setVisible(True)
-            self._mark_error_lines(result.error_lines())
-        finally:
-            self._validating = False
 
     # ------------------------------------------------------ red markers
     def _mark_error_lines(self, lines: set[int]) -> None:

@@ -89,14 +89,16 @@ def test_yaml_edit_apply_updates_blocks(page):
     page.model.enable_all()
     fill_required(page.model)   # required fields must be non-empty
     page._after_model_change()   # repaint the preview from the model
-    page.yaml_preview.btn_edit.setChecked(True)   # hand-edit mode
+    page.yaml_preview.btn_edit.click()           # enter edit mode
     text = page.yaml_preview.editor.toPlainText()
     doc = yaml.safe_load(text)
     doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 555
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
-    # the preview re-validated on textChanged and applied the edit
+    page.yaml_preview.btn_edit.click()           # Apply: validate+persist
+    # the edit was validated and applied, back to READ_ONLY
     assert page.model.get_params("rails")["on_delay_ms"] == "555"
+    assert page.yaml_preview.btn_edit.text() == "Edit"
 
 
 def test_invalid_yaml_edit_rejected(page):
@@ -107,9 +109,12 @@ def test_invalid_yaml_edit_rejected(page):
 
     page.model.enable_all()
     before = semantic(page.model.to_dict())
-    page.yaml_preview.btn_edit.setChecked(True)
+    page.yaml_preview.btn_edit.click()            # enter edit mode
     page.yaml_preview.editor.setPlainText("yaml_build: [broken")
+    page.yaml_preview.btn_edit.click()            # Apply -> FAIL
     assert not page.yaml_preview.error_bar.isHidden()
+    assert page.yaml_preview.is_editing()         # stays in edit mode
+    assert page.yaml_preview.btn_edit.text() == "Apply"
     assert semantic(page.model.to_dict()) == before
 
 
@@ -136,11 +141,12 @@ def test_yaml_hand_edit_disables_block_card(page):
     page.model.enable_all()
     fill_required(page.model)
     page._after_model_change()
-    page.yaml_preview.btn_edit.setChecked(True)
+    page.yaml_preview.btn_edit.click()            # enter edit mode
     doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
     doc["yaml_build"]["modules"]["clocks"]["enabled"] = False
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
+    page.yaml_preview.btn_edit.click()            # Apply: persist
     assert page.block_flow._cards["clocks"].state_label.text() == \
         "Disabled"
     assert page.model.is_enabled("clocks") is False
