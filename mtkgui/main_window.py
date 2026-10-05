@@ -51,6 +51,7 @@ from .permissions import (
     save_permissions,
 )
 from .test_workflow_page import TestWorkFlowPage
+from .yaml_build_page import YamlBuildPage
 from .style import (
     APP_NAME,
     APP_ORG,
@@ -309,6 +310,10 @@ class MainWindow(QMainWindow):
         self.equipment_page = EquipmentPage()
         self.tabs.addTab(self.equipment_page, "Equipment")
 
+        # V4.0: Yaml Build tab, fixed at the rightmost position
+        self.yaml_build_page = YamlBuildPage()
+        self.tabs.addTab(self.yaml_build_page, "Yaml Build")
+
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
             lambda: self.tabs.setCurrentWidget(self.workflow_page))
@@ -505,6 +510,82 @@ class MainWindow(QMainWindow):
             "Virtual Fault Injection...", self._open_fault_dialog)
         # the Test Work Flow page queries this in its pre-test phase
         self.workflow_page.sn_format = lambda: dict(self.sn_config)
+
+        # ------------------------------------------------ V4.0: Help menu
+        self.help_menu = self.menuBar().addMenu("Help")
+        self.help_menu.addAction(
+            "User Guide", lambda: self._open_help("user_guide"))
+        self.help_menu.addAction(
+            "Developer Guide", lambda: self._open_help("developer_guide"))
+        self.help_menu.addAction(
+            "Version History", lambda: self._open_help("version_history"))
+        self.help_menu.addAction(
+            "Readme & Quick Start",
+            lambda: self._open_help("readme_quickstart"))
+
+        # ---------------------------------------------- V4.0: Report menu
+        self.report_menu = self.menuBar().addMenu("Report")
+        self.report_menu.addAction("DUT Report", self._open_dut_report)
+        self.report_menu.addAction("Event Log", self._open_report_event_log)
+        self.report_menu.addAction("Statistics", self._open_statistics)
+
+    # ------------------------------------------------- V4.0 Help/Report
+    def _open_help(self, key):
+        """Help menu: open the built-in guide dialog for one topic.
+
+        Phase A mounts the menu; the full guide content provider lands
+        with V4.0 phase B2 (interface_spec.md section 29).
+
+        Args:
+            key: One of the HELP_KEYS topic identifiers.
+        """
+        titles = {
+            "user_guide": "User Guide",
+            "developer_guide": "Developer Guide",
+            "version_history": "Version History",
+            "readme_quickstart": "Readme & Quick Start",
+        }
+        text = (f"[ {titles.get(key, key)} ]\n\n"
+                "Full built-in guide content ships with V4.0 phase B2 "
+                "(feature/help-report-menus).")
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Help - {titles.get(key, key)}")
+        lay = QVBoxLayout(dlg)
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setPlainText(text)
+        lay.addWidget(view)
+        dlg.resize(720, 520)
+        dlg.exec()
+
+    def _open_dut_report(self):
+        """Report > DUT Report: per-unit PDF export placeholder.
+
+        The PDF builder (Qt QPdfWriter, fixed DUT_[PASS/FAIL]_...
+        naming) ships with V4.0 phase B3 (interface_spec.md 30)."""
+        QMessageBox.information(
+            self, "DUT Report",
+            "Per-unit DUT report (PDF) export ships with V4.0 phase B3 "
+            "(feature/report-backend).")
+
+    def _open_report_event_log(self):
+        """Report > Event Log: full-lifecycle TXT log viewer
+        placeholder (ships with V4.0 phase B3)."""
+        QMessageBox.information(
+            self, "Event Log",
+            "Full-lifecycle event log viewer and TXT export ship with "
+            "V4.0 phase B3 (feature/report-backend). The live session "
+            "log stays available in the Event Log panel below.")
+
+    def _open_statistics(self):
+        """Report > Statistics: quality-statistics dialog placeholder
+        (Yield / Avg Cycle Time / UPH / CpK / Error List, shipped with
+        V4.0 phase B3 on top of the P2-5 metrics engine)."""
+        QMessageBox.information(
+            self, "Statistics",
+            "Quality statistics (Yield, Avg Cycle Time, UPH/UPD, CpK, "
+            "Error List) ship with V4.0 phase B3 "
+            "(feature/report-backend).")
 
     # -------------------------------------------------------- permissions
     def apply_permissions(self):
