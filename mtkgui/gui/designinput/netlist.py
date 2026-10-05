@@ -51,11 +51,19 @@ class NetRecord:
         name:     Net name.
         members:  Member pin tokens (``U1.5``, ``J2.3``, ``TP4`` ...).
         net_type: One of :data:`NET_TYPES`.
+        nominal / tolerance_pct / jumper_controlled:
+            Business parameters bound back from the formal power tree
+            by ``bind_power_tree_to_nets`` (None until bound).
     """
 
     name: str
     members: list[str]
     net_type: str = NET_TYPE_SIGNAL
+    nominal: str | None = None
+    tolerance_pct: str | None = None
+    jumper_controlled: bool | None = None
+    is_reference_gnd: bool = False
+    is_alternative_testpoint: bool = False
 
 
 @dataclass
