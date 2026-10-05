@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass, field
@@ -38,6 +39,33 @@ HISTORY = "history"
 DAILY = "daily"
 BATCH = "batch"
 TIERS = (HISTORY, DAILY, BATCH)
+
+#: logical pack timestamp embedded in the archive file name by pack():
+#: "<batch>_<YYYYMMDD>_<HHMMSS>_<station>_<version>.zip" (anchored at
+#: the end so batch names containing underscores stay parseable)
+_ARCHIVE_TS_RE = re.compile(r"_(\d{8})_(\d{6})_(.+)\.zip$")
+
+
+def _archive_ts(paths: list[Path]) -> float:
+    """Return the logical creation time of one archive (all its tier
+    copies).
+
+    Prefers the timestamp embedded in the file name; falls back to
+    the newest filesystem mtime when a name does not carry one.
+
+    Args:
+        paths: The tier copies of a single archive.
+
+    Returns:
+        POSIX timestamp of the archive creation.
+    """
+    for p in paths:
+        match = _ARCHIVE_TS_RE.search(p.name)
+        if match:
+            ts = datetime.strptime(
+                match.group(1) + match.group(2), "%Y%m%d%H%M%S")
+            return ts.timestamp()
+    return max(p.stat().st_mtime for p in paths)
 
 
 def is_junk(path: Path) -> bool:
@@ -205,13 +233,15 @@ class ArchiveManager:
         cutoff = now.timestamp() - self.retain_days * 86400
         zips = self._all_archives()
         removed: list[str] = []
-        # 1) age-based removal, keyed by archive name (all tiers)
+        # 1) age-based removal, keyed by archive name (all tiers).
+        #    Age uses the LOGICAL archive timestamp embedded in the
+        #    file name at pack time - filesystem mtimes are copy /
+        #    checkout dependent and would silently break retention.
         by_name: dict[str, list[Path]] = {}
         for z in zips:
             by_name.setdefault(z.name, []).append(z)
         for name, paths in list(by_name.items()):
-            mtime = max(p.stat().st_mtime for p in paths)
-            if mtime < cutoff:
+            if _archive_ts(paths) < cutoff:
                 for p in paths:
                     p.unlink()
                 removed.append(name)
@@ -224,8 +254,7 @@ class ArchiveManager:
         zips_hist = sorted((self.root / HISTORY).rglob("*.zip"))
         total_mb = sum(p.stat().st_size for p in zips_hist) / 1e6
         while total_mb > self.max_capacity_mb and by_name:
-            oldest = min(by_name, key=lambda n: min(
-                p.stat().st_mtime for p in by_name[n]))
+            oldest = min(by_name, key=lambda n: _archive_ts(by_name[n]))
             hist = self.root / HISTORY / oldest
             if hist.is_file():
                 total_mb -= hist.stat().st_size / 1e6
