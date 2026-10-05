@@ -81,12 +81,15 @@ class VersionInfo:
         """Filename-safe version suffix for exported files.
 
         Returns:
-            e.g. ``"v3.0.0-develop-1a2b3c4"``; punctuation is dropped
-            and whitespace collapses to single dashes.
+            e.g. ``"v3.0.0-develop-1a2b3c4"``; punctuation and any
+            character illegal in file names is dropped or converted
+            to dashes (branch names may contain ``/``).
         """
         text = self.display()
         for ch in "()[],@":
             text = text.replace(ch, "")
+        for ch in '/\\:*?"<>|':
+            text = text.replace(ch, "-")
         return "-".join(text.split())
 
 
