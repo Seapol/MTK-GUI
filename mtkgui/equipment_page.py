@@ -55,6 +55,8 @@ from PySide6.QtWidgets import (
 
 import random
 
+from .permissions import MANUAL_FIXTURE_NOTICE
+
 # ---------------------------------------------------------------- palette
 BLUE = "#2563eb"
 BLUE_DARK = "#1d4ed8"
@@ -152,6 +154,11 @@ _INSTRUMENT_ACTIONS = {
                    f"(readback ~1%)"),
     ],
 }
+
+# Manual fixture mode (login dialog): these fixture-band blocks are
+# globally disabled together with every IO-control entry
+_MANUAL_FIXTURE_KEYS = ("fixture", "control_board", "cell_press",
+                        "cell_inpos", "cell_presence", "cell_estop")
 
 # connection interfaces: combo text -> default VISA-style address
 _INSTRUMENT_CONN = {
@@ -848,10 +855,11 @@ class _InstrumentDialog(QDialog):
          clock / AI tests, power on-off (simulated replies)
     """
 
-    def __init__(self, parent, title, fields, key, virtual):
+    def __init__(self, parent, title, fields, key, virtual, manual=False):
         super().__init__(parent)
         self._key = key
         self._virtual = virtual
+        self._manual = manual
         self._connected = False
         self.setWindowTitle(f"{title} - Configuration")
         self.resize(920, 720)
@@ -912,6 +920,11 @@ class _InstrumentDialog(QDialog):
 
         # 4 ------------------------------------------- control & simple tests
         ctl = QGroupBox("Control && Simple Tests")
+        # Manual fixture mode: IO control is globally disabled (the
+        # operator performs every hardware action by hand)
+        ctl.setEnabled(not manual)
+        ctl.setToolTip("Disabled in Manual Fixture mode"
+                       if manual else "")
         cl = QVBoxLayout(ctl)
         grid = QGridLayout()
         self._action_buttons = []
@@ -1019,7 +1032,14 @@ class EquipmentPage(QWidget):
         # account permission: opening block-diagram configuration dialogs
         # (defaults = allowed until set_config_allowed)
         self._config_allowed = True
+        # Manual fixture mode: fixture hardware config + IO control
+        # entries are globally disabled (set from MainWindow on login)
+        self._manual_fixture = False
         self._build()
+
+    def set_manual_fixture(self, manual):
+        """Manual fixture mode -> block fixture / IO-control entries."""
+        self._manual_fixture = bool(manual)
 
     def set_virtual_mode(self, virtual):
         """Virtual mode -> instrument connect / test succeed (simulated)."""
@@ -1270,12 +1290,18 @@ class EquipmentPage(QWidget):
                 "Ask the supervisor to grant this permission.")
             return
         key = item.key
+        if self._manual_fixture and key in _MANUAL_FIXTURE_KEYS:
+            # Manual fixture mode: fixture hardware config is disabled
+            QMessageBox.information(
+                self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
+            return
         cfg = self.configs[key]
         if key in _INSTRUMENT_CONN:
             # instruments: rich window with information / parameters /
             # connection / control-and-tests group boxes
             dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
-                                    self.virtual_mode)
+                                    self.virtual_mode,
+                                    manual=self._manual_fixture)
         elif "table" in cfg:
             dlg = _table_dialog(self, cfg["title"], cfg["table"])
         else:

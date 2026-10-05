@@ -44,6 +44,9 @@ from PySide6.QtWidgets import (
 from . import project_config
 from .equipment_page import EquipmentPage
 from .permissions import (
+    FIXTURE_ATE,
+    FIXTURE_MANUAL,
+    MANUAL_FIXTURE_NOTICE,
     ROLE_OPERATOR,
     ROLE_SUPERVISOR,
     LoginDialog,
@@ -311,7 +314,8 @@ class _ToolsBatchWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, role=ROLE_SUPERVISOR, mode="Real"):
+    def __init__(self, role=ROLE_SUPERVISOR, mode="Real",
+                 fixture=FIXTURE_ATE):
         super().__init__()
         self.setWindowTitle("MTK - Manufacturing Test Kit")
         self._init_size()
@@ -332,6 +336,10 @@ class MainWindow(QMainWindow):
         # Real (physical HW required) / Virtual (simulated HW) mode;
         # Virtual mode is supervisor-only, operators always run Real
         self.mode = mode if role == ROLE_SUPERVISOR else "Real"
+        # Fixture type from the login dialog (ATE / Manual, ATE is the
+        # restart baseline): Manual globally disables fixture hardware
+        # configuration, IO control and fixture-linked entries
+        self.fixture_type = fixture
         self.fault_config = load_fault_config()
 
         # path of the currently loaded / saved project YAML (None = new)
@@ -413,6 +421,10 @@ class MainWindow(QMainWindow):
         metrics, not a construction-time snapshot."""
         super().showEvent(event)
         QTimer.singleShot(0, self._lock_vertical_minimums)
+        # the Manual-fixture notice pops once the project UI is visible
+        if getattr(self, "_manual_notice_pending", False):
+            self._manual_notice_pending = False
+            QTimer.singleShot(0, self, self._show_manual_notice)
 
     def _remember_geometry(self):
         """Persist the user's manually chosen window geometry so the
@@ -879,8 +891,31 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_mode(self.mode)
         self.workflow_page.set_virtual_fault(self.fault_config)
         self.workflow_page.multi_console.set_virtual_mode(virtual)
+        self._apply_fixture_mode()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Logged in: {self.role}")
+
+    def _apply_fixture_mode(self):
+        """Fixture-type linkage (spec item 5): Manual mode globally
+        disables every fixture hardware configuration entry, IO control
+        and fixture-linked operation; a fixed friendly notice pops up
+        once per login (non-blocking, manually closable)."""
+        manual = self.fixture_type == FIXTURE_MANUAL
+        self.equipment_page.set_manual_fixture(manual)
+        # notice pops once the window becomes visible (showEvent); a
+        # pending flag survives mode switches without leaking timers
+        self._manual_notice_pending = manual
+        if manual:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Fixture: Manual mode - "
+                "fixture hardware / IO control disabled")
+            if self.isVisible():
+                QTimer.singleShot(0, self, self._show_manual_notice)
+
+    def _show_manual_notice(self):
+        """One-shot Manual-fixture notice (fixed wording, closable)."""
+        QMessageBox.information(
+            self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
 
     def _update_identity_status(self):
         """Status bar identity badges: Role + Mode with distinct
@@ -907,10 +942,12 @@ class MainWindow(QMainWindow):
         result = LoginDialog.login(self, allow_cancel=True)
         if result is None:
             return
-        role, mode = result
+        role, mode, fixture = result
         self.role = role
         # Virtual mode is supervisor-only; operators fall back to Real
         self.mode = mode if role == ROLE_SUPERVISOR else "Real"
+        # fixture choice is per-login only (ATE restart baseline)
+        self.fixture_type = fixture
         self.permissions = load_permissions()
         self.apply_permissions()
         self._update_identity_status()

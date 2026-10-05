@@ -18,21 +18,41 @@ from pathlib import Path
 
 from . import __version__
 
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
+    QAbstractButton,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 ROLE_SUPERVISOR = "Supervisor"
 ROLE_OPERATOR = "Operator"
 ROLES = (ROLE_SUPERVISOR, ROLE_OPERATOR)
+
+MODE_REAL = "Real"
+MODE_VIRTUAL = "Virtual"
+
+FIXTURE_ATE = "ATE"
+FIXTURE_MANUAL = "Manual"
+FIXTURE_TYPES = (FIXTURE_ATE, FIXTURE_MANUAL)
+
+# Fixed wording of the Manual-fixture notice (spec item 5): shown once
+# after a Manual login and whenever a blocked fixture / IO entry is used.
+MANUAL_FIXTURE_NOTICE = (
+    "当前为Manual Fixture模式，无IO资源自动控制权限，"
+    "所有夹具动作、硬件操作需由用户手动自行操作")
 
 # Default supervisor password (source-only by design; do not document it).
 SUPERVISOR_PASSWORD = "nxp"
@@ -89,16 +109,104 @@ def save_permissions(perm):
     return path
 
 
-class LoginDialog(QDialog):
-    """Startup / switch-account dialog.
+class ModeSwitch(QAbstractButton):
+    """Left/right slide toggle for the run mode (spec item 2).
 
-    Pick Supervisor or Operator; the supervisor must enter the account
-    password.  After accept, :attr:`role` holds the chosen role."""
+    Left = Real (physical hardware, default), right = Virtual
+    (simulated, supervisor-only).  The knob slides between the two
+    labelled halves; the switch is disabled (grayed) until unlocked by
+    the login permission logic."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(False)          # False = Real (left docking)
+        self.setFixedSize(132, 28)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    # ------------------------------------------------------------------ paint
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        enabled = self.isEnabled()
+        on = self.isChecked()
+        bg = QColor("#7c3aed" if (on and enabled) else
+                    "#1d7a3c" if enabled else "#d1d5db")
+        track = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+        p.setPen(QPen(QColor("#9ca3af"), 1))
+        p.setBrush(bg)
+        p.drawRoundedRect(track, 14, 14)
+        # half labels
+        p.setPen(QColor("#ffffff") if enabled else QColor("#6b7280"))
+        f = QFont(self.font())
+        f.setBold(True)
+        f.setPointSize(9)
+        p.setFont(f)
+        p.drawText(QRectF(0, 0, self.width() / 2, self.height()),
+                   Qt.AlignmentFlag.AlignCenter, MODE_REAL)
+        p.drawText(QRectF(self.width() / 2, 0, self.width() / 2,
+                          self.height()),
+                   Qt.AlignmentFlag.AlignCenter, MODE_VIRTUAL)
+        # sliding knob
+        knob_r = self.height() - 8
+        x = (self.width() - knob_r - 4) if on else 4
+        p.setPen(QPen(QColor("rgba(0,0,0,0.25)"), 1))
+        p.setBrush(QColor("#ffffff" if enabled else "#f3f4f6"))
+        p.drawEllipse(QRectF(x, 4, knob_r, knob_r))
+        p.end()
+
+
+class FixtureSelector(QWidget):
+    """Fixed ATE / Manual two-option selector (spec item 4).
+
+    ATE is the default baseline; the choice is per-login only and is
+    NOT persisted (a restart returns to the ATE baseline)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._group = QButtonGroup(self)
+        for i, fx in enumerate(FIXTURE_TYPES):
+            btn = QPushButton(fx)
+            btn.setCheckable(True)
+            btn.setChecked(fx == FIXTURE_ATE)   # ATE baseline default
+            btn.setMinimumWidth(84)
+            self._group.addButton(btn, i)
+            row.addWidget(btn)
+        row.addStretch(1)
+
+    def fixture_type(self) -> str:
+        """Currently selected fixture type (ATE or Manual)."""
+        btn = self._group.checkedButton()
+        return btn.text() if btn is not None else FIXTURE_ATE
+
+    def set_fixture_type(self, fixture: str) -> None:
+        """Programmatic selection (used by tests and state restore)."""
+        for i, fx in enumerate(FIXTURE_TYPES):
+            self._group.button(i).setChecked(fx == fixture)
+
+
+class LoginDialog(QDialog):
+    """Startup / switch-account dialog (spec items 1-4).
+
+    Fixed vertical order: Account -> Password -> Mode switch ->
+    Fixture selector -> Login button.
+
+    The Mode switch starts disabled (grayed, forced Real) and unlocks
+    ONLY after a successful supervisor login validation (Supervisor
+    account + correct password typed); ordinary accounts stay locked
+    on Real mode forever.
+
+    After accept: :attr:`role`, :attr:`mode` (Real / Virtual) and
+    :attr:`fixture_type` (ATE / Manual, default ATE) hold the result."""
 
     def __init__(self, parent=None, allow_cancel=True):
         super().__init__(parent)
         self.setWindowTitle("MTK GUI - Login")
         self.role = None
+        self.mode = MODE_REAL
 
         form = QFormLayout(self)
 
@@ -110,28 +218,39 @@ class LoginDialog(QDialog):
             f'Version {__version__}</span>')
         form.addRow(welcome)
 
+        # 1 ------------------------------------------------------- account
         self.role_combo = QComboBox()
         self.role_combo.addItems(ROLES)
         form.addRow("Account:", self.role_combo)
 
-        # Real mode (default) needs the physical DUT / instruments /
-        # peripherals; Virtual mode simulates them (supervisor only).
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(("Real", "Virtual"))
-        form.addRow("Mode:", self.mode_combo)
-
+        # 2 ------------------------------------------------------ password
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Supervisor password")
         form.addRow("Password:", self.password_edit)
 
+        # 3 ---------------------------------------------------- mode switch
+        # Left = Real (default), right = Virtual.  Disabled + grayed
+        # until the supervisor password validates (spec items 2-3).
+        self.mode_switch = ModeSwitch()
+        self.mode_switch.setEnabled(False)
+        form.addRow("Mode:", self.mode_switch)
+
+        # 4 ------------------------------------------------- fixture choice
+        self.fixture_selector = FixtureSelector()
+        form.addRow("Fixture:", self.fixture_selector)
+
         hint = QLabel("Operator: no password needed.\n"
-                      "Supervisor: enter the account password.")
+                      "Supervisor: enter the account password.\n"
+                      "Mode switch unlocks for supervisor only.")
         hint.setObjectName("muted")
         form.addRow(hint)
 
+        # 5 --------------------------------------------------- login button
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(
+            QDialogButtonBox.StandardButton.Ok).setText("Login")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         if not allow_cancel:
@@ -139,22 +258,33 @@ class LoginDialog(QDialog):
                 QDialogButtonBox.StandardButton.Cancel).setVisible(False)
         form.addRow(buttons)
 
-        self._sync_password()
+        # permission rule: the switch unlocks only when a supervisor
+        # account AND the correct password are present (live check)
         self.role_combo.currentTextChanged.connect(
-            lambda _t: self._sync_password())
+            lambda _t: self._sync_mode_lock())
+        self.password_edit.textChanged.connect(
+            lambda _t: self._sync_mode_lock())
+        self._sync_mode_lock()
 
-    def _sync_password(self):
-        supervisor = (self.role_combo.currentText() == ROLE_SUPERVISOR)
-        self.password_edit.setEnabled(supervisor)
-        # Virtual mode is supervisor-only: operators always run Real mode
-        self.mode_combo.setEnabled(supervisor)
-        if not supervisor and self.mode_combo.currentText() != "Real":
-            self.mode_combo.blockSignals(True)
-            self.mode_combo.setCurrentIndex(0)
-            self.mode_combo.blockSignals(False)
-        if supervisor:
+    # ------------------------------------------------------------ helpers
+    def _supervisor_unlocked(self) -> bool:
+        """True when the supervisor credential pair validates."""
+        return (self.role_combo.currentText() == ROLE_SUPERVISOR
+                and self.password_edit.text() == SUPERVISOR_PASSWORD)
+
+    def _sync_mode_lock(self):
+        """Gray out + force Real until the supervisor login validates."""
+        unlocked = self._supervisor_unlocked()
+        self.mode_switch.setEnabled(unlocked)
+        if not unlocked:
+            # ordinary accounts are locked on the Real baseline forever
+            self.mode_switch.blockSignals(True)
+            self.mode_switch.setChecked(False)
+            self.mode_switch.blockSignals(False)
+        if unlocked:
             self.password_edit.setFocus()
 
+    # ------------------------------------------------------------- accept
     def _on_accept(self):
         role = self.role_combo.currentText()
         if role == ROLE_SUPERVISOR:
@@ -165,15 +295,21 @@ class LoginDialog(QDialog):
                 self.password_edit.setFocus()
                 return
         self.role = role
-        self.mode = self.mode_combo.currentText()
+        # the switch can only be Virtual if the supervisor unlocked it;
+        # keep the defensive fallback for non-supervisor logins
+        self.mode = (MODE_VIRTUAL if self.mode_switch.isChecked()
+                     else MODE_REAL)
+        self.fixture_type = self.fixture_selector.fixture_type()
         self.accept()
 
     @staticmethod
     def login(parent=None, allow_cancel=True):
-        """Show the dialog modally; return (role, mode) or None on cancel."""
+        """Show the dialog modally.
+
+        Returns (role, mode, fixture_type) or None on cancel."""
         dlg = LoginDialog(parent, allow_cancel=allow_cancel)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            return dlg.role, dlg.mode
+            return dlg.role, dlg.mode, dlg.fixture_type
         return None
 
 

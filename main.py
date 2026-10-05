@@ -23,13 +23,14 @@ def main():
     app.setStyleSheet(QSS)
 
     # startup login: Supervisor (password) or Operator; must pick one.
-    # Returns (role, mode); Virtual mode is supervisor-only.
+    # Returns (role, mode, fixture_type); Virtual mode is supervisor-
+    # only, fixture type is ATE (default) / Manual per login.
     result = LoginDialog.login(None, allow_cancel=False)
     if result is None:
         sys.exit(0)
-    role, mode = result
+    role, mode, fixture = result
 
-    window = MainWindow(role, mode)
+    window = MainWindow(role, mode, fixture)
     window.show()
     sys.exit(app.exec())
 
