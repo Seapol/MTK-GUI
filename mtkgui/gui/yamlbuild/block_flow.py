@@ -110,6 +110,10 @@ TT_DISABLE_SINGLE = "单独开启/关闭当前模块流程能力"
 TT_ENABLE_ALL = "一键启用全部流程模块，所有模块参与YAML生成与校验"
 TT_DISABLE_ALL = "一键禁用全部流程模块，所有模块暂不参与流程编译"
 
+#: original project status color (main_window LED "connected" green);
+#: used for the Enabled badge - NOT the theme link/text color
+STATUS_ENABLED_COLOR = "#22c55e"
+
 
 class BlockCard(QFrame):
     """One workflow block: click opens the config dialog, right click
@@ -167,12 +171,23 @@ class BlockCard(QFrame):
         """Disabled blocks render grayed with an explicit badge
         (rule 3.2: gray-only, NO strikethrough; visual distinction
         must be obvious).  Colors use semi-transparent overlays so
-        both light and dark GUI themes stay readable."""
+        both light and dark GUI themes stay readable.
+
+        Theme-variable isolation (M0): the ENABLED card binds its own
+        text colors inside the card QSS scope - main title white,
+        Enabled status in the original status green - so the labels
+        can never inherit the global theme's text/link colors (the
+        light-theme blue leak).  Background and border stay exactly as
+        originally designed."""
         if self._enabled:
             self.setStyleSheet(
                 "BlockCard { background: rgba(47,111,179,0.18); "
-                "border: 1px solid #2f6fb3; border-radius: 8px; }")
-            self.title_label.setStyleSheet("font-weight: bold;")
+                "border: 1px solid #2f6fb3; border-radius: 8px; }"
+                "BlockCard QLabel { color: #ffffff; }")
+            self.title_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff;")
+            self.state_label.setStyleSheet(
+                f"font-weight: bold; color: {STATUS_ENABLED_COLOR};")
         else:
             self.setStyleSheet(
                 "BlockCard { background: rgba(128,128,128,0.15); "
