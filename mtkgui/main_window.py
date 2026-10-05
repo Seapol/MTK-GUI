@@ -12,7 +12,6 @@ received ANSI color sequences are rendered in place.
 """
 
 import getpass
-import platform
 from datetime import datetime
 from pathlib import Path
 
@@ -173,44 +172,37 @@ class InstrumentStatusBar(QWidget):
 
 
 class SerialStatusBar(QWidget):
-    """'Consoles:' caption plus one LED + channel key per console
-    channel (serial + SSH).
+    """One colored LED per console channel (serial + SSH).
 
-    Rebuilt whenever the console channel set changes (add / remove) and
-    re-colored on every connect / disconnect (multi_console's
-    connection_changed signal -> sync_channels)."""
+    M0 layout optimization: text names were removed - only the
+    colored lights render, the channel names live on each LED's
+    tooltip.  Rebuilt whenever the console channel set changes
+    (add / remove) and re-colored on every connect / disconnect
+    (multi_console's connection_changed signal -> sync_channels)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._row = QHBoxLayout(self)
         self._row.setContentsMargins(6, 0, 6, 0)
         self._row.setSpacing(6)
-        caption = QLabel("Consoles:")
-        caption.setObjectName("muted")
-        self._row.addWidget(caption)
         self._leds = {}
 
     def sync_channels(self, channels):
-        """Mirror the multi-console channel set and connection states
+        """Mirror the console channel set and connection states
         (full rebuild - channel sets change rarely)."""
-        while self._row.count() > 1:          # keep the caption at 0
+        while self._row.count() > 0:
             item = self._row.takeAt(self._row.count() - 1)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
         self._leds = {}
-        for i, (key, ch) in enumerate(channels.items()):
+        for key, ch in channels.items():
             led = StatusLed()
-            lbl = QLabel(key)
-            lbl.setObjectName("strong")
+            led.setToolTip(f"{key}: {LED_TEXT['disconnected']}")
             self._row.addWidget(led)
-            self._row.addWidget(lbl)
-            if i < len(channels) - 1:
-                self._row.addSpacing(8)
             state = "connected" if ch.get("connected") else "disconnected"
             led.set_state(state)
-            lbl.setToolTip(f"{key}: {LED_TEXT[state]}")
-            self._leds[key] = (led, lbl)
+            self._leds[key] = (led, key)
 
 
 class DialogCenterer(QObject):
@@ -508,8 +500,8 @@ class MainWindow(QMainWindow):
         self.workflow_page.log_cleared.connect(self._clear_event_log)
 
         # --- status bar, flat left -> right:
-        # Version | Role | Mode | Station ID | User | Progress (adaptive)
-        # | Instruments | Consoles | Date
+        # Version | Role | Mode | User | Progress (adaptive)
+        # | Instruments | Consoles (LED-only) | Date
         sb = self.statusBar()
 
         # V4.0 / M0: dynamic GUI version label (vX.Y.Z.xxxx from
@@ -546,18 +538,15 @@ class MainWindow(QMainWindow):
         sb.addWidget(self.status_mode)
         self._update_identity_status()
 
-        station = platform.node() or "UNKNOWN"
-        self.status_station = QLabel(f"Station ID: {station}")
-        self.status_station.setObjectName("muted")
-        self.status_station.setStyleSheet("padding: 0 6px;")
-        sb.addWidget(self.status_station)
-
         self.status_user = QLabel(f"User: {getpass.getuser()}")
         self.status_user.setObjectName("muted")
         self.status_user.setStyleSheet("padding: 0 6px;")
         sb.addWidget(self.status_user)
 
-        # run progress: adaptive width (wired to the workflow page below)
+        # global test-task progress: gray/empty when idle, live
+        # 0-100% while running, fills full then auto-resets to 0 when
+        # the job finishes (M0 layout optimization; the freed Station
+        # ID space flows into the stretch here)
         self.status_progress = QProgressBar()
         self.status_progress.setTextVisible(True)
         self.status_progress.setFormat("Idle")
@@ -565,6 +554,7 @@ class MainWindow(QMainWindow):
         self.status_progress.setValue(0)
         sb.addWidget(self.status_progress, 1)  # stretch = adaptive
         self._last_progress = (0, 1)
+        self._progress_reset_pending = False
 
         # Instruments connection LEDs
         self.instr_status = InstrumentStatusBar(INSTRUMENTS)
@@ -598,6 +588,9 @@ class MainWindow(QMainWindow):
         self.workflow_page.instrument_error.connect(self._on_instrument_error)
         self.workflow_page.run_finished.connect(
             lambda: self.instr_status.set_all("connected"))
+        # task complete: fill the progress bar full then auto-reset
+        self.workflow_page.run_finished.connect(
+            self._finish_run_progress)
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
             QTimer.singleShot(800, self._connect_virtual_instruments)
@@ -1155,7 +1148,11 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------ instrument lights
     def _update_run_progress(self, current, total):
-        """Update the status-bar progress bar during a test run."""
+        """Update the status-bar progress bar during a test run.
+
+        A running test cancels any pending finish-reset (a new job may
+        start within the reset grace window)."""
+        self._progress_reset_pending = False
         if total > 1:
             self._last_progress = (current, total)  # restore point after
         if total <= 0:                              # a busy phase
@@ -1167,6 +1164,25 @@ class MainWindow(QMainWindow):
             self.status_progress.setValue(current)
             self.status_progress.setFormat(
                 f"{current}/{total} ({current * 100 // total}%)")
+
+    def _finish_run_progress(self):
+        """Task complete: fill the bar full, then auto-reset to the
+        gray empty Idle state (grace window so the 100% is visible)."""
+        self.status_progress.setRange(0, 100)
+        self.status_progress.setValue(100)
+        self.status_progress.setFormat("Complete (100%)")
+        self._progress_reset_pending = True
+        QTimer.singleShot(800, self._reset_run_progress)
+
+    def _reset_run_progress(self):
+        """Auto-reset the progress bar to gray empty Idle (honours the
+        pending flag so a newly started run is never clobbered)."""
+        if not self._progress_reset_pending:
+            return
+        self._progress_reset_pending = False
+        self.status_progress.setRange(0, 1)
+        self.status_progress.setValue(0)
+        self.status_progress.setFormat("Idle")
 
     def _on_run_phase(self, text):
         """Reflect background run phases on the progress bar: a busy

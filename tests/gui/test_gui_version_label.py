@@ -129,8 +129,8 @@ def test_other_status_bar_components_intact(qapp, monkeypatch):
         lambda path=None: (FALLBACK_VERSION, None))
     w = MainWindow(role=ROLE_SUPERVISOR)
     try:
-        for attr in ("status_role", "status_mode", "status_station",
-                     "status_user", "status_progress", "instr_status",
+        for attr in ("status_role", "status_mode", "status_user",
+                     "status_progress", "instr_status",
                      "serial_status", "status_date"):
             assert getattr(w, attr) is not None, attr
         assert w.status_date.text().count("-") == 2
