@@ -1,6 +1,6 @@
 # MTK-GUI Module Interface Specification
 
-- Version: 0.2 (V4.0 contracts added — sections 29-32; approved by
+- Version: 0.3 (V4.0 contracts — sections 29-33; approved by
   coordinator 2026-10-05)
 - Date: 2026-10-05
 - Scope: all development tasks (TRAE SOLO) must comply with this document.
@@ -1166,6 +1166,43 @@ class EquipmentYamlSync:                  # one instance per project
     def apply(self, direction: SyncDirection) -> int
 # signals: sync_done(direction, n), conflict_found(SyncConflict)
 ```
+
+### 33. Dynamic Build Versioning (NEW — V4.0, `mtkgui/version_info.py`)
+
+Replaces the static version string everywhere.  On GUI startup the
+build version is resolved ONCE (cached) from, in order:
+
+1. `MTKGUI_VERSION` environment variable (packaged builds; the
+   packaging step may set it or write a `_build_version.txt` next to
+   the executable — packaging auto-alignment without touching the
+   PyInstaller spec),
+2. `_build_version.txt` beside the app root (frozen builds),
+3. live git metadata of the working tree: nearest tag
+   (`git describe --tags --abbrev=0`), branch
+   (`git rev-parse --abbrev-ref HEAD`), short commit
+   (`git rev-parse --short HEAD`), dirty flag (`git status
+   --porcelain`),
+4. the static `mtkgui.__version__` constant (last-resort fallback).
+
+Resolution NEVER raises into the UI (silent fallback + `source`
+field records where the version came from: env / file / git /
+static) — full auditability of what is running.
+
+```python
+@dataclass(frozen=True)
+class VersionInfo:
+    tag: str; branch: str; commit: str; dirty: bool; source: str
+    def display(self) -> str   # "v3.0.0 (develop @ 1a2b3c4) [dirty]"
+    def suffix(self) -> str    # filename-safe: "v3.0.0-develop-1a2b3c4"
+def get_version_info(force: bool = False) -> VersionInfo  # cached
+```
+
+Consumers (mandatory): status bar / home page version label,
+About & Version History dialogs (V4.0-B2), every exported file
+version suffix (DUT Report PDF - B3, Draft/Final Plan YAML and
+statistics exports - B1) via `VersionInfo.suffix()`.  The suffix is
+filename-safe (no spaces / parentheses) so exported-file naming
+rules stay valid.
 
 ## Conflict Prevention Rule
 
