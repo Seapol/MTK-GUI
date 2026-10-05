@@ -541,7 +541,16 @@ class TestWorkFlowPage(QWidget):
         for edit in (self.part_edit, self.core_edit, self.batch_edit,
                      self.serial_edit):
             edit.setReadOnly(not can_product)
-        self.auto_sn.setEnabled(can_product)
+        # run-policy checkboxes (M0 permission matrix): Supervisor has
+        # native rw; Operator is read-only unless the supervisor
+        # granted the specific run_policy_* key.  Every panel load
+        # re-evaluates (dynamic enable/disable).
+        self.stop_if_fail_cb.setEnabled(
+            supervisor or bool(perm.get("run_policy_stop_failure")))
+        self.stop_if_short_cb.setEnabled(
+            supervisor or bool(perm.get("run_policy_stop_short")))
+        self.auto_sn.setEnabled(
+            supervisor or bool(perm.get("run_policy_auto_sn")))
         can_run_cfg = supervisor or bool(perm.get("edit_run_control"))
         self.longrun_spin.setEnabled(can_run_cfg)
         self.interval_spin.setEnabled(

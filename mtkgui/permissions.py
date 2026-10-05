@@ -67,6 +67,10 @@ PERMISSION_LABELS = {
     "manage_channels": "Add / Remove console channels",
     "equipment_config": "Open Equipment page configuration windows",
     "sn_format_check": "Serial Number Format Check (Settings)",
+    "run_policy_stop_failure": "Run Policy: Stop if failure",
+    "run_policy_stop_short": "Run Policy: Stop if any short",
+    "run_policy_auto_sn":
+        "Run Policy: Auto-SN (virtual serial, +1 per run)",
 }
 DEFAULT_PERMISSIONS = {key: False for key in PERMISSION_LABELS}
 
