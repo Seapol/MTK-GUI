@@ -108,7 +108,16 @@ class YamlBuildPage(QWidget):
         self.block_flow.enable_requested.connect(self._set_enabled)
         self.block_flow.enable_all_requested.connect(self._enable_all)
         self.block_flow.disable_all_requested.connect(self._disable_all)
-        splitter.addWidget(self.block_flow)
+        # the flow diagram lives inside a scroll area: its natural
+        # content height (ten cards stacked) must never push the
+        # window minimum above the screen - small windows scroll the
+        # diagram instead of overflowing it vertically
+        from PySide6.QtWidgets import QFrame, QScrollArea
+        flow_scroll = QScrollArea()
+        flow_scroll.setWidgetResizable(True)
+        flow_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        flow_scroll.setWidget(self.block_flow)
+        splitter.addWidget(flow_scroll)
         self.yaml_preview = YamlPreviewWidget()
         self.yaml_preview.bind_model(self.model)
         # YAML -> diagram: a valid hand edit refreshes the block

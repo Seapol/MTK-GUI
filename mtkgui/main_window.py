@@ -286,6 +286,18 @@ class MainWindow(QMainWindow):
         settings = QSettings(APP_ORG, APP_NAME)
         saved = settings.value("window/geometry")
         if saved is not None and self.restoreGeometry(saved):
+            # clamp a restored size to the CURRENT screen (a geometry
+            # saved on a larger display must never overflow the
+            # present one) and keep the window centered
+            avail = (self.screen()
+                     or QApplication.primaryScreen()).availableGeometry()
+            if (self.frameGeometry().width() > avail.width()
+                    or self.frameGeometry().height() > avail.height()):
+                self.resize(min(self.width(), avail.width() - 40),
+                            min(self.height(), avail.height() - 40))
+            self.move(
+                avail.x() + max(0, (avail.width() - self.width()) // 2),
+                avail.y() + max(0, (avail.height() - self.height()) // 2))
             return
         screen = self.screen() or QApplication.primaryScreen()
         available = screen.availableGeometry()
