@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, project_config
+from . import project_config
 from .equipment_page import EquipmentPage
 from .permissions import (
     ROLE_OPERATOR,
@@ -51,6 +51,7 @@ from .permissions import (
     save_permissions,
 )
 from .test_workflow_page import TestWorkFlowPage
+from .version_info import get_version_info
 from .yaml_build_page import YamlBuildPage
 from .style import (
     APP_NAME,
@@ -367,10 +368,18 @@ class MainWindow(QMainWindow):
         # | Instruments | Consoles | Date
         sb = self.statusBar()
 
-        self.status_version = QLabel(f"Version: {__version__}")
+        # V4.0: dynamic build version (git tag / branch / commit),
+        # resolved once per process (interface_spec.md section 33)
+        self.version_info = get_version_info()
+        self.status_version = QLabel(f"Version: {self.version_info.display()}")
         self.status_version.setObjectName("muted")
         self.status_version.setStyleSheet("padding: 0 6px;")
+        self.status_version.setToolTip(
+            f"source: {self.version_info.source}")
         sb.addWidget(self.status_version)
+        self._append_event_log(
+            f"Build: {self.version_info.display()} "
+            f"(source: {self.version_info.source})")
 
         # Role / Mode badges: colored background + bold white text,
         # refreshed on File > Switch Account
