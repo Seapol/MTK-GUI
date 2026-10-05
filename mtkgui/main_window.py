@@ -475,16 +475,31 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(top)
         self.splitter.addWidget(self.tabs)
         self.splitter.addWidget(log_group)
+        # layout priority hardening (B1 final rule 4): no pane may
+        # ever collapse - the Event Log and the status bar above it
+        # are permanent system UI, the tabbed workspace only fills
+        # the middle viewport and can never push them out
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setCollapsible(0, False)
+        self.splitter.setCollapsible(1, False)
+        self.splitter.setCollapsible(2, False)
+        # hard vertical floors: the bottom region keeps at least the
+        # full 9-row log plus caption under every sizing scenario
+        log_group.setMinimumHeight(log_group.minimumSizeHint().height())
         # top and bottom keep their natural size; the tabs take the rest
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
         # initial sizes: top = all rows, bottom = log (1.5x of the
-        # original 6 rows), middle = rest
+        # original 6 rows), middle = rest.  Enforced again after the
+        # first layout pass - construction-time sizeHints distort the
+        # distribution (same lesson as the P3 1:1 splitter fix).
         top_h = max(top.sizeHint().height(), 180)
         bottom_h = int(six_rows * 1.5) + 40
         middle_h = max(300, self.height() - top_h - bottom_h)
-        self.splitter.setSizes([top_h, middle_h, bottom_h])
+        initial = [top_h, middle_h, bottom_h]
+        self.splitter.setSizes(initial)
+        QTimer.singleShot(0, lambda: self.splitter.setSizes(initial))
 
         self.setCentralWidget(central)
 

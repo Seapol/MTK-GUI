@@ -244,3 +244,54 @@ def test_window_geometry_persistence(qapp, monkeypatch):
     else:
         settings.setValue("window/geometry", original)
     settings.sync()
+
+
+@pytest.mark.parametrize("width,height", ((1920, 1080), (1280, 800),
+                                          (1024, 700), (640, 480)))
+def test_bottom_region_never_pushed_out(qapp, width, height):
+    """B1 final rule 1/2: at every window size - down to the extreme
+    minimum - the Event Log keeps a real visible height inside the
+    window, sits above the status bar, and the status bar itself is
+    fully visible.  Pages may scroll internally but can never claim
+    the bottom region."""
+    from PySide6.QtWidgets import QApplication
+
+    qapp.resize(width, height)
+    QApplication.processEvents()
+    visible = qapp.rect()
+    log = qapp.event_log
+    assert log.isVisible() and log.height() >= 60, \
+        f"event log squeezed out at {width}x{height}"
+    log_top = log.mapTo(qapp, log.rect().topLeft()).y()
+    log_bottom = log_top + log.height()
+    assert log_bottom <= visible.height() + 1
+    sb = qapp.statusBar()
+    assert sb.isVisible() and sb.height() >= 20
+    sb_top = sb.mapTo(qapp, sb.rect().topLeft()).y()
+    assert sb_top >= log_bottom - 1 and sb_top + sb.height() \
+        <= visible.height() + 1
+    # the workspace (tabs) never overlays the bottom region either
+    tabs_bottom = qapp.tabs.mapTo(
+        qapp, qapp.tabs.rect().bottomRight()).y()
+    assert tabs_bottom <= log_top + 2
+
+
+def test_maximize_restore_stability(qapp):
+    """B1 final rule 3: maximize / restore cycles keep the three-layer
+    layout steady - the bottom pane height survives both transitions
+    and the top row never gets squeezed."""
+    from PySide6.QtWidgets import QApplication
+
+    qapp.showNormal()
+    QApplication.processEvents()
+    log_h_normal = qapp.event_log.height()
+    top_h_before = qapp.splitter.sizes()[0]
+
+    qapp.showMaximized()
+    QApplication.processEvents()
+    assert qapp.event_log.height() >= min(
+        log_h_normal, 100)          # bottom pane survives maximize
+    qapp.showNormal()
+    QApplication.processEvents()
+    assert qapp.event_log.height() >= min(log_h_normal, 100)
+    assert qapp.splitter.sizes()[0] >= top_h_before - 4
