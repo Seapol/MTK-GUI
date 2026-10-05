@@ -217,7 +217,7 @@ class BlockFlowWidget(QWidget):
             self._cards[module_key].set_enabled(enabled)
 
     def open_dialog(self, module_key: str, params: dict,
-                    parent: QWidget) -> dict | None:
+                    parent: QWidget):
         """Open the dedicated config dialog for one module.
 
         Args:
@@ -226,12 +226,15 @@ class BlockFlowWidget(QWidget):
             parent:     Parent widget for the dialog.
 
         Returns:
-            The validated new parameter dict, or None when cancelled.
+            ``(values, import_result)`` where ``values`` is the
+            validated parameter dict (None when cancelled) and
+            ``import_result`` carries the Design Input import parse
+            results (None for other modules).
         """
         dialog = BlockConfigDialog(module_key, params, parent)
         if dialog.exec() == BlockConfigDialog.DialogCode.Accepted:
-            return dialog.values()
-        return None
+            return dialog.values(), getattr(dialog, "import_result", None)
+        return None, None
 
     @staticmethod
     def module_title(module_key: str) -> str:

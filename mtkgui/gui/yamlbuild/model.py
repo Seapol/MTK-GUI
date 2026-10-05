@@ -72,6 +72,16 @@ class YamlBuildModel:
                 f.name: f.default for f in MODULE_FIELDS.get(key, ())
             }
             self._enabled[key] = False
+        # imported design data (acceptance 3.1.1): schematic metadata
+        # + parsed netlist + user TP resolutions.  Shared with every
+        # downstream module through the effective YAML design_data
+        # section.
+        self.imported: dict = {
+            "schematic": {},     # file, core_id, project_name, rev
+            "netlist": {"file": "", "net_count": 0,
+                        "nets": {}, "missing_tp": []},
+            "tp_resolutions": {},  # net -> pin | "skip"
+        }
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -110,14 +120,21 @@ class YamlBuildModel:
         return dict(self._params.get(module_key, {}))
 
     def set_params(self, module_key: str, params: dict) -> None:
-        """Replace one module's parameters (after dialog save).
+        """Update one module's parameters (after dialog save).
+
+        The update merges into the schema field set, so a partial
+        dict never drops fields (no field loss).
 
         Args:
             module_key: Stage key.
-            params:     New parameter dict (name -> value).
+            params:     Parameter dict (name -> value); unknown names
+                        are stored as-is and ignored by the schema.
         """
         if module_key in self._params:
-            self._params[module_key] = dict(params or {})
+            merged = dict(self._params[module_key])
+            for name, value in (params or {}).items():
+                merged[name] = value
+            self._params[module_key] = merged
             self.changed = True
 
     @property
@@ -151,7 +168,8 @@ class YamlBuildModel:
     # ------------------------------------------------- effective YAML
     def to_effective_dict(self) -> dict:
         """Build the effective YAML section: enabled modules only, in
-        the fixed workflow order.
+        the fixed workflow order, plus the imported design data that
+        downstream modules consume.
 
         Returns:
             Dict under the ``yaml_build`` key; disabled modules are
@@ -176,12 +194,27 @@ class YamlBuildModel:
             entry["stage_index"] = _STAGE_INDEX[key]
             entry["group"] = stage.group
             modules[key] = entry
-        return {
-            "yaml_build": {
-                "plan_version": self._plan_version,
-                "modules": modules,
-            }
+        section: dict = {
+            "plan_version": self._plan_version,
+            "modules": modules,
         }
+        # design data backfill (acceptance 3.1.1): shared with all
+        # downstream flow modules
+        if self.imported.get("schematic") or \
+                self.imported["netlist"].get("net_count"):
+            section["design_data"] = {
+                "schematic": dict(self.imported["schematic"]),
+                "netlist": {
+                    "file": self.imported["netlist"].get("file", ""),
+                    "net_count": self.imported["netlist"].get(
+                        "net_count", 0),
+                    "nets": dict(self.imported["netlist"].get(
+                        "nets", {})),
+                },
+                "tp_resolutions": dict(
+                    self.imported.get("tp_resolutions", {})),
+            }
+        return {"yaml_build": section}
 
     def to_effective_yaml(self) -> str:
         """Serialize the effective dict to YAML text.
@@ -323,6 +356,7 @@ class YamlBuildModel:
         return {
             "plan_version": self._plan_version,
             "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "imported": copy.deepcopy(self.imported),
             "modules": {
                 key: {
                     "enabled": self._enabled[key],
@@ -343,6 +377,16 @@ class YamlBuildModel:
         version = str(state.get("plan_version", "")).strip()
         if re.match(r"^\d+\.\d+\.\d+$", version):
             self._plan_version = version
+        imported = state.get("imported") or {}
+        if isinstance(imported, dict):
+            self.imported = {
+                "schematic": imported.get("schematic", {}),
+                "netlist": imported.get(
+                    "netlist",
+                    {"file": "", "net_count": 0, "nets": {},
+                     "missing_tp": []}),
+                "tp_resolutions": imported.get("tp_resolutions", {}),
+            }
         modules = state.get("modules") or {}
         for key in STAGE_KEYS:
             entry = modules.get(key) or {}

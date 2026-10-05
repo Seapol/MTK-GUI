@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +33,9 @@ from mtkgui.gui.yamlbuild.schema import (
     fields_for,
 )
 from mtkgui.gui.yamlbuild.stages import STAGE_BY_KEY
+
+#: modules with a dedicated import sub-dialog (V4.0 acceptance 3.1.1)
+_IMPORT_MODULES = {"design_input"}
 
 
 class BlockConfigDialog(QDialog):
@@ -73,6 +77,13 @@ class BlockConfigDialog(QDialog):
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
         lay.addWidget(self.error_label)
+        # Design Input: dedicated import / parse sub-dialog
+        # (schematic PDF + netlist + TP tolerance, rule 3.1.1)
+        self.import_result: dict | None = None
+        if module_key in _IMPORT_MODULES:
+            btn_import = QPushButton("Import Schematic / Netlist…")
+            btn_import.clicked.connect(self._open_import_dialog)
+            lay.addWidget(btn_import)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -130,6 +141,47 @@ class BlockConfigDialog(QDialog):
         if spec.ftype == T_CHOICE:
             return editor.currentText()
         return editor.text().strip()
+
+    # ------------------------------------------------------------ import
+    def _open_import_dialog(self) -> None:
+        """Open the Design Input import sub-dialog and merge its
+        parsed results into the edited values (acceptance 3.1.1).
+
+        Backfill: Core ID / project name / schematic file into the
+        form; the netlist and TP resolutions travel via
+        ``import_result`` for the page to store in the shared design
+        data section.
+        """
+        from mtkgui.gui.yamlbuild.design_import import DesignImportDialog
+        dialog = DesignImportDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.import_result = {
+            "schematic": dialog.schematic_meta,
+            "netlist_file": dialog.netlist_file,
+            "netlist": dialog.netlist_data,
+            "tp_resolutions": dict(dialog.tp_resolutions),
+        }
+        meta = dialog.schematic_meta
+        if meta.get("core_id") and "core_id" in self._editors:
+            self._editors["core_id"].setText(meta["core_id"])
+            self._edited["core_id"] = meta["core_id"]
+        if "project_name" in self._editors:
+            self._editors["project_name"].setText(
+                meta.get("project_name", ""))
+            self._edited["project_name"] = meta.get("project_name", "")
+        if "schematic_file" in self._editors:
+            self._editors["schematic_file"].setText(
+                meta.get("file", ""))
+            self._edited["schematic_file"] = meta.get("file", "")
+        if dialog.netlist_file and "netlist_file" in self._editors:
+            self._editors["netlist_file"].setText(dialog.netlist_file)
+            self._edited["netlist_file"] = dialog.netlist_file
+        if "tp_resolutions" in self._editors:
+            text = "\n".join(f"{net}={value}" for net, value
+                             in dialog.tp_resolutions.items())
+            self._editors["tp_resolutions"].setPlainText(text)
+            self._edited["tp_resolutions"] = text
 
     # ------------------------------------------------------------- save
     def _on_accept(self) -> None:

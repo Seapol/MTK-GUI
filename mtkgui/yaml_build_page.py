@@ -146,11 +146,25 @@ class YamlBuildPage(QWidget):
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
-        params = self.block_flow.open_dialog(
+        params, import_result = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self)
         if params is None:
             return
         self.model.set_params(module_key, params)
+        if module_key == "design_input" and import_result:
+            # design-data backfill (acceptance 3.1.1): shared with all
+            # downstream modules via the effective YAML design_data
+            netlist = import_result.get("netlist")
+            self.model.imported["schematic"] = dict(
+                import_result.get("schematic") or {})
+            self.model.imported["netlist"] = {
+                "file": import_result.get("netlist_file", ""),
+                "net_count": len(netlist.nets) if netlist else 0,
+                "nets": dict(netlist.nets) if netlist else {},
+                "missing_tp": list(netlist.missing_tp) if netlist else [],
+            }
+            self.model.imported["tp_resolutions"] = dict(
+                import_result.get("tp_resolutions") or {})
         errors = self.model.validate_module(module_key)
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))

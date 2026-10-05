@@ -112,9 +112,13 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("product_id", "Product ID", required=True),
         _f("part_number", "Project Part #", required=True),
         _f("core_id", "Core ID", required=True),
+        _f("project_name", "Project Name",
+           remarks="extracted from the schematic title block"),
         _f("sw_version", "SW Version", required=True),
         _f("hw_version", "HW Version", required=True),
         _f("batch", "Batch #", required=True),
+        _f("schematic_file", "Schematic PDF",
+           remarks="imported schematic (Core ID auto-detected)"),
         _f("design_data", "Design Data Import", ftype=T_TEXT,
            remarks="one design-data entry per line"),
     ),
@@ -144,6 +148,9 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("filter_invalid_points", "Filter Invalid Points",
            ftype=T_BOOL, default="true"),
         _f("ict_test_file", "Import ICT Test File"),
+        _f("tp_resolutions", "TP Resolutions", ftype=T_TEXT,
+           remarks="one 'net=pin' (pin substitute) or 'net=skip' "
+                   "(point not tested) per line, for nets without TP"),
     ),
     "rails": (
         _f("sequence", "Rail Sequence", ftype=T_TEXT, required=True,
