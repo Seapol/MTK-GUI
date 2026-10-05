@@ -182,6 +182,9 @@ class BlockFlowWidget(QWidget):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Expanding)
+        # never let the flow area shrink below one card width (rule
+        # 6.2: no card clipping at any resolution)
+        self.setMinimumWidth(300)
         self._cards: dict[str, BlockCard] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)

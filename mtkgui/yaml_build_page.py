@@ -66,17 +66,22 @@ class YamlBuildPage(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
-        # --- top fixed button row --------------------------------------
+        # --- top fixed button row (rule 6.3: uniform horizontal
+        # distribution at a fixed height; resizing only rescales the
+        # whole row - buttons never wrap, overlap or wander) ---------
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
         self.btn_export_excel = QPushButton("Export to Excel")
         self.btn_build_draft = QPushButton("Build Draft YAML")
         self.btn_release_final = QPushButton("Release Final YAML")
-        for btn in (self.btn_import_excel, self.btn_export_excel,
-                    self.btn_build_draft, self.btn_release_final):
-            buttons.addWidget(btn)
-        buttons.addStretch(1)
+        self._action_buttons = (
+            self.btn_import_excel, self.btn_export_excel,
+            self.btn_build_draft, self.btn_release_final)
+        for btn in self._action_buttons:
+            btn.setFixedHeight(34)
+            btn.setMinimumWidth(170)
+            buttons.addWidget(btn, 1)   # equal stretch -> uniform row
         root.addLayout(buttons)
 
         self.btn_import_excel.clicked.connect(self._import_excel)
@@ -104,7 +109,6 @@ class YamlBuildPage(QWidget):
         splitter.setStretchFactor(1, 4)
         splitter.setSizes([600, 400])
         root.addWidget(splitter, 1)
-
         self.hint = QLabel(
             "Click a block to configure it; right-click to "
             "Enable/Disable. Disabled blocks are grayed, skipped and "
