@@ -33,13 +33,13 @@ def page(qapp, tmp_path, monkeypatch):
 
 
 def test_page_assembly(page):
-    """The page carries the four fixed buttons, ten blocks and a
-    live preview pane."""
+    """The page carries the four fixed buttons, the twelve M0 blocks
+    and a live preview pane."""
     assert page.btn_import_excel.text() == "Import from Excel"
     assert page.btn_export_excel.text() == "Export to Excel"
     assert page.btn_build_draft.text() == "Build Draft YAML"
     assert page.btn_release_final.text() == "Release Final YAML"
-    assert len(page.block_flow._cards) == 10
+    assert len(page.block_flow._cards) == 12
     assert page.yaml_preview.editor.toPlainText().startswith(
         "yaml_build:")
 
@@ -68,16 +68,17 @@ def test_config_dialog_apply_updates_preview(page):
     """Saving a block dialog updates the model and the YAML preview
     (diagram -> YAML direction)."""
     page.model.enable_all()
-    page.block_flow._cards["power_dut"].set_enabled(True)
+    page.block_flow._cards["rails"].set_enabled(True)
     # simulate the dialog's validated result
-    page.model.set_params("power_dut", {
+    page.model.set_params("rails", {
         "on_voltage_v": "12.0", "current_limit_a": "2.0",
-        "on_delay_ms": "150", "off_delay_ms": "250", "retries": "1",
-        "off_protection": "true", "self_check": "true",
+        "on_delay_ms": "150", "off_delay_ms": "250",
+        "off_protection": "true",
+        "sequence": "VDD:0.0",
     })
     page._after_model_change()
     preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    assert preview["yaml_build"]["modules"]["power_dut"][
+    assert preview["yaml_build"]["modules"]["rails"][
         "on_voltage_v"] == 12.0
 
 
@@ -91,11 +92,11 @@ def test_yaml_edit_apply_updates_blocks(page):
     page.yaml_preview.btn_edit.setChecked(True)   # hand-edit mode
     text = page.yaml_preview.editor.toPlainText()
     doc = yaml.safe_load(text)
-    doc["yaml_build"]["modules"]["power_dut"]["on_delay_ms"] = 555
+    doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 555
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
     # the preview re-validated on textChanged and applied the edit
-    assert page.model.get_params("power_dut")["on_delay_ms"] == "555"
+    assert page.model.get_params("rails")["on_delay_ms"] == "555"
 
 
 def test_invalid_yaml_edit_rejected(page):

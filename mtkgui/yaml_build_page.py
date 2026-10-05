@@ -130,8 +130,11 @@ class YamlBuildPage(QWidget):
         splitter.setSizes([600, 400])
         root.addWidget(splitter, 1)
         self.hint = QLabel(
-            "Click a block to configure it; right-click to "
-            "Enable/Disable. Disabled blocks are grayed, skipped and "
+            "12-block workflow: click a block to configure it; "
+            "right-click to Enable/Disable. Block 02 is the ONLY "
+            "rack-ATE instrument editor (later blocks reference it "
+            "read-only); block 11 validates the full sequence and "
+            "gates block 12. Disabled blocks are grayed, skipped and "
             "kept out of the effective YAML (parameters retained).")
         self.hint.setObjectName("muted")
         self.hint.setWordWrap(True)

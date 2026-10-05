@@ -83,25 +83,40 @@ class FlowLayout(QWidget):
         self.setMinimumHeight(y + row_height + 2)
 
 
-#: standard tooltips of the ten workflow modules (rule 6.2: every
-#: module describes its purpose; disabled blocks KEEP their tooltip)
+#: standard tooltips of the twelve workflow modules (rule 6.2: every
+#: module describes its purpose AND its responsibility boundary;
+#: disabled blocks KEEP their tooltip)
 MODULE_TOOLTIPS = {
     "design_input":
-        "录入产品ID、料号、软硬件版本与批次，导入原理图与网表，"
-        "作为全流程数据源头",
-    "power_dut":
-        "配置DUT上下电时序、电压电流阈值与保护策略，供电源模块执行",
+        "导入原理图与网表，构建只读全局DesignModel数据源；"
+        "不含仪器配置与测试步骤生成",
+    "instruments":
+        "机架ATE仪器全局配置（Keysight PSU/DAQ/DMM、VISA地址、"
+        "通道分配、仪器自检）；全流程唯一仪器配置入口，"
+        "后续模块只读引用",
     "parse_ict":
-        "解析网表提取网络与测试点位，筛选有效ICT测试点",
+        "从DesignModel提取ICT网络信息生成ICTNetModel；不生成测试序列",
     "rails":
-        "生成电源轨上电时序、阻抗与电压测试及波形采样参数",
-    "clocks": "配置时钟频率、稳定时长与漂移检测参数",
-    "gpios": "配置GPIO分组、模式上下拉与电平阈值校验",
-    "programmer": "配置烧录调试器协议、速度、超时与重试策略",
+        "生成ICT阻抗/电压测量与DUT上下电序列；复用block02仪器资源，"
+        "不重复配置仪器",
+    "clocks": "构建时钟ICT测试步骤，复用block02已配置仪器资源",
+    "gpios": "构建GPIO ICT测试步骤，复用block02已配置仪器资源",
+    "programmer":
+        "JLink/烧录调试器固件与调试资源配置，与机架ATE仪器分离；"
+        "不生成测试步骤",
     "peripherals":
-        "配置Wi-Fi/蓝牙/串口/I2C/SPI/ADC等外设初始化与阈值",
-    "fct_parse": "解析产品功能接口与测试规范，定义FCT校验项",
-    "fct_build": "编排FCT功能测试流程、用例关联与良率判定",
+        "DUT板载外设（WiFi/BT/SD/USB）参数配置；不生成测试步骤",
+    "fct_parse": "从DesignModel解析FCT接口定义生成FCTInterfaceModel；"
+                 "不生成测试序列",
+    "fct_build":
+        "生成FCT功能测试与固件烧录步骤；复用全部已定义资源模型，"
+        "不重新配置仪器",
+    "validate_sequence":
+        "跨节点全局校验：资源冲突、参数范围、依赖违规；"
+        "校验失败则禁用block12导出；不修改流程数据",
+    "preview_export":
+        "预览完整测试工作流并导出完整YAML至工程配置目录，"
+        "工作流终点",
 }
 
 #: context-menu tooltips (rule 6.3, fixed wording)
