@@ -229,12 +229,15 @@ def test_publish_draft_and_final(tmp_path):
 
 
 def test_archive_copy_and_compare(tmp_path):
-    """Archiving writes a traceable copy; compare produces a diff."""
+    """Archiving writes a traceable copy per project (tenant-isolated
+    archive, dynamic build suffix); compare produces a diff."""
     model = make_model()
     draft = publish(model, "draft", tmp_path)
     final = publish(model, "final", tmp_path)
-    archived = archive_copy(draft, tmp_path)
-    assert archived.exists() and archived.parent.name == "yamlbuild"
+    archived = archive_copy(draft, tmp_path, model.project_key())
+    assert archived.exists()
+    assert model.project_key() in str(archived)
+    assert archived.parent.parent.name == "yamlbuild"
     diff = compare_plans(draft, final)
     assert "kind" in diff and "+draft" not in diff
     assert "-    \"kind\": draft" in diff or "kind: draft" in diff

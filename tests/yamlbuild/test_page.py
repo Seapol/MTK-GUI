@@ -121,3 +121,29 @@ def test_persistence_round_trip(page):
     assert fresh.model.is_enabled("design_input") is True
     assert fresh.model.get_params(
         "clocks")["clocks"] == "CLK1:32768:0.1"
+
+
+def test_yaml_hand_edit_disables_block_card(page):
+    """YAML -> diagram: disabling a module by hand edit updates the
+    block card visual (enable badge) and persists."""
+    from tests.yamlbuild.conftest import fill_required
+    page.model.enable_all()
+    fill_required(page.model)
+    page._after_model_change()
+    page.yaml_preview.btn_edit.setChecked(True)
+    doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
+    doc["yaml_build"]["modules"]["clocks"]["enabled"] = False
+    page.yaml_preview.editor.setPlainText(
+        yaml.safe_dump(doc, sort_keys=False))
+    assert page.block_flow._cards["clocks"].state_label.text() == \
+        "Disabled"
+    assert page.model.is_enabled("clocks") is False
+
+
+def test_block_cards_carry_sequence_badges(page):
+    """Cards render the uniform 01..10 sequence badges (fixed order,
+    unified look)."""
+    from mtkgui.gui.yamlbuild.stages import WORKFLOW_STAGES
+    for index, stage in enumerate(WORKFLOW_STAGES):
+        card = page.block_flow._cards[stage.key]
+        assert card.title_label.text().startswith(f"{index + 1:02d} ·")

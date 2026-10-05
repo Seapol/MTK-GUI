@@ -21,11 +21,12 @@ touched.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -48,6 +49,7 @@ from mtkgui.gui.yamlbuild.publish import (
 from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
 from mtkgui.gui.yamlbuild.store import load_project_state, \
     save_project_state
+from mtkgui.version_info import get_version_info
 
 #: default output directory for published plan files (created on use)
 PLANS_DIR = "config/plans"
@@ -93,6 +95,10 @@ class YamlBuildPage(QWidget):
         splitter.addWidget(self.block_flow)
         self.yaml_preview = YamlPreviewWidget()
         self.yaml_preview.bind_model(self.model)
+        # YAML -> diagram: a valid hand edit refreshes the block
+        # cards (enable states) and persists; the preview text itself
+        # keeps the operator's version while editing
+        self.yaml_preview.edits_applied.connect(self._on_preview_edited)
         splitter.addWidget(self.yaml_preview)
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 4)
@@ -157,6 +163,15 @@ class YamlBuildPage(QWidget):
         self._persist()
         self.refresh_all()
 
+    def _on_preview_edited(self) -> None:
+        """Slot for valid hand edits from the YAML preview: refresh
+        the block cards (enable states) and persist.  The preview
+        text is NOT repainted here - the operator's text stays until
+        edit mode is left."""
+        self._persist()
+        for key in STAGE_KEYS:
+            self.block_flow.set_state(key, self.model.is_enabled(key))
+
     # ------------------------------------------------------- Excel I/O
     def _export_excel(self) -> None:
         """Export all module parameters / thresholds / sequence /
@@ -198,10 +213,13 @@ class YamlBuildPage(QWidget):
 
     # ------------------------------------------------------- publishing
     def _publish(self, kind: str) -> None:
-        """Build Draft / Release Final YAML with the fixed naming.
+        """Build Draft / Release Final YAML - fully automatic (V4.0
+        rule 5.4: the file name is composed from the Design Input
+        Core ID / Project Part #, no manual input).
 
-        The model must be valid (all enabled modules); Design Input
-        must provide Core ID and Project Part # for the file name.
+        The model must be valid (all enabled modules).  The file is
+        written to the standard plans directory, archived under the
+        project key, and the result dialog shows all paths.
         """
         errors = self.model.validate_all()
         if errors:
@@ -212,33 +230,20 @@ class YamlBuildPage(QWidget):
             return
         try:
             name = plan_filename(self.model, kind)
-        except ValueError as exc:
-            QMessageBox.warning(self, f"Cannot build {kind}", str(exc))
-            return
-        # plan version prompt (fixed v.<plan_version> in the name)
-        version, ok = QInputDialog.getText(
-            self, f"{kind.capitalize()} Plan Version",
-            "Plan version:", text=self.model.plan_version)
-        if not ok:
-            return
-        self.model.set_plan_version(version)
-        out_dir = QFileDialog.getExistingDirectory(
-            self, f"Select output directory for the {kind} plan",
-            PLANS_DIR)
-        if not out_dir:
-            return
-        try:
-            path = publish(self.model, kind, out_dir)
+            path = publish(self.model, kind, PLANS_DIR)
         except (ValueError, OSError) as exc:
             QMessageBox.critical(self, f"{kind.capitalize()} Failed",
                                  str(exc))
             return
-        archived = archive_copy(path, out_dir)
+        archived = archive_copy(path, Path.cwd(),
+                                self.model.project_key())
         self._after_model_change()
         QMessageBox.information(
             self, f"{kind.capitalize()} YAML published",
-            f"File: {path}\nArchive copy: {archived}\n"
-            f"Build version: {self.model.project_key()}")
+            f"File: {path}\n"
+            f"Archive copy: {archived}\n"
+            f"Plan version: {self.model.plan_version}\n"
+            f"Build version: {get_version_info().suffix()}")
 
     def compare_with(self, other_path: str) -> str:
         """Unified diff of the last published file against another

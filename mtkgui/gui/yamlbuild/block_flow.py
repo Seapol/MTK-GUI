@@ -90,11 +90,13 @@ class BlockCard(QFrame):
     configure_requested = Signal(str)
     enable_requested = Signal(str, bool)
 
-    def __init__(self, stage: Stage, parent=None) -> None:
+    def __init__(self, stage: Stage, index: int, parent=None) -> None:
         """Create the block card.
 
         Args:
             stage: The workflow stage this block represents.
+            index: Zero-based position in the fixed sequence (rendered
+                   as the uniform sequence badge).
         """
         super().__init__(parent)
         self.stage = stage
@@ -107,7 +109,8 @@ class BlockCard(QFrame):
         self.customContextMenuRequested.connect(self._context_menu)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 6, 10, 6)
-        self.title_label = QLabel(f"{stage.title}")
+        self.title_label = QLabel(
+            f"{index + 1:02d} · {stage.title}")
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet("font-weight: bold;")
         self.state_label = QLabel("Disabled")
@@ -129,16 +132,18 @@ class BlockCard(QFrame):
 
     def _apply_state_style(self) -> None:
         """Disabled blocks render grayed / faded with an explicit
-        badge (rule: visual distinction must be obvious)."""
+        badge (rule: visual distinction must be obvious).  Colors use
+        semi-transparent overlays so both light and dark GUI themes
+        stay readable."""
         if self._enabled:
             self.setStyleSheet(
-                "BlockCard { background: #e8f1fb; border: 1px solid "
-                "#2f6fb3; border-radius: 8px; }")
+                "BlockCard { background: rgba(47,111,179,0.18); "
+                "border: 1px solid #2f6fb3; border-radius: 8px; }")
             self.title_label.setStyleSheet("font-weight: bold;")
         else:
             self.setStyleSheet(
-                "BlockCard { background: #ececec; color: #9ca3af; "
-                "border: 1px dashed #b0b0b0; border-radius: 8px; }"
+                "BlockCard { background: rgba(128,128,128,0.15); "
+                "border: 1px dashed #9ca3af; border-radius: 8px; }"
                 "QLabel { color: #9ca3af; }")
             self.title_label.setStyleSheet(
                 "font-weight: bold; color: #9ca3af; text-decoration: "
@@ -183,8 +188,8 @@ class BlockFlowWidget(QWidget):
         self.flow = FlowLayout(self)
         layout.addWidget(self.flow)
         previous = None
-        for stage in WORKFLOW_STAGES:
-            card = BlockCard(stage)
+        for index, stage in enumerate(WORKFLOW_STAGES):
+            card = BlockCard(stage, index)
             card.configure_requested.connect(self.configure_requested)
             card.enable_requested.connect(self.enable_requested)
             self._cards[stage.key] = card

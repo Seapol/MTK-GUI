@@ -112,19 +112,27 @@ def publish(model: YamlBuildModel, kind: str, out_dir: str | Path) -> Path:
     return path
 
 
-def archive_copy(path: str | Path, archive_root: str | Path) -> Path:
+def archive_copy(path: str | Path, archive_root: str | Path,
+                 project_key: str = "") -> Path:
     """Copy a published plan into the archive, suffixed with the
     dynamic build version and a timestamp (audit trail).
 
+    Copies are stored under the project key sub-directory, so version
+    records survive restarts and project switches without mixing
+    tenants.
+
     Args:
-        path:        Published plan file.
+        path:         Published plan file.
         archive_root: Archive base directory (created when missing).
+        project_key:  Tenant/project identity for isolation.
 
     Returns:
         The archive copy path.
     """
     src = Path(path)
     dest_dir = Path(archive_root) / ARCHIVE_DIR
+    if project_key:
+        dest_dir = dest_dir / re.sub(r"[^A-Za-z0-9._-]", "_", project_key)
     dest_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = dest_dir / f"{src.stem}_{stamp}_{get_version_info().suffix()}"

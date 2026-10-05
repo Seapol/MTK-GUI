@@ -10,7 +10,7 @@ sync loop-free and the configuration safe.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -28,6 +28,10 @@ from mtkgui.gui.yamlbuild.sync import sync_model_to_yaml
 class YamlPreviewWidget(QWidget):
     """YAML preview with edit toggle, validation errors and red line
     markers."""
+
+    #: emitted after a valid hand edit entered the model - the page
+    #: uses it to refresh the block cards (YAML -> diagram direction)
+    edits_applied = Signal()
 
     def __init__(self, parent=None) -> None:
         """Create the preview pane."""
@@ -136,6 +140,7 @@ class YamlPreviewWidget(QWidget):
                 self._clear_error_marks()
                 if result.data is not None:
                     self._on_edit_model.apply_yaml_dict(result.data)
+                    self.edits_applied.emit()
                 return
             messages = "; ".join(msg for msg, _ in result.errors)
             self.error_bar.setText(f"YAML invalid: {messages}")
