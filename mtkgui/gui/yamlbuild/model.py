@@ -27,9 +27,39 @@ from mtkgui.gui.yamlbuild.schema import (
     T_INT,
     T_TEXT,
 )
-from mtkgui.gui.yamlbuild.stages import STAGE_KEYS, STAGE_BY_KEY
+from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
+    STAGE_BY_KEY, STAGE_KEYS
 
 _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
+
+
+def _migrate_legacy_modules(modules: dict) -> dict:
+    """Migrate pre-M0 module entries into the twelve-stage list.
+
+    Legacy ``power_dut`` (absorbed into rails by the M0 redefinition)
+    hands its parameters to its successor; the successor entry stays
+    FLAT (parameters at top level, the shape apply_yaml_dict
+    consumes).  Returns a new dict; the input is untouched.
+
+    Args:
+        modules: Raw ``modules`` mapping from an incoming YAML doc.
+
+    Returns:
+        Migrated modules mapping.
+    """
+    out = dict(modules)
+    for legacy_key, target in LEGACY_MODULE_MAP.items():
+        legacy = out.pop(legacy_key, None)
+        if not isinstance(legacy, dict):
+            continue
+        merged = dict(out.get(target) or {})
+        merged.update({
+            k: v for k, v in legacy.items()
+            if k not in ("enabled", "stage_index", "group")})
+        if target not in out:
+            merged["enabled"] = bool(legacy.get("enabled", True))
+        out[target] = merged
+    return out
 
 
 def _coerce(field_type: str, text: str):
@@ -258,6 +288,9 @@ class YamlBuildModel:
                 self._plan_version = version
             else:
                 errors.append(f"invalid plan_version {version!r}")
+        # legacy (pre-M0) YAML migration FIRST, so the sequence check
+        # below sees the migrated successor instead of the absorbed key
+        modules = _migrate_legacy_modules(modules)
         # sequence check on the PRESENT enabled entries
         present = [k for k, v in modules.items()
                    if isinstance(v, dict)
@@ -401,9 +434,20 @@ class YamlBuildModel:
                 "tp_resolutions": imported.get("tp_resolutions", {}),
             }
         modules = state.get("modules") or {}
+        # legacy (pre-M0) migration: the absorbed power_dut block
+        # hands its retained parameters to the rails block (04)
+        legacy = modules.get("power_dut")
+        if isinstance(legacy, dict) and "rails" not in modules:
+            modules = dict(modules)
+            modules["rails"] = {
+                "enabled": legacy.get("enabled", True),
+                "params": dict(legacy.get("params") or {}),
+            }
         for key in STAGE_KEYS:
             entry = modules.get(key) or {}
-            self._enabled[key] = bool(entry.get("enabled", False))
+            # absent entries = keys born AFTER the state was saved
+            # (new workflow blocks): they start ENABLED per rule 3.2
+            self._enabled[key] = bool(entry.get("enabled", True))
             saved = entry.get("params") or {}
             params = self._params[key]
             for spec in MODULE_FIELDS.get(key, ()):

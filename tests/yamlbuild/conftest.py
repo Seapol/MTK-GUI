@@ -12,8 +12,16 @@ REQUIRED_FILL = {
         "core_id": "IMXRT700", "sw_version": "1.2.3",
         "hw_version": "A", "batch": "B9", "design_data": "",
     },
+    "instruments": {
+        "psu_visa": "TCPIP0::192.168.1.20::inst0",
+        "daq_visa": "GPIB0::9::INSTR", "dmm_visa": "",
+        "self_test": "true",
+    },
     "parse_ict": {"netlist_file": "design.net"},
     "rails": {
+        "on_voltage_v": "5.0", "current_limit_a": "1.0",
+        "on_delay_ms": "100", "off_delay_ms": "200",
+        "off_protection": "true",
         "sequence": "VDD:0.0\nVDDCORE:0.2",
         "voltage_tolerance_pct": "0.1",
         "impedance_min_ohm": "1.5",

@@ -120,7 +120,7 @@ time. The two production UARTs are:
 
 Each channel has independent connection settings, a console with millisecond
 timestamps, a send line, HEX display/send and TX/RX byte counters. A channel's
-**Show Console** button opens a dedicated console window that keeps receiving
+**Console** button opens a dedicated console window that keeps receiving
 in the background when hidden.
 
 Features:

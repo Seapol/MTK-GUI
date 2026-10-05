@@ -6,7 +6,7 @@ Used on the Test Work Flow page, next to the FCT table:
 * 1-4 serial channels and 0-1 SSH channel, each shown as a compact row
 * per-channel accent colors identify the channels at a glance
 * Add Serial / Add SSH / Remove live in the top bar; each row has its
-  own Open/Close, Show Console, Configure (advanced params) and Remove
+  own Open/Close, Console, Configure (advanced params) and Remove
 * a per-channel popup ConsoleWindow hosts the ConsoleWidget, a Quick
   Commands dropdown and a Send line (HEX / CR+LF, Enter or Send)
 * closing a popup only hides it; the ConsoleWidget keeps receiving data
@@ -387,9 +387,31 @@ class ConsoleWindow(QDialog):
 
 
 # ============================================================ compact row
+class _CompactPortCombo(QComboBox):
+    """Editable serial-port combo with a compact collapsed width.
+
+    The popup list is widened to the longest entry so long
+    ``COMxx  -  description`` names render completely while the
+    closed widget stays narrow (M0 layout rule)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)          # manual port entry (as before)
+
+    def showPopup(self):
+        """Widen the popup container to the widest item before it
+        opens (the collapsed widget keeps its compact width)."""
+        super().showPopup()
+        view = self.view()
+        container = view.parentWidget()
+        if container is not None:
+            hint = view.sizeHint().width() + 24
+            container.setMinimumWidth(max(self.width(), hint))
+
+
 class ChannelRow(QFrame):
     """Compact inline row for one channel: colored label, inline
-    connection fields, Open/Close, Show Console, Configure, Remove
+    connection fields, Open/Close, Console, Configure, Remove
     buttons, and RX/TX counters."""
 
     open_requested = Signal(str)
@@ -419,13 +441,16 @@ class ChannelRow(QFrame):
         layout.addWidget(self.label)
 
         if kind == "serial":
-            self.combo_port = QComboBox()
-            self.combo_port.setEditable(True)
+            self.combo_port = _CompactPortCombo()
             self.combo_port.setToolTip("Serial port device")
-            for p in list_ports.comports():
-                self.combo_port.addItem(
-                    f"{p.device}  -  {p.description}", p.device)
-            layout.addWidget(self.combo_port, 1)
+            self._fill_ports()
+            # M0 layout: the collapsed widget takes HALF its natural
+            # width (COMxx names are short) and no longer stretches;
+            # the popup still expands to the longest entry, and the
+            # freed space flows to the widgets on the right
+            hint = self.combo_port.sizeHint().width()
+            self.combo_port.setMaximumWidth(max(90, hint // 2))
+            layout.addWidget(self.combo_port)
 
             self.combo_baud = QComboBox()
             self.combo_baud.setEditable(True)
@@ -452,7 +477,8 @@ class ChannelRow(QFrame):
         self.btn_open.clicked.connect(self._on_open_clicked)
         layout.addWidget(self.btn_open)
 
-        self.btn_console = QPushButton("Show Console")
+        self.btn_console = QPushButton("Console")
+        self.btn_console.setToolTip("Show the dedicated console window")
         self.btn_console.clicked.connect(
             lambda: self.show_console_requested.emit(self.key))
         layout.addWidget(self.btn_console)
@@ -494,6 +520,14 @@ class ChannelRow(QFrame):
                 lambda: self.params_changed.emit(self.key))
             self.edit_user.textChanged.connect(
                 lambda: self.params_changed.emit(self.key))
+
+    def _fill_ports(self):
+        """Enumerate the serial ports into the compact port combo
+        (same enumeration and item text as before - layout only)."""
+        self.combo_port.clear()
+        for p in list_ports.comports():
+            self.combo_port.addItem(
+                f"{p.device}  -  {p.description}", p.device)
 
     def update_params(self, params):
         """Sync inline fields from a params dict (does not re-emit
@@ -599,7 +633,7 @@ class ChannelRow(QFrame):
 class MultiConsoleWidget(QGroupBox):
     """Compact 1-4 x serial + 0-1 x SSH console container. Each
     channel is a ChannelRow inline; the full ConsoleWidget lives in
-    a popup ConsoleWindow hidden until 'Show Console' is clicked."""
+    a popup ConsoleWindow hidden until 'Console' is clicked."""
 
     # emitted whenever a channel is added / removed / connected / dropped
     connection_changed = Signal()

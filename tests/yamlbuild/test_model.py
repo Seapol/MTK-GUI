@@ -24,7 +24,15 @@ def make_model(enabled=True) -> YamlBuildModel:
         "hw_version": "A", "batch": "B9", "design_data": "",
     })
     model.set_params("parse_ict", {"netlist_file": "design.net"})
+    model.set_params("instruments", {
+        "psu_visa": "TCPIP0::192.168.1.20::inst0",
+        "daq_visa": "GPIB0::9::INSTR", "dmm_visa": "",
+        "self_test": "true",
+    })
     model.set_params("rails", {
+        "on_voltage_v": "5.0", "current_limit_a": "1.0",
+        "on_delay_ms": "100", "off_delay_ms": "200",
+        "off_protection": "true",
         "sequence": "VDD:0.0\nVDDCORE:0.2",
         "voltage_tolerance_pct": "0.1",
         "impedance_min_ohm": "1.5",
@@ -48,10 +56,14 @@ def make_model(enabled=True) -> YamlBuildModel:
 
 
 def test_stage_count_and_order():
-    """Exactly the ten fixed stages in the required order."""
+    """Exactly the twelve fixed stages in the required order (M0
+    redefinition: instruments inserted at 02, validate/export close
+    the flow, legacy power_dut absorbed into rails)."""
     assert [s.key for s in WORKFLOW_STAGES] == [
-        "design_input", "power_dut", "parse_ict", "rails", "clocks",
-        "gpios", "programmer", "peripherals", "fct_parse", "fct_build"]
+        "design_input", "instruments", "parse_ict", "rails", "clocks",
+        "gpios", "programmer", "peripherals", "fct_parse", "fct_build",
+        "validate_sequence", "preview_export"]
+    assert "power_dut" not in STAGE_KEYS
 
 
 def test_disabled_excluded_from_effective_yaml_but_retained():
@@ -81,18 +93,17 @@ def test_effective_yaml_types_coerced():
     """Numeric/bool fields are typed in the effective YAML; text
     fields become line lists."""
     model = make_model()
-    model.set_params("power_dut", {
+    model.set_params("rails", {
         "on_voltage_v": "5.0", "current_limit_a": "1.0",
-        "on_delay_ms": "100", "off_delay_ms": "200", "retries": "2",
-        "off_protection": "true", "self_check": "false",
+        "on_delay_ms": "100", "off_delay_ms": "200",
+        "off_protection": "true",
     })
     model.set_params("peripherals", {"init_sequence": "step1\nstep2"})
     data = yaml.safe_load(model.to_effective_yaml())
-    power = data["yaml_build"]["modules"]["power_dut"]
-    assert power["on_voltage_v"] == 5.0
-    assert power["retries"] == 2
-    assert power["off_protection"] is True
-    assert power["self_check"] is False
+    rails = data["yaml_build"]["modules"]["rails"]
+    assert rails["on_voltage_v"] == 5.0
+    assert rails["off_delay_ms"] == 200
+    assert rails["off_protection"] is True
     periph = data["yaml_build"]["modules"]["peripherals"]
     assert periph["init_sequence"] == ["step1", "step2"]
 
@@ -101,13 +112,12 @@ def test_validation_range_and_required():
     """Field validation: range violations, required emptiness,
     choice membership."""
     model = make_model()
-    model.set_params("power_dut", {
+    model.set_params("rails", {
         "on_voltage_v": "70",            # above maximum 60
-        "current_limit_a": "1.0", "retries": "0",
-        "off_protection": "true", "self_check": "true",
-        "on_delay_ms": "0", "off_delay_ms": "0",
+        "current_limit_a": "1.0",
+        "sequence": "VDD:0.0", "on_delay_ms": "0", "off_delay_ms": "0",
     })
-    errors = model.validate_module("power_dut")
+    errors = model.validate_module("rails")
     assert any("above maximum" in e for e in errors)
 
     model.set_params("programmer", {"protocol": "USB"})   # bad choice

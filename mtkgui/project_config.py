@@ -146,6 +146,7 @@ def _workflow_to_yaml(page):
         "overall_flow": overall_flow,
         "stop_if_failure": page.stop_if_fail_cb.isChecked(),
         "stop_if_any_short": page.stop_if_short_cb.isChecked(),
+        "auto_sn": page.auto_sn.isChecked(),
         "retry": max(0, int(page._runner.retry_count)),
         "ict_test_cases": ict_cases,
         "power_rails_up_sequence": rails,
@@ -220,6 +221,8 @@ def apply_config(config, workflow_page, equipment_page):
     if "stop_if_any_short" in tw:
         workflow_page.stop_if_short_cb.setChecked(
             bool(tw["stop_if_any_short"]))
+    if "auto_sn" in tw:
+        workflow_page.auto_sn.setChecked(bool(tw["auto_sn"]))
 
     # basic fault-policy step retry (0 = off, engine default);
     # set_retry() normalizes and records the "yaml" source for tracing

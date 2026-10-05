@@ -541,7 +541,16 @@ class TestWorkFlowPage(QWidget):
         for edit in (self.part_edit, self.core_edit, self.batch_edit,
                      self.serial_edit):
             edit.setReadOnly(not can_product)
-        self.auto_sn.setEnabled(can_product)
+        # run-policy checkboxes (M0 permission matrix): Supervisor has
+        # native rw; Operator is read-only unless the supervisor
+        # granted the specific run_policy_* key.  Every panel load
+        # re-evaluates (dynamic enable/disable).
+        self.stop_if_fail_cb.setEnabled(
+            supervisor or bool(perm.get("run_policy_stop_failure")))
+        self.stop_if_short_cb.setEnabled(
+            supervisor or bool(perm.get("run_policy_stop_short")))
+        self.auto_sn.setEnabled(
+            supervisor or bool(perm.get("run_policy_auto_sn")))
         can_run_cfg = supervisor or bool(perm.get("edit_run_control"))
         self.longrun_spin.setEnabled(can_run_cfg)
         self.interval_spin.setEnabled(
@@ -904,15 +913,24 @@ class TestWorkFlowPage(QWidget):
         self._overall_en = [True, True]
         self._overall_edit_guard = False
         self.overall.itemChanged.connect(self._overall_item_changed)
-        # columns fill the group box: Stage stretches to take the rest,
-        # the others size to their content
-        self.overall.setColumnWidth(0, 28)
-        self.overall.setColumnWidth(2, 40)
-        self.overall.setColumnWidth(3, 70)
+        # column layout (M0): on the 0-1000 grid ~ #30 | Stage90 |
+        # EN50 | Status200 | Duration200.  Stage is compact ("ICT"/
+        # "FCT" need little room); Status is wide enough for
+        # "Pending..." without truncation at the default font; the
+        # Duration column stretches so the table's right edge
+        # auto-fits the container (total layout width unchanged).
+        # Headers stay centered (QHeaderView default alignment).
+        self.overall.setColumnWidth(0, 30)
+        self.overall.setColumnWidth(1, 90)
+        self.overall.setColumnWidth(2, 50)
+        self.overall.setColumnWidth(3, 200)
         header = self.overall.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(
-            4, QHeaderView.ResizeMode.ResizeToContents)
+            4, QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
         _fit_height(self.overall)
         layout.addWidget(self.overall)

@@ -22,19 +22,15 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 ROLE_SUPERVISOR = "Supervisor"
@@ -71,6 +67,10 @@ PERMISSION_LABELS = {
     "manage_channels": "Add / Remove console channels",
     "equipment_config": "Open Equipment page configuration windows",
     "sn_format_check": "Serial Number Format Check (Settings)",
+    "run_policy_stop_failure": "Run Policy: Stop if failure",
+    "run_policy_stop_short": "Run Policy: Stop if any short",
+    "run_policy_auto_sn":
+        "Run Policy: Auto-SN (virtual serial, +1 per run)",
 }
 DEFAULT_PERMISSIONS = {key: False for key in PERMISSION_LABELS}
 
@@ -109,18 +109,29 @@ def save_permissions(perm):
     return path
 
 
-class ModeSwitch(QAbstractButton):
-    """Left/right slide toggle for the run mode (spec item 2).
+class SlideSwitch(QAbstractButton):
+    """Generic left/right slide toggle (one control, two options).
 
-    Left = Real (physical hardware, default), right = Virtual
-    (simulated, supervisor-only).  The knob slides between the two
-    labelled halves; the switch is disabled (grayed) until unlocked by
-    the login permission logic."""
+    Left = unchecked option (default docking), right = checked
+    option.  Single selection is inherent: a checkable button is
+    either on one side or the other, never both / neither.
 
-    def __init__(self, parent=None):
+    Args:
+        left_label:  Text of the left (unchecked) half.
+        right_label: Text of the right (checked) half.
+        off_color:   Track color while the left half is active.
+        on_color:    Track color while the right half is active.
+    """
+
+    def __init__(self, left_label: str, right_label: str,
+                 off_color: str, on_color: str, parent=None):
         super().__init__(parent)
+        self._left_label = left_label
+        self._right_label = right_label
+        self._off_color = QColor(off_color)
+        self._on_color = QColor(on_color)
         self.setCheckable(True)
-        self.setChecked(False)          # False = Real (left docking)
+        self.setChecked(False)          # left docking by default
         self.setFixedSize(132, 28)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -130,8 +141,8 @@ class ModeSwitch(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         enabled = self.isEnabled()
         on = self.isChecked()
-        bg = QColor("#7c3aed" if (on and enabled) else
-                    "#1d7a3c" if enabled else "#d1d5db")
+        bg = (self._on_color if (on and enabled)
+              else self._off_color if enabled else QColor("#d1d5db"))
         track = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
         p.setPen(QPen(QColor("#9ca3af"), 1))
         p.setBrush(bg)
@@ -143,10 +154,10 @@ class ModeSwitch(QAbstractButton):
         f.setPointSize(9)
         p.setFont(f)
         p.drawText(QRectF(0, 0, self.width() / 2, self.height()),
-                   Qt.AlignmentFlag.AlignCenter, MODE_REAL)
+                   Qt.AlignmentFlag.AlignCenter, self._left_label)
         p.drawText(QRectF(self.width() / 2, 0, self.width() / 2,
                           self.height()),
-                   Qt.AlignmentFlag.AlignCenter, MODE_VIRTUAL)
+                   Qt.AlignmentFlag.AlignCenter, self._right_label)
         # sliding knob
         knob_r = self.height() - 8
         x = (self.width() - knob_r - 4) if on else 4
@@ -156,36 +167,43 @@ class ModeSwitch(QAbstractButton):
         p.end()
 
 
-class FixtureSelector(QWidget):
-    """Fixed ATE / Manual two-option selector (spec item 4).
+class ModeSwitch(SlideSwitch):
+    """Run-mode slide switch (spec item 2).
 
-    ATE is the default baseline; the choice is per-login only and is
-    NOT persisted (a restart returns to the ATE baseline)."""
+    Left = Real (physical hardware, default), right = Virtual
+    (simulated, supervisor-only).  Disabled (grayed) until unlocked
+    by the login permission logic."""
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        self._group = QButtonGroup(self)
-        for i, fx in enumerate(FIXTURE_TYPES):
-            btn = QPushButton(fx)
-            btn.setCheckable(True)
-            btn.setChecked(fx == FIXTURE_ATE)   # ATE baseline default
-            btn.setMinimumWidth(84)
-            self._group.addButton(btn, i)
-            row.addWidget(btn)
-        row.addStretch(1)
+        super().__init__(MODE_REAL, MODE_VIRTUAL,
+                         "#1d7a3c", "#7c3aed", parent)
 
+
+class FixtureSwitch(SlideSwitch):
+    """Fixture-type slide switch (M0 sub-task, spec item 4).
+
+    Left = ATE (production fixture auto test, default baseline),
+    right = Manual (bench manual debug).  Same look & interaction as
+    :class:`ModeSwitch`; single selection, mutually exclusive.  The
+    choice is per-login only and is NOT persisted (a restart returns
+    to the ATE baseline)."""
+
+    def __init__(self, parent=None):
+        super().__init__(FIXTURE_ATE, FIXTURE_MANUAL,
+                         "#2563eb", "#b45309", parent)
+
+    # ------------------------------------------------------------- compat
     def fixture_type(self) -> str:
         """Currently selected fixture type (ATE or Manual)."""
-        btn = self._group.checkedButton()
-        return btn.text() if btn is not None else FIXTURE_ATE
+        return FIXTURE_MANUAL if self.isChecked() else FIXTURE_ATE
 
     def set_fixture_type(self, fixture: str) -> None:
         """Programmatic selection (used by tests and state restore)."""
-        for i, fx in enumerate(FIXTURE_TYPES):
-            self._group.button(i).setChecked(fx == fixture)
+        self.setChecked(fixture == FIXTURE_MANUAL)
+
+
+# the former two-button selector is now the slide switch itself
+FixtureSelector = FixtureSwitch
 
 
 class LoginDialog(QDialog):
@@ -207,6 +225,10 @@ class LoginDialog(QDialog):
         self.setWindowTitle("MTK GUI - Login")
         self.role = None
         self.mode = MODE_REAL
+        # balanced dialog sizing: hard minimum floor + default startup
+        # dimension (kept together with the slider layout change)
+        self.setMinimumSize(430, 400)
+        self.resize(480, 470)
 
         form = QFormLayout(self)
 

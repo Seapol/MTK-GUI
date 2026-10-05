@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Declarative field schemas for the ten Yaml Build modules.
+"""Declarative field schemas for the twelve Yaml Build modules.
 
 Every module owns an independent parameter schema (interface_spec.md
 section 31): the block config dialogs, the parameter validation and
-the Excel exchange are all generated from these tables, so the ten
+the Excel exchange are all generated from these tables, so the twelve
 modules never share state and fields cannot drift between UI, YAML
-and Excel.
+and Excel.  Rack-ATE instrument parameters live ONLY in block 02
+(instruments); blocks 04-06/10 reference them read-only.
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ class FieldSpec:
         maximum:  Inclusive upper bound for numeric types.
         choices:  Allowed values for T_CHOICE.
         multiline: T_TEXT renders a multi-line editor.
+        max_lines: Upper bound of non-empty T_TEXT lines (None = no
+                   limit; e.g. the 12-net power capture list).
         pattern:  Regex the string value must match (optional).
         unit:     Unit shown in the UI / Excel (informational).
         remarks:  Column for the Excel exchange.
@@ -55,6 +58,7 @@ class FieldSpec:
     maximum: float | None = None
     choices: tuple[str, ...] = ()
     multiline: bool = False
+    max_lines: int | None = None
     pattern: str = ""
     unit: str = ""
     remarks: str = ""
@@ -78,6 +82,11 @@ class FieldSpec:
             return ""
         if not text:
             return f"{self.label}: value required" if self.required else ""
+        if self.ftype == T_TEXT and self.max_lines is not None:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            if len(lines) > self.max_lines:
+                return (f"{self.label}: at most {self.max_lines} entries "
+                        f"allowed ({len(lines)} given)")
         if self.ftype in (T_INT, T_FLOAT):
             try:
                 num = float(text)
@@ -122,22 +131,18 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("design_data", "Design Data Import", ftype=T_TEXT,
            remarks="one design-data entry per line"),
     ),
-    "power_dut": (
-        _f("on_voltage_v", "Power-On Voltage", ftype=T_FLOAT,
-           default="5.0", required=True, minimum=0.0, maximum=60.0,
-           unit="V"),
-        _f("current_limit_a", "Current Limit", ftype=T_FLOAT,
-           default="1.0", required=True, minimum=0.0, maximum=12.5,
-           unit="A"),
-        _f("on_delay_ms", "Power-On Delay", ftype=T_INT, default="100",
-           minimum=0, maximum=60000, unit="ms"),
-        _f("off_delay_ms", "Power-Off Delay", ftype=T_INT, default="200",
-           minimum=0, maximum=60000, unit="ms"),
-        _f("retries", "Retries", ftype=T_INT, default="0",
-           minimum=0, maximum=10),
-        _f("off_protection", "Power-Off Protection", ftype=T_BOOL,
+    "instruments": (
+        _f("psu_visa", "PSU VISA Address", required=True,
+           remarks="Keysight N5747A rack PSU (block02 = the ONLY "
+                   "rack-ATE instrument editor)"),
+        _f("daq_visa", "DAQ VISA Address", required=True,
+           remarks="Keysight DAQ973A + DAQM908A/907A"),
+        _f("dmm_visa", "DMM VISA Address",
+           remarks="Keysight DMM (optional)"),
+        _f("channel_alloc", "Channel Allocation", ftype=T_TEXT,
+           remarks="one 'instrument:channel:signal' entry per line"),
+        _f("self_test", "Instrument Self-Test", ftype=T_BOOL,
            default="true"),
-        _f("self_check", "Self Check", ftype=T_BOOL, default="true"),
     ),
     "parse_ict": (
         _f("netlist_file", "Netlist File", required=True),
@@ -151,8 +156,28 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("tp_resolutions", "TP Resolutions", ftype=T_TEXT,
            remarks="one 'net=pin' (pin substitute) or 'net=skip' "
                    "(point not tested) per line, for nets without TP"),
+        _f("power_capture_nets", "Power Waveform Capture Nets",
+           ftype=T_TEXT, max_lines=12,
+           remarks="one power net per line (max 12, auto-prefilled "
+                   "from the power tree); passed READ-ONLY to block 04 "
+                   "which cannot modify the selection"),
     ),
     "rails": (
+        # DUT power on/off sequence (moved from the legacy power_dut
+        # block, M0 redefinition: block04 owns the power-up sequence)
+        _f("on_voltage_v", "Power-On Voltage", ftype=T_FLOAT,
+           default="5.0", required=True, minimum=0.0, maximum=60.0,
+           unit="V"),
+        _f("current_limit_a", "Current Limit", ftype=T_FLOAT,
+           default="1.0", required=True, minimum=0.0, maximum=12.5,
+           unit="A"),
+        _f("on_delay_ms", "Power-On Delay", ftype=T_INT, default="100",
+           minimum=0, maximum=60000, unit="ms"),
+        _f("off_delay_ms", "Power-Off Delay", ftype=T_INT, default="200",
+           minimum=0, maximum=60000, unit="ms"),
+        _f("off_protection", "Power-Off Protection", ftype=T_BOOL,
+           default="true"),
+        # impedance / voltage / rails-up sequence
         _f("sequence", "Rail Sequence", ftype=T_TEXT, required=True,
            remarks="one 'rail:delay_s' entry per line"),
         _f("voltage_tolerance_pct", "Voltage Tolerance", ftype=T_FLOAT,
@@ -231,6 +256,20 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("exception_branch", "Exception Branch", ftype=T_CHOICE,
            choices=("continue", "stop"), default="stop"),
         _f("case_link", "Case Link"),
+    ),
+    "validate_sequence": (
+        _f("resource_conflict_check", "Resource Conflict Check",
+           ftype=T_BOOL, default="true"),
+        _f("param_range_check", "Parameter Range Check", ftype=T_BOOL,
+           default="true"),
+        _f("dependency_check", "Dependency Violation Check",
+           ftype=T_BOOL, default="true"),
+    ),
+    "preview_export": (
+        _f("export_dir", "Export Directory", default="config/plans",
+           remarks="project config folder for the exported YAML"),
+        _f("include_disabled", "Include Disabled Modules", ftype=T_BOOL,
+           default="false"),
     ),
 }
 

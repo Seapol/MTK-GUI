@@ -102,7 +102,9 @@ def extract_pdf_text(path: str, max_pages: int = 5) -> str:
     try:
         doc = QPdfDocument()
         error = doc.load(path)
-        if int(error) != 0:          # QPdfDocument.Error.None == 0
+        # PySide6 >= 6.4 returns a QPdfDocument.Error enum (int() on
+        # the enum itself raises TypeError - use .value)
+        if getattr(error, "value", error) != 0:
             return ""
     except Exception:  # noqa: BLE001 - never raise into the UI
         return ""
