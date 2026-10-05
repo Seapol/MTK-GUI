@@ -98,3 +98,14 @@ def test_ssh_row_widths_unchanged(ssh_row):
     assert ssh_row.edit_user.maximumWidth() == 120
     assert ssh_row.edit_host.maximumWidth() == 16777215   # QWIDGETSIZE_MAX
     assert isinstance(ssh_row.edit_host, QLineEdit)
+
+
+def test_console_button_renamed_for_all_rows(ser_row, ssh_row):
+    """P3-B1 closure: 'Show Console' renamed to 'Console' for every
+    SER / SSH row; the click signal is unchanged."""
+    for row in (ser_row, ssh_row):
+        assert row.btn_console.text() == "Console"
+        received = []
+        row.show_console_requested.connect(received.append)
+        row.btn_console.click()
+        assert received == [row.key]
