@@ -512,15 +512,28 @@ class MainWindow(QMainWindow):
         # | Instruments | Consoles | Date
         sb = self.statusBar()
 
-        # V4.0: dynamic build version (git tag / branch / commit),
-        # resolved once per process (interface_spec.md section 33)
+        # V4.0 / M0: dynamic GUI version label (vX.Y.Z.xxxx from
+        # resources/version.json, written by the CI build pipeline);
+        # missing/broken file -> static fallback + warning log
         self.version_info = get_version_info()
-        self.status_version = QLabel(f"Version: {self.version_info.display()}")
+        from .gui_version import load_gui_version
+        self.gui_version, self.gui_version_warning = load_gui_version()
+        self.status_version = QLabel(f"GUI version: {self.gui_version}")
         self.status_version.setObjectName("muted")
         self.status_version.setStyleSheet("padding: 0 6px;")
+        # display-only: not selectable / not editable
+        self.status_version.setTextInteractionFlags(
+            Qt.TextInteractionFlag.NoTextInteraction)
         self.status_version.setToolTip(
-            f"source: {self.version_info.source}")
+            f"GUI build {self.gui_version} | "
+            f"build info: {self.version_info.display()} "
+            f"(source: {self.version_info.source})")
         sb.addWidget(self.status_version)
+        self._append_event_log(
+            f"GUI version: {self.gui_version}")
+        if self.gui_version_warning:
+            self._append_event_log(
+                f"WARNING: {self.gui_version_warning}")
         self._append_event_log(
             f"Build: {self.version_info.display()} "
             f"(source: {self.version_info.source})")
