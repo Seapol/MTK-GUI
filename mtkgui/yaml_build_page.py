@@ -169,8 +169,18 @@ class YamlBuildPage(QWidget):
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
+        # block 03: candidate power nets for the capture-list prefill
+        # (up to 12, from the imported netlist / power tree)
+        candidates = None
+        if module_key == "parse_ict":
+            from mtkgui.gui.designinput.netlist import \
+                power_capture_candidates
+            nets = self.model.imported.get("netlist", {}).get(
+                "nets") or {}
+            candidates = power_capture_candidates(nets)
         params, import_result = self.block_flow.open_dialog(
-            module_key, self.model.get_params(module_key), self)
+            module_key, self.model.get_params(module_key), self,
+            power_candidates=candidates)
         if params is None:
             return
         self.model.set_params(module_key, params)

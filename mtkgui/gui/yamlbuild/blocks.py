@@ -69,6 +69,10 @@ def spec_tooltip(spec: FieldSpec) -> str:
 #: modules with a dedicated import sub-dialog (V4.0 acceptance 3.1.1)
 _IMPORT_MODULES = {"design_input"}
 
+#: block 03 power waveform capture list (M0 additional requirement)
+CAPTURE_FIELD = "power_capture_nets"
+MAX_CAPTURE_NETS = 12
+
 
 class BlockConfigDialog(QDialog):
     """Dedicated configuration popup for exactly one workflow module.
@@ -80,18 +84,23 @@ class BlockConfigDialog(QDialog):
     """
 
     def __init__(self, module_key: str, params: dict,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None,
+                 power_candidates: list[str] | None = None) -> None:
         """Create the dialog for one module.
 
         Args:
-            module_key: Stage key (defines the field set).
-            params:     Current parameter values (name -> str).
-            parent:     Parent widget.
+            module_key:       Stage key (defines the field set).
+            params:           Current parameter values (name -> str).
+            parent:           Parent widget.
+            power_candidates: Block 03 only - candidate power nets
+                              (from the power tree / imported netlist)
+                              used to auto-prefill the capture list.
         """
         super().__init__(parent)
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
+        self._power_candidates = list(power_candidates or [])
         self.setWindowTitle(
             f"Configure - {STAGE_BY_KEY[module_key].title}")
         self.setMinimumWidth(460)
@@ -116,6 +125,16 @@ class BlockConfigDialog(QDialog):
             btn_import = QPushButton("Import Schematic / Netlist…")
             btn_import.clicked.connect(self._open_import_dialog)
             lay.addWidget(btn_import)
+        # block 03: power waveform capture net selection (M0)
+        if module_key == "parse_ict" and CAPTURE_FIELD in self._editors:
+            btn_autoselect = QPushButton(
+                f"Auto-select Capture Nets (≤{MAX_CAPTURE_NETS})")
+            btn_autoselect.setToolTip(
+                "从电源树候选网络自动预选最多12路捕获网络；"
+                "可手动增删后定稿")
+            btn_autoselect.clicked.connect(self._autoselect_capture_nets)
+            lay.addWidget(btn_autoselect)
+            self._autoselect_capture_nets(initial=True)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -177,6 +196,31 @@ class BlockConfigDialog(QDialog):
         if spec.ftype == T_CHOICE:
             return editor.currentText()
         return editor.text().strip()
+
+    # ------------------------------------------------- capture nets (M0)
+    def _autoselect_capture_nets(self, initial: bool = False) -> None:
+        """Auto-prefill the power waveform capture list (block 03).
+
+        Args:
+            initial: True when called from __init__ - prefill ONLY an
+                     empty list (an existing user-finalized list is
+                     never overwritten); False = explicit button
+                     click, which re-selects from the candidates.
+        """
+        editor = self._editors.get(CAPTURE_FIELD)
+        if editor is None:
+            return
+        current = editor.toPlainText()
+        if initial and current.strip():
+            return                       # keep the finalized list
+        from mtkgui.gui.designinput.netlist import \
+            power_capture_candidates
+        picks = power_capture_candidates(
+            self._power_candidates, MAX_CAPTURE_NETS)
+        if not picks:
+            return
+        editor.setPlainText("\n".join(picks))
+        self._edited[CAPTURE_FIELD] = "\n".join(picks)
 
     # ------------------------------------------------------------ import
     def _open_import_dialog(self) -> None:

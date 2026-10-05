@@ -311,13 +311,16 @@ class BlockFlowWidget(QWidget):
             self._cards[module_key].set_enabled(enabled)
 
     def open_dialog(self, module_key: str, params: dict,
-                    parent: QWidget):
+                    parent: QWidget,
+                    power_candidates: list[str] | None = None):
         """Open the dedicated config dialog for one module.
 
         Args:
-            module_key: Stage key.
-            params:     Current parameters.
-            parent:     Parent widget for the dialog.
+            module_key:       Stage key.
+            params:           Current parameters.
+            parent:           Parent widget for the dialog.
+            power_candidates: Block 03 candidate power nets (from the
+                              power tree) for the capture-list prefill.
 
         Returns:
             ``(values, import_result)`` where ``values`` is the
@@ -325,7 +328,8 @@ class BlockFlowWidget(QWidget):
             ``import_result`` carries the Design Input import parse
             results (None for other modules).
         """
-        dialog = BlockConfigDialog(module_key, params, parent)
+        dialog = BlockConfigDialog(module_key, params, parent,
+                                   power_candidates=power_candidates)
         if dialog.exec() == BlockConfigDialog.DialogCode.Accepted:
             return dialog.values(), getattr(dialog, "import_result", None)
         return None, None

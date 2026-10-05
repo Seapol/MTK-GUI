@@ -42,6 +42,8 @@ class FieldSpec:
         maximum:  Inclusive upper bound for numeric types.
         choices:  Allowed values for T_CHOICE.
         multiline: T_TEXT renders a multi-line editor.
+        max_lines: Upper bound of non-empty T_TEXT lines (None = no
+                   limit; e.g. the 12-net power capture list).
         pattern:  Regex the string value must match (optional).
         unit:     Unit shown in the UI / Excel (informational).
         remarks:  Column for the Excel exchange.
@@ -56,6 +58,7 @@ class FieldSpec:
     maximum: float | None = None
     choices: tuple[str, ...] = ()
     multiline: bool = False
+    max_lines: int | None = None
     pattern: str = ""
     unit: str = ""
     remarks: str = ""
@@ -79,6 +82,11 @@ class FieldSpec:
             return ""
         if not text:
             return f"{self.label}: value required" if self.required else ""
+        if self.ftype == T_TEXT and self.max_lines is not None:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            if len(lines) > self.max_lines:
+                return (f"{self.label}: at most {self.max_lines} entries "
+                        f"allowed ({len(lines)} given)")
         if self.ftype in (T_INT, T_FLOAT):
             try:
                 num = float(text)
@@ -148,6 +156,11 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("tp_resolutions", "TP Resolutions", ftype=T_TEXT,
            remarks="one 'net=pin' (pin substitute) or 'net=skip' "
                    "(point not tested) per line, for nets without TP"),
+        _f("power_capture_nets", "Power Waveform Capture Nets",
+           ftype=T_TEXT, max_lines=12,
+           remarks="one power net per line (max 12, auto-prefilled "
+                   "from the power tree); passed READ-ONLY to block 04 "
+                   "which cannot modify the selection"),
     ),
     "rails": (
         # DUT power on/off sequence (moved from the legacy power_dut

@@ -146,6 +146,23 @@ def parse_netlist_file(path: str) -> tuple[NetlistData, str]:
     return parse_netlist(text), text
 
 
+def power_capture_candidates(net_names, limit: int = 12) -> list[str]:
+    """Pre-select power nets for the block-03 waveform capture list.
+
+    M0 additional requirement: block 03 auto-prefills up to 12
+    candidate power nets (the user finalizes the list manually);
+    block 04 consumes the final list read-only.
+
+    Args:
+        net_names: Net names (e.g. the keys of the imported netlist).
+        limit:     Maximum number of candidates (spec: 12).
+
+    Returns:
+        Up to *limit* power-type net names in input order.
+    """
+    return [name for name in net_names if _POWER_RE.match(name)][:limit]
+
+
 def _diff_pair_map(names: list[str]) -> dict[str, str]:
     """Map ``*_P`` <-> ``*_N`` sibling names (only when BOTH exist)."""
     name_set = set(names)
