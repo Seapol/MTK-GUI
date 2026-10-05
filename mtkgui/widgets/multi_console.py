@@ -387,6 +387,28 @@ class ConsoleWindow(QDialog):
 
 
 # ============================================================ compact row
+class _CompactPortCombo(QComboBox):
+    """Editable serial-port combo with a compact collapsed width.
+
+    The popup list is widened to the longest entry so long
+    ``COMxx  -  description`` names render completely while the
+    closed widget stays narrow (M0 layout rule)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)          # manual port entry (as before)
+
+    def showPopup(self):
+        """Widen the popup container to the widest item before it
+        opens (the collapsed widget keeps its compact width)."""
+        super().showPopup()
+        view = self.view()
+        container = view.parentWidget()
+        if container is not None:
+            hint = view.sizeHint().width() + 24
+            container.setMinimumWidth(max(self.width(), hint))
+
+
 class ChannelRow(QFrame):
     """Compact inline row for one channel: colored label, inline
     connection fields, Open/Close, Show Console, Configure, Remove
@@ -419,13 +441,16 @@ class ChannelRow(QFrame):
         layout.addWidget(self.label)
 
         if kind == "serial":
-            self.combo_port = QComboBox()
-            self.combo_port.setEditable(True)
+            self.combo_port = _CompactPortCombo()
             self.combo_port.setToolTip("Serial port device")
-            for p in list_ports.comports():
-                self.combo_port.addItem(
-                    f"{p.device}  -  {p.description}", p.device)
-            layout.addWidget(self.combo_port, 1)
+            self._fill_ports()
+            # M0 layout: the collapsed widget takes HALF its natural
+            # width (COMxx names are short) and no longer stretches;
+            # the popup still expands to the longest entry, and the
+            # freed space flows to the widgets on the right
+            hint = self.combo_port.sizeHint().width()
+            self.combo_port.setMaximumWidth(max(90, hint // 2))
+            layout.addWidget(self.combo_port)
 
             self.combo_baud = QComboBox()
             self.combo_baud.setEditable(True)
@@ -494,6 +519,14 @@ class ChannelRow(QFrame):
                 lambda: self.params_changed.emit(self.key))
             self.edit_user.textChanged.connect(
                 lambda: self.params_changed.emit(self.key))
+
+    def _fill_ports(self):
+        """Enumerate the serial ports into the compact port combo
+        (same enumeration and item text as before - layout only)."""
+        self.combo_port.clear()
+        for p in list_ports.comports():
+            self.combo_port.addItem(
+                f"{p.device}  -  {p.description}", p.device)
 
     def update_params(self, params):
         """Sync inline fields from a params dict (does not re-emit
