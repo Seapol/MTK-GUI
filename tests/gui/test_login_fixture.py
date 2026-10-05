@@ -37,6 +37,7 @@ from mtkgui.permissions import (
     FixtureSelector,
     LoginDialog,
     ModeSwitch,
+    SlideSwitch,
 )
 
 
@@ -129,12 +130,31 @@ def test_wrong_supervisor_password_rejected(login_dlg, monkeypatch):
 
 
 # --------------------------------------------------------------- item 4
-def test_fixture_selector_default_ate(qapp):
+def test_fixture_switch_is_same_style_slide(qapp):
+    """Both the fixture selector and the mode switch share the
+    SlideSwitch base - identical look & interaction (M0 refactor)."""
+    assert isinstance(FixtureSelector(), SlideSwitch)
+    assert isinstance(ModeSwitch(), SlideSwitch)
+
+
+def test_fixture_switch_default_ate_left(qapp):
     sel = FixtureSelector()
     assert sel.fixture_type() == FIXTURE_ATE          # restart baseline
+    assert not sel.isChecked()                        # left docking
 
 
-def test_fixture_selector_manual_choice(qapp):
+def test_fixture_switch_single_mutually_exclusive(qapp):
+    """Single control, binary state - ATE and Manual can never be
+    active at the same time."""
+    sel = FixtureSelector()
+    sel.setChecked(True)                              # slide to Manual
+    assert sel.fixture_type() == FIXTURE_MANUAL
+    assert sel.fixture_type() != FIXTURE_ATE          # exclusive
+    sel.setChecked(False)                             # slide back to ATE
+    assert sel.fixture_type() == FIXTURE_ATE
+
+
+def test_fixture_switch_manual_choice(qapp):
     sel = FixtureSelector()
     sel.set_fixture_type(FIXTURE_MANUAL)
     assert sel.fixture_type() == FIXTURE_MANUAL
@@ -147,6 +167,29 @@ def test_accept_returns_fixture_type(login_dlg):
     login_dlg.fixture_selector.set_fixture_type(FIXTURE_MANUAL)
     login_dlg._on_accept()
     assert login_dlg.fixture_type == FIXTURE_MANUAL
+
+
+# ------------------------------------------------------- dialog sizing
+def test_login_dialog_min_and_default_size(login_dlg):
+    """Hard minimum floor + default startup dimension kept together
+    with the slider layout (M0 item 5)."""
+    assert login_dlg.minimumSize().width() >= 430
+    assert login_dlg.minimumSize().height() >= 400
+    assert login_dlg.width() >= login_dlg.minimumSize().width()
+    assert login_dlg.height() >= login_dlg.minimumSize().height()
+
+
+def test_fixture_switch_below_mode_switch(login_dlg):
+    """Layout: the Fixture slider sits below the Mode slider."""
+    form = login_dlg.findChild(QFormLayout)
+    rows = []
+    for i in range(form.rowCount()):
+        field = form.itemAt(i, QFormLayout.ItemRole.FieldRole)
+        if field is not None and field.widget() is not None:
+            rows.append(field.widget())
+    assert rows.index(login_dlg.mode_switch) >= 0
+    assert rows.index(login_dlg.fixture_selector) \
+        == rows.index(login_dlg.mode_switch) + 1
 
 
 # --------------------------------------------------------------- item 5
