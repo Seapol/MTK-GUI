@@ -1,7 +1,8 @@
 # MTK-GUI Module Interface Specification
 
-- Version: 0.1 (DRAFT — pending user approval per change protocol below)
-- Date: 2026-09-30
+- Version: 0.2 (V4.0 contracts added — sections 29-32; approved by
+  coordinator 2026-10-05)
+- Date: 2026-10-05
 - Scope: all development tasks (TRAE SOLO) must comply with this document.
 
 This document defines data structure, input/output, cross-module API contracts.
@@ -1029,6 +1030,141 @@ class MesAdapter(enqueue, deliver=None, log_fn=None):  # alias: MA
 # GUI: ApiPage route "api" — key issuance (secret shown once),
 # request tester (method/path -> HTTP code), MES order intake box;
 # shell shares api_server + mes_adapter (audit wired to P2-11)
+```
+
+### 29. Help Center (NEW — owned by V4.0-B2, `mtkgui/gui/help_dialogs.py`)
+
+Menu: `Help → User Guide | Developer Guide | Version History |
+Readme & Quick Start`.  All four entries open BUILT-IN popup dialogs
+(no external files / browser).  Content is plain structured text
+served by one provider so the dialogs stay thin:
+
+```python
+HELP_KEYS = ("user_guide", "developer_guide", "version_history",
+             "readme_quickstart")
+def help_content(key: str) -> str        # raises KeyError on bad key
+class HelpDialog(QDialog):               # title + scrollable read-only
+    def __init__(self, key: str, parent=None) -> None
+# mount: main_window Help menu -> HelpDialog(key); content lives in
+# mtkgui/gui/help_content.py (English text, per-topic sections)
+```
+
+### 30. Report Menu (NEW — owned by V4.0-B3; reuses P2-5/P2-9/P2-11)
+
+Menu: `Report → DUT Report | Event Log | Statistics`.
+
+**DUT Report (PDF)** — one PDF per unit, generated with the Qt stack
+(`QTextDocument.print(QPdfWriter)`; zero new dependencies), content:
+product info, batch info, test time, full-project test-result
+summary, complete console log dump.  File naming (FIXED):
+
+```
+DUT_[PASS/FAIL]_[Serial#]_[Core ID]_[Project Part#]_[Batch#]_[Date]_[Time].pdf
+```
+
+**Event Log (TXT)** — full GUI-lifecycle record (start -> exit):
+operations, device interaction, errors, permission events, all
+timestamped; export dialog for traceability (extends the existing
+event/session log files under `event/`).
+
+**Statistics (quality)** — dialog selects the range: day / week /
+month / year / single batch / multiple batches; metrics: Yield,
+Avg Cycle Time, UPH / UPD, CpK, Error List ranking.  Computation
+reuses `mtkgui/engine/metrics.py` (P2-5); charts reuse
+`mtkgui/gui/charts.py` (P2-6); archive sources reuse
+`mtkgui/engine/archive.py` (P2-7).  No metric is recomputed outside
+the metrics engine.
+
+```python
+class StatisticsDialog(QDialog):
+    def __init__(self, metrics_engine, parent=None) -> None
+class DutReportBuilder:                   # mtkgui/gui/dut_report.py
+    def build(self, run_result: dict) -> str   # returns pdf path
+```
+
+### 31. Yaml Build Page (NEW — owned by V4.0-B1, `mtkgui/yaml_build_page.py` + `mtkgui/gui/yamlbuild/`)
+
+Classic-shell tab `Yaml Build` (rightmost, fixed).  Layout: left
+Workflow Block Diagram + right live YAML preview, horizontal
+splitter, window-adaptive (wide screens lay blocks out in rows,
+narrow screens fall back to a single column).  Top fixed buttons:
+`Import from Excel | Export to Excel | Build Draft YAML |
+Release Final YAML`.
+
+Fixed, irreversible workflow sequence (disabled blocks are skipped):
+
+```
+Design Input -> Configure Power On/Off DUT -> Parse nets for ICT
+-> Build Impedance/Voltage/Power rails up sequence -> Build Clocks
+-> Build GPIOs -> Configure Programmer/Debugger
+-> Configure Peripherials -> Parse Func/Interface for FCT
+-> Build Func/Interface for FCT
+```
+
+Per-block rules: single click opens the block's own config dialog
+(independent save + validation); right-click Enable / Disable
+(disabled block renders grayed, is skipped by the flow, is NOT
+written into the effective YAML, its parameters are silently kept).
+Diagram <-> YAML two-way live sync with syntax / sequence / parameter
+validation and error markers.
+
+Ten module parameter groups (one per block above): design input
+(product id, part number, sw/hw versions), power on/off sequencing,
+ICT net parsing, impedance/voltage/rails-up capture, clocks, GPIOs,
+programmer/debugger, peripherals (Wi-Fi / Bluetooth / serial / I2C /
+SPI / ADC), FCT function/interface parsing, FCT flow build.
+
+Dual-version publishing (FIXED naming):
+
+```
+Draft:  Plan_[Core ID]_[Project Part#]_build_draft_v.1.0.0.yaml
+Final:  Plan_[Core ID]_[Project Part#]_build_final_v.1.0.0.yaml
+```
+
+Draft = machine-generated, for human review; Final = released,
+locked for production, version-compare + archive supported.
+Backward compatibility: importing any legacy YAML enables ALL
+modules by default.  Multi-tenant isolation and persistence follow
+the existing project/YAML storage rules — no new storage format.
+
+Excel exchange (B1): `Export to Excel` writes all module parameters,
+thresholds, sequence order, enable state and remarks;
+`Import from Excel` bulk-updates with validation and error listing.
+Requires the `openpyxl` dependency (approved for V4.0).
+
+### 32. Equipment <-> Yaml Build Sync Contract (NEW — owned by V4.0-B4, `mtkgui/gui/yamlbuild/sync.py`)
+
+Mandatory bidirectional parameter inheritance between the Equipment
+page and the Yaml Build hardware-related blocks (instruments,
+peripherals, serial, debugger, PSU, clocks, Wi-Fi/BT):
+
+* last-writer-wins: the latest SAVE wins and overwrites the other
+  side's cache (no ping-pong overwrite loops);
+* dirty-edit lock: while either page has unsaved edits, the other
+  side's sync is read-only (no half-finished data crosses pages);
+* conflict detection: on mismatch, record a conflict log entry and
+  show a friendly dialog comparing old / Equipment / Yaml-Build
+  values (three-value compare);
+* arbitration: one-click `[Apply to Yaml]` / `[Apply to Equipment]`
+  aligns everything to the chosen side;
+* silent fallback: sync failure, unknown field or version mismatch
+  never raises to the UI — keep the previous valid configuration and
+  log the anomaly in the background;
+* new projects initialize Yaml Build module parameters from the
+  Equipment configuration (base template, zero first-run conflict);
+* unchanged parameters are silently reused; only changed fields are
+  incrementally updated (existing projects keep working).
+
+```python
+class SyncDirection(Enum): TO_YAML; TO_EQUIPMENT
+@dataclass SyncConflict: field, old_value, equipment_value,
+    yaml_value
+class EquipmentYamlSync:                  # one instance per project
+    def pull_from_equipment(self) -> int  # fields updated
+    def push_to_equipment(self) -> int
+    def conflicts(self) -> list[SyncConflict]
+    def apply(self, direction: SyncDirection) -> int
+# signals: sync_done(direction, n), conflict_found(SyncConflict)
 ```
 
 ## Conflict Prevention Rule
