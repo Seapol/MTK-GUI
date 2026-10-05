@@ -904,15 +904,24 @@ class TestWorkFlowPage(QWidget):
         self._overall_en = [True, True]
         self._overall_edit_guard = False
         self.overall.itemChanged.connect(self._overall_item_changed)
-        # columns fill the group box: Stage stretches to take the rest,
-        # the others size to their content
-        self.overall.setColumnWidth(0, 28)
-        self.overall.setColumnWidth(2, 40)
-        self.overall.setColumnWidth(3, 70)
+        # column layout (M0): on the 0-1000 grid ~ #30 | Stage90 |
+        # EN50 | Status200 | Duration200.  Stage is compact ("ICT"/
+        # "FCT" need little room); Status is wide enough for
+        # "Pending..." without truncation at the default font; the
+        # Duration column stretches so the table's right edge
+        # auto-fits the container (total layout width unchanged).
+        # Headers stay centered (QHeaderView default alignment).
+        self.overall.setColumnWidth(0, 30)
+        self.overall.setColumnWidth(1, 90)
+        self.overall.setColumnWidth(2, 50)
+        self.overall.setColumnWidth(3, 200)
         header = self.overall.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(
-            4, QHeaderView.ResizeMode.ResizeToContents)
+            4, QHeaderView.ResizeMode.Stretch)
         header.setStretchLastSection(False)
         _fit_height(self.overall)
         layout.addWidget(self.overall)
