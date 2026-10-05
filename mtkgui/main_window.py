@@ -1234,6 +1234,11 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ close
     def closeEvent(self, event):
+        # M0 ordered cleanup: tear down child-dialog bindings and
+        # instances, flush the Qt event queue (mitigates the harmless
+        # macOS IMKCFRunLoopWakeUpReliable mach-port noise on exit)
+        self._cleanup_child_dialogs()
+        # --- original close workflow (preserved verbatim) -----------
         # remember the user's window geometry for the next start
         self._remember_geometry()
         # disconnect every serial / SSH console channel
@@ -1247,4 +1252,33 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
             self._event_log_file = None
+        # step 4: accept the close
         event.accept()
+
+    def _cleanup_child_dialogs(self):
+        """Ordered resource cleanup before the window goes away.
+
+        Step 1: disconnect every custom signal/slot binding of cached
+        child workers (the Tools batch thread); Step 2: explicitly
+        destroy all child dialog instances; Step 3: flush the pending
+        Qt event queue so no queued callback outlives the window.
+        """
+        # step 1 - disconnect custom bindings (batch worker)
+        thread = getattr(self, "_tools_thread", None)
+        if thread is not None:
+            import warnings
+            with warnings.catch_warnings():
+                # a never-connected worker would warn "Failed to
+                # disconnect (None)" - harmless, silence it
+                warnings.simplefilter("ignore", RuntimeWarning)
+                try:
+                    thread.finished_sig.disconnect()
+                except (RuntimeError, TypeError):
+                    pass                  # already disconnected
+            if thread.isRunning():
+                thread.wait(2000)
+        # step 2 - destroy every child dialog instance explicitly
+        for dialog in self.findChildren(QDialog):
+            dialog.deleteLater()
+        # step 3 - flush pending Qt events
+        QApplication.processEvents()
