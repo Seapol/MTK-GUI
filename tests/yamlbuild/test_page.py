@@ -99,12 +99,16 @@ def test_yaml_edit_apply_updates_blocks(page):
 
 def test_invalid_yaml_edit_rejected(page):
     """An invalid hand edit never enters the model."""
+    def semantic(model_dict: dict) -> dict:
+        """Content snapshot without the volatile save timestamp."""
+        return {k: v for k, v in model_dict.items() if k != "saved_at"}
+
     page.model.enable_all()
-    before = page.model.to_dict()
+    before = semantic(page.model.to_dict())
     page.yaml_preview.btn_edit.setChecked(True)
     page.yaml_preview.editor.setPlainText("yaml_build: [broken")
     assert not page.yaml_preview.error_bar.isHidden()
-    assert page.model.to_dict() == before
+    assert semantic(page.model.to_dict()) == before
 
 
 def test_persistence_round_trip(page):
