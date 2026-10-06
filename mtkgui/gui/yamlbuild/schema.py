@@ -137,8 +137,11 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
     "design_input": (
         _f("product_id", "Product ID", required=True,
            remarks="Core ID extracted from the SPF file name"),
-        _f("part_number", "Project Part # (optional)",
-           remarks="Project Name from the SPF first-page title"),
+        # Project Part # is the ONLY board-level part number source:
+        # manual entry (no SPF / Drawing-Title-Block auto source exists)
+        _f("part_number", "Project Part #", required=True,
+           remarks="manual entry - persisted as the unique board-level "
+                   "part number across parse / build / test / report"),
         _f("sw_version", "SW Version (optional)",
            remarks="report metadata only - no test logic impact"),
         _f("hw_version", "HW Version (optional)",

@@ -143,17 +143,19 @@ class DesignInputPanel(QWidget):
         form.addRow("Product ID:", self.edit_product_id)
         self.edit_part_number = QLineEdit()
         self.edit_part_number.setToolTip(
-            "Project Part # - auto-filled with the Project Name from "
-            "the SPF first-page title; manual override allowed")
+            "Project Part # - manual entry is the ONLY board-level "
+            "part number source (no auto source exists in SPF / "
+            "Drawing Title Block); optionally prefilled from the SPF "
+            "first-page title when available, always editable")
         form.addRow("Project Part #:", self.edit_part_number)
         self.edit_sw_version = QLineEdit()
         self.edit_sw_version.setToolTip(
             "SW Version - manual fill only, report metadata purpose")
-        form.addRow("SW Version:", self.edit_sw_version)
+        form.addRow("SW Version (optional):", self.edit_sw_version)
         self.edit_hw_version = QLineEdit()
         self.edit_hw_version.setToolTip(
             "HW Version - manual fill only, report metadata purpose")
-        form.addRow("HW Version:", self.edit_hw_version)
+        form.addRow("HW Version (optional):", self.edit_hw_version)
         self.combo_batch = QComboBox()
         self.combo_batch.addItems(list(BATCH_OPTIONS))
         self.combo_batch.setToolTip(

@@ -298,12 +298,17 @@ def test_spf_filter_pdf_only(panel, monkeypatch):
 
 
 def test_optional_labels_and_only_product_id_required():
-    """Item 21: Part # / SW / HW / Batch carry '(optional)' labels and
-    are no longer required; Product ID stays the only mandatory field."""
+    """SW / HW / Batch carry '(optional)' labels and stay non-required
+    (root-cause closure directive); Project Part # is the manual-entry
+    board-level part number (required, no '(optional)' mark) and
+    Product ID stays the other mandatory field."""
     specs = {f.name: f for f in MODULE_FIELDS["design_input"]}
-    for name in ("part_number", "sw_version", "hw_version", "batch"):
+    for name in ("sw_version", "hw_version", "batch"):
         assert "(optional)" in specs[name].label, name
         assert specs[name].required is False, name
+    # Project Part # manual-entry final scheme (no auto source)
+    assert specs["part_number"].label == "Project Part #"
+    assert specs["part_number"].required is True
     assert specs["product_id"].label == "Product ID"
     assert specs["product_id"].required is True
     # empty optional values validate clean
@@ -313,8 +318,8 @@ def test_optional_labels_and_only_product_id_required():
 
 
 def test_accept_with_blank_optional_fields_passes(qapp, monkeypatch):
-    """No 'Required' warning when SW / HW Version are blank - only
-    Product ID is validated on OK."""
+    """No 'Required' warning when SW / HW Version are blank - the
+    mandatory fields (Product ID / Project Part #) are validated."""
     warnings = []
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "warning",
@@ -322,9 +327,27 @@ def test_accept_with_blank_optional_fields_passes(qapp, monkeypatch):
     dlg = BlockConfigDialog("design_input", {})
     try:
         dlg.panel.edit_product_id.setText("10342")
-        dlg._on_accept()          # blank SW / HW / Part# must pass
+        dlg.panel.edit_part_number.setText("MTK12345")
+        dlg._on_accept()          # blank SW / HW must pass
         assert not warnings       # no validation popup at all
         assert dlg.error_label.text() == ""
+    finally:
+        dlg.deleteLater()
+
+
+def test_accept_blank_part_number_blocked(qapp, monkeypatch):
+    """Project Part # is the manual-entry mandatory board-level part
+    number: blank -> validation popup, dialog stays open."""
+    warnings = []
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+    dlg = BlockConfigDialog("design_input", {})
+    try:
+        dlg.panel.edit_product_id.setText("10342")
+        dlg._on_accept()
+        assert warnings            # validation popup shown
+        assert "Project Part #" in dlg.error_label.text()
     finally:
         dlg.deleteLater()
 
