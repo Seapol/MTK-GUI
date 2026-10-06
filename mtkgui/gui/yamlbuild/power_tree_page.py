@@ -126,10 +126,13 @@ class PowerTreePage(QWidget):
         lay = QVBoxLayout(self)
         hint = QLabel(
             "Interactive power tree topology (data source: the Parse "
-            "Nets result). Double-click a node to edit voltage, "
-            "tolerances, dependencies, upstream/downstream links, "
-            "the stage override and the Do-Not-Test flag. Wheel = "
-            "zoom, drag = pan.")
+            "Nets result). Passive-bridge pruning runs automatically "
+            "at parse time; a wrongly-pruned net is restored by "
+            "re-categorizing it as Power in the Parsed Nets table. "
+            "Double-click a node to edit voltage, tolerances, "
+            "dependencies, upstream/downstream links, the stage "
+            "override and the Do-Not-Test flag. Wheel = zoom, "
+            "drag = pan.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -138,15 +141,9 @@ class PowerTreePage(QWidget):
         btn_rebuild = QPushButton("Rebuild from Parse Nets")
         btn_rebuild.setToolTip(
             "Rebuild the tree from the current Parse Nets result "
-            "(saved node attributes kept via the YAML draft)")
+            "(saved node attributes kept via the YAML draft); the "
+            "passive-bridge pruning runs automatically")
         btn_rebuild.clicked.connect(self._rebuild)
-        btn_prune = QPushButton("Prune passive bridges")
-        btn_prune.setToolTip(
-            "Two power nets connected only via R/L/C/J/SJ: keep the "
-            "load-side net, prune the upstream one (audit logged)")
-        btn_prune.clicked.connect(self._prune)
-        btn_restore = QPushButton("Restore pruned...")
-        btn_restore.clicked.connect(self._restore)
         btn_fit = QPushButton("Fit View")
         btn_fit.clicked.connect(self._fit)
         btn_zoom_in = QPushButton("Zoom In")
@@ -156,8 +153,7 @@ class PowerTreePage(QWidget):
         btn_zoom_out.clicked.connect(
             lambda: self.canvas.scale(1 / ZOOM_FACTOR,
                                       1 / ZOOM_FACTOR))
-        for btn in (btn_rebuild, btn_prune, btn_restore, btn_fit,
-                    btn_zoom_in, btn_zoom_out):
+        for btn in (btn_rebuild, btn_fit, btn_zoom_in, btn_zoom_out):
             row.addWidget(btn)
         row.addStretch(1)
         lay.addLayout(row)
@@ -281,10 +277,21 @@ class PowerTreePage(QWidget):
 
     def _build_tree(self) -> None:
         """Auto-build the draft from the parse result (keeps nothing:
-        only called when no YAML draft exists yet)."""
+        only called when no YAML draft exists yet).  The passive-bridge
+        pruning runs AUTOMATICALLY here (user direction: no manual
+        prune/restore buttons) - a wrongly-pruned net is restored by
+        re-categorizing it as Power in the Parse Nets Parsed Nets
+        table (the category_override flag travels via testable_nets)."""
         power, members = self._parse_members()
         self._bridges = find_bridges(members)
         self.tree = PowerTree.build(power, self._bridges, primaries=[])
+        pruned = self.tree.prune_passive(self._bridges)
+        testable = ((self.model.imported.get("testable_nets") or {})
+                    if self.model else {})
+        for entry in pruned:
+            if (testable.get(entry["net"]) or {}).get(
+                    "category_override"):
+                self.tree.restore_pruned(entry["net"])
 
     # ------------------------------------------------------------ canvas
     def _render(self) -> None:
@@ -400,8 +407,10 @@ class PowerTreePage(QWidget):
         if node.pruned:
             QMessageBox.information(
                 self, "Pruned node",
-                "This node is pruned from the tree - restore it "
-                "first (Restore pruned...).")
+                "This node was pruned from the tree by the automatic "
+                "passive-bridge pruning - re-categorize the net as "
+                "Power in the Parse Nets Parsed Nets table to restore "
+                "it.")
             return
         before = copy.deepcopy(node)
         dlg = NodeEditDialog(node, self.tree, self)
@@ -426,48 +435,17 @@ class PowerTreePage(QWidget):
             self._edit_node(name)
 
     def _rebuild(self) -> None:
-        """Rebuild the tree from the current Parse Nets result."""
+        """Rebuild the tree from the current Parse Nets result (the
+        passive-bridge pruning is part of the automatic build)."""
         self._build_tree()
         self._render()
         self.save_to_model()
+        pruned = [n.name for n in self.tree.nodes.values() if n.pruned]
         self._log(
             "INFO",
             f"Power tree rebuilt from parse result "
-            f"({len(self.tree.nodes)} nodes)")
-
-    def _prune(self) -> None:
-        pruned = self.tree.prune_passive(self._bridges)
-        if not pruned:
-            QMessageBox.information(
-                self, "Prune",
-                "no passive-bridge pruning candidates found")
-        self._render()
-        self.save_to_model()
-        if pruned:
-            self._log("INFO", "Passive bridge pruning executed")
-        for entry in pruned:
-            self._log(
-                "WARNING",
-                f"power net {entry['net']} pruned - load-side "
-                f"{entry['kept']} kept (bridge {entry['refdes']})")
-
-    def _restore(self) -> None:
-        pruned = [n.name for n in self.tree.nodes.values()
-                  if n.pruned]
-        if not pruned:
-            QMessageBox.information(
-                self, "Restore", "no pruned nodes")
-            return
-        from PySide6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getItem(
-            self, "Restore pruned node", "net:", pruned, 0, False)
-        if ok and name and self.tree.restore_pruned(name):
-            self._render()
-            self.save_to_model()
-            self._log(
-                "INFO",
-                f"Pruned topology restored: {name} back in the "
-                "power tree")
+            f"({len(self.tree.nodes)} nodes, "
+            f"{len(pruned)} auto-pruned)")
 
     def _fit(self) -> None:
         self.canvas.fit_view()

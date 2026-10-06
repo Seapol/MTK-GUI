@@ -228,12 +228,15 @@ class YamlBuildPage(QWidget):
             # the parse result is the single data source for the
             # Channel Allocation tables (T10)
             result = dialog.nets_panel.result
+            overrides = dialog.nets_panel._category_overrides
             self.model.imported["testable_nets"] = {
-                rec.name: {"category": cat,
+                rec.name: {"category": overrides.get(rec.name, cat),
                            "members": list(rec.members),
                            **({"auto_generated": True}
                               if dialog.nets_panel._auto_generated.get(
-                                  rec.name) else {})}
+                                  rec.name) else {}),
+                           **({"category_override": True}
+                              if rec.name in overrides else {})}
                 for cat, records in
                 (("Power", result.power), ("Clock", result.clock),
                  ("GPIO", result.gpio))

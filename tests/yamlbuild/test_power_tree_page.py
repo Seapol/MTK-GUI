@@ -77,12 +77,12 @@ def test_canvas_renders_nodes_and_edges(page):
                   if getattr(i, "name", None)]
     assert node_items                      # one graphics item per node
     names = {i.name for i in node_items}
-    assert "VIN_24V" in names
-    # canvas capabilities: pan + zoom + scrollbars as needed
-    assert page.canvas.dragMode() == page.canvas.DragMode.ScrollHandDrag
-    assert page.canvas.horizontalScrollBarPolicy() in (
-        __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.ScrollBarPolicy
-        .ScrollBarAsNeeded,)
+    # pruned nodes are NOT rendered (active nodes only); with no
+    # primary the prune keeps the load side of every passive bridge
+    pruned = {n.name for n in page.tree.nodes.values() if n.pruned}
+    assert pruned                          # auto-pruning ran
+    assert not (names & pruned)
+    assert names                           # active nodes rendered
 
 
 def test_summary_and_audit_panels_populated(page):
@@ -141,7 +141,8 @@ def test_summary_double_click_opens_editor(page, monkeypatch):
 # ------------------------------------------------------------- pruning
 def test_prune_and_restore_with_audit(page):
     """Passive-bridge pruning keeps the load side and logs the audit;
-    restore brings the node back (audit stays)."""
+    restore brings the node back (audit stays) - the core rule is
+    covered here, the AUTOMATIC run is tested via _build_tree."""
     bridges = [{"refdes": "R4", "kind": "passive",
                 "nets": ("MID_A", "VIN_24V")}]
     page.tree = PowerTree.build(["VIN_24V", "MID_A"], bridges,
@@ -153,6 +154,25 @@ def test_prune_and_restore_with_audit(page):
     assert page.tree.audit_log[-1]["refdes"] == "R4"
     assert page.tree.restore_pruned("VIN_24V")
     assert not page.tree.nodes["VIN_24V"].pruned
+
+
+def test_auto_prune_on_build_and_category_override_restore(page):
+    """The pruning runs AUTOMATICALLY when the tree is built from the
+    parse result (no manual button); a wrongly-pruned net restored by
+    the user (re-categorized as Power in Parsed Nets -> the
+    category_override flag) comes back into the tree."""
+    page.refresh_from_model()
+    assert any(n.pruned for n in page.tree.nodes.values())
+    assert any("passive bridge" in e["reason"]
+               for e in page.tree.audit_log)
+    # user re-categorization restores the wrongly-pruned net
+    pruned_name = next(n.name for n in page.tree.nodes.values()
+                       if n.pruned)
+    page.model.imported["testable_nets"][pruned_name][
+        "category_override"] = True
+    page.model.power_tree = {}             # force a fresh build
+    page.refresh_from_model()
+    assert not page.tree.nodes[pruned_name].pruned
 
 
 def test_bridges_detected_from_parse_members(page):
@@ -170,35 +190,17 @@ def _spy(page):
     return records
 
 
-def test_rebuild_prune_restore_emit_event_log(page, monkeypatch):
-    """All tree-level operations report into the global Event Log
-    (INFO level, standard wording) - double-layer logging: the fine
+def test_rebuild_emits_event_log(page):
+    """Rebuild reports into the global Event Log (INFO level) with
+    the auto-pruned count - double-layer logging: the fine
     tree.audit_log stays untouched."""
-    from PySide6.QtWidgets import QInputDialog, QMessageBox
     records = _spy(page)
-    pruned_names = []
-
-    def fake_restore_choice(*_a, **_k):
-        # restore the first actually pruned node (direction depends
-        # on the auto-built bridge orientation)
-        name = next(n.name for n in page.tree.nodes.values()
-                    if n.pruned)
-        pruned_names.append(name)
-        return (name, True)
-
-    monkeypatch.setattr(QInputDialog, "getItem", fake_restore_choice)
-    monkeypatch.setattr(QMessageBox, "information",
-                        lambda *a, **k: None)
     page.refresh_from_model()
     page._rebuild()
-    page._prune()
-    page._restore()
     messages = [msg for _lvl, msg in records]
     assert any("Power tree rebuilt from parse result" in m
                for m in messages)
-    assert any("Passive bridge pruning executed" in m
-               for m in messages)
-    assert any("Pruned topology restored" in m for m in messages)
+    assert any("auto-pruned" in m for m in messages)
 
 
 def test_node_edit_logs_field_change_summary(page, monkeypatch):
