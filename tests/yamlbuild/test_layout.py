@@ -167,7 +167,12 @@ def test_module_dialog_adapts(page, qapp, module_key):
     dialog.show()
     QApplication.processEvents()
     hint = dialog.sizeHint()
-    assert dialog.width() >= min(int(hint.width() * 1.4), hint.width())
+    # the width must reach the size hint, bounded by the (offscreen)
+    # screen - the wide Parse Nets tables clamp to the screen edge
+    screen_w = dialog.screen().availableGeometry().width()
+    allowed = min(int(hint.width() * 1.4), hint.width(),
+                  screen_w - 70)
+    assert dialog.width() >= allowed
     screen = dialog.screen() or \
         QApplication.instance().primaryScreen()
     avail = screen.availableGeometry()

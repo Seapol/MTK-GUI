@@ -174,6 +174,10 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         # internal bookkeeping: the netlist reference comes from the
         # Design Input import (single import entry - no second one)
         _f("netlist_file", "Netlist File", hidden=True),
+        # Power-table Do-Not-Test flags (one net per line; edited in
+        # the Parse Nets panel Power table)
+        _f("power_dont_test", "Power Do Not Test Nets", ftype=T_TEXT,
+           hidden=True),
         # power waveform capture nets: OWNED by the Power Tree page
         # (edited there, persisted here; not a Parse Nets dialog field)
         _f("power_capture_nets", "Power Waveform Capture Nets",

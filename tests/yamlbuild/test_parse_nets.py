@@ -94,17 +94,19 @@ def test_parse_summary_counts():
 
 
 # ------------------------------------------------------------ GUI panel
-def test_panel_parse_renders_preview(panel):
-    """The preview table lists every testable net with its category
-    and a read-only OK status; the summary label shows the counts."""
+def test_panel_parse_renders_power_table(panel):
+    """Table 1 is the POWER NETS table (Net | Test Points | Do Not
+    Test | Assign Impedance | Assign Voltage | Assign Power rails);
+    only power nets are listed, the summary shows the counts."""
     panel.set_net_source(NET_SAMPLE, "board.net")
     panel.parse_nets()
     assert panel.result is not None
-    assert panel.table.rowCount() == 4       # 2 power + 1 clock + 1 gpio
-    assert panel.table.item(0, 1).text() == CATEGORY_POWER
-    assert panel.table.item(2, 1).text() == CATEGORY_CLOCK
-    assert panel.table.item(3, 1).text() == CATEGORY_GPIO
-    assert panel.table.item(0, 3).text() == "OK"
+    assert panel.table.rowCount() == 2       # the 2 power nets
+    assert panel.table.item(0, 0).text() == "3V3"
+    assert panel.table.columnCount() == 6
+    # the Do-Not-Test checkbox and the three Yes/No assigns are cells
+    assert panel.table.cellWidget(0, 2) is not None
+    assert panel.table.cellWidget(0, 3).currentText() == "—"
     assert "power=2" in panel.lbl_summary.text()
 
 
@@ -157,7 +159,7 @@ def test_block03_dialog_embeds_parse_panel(qapp):
         dlg.nets_panel.set_net_source(NET_SAMPLE, "board.net")
         dlg.nets_panel.parse_nets()
         assert dlg.nets_panel.result is not None
-        assert dlg.nets_panel.table.rowCount() == 4
+        assert dlg.nets_panel.table.rowCount() == 2
     finally:
         dlg.deleteLater()
 

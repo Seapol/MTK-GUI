@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -82,6 +83,9 @@ CATEGORY_POWER = "Power"
 CATEGORY_CLOCK = "Clock"
 CATEGORY_GPIO = "GPIO"
 CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
+
+#: placeholder of the Power-table Yes/No assignment combos
+UNSET_YESNO = "—"
 
 _FILTER_REASONS = {
     NET_TYPE_GND_REF: "reference ground (measurement loop)",
@@ -325,9 +329,17 @@ class ParseNetsPanel(QWidget):
         # GUI-configurable thresholds + per-net scores (both persisted)
         self.risk_thresholds: dict = dict(DEFAULT_THRESHOLDS)
         self.risk_scores: dict = {}
+        # Power-table state: per-net Do-Not-Test flags + the Yes/No
+        # assignments (impedance / voltage / power rails); persisted
+        # via the parse_ict params and the channel_allocation rows
+        self._power_dnt: dict[str, bool] = {}
+        self._power_assign: dict[str, dict[str, str]] = {}
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
+        # the three wide tables need room - never squeeze the columns
+        # into overlapping text
+        self.setMinimumWidth(860)
 
         # --------------------------------- inline classification rules
         # core standard section 6: Power / SE Clock / Signal regex
@@ -372,16 +384,23 @@ class ParseNetsPanel(QWidget):
         row.addWidget(self.lbl_summary, 1)
         lay.addLayout(row)
 
-        self.table = QTableWidget(0, 4)
+        # ------------------------------ table 1: Power Nets (core
+        # standard section 6: Net | Test Points | Do Not Test |
+        # Assign Impedance | Assign Voltage | Assign Power rails)
+        lbl_power = QLabel("Power Nets:")
+        lbl_power.setObjectName("strong")
+        lay.addWidget(lbl_power)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Net", "Category", "Test points", "Status"])
+            ["Net", "Test Points", "Do Not Test", "Assign Impedance",
+             "Assign Voltage", "Assign Power rails"])
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setMinimumHeight(160)
+        self.table.setMinimumHeight(150)
         lay.addWidget(self.table, 1)
 
         self.lbl_filtered = QLabel("")
@@ -429,8 +448,7 @@ class ParseNetsPanel(QWidget):
         self.lbl_clock_alloc.setObjectName("strong")
         lay.addWidget(self.lbl_clock_alloc)
         self.clock_table = self._build_alloc_table(
-            ["SE Clock Net Name", "Assigned Channel",
-             "Status (Assigned / Not Test)"])
+            ["SE Clock Net Name", "Assign Clock Hz"])
         lay.addWidget(self.clock_table)
         self.lbl_gpio_alloc = QLabel(
             "GPIO DAQM907A DIO Channels (U2355A DIO is reserved for "
@@ -438,8 +456,7 @@ class ParseNetsPanel(QWidget):
         self.lbl_gpio_alloc.setObjectName("strong")
         lay.addWidget(self.lbl_gpio_alloc)
         self.gpio_table = self._build_alloc_table(
-            ["GPIO Net Name", "Assigned DAQM907A DIO Channel",
-             "Status (Assigned / Not Test)"])
+            ["GPIO Net Name", "Assign DAQM907A DIO Channel"])
         lay.addWidget(self.gpio_table)
 
         # manual Signal Net add row (the Signal table starts empty)
@@ -464,6 +481,42 @@ class ParseNetsPanel(QWidget):
             self._edit_risk_thresholds)
 
     # ---------------------------------------------------------- item 24
+    def set_power_state(self, dnt_nets: set[str] | None,
+                        assignments: dict | None) -> None:
+        """Restore the persisted Power-table state (Do-Not-Test net
+        set + Yes/No assignments from the channel allocation)."""
+        self._power_dnt = {n: True for n in (dnt_nets or set())}
+        self._power_assign = {
+            net: dict(assigns)
+            for net, assigns in (assignments or {}).items()}
+
+    def power_dnt_nets(self) -> list[str]:
+        """The power nets currently flagged Do Not Test."""
+        return sorted(n for n, v in self._power_dnt.items() if v)
+
+    def power_assignments(self) -> dict:
+        """The Power-table Yes/No assignments (net -> impedance /
+        voltage / power_rails) - merged into the channel allocation
+        power rows by the page."""
+        return {net: dict(assigns) for net, assigns
+                in self._power_assign.items()
+                if any(v and v != UNSET_YESNO for v in assigns.values())}
+
+    def _power_dnt_set(self, name: str, checked: bool) -> None:
+        self._power_dnt[name] = checked
+        self.task_log.emit(
+            "INFO",
+            f"power net {name} marked "
+            f"{'Do Not Test' if checked else 'testable'}")
+
+    def _power_assign_set(self, name: str, key: str,
+                          value: str) -> None:
+        assigns = self._power_assign.setdefault(name, {})
+        assigns[key] = value
+        self.task_log.emit(
+            "INFO",
+            f"power net {name}: {key} assignment = {value}")
+
     def set_rules(self, rules: dict) -> None:
         """Load the persisted classification rules (project YAML) and
         refresh the read-only effective-value displays."""
@@ -507,19 +560,20 @@ class ParseNetsPanel(QWidget):
             self.parse_nets()               # rules take effect live
 
     def _build_alloc_table(self, headers: list[str]):
-        """One allocation table: Net | Channel (editable) | Status +
-        per-row Do-Not-Test toggle (manual override wins)."""
+        """One allocation table (core standard section 6): Net |
+        Assign <channel> | Do Not Test - status and risk columns are
+        gone (the status is derived from the checkbox, the risk lives
+        in the Power Tree summary)."""
         from PySide6.QtWidgets import (
             QCheckBox,
             QComboBox,
         )
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels([
-            *headers, "Risk (0-10)", "Do Not Test"])
+        table = QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels([*headers, "Do Not Test"])
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
         table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setMinimumHeight(110)
@@ -532,7 +586,7 @@ class ParseNetsPanel(QWidget):
                           pool: tuple[str, ...]) -> None:
         """Render allocation rows; the channel cell is a dropdown of
         the pool (manual override wins over the auto assignment) and
-        the Do-Not-Test checkbox toggles the Not Test status."""
+        the Do-Not-Test checkbox marks the net Not Test."""
         from PySide6.QtWidgets import QCheckBox, QComboBox
         table._channel_pool = pool
         table.setRowCount(len(rows))
@@ -548,38 +602,17 @@ class ParseNetsPanel(QWidget):
                 lambda value, t=table, rr=r: self._alloc_changed(
                     t, rr, value))
             table.setCellWidget(r, 1, combo)
-            status = QTableWidgetItem(row_data["status"])
-            status.setFlags(status.flags()
-                            & ~Qt.ItemFlag.ItemIsEditable)
-            status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(r, 2, status)
             dnt = QCheckBox()
             dnt.setChecked(row_data["status"] == DONT_TEST)
             dnt.toggled.connect(
                 lambda checked, t=table, rr=r: self._dnt_toggled(
                     t, rr, checked))
-            table.setCellWidget(r, 4, dnt)
+            table.setCellWidget(r, 2, dnt)
             table._dnt_boxes.append(dnt)
-            # advisory risk column (yellow Medium / red High; never
-            # blocks the assignment - requirement 5)
-            risk = row_data.get("risk") or {}
-            score = risk.get("score", 0)
-            level = risk.get("level", "Low")
-            risk_item = QTableWidgetItem(f"{score} ({level})")
-            risk_item.setFlags(risk_item.flags()
-                               & ~Qt.ItemFlag.ItemIsEditable)
-            risk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if risk.get("warning"):
-                from PySide6.QtGui import QColor
-                risk_item.setBackground(QColor(
-                    "#facc15" if level == LEVEL_MEDIUM else "#dc2626"))
-                if level == LEVEL_HIGH:
-                    risk_item.setForeground(QColor("#ffffff"))
-                risk_item.setToolTip(WARNING_MESSAGE)
-            table.setItem(r, 3, risk_item)
 
     def _alloc_rows(self, table) -> list[dict]:
-        """Read the table back into allocation row dicts."""
+        """Read the table back into allocation row dicts (the status
+        is derived from the Do-Not-Test checkbox)."""
         rows = []
         for r in range(table.rowCount()):
             channel_item = table.cellWidget(r, 1)
@@ -601,12 +634,10 @@ class ParseNetsPanel(QWidget):
             dnt.setChecked(True)
             return
         dnt.setChecked(False)
-        table.item(row, 2).setText(ASSIGNED)
         self._persist_allocations()
 
     def _dnt_toggled(self, table, row: int, checked: bool) -> None:
-        """Do-Not-Test toggle: status flips to Not Test / Assigned."""
-        table.item(row, 2).setText(DONT_TEST if checked else ASSIGNED)
+        """Do-Not-Test toggle (the assigned channel is cleared)."""
         self._persist_allocations()
 
     def _persist_allocations(self) -> None:
@@ -943,25 +974,43 @@ class ParseNetsPanel(QWidget):
 
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
-        """Render the parsed net list (user verification preview)."""
-        rows = [(r, CATEGORY_POWER) for r in result.power]
-        rows += [(r, CATEGORY_CLOCK) for r in result.clock]
-        rows += [(r, CATEGORY_GPIO) for r in result.gpio]
+        """Render the POWER NETS table (Net | Test Points | Do Not
+        Test | Assign Impedance | Assign Voltage | Assign Power
+        rails); Step-4 best test point first, redundant alternatives
+        dropped from the display."""
+        rows = list(result.power)
         self.table.setRowCount(len(rows))
-        for row, (rec, cat) in enumerate(rows):
+        yes_no = (UNSET_YESNO, "Yes", "No")
+        for row, rec in enumerate(rows):
             best, kept = select_test_points(rec.members)
-            # Step 4: the auto-selected best point first, redundant
-            # same-class alternatives dropped from the display
             points = best if best else ""
             if len(kept) > 1:
                 points += f" (+{len(kept) - 1} alt)"
-            for col, text in ((0, rec.name), (1, cat),
-                              (2, points), (3, "OK")):
-                item = QTableWidgetItem(text)
-                if col == 3:
-                    item.setFlags(item.flags() &
-                                  ~Qt.ItemFlag.ItemIsEditable)
-                self.table.setItem(row, col, item)
+            net_item = QTableWidgetItem(rec.name)
+            net_item.setFlags(net_item.flags()
+                              & ~Qt.ItemFlag.ItemIsEditable)
+            tp_item = QTableWidgetItem(points)
+            tp_item.setFlags(tp_item.flags()
+                             & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row, 0, net_item)
+            self.table.setItem(row, 1, tp_item)
+            dnt = QCheckBox()
+            dnt.setChecked(bool(self._power_dnt.get(rec.name)))
+            dnt.toggled.connect(
+                lambda checked, name=rec.name: self._power_dnt_set(
+                    name, checked))
+            self.table.setCellWidget(row, 2, dnt)
+            for col, key in ((3, "impedance"), (4, "voltage"),
+                             (5, "power_rails")):
+                combo = QComboBox()
+                combo.addItems(yes_no)
+                current = (self._power_assign.get(rec.name) or {}) \
+                    .get(key) or UNSET_YESNO
+                combo.setCurrentText(current)
+                combo.currentTextChanged.connect(
+                    lambda value, name=rec.name, k=key:
+                        self._power_assign_set(name, k, value))
+                self.table.setCellWidget(row, col, combo)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
         filtered = "; ".join(f"{n} ({r})"

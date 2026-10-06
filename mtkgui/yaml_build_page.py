@@ -199,6 +199,18 @@ class YamlBuildPage(QWidget):
             if module_key == "parse_ict" else None,
             panel_state={
                 "net_rules": self.model.net_classification_rules,
+                "power_dnt": {
+                    ln.strip() for ln in
+                    (self.model.get_params("parse_ict") or {})
+                    .get("power_dont_test", "").splitlines()
+                    if ln.strip()},
+                "power_assign": {
+                    row["net"]: {"impedance": row.get("impedance", ""),
+                                 "voltage": row.get("voltage", ""),
+                                 "power_rails":
+                                     row.get("power_rails", "")}
+                    for row in (self.model.channel_allocation or {})
+                    .get("power", [])},
                 "clock_overrides": {
                     row["net"]: (row["channel"] or "Not Test")
                     for row in self.model.se_clock_allocation
@@ -251,6 +263,24 @@ class YamlBuildPage(QWidget):
                 nets_panel._alloc_rows(nets_panel.clock_table)
             self.model.gpio_allocation = \
                 nets_panel._alloc_rows(nets_panel.gpio_table)
+            # Power-table persistence: DNT flags into the parse_ict
+            # params, the Yes/No assignments merged into the power
+            # rows of the channel allocation (net-keyed, other fields
+            # of an existing row are preserved)
+            self.model.set_params("parse_ict", {
+                "power_dont_test":
+                    "\n".join(nets_panel.power_dnt_nets())})
+            power_rows = {
+                row["net"]: row
+                for row in (self.model.channel_allocation or {})
+                .get("power", [])}
+            for net, assigns in nets_panel.power_assignments().items():
+                row = power_rows.setdefault(net, {"net": net})
+                row.update(assigns)
+                power_rows[net] = row
+            self.model.set_channel_allocation({
+                **(self.model.channel_allocation or {}),
+                "power": list(power_rows.values())})
             # test path risk: thresholds + per-net advisory scores
             self.model.path_risk = {
                 "thresholds": dict(nets_panel.risk_thresholds),
