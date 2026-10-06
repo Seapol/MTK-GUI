@@ -19,7 +19,7 @@ from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.schema import fields_for  # noqa: E402
 from mtkgui.gui.yamlbuild.stages import (  # noqa: E402
     STAGE_KEYS,
-    WORKFLOW_STAGES,
+    WORKFLOW_DISPLAY_STAGES,
 )
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
@@ -60,7 +60,7 @@ def _card_rects(page) -> dict:
     """Card geometries in flow coordinates (None when not laid out)."""
     out = {}
     flow = page.block_flow.flow
-    for stage in WORKFLOW_STAGES:
+    for stage in WORKFLOW_DISPLAY_STAGES:
         card = page.block_flow._cards[stage.key]
         out[stage.key] = card.geometry() if card.parent() is flow \
             else card.geometry()
@@ -116,8 +116,8 @@ def test_resolution_adaptation(page, qapp, width, height):
             f"horizontal overflow at {width}x{height}: "
             f"{type(child).__name__}")
     # flow cards: pairwise disjoint, fully inside the flow area
-    rects = [page.block_flow._cards[k].geometry()
-             for k in STAGE_KEYS]
+    rects = [page.block_flow._cards[stage.key].geometry()
+             for stage in WORKFLOW_DISPLAY_STAGES]
     for i, a in enumerate(rects):
         assert 0 <= a.left() and a.right() <= page.block_flow.width(), (
             f"card clipped at {width}x{height}")

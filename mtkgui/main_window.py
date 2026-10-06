@@ -481,6 +481,10 @@ class MainWindow(QMainWindow):
         # navigation: Parse Nets "Open Power Tree Editor" -> this tab
         self.yaml_build_page.power_tree_page_requested.connect(
             lambda: self.tabs.setCurrentWidget(self.power_tree_page))
+        # navigation: merged "Build ICT Test Work Flow Sequence" card
+        # -> Test Work Flow tab, cursor on the ICT Test Cases table
+        self.yaml_build_page.test_workflow_requested.connect(
+            self._goto_test_workflow)
 
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
@@ -1113,6 +1117,16 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_project_file(path)
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
+
+    def _goto_test_workflow(self):
+        """Merged 'Build ICT Test Work Flow Sequence' card: switch to
+        the Test Work Flow tab and focus the ICT Test Cases table
+        (cursor on the first case row)."""
+        self.tabs.setCurrentWidget(self.workflow_page)
+        table = self.workflow_page.ict
+        table.setFocus()
+        table.setCurrentCell(0, 1)
+        table.scrollToTop()
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.

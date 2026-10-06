@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
 from mtkgui.gui.yamlbuild.schema import module_title
 from mtkgui.gui.yamlbuild.stages import (
-    WORKFLOW_STAGES,
+    DISPLAY_CARD_MODULES,
+    WORKFLOW_DISPLAY_STAGES,
     Stage,
 )
 
@@ -96,6 +97,10 @@ MODULE_TOOLTIPS = {
         "后续模块只读引用",
     "parse_ict":
         "从DesignModel提取ICT网络信息生成ICTNetModel；不生成测试序列",
+    "ict_workflow":
+        "合并的ICT测试工作流节点（原04/05/06）：双击打开Test Work Flow"
+        "页编辑ICT Test Cases（阻抗/电压/Power rails、时钟、GPIO测试"
+        "步骤）；复用block03已配置仪器资源",
     "rails":
         "生成ICT阻抗/电压测量与DUT上下电序列；复用block03仪器资源，"
         "不重复配置仪器",
@@ -219,6 +224,13 @@ class BlockCard(QFrame):
             self.configure_requested.emit(self.stage.key)
         super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Double click on the merged ICT workflow card jumps to the
+        Test Work Flow page (same navigation as the single click)."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.configure_requested.emit(self.stage.key)
+        super().mouseDoubleClickEvent(event)
+
     def _build_menu(self) -> QMenu:
         """Build the right-click menu (single + batch operations,
         rule 3.2: Enable / Disable / Enable All / Disable All with
@@ -277,19 +289,25 @@ class BlockFlowWidget(QWidget):
         # 6.2: no card clipping at any resolution)
         self.setMinimumWidth(300)
         self._cards: dict[str, BlockCard] = {}
+        # display card -> underlying YAML modules (the merged ICT
+        # workflow card represents rails + clocks + gpios)
+        self._card_modules: dict[str, tuple[str, ...]] = {}
+        self._module_states: dict[str, bool] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         self.flow = FlowLayout(self)
         layout.addWidget(self.flow)
         previous = None
-        for index, stage in enumerate(WORKFLOW_STAGES):
+        for index, stage in enumerate(WORKFLOW_DISPLAY_STAGES):
             card = BlockCard(stage, index)
             card.configure_requested.connect(self.configure_requested)
-            card.enable_requested.connect(self.enable_requested)
+            card.enable_requested.connect(self._on_enable_request)
             card.enable_all_requested.connect(self.enable_all_requested)
             card.disable_all_requested.connect(
                 self.disable_all_requested)
             self._cards[stage.key] = card
+            self._card_modules[stage.key] = DISPLAY_CARD_MODULES.get(
+                stage.key, (stage.key,))
             self.flow.add_widget(card)
             if previous is not None:
                 arrow = QLabel("→")
@@ -297,18 +315,34 @@ class BlockFlowWidget(QWidget):
                 arrow.setFixedWidth(24)
                 self.flow.add_widget(arrow)
             previous = stage
-        # sequence is fixed: the flow order equals WORKFLOW_STAGES and
-        # no user interaction can reorder the cards
+        # sequence is fixed: the flow order equals
+        # WORKFLOW_DISPLAY_STAGES and no user interaction can reorder
+        # the cards
+
+    def _on_enable_request(self, module_key: str, enabled: bool) -> None:
+        """Enable / Disable request from a card: the merged ICT
+        workflow card applies the state to ALL of its underlying
+        modules (rails / clocks / gpios)."""
+        for module in self._card_modules.get(module_key,
+                                             (module_key,)):
+            self.enable_requested.emit(module, enabled)
 
     def set_state(self, module_key: str, enabled: bool) -> None:
-        """Mirror one module's enable state on its card.
+        """Mirror one module's enable state on its card (the merged
+        ICT workflow card shows Enabled when ANY of its underlying
+        modules - rails / clocks / gpios - is enabled).
 
         Args:
             module_key: Stage key.
             enabled:    New state.
         """
-        if module_key in self._cards:
-            self._cards[module_key].set_enabled(enabled)
+        self._module_states[module_key] = enabled
+        for display_key, modules in self._card_modules.items():
+            if module_key in modules:
+                self._cards[display_key].set_enabled(any(
+                    self._module_states.get(m, False)
+                    for m in modules))
+                return
 
     def open_dialog(self, module_key: str, params: dict,
                     parent: QWidget,

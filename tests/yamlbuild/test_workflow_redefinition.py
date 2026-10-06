@@ -100,12 +100,21 @@ def test_every_stage_has_tooltip():
 
 
 # ------------------------------------------------------------------ UI
-def test_block_flow_renders_twelve_cards():
+def test_block_flow_renders_merged_display_cards():
+    """The UI renders the MERGED display sequence: 04/05/06 collapse
+    into the single 'Build ICT Test Work Flow Sequence' card (10
+    cards); the YAML model keeps the full 12-module sequence."""
     from PySide6.QtWidgets import QApplication
+    from mtkgui.gui.yamlbuild.stages import (
+        DISPLAY_ICT_WORKFLOW,
+        WORKFLOW_DISPLAY_STAGES,
+    )
     QApplication.instance() or QApplication([])
     flow = BlockFlowWidget()
-    assert len(flow._cards) == 12
-    assert list(flow._cards) == list(STAGE_KEYS)
+    assert len(flow._cards) == 10
+    assert list(flow._cards) == [s.key for s in WORKFLOW_DISPLAY_STAGES]
+    assert flow._card_modules[DISPLAY_ICT_WORKFLOW] == \
+        ("rails", "clocks", "gpios")
     flow.deleteLater()
 
 

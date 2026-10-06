@@ -41,22 +41,25 @@ def test_page_assembly(page):
     assert not hasattr(page, "btn_build_draft")
     assert not hasattr(page, "btn_release_final")
     assert page.yaml_preview.btn_edit in page._action_buttons
-    assert len(page.block_flow._cards) == 12
+    assert len(page.block_flow._cards) == 10
+    assert "ict_workflow" in page.block_flow._cards
     assert page.yaml_preview.editor.toPlainText().startswith(
         "yaml_build:")
 
 
 def test_enable_disable_syncs_both_panes(page):
     """Disable: the card grays out AND the module leaves the effective
-    YAML preview; parameters are retained in the model."""
+    YAML preview; parameters are retained in the model.  The merged
+    ICT workflow card shows Enabled while ANY of rails/clocks/gpios
+    is enabled."""
     page.model.enable_all()
     page._after_model_change()
-    assert page.block_flow._cards["clocks"].state_label.text() == \
-        "Enabled"
+    assert page.block_flow._cards["ict_workflow"].state_label.text() \
+        == "Enabled"
 
     page._set_enabled("clocks", False)
-    assert page.block_flow._cards["clocks"].state_label.text() == \
-        "Disabled"
+    assert page.block_flow._cards["ict_workflow"].state_label.text() \
+        == "Enabled"                       # rails / gpios still on
     preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
     assert "clocks" not in preview["yaml_build"]["modules"]
     assert page.model.get_params("clocks")             # retained
@@ -65,12 +68,17 @@ def test_enable_disable_syncs_both_panes(page):
     preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
     assert "clocks" in preview["yaml_build"]["modules"]
 
+    for key in ("rails", "clocks", "gpios"):
+        page._set_enabled(key, False)
+    assert page.block_flow._cards["ict_workflow"].state_label.text() \
+        == "Disabled"
+
 
 def test_config_dialog_apply_updates_preview(page):
     """Saving a block dialog updates the model and the YAML preview
     (diagram -> YAML direction)."""
     page.model.enable_all()
-    page.block_flow._cards["rails"].set_enabled(True)
+    page.block_flow._cards["ict_workflow"].set_enabled(True)
     # simulate the dialog's validated result
     page.model.set_params("rails", {
         "on_voltage_v": "12.0", "current_limit_a": "2.0",
@@ -146,21 +154,33 @@ def test_yaml_hand_edit_disables_block_card(page):
     page.yaml_preview.btn_edit.click()            # enter edit mode
     doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
     doc["yaml_build"]["modules"]["clocks"]["enabled"] = False
+    doc["yaml_build"]["modules"]["rails"]["enabled"] = False
+    doc["yaml_build"]["modules"]["gpios"]["enabled"] = False
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
     page.yaml_preview.btn_edit.click()            # Apply: persist
-    assert page.block_flow._cards["clocks"].state_label.text() == \
-        "Disabled"
+    assert page.block_flow._cards["ict_workflow"].state_label.text() \
+        == "Disabled"
     assert page.model.is_enabled("clocks") is False
 
 
 def test_block_cards_carry_sequence_badges(page):
     """Cards render the uniform 01..10 sequence badges (fixed order,
-    unified look)."""
-    from mtkgui.gui.yamlbuild.stages import WORKFLOW_STAGES
-    for index, stage in enumerate(WORKFLOW_STAGES):
+    unified look; the merged ICT workflow card is 04)."""
+    from mtkgui.gui.yamlbuild.stages import WORKFLOW_DISPLAY_STAGES
+    for index, stage in enumerate(WORKFLOW_DISPLAY_STAGES):
         card = page.block_flow._cards[stage.key]
         assert card.title_label.text().startswith(f"{index + 1:02d} ·")
+
+
+def test_ict_workflow_card_navigates_to_test_workflow(page):
+    """The merged 'Build ICT Test Work Flow Sequence' card opens NO
+    config dialog - it emits the Test Work Flow navigation request
+    (the main window then focuses the ICT Test Cases table)."""
+    fired = []
+    page.test_workflow_requested.connect(lambda: fired.append(1))
+    page._open_block("ict_workflow")
+    assert fired == [1]
 
 
 def test_standard_button_tooltips(page):
@@ -175,19 +195,19 @@ def test_standard_button_tooltips(page):
 def test_module_cards_have_tooltips_even_disabled(page):
     """Every module card shows a description tooltip - also in the
     disabled state (rule 6.2)."""
-    from mtkgui.gui.yamlbuild.stages import WORKFLOW_STAGES
-    for stage in WORKFLOW_STAGES:
+    from mtkgui.gui.yamlbuild.stages import WORKFLOW_DISPLAY_STAGES
+    for stage in WORKFLOW_DISPLAY_STAGES:
         card = page.block_flow._cards[stage.key]
         assert card.toolTip().strip(), stage.key
     page._set_enabled("clocks", False)
-    assert page.block_flow._cards["clocks"].toolTip().strip()
+    assert page.block_flow._cards["ict_workflow"].toolTip().strip()
 
 
 def test_context_menu_single_and_batch(page):
     """The right-click menu offers single Enable/Disable plus batch
     Enable All / Disable All with the standard tooltips, and the
     batch actions really flip every module."""
-    card = page.block_flow._cards["clocks"]
+    card = page.block_flow._cards["ict_workflow"]
     page._disable_all()         # refresh cards to the disabled state
     menu = card._build_menu()
     actions = menu._actions_map
@@ -230,7 +250,8 @@ def test_dialog_fields_all_have_tooltips(page, qapp):
 
 def test_default_state_is_all_enabled(page):
     """Fresh page default: every module enabled (rule 3.2)."""
+    from mtkgui.gui.yamlbuild.stages import WORKFLOW_DISPLAY_STAGES
     assert all(page.model.is_enabled(k) for k in STAGE_KEYS)
-    for key in STAGE_KEYS:
-        assert page.block_flow._cards[key].state_label.text() == \
-            "Enabled"
+    for stage in WORKFLOW_DISPLAY_STAGES:
+        assert page.block_flow._cards[stage.key].state_label.text() \
+            == "Enabled"

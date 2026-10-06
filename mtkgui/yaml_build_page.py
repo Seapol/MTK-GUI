@@ -67,6 +67,10 @@ class YamlBuildPage(QWidget):
     #: navigation: the Parse Nets block asked for the dedicated
     #: Power Tree page (main window switches the tab)
     power_tree_page_requested = Signal()
+    #: navigation: the merged "Build ICT Test Work Flow Sequence"
+    #: card asked for the Test Work Flow page (main window switches
+    #: the tab and focuses the ICT Test Cases table)
+    test_workflow_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -183,6 +187,11 @@ class YamlBuildPage(QWidget):
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
         net = self.model.imported.get("net") or {}
+        if module_key == "ict_workflow":
+            # merged 04/05/06 node: no config dialog - jump to the
+            # Test Work Flow page (the ICT test cases live there)
+            self.test_workflow_requested.emit()
+            return
         params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,
             log_sink=self.task_log.emit,
