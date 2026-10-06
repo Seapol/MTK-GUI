@@ -50,16 +50,6 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-@pytest.fixture(autouse=True)
-def _silent_part_popup(monkeypatch):
-    """B1 closure #4: the SPF import now pops the non-silent Project
-    Part# guidance - tests stub it out (the wording itself is covered
-    by the dedicated test)."""
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "information",
-                        lambda *a, **k: None)
-
-
 @pytest.fixture()
 def panel(qapp):
     w = DesignInputPanel()
@@ -77,28 +67,20 @@ def files(tmp_path):
 
 
 # ------------------------------------------------------------- schema
-def test_part_number_nonsilent_guidance(panel, monkeypatch):
-    """B1 closure #4: the non-silent Project Part# mechanism - the
-    standard popup wording, the resident muted hint and the Event-Log
-    line all fire on an SPF import."""
+def test_part_number_autofilled_no_popup(panel, monkeypatch):
+    """The obsolete 'cannot auto-extract Project Part#' guidance is
+    GONE (auto-extraction from the SPF drawing title works): no
+    popup, no resident hint label on an SPF import - the field is
+    prefilled instead."""
     import tempfile
     from pathlib import Path
 
     from PySide6.QtWidgets import QLabel, QMessageBox
-    from mtkgui.gui.yamlbuild.design_input_panel import (
-        PART_NO_AUTO_SOURCE_HINT,
-        PART_NO_AUTO_SOURCE_LOG,
-        PART_NO_AUTO_SOURCE_POPUP,
-    )
     popups = []
     monkeypatch.setattr(QMessageBox, "information",
                         lambda *a, **k: popups.append(a[2]))
-    logs = []
-    panel.task_log.connect(lambda level, msg: logs.append(msg))
-    # the resident muted hint always sits next to the field
-    assert PART_NO_AUTO_SOURCE_HINT in \
-        [w.text() for w in panel.findChildren(QLabel)]
-    # popup + Event-Log wording on an SPF import
+    assert not any("No auto-source" in w.text()
+                   for w in panel.findChildren(QLabel))
     with tempfile.TemporaryDirectory() as td:
         spf = Path(td) / "spf-92722_revB.spf"
         spf.write_text(SPF_SAMPLE, encoding="utf-8")
@@ -106,8 +88,7 @@ def test_part_number_nonsilent_guidance(panel, monkeypatch):
             QFileDialog_PATCH,
             staticmethod(lambda *a, **k: (str(spf), "")))
         panel._import_spf()
-    assert popups == [PART_NO_AUTO_SOURCE_POPUP]
-    assert PART_NO_AUTO_SOURCE_LOG in logs
+    assert popups == []                   # no guidance popup anymore
 
 
 # ------------------------------------------------------------- schema
@@ -350,7 +331,7 @@ def test_optional_labels_and_only_product_id_required():
     for name in ("sw_version", "hw_version", "batch"):
         assert "(optional)" in specs[name].label, name
         assert specs[name].required is False, name
-    # Project Part # manual-entry final scheme (no auto source)
+    # Project Part # (auto-filled from the SPF title, still required)
     assert specs["part_number"].label == "Project Part #"
     assert specs["part_number"].required is True
     assert specs["product_id"].label == "Product ID"

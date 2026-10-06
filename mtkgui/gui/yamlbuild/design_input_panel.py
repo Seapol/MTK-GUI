@@ -51,18 +51,6 @@ from mtkgui.gui.yamlbuild.spf_title import extract_spf_project_name
 
 MAX_DRQ_NUMBERS = 3
 
-#: B1 closure directive #4: non-silent Project Part# guidance.  SPF /
-#: Drawing Title Block offer NO auto source for the board-level part
-#: number - the user must never be left unaware of that limitation.
-PART_NO_AUTO_SOURCE_POPUP = (
-    "System cannot auto-extract Project Part# from SPF/Drawing "
-    "Title, please manually input board project part number")
-PART_NO_AUTO_SOURCE_HINT = (
-    "Board Project Part#: No auto-source available, manual entry "
-    "required")
-PART_NO_AUTO_SOURCE_LOG = (
-    "Auto fetch Project Part# unavailable, please fill manually")
-
 
 class DrqDialog(QDialog):
     """Up to 3 DRQ numbers for the Deviation (DRQ) batch option."""
@@ -155,16 +143,9 @@ class DesignInputPanel(QWidget):
         form.addRow("Product ID:", self.edit_product_id)
         self.edit_part_number = QLineEdit()
         self.edit_part_number.setToolTip(
-            "Project Part # - manual entry is the ONLY board-level "
-            "part number source (no auto source exists in SPF / "
-            "Drawing Title Block); optionally prefilled from the SPF "
-            "first-page title when available, always editable")
+            "Project Part # - auto-filled from the SPF first-page "
+            "drawing title when available, always editable")
         form.addRow("Project Part #:", self.edit_part_number)
-        # resident muted hint: the limitation is always visible (no
-        # silent blanks)
-        lbl_part_hint = QLabel(PART_NO_AUTO_SOURCE_HINT)
-        lbl_part_hint.setObjectName("muted")
-        form.addRow("", lbl_part_hint)
         self.edit_sw_version = QLineEdit()
         self.edit_sw_version.setToolTip(
             "SW Version - manual fill only, report metadata purpose")
@@ -254,11 +235,6 @@ class DesignInputPanel(QWidget):
             f"SPF import done: {Path(path).name} "
             f"(Core ID: {core_id or '-'}, Project Name: "
             f"{title or '-'})")
-        # non-silent guidance (B1 closure #4): never leave the user
-        # unaware that the board-level part number has no auto source
-        self.task_log.emit("INFO", PART_NO_AUTO_SOURCE_LOG)
-        QMessageBox.information(self, "Project Part#",
-                                PART_NO_AUTO_SOURCE_POPUP)
         self.content_changed.emit()
 
     def _import_net(self) -> None:

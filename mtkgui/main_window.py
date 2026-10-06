@@ -1113,18 +1113,6 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_project_file(path)
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
-        # B1 closure #4: non-silent Project Part# guidance on project
-        # load / new project - never a silent blank
-        if not self.workflow_page.part_edit.text().strip():
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] "
-                "[INFO] Auto fetch Project Part# unavailable, "
-                "please fill manually")
-            QMessageBox.information(
-                self, "Project Part#",
-                "System cannot auto-extract Project Part# from "
-                "SPF/Drawing Title, please manually input board "
-                "project part number")
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.
@@ -1154,19 +1142,6 @@ class MainWindow(QMainWindow):
     def _save_yaml_to(self, path):
         config = project_config.build_config(
             self.workflow_page, self.equipment_page)
-        # B1 closure #4: second-chance reminder before the project
-        # lands on disk - advisory only (the save is NOT blocked)
-        if not str(config.get("product", {}).get("part_number") or "") \
-                .strip():
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] [WARNING] "
-                "Project Part# is still empty - please fill it "
-                "manually (no auto source)")
-            QMessageBox.information(
-                self, "Project Part# Missing",
-                "Board Project Part# is empty. It cannot be "
-                "auto-extracted - please fill it manually afterwards "
-                "(the save continues).")
         try:
             project_config.save_config(config, path)
         except OSError as exc:

@@ -405,18 +405,6 @@ class YamlBuildPage(QWidget):
                 "Fix the validation errors first:\n"
                 + "\n".join(errors[:15]))
             return
-        # B1 closure #4: non-silent Project Part# reminder right before
-        # the plan lands on disk (advisory - the kept required-field
-        # validation has already passed here)
-        part = str((self.model.get_params("design_input") or {})
-                   .get("part_number") or "").strip()
-        if not part:
-            self._tlog("WARNING", "Auto fetch Project Part# "
-                                  "unavailable, please fill manually")
-            QMessageBox.information(
-                self, "Project Part# Missing",
-                "Board Project Part# is empty. It cannot be "
-                "auto-extracted - please fill it manually.")
         self._task(0, f"{kind}: publishing")
         self._tlog("INFO", f"{kind} publish started "
                            f"(project {self.model.project_key()})")
