@@ -163,16 +163,22 @@ def test_hint_centered_in_middle_area(dlg, qapp):
 
 
 def test_bottom_fixed_info_bar(dlg, qapp):
-    """Station ID + live user info + copyright live in the absolute
-    bottom fixed area of the login window."""
-    from mtkgui.permissions import (
-        COPYRIGHT_TEXT,
-        STATION_ID,
-    )
-    assert dlg.station_label.text() == f"Station ID: {STATION_ID}"
-    assert dlg.user_label.text() == "User: Supervisor"
+    """Station ID + User + copyright live in the absolute bottom fixed
+    area of the login window.  Core standard 5.3: both identity fields
+    are the GLOBAL system-derived variables (host name + OS login),
+    the same source the Event-Log entries carry - never the selected
+    GUI account."""
+    import getpass
+
+    from mtkgui.gui.identity import get_station_id, get_user
+    from mtkgui.permissions import COPYRIGHT_TEXT
+    assert dlg.station_label.text() == \
+        f"Station ID: {get_station_id()}"
+    assert dlg.user_label.text() == f"User: {get_user()}"
+    assert get_user() == getpass.getuser()   # OS login, not the role
+    # switching the GUI account does NOT touch the identity footer
     dlg.role_combo.setCurrentText("Operator")
-    assert dlg.user_label.text() == "User: Operator"
+    assert dlg.user_label.text() == f"User: {get_user()}"
     dlg.role_combo.setCurrentText("Supervisor")
     copyr = dlg.findChild(QLabel, "login_copyright")
     assert copyr.text() == COPYRIGHT_TEXT == \

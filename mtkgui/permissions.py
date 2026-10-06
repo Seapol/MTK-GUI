@@ -17,8 +17,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtGui import QShowEvent
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
     QApplication,
@@ -35,6 +34,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from mtkgui.gui import identity
 from .gui_version import load_gui_version
 from .style import GUI_THEMES, saved_theme
 
@@ -49,9 +49,11 @@ FIXTURE_ATE = "ATE"
 FIXTURE_MANUAL = "Manual"
 FIXTURE_TYPES = (FIXTURE_ATE, FIXTURE_MANUAL)
 
-# Login window bottom info bar (item 12): fixed station identity +
-# live user info + the official copyright line
-STATION_ID = "MTK-AOI-01"
+# Login window bottom info bar (item 12): station identity + live
+# user info + the official copyright line.  Core standard 5.3: the
+# Station ID / User are the GLOBAL identity variables (host name +
+# OS login, system-derived, never manually editable) - the same
+# source the Event-Log entries carry.
 COPYRIGHT_TEXT = "\u00a92026 NXP. All Rights Reserved."
 
 # Fixed wording of the Manual-fixture notice (spec item 5): shown once
@@ -338,8 +340,6 @@ class LoginDialog(QDialog):
         # account AND the correct password are present (live check)
         self.role_combo.currentTextChanged.connect(
             lambda _t: self._sync_mode_lock())
-        self.role_combo.currentTextChanged.connect(
-            lambda text: self.user_label.setText(f"User: {text}"))
         self.password_edit.textChanged.connect(
             lambda _t: self._sync_mode_lock())
         self._sync_mode_lock()
@@ -355,9 +355,10 @@ class LoginDialog(QDialog):
         lay.setSpacing(2)
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.station_label = QLabel(f"Station ID: {STATION_ID}")
+        self.station_label = QLabel(
+            f"Station ID: {identity.get_station_id()}")
         self.station_label.setObjectName("login_station")
-        self.user_label = QLabel(f"User: {self.role_combo.currentText()}")
+        self.user_label = QLabel(f"User: {identity.get_user()}")
         self.user_label.setObjectName("login_user")
         row.addWidget(self.station_label)
         row.addStretch(1)
