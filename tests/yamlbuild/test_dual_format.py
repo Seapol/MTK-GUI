@@ -227,25 +227,46 @@ def test_signal_regex_filters_manual_candidates(qapp):
         panel.deleteLater()
 
 
-def test_inline_rules_live_in_panel(qapp):
-    """The inline regex edits restore persisted rules, update the
-    rules dict on edit and persist via the rules_changed mirror."""
-    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
+def test_inline_rules_readonly_with_dialog_edit(qapp, monkeypatch):
+    """The inline fields are read-only and show the EFFECTIVE regex
+    (user rule first, system default otherwise); the double-click
+    dialog edits one rule with Restore / Apply / Cancel."""
+    from PySide6.QtWidgets import QDialog
+
+    from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES
+    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel, \
+        _RuleEditDialog
     panel = ParseNetsPanel()
     try:
-        panel.set_rules({"power": r"^PWR_"})
-        assert panel.rule_edits["power"].text() == r"^PWR_"
-        changed = []
-        panel.rules_changed.connect(lambda d: changed.append(dict(d)))
-        panel.rule_edits["se_clock"].setText(r"^CLK\d")
-        panel._rule_edited("se_clock", panel.rule_edits["se_clock"])
-        assert panel.net_rules == {"power": r"^PWR_",
-                                   "se_clock": r"^CLK\d"}
-        assert changed and changed[-1] == panel.net_rules
-        # clearing the edit falls back to the system default
-        panel.rule_edits["se_clock"].clear()
-        panel._rule_edited("se_clock", panel.rule_edits["se_clock"])
-        assert "se_clock" not in panel.net_rules
+        # effective display: system defaults out of the box
+        assert panel.rule_edits["power"].isReadOnly()
+        assert panel.rule_edits["power"].text() == \
+            DEFAULT_RULES["power"]
+        # the dialog: Restore / Apply semantics
+        dlg = _RuleEditDialog("power", "", panel)
+        assert dlg.current_value() == ""
+        dlg._restore_default()
+        assert dlg.current_value() == DEFAULT_RULES["power"]
+        # invalid regex is rejected by Apply (dialog stays open)
+        dlg.edit_value.setText(r"^VDD[")
+        dlg._apply()
+        assert "invalid regex" in dlg.error_label.text()
+        # a valid user rule applies and lands in net_rules
+        monkeypatch.setattr(
+            _RuleEditDialog, "exec",
+            lambda self: QDialog.DialogCode.Accepted)
+        monkeypatch.setattr(_RuleEditDialog, "current_value",
+                            lambda self: r"^PWR_\w+$")
+        panel._open_rule_dialog("power")
+        assert panel.net_rules["power"] == r"^PWR_\w+$"
+        assert panel.rule_edits["power"].text() == r"^PWR_\w+$"
+        # Restore to default + Apply removes the user override
+        monkeypatch.setattr(_RuleEditDialog, "current_value",
+                            lambda self: DEFAULT_RULES["power"])
+        panel._open_rule_dialog("power")
+        assert "power" not in panel.net_rules
+        assert panel.rule_edits["power"].text() == \
+            DEFAULT_RULES["power"]
     finally:
         panel.deleteLater()
 

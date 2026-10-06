@@ -33,6 +33,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -55,7 +57,11 @@ from mtkgui.gui.designinput.netlist import (
     classify_nets,
 )
 from mtkgui.gui.yamlbuild.dual_format import parse_netlist_auto
-from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES, GPIO_EXCLUDE_RE
+from mtkgui.gui.yamlbuild.net_rules import (
+    DEFAULT_RULES,
+    GPIO_EXCLUDE_RE,
+    validate_rules,
+)
 from mtkgui.gui.yamlbuild.parser import parse_netlist
 from mtkgui.gui.yamlbuild.test_points import select_test_points
 from mtkgui.gui.yamlbuild.path_risk import (
@@ -215,6 +221,78 @@ def parse_testable_nets(net_text: str,
     return result
 
 
+_RULE_LABELS = {"power": "Power Nets", "se_clock": "SE Clock Nets",
+                "signal": "Signal Nets"}
+
+
+class _RuleEditDialog(QDialog):
+    """Edit ONE classification rule (double-click on the read-only
+    display field).  Buttons: Restore to default | Apply and Save |
+    Cancel and Exit.  Apply pre-validates the regex (syntax +
+    catastrophic backtracking) before saving."""
+
+    def __init__(self, key: str, user_value: str,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        label = _RULE_LABELS.get(key, key)
+        self.key = key
+        self.setWindowTitle(f"Edit {label} Regex")
+        self.setMinimumWidth(520)
+        lay = QVBoxLayout(self)
+        default_text = DEFAULT_RULES.get(key) or \
+            "(system default - kernel classification)"
+        info = QLabel(
+            "Current effective rule:\n  " + default_text +
+            "\nUser override: " + (user_value or "(none)"))
+        info.setObjectName("muted")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        form = QFormLayout()
+        self.edit_value = QLineEdit(user_value)
+        self.edit_value.setPlaceholderText(
+            "new regex (empty / default = back to the system rule)")
+        self.edit_value.setMinimumWidth(420)
+        form.addRow(f"{label} regex:", self.edit_value)
+        lay.addLayout(form)
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #b91c1c;")
+        self.error_label.setWordWrap(True)
+        lay.addWidget(self.error_label)
+        buttons = QHBoxLayout()
+        btn_restore = QPushButton("Restore to default")
+        btn_restore.setToolTip("Reset the text box to the system "
+                               "default regex (Apply to persist)")
+        btn_restore.clicked.connect(self._restore_default)
+        btn_apply = QPushButton("Apply and Save")
+        btn_apply.setDefault(True)
+        btn_apply.clicked.connect(self._apply)
+        btn_cancel = QPushButton("Cancel and Exit")
+        btn_cancel.clicked.connect(self.reject)
+        buttons.addWidget(btn_restore)
+        buttons.addStretch(1)
+        buttons.addWidget(btn_apply)
+        buttons.addWidget(btn_cancel)
+        lay.addLayout(buttons)
+
+    def _restore_default(self) -> None:
+        self.edit_value.setText(DEFAULT_RULES.get(self.key, ""))
+        self.error_label.setText("")
+
+    def _apply(self) -> None:
+        value = self.edit_value.text().strip()
+        if not value:
+            self.accept()               # empty = back to default
+            return
+        errors = validate_rules({self.key: value})
+        if errors:
+            self.error_label.setText("\n".join(errors))
+            return
+        self.accept()
+
+    def current_value(self) -> str:
+        return self.edit_value.text()
+
+
 class ParseNetsPanel(QWidget):
     """Block 02 embedded panel: Parse button + net list preview."""
 
@@ -253,8 +331,12 @@ class ParseNetsPanel(QWidget):
 
         # --------------------------------- inline classification rules
         # core standard section 6: Power / SE Clock / Signal regex
-        # inputs ABOVE the Parse button (GND is system-auto - no
-        # config entry); rules land in panel.net_rules (project YAML)
+        # displays ABOVE the Parse button (GND is system-auto - no
+        # config entry).  The fields are READ-ONLY and show the
+        # EFFECTIVE regex (user rule first, system default otherwise);
+        # a double-click opens the edit dialog (Restore to default |
+        # Apply and Save | Cancel and Exit).  Rules land in
+        # panel.net_rules (project YAML).
         self.net_rules: dict = {}          # custom regexes (persisted)
         rules_form = QFormLayout()
         rules_form.setHorizontalSpacing(12)
@@ -263,16 +345,19 @@ class ParseNetsPanel(QWidget):
                            ("se_clock", "SE Clock Nets regex:"),
                            ("signal", "Signal Nets regex:")):
             edit = QLineEdit()
-            edit.setPlaceholderText(
-                "user regex (empty = system default; saved to YAML)")
+            edit.setReadOnly(True)      # display only - edit via the
+            edit.setCursor(Qt.CursorShape.PointingHandCursor)  # dialog
             edit.setToolTip(
-                f"User classification regex for {label[:-1]}. User "
-                "rules take priority over the system defaults and "
-                "are persisted with the project.")
-            edit.editingFinished.connect(
-                lambda k=key, e=edit: self._rule_edited(k, e))
+                f"Effective {label[:-1]} (user rule first, system "
+                "default otherwise; persisted with the project). "
+                "Double-click to edit.")
+            edit.setContextMenuPolicy(
+                Qt.ContextMenuPolicy.NoContextMenu)
+            edit.mouseDoubleClickEvent = (
+                lambda _ev, k=key: self._open_rule_dialog(k))
             self.rule_edits[key] = edit
             rules_form.addRow(label, edit)
+        self._refresh_rule_edits()
         lay.addLayout(rules_form)
 
         row = QHBoxLayout()
@@ -380,28 +465,46 @@ class ParseNetsPanel(QWidget):
 
     # ---------------------------------------------------------- item 24
     def set_rules(self, rules: dict) -> None:
-        """Load the persisted classification rules (project YAML) into
-        the model AND the inline regex edits (restore on open)."""
+        """Load the persisted classification rules (project YAML) and
+        refresh the read-only effective-value displays."""
         self.net_rules = dict(rules or {})
-        for key, edit in self.rule_edits.items():
-            edit.setText(self.net_rules.get(key, ""))
+        self._refresh_rule_edits()
 
-    def _rule_edited(self, key: str, edit: "QLineEdit") -> None:
-        """An inline regex was edited: update the rules (empty = back
-        to the system default for that category), persist via the
-        rules_changed mirror and re-parse live."""
-        value = edit.text().strip()
-        if value:
+    def _effective_rule(self, key: str) -> str:
+        """The regex currently in effect: the user rule when set, the
+        system default otherwise (Signal has no default - the kernel
+        classification applies)."""
+        if key in self.net_rules and (self.net_rules.get(key) or "").strip():
+            return self.net_rules[key]
+        return DEFAULT_RULES.get(key, "")
+
+    def _refresh_rule_edits(self) -> None:
+        """Render the effective regex into the read-only displays."""
+        for key, edit in self.rule_edits.items():
+            value = self._effective_rule(key)
+            edit.setText(value or "(system default)")
+
+    def _open_rule_dialog(self, key: str) -> None:
+        """Double-click: open the edit dialog for one rule (Restore to
+        default | Apply and Save | Cancel and Exit).  Apply validates
+        the regex, persists it and re-parses live."""
+        dlg = _RuleEditDialog(key, self.net_rules.get(key, ""), self)
+        if dlg.exec() != _RuleEditDialog.DialogCode.Accepted:
+            return
+        value = dlg.current_value().strip()
+        default = DEFAULT_RULES.get(key, "")
+        if value and value != default:
             self.net_rules[key] = value
         else:
-            self.net_rules.pop(key, None)
+            self.net_rules.pop(key, None)   # back to system default
+        self._refresh_rule_edits()
         self.rules_changed.emit(dict(self.net_rules))
         self.task_log.emit(
             "INFO",
-            f"net classification rule updated: {key} = "
-            f"{value or '(system default)'}")
+            f"net classification rule saved: {key} = "
+            f"{self.net_rules.get(key) or '(system default)'}")
         if self.result is not None:
-            self.parse_nets()       # rules take effect immediately
+            self.parse_nets()               # rules take effect live
 
     def _build_alloc_table(self, headers: list[str]):
         """One allocation table: Net | Channel (editable) | Status +
