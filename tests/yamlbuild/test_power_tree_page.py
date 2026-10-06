@@ -85,21 +85,6 @@ def test_canvas_renders_nodes_and_edges(page):
     assert names                           # active nodes rendered
 
 
-def test_summary_and_audit_panels_populated(page):
-    page.refresh_from_model()
-    headers = [page.node_summary.headerItem().text(i)
-               for i in range(page.node_summary.columnCount())]
-    assert headers == ["Net", "Stage", "Type", "Risk", "Status"]
-    nets = [page.node_summary.topLevelItem(i).text(0)
-            for i in range(page.node_summary.topLevelItemCount())]
-    assert "VIN_24V" in nets
-    row = next(page.node_summary.topLevelItem(i)
-               for i in range(page.node_summary.topLevelItemCount())
-               if page.node_summary.topLevelItem(i).text(0)
-               == "VIN_24V")
-    assert row.text(3) == "5"              # risk score from path_risk
-
-
 # ------------------------------------------------------------- editing
 def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     """Double-click edit (dialog mocked): attributes land on the node,
@@ -124,18 +109,6 @@ def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     assert any("manual override" in e["reason"]
                for e in page.tree.audit_log)
     assert page.model.power_tree["nodes"]       # saved to the model
-
-
-def test_summary_double_click_opens_editor(page, monkeypatch):
-    from PySide6.QtCore import Qt
-    opened = []
-    monkeypatch.setattr(page, "_edit_node",
-                        lambda name: opened.append(name))
-    page.refresh_from_model()
-    item = next(page.node_summary.topLevelItem(i)
-                for i in range(page.node_summary.topLevelItemCount()))
-    page._on_summary_double_click(item, 0)
-    assert opened == [item.data(0, Qt.ItemDataRole.UserRole)]
 
 
 # ------------------------------------------------------------- pruning

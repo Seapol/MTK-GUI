@@ -8,11 +8,11 @@ Fully contains the interactive power tree topology:
   layered by stage; wheel zoom, hand-drag pan, fit-to-view and
   automatic scrollbars for large topologies;
 * double-click node edit dialog (voltage / tolerances / dependencies /
-  upstream / downstream / stage override / Do-Not-Test);
-* side summary panel - every power node with its stage label, test
-  path risk score and status;
-* audit log panel - the passive-bridge pruning history plus every
-  manual override record.
+  upstream / downstream / stage override / Do-Not-Test).
+
+The passive-bridge pruning runs automatically at parse/build time; a
+wrongly-pruned net is restored by re-categorizing it as Power in the
+Parsed Nets table.
 
 Data binding stays on the Parse Nets result: the tree, node
 attributes, connections, stages and the audit log live in the
@@ -37,11 +37,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
-    QPlainTextEdit,
 )
 
 from mtkgui.gui.yamlbuild.power_alloc import (
@@ -162,56 +159,7 @@ class PowerTreePage(QWidget):
         self.canvas = _TreeCanvas()
         self.canvas.setScene(QGraphicsScene(self))
         splitter.addWidget(self.canvas)
-
-        side = QWidget()
-        side_lay = QVBoxLayout(side)
-        side_lay.setContentsMargins(0, 0, 0, 0)
-        lbl_nodes = QLabel("Power Nodes (stage / risk / status):")
-        lbl_nodes.setObjectName("strong")
-        side_lay.addWidget(lbl_nodes)
-        self.node_summary = QTreeWidget()
-        self.node_summary.setHeaderLabels(
-            ["Net", "Stage", "Type", "Risk", "Status"])
-        self.node_summary.setRootIsDecorated(False)
-        self.node_summary.itemDoubleClicked.connect(
-            self._on_summary_double_click)
-        side_lay.addWidget(self.node_summary, 3)
-        lbl_audit = QLabel("Audit Log (pruning + manual overrides):")
-        lbl_audit.setObjectName("strong")
-        side_lay.addWidget(lbl_audit)
-        self.audit_list = QTreeWidget()
-        self.audit_list.setHeaderLabels(["Net", "Record"])
-        self.audit_list.setRootIsDecorated(False)
-        side_lay.addWidget(self.audit_list, 2)
-        splitter.addWidget(side)
-        splitter.setStretchFactor(0, 7)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([700, 300])
         lay.addWidget(splitter, 1)
-
-        # ------------------------- power waveform capture configuration
-        # migrated from the Parse Nets dialog (core standard 5.4: the
-        # Tree page owns the capture list; persisted in the parse_ict
-        # params, passed READ-ONLY to block 04)
-        capture_row = QHBoxLayout()
-        lbl_capture = QLabel(
-            "Power Waveform Capture Nets (max 12, one per line - "
-            "block 04 reads this list read-only):")
-        lbl_capture.setObjectName("strong")
-        capture_row.addWidget(lbl_capture)
-        capture_row.addStretch(1)
-        self.btn_apply_capture = QPushButton("Apply Capture Nets")
-        self.btn_apply_capture.setToolTip(
-            "Save the capture net list into the project YAML "
-            "(Event-Log traced)")
-        self.btn_apply_capture.clicked.connect(self._apply_capture)
-        capture_row.addWidget(self.btn_apply_capture)
-        lay.addLayout(capture_row)
-        self.edit_capture = QPlainTextEdit()
-        self.edit_capture.setMaximumHeight(72)
-        self.edit_capture.setPlaceholderText(
-            "e.g.\nVDD_3V3\nVDD_CORE")
-        lay.addWidget(self.edit_capture)
 
     # ------------------------------------------------------------ model
     def set_model(self, model) -> None:
@@ -219,38 +167,6 @@ class PowerTreePage(QWidget):
         workaround) and refresh."""
         self.model = model
         self.refresh_from_model()
-        self._load_capture()
-
-    def _load_capture(self) -> None:
-        """Load the persisted capture list into the editor (only when
-        the editor is untouched - never clobber user input)."""
-        if self.model is None:
-            return
-        if self.edit_capture.toPlainText().strip():
-            return
-        current = (self.model.get_params("parse_ict") or {}).get(
-            "power_capture_nets") or ""
-        if current:
-            self.edit_capture.setPlainText(str(current))
-
-    def _apply_capture(self) -> None:
-        """Apply + persist the capture list (max 12 nets; Event-Log
-        traced - core standard 5.5)."""
-        nets = [ln.strip() for ln in
-                self.edit_capture.toPlainText().splitlines()
-                if ln.strip()]
-        if len(nets) > 12:
-            QMessageBox.warning(
-                self, "Capture Nets",
-                "at most 12 capture nets allowed "
-                f"({len(nets)} given)")
-            return
-        if self.model is not None:
-            self.model.set_params("parse_ict", {
-                "power_capture_nets": "\n".join(nets)})
-        self._log("INFO",
-                  f"Waveform capture nets updated "
-                  f"({len(nets)} nets)")
 
     def refresh_from_model(self) -> None:
         """Load the YAML draft (or auto-build from the Parse Nets
@@ -295,10 +211,8 @@ class PowerTreePage(QWidget):
 
     # ------------------------------------------------------------ canvas
     def _render(self) -> None:
-        """Repaint the topology graph + the side panels."""
+        """Repaint the topology graph."""
         self._render_canvas()
-        self._render_summary()
-        self._render_audit()
 
     def _render_canvas(self) -> None:
         scene = self.canvas.scene()
@@ -341,31 +255,6 @@ class PowerTreePage(QWidget):
             label.setParentItem(item)
             scene.addItem(item)
         self.canvas.fit_view()
-
-    def _render_summary(self) -> None:
-        self.node_summary.clear()
-        scores = ((self.model.path_risk or {}).get("scores") or {}
-                  if self.model else {})
-        for node in self.tree.nodes.values():
-            if node.pruned:
-                status = f"pruned ({node.pruned_reason})"
-            elif node.dont_test:
-                status = "Do Not Test"
-            else:
-                status = node.node_type
-            risk = scores.get(node.name) or {}
-            item = QTreeWidgetItem([
-                node.name, str(node.stage), node.node_type,
-                str(risk.get("score", "-")), status])
-            item.setData(0, Qt.ItemDataRole.UserRole, node.name)
-            self.node_summary.addTopLevelItem(item)
-
-    def _render_audit(self) -> None:
-        self.audit_list.clear()
-        for entry in self.tree.audit_log:
-            self.audit_list.addTopLevelItem(QTreeWidgetItem(
-                [entry.get("net") or "-",
-                 entry.get("reason") or "-"]))
 
     # ------------------------------------------------------------ actions
     def _log(self, level: str, message: str) -> None:
@@ -427,12 +316,6 @@ class PowerTreePage(QWidget):
                 "INFO",
                 "Manual tree attribute override on "
                 f"{name}: {', '.join(changed) or 'saved'}")
-
-    def _on_summary_double_click(self, item: QTreeWidgetItem,
-                                 _col: int) -> None:
-        name = item.data(0, Qt.ItemDataRole.UserRole)
-        if name:
-            self._edit_node(name)
 
     def _rebuild(self) -> None:
         """Rebuild the tree from the current Parse Nets result (the

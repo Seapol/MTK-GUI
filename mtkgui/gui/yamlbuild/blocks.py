@@ -67,10 +67,6 @@ def spec_tooltip(spec: FieldSpec) -> str:
         parts.append(spec.remarks)
     return "；".join(parts)
 
-#: block 02 power waveform capture list (M0 additional requirement)
-CAPTURE_FIELD = "power_capture_nets"
-MAX_CAPTURE_NETS = 12
-
 
 class BlockConfigDialog(QDialog):
     """Dedicated configuration popup for exactly one workflow module.
@@ -88,7 +84,6 @@ class BlockConfigDialog(QDialog):
 
     def __init__(self, module_key: str, params: dict,
                  parent: QWidget | None = None,
-                 power_candidates: list[str] | None = None,
                  net_source: tuple[str, str] | None = None,
                  panel_state: dict | None = None) -> None:
         """Create the dialog for one module.
@@ -97,9 +92,6 @@ class BlockConfigDialog(QDialog):
             module_key:       Stage key (defines the field set).
             params:           Current parameter values (name -> str).
             parent:           Parent widget.
-            power_candidates: Block 02 only - candidate power nets
-                              (from the Parse Nets result) used to
-                              auto-prefill the capture list.
             net_source:       Block 02 only - (raw netlist text, file
                               name) loaded by the Design Input panel
                               (T8 formal parse source).
@@ -111,7 +103,6 @@ class BlockConfigDialog(QDialog):
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
-        self._power_candidates = list(power_candidates or [])
         # navigation target requested by an embedded panel (e.g. the
         # Parse Nets "Open Power Tree Editor" button); the page reads
         # this after the dialog accepts

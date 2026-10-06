@@ -13,10 +13,6 @@ yaml_build:
       group: design
     parse_ict:
       netlist_file: netlists/RT1170-EVK.net
-      power_capture_nets:
-      - VDD_3V3
-      - VDD_1V8
-      - VDD_5V
       stage_index: 1
       group: ict
     instruments:

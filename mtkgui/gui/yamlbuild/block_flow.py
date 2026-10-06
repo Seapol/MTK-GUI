@@ -312,7 +312,6 @@ class BlockFlowWidget(QWidget):
 
     def open_dialog(self, module_key: str, params: dict,
                     parent: QWidget,
-                    power_candidates: list[str] | None = None,
                     log_sink=None, progress_sink=None,
                     net_source: tuple[str, str] | None = None,
                     panel_state: dict | None = None):
@@ -322,8 +321,6 @@ class BlockFlowWidget(QWidget):
             module_key:       Stage key.
             params:           Current parameters.
             parent:           Parent widget for the dialog.
-            power_candidates: Block 02 candidate power nets (from the
-                              Parse Nets result) for the prefill.
             log_sink:         Optional callable (level, message) wired
                               to the dialog BEFORE exec so embedded
                               panels log live (T6).
@@ -340,7 +337,6 @@ class BlockFlowWidget(QWidget):
             closed BlockConfigDialog (None when cancelled).
         """
         dialog = BlockConfigDialog(module_key, params, parent,
-                                   power_candidates=power_candidates,
                                    net_source=net_source,
                                    panel_state=panel_state)
         if log_sink is not None:

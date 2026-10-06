@@ -178,12 +178,6 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         # the Parse Nets panel Power table)
         _f("power_dont_test", "Power Do Not Test Nets", ftype=T_TEXT,
            hidden=True),
-        # power waveform capture nets: OWNED by the Power Tree page
-        # (edited there, persisted here; not a Parse Nets dialog field)
-        _f("power_capture_nets", "Power Waveform Capture Nets",
-           ftype=T_TEXT, max_lines=12, hidden=True,
-           remarks="one power net per line (max 12); passed READ-ONLY "
-                   "to block 04 which cannot modify the selection"),
     ),
     "rails": (
         # DUT power on/off sequence (moved from the legacy power_dut

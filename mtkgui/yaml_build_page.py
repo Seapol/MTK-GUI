@@ -183,15 +183,8 @@ class YamlBuildPage(QWidget):
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
         net = self.model.imported.get("net") or {}
-        if module_key == "parse_ict" and net.get("raw"):
-            # T8: capture prefill candidates come from the formal
-            # Parse Nets result (power nets)
-            candidates = self._power_candidates()
-        else:
-            candidates = None
         params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,
-            power_candidates=candidates,
             log_sink=self.task_log.emit,
             progress_sink=self.task_progress.emit,
             net_source=(net.get("raw", ""),
@@ -267,17 +260,6 @@ class YamlBuildPage(QWidget):
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))
         self._after_model_change()
-
-    def _power_candidates(self) -> list[str]:
-        """Candidate power nets for the block-03 capture prefill:
-        power nets from the Parse Nets result (T8) when available,
-        else the legacy imported-netlist names."""
-        testable = self.model.imported.get("testable_nets") or {}
-        if testable:
-            return [name for name, info in testable.items()
-                    if info.get("category") == "Power"]
-        return list((self.model.imported.get("netlist") or {}).get(
-            "nets") or {})
 
     def _set_enabled(self, module_key: str, enabled: bool) -> None:
         """Enable / disable one module (parameters retained; disabled
