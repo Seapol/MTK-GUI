@@ -9,8 +9,8 @@ from mtkgui.gui.yamlbuild.model import YamlBuildModel
 REQUIRED_FILL = {
     "design_input": {
         "product_id": "P001", "part_number": "MTK12345",
-        "core_id": "IMXRT700", "sw_version": "1.2.3",
-        "hw_version": "A", "batch": "B9", "design_data": "",
+        "sw_version": "1.2.3", "hw_version": "A",
+        "batch": "MP (Production)",
     },
     "instruments": {
         "psu_visa": "TCPIP0::192.168.1.20::inst0",

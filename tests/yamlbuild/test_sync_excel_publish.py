@@ -34,9 +34,9 @@ def make_model(enabled=True) -> YamlBuildModel:
     if enabled:
         model.enable_all()
     model.set_params("design_input", {
-        "product_id": "P001", "part_number": "MTK12345",
-        "core_id": "IMXRT700", "sw_version": "1.2.3",
-        "hw_version": "A", "batch": "B9", "design_data": "",
+        "product_id": "IMXRT700", "part_number": "MTK12345",
+        "sw_version": "1.2.3", "hw_version": "A",
+        "batch": "MP (Production)",
     })
     model.set_params("parse_ict", {"netlist_file": "design.net",
                                    "ict_test_file": ""})

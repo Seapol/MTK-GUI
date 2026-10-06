@@ -11,6 +11,7 @@ model/schema layer.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -66,10 +67,7 @@ def spec_tooltip(spec: FieldSpec) -> str:
         parts.append(spec.remarks)
     return "；".join(parts)
 
-#: modules with a dedicated import sub-dialog (V4.0 acceptance 3.1.1)
-_IMPORT_MODULES = {"design_input"}
-
-#: block 03 power waveform capture list (M0 additional requirement)
+#: block 02 power waveform capture list (M0 additional requirement)
 CAPTURE_FIELD = "power_capture_nets"
 MAX_CAPTURE_NETS = 12
 
@@ -83,24 +81,41 @@ class BlockConfigDialog(QDialog):
     always all-or-nothing (independent save + validation).
     """
 
+    #: (level, message) Event-Log mirror from embedded panels (T6)
+    task_log = Signal(str, str)
+    #: (percent, label) long-task progress mirror (T6)
+    task_progress = Signal(int, str)
+
     def __init__(self, module_key: str, params: dict,
                  parent: QWidget | None = None,
-                 power_candidates: list[str] | None = None) -> None:
+                 power_candidates: list[str] | None = None,
+                 net_source: tuple[str, str] | None = None,
+                 panel_state: dict | None = None) -> None:
         """Create the dialog for one module.
 
         Args:
             module_key:       Stage key (defines the field set).
             params:           Current parameter values (name -> str).
             parent:           Parent widget.
-            power_candidates: Block 03 only - candidate power nets
-                              (from the power tree / imported netlist)
-                              used to auto-prefill the capture list.
+            power_candidates: Block 02 only - candidate power nets
+                              (from the Parse Nets result) used to
+                              auto-prefill the capture list.
+            net_source:       Block 02 only - (raw netlist text, file
+                              name) loaded by the Design Input panel
+                              (T8 formal parse source).
+            panel_state:      Block 02 only - item 24 restore data
+                              (net rules, power tree, allocation
+                              overrides, SPF net names).
         """
         super().__init__(parent)
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
         self._power_candidates = list(power_candidates or [])
+        # navigation target requested by an embedded panel (e.g. the
+        # Parse Nets "Open Power Tree Editor" button); the page reads
+        # this after the dialog accepts
+        self.requested_page: str | None = None
         self.setWindowTitle(
             f"Configure - {STAGE_BY_KEY[module_key].title}")
         self.setMinimumWidth(460)
@@ -108,24 +123,39 @@ class BlockConfigDialog(QDialog):
         self.form = QFormLayout()
         lay.addLayout(self.form)
         self._editors: dict[str, QWidget] = {}
-        for spec in self._specs:
-            editor = self._make_editor(spec)
-            self._editors[spec.name] = editor
-            self.form.addRow(f"{spec.label}" +
-                             (f" ({spec.unit})" if spec.unit else "")
-                             + ":", editor)
+        self.panel: QWidget | None = None
+        if module_key == "design_input":
+            # T7: the unified Design Input panel replaces both the
+            # generic form fields and the deprecated standalone
+            # "Design data import" popup
+            from mtkgui.gui.yamlbuild.design_input_panel import \
+                DesignInputPanel
+            self.panel = DesignInputPanel()
+            self.panel.set_values(params or {})
+            self.panel.task_log.connect(self._panel_log)
+            self.panel.task_progress.connect(self._panel_progress)
+            lay.addWidget(self.panel)
+        elif module_key == "instruments":
+            # T9: the simplified Configure Instruments panel - the
+            # instrument parameters stay on the Equipment page
+            from mtkgui.gui.yamlbuild.instruments_panel import \
+                InstrumentsPanel
+            self.panel = InstrumentsPanel()
+            self.panel.set_params(params or {})
+            self.panel.task_log.connect(self._panel_log)
+            lay.addWidget(self.panel)
+        else:
+            for spec in self._specs:
+                editor = self._make_editor(spec)
+                self._editors[spec.name] = editor
+                self.form.addRow(f"{spec.label}" +
+                                 (f" ({spec.unit})" if spec.unit else "")
+                                 + ":", editor)
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
         lay.addWidget(self.error_label)
-        # Design Input: dedicated import / parse sub-dialog
-        # (schematic PDF + netlist + TP tolerance, rule 3.1.1)
-        self.import_result: dict | None = None
-        if module_key in _IMPORT_MODULES:
-            btn_import = QPushButton("Import Schematic / Netlist…")
-            btn_import.clicked.connect(self._open_import_dialog)
-            lay.addWidget(btn_import)
-        # block 03: power waveform capture net selection (M0)
+        # block 02: power waveform capture net selection (M0)
         if module_key == "parse_ict" and CAPTURE_FIELD in self._editors:
             btn_autoselect = QPushButton(
                 f"Auto-select Capture Nets (≤{MAX_CAPTURE_NETS})")
@@ -135,12 +165,60 @@ class BlockConfigDialog(QDialog):
             btn_autoselect.clicked.connect(self._autoselect_capture_nets)
             lay.addWidget(btn_autoselect)
             self._autoselect_capture_nets(initial=True)
+        # block 02: formal net pre-analysis (T8 Parse Nets for ICT)
+        self.nets_panel: QWidget | None = None
+        if module_key == "parse_ict":
+            from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
+            self.nets_panel = ParseNetsPanel()
+            text, name = net_source or ("", "")
+            self.nets_panel.set_net_source(text, name)
+            state = panel_state or {}
+            self.nets_panel.net_rules = dict(
+                state.get("net_rules") or {})
+            self.nets_panel._clock_overrides = dict(
+                state.get("clock_overrides") or {})
+            self.nets_panel._gpio_overrides = dict(
+                state.get("gpio_overrides") or {})
+            self.nets_panel.spf_nets = set(
+                state.get("spf_nets") or [])
+            self.nets_panel.risk_thresholds = dict(
+                state.get("risk_thresholds") or {})
+            if not self.nets_panel.risk_thresholds:
+                from mtkgui.gui.yamlbuild.path_risk import (
+                    DEFAULT_THRESHOLDS,
+                )
+                self.nets_panel.risk_thresholds = dict(
+                    DEFAULT_THRESHOLDS)
+            self.nets_panel.risk_scores = dict(
+                state.get("risk_scores") or {})
+            # navigation: "Open Power Tree Editor" closes this dialog
+            # and asks the page to switch to the dedicated tab
+            self.nets_panel.power_tree_requested.connect(
+                self._request_power_tree_page)
+            self.nets_panel.task_log.connect(self._panel_log)
+            self.nets_panel.task_progress.connect(self._panel_progress)
+            lay.addWidget(self.nets_panel)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
+
+    # ------------------------------------------------- panel log mirror
+    def _panel_log(self, level: str, message: str) -> None:
+        """Forward embedded-panel Event-Log lines to the page."""
+        self.task_log.emit(level, message)
+
+    def _panel_progress(self, percent: int, label: str) -> None:
+        """Forward embedded-panel progress to the page."""
+        self.task_progress.emit(percent, label)
+
+    def _request_power_tree_page(self) -> None:
+        """The Parse Nets panel asked for the dedicated Power Tree
+        page: save + close this dialog; the page switches the tab."""
+        self.requested_page = "power_tree"
+        self.accept()
 
     # ----------------------------------------------------------- editors
     def _make_editor(self, spec: FieldSpec) -> QWidget:
@@ -199,7 +277,7 @@ class BlockConfigDialog(QDialog):
 
     # ------------------------------------------------- capture nets (M0)
     def _autoselect_capture_nets(self, initial: bool = False) -> None:
-        """Auto-prefill the power waveform capture list (block 03).
+        """Auto-prefill the power waveform capture list (block 02).
 
         Args:
             initial: True when called from __init__ - prefill ONLY an
@@ -222,55 +300,19 @@ class BlockConfigDialog(QDialog):
         editor.setPlainText("\n".join(picks))
         self._edited[CAPTURE_FIELD] = "\n".join(picks)
 
-    # ------------------------------------------------------------ import
-    def _open_import_dialog(self) -> None:
-        """Open the Design Input import sub-dialog and merge its
-        parsed results into the edited values (acceptance 3.1.1).
-
-        Backfill: Core ID / project name / schematic file into the
-        form; the netlist and TP resolutions travel via
-        ``import_result`` for the page to store in the shared design
-        data section.
-        """
-        from mtkgui.gui.yamlbuild.design_import import DesignImportDialog
-        dialog = DesignImportDialog(self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        self.import_result = {
-            "schematic": dialog.schematic_meta,
-            "netlist_file": dialog.netlist_file,
-            "netlist": dialog.netlist_data,
-            "tp_resolutions": dict(dialog.tp_resolutions),
-        }
-        meta = dialog.schematic_meta
-        if meta.get("core_id") and "core_id" in self._editors:
-            self._editors["core_id"].setText(meta["core_id"])
-            self._edited["core_id"] = meta["core_id"]
-        if "project_name" in self._editors:
-            self._editors["project_name"].setText(
-                meta.get("project_name", ""))
-            self._edited["project_name"] = meta.get("project_name", "")
-        if "schematic_file" in self._editors:
-            self._editors["schematic_file"].setText(
-                meta.get("file", ""))
-            self._edited["schematic_file"] = meta.get("file", "")
-        if dialog.netlist_file and "netlist_file" in self._editors:
-            self._editors["netlist_file"].setText(dialog.netlist_file)
-            self._edited["netlist_file"] = dialog.netlist_file
-        if "tp_resolutions" in self._editors:
-            text = "\n".join(f"{net}={value}" for net, value
-                             in dialog.tp_resolutions.items())
-            self._editors["tp_resolutions"].setPlainText(text)
-            self._edited["tp_resolutions"] = text
-
     # ------------------------------------------------------------- save
     def _on_accept(self) -> None:
         """Validate all fields; accept only when clean."""
-        self._edited = {
-            spec.name: self._editor_value(spec) for spec in self._specs
-        }
+        if self.panel is not None:
+            # Design Input: the embedded panel owns the values
+            self._edited = dict(self.panel.values())
+        else:
+            self._edited = {
+                spec.name: self._editor_value(spec)
+                for spec in self._specs
+            }
         errors = [msg for msg in (
-            spec.validate(self._edited[spec.name])
+            spec.validate(self._edited.get(spec.name, ""))
             for spec in self._specs) if msg]
         if errors:
             self.error_label.setText("\n".join(errors))

@@ -33,12 +33,14 @@ def page(qapp, tmp_path, monkeypatch):
 
 
 def test_page_assembly(page):
-    """The page carries the four fixed buttons, the twelve M0 blocks
-    and a live preview pane."""
+    """Item 16: the top toolbar carries the two Excel buttons plus the
+    Edit/Apply toggle (Build Draft / Release Final removed), the
+    twelve M0 blocks and a live preview pane."""
     assert page.btn_import_excel.text() == "Import from Excel"
     assert page.btn_export_excel.text() == "Export to Excel"
-    assert page.btn_build_draft.text() == "Build Draft YAML"
-    assert page.btn_release_final.text() == "Release Final YAML"
+    assert not hasattr(page, "btn_build_draft")
+    assert not hasattr(page, "btn_release_final")
+    assert page.yaml_preview.btn_edit in page._action_buttons
     assert len(page.block_flow._cards) == 12
     assert page.yaml_preview.editor.toPlainText().startswith(
         "yaml_build:")
@@ -162,16 +164,12 @@ def test_block_cards_carry_sequence_badges(page):
 
 
 def test_standard_button_tooltips(page):
-    """The four top buttons carry the fixed standard Chinese
+    """The top toolbar buttons carry the fixed standard Chinese
     tooltips (rule 6.1, exact wording)."""
     assert page.btn_import_excel.toolTip() == \
         "批量导入流程配置Excel文件，快速回填所有模块参数与状态"
     assert page.btn_export_excel.toolTip() == \
         "导出当前全流程模块配置为标准Excel归档文件"
-    assert page.btn_build_draft.toolTip() == \
-        "生成草稿版流程配置YAML，可反复编辑调试，非最终归档版本"
-    assert page.btn_release_final.toolTip() == \
-        "固化并发布最终版流程YAML，版本锁定用于正式测试归档"
 
 
 def test_module_cards_have_tooltips_even_disabled(page):
@@ -217,11 +215,17 @@ def test_dialog_fields_all_have_tooltips(page, qapp):
     seen = set()
     for key in STAGE_KEYS:
         dlg = BlockConfigDialog(key, page.model.get_params(key), page)
+        if dlg.panel is not None:
+            # embedded panels own their tooltips (T7 Design Input)
+            seen.add((key, "embedded_panel"))
+            dlg.deleteLater()
+            continue
         for name, editor in dlg._editors.items():
             tip = editor.toolTip().strip()
             assert tip, f"{key}.{name} has an empty tooltip"
             seen.add((key, name))
-    assert ("design_input", "core_id") in seen
+        dlg.deleteLater()
+    assert ("design_input", "embedded_panel") in seen
 
 
 def test_default_state_is_all_enabled(page):

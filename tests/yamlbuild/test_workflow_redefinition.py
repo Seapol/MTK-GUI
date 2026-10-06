@@ -14,6 +14,7 @@ from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.schema import MODULE_FIELDS, fields_for
 from mtkgui.gui.yamlbuild.stages import (
     LEGACY_MODULE_MAP,
+    LEGACY_ORDER_SWAP,
     STAGE_BY_KEY,
     STAGE_KEYS,
     WORKFLOW_STAGES,
@@ -23,16 +24,18 @@ from mtkgui.gui.yamlbuild.stages import (
 # --------------------------------------------------------------- stage list
 def test_twelve_stage_fixed_order():
     assert [s.key for s in WORKFLOW_STAGES] == [
-        "design_input", "instruments", "parse_ict", "rails", "clocks",
+        "design_input", "parse_ict", "instruments", "rails", "clocks",
         "gpios", "programmer", "peripherals", "fct_parse", "fct_build",
         "validate_sequence", "preview_export"]
 
 
-def test_titles_match_m0_numbering():
+def test_titles_match_item23_numbering():
+    """Item 23: Parse nets for ICT is block 02, Configure Instruments
+    block 03 (SPF+NET parse first, instruments after)."""
     titles = [s.title for s in WORKFLOW_STAGES]
     assert titles[0] == "Design Input"
-    assert titles[1] == "Configure Instruments"
-    assert titles[2] == "Parse nets for ICT"
+    assert titles[1] == "Parse nets for ICT"
+    assert titles[2] == "Configure Instruments"
     assert titles[3] == \
         "Build Impedance/Voltage/Power rails up sequence"
     assert titles[10] == "Validate Full Test Sequence"
@@ -40,9 +43,9 @@ def test_titles_match_m0_numbering():
 
 
 # ------------------------------------------------- responsibility boundary
-def test_block02_is_the_only_rack_instrument_editor():
+def test_block03_is_the_only_rack_instrument_editor():
     """Rack-ATE instrument fields (VISA addresses / channel alloc)
-    exist ONLY in block 02 - no later Build block redefines them."""
+    exist ONLY in block 03 - no later Build block redefines them."""
     instrument_fields = {f.name for f in fields_for("instruments")}
     assert {"psu_visa", "daq_visa", "dmm_visa",
             "channel_alloc"} <= instrument_fields
@@ -55,7 +58,7 @@ def test_block02_is_the_only_rack_instrument_editor():
 
 
 def test_resource_types_separated():
-    """Three disjoint resource families: rack ATE (02), programmer
+    """Three disjoint resource families: rack ATE (03), programmer
     (07), DUT peripherals (08) - each owns its own parameter set."""
     rack = {f.name for f in fields_for("instruments")}
     debug = {f.name for f in fields_for("programmer")}
@@ -158,6 +161,40 @@ def test_legacy_migration_keeps_existing_rails_entry():
 
 def test_legacy_map_covers_only_power_dut():
     assert LEGACY_MODULE_MAP == {"power_dut": "rails"}
+
+
+def test_legacy_pre_item23_order_swaps_to_canonical():
+    """Item 23: projects saved with instruments BEFORE parse_ict load
+    cleanly - the legacy pair is swapped onto the canonical sequence
+    instead of failing the order check."""
+    model = YamlBuildModel()
+    legacy = {"yaml_build": {"plan_version": "1.0.0", "modules": {
+        "design_input": {"enabled": True},
+        "instruments": {"enabled": True, "daq_visa": "GPIB0::9::INSTR"},
+        "parse_ict": {"enabled": True, "netlist_file": "n.net"},
+    }}}
+    errors = model.apply_yaml_dict(legacy)
+    assert not any("sequence violates" in e for e in errors)
+    assert model.get_params("instruments")["daq_visa"] == \
+        "GPIB0::9::INSTR"
+    assert model.get_params("parse_ict")["netlist_file"] == "n.net"
+    # a saved round trip emits the NEW canonical order
+    data = yaml.safe_load(model.to_effective_yaml())
+    modules = list(data["yaml_build"]["modules"])
+    assert modules.index("parse_ict") < modules.index("instruments")
+
+
+def test_other_order_violations_still_fail():
+    """The legacy swap covers ONLY the exact instruments/parse_ict
+    pair - a different wrong sequence still fails the check."""
+    model = YamlBuildModel()
+    bad = {"yaml_build": {"plan_version": "1.0.0", "modules": {
+        "design_input": {"enabled": True},
+        "clocks": {"enabled": True},
+        "rails": {"enabled": True},
+    }}}
+    errors = model.apply_yaml_dict(bad)
+    assert any("sequence violates" in e for e in errors)
 
 
 def test_effective_yaml_emits_twelve_in_order():

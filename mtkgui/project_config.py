@@ -86,9 +86,9 @@ def _workflow_to_yaml(page):
         })
 
     ict_cases = []
-    for step, enable, wait, timeout in zip(
+    for r, (step, enable, wait, timeout) in enumerate(zip(
             page.ict_steps, page.ict_enables, page.ict_waits,
-            page.ict_timeouts):
+            page.ict_timeouts)):
         kind, name = step[0], step[1]
         case = {
             "name": name,
@@ -105,6 +105,14 @@ def _workflow_to_yaml(page):
         # init/reset, fixture signal + level, PSU setpoints)
         if kind == "op" and len(step) > 6 and step[6]:
             case["op_params"] = step[6]
+        # node comment (P3-B2 debug feature): archived when non-empty
+        comments = getattr(page, "ict_comments", None) or []
+        if r < len(comments) and comments[r]:
+            case["comment"] = comments[r]
+        # debug breakpoint (P3-B2): archived only when set
+        breakpoints = getattr(page, "ict_breakpoints", None) or set()
+        if r in breakpoints:
+            case["breakpoint"] = True
         ict_cases.append(case)
 
     rails = {
@@ -140,6 +148,14 @@ def _workflow_to_yaml(page):
         # standard-operation rows carry their configuration
         if kind == "op" and i < len(fct_op_params) and fct_op_params[i]:
             case["op_params"] = fct_op_params[i]
+        # node comment (P3-B2 debug feature): archived when non-empty
+        fct_comments = getattr(page, "fct_comments", None) or []
+        if i < len(fct_comments) and fct_comments[i]:
+            case["comment"] = fct_comments[i]
+        # debug breakpoint (P3-B2): archived only when set
+        fct_breakpoints = getattr(page, "fct_breakpoints", None) or set()
+        if i in fct_breakpoints:
+            case["breakpoint"] = True
         fct_cases.append(case)
 
     return {
@@ -201,16 +217,30 @@ def _ict_step_from_yaml(c):
 def apply_config(config, workflow_page, equipment_page):
     """Restore a loaded configuration into the pages.
 
-    The serial number is not part of the file (per-unit input), so the
-    product fields are restored without touching it."""
+    Item 19 (Product Info auto-fill): part / core / batch / serial are
+    100% YAML-driven - they are refreshed only here (a new valid YAML
+    project load / switch); each field takes the corresponding
+    ``product`` node value, and a missing node leaves the field
+    blank (empty fallback, no residual cached data).  Normal test
+    operation never touches these fields."""
     product = config.get("product", {})
-    if product.get("part_number") is not None:
-        workflow_page.part_edit.setText(str(product["part_number"]))
-    if product.get("core_id") is not None:
-        workflow_page.core_edit.setText(str(product["core_id"]))
+    workflow_page.part_edit.setText(
+        str(product["part_number"])
+        if product.get("part_number") is not None else "")
+    workflow_page.core_edit.setText(
+        str(product["core_id"])
+        if product.get("core_id") is not None else "")
     if product.get("batch") is not None:
         batch = str(product["batch"])
-        workflow_page.batch_edit.setText("" if batch == "freebatch" else batch)
+        workflow_page.batch_edit.setText(
+            "" if batch == "freebatch" else batch)
+    else:
+        workflow_page.batch_edit.setText("")
+    # serial: filled from the YAML node when the project carries one
+    # (otherwise blank); never touched outside a YAML load
+    serial = product.get("serial")
+    workflow_page.serial_edit.setText(
+        "" if serial is None else str(serial))
 
     # Overall Flow stop policies (defaults: stop on failure = False,
     # stop on any short = True)
@@ -266,6 +296,14 @@ def apply_config(config, workflow_page, equipment_page):
             workflow_page.ict_timeouts = [
                 max(1000, min(99999, int(c.get("timeout_ms", 5000))))
                 for c in cases]
+            # node comments (P3-B2 debug feature); empty = no comment
+            workflow_page.ict_comments = [
+                str(c.get("comment") or "") for c in cases]
+            # debug breakpoints (P3-B2 debug feature); old YAML files
+            # without the flag load with an empty breakpoint set
+            workflow_page.ict_breakpoints = {
+                r for r, c in enumerate(cases)
+                if bool(c.get("breakpoint"))}
         except (TypeError, ValueError):
             pass
         else:
@@ -297,6 +335,14 @@ def apply_config(config, workflow_page, equipment_page):
             workflow_page.fct_timeouts = [
                 max(1000, min(99999, int(c.get("timeout_ms", 5000))))
                 for c in fct_cases]
+            # node comments (P3-B2 debug feature); empty = no comment
+            workflow_page.fct_comments = [
+                str(c.get("comment") or "") for c in fct_cases]
+            # debug breakpoints (P3-B2 debug feature); old YAML files
+            # without the flag load with an empty breakpoint set
+            workflow_page.fct_breakpoints = {
+                r for r, c in enumerate(fct_cases)
+                if bool(c.get("breakpoint"))}
         except (TypeError, ValueError):
             pass
         else:

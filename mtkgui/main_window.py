@@ -451,6 +451,37 @@ class MainWindow(QMainWindow):
         self.yaml_build_page = YamlBuildPage()
         self.tabs.addTab(self.yaml_build_page, "Yaml Build")
 
+        # T10: Channel Allocation tab (dedicated Power / Clock / GPIO
+        # tables; data source = the Parse Nets result of the model)
+        from mtkgui.gui.yamlbuild.channel_allocation import \
+            ChannelAllocationPage
+        self.channel_alloc_page = ChannelAllocationPage()
+        self.tabs.addTab(self.channel_alloc_page, "Channel Allocation")
+        # model injected AFTER addTab (PySide shiboken GC bug
+        # workaround - see ChannelAllocationPage.__init__)
+        self.channel_alloc_page.set_model(self.yaml_build_page.model)
+        self.yaml_build_page.task_log.connect(
+            self.channel_alloc_page.task_log)
+        self.channel_alloc_page.task_log.connect(
+            lambda level, msg:
+                self._append_event_log(f"[{level}] {msg}"))
+
+        # dedicated Power Tree topology page (relocated from the
+        # Parse Nets panel; data binding = the model.power_tree YAML
+        # draft, data source = the Parse Nets result)
+        from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
+        self.power_tree_page = PowerTreePage()
+        self.tabs.addTab(self.power_tree_page, "Power Tree")
+        # model injected AFTER addTab (PySide shiboken GC bug
+        # workaround - see ChannelAllocationPage.__init__)
+        self.power_tree_page.set_model(self.yaml_build_page.model)
+        self.power_tree_page.task_log.connect(
+            lambda level, msg:
+                self._append_event_log(f"[{level}] {msg}"))
+        # navigation: Parse Nets "Open Power Tree Editor" -> this tab
+        self.yaml_build_page.power_tree_page_requested.connect(
+            lambda: self.tabs.setCurrentWidget(self.power_tree_page))
+
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
             lambda: self.tabs.setCurrentWidget(self.workflow_page))
@@ -591,6 +622,12 @@ class MainWindow(QMainWindow):
         # task complete: fill the progress bar full then auto-reset
         self.workflow_page.run_finished.connect(
             self._finish_run_progress)
+        # long-task progress + Event-Log detail from the Yaml Build
+        # page (Excel import / publish, T6): global status bar + log
+        self.yaml_build_page.task_progress.connect(self._on_task_progress)
+        self.yaml_build_page.task_log.connect(
+            lambda level, msg:
+                self._append_event_log(f"[{level}] {msg}"))
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
             QTimer.singleShot(800, self._connect_virtual_instruments)
@@ -678,9 +715,14 @@ class MainWindow(QMainWindow):
                 lambda _checked=False, n=name: self.apply_gui_theme(n))
 
         settings_menu = self.menuBar().addMenu("Settings")
+        self.settings_menu = settings_menu  # keep the wrapper alive
         # supervisor-only: configure which rights operator accounts get
         self.act_permissions = settings_menu.addAction(
             "Operator Permissions…", self._open_permissions_dialog)
+        # item 15: Auto-SN is a configuration function -> its entry
+        # moved from the main running toolbar to the Settings menu
+        # (checkable action owned by the workflow page).
+        settings_menu.addAction(self.workflow_page.act_auto_sn)
         # Serial Number format rule: {"prefix": str, "length": str};
         # both optional, empty means that part is not checked.
         self.sn_config = {"prefix": "", "length": ""}
@@ -730,6 +772,30 @@ class MainWindow(QMainWindow):
         self._tools_thread = None
         # one-shot paint-time vertical floor lock (see paintEvent)
         self._vmin_locked = False
+
+        # ------------------- item 15: VS style Run menu -------------
+        # All run / debug control entries moved here from the workflow
+        # page Run Control panel; every item carries the standard
+        # Visual Studio shortcut (bound on the shared QAction objects,
+        # so the shortcuts work application-wide in real time).
+        # item 17 rollback: the main top toolbar was removed - Run /
+        # Stop returned to the Run Control panel as the primary
+        # operation entrance; the Run menu keeps the VS shortcuts.
+        run_menu = self.menuBar().addMenu("Run")
+        self.run_menu = run_menu  # keep the Python wrapper alive
+        wf = self.workflow_page
+        run_menu.addAction(wf.btn_run)                  # F5
+        run_menu.addAction(wf.act_run_without_debug)    # Ctrl+F5
+        run_menu.addAction(wf.btn_stop)                 # Shift+F5
+        run_menu.addAction(wf.act_restart)              # Ctrl+Shift+F5
+        run_menu.addSeparator()
+        run_menu.addAction(wf.btn_step)                 # F10
+        run_menu.addAction(wf.act_step_into)            # F11
+        run_menu.addAction(wf.btn_continue)             # Shift+F11
+        run_menu.addSeparator()
+        run_menu.addAction(wf.act_toggle_breakpoint)    # F9
+        run_menu.addAction(wf.act_clear_breakpoints)    # Ctrl+Shift+F9
+        run_menu.addAction(wf.act_run_to_cursor)        # Ctrl+F10
 
         # ---------------------------------------------- V4.0: Report menu
         self.report_menu = self.menuBar().addMenu("Report")
@@ -887,6 +953,16 @@ class MainWindow(QMainWindow):
             supervisor or perm.get("sn_format_check", False))
         self.act_permissions.setVisible(supervisor)
         self.workflow_page.apply_permissions(perm, supervisor)
+        # Yaml Build page (the YAML config editor): operator accounts
+        # can view the generated YAML but not edit / apply it (T5)
+        can_yaml_build = supervisor or perm.get("edit_yaml_build", False)
+        idx_yaml = self.tabs.indexOf(self.yaml_build_page)
+        if idx_yaml >= 0:
+            self.tabs.setTabVisible(idx_yaml, can_yaml_build)
+        self.yaml_build_page.set_edit_allowed(can_yaml_build)
+        # T10 Channel Allocation: operators view only (dropdown cells
+        # disabled; the tab itself stays visible for reporting)
+        self.channel_alloc_page.set_edit_allowed(can_yaml_build)
         self.equipment_page.set_config_allowed(
             supervisor or perm.get("equipment_config", False))
         # Virtual mode drives the instrument dialog's connect / test behavior
@@ -1183,6 +1259,26 @@ class MainWindow(QMainWindow):
         self.status_progress.setRange(0, 1)
         self.status_progress.setValue(0)
         self.status_progress.setFormat("Idle")
+
+    # --------------------------------------- long-task progress (T6)
+    def _on_task_progress(self, percent, label):
+        """Global status-bar progress for page long tasks (Excel
+        import, YAML publish, design parse, ...): percent 0 starts the
+        task, stages update it, 100 fills it and auto-resets.  GUI
+        rendering only - the task kernels are untouched."""
+        if percent <= 0:
+            # a new task cancels any pending reset and shows its label
+            self._progress_reset_pending = False
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(0)
+            self.status_progress.setFormat(label or "Working...")
+        elif percent >= 100:
+            self._finish_run_progress()
+        else:
+            self._progress_reset_pending = False
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(percent)
+            self.status_progress.setFormat(f"{label} ({percent}%)")
 
     def _on_run_phase(self, text):
         """Reflect background run phases on the progress bar: a busy

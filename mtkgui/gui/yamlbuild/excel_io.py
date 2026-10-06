@@ -16,6 +16,17 @@ from dataclasses import dataclass, field
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from mtkgui.gui.yamlbuild.channel_allocation import (
+    CHANNELS,
+    FREQ_BANDS,
+    GPIO_DI,
+    GPIO_DO,
+    INSTRUMENTS,
+    UNSET,
+    AllocatedRow,
+    ChannelAllocationData,
+    TABLE_SPECS,
+)
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.schema import MODULE_FIELDS, module_title
 from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
@@ -23,6 +34,36 @@ from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
 SHEET_NAME = "YamlBuild"
 _HEADERS = ("Module", "Module Key", "Parameter", "Value", "Type",
             "Required", "Min", "Max", "Choices", "Enabled", "Remarks")
+
+# ------------------------------------------------------------------
+# item 18: Channel Allocation three-table sheets (Power / Clock /
+# GPIO) - the Excel layout maps one-to-one onto the ``yaml_build ->
+# channel_allocation`` YAML nodes.  Every config cell carries the
+# SAME dropdown enum values as the GUI tables (no free text); the
+# Status column is auto OK/NOK on export and READ-ONLY on import
+# (recomputed by the GUI validation rules).
+# ------------------------------------------------------------------
+ALLOCATION_SHEET_NAMES = {"power": "Power", "clock": "Clock",
+                          "gpio": "GPIO"}
+ALLOCATION_HEADERS = {
+    "power": ("Net name", "Test point", "Instrument", "Channel",
+              "Impedance(Yes/No)", "Power rails(Yes/No)",
+              "Voltage(Yes/No)", "Status"),
+    "clock": ("Net name", "Test point", "Instrument", "Channel",
+              "SE Clock Hz(Yes/No)", "Frequency band", "Status"),
+    "gpio": ("Net name", "Test point", "Instrument", "Channel",
+             "Digital Input(HighZ)", "Digital Output(No Output)",
+             "Status"),
+}
+#: row keys written per table kind (status is auto, never persisted)
+_ALLOC_ROW_KEYS = {
+    "power": ("net", "test_point", "instrument", "channel",
+              "impedance", "power_rails", "voltage"),
+    "clock": ("net", "test_point", "instrument", "channel",
+              "se_clock_hz", "band"),
+    "gpio": ("net", "test_point", "instrument", "channel",
+             "digital_input", "digital_output"),
+}
 
 
 @dataclass
@@ -75,6 +116,19 @@ def export_to_excel(model: YamlBuildModel, path: str) -> int:
                 spec.maximum if spec.maximum is not None else "",
                 "/".join(spec.choices), enabled, spec.remarks,
             ])
+            rows += 1
+    # item 18: the three Channel Allocation tables (Power / Clock /
+    # GPIO) as dedicated sheets - one-to-one mapped with the
+    # ``channel_allocation`` YAML nodes; Status is auto OK/NOK
+    alloc = ChannelAllocationData.from_dict(model.get_channel_allocation())
+    for kind, _cols in TABLE_SPECS:
+        aw: Worksheet = wb.create_sheet(ALLOCATION_SHEET_NAMES[kind])
+        aw.append(ALLOCATION_HEADERS[kind])
+        keys = _ALLOC_ROW_KEYS[kind]
+        for row in getattr(alloc, kind):
+            values = {key: getattr(row, key) for key in keys}
+            aw.append([values[key] for key in keys]
+                      + ["OK" if row.is_configured(kind) else "NOK"])
             rows += 1
     wb.save(path)
     return rows
@@ -134,6 +188,59 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
             report.errors.append(f"row {line_no}: {error}")
             continue
         parsed.setdefault(key, {})[param] = value
+    # item 18: the three Channel Allocation sheets (Power / Clock /
+    # GPIO) - optional (legacy workbooks stay importable); every
+    # config cell must carry a valid dropdown enum value (no free
+    # text); the Status column is read-only and ignored (auto).
+    alloc_data: dict[str, list[dict]] = {}
+    for kind, _cols in TABLE_SPECS:
+        sheet = ALLOCATION_SHEET_NAMES[kind]
+        if sheet not in wb.sheetnames:
+            continue
+        aw: Worksheet = wb[sheet]
+        for line_no, row in enumerate(
+                aw.iter_rows(min_row=2, values_only=True), start=2):
+            values = ["" if v is None else str(v).strip() for v in row]
+            values += [""] * (len(ALLOCATION_HEADERS[kind])
+                              - len(values))
+            cells = dict(zip(_ALLOC_ROW_KEYS[kind], values))
+            cells["status"] = values[len(_ALLOC_ROW_KEYS[kind])]
+            prefix = f"{sheet} row {line_no}"
+            if not cells["net"]:
+                report.errors.append(f"{prefix}: Net name required")
+                continue
+            if not cells["test_point"]:
+                report.errors.append(f"{prefix}: Test point required")
+                continue
+            for key, allowed in (
+                    ("instrument", INSTRUMENTS),
+                    ("channel", CHANNELS)):
+                text = cells[key]
+                if text and text != UNSET and text not in allowed:
+                    report.errors.append(
+                        f"{prefix}: {key.title()} {text!r} not in "
+                        f"{'/'.join(allowed)}")
+            yes_no = ("Yes", "No")
+            for key in _ALLOC_ROW_KEYS[kind][4:]:
+                if key == "band":
+                    allowed, text = FREQ_BANDS, cells["band"]
+                elif key == "digital_input":
+                    allowed, text = (GPIO_DI,), cells["digital_input"]
+                elif key == "digital_output":
+                    allowed, text = (GPIO_DO,), cells["digital_output"]
+                else:
+                    allowed, text = yes_no, cells[key]
+                if text and text != UNSET and text not in allowed:
+                    report.errors.append(
+                        f"{prefix}: {key.replace('_', ' ').title()} "
+                        f"{text!r} not in {'/'.join(allowed)}")
+            if report.errors:
+                continue
+            cells.pop("status")
+            # canonical persisted row dict (full AllocatedRow keys,
+            # exactly like the GUI table save path)
+            alloc_data.setdefault(kind, []).append(
+                AllocatedRow.from_dict(cells).to_dict())
     wb.close()
     if report.errors:
         return report
@@ -143,5 +250,7 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
         report.imported += len(params)
     for key, state in enabled.items():
         model.set_enabled(key, state)
+    if alloc_data:
+        model.set_channel_allocation(alloc_data)
     report.applied = True
     return report

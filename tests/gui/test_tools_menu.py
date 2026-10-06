@@ -37,15 +37,16 @@ def _wait_batch(window, timeout_s: float = 5.0) -> None:
 
 
 def test_fixed_menu_order(window):
-    """Final standard order: File, View, Settings, Tools, Report,
-    Help (rightmost) - stable across tab switches."""
+    """Final standard order: File, View, Settings, Tools, Run, Report,
+    Help (rightmost) - item 15 added the top-level Run menu between
+    Tools and Report; stable across tab switches."""
     from PySide6.QtWidgets import QApplication
     assert [a.text() for a in window.menuBar().actions()] == \
-        ["File", "View", "Settings", "Tools", "Report", "Help"]
+        ["File", "View", "Settings", "Tools", "Run", "Report", "Help"]
     window.tabs.setCurrentWidget(window.yaml_build_page)
     QApplication.processEvents()
     assert [a.text() for a in window.menuBar().actions()] == \
-        ["File", "View", "Settings", "Tools", "Report", "Help"]
+        ["File", "View", "Settings", "Tools", "Run", "Report", "Help"]
 
 
 def test_tools_submenu_structure(window):

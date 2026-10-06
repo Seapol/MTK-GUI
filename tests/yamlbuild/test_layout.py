@@ -78,7 +78,8 @@ def test_global_layout_unpolluted(qapp):
     intact (tab texts, event log visible, workflow page default)."""
     window = qapp
     tabs = [window.tabs.tabText(i) for i in range(window.tabs.count())]
-    assert tabs == ["Test Work Flow", "Equipment", "Yaml Build"]
+    assert tabs == ["Test Work Flow", "Equipment", "Yaml Build",
+                    "Channel Allocation", "Power Tree"]
     assert window.tabs.currentWidget() is window.workflow_page
     assert window.event_log.isVisible() or window.event_log.parent() \
         is not None
@@ -151,11 +152,16 @@ def test_button_bar_uniform(page, qapp, width, height):
 
 @pytest.mark.parametrize("module_key", STAGE_KEYS)
 def test_module_dialog_adapts(page, qapp, module_key):
-    """Every module dialog shows all its fields, auto-sizes to the
-    content and pops up centered on the screen (app event filter)."""
+    """Every module dialog shows all its fields (or the embedded
+    Design Input panel), auto-sizes to the content and pops up
+    centered on the screen (app event filter)."""
     dialog = BlockConfigDialog(module_key, {}, page)
     rows = dialog.form.rowCount()
-    assert rows >= len(fields_for(module_key))   # no field dropped
+    if dialog.panel is not None:
+        # T7/T9: embedded panel dialogs host their dedicated widgets
+        assert dialog.panel is not None
+    else:
+        assert rows >= len(fields_for(module_key))  # no field dropped
     dialog.show()
     QApplication.processEvents()
     hint = dialog.sizeHint()

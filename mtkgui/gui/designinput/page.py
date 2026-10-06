@@ -4,7 +4,8 @@
 Spec items implemented here:
 
 * Schematic / Net file browse buttons with load-state captions
-  (``Schematic: ✔ Loaded`` / ``Net: ✔ Loaded``, plus the Smart-PDF
+  (``Schematic: ✔ Imported`` / ``Net: ✔ Imported`` at IMPORT; the
+  explicit PARSE step flips them to ``✔ Parsed``, plus the Smart-PDF
   review marker);
 * scanned-image PDF interception with the spec-fixed wording;
 * ``Parse nets for ICT`` disabled until BOTH inputs are loaded;
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -73,13 +76,24 @@ class DesignInputPage(QWidget):
 
     #: (level, message) Event-Log mirror for the main window
     event_log = Signal(str, str)
+    #: (percent 0-100, label) parse-step progress for the global
+    #: status bar (T6); 0 = start/failed reset, 100 = done
+    parse_progress = Signal(int, str)
 
     def __init__(self, parent=None) -> None:
         """Build the page (model + load row + meta form)."""
         super().__init__(parent)
         self.model = DesignDataModel()
+        # IMPORT / PARSE split: the browse buttons only read the file
+        # bytes into memory (fast, no structure resolution); the
+        # "Parse nets for ICT" button runs the explicit parse step
         self._schematic_loaded = False
         self._net_loaded = False
+        self._schematic_path: str | None = None
+        self._schematic_text: str | None = None
+        self._schematic_source: str | None = None
+        self._net_path: str | None = None
+        self._parsed = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -103,8 +117,17 @@ class DesignInputPage(QWidget):
         load_form.addRow(net_row)
 
         self.btn_parse = QPushButton("Parse nets for ICT")
-        self.btn_parse.setEnabled(False)      # until BOTH files loaded
+        self.btn_parse.setEnabled(False)      # until BOTH files imported
         load_form.addRow(self.btn_parse)
+
+        # real-time parse progress (IMPORT / PARSE split): stepped
+        # 0 -> 100 % while the explicit parse stage runs
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setObjectName("parse_progress")
+        self.progress.setFormat("parse: idle")
+        load_form.addRow(self.progress)
         root.addWidget(load_group)
 
         # ------------------------------------------------- meta group
@@ -150,99 +173,139 @@ class DesignInputPage(QWidget):
         self.edit_core_id.textEdited.connect(
             lambda: self.lbl_core_marker.setText(MANUAL_MARKER))
 
-    # ------------------------------------------------------------ browse
+    # ------------------------------------------------------------ import
     def _browse_schematic(self) -> None:
-        """Pick + validate the schematic (SPF/txt or Smart-PDF)."""
+        """IMPORT step (file load only): pick the schematic and read
+        its bytes into memory.  No structure resolution happens here -
+        the explicit parse step does that (see _parse_nets)."""
         path, _filter = QFileDialog.getOpenFileName(
             self, "Select Schematic", "",
             "Schematic (*.spf *.txt *.pdf)")
         if not path:
             return
         try:
-            source = detect_schematic_source(path, extract_pdf_text)
-        except ScannedPdfError:
-            self._log("ERROR", SCANNED_PDF_NOTICE)
-            QMessageBox.warning(self, "Unsupported Schematic",
-                                SCANNED_PDF_NOTICE)
+            size = Path(path).stat().st_size
+        except OSError as exc:
+            reason = f"schematic import failed: {exc}"
+            self._log("ERROR", reason)
+            QMessageBox.critical(self, "Import Failed", reason)
             return
-        except ValueError as exc:
-            self._log("ERROR", f"schematic rejected: {exc}")
-            QMessageBox.warning(self, "Unsupported Schematic", str(exc))
-            return
-
-        try:
-            self._load_schematic(path, source)
-        except SpfParseError as exc:
-            self._log("ERROR", f"SPF parse failed: {exc}")
-            QMessageBox.critical(self, "Schematic Parse Error", str(exc))
-            return
+        text = None
+        if Path(path).suffix.lower() in (".spf", ".txt"):
+            # text sources: read + decode now (tolerant decode chain);
+            # decode problems surface here, with the file name + reason
+            try:
+                text = _read_text(path)
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                reason = (f"schematic import failed: cannot decode "
+                          f"{Path(path).name}: {exc}")
+                self._log("ERROR", reason)
+                QMessageBox.critical(self, "Import Failed", reason)
+                return
+        self._schematic_path = path
+        self._schematic_text = text
+        self._schematic_source = None
         self._schematic_loaded = True
-        marker = f" {SMART_PDF_MARKER}" \
-            if source == SOURCE_SMART_PDF_SPF else ""
-        self.lbl_schematic_status.setText(f"Schematic: ✔ Loaded{marker}")
-        self._log("INFO", f"Schematic loaded: {Path(path).name} "
-                          f"(source={source})")
-        if source == SOURCE_SMART_PDF_SPF:
-            self._log(
-                "WARNING",
-                "INFO: Schematic source is Smart-PDF, not native "
-                "text-SPF. Component/net parsing may have deviation, "
-                "please double-check component_library.")
+        self._parsed = False
+        self.lbl_schematic_status.setText("Schematic: ✔ Imported")
+        self._log("INFO", f"Schematic imported: {Path(path).name} "
+                          f"({size} bytes) - not parsed yet, click "
+                          "'Parse nets for ICT'")
         self._sync_parse_button()
 
-    def _load_schematic(self, path: str, source: str) -> None:
-        """Parse the schematic into the model (both source branches)."""
-        self.model.source_type = source
-        if source == SOURCE_SMART_PDF_SPF:
-            text = extract_pdf_text(path, 5)
-            meta_title = _pdf_meta_title(path)
-            pdf_data = parse_pdf_schematic(text, meta_title)
-            # spec priority: PDF metadata Title > PDF file name
-            self.model.project_info["project_name"] = (
-                pdf_data.meta_title or Path(path).stem)
-            self.model.component_library = build_library(
-                pdf_data.components)
-            self._auto_fill_name(self.model.project_info["project_name"])
-        else:
-            spf = parse_spf(_read_text(path))
-            self.model.project_info["project_name"] = (
-                spf.drawing_title or Path(path).stem)
-            self.model.component_library = build_library(spf.components)
-            self._auto_fill_name(self.model.project_info["project_name"])
-
     def _browse_net(self) -> None:
-        """Pick + parse the Allegro netlist file."""
+        """IMPORT step (file load only): pick the netlist and read its
+        bytes into memory (structure resolve happens in _parse_nets)."""
         path, _filter = QFileDialog.getOpenFileName(
             self, "Select Netlist", "", "Netlist (*.net *.net.txt)")
         if not path:
             return
-        netlist, _text = parse_netlist_file(path)
-        if not netlist.nets:
-            self._log("ERROR", f"netlist has no nets: {path}")
-            QMessageBox.critical(
-                self, "Netlist Error",
-                "The netlist file contains no nets.")
+        try:
+            text = _read_text(path)
+            size = Path(path).stat().st_size
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            reason = f"netlist import failed: {exc}"
+            self._log("ERROR", reason)
+            QMessageBox.critical(self, "Import Failed", reason)
             return
-        self._net_data = netlist
+        if not text.strip():
+            reason = (f"netlist import failed: {Path(path).name} "
+                      "is empty (0 content bytes)")
+            self._log("ERROR", reason)
+            QMessageBox.critical(self, "Import Failed", reason)
+            return
+        self._net_path = path
         self._net_loaded = True
-        self.lbl_net_status.setText("Net: ✔ Loaded")
-        self._log("INFO", f"Netlist loaded: {Path(path).name} "
-                          f"({len(netlist.nets)} nets)")
+        self._parsed = False
+        self.lbl_net_status.setText("Net: ✔ Imported")
+        self._log("INFO", f"Netlist imported: {Path(path).name} "
+                          f"({size} bytes) - not parsed yet, click "
+                          "'Parse nets for ICT'")
         self._sync_parse_button()
 
     # ------------------------------------------------------------- parse
     def _sync_parse_button(self) -> None:
-        """``Parse nets for ICT`` needs BOTH inputs loaded."""
+        """``Parse nets for ICT`` needs BOTH inputs imported."""
         self.btn_parse.setEnabled(
             self._schematic_loaded and self._net_loaded)
 
+    def _parse_progress(self, percent: int, label: str) -> None:
+        """Real-time progress update + step detail in the Event-Log."""
+        self.progress.setValue(percent)
+        self.progress.setFormat(f"parse: {label}")
+        self.parse_progress.emit(percent, f"parse: {label}")
+        QApplication.processEvents()   # keep the bar live during parse
+
+    def _parse_failed(self, stage: str, exc: Exception) -> None:
+        """NO silent fail: log the exact stage + reason and show it."""
+        reason = f"{stage} failed: {exc}"
+        self._log("ERROR", reason)
+        self._parse_progress(0, "failed")
+        QMessageBox.critical(self, "Parse Error", reason)
+
     def _parse_nets(self) -> None:
-        """Run the parsing kernel -> draft results (never committed)."""
-        netlist = getattr(self, "_net_data", None)
-        if netlist is None or not self._schematic_loaded:
+        """Explicit PARSE step (structure resolve) with per-stage
+        progress + Event-Log detail.  Any parse error aborts with the
+        clear reason (no silent fail) and leaves the model untouched."""
+        if not (self._schematic_loaded and self._net_loaded):
             return
-        self.model.net_collection = classify_nets(netlist)
-        assignments = select_test_points(self.model.net_collection)
+        self._parse_progress(5, "schematic structure")
+        self._log("INFO", "parse step 1/4: schematic structure resolve")
+        try:
+            self._parse_schematic_structure()
+        except ScannedPdfError:
+            # spec-fixed wording popup (verbatim, spec B1-01-00)
+            self._log("ERROR", SCANNED_PDF_NOTICE)
+            self._parse_progress(0, "failed")
+            QMessageBox.warning(self, "Unsupported Schematic",
+                                SCANNED_PDF_NOTICE)
+            return
+        except (SpfParseError, OSError, ValueError) as exc:
+            self._parse_failed("schematic parse", exc)
+            return
+        self._parse_progress(30, "netlist structure")
+        self._log("INFO", "parse step 2/4: netlist structure resolve")
+        try:
+            netlist, _text = parse_netlist_file(self._net_path)
+        except (OSError, ValueError) as exc:
+            self._parse_failed("netlist parse", exc)
+            return
+        if not netlist.nets:
+            self._parse_failed(
+                "netlist parse",
+                ValueError(f"{Path(self._net_path).name} contains "
+                           "no nets (*SIGNAL* blocks)"))
+            return
+        self._log("INFO", f"netlist resolved: {len(netlist.nets)} nets")
+        self._parse_progress(55, "net classification")
+        self._log("INFO", "parse step 3/4: net classification + "
+                          "test-point selection")
+        try:
+            self.model.net_collection = classify_nets(netlist)
+            assignments = select_test_points(self.model.net_collection)
+        except (KeyError, TypeError, ValueError) as exc:
+            self._parse_failed("net classification", exc)
+            return
         for rec in self.model.net_collection.nets:
             assign = assignments.get(rec.name)
             if assign is None:
@@ -251,6 +314,16 @@ class DesignInputPage(QWidget):
             if rec.net_type == "gnd_ref":
                 # reference grounds default ON (user can untoggle)
                 rec.is_reference_gnd = True
+        type_counts = {}
+        for rec in self.model.net_collection.nets:
+            type_counts[rec.net_type] = \
+                type_counts.get(rec.net_type, 0) + 1
+        summary = ", ".join(f"{t}={n}"
+                            for t, n in sorted(type_counts.items()))
+        self._log("INFO", f"nets classified: {summary}")
+        self._parse_progress(80, "power tree / board type")
+        self._log("INFO", "parse step 4/4: main chips + power tree + "
+                          "board type")
         # main chips from the library + board-type inference
         mains = [r.refdes for r in self.model.component_library.mains()]
         self.model.set_main_chips(mains)
@@ -259,8 +332,13 @@ class DesignInputPage(QWidget):
                                  "check the main-chip list")
         if not self.lbl_core_marker.text():
             self._auto_fill_core(self.model.core_id_suggestion())
-        self.model.candidate_power_tree = derive_candidate_tree(
-            self.model.component_library, self.model.net_collection)
+        try:
+            self.model.candidate_power_tree = derive_candidate_tree(
+                self.model.component_library,
+                self.model.net_collection)
+        except (KeyError, TypeError, ValueError) as exc:
+            self._parse_failed("power tree derivation", exc)
+            return
         if self.model.source_type == SOURCE_SMART_PDF_SPF:
             self._log("WARNING",
                       "Smart-PDF source: power-tree derivation error "
@@ -270,9 +348,45 @@ class DesignInputPage(QWidget):
             BOARD_TYPES.index(self.model.infer_board_type()))
         for rec in self.model.net_collection.nets:
             self._log("INFO", f"net {rec.name}: {rec.net_type}")
+        self._parsed = True
+        marker = (f" {SMART_PDF_MARKER}"
+                  if self._schematic_source == SOURCE_SMART_PDF_SPF
+                  else "")
+        self.lbl_schematic_status.setText(
+            f"Schematic: ✔ Parsed{marker}")
+        self.lbl_net_status.setText("Net: ✔ Parsed")
+        self._parse_progress(100, "done")
         self._log("INFO",
                   f"parse done: {len(self.model.net_collection.nets)} "
                   "nets (DRAFT state - downstream stays disabled)")
+
+    def _parse_schematic_structure(self) -> None:
+        """PARSE stage 1: schematic structure resolve (SPF text or
+        Smart-PDF text layer -> component library + project name)."""
+        source = detect_schematic_source(self._schematic_path,
+                                         extract_pdf_text)
+        self._schematic_source = source
+        self.model.source_type = source
+        if source == SOURCE_SMART_PDF_SPF:
+            text = extract_pdf_text(self._schematic_path, 5)
+            meta_title = _pdf_meta_title(self._schematic_path)
+            pdf_data = parse_pdf_schematic(text, meta_title)
+            # spec priority: PDF metadata Title > PDF file name
+            self.model.project_info["project_name"] = (
+                pdf_data.meta_title or Path(self._schematic_path).stem)
+            self.model.component_library = build_library(
+                pdf_data.components)
+        else:
+            spf = parse_spf(self._schematic_text
+                            if self._schematic_text is not None
+                            else _read_text(self._schematic_path))
+            self.model.project_info["project_name"] = (
+                spf.drawing_title or Path(self._schematic_path).stem)
+            self.model.component_library = build_library(spf.components)
+        n_comp = len(self.model.component_library.records)
+        self._log("INFO", f"schematic resolved (source={source}): "
+                          f"{n_comp} components")
+        self._auto_fill_name(self.model.project_info["project_name"])
 
     # ------------------------------------------------------------ helpers
     def _auto_fill_name(self, value: str) -> None:

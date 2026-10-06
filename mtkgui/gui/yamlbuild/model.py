@@ -28,6 +28,7 @@ from mtkgui.gui.yamlbuild.schema import (
     T_TEXT,
 )
 from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
+    LEGACY_ORDER_SWAP, \
     STAGE_BY_KEY, STAGE_KEYS
 
 _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
@@ -39,7 +40,10 @@ def _migrate_legacy_modules(modules: dict) -> dict:
     Legacy ``power_dut`` (absorbed into rails by the M0 redefinition)
     hands its parameters to its successor; the successor entry stays
     FLAT (parameters at top level, the shape apply_yaml_dict
-    consumes).  Returns a new dict; the input is untouched.
+    consumes).  Item 23: projects saved with the pre-item-23 order
+    (Configure Instruments before Parse nets) are swapped onto the
+    canonical sequence so old files keep loading cleanly.  Returns a
+    new dict; the input is untouched.
 
     Args:
         modules: Raw ``modules`` mapping from an incoming YAML doc.
@@ -59,6 +63,19 @@ def _migrate_legacy_modules(modules: dict) -> dict:
         if target not in out:
             merged["enabled"] = bool(legacy.get("enabled", True))
         out[target] = merged
+    # item 23 legacy order: files saved before the 02/03 swap carry
+    # instruments BEFORE parse_ict - normalize that exact pair onto
+    # the canonical sequence (any other order deviation still fails
+    # the sequence check)
+    first, second = LEGACY_ORDER_SWAP
+    keys = list(out)
+    if first in keys and second in keys \
+            and keys.index(first) < keys.index(second):
+        # swap the mapping POSITIONS (a plain value swap would keep
+        # the old insertion order and still fail the sequence check)
+        i, j = keys.index(first), keys.index(second)
+        keys[i], keys[j] = keys[j], keys[i]
+        out = {k: out[k] for k in keys}
     return out
 
 
@@ -105,16 +122,26 @@ class YamlBuildModel:
             # ENABLED - new projects, fresh starts and legacy imports
             # all come up fully enabled without manual switching
             self._enabled[key] = True
-        # imported design data (acceptance 3.1.1): schematic metadata
-        # + parsed netlist + user TP resolutions.  Shared with every
-        # downstream module through the effective YAML design_data
-        # section.
+        # imported design data (T7/T8): the NET file raw bytes loaded
+        # by the Design Input panel (load only there) plus the formal
+        # Parse Nets result - the single data source for the Channel
+        # Allocation tables.
         self.imported: dict = {
-            "schematic": {},     # file, core_id, project_name, rev
-            "netlist": {"file": "", "net_count": 0,
-                        "nets": {}, "missing_tp": []},
-            "tp_resolutions": {},  # net -> pin | "skip"
+            "net": {"file": "", "raw": ""},
+            "testable_nets": {},   # name -> {category, members}
         }
+        # T10 Channel Allocation configuration (three tables, the
+        # parse-result data source; see channel_allocation.py)
+        self.channel_allocation: dict = {}
+        # item 24: net classification rules + power tree draft +
+        # SE clock / GPIO channel allocations (GUI + YAML data model)
+        self.net_classification_rules: dict = {}
+        self.power_tree: dict = {}
+        self.se_clock_allocation: list = []
+        self.gpio_allocation: list = []
+        # test path complexity risk (topology-based, advisory):
+        # {"thresholds": {...}, "scores": {net: {...}}}
+        self.path_risk: dict = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -169,6 +196,16 @@ class YamlBuildModel:
                 merged[name] = value
             self._params[module_key] = merged
             self.changed = True
+
+    def set_channel_allocation(self, data: dict) -> None:
+        """Store the Channel Allocation table configuration (T10)."""
+        if isinstance(data, dict):
+            self.channel_allocation = data
+            self.changed = True
+
+    def get_channel_allocation(self) -> dict:
+        """Return the stored Channel Allocation configuration."""
+        return dict(self.channel_allocation or {})
 
     @property
     def plan_version(self) -> str:
@@ -231,22 +268,30 @@ class YamlBuildModel:
             "plan_version": self._plan_version,
             "modules": modules,
         }
-        # design data backfill (acceptance 3.1.1): shared with all
-        # downstream flow modules
-        if self.imported.get("schematic") or \
-                self.imported["netlist"].get("net_count"):
+        # T7/T8 design data: NET file reference + the formal Parse
+        # Nets result (the Channel Allocation data source)
+        net = self.imported.get("net") or {}
+        if self.imported.get("testable_nets") or net.get("file"):
             section["design_data"] = {
-                "schematic": dict(self.imported["schematic"]),
-                "netlist": {
-                    "file": self.imported["netlist"].get("file", ""),
-                    "net_count": self.imported["netlist"].get(
-                        "net_count", 0),
-                    "nets": dict(self.imported["netlist"].get(
-                        "nets", {})),
-                },
-                "tp_resolutions": dict(
-                    self.imported.get("tp_resolutions", {})),
+                "net_file": net.get("file", ""),
+                "testable_nets": dict(
+                    self.imported.get("testable_nets", {})),
             }
+        # T10 Channel Allocation configuration (project YAML)
+        if self.channel_allocation:
+            section["channel_allocation"] = self.channel_allocation
+        # item 24 sections (rules / power tree / allocations)
+        if self.net_classification_rules:
+            section["net_classification_rules"] = \
+                self.net_classification_rules
+        if self.power_tree:
+            section["power_tree"] = self.power_tree
+        if self.se_clock_allocation:
+            section["se_clock_allocation"] = self.se_clock_allocation
+        if self.gpio_allocation:
+            section["gpio_allocation"] = self.gpio_allocation
+        if self.path_risk:
+            section["path_risk"] = self.path_risk
         return {"yaml_build": section}
 
     def to_effective_yaml(self) -> str:
@@ -324,6 +369,36 @@ class YamlBuildModel:
                 params[spec.name] = text
             enabled = bool(value.get("enabled", True))
             self._enabled[key] = enabled
+        # T7/T8 design data restore (net file + parse result)
+        design = section.get("design_data") or {}
+        if isinstance(design, dict):
+            net = self.imported.setdefault("net", {"file": "", "raw": ""})
+            if design.get("net_file") is not None:
+                net["file"] = str(design.get("net_file") or "")
+            if isinstance(design.get("testable_nets"), dict):
+                self.imported["testable_nets"] = dict(
+                    design["testable_nets"])
+        # T10 Channel Allocation restore (empty / legacy: no section
+        # loads blank without error)
+        alloc = section.get("channel_allocation")
+        if isinstance(alloc, dict):
+            self.channel_allocation = alloc
+        # item 24 sections restore (empty / legacy: blank, no error)
+        rules = section.get("net_classification_rules")
+        if isinstance(rules, dict):
+            self.net_classification_rules = rules
+        tree = section.get("power_tree")
+        if isinstance(tree, dict):
+            self.power_tree = tree
+        se_clock = section.get("se_clock_allocation")
+        if isinstance(se_clock, list):
+            self.se_clock_allocation = se_clock
+        gpio = section.get("gpio_allocation")
+        if isinstance(gpio, list):
+            self.gpio_allocation = gpio
+        risk = section.get("path_risk")
+        if isinstance(risk, dict):
+            self.path_risk = risk
         self.changed = True
         return errors
 
@@ -403,6 +478,14 @@ class YamlBuildModel:
             "plan_version": self._plan_version,
             "saved_at": datetime.now().isoformat(timespec="seconds"),
             "imported": copy.deepcopy(self.imported),
+            "channel_allocation": copy.deepcopy(self.channel_allocation),
+            "net_classification_rules":
+                copy.deepcopy(self.net_classification_rules),
+            "power_tree": copy.deepcopy(self.power_tree),
+            "se_clock_allocation":
+                copy.deepcopy(self.se_clock_allocation),
+            "gpio_allocation": copy.deepcopy(self.gpio_allocation),
+            "path_risk": copy.deepcopy(self.path_risk),
             "modules": {
                 key: {
                     "enabled": self._enabled[key],
@@ -425,14 +508,26 @@ class YamlBuildModel:
             self._plan_version = version
         imported = state.get("imported") or {}
         if isinstance(imported, dict):
+            net = imported.get("net")
             self.imported = {
-                "schematic": imported.get("schematic", {}),
-                "netlist": imported.get(
-                    "netlist",
-                    {"file": "", "net_count": 0, "nets": {},
-                     "missing_tp": []}),
-                "tp_resolutions": imported.get("tp_resolutions", {}),
+                "net": dict(net) if isinstance(net, dict)
+                else {"file": "", "raw": ""},
+                "testable_nets": imported.get("testable_nets", {})
+                if isinstance(imported.get("testable_nets"), dict)
+                else {},
             }
+        # T10 Channel Allocation (legacy states: key absent -> blank)
+        alloc = state.get("channel_allocation")
+        self.channel_allocation = alloc if isinstance(alloc, dict) else {}
+        # item 24 sections (legacy states: key absent -> blank)
+        for key, default in (("net_classification_rules", {}),
+                             ("power_tree", {}),
+                             ("se_clock_allocation", []),
+                             ("gpio_allocation", []),
+                             ("path_risk", {})):
+            value = state.get(key)
+            if isinstance(value, type(default)):
+                setattr(self, key, value)
         modules = state.get("modules") or {}
         # legacy (pre-M0) migration: the absorbed power_dut block
         # hands its retained parameters to the rails block (04)

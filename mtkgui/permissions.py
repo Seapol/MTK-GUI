@@ -16,22 +16,27 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__
-
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QVBoxLayout,
 )
+
+from .gui_version import load_gui_version
+from .style import GUI_THEMES, saved_theme
 
 ROLE_SUPERVISOR = "Supervisor"
 ROLE_OPERATOR = "Operator"
@@ -43,6 +48,11 @@ MODE_VIRTUAL = "Virtual"
 FIXTURE_ATE = "ATE"
 FIXTURE_MANUAL = "Manual"
 FIXTURE_TYPES = (FIXTURE_ATE, FIXTURE_MANUAL)
+
+# Login window bottom info bar (item 12): fixed station identity +
+# live user info + the official copyright line
+STATION_ID = "MTK-AOI-01"
+COPYRIGHT_TEXT = "\u00a92026 NXP. All Rights Reserved."
 
 # Fixed wording of the Manual-fixture notice (spec item 5): shown once
 # after a Manual login and whenever a blocked fixture / IO entry is used.
@@ -58,9 +68,9 @@ SUPERVISOR_PASSWORD = "nxp"
 # is always allowed and therefore intentionally not a key here.
 PERMISSION_LABELS = {
     "save_yaml": "Save YAML (Apply and Save / Save as)",
+    "edit_yaml_build": "Edit Yaml Build page (YAML config editor)",
     "edit_ict": "Edit ICT test cases (double-click rows)",
     "edit_fct": "Edit FCT test cases (double-click rows)",
-    "edit_product_info": "Edit Product Information",
     "edit_run_control": "Edit Long Run / Interval",
     "toggle_stages": "Enable / disable ICT / FCT stages (Overall Flow EN)",
     "edit_serial_params": "Configure serial / SSH channel parameters",
@@ -153,9 +163,12 @@ class SlideSwitch(QAbstractButton):
         f.setBold(True)
         f.setPointSize(9)
         p.setFont(f)
-        p.drawText(QRectF(0, 0, self.width() / 2, self.height()),
+        # half labels (item 12 fix: keep clear of the sliding knob -
+        # the left / right text rects start past the knob travel so
+        # no character is ever covered, e.g. "Real" / "ATE")
+        p.drawText(QRectF(22, 0, self.width() / 2 - 22, self.height()),
                    Qt.AlignmentFlag.AlignCenter, self._left_label)
-        p.drawText(QRectF(self.width() / 2, 0, self.width() / 2,
+        p.drawText(QRectF(self.width() / 2, 0, self.width() / 2 - 22,
                           self.height()),
                    Qt.AlignmentFlag.AlignCenter, self._right_label)
         # sliding knob
@@ -225,30 +238,54 @@ class LoginDialog(QDialog):
         self.setWindowTitle("MTK GUI - Login")
         self.role = None
         self.mode = MODE_REAL
-        # balanced dialog sizing: hard minimum floor + default startup
-        # dimension (kept together with the slider layout change)
-        self.setMinimumSize(430, 400)
-        self.resize(480, 470)
+        # item 12: full adaptive layout - no fixed max size; Qt layout
+        # rules drive width / height (Windows / macOS high-DPI safe:
+        # logical px minimums, widgets grow with the window)
+        self.setMinimumSize(480, 570)
+        self.resize(480, 570)
+        self.setSizeGripEnabled(True)
 
-        form = QFormLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(32, 24, 32, 12)
+        outer.setSpacing(10)
 
-        # welcome header: line 1 greeting, line 2 version number
-        welcome = QLabel(
-            '<span style="font-size:17px;font-weight:600;">'
-            'Welcome to MTK All-in-One GUI</span><br>'
-            f'<span style="font-size:12px;">'
-            f'Version {__version__}</span>')
-        form.addRow(welcome)
+        # brand logo (item 12): official mark, adaptive scaling, no
+        # distortion / occlusion (aspect ratio locked by the SVG)
+        outer.addWidget(self._build_logo(), alignment=Qt.AlignmentFlag
+                        .AlignHCenter)
+
+        # welcome header: greeting + version, centered, steady colors.
+        # item 12: larger, bolder title + version bound to the ONE
+        # global GUI version (status bar source - no duplicate defs)
+        welcome = QLabel("Welcome to MTK All-in-One GUI")
+        welcome.setObjectName("login_title")
+        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.addWidget(welcome)
+        gui_version, _warning = load_gui_version()
+        version = QLabel(f"Version {gui_version}")
+        version.setObjectName("login_version")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.addWidget(version)
+        outer.addSpacing(6)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight
+                               | Qt.AlignmentFlag.AlignVCenter)
 
         # 1 ------------------------------------------------------- account
         self.role_combo = QComboBox()
         self.role_combo.addItems(ROLES)
+        self.role_combo.setFixedHeight(34)   # uniform control height
         form.addRow("Account:", self.role_combo)
 
         # 2 ------------------------------------------------------ password
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Supervisor password")
+        self.password_edit.setFixedHeight(34)
         form.addRow("Password:", self.password_edit)
 
         # 3 ---------------------------------------------------- mode switch
@@ -261,32 +298,213 @@ class LoginDialog(QDialog):
         # 4 ------------------------------------------------- fixture choice
         self.fixture_selector = FixtureSelector()
         form.addRow("Fixture:", self.fixture_selector)
+        outer.addLayout(form)
 
+        # descriptive text (item 12): moderate MIDDLE area, centered -
+        # no bottom-biased offset indentation; the stretches above and
+        # below park it in the middle of the free window space
+        outer.addStretch(1)
         hint = QLabel("Operator: no password needed.\n"
                       "Supervisor: enter the account password.\n"
                       "Mode switch unlocks for supervisor only.")
-        hint.setObjectName("muted")
-        form.addRow(hint)
+        hint.setObjectName("login_hint")
+        hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        outer.addWidget(hint)
+        outer.addStretch(1)
 
         # 5 --------------------------------------------------- login button
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(
-            QDialogButtonBox.StandardButton.Ok).setText("Login")
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok_btn.setText("Login")
+        ok_btn.setObjectName("login_btn")
+        ok_btn.setMinimumHeight(34)
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_btn.setObjectName("login_secondary")
+        cancel_btn.setMinimumHeight(34)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         if not allow_cancel:
-            buttons.button(
-                QDialogButtonBox.StandardButton.Cancel).setVisible(False)
-        form.addRow(buttons)
+            cancel_btn.setVisible(False)
+        outer.addWidget(buttons)
+
+        # bottom FIXED info bar (item 12): station ID + live user info
+        # + official copyright - absolute bottom, standardized hierarchy
+        outer.addWidget(self._build_footer())
+
+        self._apply_login_style()
 
         # permission rule: the switch unlocks only when a supervisor
         # account AND the correct password are present (live check)
         self.role_combo.currentTextChanged.connect(
             lambda _t: self._sync_mode_lock())
+        self.role_combo.currentTextChanged.connect(
+            lambda text: self.user_label.setText(f"User: {text}"))
         self.password_edit.textChanged.connect(
             lambda _t: self._sync_mode_lock())
         self._sync_mode_lock()
+
+    # ------------------------------------------------------------- footer
+    def _build_footer(self):
+        """Bottom fixed info bar: Station ID + User (left / live) and
+        the copyright line (centered underneath)."""
+        footer = QFrame()
+        footer.setObjectName("login_footer")
+        lay = QVBoxLayout(footer)
+        lay.setContentsMargins(2, 6, 2, 4)
+        lay.setSpacing(2)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.station_label = QLabel(f"Station ID: {STATION_ID}")
+        self.station_label.setObjectName("login_station")
+        self.user_label = QLabel(f"User: {self.role_combo.currentText()}")
+        self.user_label.setObjectName("login_user")
+        row.addWidget(self.station_label)
+        row.addStretch(1)
+        row.addWidget(self.user_label)
+        lay.addLayout(row)
+        copyright_label = QLabel(COPYRIGHT_TEXT)
+        copyright_label.setObjectName("login_copyright")
+        copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(copyright_label)
+        return footer
+
+    def _build_logo(self):
+        """NXP brand mark (item 12): vector logo rendered at 2x and
+        smooth-scaled with the aspect ratio locked (adaptive scaling,
+        no distortion); text fallback when the asset is absent."""
+        logo_path = Path(__file__).resolve().parent.parent \
+            / "resources" / "nxp_logo.svg"
+        if logo_path.is_file():
+            from PySide6.QtGui import QPixmap
+            from PySide6.QtSvg import QSvgRenderer
+            renderer = QSvgRenderer(str(logo_path))
+            pix = QPixmap(220, 68)           # 2x raster: crisp on HiDPI
+            pix.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pix)
+            renderer.render(painter)
+            painter.end()
+            logo = QLabel()
+            logo.setObjectName("login_logo")
+            logo.setPixmap(pix.scaled(
+                110, 34, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            return logo
+        logo = QLabel("NXP")
+        logo.setObjectName("login_logo_text")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return logo
+
+    # ------------------------------------------------------------- style
+    def _apply_login_style(self):
+        """Uniform industrial dark styling (SOLO fix batch): scoped to
+        this dialog, built from the current GUI theme tokens so the
+        login matches the main-window look.  Styling only - no logic."""
+        t = dict(GUI_THEMES.get(saved_theme(), GUI_THEMES["Dark"]))
+        self.setStyleSheet(
+            f"""
+            QDialog {{
+                background-color: {t['page']};
+            }}
+            QLabel {{
+                color: {t['text']};
+                background: transparent;
+            }}
+            QLabel#login_title {{
+                font-size: 21px;
+                font-weight: 700;
+                color: {t['text']};
+            }}
+            QLabel#login_version {{
+                font-size: 12px;
+                color: {t['muted']};
+            }}
+            QLabel#login_logo_text {{
+                font-size: 26px;
+                font-weight: 800;
+                letter-spacing: 3px;
+                color: #004c97;
+            }}
+            QLabel#login_hint {{
+                font-size: 11px;
+                color: {t['muted']};
+            }}
+            QFrame#login_footer {{
+                border-top: 1px solid {t['border']};
+            }}
+            QLabel#login_station, QLabel#login_user {{
+                font-size: 11px;
+                color: {t['text']};
+                background: transparent;
+            }}
+            QLabel#login_copyright {{
+                font-size: 11px;
+                color: {t['muted']};
+                background: transparent;
+            }}
+            QLineEdit, QComboBox {{
+                background-color: {t['card']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                border-radius: 6px;
+                padding: 6px 10px;
+                min-height: 22px;
+                selection-background-color: {t['sel_bg']};
+                selection-color: {t['sel_text']};
+            }}
+            QLineEdit:hover, QComboBox:hover {{
+                border: 1px solid {t['accent']};
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border: 1px solid {t['accent']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 22px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {t['card']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                selection-background-color: {t['sel_bg']};
+                selection-color: {t['sel_text']};
+            }}
+            QPushButton#login_btn {{
+                background-color: {t['accent']};
+                color: {t['accent_text']};
+                border: none;
+                border-radius: 6px;
+                padding: 7px 18px;
+                font-weight: bold;
+                min-width: 120px;
+            }}
+            QPushButton#login_btn:hover {{
+                background-color: {t['accent']};
+            }}
+            QPushButton#login_btn:pressed {{
+                background-color: {t['accent_press']};
+            }}
+            QPushButton#login_secondary {{
+                background-color: {t['card']};
+                color: {t['muted']};
+                border: 1px solid {t['border']};
+                border-radius: 6px;
+                padding: 7px 14px;
+            }}
+            QPushButton#login_secondary:hover {{
+                border: 1px solid {t['accent']};
+                color: {t['text']};
+            }}
+            """)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Center the fixed-size dialog on the current screen."""
+        super().showEvent(event)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            self.move(avail.center() - self.rect().center())
 
     # ------------------------------------------------------------ helpers
     def _supervisor_unlocked(self) -> bool:

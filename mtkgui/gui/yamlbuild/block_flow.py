@@ -97,10 +97,10 @@ MODULE_TOOLTIPS = {
     "parse_ict":
         "从DesignModel提取ICT网络信息生成ICTNetModel；不生成测试序列",
     "rails":
-        "生成ICT阻抗/电压测量与DUT上下电序列；复用block02仪器资源，"
+        "生成ICT阻抗/电压测量与DUT上下电序列；复用block03仪器资源，"
         "不重复配置仪器",
-    "clocks": "构建时钟ICT测试步骤，复用block02已配置仪器资源",
-    "gpios": "构建GPIO ICT测试步骤，复用block02已配置仪器资源",
+    "clocks": "构建时钟ICT测试步骤，复用block03已配置仪器资源",
+    "gpios": "构建GPIO ICT测试步骤，复用block03已配置仪器资源",
     "programmer":
         "JLink/烧录调试器固件与调试资源配置，与机架ATE仪器分离；"
         "不生成测试步骤",
@@ -312,26 +312,43 @@ class BlockFlowWidget(QWidget):
 
     def open_dialog(self, module_key: str, params: dict,
                     parent: QWidget,
-                    power_candidates: list[str] | None = None):
+                    power_candidates: list[str] | None = None,
+                    log_sink=None, progress_sink=None,
+                    net_source: tuple[str, str] | None = None,
+                    panel_state: dict | None = None):
         """Open the dedicated config dialog for one module.
 
         Args:
             module_key:       Stage key.
             params:           Current parameters.
             parent:           Parent widget for the dialog.
-            power_candidates: Block 03 candidate power nets (from the
-                              power tree) for the capture-list prefill.
+            power_candidates: Block 02 candidate power nets (from the
+                              Parse Nets result) for the prefill.
+            log_sink:         Optional callable (level, message) wired
+                              to the dialog BEFORE exec so embedded
+                              panels log live (T6).
+            progress_sink:    Optional callable (percent, label) wired
+                              before exec (T6 global progress).
+            net_source:       Block 02 (raw netlist text, file name)
+                              from the Design Input import (T8).
+            panel_state:      Block 02 restore data (rules / power
+                              tree / overrides / spf_nets) - item 24.
 
         Returns:
-            ``(values, import_result)`` where ``values`` is the
-            validated parameter dict (None when cancelled) and
-            ``import_result`` carries the Design Input import parse
-            results (None for other modules).
+            ``(values, dialog)`` where ``values`` is the validated
+            parameter dict (None when cancelled) and ``dialog`` is the
+            closed BlockConfigDialog (None when cancelled).
         """
         dialog = BlockConfigDialog(module_key, params, parent,
-                                   power_candidates=power_candidates)
+                                   power_candidates=power_candidates,
+                                   net_source=net_source,
+                                   panel_state=panel_state)
+        if log_sink is not None:
+            dialog.task_log.connect(log_sink)
+        if progress_sink is not None:
+            dialog.task_progress.connect(progress_sink)
         if dialog.exec() == BlockConfigDialog.DialogCode.Accepted:
-            return dialog.values(), getattr(dialog, "import_result", None)
+            return dialog.values(), dialog
         return None, None
 
     @staticmethod

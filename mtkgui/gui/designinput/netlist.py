@@ -149,7 +149,7 @@ def parse_netlist_file(path: str) -> tuple[NetlistData, str]:
 def power_capture_candidates(net_names, limit: int = 12) -> list[str]:
     """Pre-select power nets for the block-03 waveform capture list.
 
-    M0 additional requirement: block 03 auto-prefills up to 12
+    M0 additional requirement: block 02 auto-prefills up to 12
     candidate power nets (the user finalizes the list manually);
     block 04 consumes the final list read-only.
 

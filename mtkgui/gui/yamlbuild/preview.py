@@ -43,6 +43,9 @@ class YamlPreviewWidget(QWidget):
     #: emitted after a valid hand edit entered the model - the page
     #: uses it to refresh the block cards (YAML -> diagram direction)
     edits_applied = Signal()
+    #: emitted whenever the toggle label changes (Edit <-> Apply) -
+    #: the page top toolbar re-syncs the uniform button width (item 16)
+    label_changed = Signal(str)
 
     def __init__(self, parent=None) -> None:
         """Create the preview pane (READ_ONLY by default)."""
@@ -54,14 +57,16 @@ class YamlPreviewWidget(QWidget):
         self.caption.setObjectName("muted")
         bar.addWidget(self.caption)
         bar.addStretch(1)
-        # single fixed-position toggle button: only the label text
-        # changes between the two states; width follows the label
+        # item 16: the Edit/Apply toggle moved to the page top toolbar
+        # (placed to the right of the Excel buttons).  The widget is
+        # created here - state, permission gate and toggle logic stay
+        # owned by the preview - but is NOT added to this header any
+        # more; the page reparents it into the unified top button row.
         self.btn_edit = QPushButton(EDIT_LABEL)
         self.btn_edit.setCheckable(False)
         self.btn_edit.setToolTip(
             "Edit: activate hand editing. Apply: validate and persist; "
             "invalid edits keep edit mode and are marked red")
-        bar.addWidget(self.btn_edit)
         lay.addLayout(bar)
 
         self.editor = QPlainTextEdit()
@@ -102,6 +107,14 @@ class YamlPreviewWidget(QWidget):
         self._clear_error_marks()
 
     # ------------------------------------------------------ button toggle
+    def set_edit_allowed(self, allowed: bool) -> None:
+        """Permission gate (T5): without the edit right the Edit/Apply
+        button is disabled and a pending edit session is rolled back
+        to READ_ONLY (the preview stays viewable)."""
+        self.btn_edit.setEnabled(bool(allowed))
+        if not allowed and self._editing:
+            self._exit_edit()
+
     def _on_button_clicked(self) -> None:
         """Dispatch the single button: Edit -> enter edit mode,
         Apply -> validate and (on pass) persist + return to Edit."""
@@ -115,6 +128,7 @@ class YamlPreviewWidget(QWidget):
         self._editing = True
         self.editor.setReadOnly(False)
         self.btn_edit.setText(APPLY_LABEL)
+        self.label_changed.emit(APPLY_LABEL)
 
     def _apply_edits(self) -> None:
         """Apply clicked: validate; PASS persists + returns to
@@ -144,6 +158,7 @@ class YamlPreviewWidget(QWidget):
         self._editing = False
         self.editor.setReadOnly(True)
         self.btn_edit.setText(EDIT_LABEL)
+        self.label_changed.emit(EDIT_LABEL)
         self.error_bar.setVisible(False)
         self._clear_error_marks()
 
