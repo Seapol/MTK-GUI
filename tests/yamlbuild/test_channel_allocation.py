@@ -183,6 +183,29 @@ def test_no_status_instrument_channel_columns(page):
         assert not (banned & set(keys)), (name, keys)
 
 
+def test_resource_pools_exclusive(page):
+    """Every dropdown contains ONLY the resources of its own
+    instrument - unrelated instruments never appear (Power:
+    DAQM908A-only for Impedance / Voltage, U2355A-only for Power
+    rails; Clock: DAQM907A TOT + U2355A counters; GPIO: DAQM907A DIO
+    only, the fixture-reserved U2355A DIO is never offered)."""
+    def items(table, col):
+        combo = table.cellWidget(0, col)
+        return [combo.itemText(i) for i in range(combo.count())
+                if combo.itemText(i) != UNSET]
+
+    power = page.table_power.table
+    for col in (2, 4):                       # Impedance / Voltage
+        pool = items(power, col)
+        assert pool and all(p.startswith("DAQM908A") for p in pool)
+    rails = items(power, 3)
+    assert rails and all(p.startswith("U2355A") for p in rails)
+    clock = items(page.table_clock.table, 2)
+    assert clock == ["DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
+    dio = items(page.table_gpio.table, 2)
+    assert dio == [f"DAQM907A DIO{n:02d}" for n in range(1, 17)]
+
+
 def test_gpio_dio_pool(page):
     """The GPIO DIO Channel combo offers exactly the 16 DAQM907A DIO
     resources - the U2355A DIO is NOT offered (fixture-reserved)."""
