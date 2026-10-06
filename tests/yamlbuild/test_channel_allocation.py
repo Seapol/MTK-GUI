@@ -83,11 +83,12 @@ def test_row_auto_validation_ok_nok():
     assert row.is_configured("power") is True
 
     clock = AllocatedRow(net="CLK_24M", test_point="U1.10",
-                         instrument="U2355A", channel="CH02")
-    assert not clock.is_configured("clock")
-    clock.se_clock_hz = "Yes"
-    clock.band = "CH2 source: U2355A"
+                         se_clock_hz="DAQM907A TOT",
+                         band="0 ~ 100 kHz")
     assert clock.is_configured("clock") is True
+    assert not AllocatedRow(
+        net="CLK_24M", test_point="U1.10",
+        se_clock_hz="DAQM907A TOT").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
                         instrument="DAQ973A", channel="CH03")
@@ -169,18 +170,43 @@ def test_config_cells_are_dropdown_only(page):
 
 
 def test_status_auto_updates(page):
-    """Filling every dropdown flips the Clock-row Status NOK -> OK
-    (the Power table has no Status column anymore)."""
-    table = page.table_power.table
-    assert table.item(0, table.columnCount() - 1) is None
-    clock = page.table_clock.table
-    assert clock.item(0, 6).text() == "NOK"
-    for c, value in ((1, "U1.10"), (2, "U2355A"), (3, "CH02"),
-                     (4, "Yes"), (5, "CH2 source: U2355A")):
-        clock.cellWidget(0, c).setCurrentText(value)
-    assert clock.item(0, 6).text() == "OK"
+    """Filling the GPIO dropdowns flips the Status NOK -> OK; the
+    Power / Clock tables have no Status column anymore."""
+    for name in ("table_power", "table_clock"):
+        table = getattr(page, name).table
+        keys = [table.horizontalHeaderItem(c).text()
+                for c in range(table.columnCount())]
+        assert "Status" not in keys and "Instrument" not in keys \
+            and "Channel" not in keys, (name, keys)
+    gpio = page.table_gpio.table
+    assert gpio.item(0, 6).text() == "NOK"
+    for c, value in ((1, "U1.20"), (2, "DAQ973A"), (3, "CH03")):
+        gpio.cellWidget(0, c).setCurrentText(value)
+    assert gpio.item(0, 6).text() == "OK"
     # status stays read-only: not editable by the user
-    assert not (clock.item(0, 6).flags()
+    assert not (gpio.item(0, 6).flags()
+                & __import__("PySide6.QtCore", fromlist=["Qt"])
+                .Qt.ItemFlag.ItemIsEditable)
+
+
+def test_clock_resource_and_band_mapping(page):
+    """SE Clock Hz offers exactly the three capture resources; the
+    Frequency band is read-only and hardware-derived: DAQM907A TOT
+    0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz."""
+    table = page.table_clock.table
+    assert table.columnCount() == 4
+    combo = table.cellWidget(0, 2)
+    assert [combo.itemText(i) for i in range(combo.count())] == \
+        [UNSET, "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
+    # band is a read-only item, initially unconfigured
+    assert table.cellWidget(0, 3) is None
+    assert table.item(0, 3).text() == UNSET
+    combo.setCurrentText("DAQM907A TOT")
+    assert table.item(0, 3).text() == "0 ~ 100 kHz"
+    combo.setCurrentText("U2355A CTR1")
+    assert table.item(0, 3).text() == "0.1 Hz ~ 6 MHz"
+    # the band item is read-only
+    assert not (table.item(0, 3).flags()
                 & __import__("PySide6.QtCore", fromlist=["Qt"])
                 .Qt.ItemFlag.ItemIsEditable)
 
@@ -210,12 +236,18 @@ def test_gpio_fixed_attributes(page):
             for i in range(combo_do.count())] == ["No Output"]
 
 
-def test_frequency_band_hardware_mapping(page):
-    """Clock band dropdown: CH1 source DAQM907A / CH2 source U2355A."""
-    combo = page.table_clock.table.cellWidget(0, 5)
-    items = [combo.itemText(i) for i in range(combo.count())]
-    assert items == ["—", "CH1 source: DAQM907A",
-                     "CH2 source: U2355A"]
+def test_legacy_band_value_resets(page):
+    """A legacy band value (pre hardware-mapping free text) resets to
+    a clean unconfigured state on reload."""
+    page.model.channel_allocation = {
+        "clock": [{"net": "CLK_24M", "band": "CH2 source: U2355A"}]}
+    page.refresh_from_model()
+    row = page.table_clock.rows()[0]
+    assert row.band == UNSET
+    # choosing a resource fills the hardware band
+    page.table_clock.table.cellWidget(0, 2).setCurrentText(
+        "U2355A CTR0")
+    assert page.table_clock.rows()[0].band == "0.1 Hz ~ 6 MHz"
 
 
 # -------------------------------------------------- persistence / compat

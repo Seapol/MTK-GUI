@@ -18,7 +18,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from mtkgui.gui.yamlbuild.channel_allocation import (
     CHANNELS,
-    FREQ_BANDS,
     GPIO_DI,
     GPIO_DO,
     INSTRUMENTS,
@@ -26,6 +25,12 @@ from mtkgui.gui.yamlbuild.channel_allocation import (
     AllocatedRow,
     ChannelAllocationData,
     TABLE_SPECS,
+)
+from mtkgui.gui.yamlbuild.power_alloc import (
+    CLOCK_BANDS,
+    CLOCK_CHANNELS,
+    DAQM908A_SENSE_CHANNELS,
+    U2355A_AI_CHANNELS,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.schema import MODULE_FIELDS, module_title
@@ -46,23 +51,32 @@ _HEADERS = ("Module", "Module Key", "Parameter", "Value", "Type",
 ALLOCATION_SHEET_NAMES = {"power": "Power", "clock": "Clock",
                           "gpio": "GPIO"}
 ALLOCATION_HEADERS = {
-    "power": ("Net name", "Test point", "Instrument", "Channel",
-              "Impedance(Yes/No)", "Power rails(Yes/No)",
-              "Voltage(Yes/No)", "Status"),
-    "clock": ("Net name", "Test point", "Instrument", "Channel",
-              "SE Clock Hz(Yes/No)", "Frequency band", "Status"),
+    "power": ("Net name", "Test point", "Impedance", "Power rails",
+              "Voltage"),
+    "clock": ("Net name", "Test point", "SE Clock Hz",
+              "Frequency band"),
     "gpio": ("Net name", "Test point", "Instrument", "Channel",
              "Digital Input(HighZ)", "Digital Output(No Output)",
              "Status"),
 }
-#: row keys written per table kind (status is auto, never persisted)
+#: row keys written per table kind (gpio keeps the auto Status col)
 _ALLOC_ROW_KEYS = {
-    "power": ("net", "test_point", "instrument", "channel",
-              "impedance", "power_rails", "voltage"),
-    "clock": ("net", "test_point", "instrument", "channel",
-              "se_clock_hz", "band"),
+    "power": ("net", "test_point", "impedance", "power_rails",
+              "voltage"),
+    "clock": ("net", "test_point", "se_clock_hz", "band"),
     "gpio": ("net", "test_point", "instrument", "channel",
              "digital_input", "digital_output"),
+}
+#: per-cell dropdown enum validation (import pass 1)
+_ALLOC_POOLS = {
+    "power": {"impedance": DAQM908A_SENSE_CHANNELS,
+              "power_rails": U2355A_AI_CHANNELS,
+              "voltage": DAQM908A_SENSE_CHANNELS},
+    "clock": {"se_clock_hz": CLOCK_CHANNELS,
+              "band": tuple(dict.fromkeys(CLOCK_BANDS.values()))},
+    "gpio": {"instrument": INSTRUMENTS, "channel": CHANNELS,
+             "digital_input": (GPIO_DI,),
+             "digital_output": (GPIO_DO,)},
 }
 
 
@@ -127,8 +141,9 @@ def export_to_excel(model: YamlBuildModel, path: str) -> int:
         keys = _ALLOC_ROW_KEYS[kind]
         for row in getattr(alloc, kind):
             values = {key: getattr(row, key) for key in keys}
-            aw.append([values[key] for key in keys]
-                      + ["OK" if row.is_configured(kind) else "NOK"])
+            tail = (["OK" if row.is_configured(kind) else "NOK"]
+                    if kind == "gpio" else [])
+            aw.append([values[key] for key in keys] + tail)
             rows += 1
     wb.save(path)
     return rows
@@ -204,7 +219,10 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
             values += [""] * (len(ALLOCATION_HEADERS[kind])
                               - len(values))
             cells = dict(zip(_ALLOC_ROW_KEYS[kind], values))
-            cells["status"] = values[len(_ALLOC_ROW_KEYS[kind])]
+            # only the GPIO sheet carries the auto Status column
+            status_idx = len(_ALLOC_ROW_KEYS[kind])
+            cells["status"] = (values[status_idx]
+                               if len(values) > status_idx else "")
             prefix = f"{sheet} row {line_no}"
             if not cells["net"]:
                 report.errors.append(f"{prefix}: Net name required")
@@ -212,24 +230,8 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
             if not cells["test_point"]:
                 report.errors.append(f"{prefix}: Test point required")
                 continue
-            for key, allowed in (
-                    ("instrument", INSTRUMENTS),
-                    ("channel", CHANNELS)):
+            for key, allowed in _ALLOC_POOLS[kind].items():
                 text = cells[key]
-                if text and text != UNSET and text not in allowed:
-                    report.errors.append(
-                        f"{prefix}: {key.title()} {text!r} not in "
-                        f"{'/'.join(allowed)}")
-            yes_no = ("Yes", "No")
-            for key in _ALLOC_ROW_KEYS[kind][4:]:
-                if key == "band":
-                    allowed, text = FREQ_BANDS, cells["band"]
-                elif key == "digital_input":
-                    allowed, text = (GPIO_DI,), cells["digital_input"]
-                elif key == "digital_output":
-                    allowed, text = (GPIO_DO,), cells["digital_output"]
-                else:
-                    allowed, text = yes_no, cells[key]
                 if text and text != UNSET and text not in allowed:
                     report.errors.append(
                         f"{prefix}: {key.replace('_', ' ').title()} "

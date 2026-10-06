@@ -147,33 +147,27 @@ yaml_build:
     power:
     - net: VDD_3V3
       test_point: TP_P1.1
-      instrument: DAQ973A
-      channel: CH01
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH101'
+      power_rails: U2355A AI01
+      voltage: 'DAQM908A #2 CH201'
       se_clock_hz: —
       band: —
       digital_input: HighZ
       digital_output: No Output
     - net: VDD_1V8
       test_point: TP_P2.1
-      instrument: DAQ973A
-      channel: CH02
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH102'
+      power_rails: U2355A AI02
+      voltage: 'DAQM908A #2 CH202'
       se_clock_hz: —
       band: —
       digital_input: HighZ
       digital_output: No Output
     - net: VDD_5V
       test_point: TP_P3.1
-      instrument: DAQ973A
-      channel: CH03
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH103'
+      power_rails: U2355A AI03
+      voltage: 'DAQM908A #2 CH203'
       se_clock_hz: —
       band: —
       digital_input: HighZ
@@ -181,24 +175,20 @@ yaml_build:
     clock:
     - net: CLK1_32K
       test_point: TP_C1.1
-      instrument: DAQ973A
-      channel: CH09
       impedance: —
       power_rails: —
       voltage: —
-      se_clock_hz: 'Yes'
-      band: 'CH1 source: DAQM907A'
+      se_clock_hz: DAQM907A TOT
+      band: 0 ~ 100 kHz
       digital_input: HighZ
       digital_output: No Output
     - net: CLK2_4M
       test_point: TP_C2.1
-      instrument: DAQ973A
-      channel: CH10
       impedance: —
       power_rails: —
       voltage: —
-      se_clock_hz: 'Yes'
-      band: 'CH2 source: U2355A'
+      se_clock_hz: U2355A CTR0
+      band: 0.1 Hz ~ 6 MHz
       digital_input: HighZ
       digital_output: No Output
     gpio:

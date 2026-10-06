@@ -7,17 +7,19 @@ source) populate three independent tables:
 * **Power nets**  - Net / Test point / Impedance (DAQM908A sense
   channel) / Power rails (U2355A AI channel) / Voltage (DAQM908A
   sense channel) - no Instrument / Channel / Status columns;
-* **Clock nets**  - Net / Test point / Instrument / Channel /
-  SE Clock Hz (Yes/No) / Frequency band / Status;
+* **Clock nets**  - Net / Test point / SE Clock Hz (DAQM907A TOT or
+  one of the two U2355A counters) / Frequency band (read-only,
+  hardware-derived: DAQM907A 0 ~ 100 kHz, U2355A 0.1 Hz ~ 6 MHz) -
+  no Instrument / Channel / Status columns;
 * **GPIO nets**   - Net / Test point / Instrument / Channel /
   Digital Input (HighZ) / Digital Output (No Output) / Status.
 
 Rules (11.4): every configurable cell is dropdown-only (no free
-text); the Status column is read-only and auto-computed (OK when all
-required cells are configured, NOK otherwise); the configuration
-persists to the project YAML; empty / legacy files load blank
-without error.  Pure GUI/config layer - the test engine and
-scheduling logic are untouched.
+text); the GPIO Status column is read-only and auto-computed (OK
+when all required cells are configured, NOK otherwise); the
+configuration persists to the project YAML; empty / legacy files
+load blank without error.  Pure GUI/config layer - the test engine
+and scheduling logic are untouched.
 """
 
 from __future__ import annotations
@@ -43,6 +45,8 @@ from mtkgui.gui.yamlbuild.instrument_status import (
     STATUS_OK,
 )
 from mtkgui.gui.yamlbuild.power_alloc import (
+    CLOCK_BANDS,
+    CLOCK_CHANNELS,
     DAQM908A_SENSE_CHANNELS,
     U2355A_AI_CHANNELS,
 )
@@ -50,13 +54,14 @@ from mtkgui.gui.yamlbuild.power_alloc import (
 #: placeholder for an unconfigured dropdown cell
 UNSET = "—"
 
-#: fixed instrument choices (rack-ATE set, Equipment page owned)
+#: fixed instrument choices (rack-ATE set, Equipment page owned -
+#: still used by the GPIO tab)
 INSTRUMENTS = ("DAQ973A", "DAQM907A", "DAQM908A", "U2355A", "N5747A")
-#: fixed channel choices (multiplexer channels)
+#: fixed channel choices (multiplexer channels - GPIO tab)
 CHANNELS = tuple(f"CH{n:02d}" for n in range(1, 33))
 YES_NO = (UNSET, "Yes", "No")
-#: clock frequency band: hardware channel mapping (rule 11.2)
-FREQ_BANDS = ("CH1 source: DAQM907A", "CH2 source: U2355A")
+#: keys rendered as READ-ONLY auto-filled items (not user dropdowns)
+AUTO_KEYS = frozenset({"band"})
 #: fixed GPIO attributes (11.3)
 GPIO_DI = "HighZ"
 GPIO_DO = "No Output"
@@ -76,11 +81,8 @@ POWER_COLUMNS = (
 CLOCK_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("se_clock_hz", "SE Clock Hz", YES_NO),
-    ("band", "Frequency band", FREQ_BANDS),
-    ("status", "Status", None),
+    ("se_clock_hz", "SE Clock Hz", CLOCK_CHANNELS),
+    ("band", "Frequency band", None),
 )
 GPIO_COLUMNS = (
     ("net", "Net", None),
@@ -164,8 +166,7 @@ class AllocatedRow:
         required = {
             "power": ("test_point", "impedance", "power_rails",
                       "voltage"),
-            "clock": ("test_point", "instrument", "channel",
-                      "se_clock_hz", "band"),
+            "clock": ("test_point", "se_clock_hz", "band"),
             "gpio": ("test_point", "instrument", "channel"),
         }[kind]
         return all(getattr(self, key) not in ("", UNSET)
@@ -351,14 +352,23 @@ class _NetTable(QWidget):
         self._rows = rows
         for r, row in enumerate(rows):
             members = self._members_of(row.net)
+            # the Frequency band is hardware-derived from the chosen
+            # SE Clock resource - normalize it on every (re)load; a
+            # legacy free-text band resets to a clean state
+            if row.se_clock_hz in CLOCK_BANDS:
+                row.band = CLOCK_BANDS[row.se_clock_hz]
+            elif row.band not in ("", UNSET):
+                row.band = UNSET
             for c, (key, _label, *_rest) in enumerate(self.columns):
                 if key == "net":
                     item = QTableWidgetItem(row.net)
                     item.setFlags(item.flags() &
                                   ~Qt.ItemFlag.ItemIsEditable)
                     self.table.setItem(r, c, item)
-                elif key == "status":
-                    item = QTableWidgetItem(self.row_status(row))
+                elif key == "status" or key in AUTO_KEYS:
+                    item = QTableWidgetItem(
+                        self.row_status(row)
+                        if key == "status" else getattr(row, key))
                     item.setFlags(item.flags() &
                                   ~Qt.ItemFlag.ItemIsEditable)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -398,10 +408,21 @@ class _NetTable(QWidget):
         self.reflow()     # keep the adaptive layout after (re)fill
 
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
-        """A dropdown changed: store the value + recompute Status."""
+        """A dropdown changed: store the value + recompute Status.
+        Choosing an SE Clock resource auto-fills its fixed frequency
+        band (hardware mapping)."""
         if row_index >= len(self._rows):
             return
         setattr(self._rows[row_index], key, value)
+        if key == "se_clock_hz":
+            row = self._rows[row_index]
+            row.band = CLOCK_BANDS.get(value, UNSET)
+            keys = [k for k, _l, *_r in self.columns]
+            if "band" in keys:
+                band_col = keys.index("band")
+                item = self.table.item(row_index, band_col)
+                if item is not None:
+                    item.setText(row.band)
         self._update_status(row_index, key)
 
     def _update_status(self, row_index: int, key: str) -> None:
@@ -447,7 +468,7 @@ class ChannelAllocationPage(QWidget):
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
             "module). All configuration cells are dropdown-only; the "
-            "Clock / GPIO Status column is auto-computed (read-only).")
+            "GPIO Status column is auto-computed (read-only).")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)

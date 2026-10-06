@@ -38,9 +38,16 @@ NODE_ISLAND = "island"
 GPIO_DIO_CHANNELS: tuple[str, ...] = tuple(
     f"DAQM907A DIO{n:02d}" for n in range(1, 17))
 #: SE clock capture pool (rack reality: DAQM907A totalizer + the two
-#: U2355A counters; the U2355A DIO stays fixture-reserved)
+#: U2355A counters; the U2355A DIO stays fixture-reserved).  Each
+#: resource carries a fixed frequency band (user direction):
+#: DAQM907A TOT 0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz.
 CLOCK_CHANNELS: tuple[str, ...] = (
     "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1")
+CLOCK_BANDS: dict[str, str] = {
+    "DAQM907A TOT": "0 ~ 100 kHz",
+    "U2355A CTR0": "0.1 Hz ~ 6 MHz",
+    "U2355A CTR1": "0.1 Hz ~ 6 MHz",
+}
 #: DAQM908A sense resource for the Power-net Impedance / Voltage
 #: measurements: card #1 CH101-CH140, card #2 CH201-CH240
 DAQM908A_SENSE_CHANNELS: tuple[str, ...] = tuple(
