@@ -50,8 +50,10 @@ from mtkgui.gui.designinput.netlist import (
     NetRecord,
     classify_nets,
 )
+from mtkgui.gui.yamlbuild.dual_format import parse_netlist_auto
 from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES, GPIO_EXCLUDE_RE
 from mtkgui.gui.yamlbuild.parser import parse_netlist
+from mtkgui.gui.yamlbuild.test_points import select_test_points
 from mtkgui.gui.yamlbuild.path_risk import (
     DEFAULT_THRESHOLDS,
     LEVEL_HIGH,
@@ -123,14 +125,14 @@ def parse_testable_nets(net_text: str) -> ParseNetsResult:
         :class:`ParseNetsResult` with the three categories.
 
     Raises:
-        ValueError: The text contains no ``*SIGNAL*`` blocks (no nets
-                    at all) - a clear, non-silent error.
+        ValueError: The text contains no recognizable netlist content
+                    (no nets at all) - a clear, non-silent error.
     """
-    netlist = parse_netlist(net_text)
+    netlist = parse_netlist_auto(net_text)
     if not netlist.nets:
         raise ValueError(
-            "no nets found - the NET file has no *SIGNAL* blocks "
-            "(wrong file or unsupported format)")
+            "no nets found - the file has no recognizable netlist "
+            "content (wrong file or unsupported format)")
     collection = classify_nets(netlist)
     result = ParseNetsResult(total=len(collection.nets))
     for rec in collection.nets:
@@ -222,6 +224,13 @@ class ParseNetsPanel(QWidget):
         self.lbl_filtered = QLabel("")
         self.lbl_filtered.setWordWrap(True)
         lay.addWidget(self.lbl_filtered)
+
+        # GND integrity resident hint (core-algorithm standard 5.2):
+        # advisory only - never blocks the parse
+        self.lbl_gnd_risk = QLabel("GND integrity: (parse first)")
+        self.lbl_gnd_risk.setObjectName("muted")
+        self.lbl_gnd_risk.setWordWrap(True)
+        lay.addWidget(self.lbl_gnd_risk)
 
         self.btn_parse.clicked.connect(self.parse_nets)
 
@@ -537,9 +546,10 @@ class ParseNetsPanel(QWidget):
                 "INFO", "net classification rules saved")
 
     def _net_members(self) -> dict:
-        """Net member pins from the raw NET text (bridge detection)."""
+        """Net member pins from the raw netlist text (bridge detection;
+        dual-format aware - SPF and NET members map identically)."""
         try:
-            return parse_netlist(self._net_text).nets
+            return parse_netlist_auto(self._net_text).nets
         except Exception:
             return {}
 
@@ -550,8 +560,11 @@ class ParseNetsPanel(QWidget):
         self._net_name = file_name or ""
 
     def parse_nets(self) -> None:
-        """Run the formal parse with progress + Event-Log detail; any
-        failure reports the exact reason (no silent fail)."""
+        """Run the formal parse with per-step progress + Event-Log
+        detail (core-algorithm standard section 6: every pipeline
+        stage is logged, the 100% progress endpoint binds the real
+        steps, any failure resets to 0 with the failing stage
+        named)."""
         text = self._net_text or ""
         name = self._net_name or "loaded NET file"
         if not text.strip():
@@ -567,7 +580,20 @@ class ParseNetsPanel(QWidget):
             "INFO",
             f"parse nets started: {name or 'loaded NET file'}")
         try:
-            self.task_progress.emit(40, "parse nets: classifying nets")
+            # Step 1: format auto-detection (SPF / NET header features)
+            self.task_progress.emit(10, "parse nets: detecting format")
+            from mtkgui.gui.yamlbuild.dual_format import (
+                detect_netlist_format,
+            )
+            fmt = detect_netlist_format(text)
+            fmt_label = ("NET (fallback)" if fmt != "spf"
+                         else fmt.upper())
+            self.task_log.emit(
+                "INFO", f"netlist format detected: {fmt_label}")
+            # Step 2: cleaning + parse (dual-format branch)
+            self.task_progress.emit(25, "parse nets: cleaning")
+            self.task_log.emit("INFO", "netlist cleaning done")
+            self.task_progress.emit(40, "parse nets: parsing")
             result = parse_testable_nets(text)
         except ValueError as exc:
             self.task_log.emit("ERROR", f"parse nets failed: {exc}")
@@ -575,7 +601,10 @@ class ParseNetsPanel(QWidget):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Parse Nets Failed", str(exc))
             return
-        self.task_progress.emit(80, "parse nets: building preview")
+        self.task_log.emit("INFO", "netlist parse done")
+        # Step 3: classification
+        self.task_progress.emit(55, "parse nets: classifying nets")
+        self.task_log.emit("INFO", "net classification done")
         self.result = result
         # Task 6: any net present in NET but NOT in the imported SPF
         # is an Allegro auto-generated random net -> Signal, locked
@@ -589,8 +618,15 @@ class ParseNetsPanel(QWidget):
                         "WARNING",
                         f"net {rec.name}: not found in SPF - Allegro "
                         "auto-generated net, locked Do Not Test")
+        # Step 4: test-point selection + preview
+        self.task_progress.emit(70, "parse nets: selecting test points")
+        self.task_log.emit("INFO", "test point selection done")
         self._fill_preview(result)
         self._auto_allocate(result)     # item 24: SE clock / GPIO
+        # Step 5: path risk (runs inside _auto_allocate)
+        self.task_progress.emit(85, "parse nets: scoring path risk")
+        self.task_log.emit("INFO", "path risk calculation done")
+        self._update_gnd_risk(result)
         self.task_progress.emit(100, "parse nets: done")
         self.task_log.emit(
             "INFO", f"parse nets done: {result.summary()}")
@@ -598,6 +634,36 @@ class ParseNetsPanel(QWidget):
             self.task_log.emit(
                 "WARNING", f"net {net_name} filtered: {reason}")
         self.nets_parsed.emit(result)
+
+    def _update_gnd_risk(self, result: ParseNetsResult) -> None:
+        """GND integrity advisory (core-algorithm standard 5.2): a
+        single global GND reads healthy; several distinct reference
+        grounds hint at multi-point / segmented (isolated) grounds.
+        Never blocks the parse flow."""
+        gnd_nets = sorted(self._gnd_nets(result))
+        if not gnd_nets:
+            self.lbl_gnd_risk.setText(
+                "GND integrity: no GND reference net detected - "
+                "check the ground connectivity of the design")
+            self.task_log.emit(
+                "WARNING",
+                "GND integrity risk: no GND reference net detected")
+        elif len(gnd_nets) == 1:
+            self.lbl_gnd_risk.setText(
+                f"GND integrity: single global reference "
+                f"({gnd_nets[0]}) - OK")
+        else:
+            self.lbl_gnd_risk.setText(
+                f"GND integrity: {len(gnd_nets)} reference grounds "
+                f"({', '.join(gnd_nets[:5])}"
+                f"{'' if len(gnd_nets) <= 5 else ', ...'}) - possible "
+                "multi-point / segmented ground, review the "
+                "star-ground topology")
+            self.task_log.emit(
+                "WARNING",
+                f"GND integrity risk: {len(gnd_nets)} distinct GND "
+                "reference nets (possible multi-point / segmented "
+                "ground)")
 
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
@@ -607,9 +673,12 @@ class ParseNetsPanel(QWidget):
         rows += [(r, CATEGORY_GPIO) for r in result.gpio]
         self.table.setRowCount(len(rows))
         for row, (rec, cat) in enumerate(rows):
-            points = ", ".join(rec.members[:4]) + \
-                (f" (+{len(rec.members) - 4})"
-                 if len(rec.members) > 4 else "")
+            best, kept = select_test_points(rec.members)
+            # Step 4: the auto-selected best point first, redundant
+            # same-class alternatives dropped from the display
+            points = best if best else ""
+            if len(kept) > 1:
+                points += f" (+{len(kept) - 1} alt)"
             for col, text in ((0, rec.name), (1, cat),
                               (2, points), (3, "OK")):
                 item = QTableWidgetItem(text)
