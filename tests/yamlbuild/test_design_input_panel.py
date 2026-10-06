@@ -50,6 +50,16 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _silent_part_popup(monkeypatch):
+    """B1 closure #4: the SPF import now pops the non-silent Project
+    Part# guidance - tests stub it out (the wording itself is covered
+    by the dedicated test)."""
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *a, **k: None)
+
+
 @pytest.fixture()
 def panel(qapp):
     w = DesignInputPanel()
@@ -64,6 +74,40 @@ def files(tmp_path):
     net = tmp_path / "board.net"
     net.write_text(NET_SAMPLE, encoding="utf-8")
     return str(spf), str(net)
+
+
+# ------------------------------------------------------------- schema
+def test_part_number_nonsilent_guidance(panel, monkeypatch):
+    """B1 closure #4: the non-silent Project Part# mechanism - the
+    standard popup wording, the resident muted hint and the Event-Log
+    line all fire on an SPF import."""
+    import tempfile
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QLabel, QMessageBox
+    from mtkgui.gui.yamlbuild.design_input_panel import (
+        PART_NO_AUTO_SOURCE_HINT,
+        PART_NO_AUTO_SOURCE_LOG,
+        PART_NO_AUTO_SOURCE_POPUP,
+    )
+    popups = []
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *a, **k: popups.append(a[2]))
+    logs = []
+    panel.task_log.connect(lambda level, msg: logs.append(msg))
+    # the resident muted hint always sits next to the field
+    assert PART_NO_AUTO_SOURCE_HINT in \
+        [w.text() for w in panel.findChildren(QLabel)]
+    # popup + Event-Log wording on an SPF import
+    with tempfile.TemporaryDirectory() as td:
+        spf = Path(td) / "spf-92722_revB.spf"
+        spf.write_text(SPF_SAMPLE, encoding="utf-8")
+        monkeypatch.setattr(
+            QFileDialog_PATCH,
+            staticmethod(lambda *a, **k: (str(spf), "")))
+        panel._import_spf()
+    assert popups == [PART_NO_AUTO_SOURCE_POPUP]
+    assert PART_NO_AUTO_SOURCE_LOG in logs
 
 
 # ------------------------------------------------------------- schema
