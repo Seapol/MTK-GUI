@@ -45,6 +45,10 @@ _NET_HEADER_RE = re.compile(
     re.IGNORECASE)
 _NET_MARKER_RE = re.compile(r"^\s*\$?(PACKAGES|NETS|END)\b",
                             re.IGNORECASE)
+#: Cadence "Export Logic" netlist (pstxnet.dat style) features
+_PSTX_FEATURE_RE = re.compile(
+    r"^\s*(?:FILE_TYPE\s*=\s*NETLIST|NET_NAME\b|PART_NAME\b)",
+    re.IGNORECASE)
 #: SPICE-style subckt lines carried by some NET exports (removed)
 _SUBCKT_RE = re.compile(r"^\s*\.(SUBCKT|ENDS|END|OPTIONS|INCLUDE)\b",
                         re.IGNORECASE)
@@ -58,15 +62,17 @@ def detect_netlist_format(text: str) -> str:
 
     Returns:
         ``"spf"`` when Concept-HDL SPF section features lead the file,
-        ``"net"`` when Allegro NET header features lead it, and
+        ``"pstxnet"`` when Cadence Export-Logic netlist features lead
+        it, ``"net"`` when Allegro NET header features lead it, and
         ``"unknown"`` when neither side proves its format (the caller
         falls back to the tolerant NET chain).
     """
     spf_score = 0
     net_score = 0
+    pstx_score = 0
     seen = 0
     for raw_line in (text or "").splitlines():
-        line = raw_line.strip()
+        line = raw_line.lstrip("\ufeff").strip()
         if not line:
             continue
         seen += 1
@@ -77,13 +83,19 @@ def detect_netlist_format(text: str) -> str:
             if head.group(1).upper() in _SPF_PROOF:
                 spf_score += 2      # a proofing SPF section header
             continue
+        if _PSTX_FEATURE_RE.match(line):
+            pstx_score += 1
+            continue
         if _NET_HEADER_RE.match(line) or _NET_MARKER_RE.match(line):
             net_score += 1
-    if spf_score > net_score:
+    best = max(spf_score, net_score, pstx_score)
+    if best == 0:
+        return "unknown"
+    if spf_score == best:
         return "spf"
-    if net_score > 0:
-        return "net"
-    return "unknown"
+    if pstx_score == best and pstx_score > 0:
+        return "pstxnet"
+    return "net"
 
 
 def clean_net_text(text: str) -> str:
@@ -112,6 +124,75 @@ def clean_net_text(text: str) -> str:
     return "\n".join(out)
 
 
+def parse_pstxnet(text: str) -> NetlistData:
+    """Parse a Cadence "Export Logic" netlist (pstxnet.dat style).
+
+    Typical shape::
+
+        FILE_TYPE=NETLIST;
+        PART_NAME
+         'U1'
+         'MIMXRT798S';
+
+        NET_NAME
+         'GND'
+         '@NETLIST_LIB.GND(SCH_1):...'
+         C_SIGNAL='@...',
+         P U1.1;
+         P C1.2;
+
+    Every ``NET_NAME`` block contributes its quoted net name; the
+    member pins are all ``refdes.pin`` shaped tokens (``P U1.1;``)
+    found before the next ``NET_NAME``.  Tolerant to comments
+    (``{ ... }``), property lines and free spacing.
+
+    Args:
+        text: Raw pstxnet text (any encoding already resolved).
+
+    Returns:
+        The unified :class:`NetlistData`.
+    """
+    data = NetlistData()
+    current: str | None = None
+    expect_name = False
+    _pin_token = re.compile(r"^[A-Za-z]+\d+[\.\-]\S+$|^\d+[A-Za-z]*$"
+                            r"|^[A-Za-z]+\d+$")
+    for raw_line in (text or "").splitlines():
+        line = raw_line.lstrip("\ufeff").strip()
+        if not line:
+            continue
+        if line.upper().startswith("NET_NAME"):
+            current = None              # name arrives on the next
+            expect_name = True          # quoted line
+            continue
+        quoted = re.match(r"^'([^']+)'\s*;?\s*$", line)
+        if quoted is not None:
+            if expect_name:
+                current = quoted.group(1).strip()
+                data.nets.setdefault(current, [])
+                expect_name = False
+            continue                    # PART_NAME / property quotes
+        if expect_name:
+            expect_name = False         # safety: block without quotes
+        if current is None:
+            continue
+        if line.startswith("{") or line.upper().startswith(
+                ("FILE_TYPE", "PRIM_FILE", "COMPILE")):
+            continue
+        # strip the leading pin-kind marker and the trailing semicolon
+        token_line = line[2:] if line[:2].upper().startswith(
+            ("P ", "S ")) else line
+        token_line = token_line.rstrip(";").strip()
+        for token in token_line.replace(",", " ").split():
+            token = token.strip('"').rstrip(";")
+            if _pin_token.match(token) and not token.isalpha():
+                data.nets[current].append(token)
+    data.missing_tp = [
+        net for net, members in data.nets.items()
+        if not any(m.upper().startswith("TP") for m in members)]
+    return data
+
+
 def parse_netlist_auto(text: str) -> NetlistData:
     """Detect the format, run the matching branch, return the unified
     structured output.
@@ -131,7 +212,8 @@ def parse_netlist_auto(text: str) -> NetlistData:
                     non-silent error - wrong file or empty input).
     """
     fmt = detect_netlist_format(text)
-    if fmt == "spf":
+    text = (text or "").lstrip("\ufeff")   # UTF-8 BOM never breaks a
+    if fmt == "spf":                       # first-line header match
         spf = parse_spf(text)          # mature SPF chain (may raise)
         data = NetlistData()
         for name, members in spf.nets.items():
@@ -140,10 +222,24 @@ def parse_netlist_auto(text: str) -> NetlistData:
             net for net, members in data.nets.items()
             if not any(m.upper().startswith("TP") for m in members)]
         return data
+    if fmt == "pstxnet":
+        data = parse_pstxnet(text)
+        if data.nets:
+            return data
     # NET (and unknown fallback): tolerant NET chain after cleaning
     data = parse_netlist(clean_net_text(text))
     if data.nets:
         return data
+    # clear diagnostic: what the file LOOKS like (helps report the
+    # exact unsupported dialect instead of a generic no-nets error)
+    first = ""
+    for raw_line in (text or "").splitlines():
+        line = raw_line.lstrip("\ufeff").strip()
+        if line:
+            first = line[:80]
+            break
     raise ValueError(
-        "no nets found - the file has no recognizable netlist "
-        "content (SPF sections or *SIGNAL* / NET blocks)")
+        f"no nets found (detected format: {fmt}; first line: "
+        f"{first!r}) - the file has no recognizable netlist content "
+        "(SPF sections / *SIGNAL* or NET blocks / Export-Logic "
+        "NET_NAME blocks)")

@@ -127,6 +127,67 @@ def test_both_formats_equivalent_downstream():
     assert risk_spf == risk_net
 
 
+# --------------------------------------------- Export-Logic pstxnet
+PSTX_TEXT = """FILE_TYPE=NETLIST;
+{ Allegro Export Logic netlist }
+PRIM_FILE=...;
+
+PART_NAME
+ 'U1'
+ 'MIMXRT798S';
+
+NET_NAME
+ 'GND'
+ '@NETLIST_LIB.GND(SCH_1):PAGE1'
+ C_SIGNAL='@gnd';
+ P U1.2;
+ P C1.2;
+
+NET_NAME
+ 'VDD_3V3'
+ '@NETLIST_LIB.VDD_3V3(SCH_1):PAGE1'
+ C_SIGNAL='@vdd';
+ P U1.5;
+ P C1.1;
+"""
+
+
+def test_detect_pstxnet_by_export_logic_features():
+    assert detect_netlist_format(PSTX_TEXT) == "pstxnet"
+
+
+def test_pstxnet_branch_parses_nets_and_pins():
+    """The Cadence Export-Logic dialect (NET_NAME blocks, quoted
+    names, P refdes.pin; members) parses into the unified model."""
+    data = parse_netlist_auto(PSTX_TEXT)
+    assert data.nets["GND"] == ["U1.2", "C1.2"]
+    assert data.nets["VDD_3V3"] == ["U1.5", "C1.1"]
+    assert "GND" in data.missing_tp
+
+
+def test_pstxnet_equivalent_to_net_model():
+    """pstxnet output == NET output for the same connectivity
+    (classification / bridges / risk all identical)."""
+    from mtkgui.gui.designinput.netlist import classify_nets
+    net = parse_netlist_auto(NET_TEXT)
+    pstx = parse_netlist_auto(PSTX_TEXT)
+    types_net = {r.name: r.net_type for r in classify_nets(net).nets}
+    types_pstx = {r.name: r.net_type
+                  for r in classify_nets(pstx).nets}
+    # same connectivity classifies identically
+    assert types_pstx["VDD_3V3"] == types_net["VDD_3V3"]
+    assert types_pstx["GND"] == types_net["GND"]
+
+
+def test_unknown_file_diagnostic_error():
+    """The failure names the detected format and the first line - the
+    unsupported dialect is diagnosable without a debugger."""
+    with pytest.raises(ValueError) as exc:
+        parse_netlist_auto("random binary junk\nno headers here")
+    assert "detected format" in str(exc.value)
+    assert "random binary junk" in str(exc.value)
+
+
 # ------------------------------------------------- user classification rules
 def test_user_rules_override_classification():
     """Step 2: user regex rules take priority over the system

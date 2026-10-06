@@ -759,8 +759,8 @@ class ParseNetsPanel(QWidget):
                 detect_netlist_format,
             )
             fmt = detect_netlist_format(text)
-            fmt_label = ("NET (fallback)" if fmt != "spf"
-                         else fmt.upper())
+            fmt_label = {"spf": "SPF", "pstxnet": "PSTXNET"}.get(
+                fmt, "NET (fallback)" if fmt != "net" else "NET")
             self.task_log.emit(
                 "INFO", f"netlist format detected: {fmt_label}")
             # Step 2: cleaning + parse (dual-format branch)
