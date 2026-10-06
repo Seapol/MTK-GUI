@@ -54,10 +54,6 @@ from mtkgui.gui.designinput.netlist import (
     classify_nets,
 )
 from mtkgui.gui.yamlbuild.dual_format import parse_netlist_auto
-from mtkgui.gui.yamlbuild.net_rules import (
-    DEFAULT_RULES,
-    GPIO_EXCLUDE_RE,
-)
 from mtkgui.gui.yamlbuild.parser import parse_netlist
 from mtkgui.gui.yamlbuild.test_points import select_test_points
 from mtkgui.gui.yamlbuild.path_risk import (
@@ -67,20 +63,19 @@ from mtkgui.gui.yamlbuild.path_risk import (
     WARNING_MESSAGE,
     evaluate_paths,
 )
-from mtkgui.gui.yamlbuild.power_alloc import (
-    ASSIGNED,
-    DONT_TEST,
-    GPIO_DIO_CHANNELS,
-)
 
-#: the three ICT test-object categories (Channel Allocation order)
+#: the ICT test-object categories (Channel Allocation order)
 CATEGORY_POWER = "Power"
 CATEGORY_CLOCK = "Clock"
 CATEGORY_GPIO = "GPIO"
+CATEGORY_GND = "GND"
 CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
 
-#: placeholder of the Power-table Yes/No assignment combos
-UNSET_YESNO = "—"
+#: Parsed-Nets-table category labels (the combo the user can change)
+TABLE_CATEGORIES = ("Power", "SE Clock", "Signal", "GND")
+
+#: nets of these categories default to Do Not Test (user direction)
+DNT_DEFAULT_CATEGORIES = ("Signal", "GND")
 
 _FILTER_REASONS = {
     NET_TYPE_GND_REF: "reference ground (measurement loop)",
@@ -145,6 +140,7 @@ class ParseNetsResult:
     power: list[NetRecord] = field(default_factory=list)
     clock: list[NetRecord] = field(default_factory=list)
     gpio: list[NetRecord] = field(default_factory=list)
+    gnd: list[NetRecord] = field(default_factory=list)
     filtered: list[tuple[str, str]] = field(default_factory=list)
     total: int = 0
     invalid_lines: list[str] = field(default_factory=list)
@@ -153,7 +149,8 @@ class ParseNetsResult:
         """Category of one net ("" when not testable)."""
         for cat, records in ((CATEGORY_POWER, self.power),
                              (CATEGORY_CLOCK, self.clock),
-                             (CATEGORY_GPIO, self.gpio)):
+                             (CATEGORY_GPIO, self.gpio),
+                             (CATEGORY_GND, self.gnd)):
             if any(r.name == name for r in records):
                 return cat
         return ""
@@ -161,7 +158,7 @@ class ParseNetsResult:
     def summary(self) -> str:
         """One-line counts summary for the Event Log."""
         return (f"power={len(self.power)} clock={len(self.clock)} "
-                f"gpio={len(self.gpio)} "
+                f"gpio={len(self.gpio)} gnd={len(self.gnd)} "
                 f"filtered={len(self.filtered)}")
 
 
@@ -212,8 +209,13 @@ def parse_testable_nets(net_text: str,
         elif rec.net_type == NET_TYPE_SIGNAL:
             rec.members = members
             result.gpio.append(rec)
+        elif rec.net_type == NET_TYPE_GND_REF:
+            # reference grounds: measurement-loop references, default
+            # Do Not Test (they appear in the Parsed Nets table)
+            rec.members = members
+            result.gnd.append(rec)
         else:
-            # gnd_ref / diff_pair: documented, non-testable objects
+            # diff_pair: documented, non-testable object
             result.filtered.append(
                 (rec.name, _FILTER_REASONS.get(
                     rec.net_type, "not an ICT test object")))
@@ -229,9 +231,8 @@ class ParseNetsPanel(QWidget):
     task_progress = Signal(int, str)
     #: emitted after a successful parse (Channel Allocation refresh)
     nets_parsed = Signal(object)     # ParseNetsResult
-    #: item 24: (level, message-free) payload mirrors for persistence
-    rules_changed = Signal(dict)         # custom classification rules
-    allocations_changed = Signal(dict)   # {"se_clock": rows, "gpio": rows}
+    #: custom classification rules saved via the editor dialog
+    rules_changed = Signal(dict)
     #: test path risk evaluation result (thresholds + per-net scores)
     path_risk_changed = Signal(dict)
     #: navigation request: open the dedicated Power Tree page
@@ -242,21 +243,18 @@ class ParseNetsPanel(QWidget):
         self.result: ParseNetsResult | None = None
         self._net_text = ""          # raw NET bytes (Design Input)
         self._net_name = ""          # NET file name (log display)
-        # item 24: manual overrides + SPF-anonymous net tags survive
-        # re-parses (manual override > auto algorithm)
+        # item 24: SPF-anonymous net tags survive re-parses
         self._auto_generated: dict[str, bool] = {}
-        self._clock_overrides: dict[str, str] = {}
-        self._gpio_overrides: dict[str, str] = {}
         self.spf_nets: set = set()   # SPF net names (Task 6 rule)
         # test path complexity risk (topology-based, advisory only):
         # GUI-configurable thresholds + per-net scores (both persisted)
         self.risk_thresholds: dict = dict(DEFAULT_THRESHOLDS)
         self.risk_scores: dict = {}
-        # Power-table state: per-net Do-Not-Test flags + the Yes/No
-        # assignments (impedance / voltage / power rails); persisted
-        # via the parse_ict params and the channel_allocation rows
-        self._power_dnt: dict[str, bool] = {}
-        self._power_assign: dict[str, dict[str, str]] = {}
+        # Parsed-Nets-table state: per-net Do-Not-Test flags (explicit
+        # user toggles, they win over the category defaults) and the
+        # user category overrides (combo changes)
+        self._dnt_flags: dict[str, bool] = {}
+        self._category_overrides: dict[str, str] = {}
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -290,23 +288,24 @@ class ParseNetsPanel(QWidget):
         row.addWidget(self.lbl_summary, 1)
         lay.addLayout(row)
 
-        # ------------------------------ table 1: Power Nets (core
-        # standard section 6: Net | Test Points | Do Not Test |
-        # Assign Impedance | Assign Voltage | Assign Power rails)
-        lbl_power = QLabel("Power Nets:")
-        lbl_power.setObjectName("strong")
-        lay.addWidget(lbl_power)
-        self.table = QTableWidget(0, 6)
+        # ------------------------------ table 1: Parsed Nets (user
+        # direction: the SE Clock / GPIO allocation tables are GONE -
+        # the channel assignment lives in Channel Allocation only.
+        # Columns: Net | Test Points | Category (user-changeable) |
+        # Do Not Test, Signal and GND default to Do Not Test)
+        lbl_nets = QLabel("Parsed Nets:")
+        lbl_nets.setObjectName("strong")
+        lay.addWidget(lbl_nets)
+        self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(
-            ["Net", "Test Points", "Do Not Test", "Assign Impedance",
-             "Assign Voltage", "Assign Power rails"])
+            ["Net", "Test Points", "Category", "Do Not Test"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setMinimumHeight(150)
+        self.table.setMinimumHeight(260)
         lay.addWidget(self.table, 1)
 
         self.lbl_filtered = QLabel("")
@@ -343,298 +342,86 @@ class ParseNetsPanel(QWidget):
         tools.addStretch(1)
         lay.addLayout(tools)
 
-        self.lbl_clock_alloc = QLabel("SE Clock Channels:")
-        self.lbl_clock_alloc.setObjectName("strong")
-        lay.addWidget(self.lbl_clock_alloc)
-        self.clock_table = self._build_alloc_table(
-            ["SE Clock Net Name", "Assign Clock Hz"])
-        lay.addWidget(self.clock_table)
-        self.lbl_gpio_alloc = QLabel(
-            "GPIO DAQM907A DIO Channels (U2355A DIO is reserved for "
-            "fixture IO):")
-        self.lbl_gpio_alloc.setObjectName("strong")
-        lay.addWidget(self.lbl_gpio_alloc)
-        self.gpio_table = self._build_alloc_table(
-            ["GPIO Net Name", "Assign DAQM907A DIO Channel"])
-        lay.addWidget(self.gpio_table)
-
-        # manual Signal Net add row (the Signal table starts empty)
-        add_row = QHBoxLayout()
-        self.gpio_candidate_combo = QComboBox()
-        self.gpio_candidate_combo.setToolTip(
-            "Eligible signal nets (invalid signals - differential / "
-            "enable / interrupt / feedback / analog - are excluded "
-            "automatically)")
-        add_row.addWidget(self.gpio_candidate_combo, 1)
-        self.btn_add_signal = QPushButton("Add Signal Net")
-        self.btn_add_signal.setToolTip(
-            "Add the selected signal net to the GPIO allocation "
-            "table (first free DAQM907A DIO channel)")
-        self.btn_add_signal.clicked.connect(self._add_signal_net)
-        add_row.addWidget(self.btn_add_signal)
-        lay.addLayout(add_row)
-        self._gpio_candidates: list[str] = []
-
         self.btn_rules.clicked.connect(self._edit_rules)
         self.btn_risk_thresholds.clicked.connect(
             self._edit_risk_thresholds)
 
     # ---------------------------------------------------------- item 24
-    def set_power_state(self, dnt_nets: set[str] | None,
-                        assignments: dict | None) -> None:
-        """Restore the persisted Power-table state (Do-Not-Test net
-        set + Yes/No assignments from the channel allocation)."""
-        self._power_dnt = {n: True for n in (dnt_nets or set())}
-        self._power_assign = {
-            net: dict(assigns)
-            for net, assigns in (assignments or {}).items()}
+    def set_dnt_state(self, dnt_nets: set[str] | None) -> None:
+        """Restore the persisted Do-Not-Test net set (the explicit
+        user flags - they win over the Signal/GND category defaults)."""
+        self._dnt_flags = {n: True for n in (dnt_nets or set())}
 
     def power_dnt_nets(self) -> list[str]:
-        """The power nets currently flagged Do Not Test."""
-        return sorted(n for n, v in self._power_dnt.items() if v)
+        """All nets currently flagged Do Not Test (any category)."""
+        return sorted(n for n, v in self._dnt_flags.items() if v)
 
-    def power_assignments(self) -> dict:
-        """The Power-table Yes/No assignments (net -> impedance /
-        voltage / power_rails) - merged into the channel allocation
-        power rows by the page."""
-        return {net: dict(assigns) for net, assigns
-                in self._power_assign.items()
-                if any(v and v != UNSET_YESNO for v in assigns.values())}
+    def _dnt_default(self, category: str) -> bool:
+        """Category default: Signal and GND default Do Not Test."""
+        return category in DNT_DEFAULT_CATEGORIES
 
-    def _power_dnt_set(self, name: str, checked: bool) -> None:
-        self._power_dnt[name] = checked
+    def _dnt_set(self, name: str, checked: bool) -> None:
+        self._dnt_flags[name] = checked
         self.task_log.emit(
             "INFO",
-            f"power net {name} marked "
+            f"net {name} marked "
             f"{'Do Not Test' if checked else 'testable'}")
 
-    def _power_assign_set(self, name: str, key: str,
-                          value: str) -> None:
-        assigns = self._power_assign.setdefault(name, {})
-        assigns[key] = value
+    def _category_changed(self, name: str, category: str) -> None:
+        """User re-categorization: the override survives re-parses and
+        the Do-Not-Test flag follows the new category default."""
+        self._category_overrides[name] = category
+        default = self._dnt_default(category)
+        self._dnt_flags[name] = default
+        # keep the row's DNT checkbox in sync (no double log)
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item is not None and item.text() == name:
+                box = self.table.cellWidget(r, 3)
+                if box is not None:
+                    box.blockSignals(True)
+                    box.setChecked(default)
+                    box.blockSignals(False)
+                break
         self.task_log.emit(
-            "INFO",
-            f"power net {name}: {key} assignment = {value}")
+            "INFO", f"net {name} re-categorized as {category}"
+            + (" (Do Not Test)" if default else ""))
 
     def set_rules(self, rules: dict) -> None:
         """Load the persisted classification rules (project YAML)."""
         self.net_rules = dict(rules or {})
 
-    def _build_alloc_table(self, headers: list[str]):
-        """One allocation table (core standard section 6): Net |
-        Assign <channel> | Do Not Test - status and risk columns are
-        gone (the status is derived from the checkbox, the risk lives
-        in the Power Tree summary)."""
-        from PySide6.QtWidgets import (
-            QCheckBox,
-            QComboBox,
-        )
-        table = QTableWidget(0, 3)
-        table.setHorizontalHeaderLabels([*headers, "Do Not Test"])
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
-        table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setMinimumHeight(110)
-        table._channel_pool: tuple[str, ...] = ()
-        table._dnt_boxes: list[QCheckBox] = []
-        table._combo_pool = QComboBox
-        return table
-
-    def _fill_alloc_table(self, table, rows: list[dict],
-                          pool: tuple[str, ...]) -> None:
-        """Render allocation rows; the channel cell is a dropdown of
-        the pool (manual override wins over the auto assignment) and
-        the Do-Not-Test checkbox marks the net Not Test."""
-        from PySide6.QtWidgets import QCheckBox, QComboBox
-        table._channel_pool = pool
-        table.setRowCount(len(rows))
-        table._dnt_boxes = []
-        for r, row_data in enumerate(rows):
-            table.setItem(r, 0, QTableWidgetItem(row_data["net"]))
-            combo = QComboBox()
-            combo.addItem(row_data["channel"] or "-")
-            combo.addItems([c for c in pool
-                            if c != row_data["channel"]])
-            combo.setCurrentText(row_data["channel"] or "-")
-            combo.currentTextChanged.connect(
-                lambda value, t=table, rr=r: self._alloc_changed(
-                    t, rr, value))
-            table.setCellWidget(r, 1, combo)
-            dnt = QCheckBox()
-            dnt.setChecked(row_data["status"] == DONT_TEST)
-            dnt.toggled.connect(
-                lambda checked, t=table, rr=r: self._dnt_toggled(
-                    t, rr, checked))
-            table.setCellWidget(r, 2, dnt)
-            table._dnt_boxes.append(dnt)
-
-    def _alloc_rows(self, table) -> list[dict]:
-        """Read the table back into allocation row dicts (the status
-        is derived from the Do-Not-Test checkbox)."""
-        rows = []
-        for r in range(table.rowCount()):
-            channel_item = table.cellWidget(r, 1)
-            channel = channel_item.currentText() if channel_item else ""
-            dnt = table._dnt_boxes[r].isChecked()
-            rows.append({
-                "net": table.item(r, 0).text(),
-                "channel": "" if dnt else
-                (channel if channel != "-" else ""),
-                "status": DONT_TEST if dnt else ASSIGNED,
-            })
-        return rows
-
-    def _alloc_changed(self, table, row: int, value: str) -> None:
-        """Manual channel override: the manual choice always wins and
-        clears the Do-Not-Test flag."""
-        dnt = table._dnt_boxes[row]
-        if value == "-":
-            dnt.setChecked(True)
-            return
-        dnt.setChecked(False)
-        self._persist_allocations()
-
-    def _dnt_toggled(self, table, row: int, checked: bool) -> None:
-        """Do-Not-Test toggle (the assigned channel is cleared)."""
-        self._persist_allocations()
-
-    def _persist_allocations(self) -> None:
-        # manual overrides survive re-parses (manual > auto algorithm)
-        self._clock_overrides = {
-            row["net"]: (row["channel"] or DONT_TEST)
-            for row in self._alloc_rows(self.clock_table)
-            if row["status"] == DONT_TEST or row["channel"]}
-        self._gpio_overrides = {
-            row["net"]: (row["channel"] or DONT_TEST)
-            for row in self._alloc_rows(self.gpio_table)
-            if row["status"] == DONT_TEST or row["channel"]}
-        self.allocations_changed.emit({
-            "se_clock": self._alloc_rows(self.clock_table),
-            "gpio": self._alloc_rows(self.gpio_table),
-        })
-
-    def _auto_allocate(self, result: ParseNetsResult) -> None:
-        """Auto-assign the SE clock / GPIO channels from the parse
-        result; differential clocks and auto-generated (SPF-anonymous)
-        nets never reach the tables.  After the assignment the
-        topology-based test path risk is evaluated for every
-        channel-carrying net (advisory column)."""
-        from mtkgui.gui.yamlbuild.power_alloc import (
-            CLOCK_CHANNELS,
-            allocate_channels,
-        )
-        clock_nets = [r.name for r in result.clock
-                      if not self._auto_generated.get(r.name)]
-        clock_rows = allocate_channels(clock_nets, CLOCK_CHANNELS,
-                                       self._clock_overrides)
-        # Signal Nets table: starts EMPTY (core standard section 6) -
-        # invalid signals are auto-excluded, the engineer manually adds
-        # the target nets; manual overrides always survive a re-parse
-        gpio_rows = allocate_channels(
-            sorted(self._gpio_overrides), GPIO_DIO_CHANNELS,
-            self._gpio_overrides)
-        self._evaluate_risk(result, clock_rows, gpio_rows)
-        self._fill_alloc_table(
-            self.clock_table, clock_rows, CLOCK_CHANNELS)
-        self._fill_alloc_table(
-            self.gpio_table, gpio_rows, GPIO_DIO_CHANNELS)
-        self._refresh_gpio_candidates(result, gpio_rows)
-
-    def _signal_candidates(self, result: ParseNetsResult) -> list[str]:
-        """Eligible manual-add signal nets: the parse Signal category
-        minus auto-generated nets, the fixed invalid-signal exclusion
-        regex and nets already present in the table."""
-        signal_rules = self.net_rules.get("signal")
-        rows_present = {row["net"] for row in self._alloc_rows(
-            self.gpio_table)}
-        candidates = []
-        for r in result.gpio:
-            if self._auto_generated.get(r.name):
-                continue
-            if GPIO_EXCLUDE_RE.search(r.name):
-                continue
-            if signal_rules and not re.match(signal_rules, r.name):
-                continue        # user signal inclusion regex
-            if r.name in rows_present:
-                continue
-            candidates.append(r.name)
-        return candidates
-
-    def _refresh_gpio_candidates(self, result: ParseNetsResult,
-                                 gpio_rows: list[dict]) -> None:
-        """Refill the manual 'Add Signal Net' dropdown (eligible
-        candidates only)."""
-        self._gpio_candidates = self._signal_candidates(result)
-        self.gpio_candidate_combo.clear()
-        if self._gpio_candidates:
-            self.gpio_candidate_combo.addItems(self._gpio_candidates)
-        else:
-            self.gpio_candidate_combo.addItem("(no eligible signal nets)")
-        self._gpio_rows_cache = gpio_rows
-
-    def _add_signal_net(self) -> None:
-        """Manually add one signal net to the GPIO allocation table
-        (first free DAQM907A DIO channel; Not Test when exhausted)."""
-        name = self.gpio_candidate_combo.currentText()
-        if not name or name.startswith("("):
-            return
-        if self.result is None:
-            return
-        used = {row["channel"] for row in
-                self._alloc_rows(self.gpio_table) if row["channel"]}
-        free = [c for c in GPIO_DIO_CHANNELS if c not in used]
-        self._gpio_overrides[name] = free[0] if free else DONT_TEST
-        self.task_log.emit(
-            "INFO",
-            f"signal net {name} added: "
-            f"{self._gpio_overrides[name]}")
-        self._auto_allocate(self.result)
-
     # ------------------------------------------------------ path risk
     def _gnd_nets(self, result: ParseNetsResult) -> set[str]:
         """GND reference nets (never scored - common star only): the
-        filtered reference grounds plus the GND regex matches (custom
-        rule when set, factory default otherwise)."""
-        import re as _re
-        gnd = {name for name, reason in result.filtered
-               if "reference ground" in reason}
-        rules_gnd = self.net_rules.get("gnd")
-        pattern = rules_gnd if rules_gnd else DEFAULT_RULES["gnd"]
-        if pattern:
-            try:
-                gnd |= {name for name in self._net_members()
-                        if _re.search(pattern, name)}
-            except _re.error:
-                pass
+        parsed GND rows plus any remaining filtered reference grounds."""
+        gnd = {r.name for r in result.gnd}
+        gnd |= {name for name, reason in result.filtered
+                if "reference ground" in reason}
         return gnd
 
-    def _evaluate_risk(self, result: ParseNetsResult,
-                       clock_rows: list[dict],
-                       gpio_rows: list[dict]) -> None:
-        """Evaluate the loop risk for every channel-carrying net and
-        attach the advisory result to the allocation rows.
+    def _evaluate_risk(self, result: ParseNetsResult) -> None:
+        """Evaluate the loop risk for every non-DNT testable net.
 
-        Scored targets: power nets (rail voltage test) plus the SE
-        clock / GPIO nets actually ASSIGNED a channel.  GND nets are
-        excluded (requirement 7).  Advisory only - the assignment is
-        never blocked (requirement 5)."""
-        from mtkgui.gui.yamlbuild.path_risk import LEVEL_LOW
+        Scored targets: the Power / SE Clock / Signal nets NOT flagged
+        Do Not Test (the channel assignment itself lives in the
+        Channel Allocation page).  GND nets are excluded.  Advisory
+        only - never blocks a channel assignment."""
         gnd_nets = self._gnd_nets(result)
-        power_nets = [r.name for r in result.power
-                      if not self._auto_generated.get(r.name)]
-        scored = set(power_nets)
-        for rows in (clock_rows, gpio_rows):
-            scored |= {row["net"] for row in rows
-                       if row["status"] == ASSIGNED and row["channel"]}
+        scored = set()
+        for records, category in ((result.power, "Power"),
+                                  (result.clock, "SE Clock"),
+                                  (result.gpio, "Signal")):
+            for rec in records:
+                if self._auto_generated.get(rec.name):
+                    continue
+                if self._dnt_flags.get(
+                        rec.name, self._dnt_default(category)):
+                    continue
+                scored.add(rec.name)
         scores = evaluate_paths(sorted(scored), self._net_members(),
                                 gnd_nets, self.risk_thresholds)
         self.risk_scores = scores
-        for row in (*clock_rows, *gpio_rows):
-            row["risk"] = scores.get(row["net"], {
-                "score": 0, "level": LEVEL_LOW, "warning": False})
         self.path_risk_changed.emit({
             "thresholds": dict(self.risk_thresholds),
             "scores": dict(scores),
@@ -691,7 +478,7 @@ class ParseNetsPanel(QWidget):
         })
         # re-evaluate against the current parse (thresholds live)
         if self.result is not None:
-            self._auto_allocate(self.result)
+            self._evaluate_risk(self.result)
         self.task_log.emit(
             "INFO",
             "test path risk thresholds saved: "
@@ -790,10 +577,10 @@ class ParseNetsPanel(QWidget):
         self.task_progress.emit(70, "parse nets: selecting test points")
         self.task_log.emit("INFO", "test point selection done")
         self._fill_preview(result)
-        self._auto_allocate(result)     # item 24: SE clock / GPIO
-        # Step 5: path risk (runs inside _auto_allocate)
+        # Step 5: path risk (advisory scores for the non-DNT nets)
         self.task_progress.emit(85, "parse nets: scoring path risk")
         self.task_log.emit("INFO", "path risk calculation done")
+        self._evaluate_risk(result)
         self._update_gnd_risk(result)
         self.task_progress.emit(100, "parse nets: done")
         self.task_log.emit(
@@ -835,14 +622,21 @@ class ParseNetsPanel(QWidget):
 
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
-        """Render the POWER NETS table (Net | Test Points | Do Not
-        Test | Assign Impedance | Assign Voltage | Assign Power
-        rails); Step-4 best test point first, redundant alternatives
-        dropped from the display."""
-        rows = list(result.power)
+        """Render the PARSED NETS table (Net | Test Points | Category |
+        Do Not Test): every parsed net is listed - Power / SE Clock /
+        Signal / GND rows; the Category combo is user-changeable and
+        Signal / GND rows default to Do Not Test (explicit user flags
+        survive re-parses and win over the category defaults)."""
+        groups = ((CATEGORY_POWER, result.power),
+                  ("SE Clock", result.clock),
+                  ("Signal", result.gpio),
+                  (CATEGORY_GND, result.gnd))
+        rows = [(rec, cat) for cat, records in groups for rec in records]
         self.table.setRowCount(len(rows))
-        yes_no = (UNSET_YESNO, "Yes", "No")
-        for row, rec in enumerate(rows):
+        for row, (rec, auto_cat) in enumerate(rows):
+            category = self._category_overrides.get(rec.name, auto_cat)
+            self._dnt_flags.setdefault(
+                rec.name, self._dnt_default(category))
             best, kept = select_test_points(rec.members)
             points = best if best else ""
             if len(kept) > 1:
@@ -855,23 +649,20 @@ class ParseNetsPanel(QWidget):
                              & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 0, net_item)
             self.table.setItem(row, 1, tp_item)
+            combo = QComboBox()
+            combo.addItems(TABLE_CATEGORIES)
+            combo.setCurrentText(
+                category if category in TABLE_CATEGORIES else "Signal")
+            combo.currentTextChanged.connect(
+                lambda value, name=rec.name: self._category_changed(
+                    name, value))
+            self.table.setCellWidget(row, 2, combo)
             dnt = QCheckBox()
-            dnt.setChecked(bool(self._power_dnt.get(rec.name)))
+            dnt.setChecked(bool(self._dnt_flags.get(rec.name)))
             dnt.toggled.connect(
-                lambda checked, name=rec.name: self._power_dnt_set(
+                lambda checked, name=rec.name: self._dnt_set(
                     name, checked))
-            self.table.setCellWidget(row, 2, dnt)
-            for col, key in ((3, "impedance"), (4, "voltage"),
-                             (5, "power_rails")):
-                combo = QComboBox()
-                combo.addItems(yes_no)
-                current = (self._power_assign.get(rec.name) or {}) \
-                    .get(key) or UNSET_YESNO
-                combo.setCurrentText(current)
-                combo.currentTextChanged.connect(
-                    lambda value, name=rec.name, k=key:
-                        self._power_assign_set(name, k, value))
-                self.table.setCellWidget(row, col, combo)
+            self.table.setCellWidget(row, 3, dnt)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
         filtered = "; ".join(f"{n} ({r})"

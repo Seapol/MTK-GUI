@@ -204,21 +204,6 @@ class YamlBuildPage(QWidget):
                     (self.model.get_params("parse_ict") or {})
                     .get("power_dont_test", "").splitlines()
                     if ln.strip()},
-                "power_assign": {
-                    row["net"]: {"impedance": row.get("impedance", ""),
-                                 "voltage": row.get("voltage", ""),
-                                 "power_rails":
-                                     row.get("power_rails", "")}
-                    for row in (self.model.channel_allocation or {})
-                    .get("power", [])},
-                "clock_overrides": {
-                    row["net"]: (row["channel"] or "Not Test")
-                    for row in self.model.se_clock_allocation
-                    if row["status"] == "Not Test" or row["channel"]},
-                "gpio_overrides": {
-                    row["net"]: (row["channel"] or "Not Test")
-                    for row in self.model.gpio_allocation
-                    if row["status"] == "Not Test" or row["channel"]},
                 "spf_nets": self.model.imported.get("spf_nets", set()),
                 "risk_thresholds": dict(
                     (self.model.path_risk or {}).get("thresholds")
@@ -254,33 +239,16 @@ class YamlBuildPage(QWidget):
                  ("GPIO", result.gpio))
                 for rec in records
             }
-            # item 24: rules / allocations persistence (the power tree
-            # draft is owned by the dedicated Power Tree page)
+            # item 24: rules persistence (the channel assignment lives
+            # in the Channel Allocation page only; the power tree draft
+            # is owned by the dedicated Power Tree page)
             nets_panel = dialog.nets_panel
             self.model.net_classification_rules = \
                 dict(nets_panel.net_rules)
-            self.model.se_clock_allocation = \
-                nets_panel._alloc_rows(nets_panel.clock_table)
-            self.model.gpio_allocation = \
-                nets_panel._alloc_rows(nets_panel.gpio_table)
-            # Power-table persistence: DNT flags into the parse_ict
-            # params, the Yes/No assignments merged into the power
-            # rows of the channel allocation (net-keyed, other fields
-            # of an existing row are preserved)
+            # Do-Not-Test flags persist into the parse_ict params
             self.model.set_params("parse_ict", {
                 "power_dont_test":
                     "\n".join(nets_panel.power_dnt_nets())})
-            power_rows = {
-                row["net"]: row
-                for row in (self.model.channel_allocation or {})
-                .get("power", [])}
-            for net, assigns in nets_panel.power_assignments().items():
-                row = power_rows.setdefault(net, {"net": net})
-                row.update(assigns)
-                power_rows[net] = row
-            self.model.set_channel_allocation({
-                **(self.model.channel_allocation or {}),
-                "power": list(power_rows.values())})
             # test path risk: thresholds + per-net advisory scores
             self.model.path_risk = {
                 "thresholds": dict(nets_panel.risk_thresholds),

@@ -87,47 +87,49 @@ def test_power_tree_navigation_button(qapp, panel):
     assert captured == [1]
 
 
-# ------------------------------------------------- allocation behaviour
-def test_auto_allocate_se_clock_and_gpio_tables(panel):
-    """After parse: SE clock nets sequential into CLOCK_CHANNELS; the
-    GPIO (Signal) table starts EMPTY - the engineer manually adds the
-    target nets from the eligible candidates (invalid signals
-    excluded)."""
+# ------------------------------------------------- parsed nets behaviour
+def test_parsed_nets_single_table_no_alloc_tables(panel):
+    """The SE Clock / GPIO allocation tables are GONE (redundant - the
+    channel assignment lives in Channel Allocation only); the single
+    Parsed Nets table lists every net with a changeable Category and
+    the Do-Not-Test defaults (Signal / GND default Not Test)."""
     _parse(panel)
-    clock_rows = panel._alloc_rows(panel.clock_table)
-    # CLK1/CLK2 assigned the first two pool channels
-    assert [r["net"] for r in clock_rows] == ["CLK1", "CLK2"]
-    assert clock_rows[0]["channel"] == CLOCK_CHANNELS[0]
-    assert clock_rows[1]["channel"] == CLOCK_CHANNELS[1]
-    # GPIO table starts empty; GPIO0 is an eligible candidate,
-    # SENSE_FB is excluded by the fixed invalid-signal regex
-    assert panel._alloc_rows(panel.gpio_table) == []
-    assert "GPIO0" in panel._gpio_candidates
-    assert "SENSE_FB" not in panel._gpio_candidates
+    assert not hasattr(panel, "clock_table")
+    assert not hasattr(panel, "gpio_table")
+    assert not hasattr(panel, "btn_add_signal")
+    assert not hasattr(panel, "gpio_candidate_combo")
+    assert panel.table.columnCount() == 4
+    rows = {panel.table.item(r, 0).text():
+            (panel.table.cellWidget(r, 2).currentText(),
+             panel.table.cellWidget(r, 3).isChecked())
+            for r in range(panel.table.rowCount())}
+    assert rows["CLK1"] == ("SE Clock", False)
+    assert rows["GPIO0"] == ("Signal", True)      # default DNT
+    assert rows["SENSE_FB"] == ("Signal", True)   # default DNT
+    assert rows["VIN_24V"] == ("Power", False)
 
 
-def test_manual_signal_add_and_dnt_toggle(panel):
-    """Manual signal add assigns the first free DAQM907A DIO channel
-    and survives via the overrides; the Do-Not-Test toggle wins."""
+def test_dnt_toggle_and_category_override_survive_reparse(panel):
+    """The Do-Not-Test toggle wins over the category default and the
+    user category override survives a re-parse."""
     _parse(panel)
-    # manual add GPIO0 from the candidate list
-    idx = panel.gpio_candidate_combo.findText("GPIO0")
-    panel.gpio_candidate_combo.setCurrentIndex(idx)
-    panel._add_signal_net()
-    rows = panel._alloc_rows(panel.gpio_table)
-    assert [r["net"] for r in rows] == ["GPIO0"]
-    assert rows[0]["channel"] == GPIO_DIO_CHANNELS[0]
-    assert rows[0]["channel"].startswith("DAQM907A DIO")
-    # DNT toggle on a clock row
-    panel.clock_table._dnt_boxes[0].setChecked(True)
-    rows = panel._alloc_rows(panel.clock_table)
-    assert rows[0]["status"] == "Not Test"
-    assert panel._clock_overrides["CLK1"] == "Not Test"
-    # manual channel override clears the DNT flag
-    panel.clock_table.cellWidget(0, 1).setCurrentText(
-        CLOCK_CHANNELS[1])
-    assert panel.clock_table._dnt_boxes[0].isChecked() is False
-    assert panel._clock_overrides["CLK1"] == CLOCK_CHANNELS[1]
+    rows = {panel.table.item(r, 0).text(): r
+            for r in range(panel.table.rowCount())}
+    # DNT toggle on the power net (NET_TEXT has no GND net; the two
+    # Signal nets GPIO0 / SENSE_FB default Do Not Test)
+    panel.table.cellWidget(rows["VIN_24V"], 3).setChecked(True)
+    assert panel.power_dnt_nets() == ["GPIO0", "SENSE_FB", "VIN_24V"]
+    # un-check a default-DNT signal
+    panel.table.cellWidget(rows["GPIO0"], 3).setChecked(False)
+    assert "GPIO0" not in panel.power_dnt_nets()
+    # category override survives the re-parse
+    panel.table.cellWidget(rows["GPIO0"], 2).setCurrentText("Power")
+    panel.parse_nets()
+    rows = {panel.table.item(r, 0).text(): r
+            for r in range(panel.table.rowCount())}
+    assert panel.table.cellWidget(rows["GPIO0"], 2).currentText() == \
+        "Power"
+    assert panel.table.cellWidget(rows["GPIO0"], 3).isChecked() is False
 
 
 # -------------------------------------------------- model YAML persistence

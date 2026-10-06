@@ -210,19 +210,22 @@ def test_user_rules_override_classification():
     assert all(r.name != "GPIO_LED1" for r in result3.power)
 
 
-def test_signal_regex_filters_manual_candidates(qapp):
-    """The Signal Nets regex filters the eligible manual-add
-    candidates (only matching nets can be added)."""
+def test_signal_rows_listed_no_manual_add(qapp):
+    """Signal nets are listed in the single Parsed Nets table (the
+    manual 'Add Signal Net' mechanism is gone with the GPIO table)."""
     from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
     panel = ParseNetsPanel()
     try:
-        panel.set_rules({"signal": r"^GPIO"})
         panel.set_net_source(NET_TEXT, "board.net")
         panel.parse_nets()
         assert panel.result is not None
-        assert panel._gpio_candidates == ["GPIO_LED1"]
-        # non-matching nets are not offerable
-        assert "CLK_24M" not in panel._gpio_candidates
+        assert not hasattr(panel, "gpio_candidate_combo")
+        assert not hasattr(panel, "btn_add_signal")
+        rows = {panel.table.item(r, 0).text(): r
+                for r in range(panel.table.rowCount())}
+        assert "GPIO_LED1" in rows
+        assert panel.table.cellWidget(rows["GPIO_LED1"], 2).currentText() \
+            == "Signal"
     finally:
         panel.deleteLater()
 

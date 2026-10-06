@@ -168,12 +168,7 @@ class BlockConfigDialog(QDialog):
             self.nets_panel.set_net_source(text, name)
             state = panel_state or {}
             self.nets_panel.set_rules(state.get("net_rules") or {})
-            self.nets_panel.set_power_state(
-                state.get("power_dnt"), state.get("power_assign"))
-            self.nets_panel._clock_overrides = dict(
-                state.get("clock_overrides") or {})
-            self.nets_panel._gpio_overrides = dict(
-                state.get("gpio_overrides") or {})
+            self.nets_panel.set_dnt_state(state.get("power_dnt"))
             self.nets_panel.spf_nets = set(
                 state.get("spf_nets") or [])
             self.nets_panel.risk_thresholds = dict(

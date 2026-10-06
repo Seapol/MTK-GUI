@@ -60,7 +60,9 @@ def test_real_net_file_parses_fully():
     assert {r.name for r in result.clock} == \
         {"DBGIF_TCK_SWCLK", "DMIC_CLK"}
     assert len(result.gpio) == 56
-    assert {n for n, _r in result.filtered} == {"AGND", "GND"}
+    # the two reference grounds are GND rows now (default Do Not Test)
+    assert {r.name for r in result.gnd} == {"AGND", "GND"}
+    assert result.filtered == []
     # members map 1:1 (spot check)
     spot = next(r for r in result.gpio if r.name == "CORTEX7")
     assert spot.members == ["J18.7", "TP20.1"]

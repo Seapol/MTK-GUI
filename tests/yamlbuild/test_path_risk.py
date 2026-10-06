@@ -23,7 +23,6 @@ from mtkgui.gui.yamlbuild.path_risk import (  # noqa: E402
     normalize_thresholds,
     risk_level,
 )
-from mtkgui.gui.yamlbuild.power_alloc import CLOCK_CHANNELS  # noqa: E402
 
 # VIN_24V -> R4 -> MID_A -> R5 -> MID_B -> R6 -> GND
 #   (3 series passives + 2 intermediate nets = 5 -> Medium)
@@ -152,27 +151,16 @@ def panel(qapp):
 def test_panel_parse_fills_risk_scores(panel):
     panel.parse_nets()
     assert panel.result is not None
-    # power nets are scored too (rail voltage test) even without a
-    # dedicated allocation table; the risk COLUMN now lives in the
-    # Power Tree summary (the tables show Net | Assign | DNT only)
+    # non-DNT Power / SE Clock nets are scored; Signal nets default
+    # Do Not Test and are therefore NOT scored (the risk COLUMN lives
+    # in the Power Tree summary; the Parsed Nets table shows Net |
+    # Test Points | Category | DNT)
     assert panel.risk_scores["VIN_24V"]["score"] == 5
-    headers = [panel.clock_table.horizontalHeaderItem(i).text()
-               for i in range(panel.clock_table.columnCount())]
-    assert headers == ["SE Clock Net Name", "Assign Clock Hz",
-                       "Do Not Test"]
-    rows = {panel.clock_table.item(r, 0).text():
-            panel.clock_table.cellWidget(r, 1).currentText()
-            for r in range(panel.clock_table.rowCount())}
-    assert rows["CLK1"] == CLOCK_CHANNELS[0]
-    # manually added signal nets are scored as well
-    idx = panel.gpio_candidate_combo.findText("GPIO0")
-    panel.gpio_candidate_combo.setCurrentIndex(idx)
-    panel._add_signal_net()
-    gpio_rows = {panel.gpio_table.item(r, 0).text():
-                 panel.risk_scores.get(panel.gpio_table.item(
-                     r, 0).text(), {}).get("score", 0)
-                 for r in range(panel.gpio_table.rowCount())}
-    assert gpio_rows["GPIO0"] == 1
+    assert panel.risk_scores["CLK1"]["score"] == 7
+    assert "GPIO0" not in panel.risk_scores      # Signal default DNT
+    headers = [panel.table.horizontalHeaderItem(i).text()
+               for i in range(panel.table.columnCount())]
+    assert headers == ["Net", "Test Points", "Category", "Do Not Test"]
 
 
 def test_threshold_change_reevaluates_live(panel, qapp, monkeypatch):
@@ -184,26 +172,23 @@ def test_threshold_change_reevaluates_live(panel, qapp, monkeypatch):
     assert panel.risk_thresholds == {"medium_min": 4, "high_min": 7}
     # engineer tightens the thresholds -> CLK1 (7) drops to Medium
     panel.risk_thresholds = {"medium_min": 6, "high_min": 8}
-    panel._auto_allocate(panel.result)
-    levels = {panel.clock_table.item(r, 0).text():
-              panel.risk_scores[panel.clock_table.item(r, 0).text()]
-              ["level"]
-              for r in range(panel.clock_table.rowCount())
-              if panel.clock_table.item(r, 0).text()
-              in panel.risk_scores}
-    assert levels["CLK1"] == "Medium"
+    panel._evaluate_risk(panel.result)
+    assert panel.risk_scores["CLK1"]["level"] == "Medium"
 
 
-def test_advisory_only_assignment_not_blocked(panel):
-    """A High-risk net KEEPS its channel assignment (advisory only);
-    the engineer manually accepts the risk."""
+def test_advisory_only_dnt_not_blocked(panel):
+    """A High-risk net KEEPS its testable state (advisory only); the
+    engineer can enable / disable any row without a block."""
     panel.parse_nets()
-    rows = {panel.clock_table.item(r, 0).text():
-            (panel.clock_table._dnt_boxes[r].isChecked(),
-             panel.clock_table.cellWidget(r, 1).currentText())
-            for r in range(panel.clock_table.rowCount())}
-    assert rows["CLK1"][0] is False            # not Do-Not-Test
-    assert rows["CLK1"][1].startswith(("DAQM907A", "U2355A"))
+    rows = {panel.table.item(r, 0).text(): r
+            for r in range(panel.table.rowCount())}
+    clk_box = panel.table.cellWidget(rows["CLK1"], 3)
+    assert clk_box.isChecked() is False       # SE Clock default testable
+    clk_box.setChecked(True)                  # advisory, never blocked
+    # the Signal nets default Do Not Test; the CLKMID* nets classify
+    # SE Clock (kernel CLK token) so they stay testable
+    assert panel.power_dnt_nets() == ["CLK1", "GND", "GPIO0",
+                                      "MID_A", "MID_B"]
 
 
 # ------------------------------------------------------------ persistence
