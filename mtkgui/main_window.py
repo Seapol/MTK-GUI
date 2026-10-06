@@ -1225,7 +1225,12 @@ class MainWindow(QMainWindow):
 
     def _append_event_log(self, text):
         """Show a line in the Event Log and mirror it into the session
-        auto-save file."""
+        auto-save file.  Every entry automatically carries the global
+        identity fields (core standard 5.3): the Station ID (host
+        name) and the OS login User - system-derived, unique by
+        source, never manually editable."""
+        from mtkgui.gui.identity import identity_prefix
+        text = f"{identity_prefix()} {text}"
         self.event_log.appendPlainText(text)
         if self._event_log_file is not None:
             try:
