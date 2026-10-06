@@ -101,18 +101,13 @@ def test_row_independent_connect(panel, hub):
                for _l, m in logs)
 
 
-def test_row_disconnect_prompts_and_resets_hub(panel, hub,
-                                               monkeypatch):
-    """Row disconnect: prompt pointing to the Equipment page, the row
-    goes Disconnected; the LAST disconnect resets the shared hub."""
-    shown = []
-    monkeypatch.setattr(QMessageBox, "information",
-                        lambda *a, **k: shown.append(a) or 0)
+def test_row_disconnect_resets_hub(panel, hub):
+    """Row disconnect: the row goes Disconnected; the LAST disconnect
+    resets the shared hub - no popup, no self-test column."""
     panel.set_params(CONFIGURED)
     daq, psu = panel._rows["daq_visa"], panel._rows["psu_visa"]
     daq["btn"].click()                 # connect
     daq["btn"].click()                 # disconnect again
-    assert shown and "Equipment page" in shown[0][2]
     assert daq["conn"].text() == "Disconnected"
     assert daq["btn"].text() == "Connect"
     assert hub.connected is False
@@ -122,6 +117,22 @@ def test_row_disconnect_prompts_and_resets_hub(panel, hub,
     daq["btn"].click()                 # daq off, psu still on
     assert hub.connected is True
     psu["btn"].click()                 # last row off -> hub reset
+    assert hub.connected is False
+
+
+def test_connect_all_and_disconnect_all(panel, hub):
+    """The bulk controls: Connect All connects every row, Disconnect
+    All disconnects every row (the hub resets on the last one)."""
+    panel.set_params(CONFIGURED)
+    panel._connect_all()
+    for state in panel._rows.values():
+        assert state["conn"].text() == "Connected"
+        assert state["btn"].text() == "Disconnect"
+    assert hub.connected is True
+    panel._disconnect_all()
+    for state in panel._rows.values():
+        assert state["conn"].text() == "Disconnected"
+        assert state["btn"].text() == "Connect"
     assert hub.connected is False
 
 
