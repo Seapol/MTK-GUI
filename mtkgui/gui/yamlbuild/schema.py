@@ -5,8 +5,8 @@ Every module owns an independent parameter schema (interface_spec.md
 section 31): the block config dialogs, the parameter validation and
 the Excel exchange are all generated from these tables, so the twelve
 modules never share state and fields cannot drift between UI, YAML
-and Excel.  Rack-ATE instrument parameters live ONLY in block 02
-(instruments); blocks 04-06/10 reference them read-only.
+and Excel.  Rack-ATE instrument parameters live ONLY in block 03
+(instruments); blocks 02 and 04-06/10 reference them read-only.
 """
 
 from __future__ import annotations
@@ -115,25 +115,45 @@ def _f(name, label, **kw) -> FieldSpec:
     return FieldSpec(name=name, label=label, **kw)
 
 
+#: fixed Batch # options (P3-B2 T7): Customized and Deviation (DRQ)
+#: resolve through a small dialog into the persisted string
+BATCH_OPTIONS = (
+    "EVT (Proto-1)",
+    "DVT (Proto-2)",
+    "PVT (Pilot-1)",
+    "Ramp-up (Pilot-2)",
+    "MP (Production)",
+    "Deviation (DRQ)",
+    "R&R (Return&Rework)",
+    "Customized",
+)
+#: persisted batch prefixes for the dialog-resolved options
+BATCH_CUSTOMIZED_PREFIX = "Customized: "
+BATCH_DEVIATION_PREFIX = "Deviation (DRQ): "
+
+
 #: Per-module field schemas (independent, per interface_spec section 31).
 MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
     "design_input": (
-        _f("product_id", "Product ID", required=True),
-        _f("part_number", "Project Part #", required=True),
-        _f("core_id", "Core ID", required=True),
-        _f("project_name", "Project Name",
-           remarks="extracted from the schematic title block"),
-        _f("sw_version", "SW Version", required=True),
-        _f("hw_version", "HW Version", required=True),
-        _f("batch", "Batch #", required=True),
-        _f("schematic_file", "Schematic PDF",
-           remarks="imported schematic (Core ID auto-detected)"),
-        _f("design_data", "Design Data Import", ftype=T_TEXT,
-           remarks="one design-data entry per line"),
+        _f("product_id", "Product ID", required=True,
+           remarks="Core ID extracted from the SPF file name"),
+        _f("part_number", "Project Part # (optional)",
+           remarks="Project Name from the SPF first-page title"),
+        _f("sw_version", "SW Version (optional)",
+           remarks="report metadata only - no test logic impact"),
+        _f("hw_version", "HW Version (optional)",
+           remarks="report metadata only - no test logic impact"),
+        _f("batch", "Batch # (optional)", ftype=T_CHOICE,
+           choices=BATCH_OPTIONS),
+        _f("spf_file", "SPF File",
+           remarks="Allegro Smart PDF imported via Import SPF"),
+        _f("net_file", "NET File",
+           remarks="relative path + file name of the imported NET "
+                   "(load only, parsed by the Parse Nets module)"),
     ),
     "instruments": (
         _f("psu_visa", "PSU VISA Address", required=True,
-           remarks="Keysight N5747A rack PSU (block02 = the ONLY "
+           remarks="Keysight N5747A rack PSU (block03 = the ONLY "
                    "rack-ATE instrument editor)"),
         _f("daq_visa", "DAQ VISA Address", required=True,
            remarks="Keysight DAQ973A + DAQM908A/907A"),

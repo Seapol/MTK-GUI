@@ -12,6 +12,12 @@ dist_win/
 # runtime output
 logs/
 event/
+archive/
+audit/
+demo/
+projects/
+config/review/
+mtkgui/config/yamlbuild_state.json
 
 # macOS
 .DS_Store

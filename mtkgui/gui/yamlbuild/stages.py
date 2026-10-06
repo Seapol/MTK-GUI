@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """Fixed workflow stage definitions for the Yaml Build page.
 
-The twelve-stage sequence is FIXED (M0 redefinition, supersedes the
-old ten-stage list): the UI renders the blocks in this exact order
-and the effective YAML emits the modules in this exact order.
-Nothing in the codebase may reorder, insert or drop stages.
+The twelve-stage sequence is FIXED (item 23 redefinition, supersedes
+the M0 order for the 02/03 pair): the UI renders the blocks in this
+exact order and the effective YAML emits the modules in this exact
+order.  Nothing in the codebase may reorder, insert or drop stages.
 
-Responsibility boundaries (M0, no duplication/conflict/missing):
+Responsibility boundaries:
 
 * 01 Design Input          - read-only global DesignModel source
-* 02 Configure Instruments - the ONLY rack-ATE instrument editor
-* 03/04/05/06              - Parse/Build ICT (reuse 02 resources)
+* 02 Parse nets for ICT    - SPF+NET load & parse BEFORE instruments
+* 03 Configure Instruments - the ONLY rack-ATE instrument editor
+* 04/05/06                 - Build ICT (reuse 03 resources)
 * 07 Programmer            - debug resource, separate from the rack
 * 08 Peripherals           - DUT on-board peripherals
 * 09/10                    - Parse/Build FCT (reuse all models)
@@ -41,10 +42,12 @@ class Stage:
 
 
 #: The fixed twelve-stage workflow sequence - DO NOT REORDER.
+#: Item 23: Parse nets for ICT (02) runs BEFORE Configure
+#: Instruments (03) - SPF+NET parsing first, then instrument setup.
 WORKFLOW_STAGES: tuple[Stage, ...] = (
     Stage("design_input", "Design Input", "design"),
-    Stage("instruments", "Configure Instruments", "instruments"),
     Stage("parse_ict", "Parse nets for ICT", "ict"),
+    Stage("instruments", "Configure Instruments", "instruments"),
     Stage("rails", "Build Impedance/Voltage/Power rails up sequence",
           "ict"),
     Stage("clocks", "Build Clocks", "clocks"),
@@ -67,3 +70,8 @@ STAGE_BY_KEY: dict[str, Stage] = {s.key: s for s in WORKFLOW_STAGES}
 #: Legacy (pre-M0) stage keys absorbed by the twelve-stage list:
 #: the DUT power-up configuration moved into the rails block (04).
 LEGACY_MODULE_MAP: dict[str, str] = {"power_dut": "rails"}
+
+#: Legacy (pre-item-23) ordering: Configure Instruments was block 02,
+#: Parse nets block 03.  Loading such a project file swaps the pair
+#: back onto the canonical sequence instead of failing the order check.
+LEGACY_ORDER_SWAP: tuple[str, str] = ("instruments", "parse_ict")

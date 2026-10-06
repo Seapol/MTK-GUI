@@ -19,9 +19,9 @@ def make_model(enabled=True) -> YamlBuildModel:
     if enabled:
         model.enable_all()
     model.set_params("design_input", {
-        "product_id": "P001", "part_number": "MTK12345",
-        "core_id": "IMXRT700", "sw_version": "1.2.3",
-        "hw_version": "A", "batch": "B9", "design_data": "",
+        "product_id": "IMXRT700", "part_number": "MTK12345",
+        "sw_version": "1.2.3", "hw_version": "A",
+        "batch": "MP (Production)",
     })
     model.set_params("parse_ict", {"netlist_file": "design.net"})
     model.set_params("instruments", {
@@ -56,11 +56,11 @@ def make_model(enabled=True) -> YamlBuildModel:
 
 
 def test_stage_count_and_order():
-    """Exactly the twelve fixed stages in the required order (M0
-    redefinition: instruments inserted at 02, validate/export close
-    the flow, legacy power_dut absorbed into rails)."""
+    """Exactly the twelve fixed stages in the required order (item 23
+    redefinition: parse_ict moved to 02, instruments to 03, validate/
+    export close the flow, legacy power_dut absorbed into rails)."""
     assert [s.key for s in WORKFLOW_STAGES] == [
-        "design_input", "instruments", "parse_ict", "rails", "clocks",
+        "design_input", "parse_ict", "instruments", "rails", "clocks",
         "gpios", "programmer", "peripherals", "fct_parse", "fct_build",
         "validate_sequence", "preview_export"]
     assert "power_dut" not in STAGE_KEYS
@@ -187,7 +187,7 @@ def test_state_round_trip_and_tenant_isolation():
     other.apply_state(state)
     assert other.is_enabled("clocks") is False
     assert other.get_params("clocks")["clocks"] == "CLK1:32768:0.1"
-    assert other.project_key() == "P001_MTK12345"
+    assert other.project_key() == "IMXRT700_MTK12345"
     empty = YamlBuildModel()
     assert empty.project_key() == "default"
 

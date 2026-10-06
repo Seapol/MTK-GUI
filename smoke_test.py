@@ -462,11 +462,12 @@ assert w2.act_save_yaml.isEnabled() is False
 assert w2.act_save_yaml_as.isEnabled() is False
 assert w2.act_serial_check.isEnabled() is False
 assert w2.act_permissions.isVisible() is False
-# Product Information read-only; Run Control locked
+# Product Information: YAML-driven fields read-only for every role;
+# Serial Number stays the per-unit manual input
 wf2 = w2.workflow_page
 assert wf2._can_edit_ict is False and wf2._can_edit_fct is False
 assert wf2.part_edit.isReadOnly() and wf2.core_edit.isReadOnly()
-assert wf2.batch_edit.isReadOnly() and wf2.serial_edit.isReadOnly()
+assert wf2.batch_edit.isReadOnly() and not wf2.serial_edit.isReadOnly()
 assert wf2.auto_sn.isEnabled() is False
 assert wf2.longrun_spin.isEnabled() is False
 assert wf2.interval_spin.isEnabled() is False

@@ -8,6 +8,7 @@ path with a single color.
 """
 
 import datetime
+import re
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QLineEdit,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -23,6 +25,13 @@ from PySide6.QtWidgets import (
 
 from ..ansi import AnsiDecoder
 from ..theme import DEFAULT_BACKGROUND, THEMES
+
+# keyword highlight rules (P3-B2 log enhancement): case-insensitive,
+# matched per output line
+_ERROR_RE = re.compile(r"\berror\b", re.IGNORECASE)
+_WARN_RE = re.compile(r"\bwarn(?:ing)?\b", re.IGNORECASE)
+ERROR_COLOR = "#ff5555"
+WARN_COLOR = "#ffb454"
 
 
 def _blend(color_a, color_b, ratio):
@@ -60,6 +69,7 @@ class ConsoleWidget(QGroupBox):
         self.bg_color = DEFAULT_BACKGROUND
         self.palette = THEMES["dark"]
         self.decoder = AnsiDecoder()
+        self.filter_text = ""
         # optional per-channel accent color for the RX/TX/SYS tag
         self.tag_color = None
 
@@ -72,6 +82,16 @@ class ConsoleWidget(QGroupBox):
         self.check_autoscroll = QCheckBox("Auto scroll")
         self.check_autoscroll.setChecked(True)
 
+        # log filter (P3-B2): when set, only incoming lines containing
+        # the text (case-insensitive) are appended to the log
+        self.edit_filter = QLineEdit()
+        self.edit_filter.setPlaceholderText("Filter...")
+        self.edit_filter.setMaximumWidth(140)
+        self.edit_filter.setToolTip(
+            "Log filter: only incoming lines containing this text are "
+            "applied to the log (empty = show everything)")
+        self.edit_filter.textChanged.connect(self._on_filter_changed)
+
         btn_clear = QPushButton("Clear")
         btn_clear.setObjectName("flat")
         btn_clear.clicked.connect(self.clear_all)
@@ -82,6 +102,7 @@ class ConsoleWidget(QGroupBox):
         bar.addWidget(self.check_timestamp)
         bar.addWidget(self.check_hex)
         bar.addWidget(self.check_autoscroll)
+        bar.addWidget(self.edit_filter)
         bar.addStretch(1)
         bar.addWidget(btn_clear)
         bar.addWidget(btn_save)
@@ -99,6 +120,36 @@ class ConsoleWidget(QGroupBox):
     def set_accent(self, color):
         """Set the per-channel tag color (RX>> / TX>> / SYS>> prefix)."""
         self.tag_color = color
+
+    # -------------------------------------------------------------- font
+    def set_font(self, font):
+        """Apply a QFont to the log view (persisted per channel)."""
+        self.view.setFont(font)
+
+    def font(self) -> QFont:
+        """Current log view font (for persistence)."""
+        return self.view.font()
+
+    # ------------------------------------------------------------- filter
+    def _on_filter_changed(self, text):
+        """Store the active filter (applies to INCOMING lines; the
+        already-rendered history stays untouched)."""
+        self.filter_text = text.strip()
+
+    def _line_allowed(self, line: str) -> bool:
+        """True when the line passes the active log filter."""
+        needle = self.filter_text.lower()
+        return not needle or needle in line.lower()
+
+    @staticmethod
+    def _line_color(line: str, base: str):
+        """Keyword highlight (P3-B2): Error -> red, Warning -> orange;
+        other lines keep their base color."""
+        if _ERROR_RE.search(line):
+            return ERROR_COLOR, True          # bold error
+        if _WARN_RE.search(line):
+            return WARN_COLOR, False
+        return base, False
 
     # ---------------------------------------------------------- background
     def set_background(self, color):
@@ -138,36 +189,61 @@ class ConsoleWidget(QGroupBox):
         fmt.setForeground(QColor(self.tag_color or self.palette["tag"]))
         cursor.insertText(f"{tag}>> ", fmt)
 
-    @staticmethod
-    def _insert_plain(cursor, text, color):
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
+    def _insert_plain(self, cursor, text, color, highlight=False):
+        """Insert text line-by-line; with highlight=True every line is
+        keyword-checked (Error -> red bold, Warning -> orange) and
+        lines failing the active filter are dropped."""
         text = text.replace("\r\n", "\n").replace("\r", "") \
                    .replace("\t", "    ")
         parts = text.split("\n")
         for index, part in enumerate(parts):
             if index:
                 cursor.insertBlock()
-            if part:
+            if not part:
+                continue
+            if highlight and not self._line_allowed(part):
+                continue
+            if highlight:
+                line_color, bold = ConsoleWidget._line_color(part, color)
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(line_color))
+                if bold:
+                    fmt.setFontWeight(QFont.Bold)
+                cursor.insertText(part, fmt)
+            else:
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(color))
                 cursor.insertText(part, fmt)
 
     def append_message(self, tag, text, color=None):
-        """Append a plain colored message (SYS / TX / HEX RX)."""
+        """Append a plain colored message (SYS / TX / HEX RX).
+
+        The active log filter drops non-matching lines; Error/Warning
+        keywords are highlighted per line."""
         color = color or self.palette["base"]
+        if not self._text_allowed(text):
+            return
         cursor = self._end_cursor()
         self._start_new_line(cursor)
         self._insert_prefix(cursor, tag)
-        self._insert_plain(cursor, text, color)
+        self._insert_plain(cursor, text, color, highlight=True)
         self._scroll()
 
     def append_rx(self, tag, data):
-        """Append received bytes, honoring ANSI SGR sequences."""
+        """Append received bytes, honoring ANSI SGR sequences.
+
+        The active log filter drops non-matching lines; keyword
+        highlighting applies to plain (non-ANSI-colored) lines."""
+        if not self._text_allowed(data):
+            return
         cursor = self._end_cursor()
         self._start_new_line(cursor)
         self._insert_prefix(cursor, tag)
 
         base_fg = self.palette["rx"]
         for text, attrs in self.decoder.feed(data):
+            if not self._text_allowed(text):
+                continue
             fmt = self._char_format(attrs, base_fg)
             text = text.replace("\r\n", "\n").replace("\r", "") \
                        .replace("\t", "    ")
@@ -175,9 +251,25 @@ class ConsoleWidget(QGroupBox):
             for index, part in enumerate(parts):
                 if index:
                     cursor.insertBlock()
-                if part:
-                    cursor.insertText(part, fmt)
+                if not part:
+                    continue
+                if attrs["fg"] is None:
+                    # no explicit ANSI color -> keyword highlight
+                    line_color, bold = \
+                        ConsoleWidget._line_color(part, base_fg)
+                    fmt = QTextCharFormat(fmt)
+                    fmt.setForeground(QColor(line_color))
+                    if bold:
+                        fmt.setFontWeight(QFont.Bold)
+                cursor.insertText(part, fmt)
         self._scroll()
+
+    def _text_allowed(self, text: str) -> bool:
+        """Filter gate for a whole chunk (fast reject before parsing)."""
+        if not self.filter_text:
+            return True
+        return any(self._line_allowed(ln)
+                   for ln in text.splitlines())
 
     def _char_format(self, attrs, base_fg):
         fg = attrs["fg"] or base_fg

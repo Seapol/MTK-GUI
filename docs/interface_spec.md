@@ -1087,9 +1087,10 @@ class DutReportBuilder:                   # mtkgui/gui/dut_report.py
 Classic-shell tab `Yaml Build` (rightmost, fixed).  Layout: left
 Workflow Block Diagram + right live YAML preview, horizontal
 splitter, window-adaptive (wide screens lay blocks out in rows,
-narrow screens fall back to a single column).  Top fixed buttons:
-`Import from Excel | Export to Excel | Build Draft YAML |
-Release Final YAML`.
+narrow screens fall back to a single column).  Top fixed buttons
+(item 16): `Import from Excel | Export to Excel | Edit/Apply`
+(uniform adaptive width = widest label; the Build Draft / Release
+Final YAML buttons were removed - redundant YAML entry).
 
 Fixed, irreversible workflow sequence (disabled blocks are skipped):
 

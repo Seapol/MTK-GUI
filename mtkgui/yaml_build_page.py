@@ -3,8 +3,9 @@
 
 Full phase-B1 assembly (interface_spec.md section 31):
 
-* top fixed buttons: Import from Excel / Export to Excel / Build
-  Draft YAML / Release Final YAML,
+* top fixed buttons (item 16): Import from Excel / Export to Excel /
+  Edit-Apply (uniform adaptive width; the Build Draft / Release Final
+  YAML buttons were removed - redundant YAML entry),
 * left: the ten fixed workflow blocks (click = dedicated config
   dialog, right click = Enable / Disable; disabled blocks gray out,
   are skipped and are not written into the effective YAML),
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -58,6 +59,15 @@ PLANS_DIR = "config/plans"
 class YamlBuildPage(QWidget):
     """Yaml Build tab: block-diagram workflow + live YAML preview."""
 
+    #: (percent 0-100, label) long-task progress for the global status
+    #: bar (T6): 0 = task start, 100 = task done, stages in between
+    task_progress = Signal(int, str)
+    #: (level, message) Event-Log mirror for the main window (T6)
+    task_log = Signal(str, str)
+    #: navigation: the Parse Nets block asked for the dedicated
+    #: Power Tree page (main window switches the tab)
+    power_tree_page_requested = Signal()
+
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
         super().__init__(parent)
@@ -66,39 +76,43 @@ class YamlBuildPage(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
-        # --- top fixed button row (rule 6.3: uniform horizontal
-        # distribution at a fixed height; resizing only rescales the
-        # whole row - buttons never wrap, overlap or wander) ---------
+        # the preview pane is created BEFORE the top button row: its
+        # Edit/Apply toggle is reparented into that row (item 16)
+        self.yaml_preview = YamlPreviewWidget()
+
+        # --- top fixed button row (item 16: Build Draft / Release Final
+        # YAML buttons removed - the redundant YAML entry is gone; the
+        # Excel buttons moved to the LEFT of the Edit / Apply toggle,
+        # all three share one uniform adaptive width = the longest
+        # label among them; resizing only rescales the row) ----------
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
         self.btn_export_excel = QPushButton("Export to Excel")
-        self.btn_build_draft = QPushButton("Build Draft YAML")
-        self.btn_release_final = QPushButton("Release Final YAML")
+        # the Edit/Apply toggle is created by the preview pane (its
+        # state + permission gate stay there) and is reparented here
         self._action_buttons = (
             self.btn_import_excel, self.btn_export_excel,
-            self.btn_build_draft, self.btn_release_final)
+            self.yaml_preview.btn_edit)
         for btn in self._action_buttons:
             btn.setFixedHeight(34)
-            btn.setMinimumWidth(170)
-            buttons.addWidget(btn, 1)   # equal stretch -> uniform row
+            buttons.addWidget(btn, 0)   # uniform width, no stretching
+        buttons.addStretch(1)
         root.addLayout(buttons)
+        self._sync_action_button_widths()
         # standard tooltips (rule 6.1, fixed wording)
         self.btn_import_excel.setToolTip(
             "批量导入流程配置Excel文件，快速回填所有模块参数与状态")
         self.btn_export_excel.setToolTip(
             "导出当前全流程模块配置为标准Excel归档文件")
-        self.btn_build_draft.setToolTip(
-            "生成草稿版流程配置YAML，可反复编辑调试，非最终归档版本")
-        self.btn_release_final.setToolTip(
-            "固化并发布最终版流程YAML，版本锁定用于正式测试归档")
+        # label flips (Edit <-> Apply) re-sync the uniform width
+        self.yaml_preview.label_changed.connect(
+            lambda _text: self._sync_action_button_widths())
 
         self.btn_import_excel.clicked.connect(self._import_excel)
         self.btn_export_excel.clicked.connect(self._export_excel)
-        self.btn_build_draft.clicked.connect(
-            lambda: self._publish("draft"))
-        self.btn_release_final.clicked.connect(
-            lambda: self._publish("final"))
+        # account permissions (defaults = supervisor until set_edit_allowed)
+        self._edit_allowed = True
 
         # --- dual-pane body: block flow (left) | YAML preview (right) --
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -118,7 +132,6 @@ class YamlBuildPage(QWidget):
         flow_scroll.setFrameShape(QFrame.Shape.NoFrame)
         flow_scroll.setWidget(self.block_flow)
         splitter.addWidget(flow_scroll)
-        self.yaml_preview = YamlPreviewWidget()
         self.yaml_preview.bind_model(self.model)
         # YAML -> diagram: a valid hand edit refreshes the block
         # cards (enable states) and persists; the preview text itself
@@ -131,7 +144,7 @@ class YamlBuildPage(QWidget):
         root.addWidget(splitter, 1)
         self.hint = QLabel(
             "12-block workflow: click a block to configure it; "
-            "right-click to Enable/Disable. Block 02 is the ONLY "
+            "right-click to Enable/Disable. Block 03 is the ONLY "
             "rack-ATE instrument editor (later blocks reference it "
             "read-only); block 11 validates the full sequence and "
             "gates block 12. Disabled blocks are grayed, skipped and "
@@ -169,39 +182,101 @@ class YamlBuildPage(QWidget):
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
-        # block 03: candidate power nets for the capture-list prefill
-        # (up to 12, from the imported netlist / power tree)
-        candidates = None
-        if module_key == "parse_ict":
-            from mtkgui.gui.designinput.netlist import \
-                power_capture_candidates
-            nets = self.model.imported.get("netlist", {}).get(
-                "nets") or {}
-            candidates = power_capture_candidates(nets)
-        params, import_result = self.block_flow.open_dialog(
+        net = self.model.imported.get("net") or {}
+        if module_key == "parse_ict" and net.get("raw"):
+            # T8: capture prefill candidates come from the formal
+            # Parse Nets result (power nets)
+            candidates = self._power_candidates()
+        else:
+            candidates = None
+        params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,
-            power_candidates=candidates)
+            power_candidates=candidates,
+            log_sink=self.task_log.emit,
+            progress_sink=self.task_progress.emit,
+            net_source=(net.get("raw", ""),
+                        Path(net.get("file", "")).name)
+            if module_key == "parse_ict" else None,
+            panel_state={
+                "net_rules": self.model.net_classification_rules,
+                "clock_overrides": {
+                    row["net"]: (row["channel"] or "Not Test")
+                    for row in self.model.se_clock_allocation
+                    if row["status"] == "Not Test" or row["channel"]},
+                "gpio_overrides": {
+                    row["net"]: (row["channel"] or "Not Test")
+                    for row in self.model.gpio_allocation
+                    if row["status"] == "Not Test" or row["channel"]},
+                "spf_nets": self.model.imported.get("spf_nets", set()),
+                "risk_thresholds": dict(
+                    (self.model.path_risk or {}).get("thresholds")
+                    or {}),
+                "risk_scores": dict(
+                    (self.model.path_risk or {}).get("scores") or {}),
+            } if module_key == "parse_ict" else None)
         if params is None:
             return
         self.model.set_params(module_key, params)
-        if module_key == "design_input" and import_result:
-            # design-data backfill (acceptance 3.1.1): shared with all
-            # downstream modules via the effective YAML design_data
-            netlist = import_result.get("netlist")
-            self.model.imported["schematic"] = dict(
-                import_result.get("schematic") or {})
-            self.model.imported["netlist"] = {
-                "file": import_result.get("netlist_file", ""),
-                "net_count": len(netlist.nets) if netlist else 0,
-                "nets": dict(netlist.nets) if netlist else {},
-                "missing_tp": list(netlist.missing_tp) if netlist else [],
+        if module_key == "design_input" and dialog is not None \
+                and dialog.panel is not None:
+            # keep the loaded NET bytes for the Parse Nets module (T8)
+            panel = dialog.panel
+            self.model.imported["net"] = {
+                "file": panel.net_path,
+                "raw": panel.net_text,
             }
-            self.model.imported["tp_resolutions"] = dict(
-                import_result.get("tp_resolutions") or {})
+        if module_key == "parse_ict" and dialog is not None \
+                and dialog.nets_panel is not None \
+                and dialog.nets_panel.result is not None:
+            # the parse result is the single data source for the
+            # Channel Allocation tables (T10)
+            result = dialog.nets_panel.result
+            self.model.imported["testable_nets"] = {
+                rec.name: {"category": cat,
+                           "members": list(rec.members),
+                           **({"auto_generated": True}
+                              if dialog.nets_panel._auto_generated.get(
+                                  rec.name) else {})}
+                for cat, records in
+                (("Power", result.power), ("Clock", result.clock),
+                 ("GPIO", result.gpio))
+                for rec in records
+            }
+            # item 24: rules / allocations persistence (the power tree
+            # draft is owned by the dedicated Power Tree page)
+            nets_panel = dialog.nets_panel
+            self.model.net_classification_rules = \
+                dict(nets_panel.net_rules)
+            self.model.se_clock_allocation = \
+                nets_panel._alloc_rows(nets_panel.clock_table)
+            self.model.gpio_allocation = \
+                nets_panel._alloc_rows(nets_panel.gpio_table)
+            # test path risk: thresholds + per-net advisory scores
+            self.model.path_risk = {
+                "thresholds": dict(nets_panel.risk_thresholds),
+                "scores": dict(nets_panel.risk_scores),
+            }
+        # navigation: the panel's "Open Power Tree Editor" button
+        # closes the dialog and switches to the dedicated page
+        if module_key == "parse_ict" and dialog is not None \
+                and getattr(dialog, "requested_page", None) \
+                == "power_tree":
+            self.power_tree_page_requested.emit()
         errors = self.model.validate_module(module_key)
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))
         self._after_model_change()
+
+    def _power_candidates(self) -> list[str]:
+        """Candidate power nets for the block-03 capture prefill:
+        power nets from the Parse Nets result (T8) when available,
+        else the legacy imported-netlist names."""
+        testable = self.model.imported.get("testable_nets") or {}
+        if testable:
+            return [name for name, info in testable.items()
+                    if info.get("category") == "Power"]
+        return list((self.model.imported.get("netlist") or {}).get(
+            "nets") or {})
 
     def _set_enabled(self, module_key: str, enabled: bool) -> None:
         """Enable / disable one module (parameters retained; disabled
@@ -235,10 +310,47 @@ class YamlBuildPage(QWidget):
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
 
+    # ------------------------------------------------- long-task helpers
+    def _task(self, percent: int, label: str) -> None:
+        """Emit a long-task progress step to the global status bar."""
+        self.task_progress.emit(percent, label)
+
+    def _tlog(self, level: str, message: str) -> None:
+        """Mirror one Event-Log line (level, message) to the window."""
+        self.task_log.emit(level, message)
+
     # ------------------------------------------------------- Excel I/O
+    def set_edit_allowed(self, allowed: bool) -> None:
+        """Operator accounts cannot edit the YAML config (T5): the
+        whole action row (Excel import / export) and the preview
+        Edit/Apply toggle follow the permission; a pending edit
+        session is rolled back to READ_ONLY."""
+        self._edit_allowed = bool(allowed)
+        for btn in self._action_buttons:
+            btn.setEnabled(self._edit_allowed)
+        self.yaml_preview.set_edit_allowed(self._edit_allowed)
+
+    def _sync_action_button_widths(self) -> None:
+        """Item 16: the three top toolbar buttons (Import from Excel /
+        Export to Excel / Edit-Apply) share one uniform adaptive width
+        = the widest label among them (re-synced whenever the toggle
+        label flips Edit <-> Apply).  Neat, aligned, equal in size."""
+        if not hasattr(self, "_action_buttons"):
+            return
+        widest = max(btn.sizeHint().width()
+                     for btn in self._action_buttons)
+        width = widest + 8   # small symmetric margin
+        for btn in self._action_buttons:
+            btn.setFixedWidth(width)
+
     def _export_excel(self) -> None:
         """Export all module parameters / thresholds / sequence /
         enable state / remarks to an .xlsx workbook."""
+        if not self._edit_allowed:
+            QMessageBox.information(
+                self, "Permission",
+                "Operator account cannot modify the YAML configuration.")
+            return
         default = (f"YamlBuild_{self.model.project_key()}.xlsx")
         path, _ = QFileDialog.getSaveFileName(
             self, "Export to Excel", default, "Excel (*.xlsx)")
@@ -247,21 +359,34 @@ class YamlBuildPage(QWidget):
         try:
             rows = export_to_excel(self.model, path)
         except OSError as exc:
+            self._tlog("ERROR", f"Excel export failed: {exc}")
             QMessageBox.critical(self, "Export Failed", str(exc))
             return
+        # short task: one Event-Log line only (no progress machinery)
+        self._tlog("INFO", f"Excel export done: {rows} rows -> "
+                           f"{Path(path).name}")
         QMessageBox.information(
             self, "Export to Excel",
             f"Exported {rows} rows to {path}")
 
     def _import_excel(self) -> None:
         """Import a workbook with full-workbook validation (invalid
-        rows abort the import with the error list)."""
+        rows abort the import with the error list).  Long-task aware
+        (T6): global progress + Event-Log step detail, failures with
+        the exact row reasons."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Import from Excel", "", "Excel (*.xlsx)")
         if not path:
             return
+        self._task(0, "import: reading workbook")
+        self._tlog("INFO", f"Excel import started: {Path(path).name}")
+        self._task(40, "import: validating + applying rows")
         report = import_from_excel(self.model, path)
         if report.errors:
+            # precise failure reasons (first rows), no silent fail
+            for err in report.errors[:5]:
+                self._tlog("ERROR", f"Excel import rejected: {err}")
+            self._task(0, "import: idle")
             QMessageBox.warning(
                 self, "Import Rejected",
                 "The workbook was not applied:\n"
@@ -269,7 +394,10 @@ class YamlBuildPage(QWidget):
                 + (f"\n... and {len(report.errors) - 20} more"
                    if len(report.errors) > 20 else ""))
             return
-        self._after_model_change()
+        self._after_model_change()      # parse -> project view refresh
+        self._task(100, "import: done")
+        self._tlog("INFO", f"Excel import done: {report.imported} "
+                           f"parameters applied from {Path(path).name}")
         QMessageBox.information(
             self, "Import from Excel",
             f"Applied {report.imported} parameters from {path}")
@@ -286,21 +414,33 @@ class YamlBuildPage(QWidget):
         """
         errors = self.model.validate_all()
         if errors:
+            for err in errors[:5]:
+                self._tlog("ERROR", f"{kind} blocked by validation: "
+                                    f"{err}")
             QMessageBox.warning(
                 self, f"Cannot build {kind}",
                 "Fix the validation errors first:\n"
                 + "\n".join(errors[:15]))
             return
+        self._task(0, f"{kind}: publishing")
+        self._tlog("INFO", f"{kind} publish started "
+                           f"(project {self.model.project_key()})")
+        self._task(50, f"{kind}: writing YAML")
         try:
             name = plan_filename(self.model, kind)
             path = publish(self.model, kind, PLANS_DIR)
         except (ValueError, OSError) as exc:
+            self._tlog("ERROR", f"{kind} publish failed: {exc}")
+            self._task(0, "publish: idle")
             QMessageBox.critical(self, f"{kind.capitalize()} Failed",
                                  str(exc))
             return
         archived = archive_copy(path, Path.cwd(),
                                 self.model.project_key())
-        self._after_model_change()
+        self._after_model_change()          # refresh the project view
+        self._task(100, f"{kind}: done")
+        self._tlog("INFO", f"{kind} publish done: {Path(path).name} "
+                           f"(archive: {Path(archived).name})")
         QMessageBox.information(
             self, f"{kind.capitalize()} YAML published",
             f"File: {path}\n"

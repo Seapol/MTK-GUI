@@ -15,10 +15,11 @@ Used on the Test Work Flow page, next to the FCT table:
   the current line can be saved as a new snippet (max 15)
 """
 
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSettings, QThread, Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontDialog,
+    QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
@@ -29,6 +30,7 @@ from ..quick_commands import MAX_QUICK_COMMANDS, load_commands, save_commands
 from ..serial_params import BAUDRATES, BYTESIZE_MAP, STOPBITS_MAP, PARITY_MAP
 from ..serial_worker import SerialWorker
 from ..ssh_worker import SshWorker
+from ..style import APP_NAME, APP_ORG
 from ..virtual_dut import VirtualDutWorker, load_dut_profile
 from ..theme import (
     DEFAULT_BACKGROUND,
@@ -274,8 +276,57 @@ class ConsoleWindow(QDialog):
         self.combo_quick.activated.connect(self._on_quick_picked)
         self._refresh_completion_candidates()
 
+        # P3-B2 console window memory: position / size / font / color
+        # scheme persisted per channel key (QSettings), restored here
+        self._settings_key = f"console_window/{key}"
+        self.btn_font = QPushButton("Font...")
+        self.btn_font.setObjectName("flat")
+        self.btn_font.setToolTip("Console log font (persisted)")
+        self.btn_font.clicked.connect(self._choose_font)
+        quick_row.addWidget(self.btn_font)
+        self._restore_window_state()
+
+    # --------------------------------------------- window state memory
+    def _restore_window_state(self):
+        """Restore geometry, log font and color scheme for this
+        channel (no-op when nothing was persisted yet)."""
+        settings = QSettings(APP_ORG, APP_NAME)
+        geometry = settings.value(f"{self._settings_key}/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        font_text = settings.value(f"{self._settings_key}/font")
+        if font_text:
+            font = QFont()
+            if font.fromString(font_text):
+                self.console.set_font(font)
+        bg = settings.value(f"{self._settings_key}/bg")
+        if bg:
+            self.set_background(bg)
+
+    def _save_window_state(self):
+        """Persist geometry, log font and color scheme for this
+        channel (called on hide / close and on font change)."""
+        settings = QSettings(APP_ORG, APP_NAME)
+        settings.setValue(f"{self._settings_key}/geometry",
+                          self.saveGeometry())
+        settings.setValue(f"{self._settings_key}/font",
+                          self.console.font().toString())
+        settings.setValue(f"{self._settings_key}/bg", self.bg_color)
+
+    def _choose_font(self):
+        """Pick the console log font (persisted per channel)."""
+        ok, font = QFontDialog.getFont(self.console.font(), self)
+        if ok:
+            self.console.set_font(font)
+            self._save_window_state()
+
     # --------------------------------------------------------- close=hide
+    def hideEvent(self, event):
+        self._save_window_state()
+        super().hideEvent(event)
+
     def closeEvent(self, event):
+        self._save_window_state()
         event.ignore()
         self.hide()
 

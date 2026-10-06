@@ -983,12 +983,18 @@ class _InstrumentDialog(QDialog):
                 btn.setEnabled(True)
             self.btn_test.setEnabled(True)
             self.btn_disconnect.setEnabled(True)
+            # T9: sync the shared status hub (block 03 panel display)
+            from mtkgui.gui.yamlbuild.instrument_status import HUB
+            HUB.set_connected(True)
         else:
             self._led.set_color("#ef4444")
             self._conn_state.setText("Error: no hardware (demo)")
             self._log("Error: instrument not found "
                       "(demo build has no VISA layer).")
             self.btn_connect.setEnabled(True)
+            from mtkgui.gui.yamlbuild.instrument_status import HUB
+            HUB.set_connected(False)
+            HUB.set_test_connection("NOK")
 
     def _disconnect(self):
         self._connected = False
@@ -1000,6 +1006,9 @@ class _InstrumentDialog(QDialog):
         self.btn_test.setEnabled(False)
         self.btn_disconnect.setEnabled(False)
         self.btn_connect.setEnabled(True)
+        # T9: sync the shared status hub + reset stale results
+        from mtkgui.gui.yamlbuild.instrument_status import HUB
+        HUB.disconnect()
 
     def _test_connection(self):
         self._log("*IDN? ...")
@@ -1008,13 +1017,29 @@ class _InstrumentDialog(QDialog):
             lambda: self._log(
                 f"*IDN? -> {_INSTRUMENT_IDN[self._key]}\n"
                 f"Test Connection -> OK"))
+        QTimer.singleShot(
+            400,
+            lambda: self._hub_test_result("OK"))
+
+    def _hub_test_result(self, result):
+        """T9: mirror the Test Connection result to the status hub."""
+        from mtkgui.gui.yamlbuild.instrument_status import HUB
+        HUB.set_test_connection(result)
 
     # ------------------------------------------------- control & tests
     def _run_action(self, label):
         for text, fn in _INSTRUMENT_ACTIONS[self._key]:
             if text == label:
                 params = [edit.text() for edit in self._param_edits]
-                self._log(f"[{label}] {fn(params)}")
+                out = fn(params)
+                self._log(f"[{label}] {out}")
+                if label == "Self Test":
+                    # T9: mirror the Self-Test result to the shared
+                    # status hub (block 03 panel display)
+                    from mtkgui.gui.yamlbuild.instrument_status import HUB
+                    HUB.set_self_test(
+                        "OK" if ("PASS" in out or "0 errors" in out)
+                        else "NOK")
                 return
 
 

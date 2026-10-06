@@ -42,9 +42,12 @@ from PySide6.QtGui import (
     QPainter,
     QPixmap,
     QPen,
+    QAction,
+    QKeySequence,
     QRegularExpressionValidator,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -55,6 +58,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -101,6 +105,7 @@ from .engine import (
 from .engine.rails import DURATION_S
 from .style import gui_theme_color, saved_theme, text_for_card
 from .virtual_hardware import VirtualRack
+from .widgets.console_widget import ERROR_COLOR
 from .widgets.multi_console import MultiConsoleWidget
 
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
@@ -338,6 +343,11 @@ class TestWorkFlowPage(QWidget):
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
         self._runner.run_finished.connect(self._on_run_finished)
+        # P3-B2 debug bridge (GUI layer): breakpoint hits and the
+        # single-step mode request a pause at the safe step boundary
+        # via the runner's public pause() API
+        self._runner.step_started.connect(self._on_debug_step_started)
+        self._runner.step_finished.connect(self._on_debug_step_finished)
         # per-step properties (set up in _build_ict / _build_fct):
         #   *_enables  — list[bool],  controls whether the step runs
         #   *_waits    — list[int] ms,  100-9999,  pause before the step
@@ -352,6 +362,23 @@ class TestWorkFlowPage(QWidget):
         # report FAIL on the next run (used to exercise stop policies)
         self.ict_sim_fail = set()
         self.fct_sim_fail = set()
+        # per-node comments (P3-B2 debug feature): edited via the table
+        # context menu, archived to the project YAML when non-empty
+        self.ict_comments: list[str] = []
+        self.fct_comments: list[str] = []
+        # debug breakpoints (P3-B2, GUI layer only): row indices that
+        # pause the run after the node completes; plus the single-step
+        # mode flag. Both drive the runner via its public pause() /
+        # resume() API at safe step boundaries.
+        self.ict_breakpoints: set[int] = set()
+        self.fct_breakpoints: set[int] = set()
+        self._step_mode = False
+        # item 15 (VS style): Run Without Debug ignores breakpoints for
+        # one run; Run to Cursor places a temporary breakpoint that is
+        # removed when hit; Restart re-arms a fresh run after the abort
+        self._no_debug = False
+        self._temp_bp = None
+        self._restart_pending = False
         # operator Stop pressed -> Overall Result shows IGNORE until the
         # next run starts (the engine tracks the state machine itself)
         self._interrupted = False
@@ -537,10 +564,10 @@ class TestWorkFlowPage(QWidget):
         self._can_toggle_stages = supervisor or bool(
             perm.get("toggle_stages"))
         self._apply_overall_en_flags()
-        can_product = supervisor or bool(perm.get("edit_product_info"))
-        for edit in (self.part_edit, self.core_edit, self.batch_edit,
-                     self.serial_edit):
-            edit.setReadOnly(not can_product)
+        # Item 15: part / core / batch are 100% YAML-driven - read-only
+        # for every role (the YAML file is the only editing entrance).
+        for edit in (self.part_edit, self.core_edit, self.batch_edit):
+            edit.setReadOnly(True)
         # run-policy checkboxes (M0 permission matrix): Supervisor has
         # native rw; Operator is read-only unless the supervisor
         # granted the specific run_policy_* key.  Every panel load
@@ -550,6 +577,8 @@ class TestWorkFlowPage(QWidget):
         self.stop_if_short_cb.setEnabled(
             supervisor or bool(perm.get("run_policy_stop_short")))
         self.auto_sn.setEnabled(
+            supervisor or bool(perm.get("run_policy_auto_sn")))
+        self.act_auto_sn.setEnabled(
             supervisor or bool(perm.get("run_policy_auto_sn")))
         can_run_cfg = supervisor or bool(perm.get("edit_run_control"))
         self.longrun_spin.setEnabled(can_run_cfg)
@@ -609,33 +638,31 @@ class TestWorkFlowPage(QWidget):
     def _build_product_info(self):
         """Left half of the top row: product identity fields.
 
-        Rules:
-          * Product Part#  - product model, forced to upper case
-          * Core ID        - 5 or 6 digits
-          * Batch#         - free text (proto / proto-1 / ... / pilot /
-                             production / special); empty means "freebatch"
-          * Serial Number  - 2 letters (factory code) + digits, any length
-                             (default 10 digits)
+        Item 15 (Main UI Product Info Read-Only Rule): part / core /
+        batch are 100% YAML-driven - the only valid editing entrance
+        is the project YAML file, so they are read-only on the GUI
+        layer, start empty (no default placeholder text, no residual
+        cached data) and only refresh on a YAML load / switch.
+        Serial Number stays the single per-unit manual input field.
         """
         group = QGroupBox("Product Information")
         form = QFormLayout(group)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self.part_edit = QLineEdit("FRDM-IMX93")
-        self.part_edit.setPlaceholderText("product model, e.g. FRDM-IMX93")
+        self.part_edit = QLineEdit()
+        self.part_edit.setReadOnly(True)
         self.part_edit.textChanged.connect(self._force_upper)
         form.addRow("Product Part#:", self.part_edit)
 
-        self.core_edit = QLineEdit("12345")
+        self.core_edit = QLineEdit()
         self.core_edit.setMaxLength(6)
-        self.core_edit.setPlaceholderText("5-6 digits, e.g. 10342")
+        self.core_edit.setReadOnly(True)
         self.core_edit.setValidator(QRegularExpressionValidator(
             QRegularExpression(r"\d{0,6}"), self))
         form.addRow("Core ID:", self.core_edit)
 
-        self.batch_edit = QLineEdit("Dev")
-        self.batch_edit.setPlaceholderText(
-            "proto / proto-1 / pilot / production (empty = freebatch)")
+        self.batch_edit = QLineEdit()
+        self.batch_edit.setReadOnly(True)
         form.addRow("Batch#:", self.batch_edit)
 
         self.serial_edit = QLineEdit()
@@ -646,9 +673,21 @@ class TestWorkFlowPage(QWidget):
         self.serial_edit.textChanged.connect(self._force_upper)
         form.addRow("Serial Number:", self.serial_edit)
 
+        # item 15: Auto-SN is a configuration entry -> it lives in the
+        # Settings top-level menu (checkable action).  The checkbox
+        # stays on the page as the hidden state holder (the YAML save /
+        # restore + permission logic keep using it).
         self.auto_sn = QCheckBox("Auto-SN (virtual serial, +1 per run)")
-        self.auto_sn.toggled.connect(self._on_auto_sn_toggled)
-        form.addRow("", self.auto_sn)
+        self.auto_sn.hide()
+        self.act_auto_sn = QAction("Auto-SN (virtual serial, +1 per run)",
+                                   self)
+        self.act_auto_sn.setCheckable(True)
+        self.act_auto_sn.setStatusTip(
+            "Fully virtual product information: all four fields may be "
+            "left empty, defaults are filled automatically on Run")
+        self.act_auto_sn.toggled.connect(self._on_auto_sn_toggled)
+        self.act_auto_sn.toggled.connect(self.auto_sn.setChecked)
+        self.auto_sn.toggled.connect(self.act_auto_sn.setChecked)
         return group
 
     def _on_auto_sn_toggled(self, checked):
@@ -678,7 +717,15 @@ class TestWorkFlowPage(QWidget):
         }
 
     def _build_run_control(self):
-        """Run / Stop + Long Run configuration.
+        """Run / Stop + Long Run configuration (item 17 rollback).
+
+        The two core buttons Run / Stop returned to the Run Control
+        panel as the most prominent primary buttons of the whole GUI
+        (accent colours + enlarged layout = ultra-high visual priority
+        core operation entrance).  The shared QAction objects stay the
+        state source of truth and carry the VS shortcuts - the button
+        widgets mirror their enabled state, so menu / shortcuts / page
+        buttons always agree.  Step / Continue remain in the Run menu.
 
         Idle: Run enabled, Stop disabled. Running: Run disabled,
         Stop enabled. Long Run repeats the whole cycle (1..999 times)
@@ -688,20 +735,101 @@ class TestWorkFlowPage(QWidget):
         group.setMinimumWidth(190)  # keep visible, never collapse
         layout = QVBoxLayout(group)
         # green play / red stop icons (SVG keeps a gap before the label)
-        self.btn_run = QPushButton(
-            QIcon(str(_ICON_DIR / "run.svg")), "Run")
-        self.btn_run.setIconSize(QSize(26, 26))
-        self.btn_run.setMinimumSize(130, 40)  # 50 % wider than default
-        self.btn_run.clicked.connect(self.start_run)
-        self.btn_stop = QPushButton(
-            QIcon(str(_ICON_DIR / "stop.svg")), "Stop")
-        self.btn_stop.setIconSize(QSize(26, 26))
-        self.btn_stop.setMinimumSize(130, 40)
+        self.btn_run = QAction(QIcon(str(_ICON_DIR / "run.svg")),
+                               "Start / Continue Run", self)
+        self.btn_run.setShortcut(QKeySequence("F5"))
+        self.btn_run.setToolTip("Start the run, or continue from the "
+                                "paused breakpoint (F5)")
+        self.btn_run.triggered.connect(self.run_or_continue)
+        self.btn_stop = QAction(QIcon(str(_ICON_DIR / "stop.svg")),
+                                "Stop Run", self)
+        self.btn_stop.setShortcut(QKeySequence("Shift+F5"))
         self.btn_stop.setEnabled(False)
-        self.btn_stop.clicked.connect(self.stop_run)
-        layout.addWidget(self.btn_run)
-        layout.addWidget(self.btn_stop)
-        layout.addStretch(1)
+        self.btn_stop.triggered.connect(self.stop_run)
+
+        # primary buttons (item 17): prominent colours + enlarged
+        # layout - the core operation entrance of the whole GUI
+        primary = (
+            "QPushButton { color:#ffffff; font-weight:bold; "
+            "font-size:15px; border-radius:4px; min-height:48px; }")
+        self.btn_run_button = QPushButton(
+            QIcon(str(_ICON_DIR / "run_white.svg")), "Run")
+        self.btn_run_button.setToolTip(self.btn_run.toolTip())
+        self.btn_run_button.setStyleSheet(primary + (
+            "QPushButton { background:#1d7a3c; }"
+            "QPushButton:hover { background:#239149; }"
+            "QPushButton:disabled { background:#5a7a64; }"))
+        self.btn_run_button.setMinimumWidth(150)
+        # item 19: enlarge the play / stop symbols - clearly visible
+        # inside the 48px primary buttons at standard window size
+        self.btn_run_button.setIconSize(QSize(30, 30))
+        self.btn_run_button.setDefault(True)
+        self.btn_run_button.clicked.connect(self.btn_run.trigger)
+        self.btn_run.enabledChanged.connect(
+            self.btn_run_button.setEnabled)
+        self.btn_stop_button = QPushButton(
+            QIcon(str(_ICON_DIR / "stop_white.svg")), "Stop")
+        self.btn_stop_button.setToolTip(self.btn_stop.toolTip())
+        self.btn_stop_button.setStyleSheet(primary + (
+            "QPushButton { background:#b3261e; }"
+            "QPushButton:hover { background:#d32f27; }"
+            "QPushButton:disabled { background:#7a5f5d; }"))
+        self.btn_stop_button.setMinimumWidth(150)
+        self.btn_stop_button.setIconSize(QSize(30, 30))
+        self.btn_stop_button.clicked.connect(self.btn_stop.trigger)
+        self.btn_stop.enabledChanged.connect(
+            self.btn_stop_button.setEnabled)
+        rs_row = QHBoxLayout()
+        rs_row.setSpacing(8)
+        rs_row.addWidget(self.btn_run_button)
+        rs_row.addWidget(self.btn_stop_button)
+        layout.addLayout(rs_row)
+        # initial mirror (the actions were configured before the
+        # button widgets existed - enabledChanged fired unheard)
+        self.btn_run_button.setEnabled(self.btn_run.isEnabled())
+        self.btn_stop_button.setEnabled(self.btn_stop.isEnabled())
+
+        # ---- Run menu-only debug actions (VS standard shortcuts) ----
+        self.act_run_without_debug = QAction("Run Without Debug", self)
+        self.act_run_without_debug.setShortcut(QKeySequence("Ctrl+F5"))
+        self.act_run_without_debug.setToolTip(
+            "Run ignoring every breakpoint (Ctrl+F5)")
+        self.act_run_without_debug.triggered.connect(
+            lambda: self.start_run(no_debug=True))
+        self.act_restart = QAction("Restart Run", self)
+        self.act_restart.setShortcut(QKeySequence("Ctrl+Shift+F5"))
+        self.act_restart.triggered.connect(self.restart_run)
+        self.btn_step = QAction("Step Over (Single Node Run)", self)
+        self.btn_step.setShortcut(QKeySequence("F10"))
+        self.btn_step.setToolTip(
+            "Execute the next workflow node, then pause again (F10)")
+        self.btn_step.setEnabled(False)
+        self.btn_step.triggered.connect(self.debug_step)
+        self.act_step_into = QAction("Step Into", self)
+        self.act_step_into.setShortcut(QKeySequence("F11"))
+        self.act_step_into.setToolTip(
+            "Single-step the next workflow node (F11) - the engine "
+            "granularity is one workflow node")
+        self.act_step_into.setEnabled(False)
+        self.act_step_into.triggered.connect(self.debug_step)
+        self.btn_continue = QAction("Step Out", self)
+        self.btn_continue.setShortcut(QKeySequence("Shift+F11"))
+        self.btn_continue.setToolTip(
+            "Leave the single-step mode and resume (Shift+F11)")
+        self.btn_continue.setEnabled(False)
+        self.btn_continue.triggered.connect(self.debug_continue)
+        self.act_toggle_breakpoint = QAction("Toggle Breakpoint", self)
+        self.act_toggle_breakpoint.setShortcut(QKeySequence("F9"))
+        self.act_toggle_breakpoint.triggered.connect(
+            self.toggle_breakpoint_current)
+        self.act_clear_breakpoints = QAction("Clear All Breakpoints", self)
+        self.act_clear_breakpoints.setShortcut(
+            QKeySequence("Ctrl+Shift+F9"))
+        self.act_clear_breakpoints.triggered.connect(
+            self.clear_all_breakpoints)
+        self.act_run_to_cursor = QAction("Run to Cursor", self)
+        self.act_run_to_cursor.setShortcut(QKeySequence("Ctrl+F10"))
+        self.act_run_to_cursor.triggered.connect(self.run_to_cursor)
 
         # bottom of the group, one shared row, smaller font: Long Run
         # (cycles) + Interval (pause between cycles, 0.5 s step).  The
@@ -913,25 +1041,16 @@ class TestWorkFlowPage(QWidget):
         self._overall_en = [True, True]
         self._overall_edit_guard = False
         self.overall.itemChanged.connect(self._overall_item_changed)
-        # column layout (M0): on the 0-1000 grid ~ #30 | Stage90 |
-        # EN50 | Status200 | Duration200.  Stage is compact ("ICT"/
-        # "FCT" need little room); Status is wide enough for
-        # "Pending..." without truncation at the default font; the
-        # Duration column stretches so the table's right edge
-        # auto-fits the container (total layout width unchanged).
-        # Headers stay centered (QHeaderView default alignment).
-        self.overall.setColumnWidth(0, 30)
-        self.overall.setColumnWidth(1, 90)
-        self.overall.setColumnWidth(2, 50)
-        self.overall.setColumnWidth(3, 200)
+        # column layout (item 20): automatic width adaptation - every
+        # column resizes to its content (headers and cells always
+        # fully visible, e.g. "Duration (s)" no longer truncated to
+        # "atior"); the last column stretches so the table stays
+        # responsive when the main window resizes.  Header texts,
+        # checkboxes and cell content are unchanged.
         header = self.overall.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(
-            4, QHeaderView.ResizeMode.Stretch)
-        header.setStretchLastSection(False)
+            QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
         _fit_height(self.overall)
         layout.addWidget(self.overall)
         self._apply_overall_en_flags()
@@ -1050,10 +1169,15 @@ class TestWorkFlowPage(QWidget):
                 item.setText(text)
             return item
 
-        # col 0: # (centered, auto-sized)
-        cell(0, str(r + 1))
+        # col 0: # (centered, auto-sized); a ● prefix marks a debug
+        # breakpoint (P3-B2)
+        cell(0, f"● {r + 1}" if r in self.ict_breakpoints
+             else str(r + 1))
         # col 1: Test / Operation (left aligned, blue bold for ops)
         name_item = cell(1, name, center=False)
+        # node comment (P3-B2 debug feature) -> row tooltip
+        comments = getattr(self, "ict_comments", None) or []
+        name_item.setToolTip(comments[r] if r < len(comments) else "")
         if kind == "op":
             name_item.setForeground(QColor(gui_theme_color("run")))
             name_item.setFont(_bold())
@@ -1354,34 +1478,281 @@ class TestWorkFlowPage(QWidget):
         if col == 2:  # Enable checkbox
             self.fct_enables[row] = item.checkState() == Qt.CheckState.Checked
 
-    # -------------------------------------------------- failure simulation
-    def _ict_context_menu(self, pos):
-        """Right-click an ICT test row -> simulate a FAIL on the next run."""
-        row = self.ict.rowAt(pos.y())
-        if row < 0 or self.ict_steps[row][0] != "test":
+    # --------------------------------------------- debug (P3-B2, GUI only)
+    def _debug_node_name(self, kind, row):
+        """Display name of an ict/fct run-step for the log."""
+        try:
+            return (self.ict_steps[row][1] if kind == "ict"
+                    else self.fct_rows[row])
+        except (IndexError, TypeError):
+            return f"{kind}#{row}"
+
+    def _on_debug_step_started(self, index):
+        """Runner signal: a step is about to execute. When the node is
+        a breakpointed ict/fct row, request a pause after it completes
+        (runner.pause() takes effect at the safe step boundary)."""
+        steps = self._runner._run_steps
+        if index >= len(steps):
             return
+        kind, *args = steps[index]
+        if kind not in ("ict", "fct"):
+            return
+        bps = self.ict_breakpoints if kind == "ict" \
+            else self.fct_breakpoints
+        if args[0] in bps:
+            self._log(f"Breakpoint: {self._debug_node_name(kind, args[0])}"
+                      " -> pause after this node")
+
+    def _on_debug_step_finished(self, index, result):
+        """Runner signal: the step finished. A breakpoint hit or the
+        single-step mode parks the engine at the next boundary (the
+        state machine itself is untouched; only the public pause() API
+        is used)."""
+        if not (self._step_mode or self._breakpoint_hit(index)):
+            return
+        try:
+            self._runner.pause()
+            # settle the state machine at the boundary tick (executes
+            # nothing: the pause check runs before the step body)
+            self._runner._run_step()
+        except RuntimeError:
+            return  # race with abort / finish: nothing to pause
+        self._step_mode = False
+        # Run to Cursor: the temporary breakpoint was hit - remove it
+        if self._temp_bp is not None and self._breakpoint_hit(index):
+            table, bps, row = self._temp_bp
+            if row in bps:
+                self._toggle_breakpoint(table, row, bps)
+            self._temp_bp = None
+            self._log("Run to Cursor: target reached, temporary "
+                      "breakpoint removed")
+        self._update_debug_buttons()
+
+    def _breakpoint_hit(self, index):
+        """True when the finished run-step is a breakpointed node.
+        Run Without Debug (Ctrl+F5) ignores every breakpoint for the
+        current run (GUI-layer flag only)."""
+        if self._no_debug:
+            return False
+        steps = self._runner._run_steps
+        if index >= len(steps):
+            return False
+        kind, *args = steps[index]
+        if kind not in ("ict", "fct"):
+            return False
+        bps = self.ict_breakpoints if kind == "ict" \
+            else self.fct_breakpoints
+        return args[0] in bps
+
+    def debug_step(self):
+        """Step button: run exactly one more workflow node, then pause
+        again (arms the single-step mode and resumes the engine)."""
+        if self._runner.state == "paused":
+            self._step_mode = True
+            self._update_debug_buttons()
+            self._runner.resume()
+        elif self._runner.state == "running":
+            # first Step press while running: pause after the current
+            # node, then immediately single-step from the boundary
+            try:
+                self._runner.pause()
+                self._runner._run_step()
+            except RuntimeError:
+                return
+            self._update_debug_buttons()
+            self.debug_step()          # state is 'paused' now
+
+    def debug_continue(self):
+        """Continue button: leave the single-step mode and resume."""
+        self._step_mode = False
+        if self._runner.state == "paused":
+            self._update_debug_buttons()
+            self._runner.resume()
+
+    def run_or_continue(self):
+        """F5 (VS Start / Continue): start when idle, continue when
+        paused; no-op while already running."""
+        if self._runner.state == "paused":
+            self.debug_continue()
+        else:
+            self.start_run()
+
+    def restart_run(self):
+        """Ctrl+Shift+F5 (VS Restart): abort the current run, then
+        start a fresh one as soon as the abort has settled (the page
+        consumes _restart_pending in _on_run_finished)."""
+        if self.run_state == "running" or self._runner.state == "paused":
+            self._restart_pending = True
+            self._log("Restart Run: aborting the current run ...")
+            self.stop_run()
+        else:
+            self.start_run()
+
+    def toggle_breakpoint_current(self):
+        """F9 (VS Toggle Breakpoint): toggle the breakpoint of the
+        current row of the focused ICT / FCT table."""
+        target = self._current_bp_target()
+        if target is None:
+            self._log("Toggle Breakpoint: no ICT / FCT row selected")
+            return
+        table, bps, row = target
+        self._toggle_breakpoint(table, row, bps)
+
+    def clear_all_breakpoints(self):
+        """Ctrl+Shift+F9: remove every ICT / FCT breakpoint."""
+        removed = 0
+        for table, bps in ((self.ict, self.ict_breakpoints),
+                           (self.fct, self.fct_breakpoints)):
+            for row in sorted(bps):
+                self._toggle_breakpoint(table, row, bps)
+                removed += 1
+        self._temp_bp = None
+        self._log(f"Clear All Breakpoints: {removed} breakpoint(s) "
+                  "removed")
+
+    def run_to_cursor(self):
+        """Ctrl+F10 (VS Run to Cursor): place a temporary breakpoint on
+        the current row, then start / continue; the temporary
+        breakpoint is removed again as soon as it is hit."""
+        target = self._current_bp_target()
+        if target is None:
+            self._log("Run to Cursor: no ICT / FCT row selected")
+            return
+        table, bps, row = target
+        if row not in bps:
+            self._toggle_breakpoint(table, row, bps)
+        self._temp_bp = (table, bps, row)
+        self._log(f"Run to Cursor: temporary breakpoint at row "
+                  f"{row + 1}")
+        self.run_or_continue()
+
+    def _current_bp_target(self):
+        """Current breakpoint target: the focused ICT / FCT table and
+        its current row (ICT preferred when nothing has focus)."""
+        focused = QApplication.focusWidget()
+        for table, bps in ((self.ict, self.ict_breakpoints),
+                           (self.fct, self.fct_breakpoints)):
+            vp = table.viewport()
+            if focused is table or focused is vp or (
+                    isinstance(focused, QWidget)
+                    and vp.isAncestorOf(focused)):
+                if table.currentRow() >= 0:
+                    return table, bps, table.currentRow()
+        for table, bps in ((self.ict, self.ict_breakpoints),
+                           (self.fct, self.fct_breakpoints)):
+            if table.currentRow() >= 0:
+                return table, bps, table.currentRow()
+        return None
+
+    def _update_debug_buttons(self):
+        """Sync the debug QActions with the engine state (the Run menu
+        and the toolbar render the same action objects)."""
+        state = self._runner.state
+        running = state in ("running", "paused")
+        self.btn_step.setEnabled(running)
+        self.act_step_into.setEnabled(running)
+        self.btn_continue.setEnabled(state == "paused")
+        # F5 semantics: start when idle, continue while paused
+        self.btn_run.setEnabled(state != "running")
+
+    # -------------------------------------------------- failure simulation
+    def _toggle_breakpoint(self, table, row, breakpoints):
+        """Breakpoint toggle from the context menu: store the row index
+        and mark the '#' cell (● prefix, red bold number, tooltip)."""
+        on = row not in breakpoints
+        (breakpoints.add if on else breakpoints.discard)(row)
+        item = table.item(row, 0)
+        if item is None:
+            return
+        if on:
+            item.setForeground(QColor(ERROR_COLOR))
+            item.setFont(_bold())
+            item.setText(f"● {row + 1}")
+            tip = item.toolTip()
+            item.setToolTip("breakpoint\n" + tip if tip else "breakpoint")
+        else:
+            item.setForeground(QBrush())
+            item.setFont(QFont())
+            item.setText(str(row + 1))
+            tip = item.toolTip()
+            if tip.startswith("breakpoint\n"):
+                item.setToolTip(tip[len("breakpoint\n"):])
+            elif tip == "breakpoint":
+                item.setToolTip("")
+
+    def _ict_context_menu(self, pos):
+        """Right-click an ICT row -> breakpoint / simulate FAIL / edit
+        the node comment (P3-B2 debug feature)."""
+        row = self.ict.rowAt(pos.y())
+        if row < 0:
+            return
+        is_test = self.ict_steps[row][0] == "test"
         menu = QMenu(self)
-        act = menu.addAction("Simulate FAIL on next run")
-        act.setCheckable(True)
-        act.setChecked(row in self.ict_sim_fail)
+        act_bp = menu.addAction("Breakpoint")
+        act_bp.setCheckable(True)
+        act_bp.setChecked(row in self.ict_breakpoints)
+        act_fail = None
+        if is_test:
+            act_fail = menu.addAction("Simulate FAIL on next run")
+            act_fail.setCheckable(True)
+            act_fail.setChecked(row in self.ict_sim_fail)
+        # node comments are archived to the project YAML: editing them
+        # follows the ICT test-case edit permission (T5)
+        act_comment = None
+        if self._can_edit_ict:
+            act_comment = menu.addAction("Edit comment...")
         chosen = menu.exec(self.ict.viewport().mapToGlobal(pos))
-        if chosen is act:
-            (self.ict_sim_fail.add if act.isChecked()
+        if chosen is act_bp:
+            self._toggle_breakpoint(self.ict, row, self.ict_breakpoints)
+        elif act_fail is not None and chosen is act_fail:
+            (self.ict_sim_fail.add if act_fail.isChecked()
              else self.ict_sim_fail.discard)(row)
+        elif act_comment is not None and chosen is act_comment:
+            self._edit_comment(self.ict, row, self.ict_comments)
 
     def _fct_context_menu(self, pos):
-        """Right-click an FCT row -> simulate a FAIL on the next run."""
+        """Right-click an FCT row -> breakpoint / simulate FAIL / edit
+        the node comment (P3-B2 debug feature)."""
         row = self.fct.rowAt(pos.y())
         if row < 0:
             return
         menu = QMenu(self)
-        act = menu.addAction("Simulate FAIL on next run")
-        act.setCheckable(True)
-        act.setChecked(row in self.fct_sim_fail)
+        act_bp = menu.addAction("Breakpoint")
+        act_bp.setCheckable(True)
+        act_bp.setChecked(row in self.fct_breakpoints)
+        act_fail = menu.addAction("Simulate FAIL on next run")
+        act_fail.setCheckable(True)
+        act_fail.setChecked(row in self.fct_sim_fail)
+        # node comments are archived to the project YAML: editing them
+        # follows the FCT test-case edit permission (T5)
+        act_comment = None
+        if self._can_edit_fct:
+            act_comment = menu.addAction("Edit comment...")
         chosen = menu.exec(self.fct.viewport().mapToGlobal(pos))
-        if chosen is act:
-            (self.fct_sim_fail.add if act.isChecked()
+        if chosen is act_bp:
+            self._toggle_breakpoint(self.fct, row, self.fct_breakpoints)
+        elif chosen is act_fail:
+            (self.fct_sim_fail.add if act_fail.isChecked()
              else self.fct_sim_fail.discard)(row)
+        elif act_comment is not None and chosen is act_comment:
+            self._edit_comment(self.fct, row, self.fct_comments)
+
+    def _edit_comment(self, table, row, comments):
+        """Node comment editor: a small QInputDialog, stored per row and
+        shown as the row tooltip; an empty text clears the comment."""
+        while len(comments) <= row:
+            comments.append("")
+        old = comments[row]
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Node comment",
+            f"Comment for '{table.item(row, 1).text()}' "
+            f"(empty clears it):", old)
+        if not ok:
+            return
+        comments[row] = text.strip()
+        item = table.item(row, 1)
+        if item is not None:
+            item.setToolTip(comments[row])
 
     def _is_impedance_short_row(self, r):
         """True for every Impedance Shorts test row (engine helper,
@@ -1393,13 +1764,18 @@ class TestWorkFlowPage(QWidget):
         name = self.fct_rows[r]
         readonly = ~Qt.ItemFlag.ItemIsEditable
         # col 0: #
-        num_item = QTableWidgetItem(str(r + 1))
+        # ● prefix marks a debug breakpoint (P3-B2)
+        num_item = QTableWidgetItem(
+            f"● {r + 1}" if r in self.fct_breakpoints else str(r + 1))
         num_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         num_item.setFlags(num_item.flags() & readonly)
         self.fct.setItem(r, 0, num_item)
         # col 1: Test name
         item = QTableWidgetItem(name)
         item.setFlags(item.flags() & readonly)
+        # node comment (P3-B2 debug feature) -> row tooltip
+        comments = getattr(self, "fct_comments", None) or []
+        item.setToolTip(comments[r] if r < len(comments) else "")
         self.fct.setItem(r, 1, item)
         # col 2: Enable checkbox
         self._fct_edit_guard = True
@@ -1799,11 +2175,13 @@ class TestWorkFlowPage(QWidget):
         (engine helper, mtkgui.engine.steps.steps_template)."""
         return steps_template(ict_count, fct_count, self._overall_en)
 
-    def start_run(self):
+    def start_run(self, no_debug=False):
         """Run button: pre-test, then step through every test case.
         Long Run > 1 repeats the whole cycle with a pause in between.
         The Run gates + button state stay on the page; the run state
-        machine itself lives in the engine (TestRunner.start)."""
+        machine itself lives in the engine (TestRunner.start).
+        no_debug=True (Ctrl+F5, Run Without Debug): breakpoints are
+        ignored for this run (GUI-layer flag only)."""
         if self.run_state == "running":
             return
         if not self.project_path:
@@ -1827,6 +2205,14 @@ class TestWorkFlowPage(QWidget):
             return
         self._set_phase("Init...")
         self._interrupted = False
+        # debug session starts clean (P3-B2 / item 15)
+        self._step_mode = False
+        self._no_debug = bool(no_debug)
+        if self._no_debug:
+            self._log("Run Without Debug: breakpoints are ignored "
+                      "for this run")
+        self._update_debug_buttons()
+        # the F5 action is disabled for the whole run (VS behaviour)
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
         # long run skips product information input
@@ -1872,6 +2258,11 @@ class TestWorkFlowPage(QWidget):
             self._set_phase("")
         self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        # debug session over (P3-B2 / item 15)
+        self._step_mode = False
+        self._no_debug = False
+        self._temp_bp = None
+        self._update_debug_buttons()
         self.product_group.setEnabled(True)
         # remaining (not yet executed) test items -> blank
         for step in summary["remaining"]:
@@ -1893,6 +2284,11 @@ class TestWorkFlowPage(QWidget):
             # legacy: abort / complete emit run_finished (page jump);
             # operator stop does not
             self.run_finished.emit()
+        # item 15: Restart Run (Ctrl+Shift+F5) - the abort has settled,
+        # arm the fresh run on the next event-loop turn
+        if self._restart_pending:
+            self._restart_pending = False
+            QTimer.singleShot(0, self.start_run)
 
     def clear_results(self):
         self._interrupted = False

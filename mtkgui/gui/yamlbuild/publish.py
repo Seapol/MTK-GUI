@@ -49,8 +49,11 @@ def plan_filename(model: YamlBuildModel, kind: str) -> str:
     if kind not in ("draft", "final"):
         raise ValueError(f"kind must be draft|final, got {kind!r}")
     design = model.get_params("design_input")
-    core = str(design.get("core_id", "") or "").strip()
-    part = str(design.get("part_number", "") or "").strip()
+    # T7 field mapping: Product ID carries the Core ID (legacy files
+    # keep the old core_id key - read it as a fallback)
+    core = str(design.get("product_id")
+               or design.get("core_id") or "").strip()
+    part = str(design.get("part_number") or "").strip()
     if not core or not part:
         raise ValueError(
             "Design Input must provide Core ID and Project Part # "
@@ -77,8 +80,11 @@ def build_plan_document(model: YamlBuildModel, kind: str) -> dict:
     document["plan"] = {
         "kind": kind,
         "plan_version": model.plan_version,
-        "core_id": str(design.get("core_id", "") or "").strip(),
-        "part_number": str(design.get("part_number", "") or "").strip(),
+        # T7 mapping: Product ID carries the Core ID (legacy core_id
+        # key kept as a fallback for old projects)
+        "core_id": str(design.get("product_id")
+                       or design.get("core_id") or "").strip(),
+        "part_number": str(design.get("part_number") or "").strip(),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "built_with": get_version_info().suffix(),
         "locked": kind == "final",
