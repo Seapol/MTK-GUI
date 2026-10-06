@@ -43,7 +43,7 @@ def test_yaml_buttons_removed(page):
 
 def test_top_row_order_excel_left_of_edit_apply(page):
     """Import / Export sit on the LEFT of the Edit/Apply toggle in the
-    same unified top row."""
+    same unified row, which lives directly ABOVE the YAML Preview."""
     row = [page.btn_import_excel, page.btn_export_excel,
            page.yaml_preview.btn_edit]
     assert tuple(page._action_buttons) == tuple(row)
@@ -56,6 +56,12 @@ def test_top_row_order_excel_left_of_edit_apply(page):
     assert len(ys) == 1                     # one aligned row
     # the toggle left the preview pane header
     assert page.yaml_preview.btn_edit.parent() is not page.yaml_preview
+    # the row sits ABOVE the preview editor (page coordinates)
+    preview_top = page.yaml_preview.editor.mapTo(
+        page, page.yaml_preview.editor.rect().topLeft()).y()
+    buttons_bottom = max(b.mapTo(page, b.rect().bottomLeft()).y()
+                         for b in row)
+    assert buttons_bottom < preview_top
 
 
 # -------------------------------------------------- uniform width rule

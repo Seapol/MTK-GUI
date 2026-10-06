@@ -86,9 +86,10 @@ class YamlBuildPage(QWidget):
 
         # --- top fixed button row (item 16: Build Draft / Release Final
         # YAML buttons removed - the redundant YAML entry is gone; the
-        # Excel buttons moved to the LEFT of the Edit / Apply toggle,
-        # all three share one uniform adaptive width = the longest
-        # label among them; resizing only rescales the row) ----------
+        # Excel buttons sit LEFT of the Edit / Apply toggle, all three
+        # share one uniform adaptive width = the longest label among
+        # them; the row lives ABOVE the YAML Preview pane (user
+        # direction)) ----------
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
@@ -102,7 +103,6 @@ class YamlBuildPage(QWidget):
             btn.setFixedHeight(34)
             buttons.addWidget(btn, 0)   # uniform width, no stretching
         buttons.addStretch(1)
-        root.addLayout(buttons)
         self._sync_action_button_widths()
         # standard tooltips (rule 6.1, fixed wording)
         self.btn_import_excel.setToolTip(
@@ -141,7 +141,16 @@ class YamlBuildPage(QWidget):
         # cards (enable states) and persists; the preview text itself
         # keeps the operator's version while editing
         self.yaml_preview.edits_applied.connect(self._on_preview_edited)
-        splitter.addWidget(self.yaml_preview)
+        # right pane: the action button row sits directly ABOVE the
+        # YAML Preview (user direction)
+        from PySide6.QtWidgets import QWidget as _QWidget
+        right = _QWidget()
+        right_lay = QVBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(6)
+        right_lay.addLayout(buttons)
+        right_lay.addWidget(self.yaml_preview)
+        splitter.addWidget(right)
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 4)
         splitter.setSizes([600, 400])
