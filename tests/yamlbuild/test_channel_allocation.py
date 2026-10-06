@@ -91,9 +91,11 @@ def test_row_auto_validation_ok_nok():
         se_clock_hz="DAQM907A TOT").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
-                        instrument="DAQ973A", channel="CH03")
-    # DI/DO are fixed attributes - only TP/instrument/channel needed
+                        dio_channel="DAQM907A DIO01")
+    # the DIO channel is the only GPIO attribute needed anymore
     assert gpio.is_configured("gpio") is True
+    assert not AllocatedRow(
+        net="GPIO_LED1", test_point="U1.20").is_configured("gpio")
 
 
 def test_power_columns_drop_instrument_channel_status():
@@ -169,24 +171,28 @@ def test_config_cells_are_dropdown_only(page):
     assert table.columnCount() == 5                 # no status column
 
 
-def test_status_auto_updates(page):
-    """Filling the GPIO dropdowns flips the Status NOK -> OK; the
-    Power / Clock tables have no Status column anymore."""
-    for name in ("table_power", "table_clock"):
+def test_no_status_instrument_channel_columns(page):
+    """No table carries Instrument / Channel / Status / Digital IO
+    columns anymore - the tabs pick real resource channels only."""
+    banned = {"Status", "Instrument", "Channel", "Digital Input",
+              "Digital Output"}
+    for name in ("table_power", "table_clock", "table_gpio"):
         table = getattr(page, name).table
         keys = [table.horizontalHeaderItem(c).text()
                 for c in range(table.columnCount())]
-        assert "Status" not in keys and "Instrument" not in keys \
-            and "Channel" not in keys, (name, keys)
-    gpio = page.table_gpio.table
-    assert gpio.item(0, 6).text() == "NOK"
-    for c, value in ((1, "U1.20"), (2, "DAQ973A"), (3, "CH03")):
-        gpio.cellWidget(0, c).setCurrentText(value)
-    assert gpio.item(0, 6).text() == "OK"
-    # status stays read-only: not editable by the user
-    assert not (gpio.item(0, 6).flags()
-                & __import__("PySide6.QtCore", fromlist=["Qt"])
-                .Qt.ItemFlag.ItemIsEditable)
+        assert not (banned & set(keys)), (name, keys)
+
+
+def test_gpio_dio_pool(page):
+    """The GPIO DIO Channel combo offers exactly the 16 DAQM907A DIO
+    resources - the U2355A DIO is NOT offered (fixture-reserved)."""
+    table = page.table_gpio.table
+    assert table.columnCount() == 3
+    combo = table.cellWidget(0, 2)
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == [UNSET, *(f"DAQM907A DIO{n:02d}"
+                              for n in range(1, 17))]
+    assert not any("U2355A" in t for t in items)
 
 
 def test_clock_resource_and_band_mapping(page):
@@ -224,16 +230,6 @@ def test_power_pool_dropdowns(page):
     assert voltage.findText("DAQM908A #2 CH201") >= 0
     assert [rails.itemText(i) for i in range(rails.count())] == \
         [UNSET, *(f"U2355A AI{n:02d}" for n in range(1, 13))]
-
-
-def test_gpio_fixed_attributes(page):
-    """GPIO DI/DO combos carry exactly the fixed attributes."""
-    combo_di = page.table_gpio.table.cellWidget(0, 4)
-    combo_do = page.table_gpio.table.cellWidget(0, 5)
-    assert [combo_di.itemText(i)
-            for i in range(combo_di.count())] == ["HighZ"]
-    assert [combo_do.itemText(i)
-            for i in range(combo_do.count())] == ["No Output"]
 
 
 def test_legacy_band_value_resets(page):

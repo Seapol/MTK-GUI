@@ -194,26 +194,20 @@ yaml_build:
     gpio:
     - net: GPIO0
       test_point: TP_G0.1
-      instrument: U2355A
-      channel: CH17
       impedance: —
       power_rails: —
       voltage: —
       se_clock_hz: —
       band: —
-      digital_input: HighZ
-      digital_output: No Output
+      dio_channel: DAQM907A DIO01
     - net: GPIO1
       test_point: TP_G1.1
-      instrument: U2355A
-      channel: CH18
       impedance: —
       power_rails: —
       voltage: —
       se_clock_hz: —
       band: —
-      digital_input: HighZ
-      digital_output: No Output
+      dio_channel: DAQM907A DIO02
 plan:
   kind: final
   plan_version: 1.0.0

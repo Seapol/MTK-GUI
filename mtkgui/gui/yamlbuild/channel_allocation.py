@@ -11,15 +11,15 @@ source) populate three independent tables:
   one of the two U2355A counters) / Frequency band (read-only,
   hardware-derived: DAQM907A 0 ~ 100 kHz, U2355A 0.1 Hz ~ 6 MHz) -
   no Instrument / Channel / Status columns;
-* **GPIO nets**   - Net / Test point / Instrument / Channel /
-  Digital Input (HighZ) / Digital Output (No Output) / Status.
+* **GPIO nets**   - Net / Test point / DIO Channel (one of the 16
+  DAQM907A DIO resources; the U2355A DIO stays fixture-reserved) -
+  no Instrument / Channel / Status / Digital Input / Digital Output
+  columns.
 
 Rules (11.4): every configurable cell is dropdown-only (no free
-text); the GPIO Status column is read-only and auto-computed (OK
-when all required cells are configured, NOK otherwise); the
-configuration persists to the project YAML; empty / legacy files
-load blank without error.  Pure GUI/config layer - the test engine
-and scheduling logic are untouched.
+text); the configuration persists to the project YAML; empty /
+legacy files load blank without error.  Pure GUI/config layer - the
+test engine and scheduling logic are untouched.
 """
 
 from __future__ import annotations
@@ -48,23 +48,20 @@ from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
     CLOCK_CHANNELS,
     DAQM908A_SENSE_CHANNELS,
+    GPIO_DIO_CHANNELS,
     U2355A_AI_CHANNELS,
 )
 
 #: placeholder for an unconfigured dropdown cell
 UNSET = "—"
 
-#: fixed instrument choices (rack-ATE set, Equipment page owned -
-#: still used by the GPIO tab)
-INSTRUMENTS = ("DAQ973A", "DAQM907A", "DAQM908A", "U2355A", "N5747A")
-#: fixed channel choices (multiplexer channels - GPIO tab)
-CHANNELS = tuple(f"CH{n:02d}" for n in range(1, 33))
-YES_NO = (UNSET, "Yes", "No")
-#: keys rendered as READ-ONLY auto-filled items (not user dropdowns)
-AUTO_KEYS = frozenset({"band"})
-#: fixed GPIO attributes (11.3)
+#: fixed GPIO attributes (legacy row defaults - the GPIO tab itself
+#: now picks a DAQM907A DIO channel directly)
 GPIO_DI = "HighZ"
 GPIO_DO = "No Output"
+
+#: keys rendered as READ-ONLY auto-filled items (not user dropdowns)
+AUTO_KEYS = frozenset({"band"})
 
 #: column layout per table kind: (key, label, choices or None).
 #: Power tab (user direction): NO Instrument / Channel / Status
@@ -84,14 +81,14 @@ CLOCK_COLUMNS = (
     ("se_clock_hz", "SE Clock Hz", CLOCK_CHANNELS),
     ("band", "Frequency band", None),
 )
+#: GPIO tab (user direction): NO Instrument / Channel / Status /
+#: Digital Input / Digital Output columns - the DIO Channel cell
+#: picks one of the 16 DAQM907A DIO resources (the U2355A DIO stays
+#: reserved for the fixture control)
 GPIO_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("digital_input", "Digital Input", (GPIO_DI,)),
-    ("digital_output", "Digital Output", (GPIO_DO,)),
-    ("status", "Status", None),
+    ("dio_channel", "DIO Channel", GPIO_DIO_CHANNELS),
 )
 TABLE_SPECS = (("power", POWER_COLUMNS), ("clock", CLOCK_COLUMNS),
                ("gpio", GPIO_COLUMNS))
@@ -132,6 +129,7 @@ class AllocatedRow:
     voltage: str = UNSET
     se_clock_hz: str = UNSET
     band: str = UNSET
+    dio_channel: str = UNSET
     digital_input: str = GPIO_DI
     digital_output: str = GPIO_DO
 
@@ -144,6 +142,7 @@ class AllocatedRow:
             "impedance": self.impedance,
             "power_rails": self.power_rails, "voltage": self.voltage,
             "se_clock_hz": self.se_clock_hz, "band": self.band,
+            "dio_channel": self.dio_channel,
             "digital_input": self.digital_input,
             "digital_output": self.digital_output,
         }
@@ -154,8 +153,8 @@ class AllocatedRow:
         row = cls()
         for key in ("net", "test_point", "instrument", "channel",
                     "impedance", "power_rails", "voltage",
-                    "se_clock_hz", "band", "digital_input",
-                    "digital_output"):
+                    "se_clock_hz", "band", "dio_channel",
+                    "digital_input", "digital_output"):
             if data.get(key):
                 setattr(row, key, str(data[key]))
         return row
@@ -167,7 +166,7 @@ class AllocatedRow:
             "power": ("test_point", "impedance", "power_rails",
                       "voltage"),
             "clock": ("test_point", "se_clock_hz", "band"),
-            "gpio": ("test_point", "instrument", "channel"),
+            "gpio": ("test_point", "dio_channel"),
         }[kind]
         return all(getattr(self, key) not in ("", UNSET)
                    for key in required)
@@ -467,8 +466,7 @@ class ChannelAllocationPage(QWidget):
         lay = QVBoxLayout(self)
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
-            "module). All configuration cells are dropdown-only; the "
-            "GPIO Status column is auto-computed (read-only).")
+            "module). All configuration cells are dropdown-only.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)

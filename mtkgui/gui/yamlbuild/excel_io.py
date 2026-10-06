@@ -17,10 +17,6 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from mtkgui.gui.yamlbuild.channel_allocation import (
-    CHANNELS,
-    GPIO_DI,
-    GPIO_DO,
-    INSTRUMENTS,
     UNSET,
     AllocatedRow,
     ChannelAllocationData,
@@ -30,6 +26,7 @@ from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
     CLOCK_CHANNELS,
     DAQM908A_SENSE_CHANNELS,
+    GPIO_DIO_CHANNELS,
     U2355A_AI_CHANNELS,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -55,17 +52,14 @@ ALLOCATION_HEADERS = {
               "Voltage"),
     "clock": ("Net name", "Test point", "SE Clock Hz",
               "Frequency band"),
-    "gpio": ("Net name", "Test point", "Instrument", "Channel",
-             "Digital Input(HighZ)", "Digital Output(No Output)",
-             "Status"),
+    "gpio": ("Net name", "Test point", "DIO Channel"),
 }
-#: row keys written per table kind (gpio keeps the auto Status col)
+#: row keys written per table kind (no auto Status column anywhere)
 _ALLOC_ROW_KEYS = {
     "power": ("net", "test_point", "impedance", "power_rails",
               "voltage"),
     "clock": ("net", "test_point", "se_clock_hz", "band"),
-    "gpio": ("net", "test_point", "instrument", "channel",
-             "digital_input", "digital_output"),
+    "gpio": ("net", "test_point", "dio_channel"),
 }
 #: per-cell dropdown enum validation (import pass 1)
 _ALLOC_POOLS = {
@@ -74,9 +68,7 @@ _ALLOC_POOLS = {
               "voltage": DAQM908A_SENSE_CHANNELS},
     "clock": {"se_clock_hz": CLOCK_CHANNELS,
               "band": tuple(dict.fromkeys(CLOCK_BANDS.values()))},
-    "gpio": {"instrument": INSTRUMENTS, "channel": CHANNELS,
-             "digital_input": (GPIO_DI,),
-             "digital_output": (GPIO_DO,)},
+    "gpio": {"dio_channel": GPIO_DIO_CHANNELS},
 }
 
 
@@ -141,9 +133,7 @@ def export_to_excel(model: YamlBuildModel, path: str) -> int:
         keys = _ALLOC_ROW_KEYS[kind]
         for row in getattr(alloc, kind):
             values = {key: getattr(row, key) for key in keys}
-            tail = (["OK" if row.is_configured(kind) else "NOK"]
-                    if kind == "gpio" else [])
-            aw.append([values[key] for key in keys] + tail)
+            aw.append([values[key] for key in keys])
             rows += 1
     wb.save(path)
     return rows
