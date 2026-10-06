@@ -153,6 +153,87 @@ def test_bridges_detected_from_parse_members(page):
     assert page._bridges == find_bridges(members)
 
 
+# ------------------------------------------------------------ Event Log
+def _spy(page):
+    records = []
+    page.task_log.connect(lambda level, msg: records.append((level,
+                                                             msg)))
+    return records
+
+
+def test_rebuild_prune_restore_emit_event_log(page, monkeypatch):
+    """All tree-level operations report into the global Event Log
+    (INFO level, standard wording) - double-layer logging: the fine
+    tree.audit_log stays untouched."""
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    records = _spy(page)
+    pruned_names = []
+
+    def fake_restore_choice(*_a, **_k):
+        # restore the first actually pruned node (direction depends
+        # on the auto-built bridge orientation)
+        name = next(n.name for n in page.tree.nodes.values()
+                    if n.pruned)
+        pruned_names.append(name)
+        return (name, True)
+
+    monkeypatch.setattr(QInputDialog, "getItem", fake_restore_choice)
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *a, **k: None)
+    page.refresh_from_model()
+    page._rebuild()
+    page._prune()
+    page._restore()
+    messages = [msg for _lvl, msg in records]
+    assert any("Power tree rebuilt from parse result" in m
+               for m in messages)
+    assert any("Passive bridge pruning executed" in m
+               for m in messages)
+    assert any("Pruned topology restored" in m for m in messages)
+
+
+def test_node_edit_logs_field_change_summary(page, monkeypatch):
+    """Manual node edit reports 'Manual tree attribute override' with
+    the changed-field summary (voltage / DNT / stage)."""
+    records = _spy(page)
+    page.refresh_from_model()
+    from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
+
+    def fake_exec(self):
+        self._node.expected_voltage = "3.3"
+        self._node.dont_test = True
+        self._node.stage_override = 2
+        self._node.stage = 2
+        return NodeEditDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(NodeEditDialog, "exec", fake_exec)
+    page._edit_node("VIN_24V")
+    messages = [msg for _lvl, msg in records]
+    assert any(m.startswith("Manual tree attribute override on "
+                           "VIN_24V:") for m in messages)
+    entry = next(m for m in messages if m.startswith("Manual tree"))
+    assert "voltage" in entry and "Do Not Test" in entry
+    assert "stage -> 2" in entry
+    # fine-grained audit record still kept (double-layer logging)
+    assert any("manual override" in e["reason"]
+               for e in page.tree.audit_log)
+
+
+def test_unedited_node_still_logged(page, monkeypatch):
+    """An accepted dialog without changes still logs the override
+    touch (summary falls back to 'saved')."""
+    records = _spy(page)
+    page.refresh_from_model()
+    from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
+    monkeypatch.setattr(
+        NodeEditDialog, "exec",
+        lambda self: NodeEditDialog.DialogCode.Accepted)
+    page._edit_node("VIN_24V")
+    assert any(m.startswith("Manual tree attribute override on "
+                            "VIN_24V: saved")
+               for _l, m in records)
+
+
 # ------------------------------------------------------------- persistence
 def test_yaml_round_trip_via_real_model():
     """Draft (nodes / stages / audit) survives the project YAML

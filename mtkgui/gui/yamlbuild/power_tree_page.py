@@ -22,6 +22,8 @@ GUI layer only - the parsing core is untouched.
 
 from __future__ import annotations
 
+import copy
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QWheelEvent
 from PySide6.QtWidgets import (
@@ -302,6 +304,38 @@ class PowerTreePage(QWidget):
                  entry.get("reason") or "-"]))
 
     # ------------------------------------------------------------ actions
+    def _log(self, level: str, message: str) -> None:
+        """Unified Event-Log reporting (same format / levels as every
+        other page: task_log INFO / WARNING / ERROR mirror)."""
+        self.task_log.emit(level, message)
+
+    #: node attributes tracked for the manual-override change summary
+    _TRACKED_ATTRS = ("expected_voltage", "tol_upper", "tol_lower",
+                      "dependencies", "dont_test")
+    _ATTR_LABELS = {
+        "expected_voltage": "voltage",
+        "tol_upper": "upper tolerance",
+        "tol_lower": "lower tolerance",
+        "dependencies": "dependencies",
+        "dont_test": "Do Not Test",
+    }
+
+    @classmethod
+    def _change_summary(cls, before, after) -> list[str]:
+        """Human-readable summary of the edited fields (for the
+        Event-Log record)."""
+        changed = [cls._ATTR_LABELS[k] for k in cls._TRACKED_ATTRS
+                   if getattr(before, k) != getattr(after, k)]
+        if list(before.upstream) != list(after.upstream):
+            changed.append("upstream links")
+        if list(before.downstream) != list(after.downstream):
+            changed.append("downstream links")
+        if before.stage_override != after.stage_override:
+            target = "auto" if after.stage_override is None \
+                else str(after.stage_override)
+            changed.append(f"stage -> {target}")
+        return changed
+
     def _edit_node(self, name: str) -> None:
         node = self.tree.nodes.get(name)
         if node is None:
@@ -312,8 +346,10 @@ class PowerTreePage(QWidget):
                 "This node is pruned from the tree - restore it "
                 "first (Restore pruned...).")
             return
+        before = copy.deepcopy(node)
         dlg = NodeEditDialog(node, self.tree, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            changed = self._change_summary(before, node)
             self.tree.audit_log.append({
                 "net": name,
                 "reason": "manual override (attributes / stage / "
@@ -321,8 +357,10 @@ class PowerTreePage(QWidget):
                 "refdes": "", "kept": ""})
             self._render()
             self.save_to_model()
-            self.task_log.emit(
-                "INFO", f"power node {name} edited (draft saved)")
+            self._log(
+                "INFO",
+                "Manual tree attribute override on "
+                f"{name}: {', '.join(changed) or 'saved'}")
 
     def _on_summary_double_click(self, item: QTreeWidgetItem,
                                  _col: int) -> None:
@@ -335,9 +373,9 @@ class PowerTreePage(QWidget):
         self._build_tree()
         self._render()
         self.save_to_model()
-        self.task_log.emit(
+        self._log(
             "INFO",
-            "power tree rebuilt from the parse result "
+            f"Power tree rebuilt from parse result "
             f"({len(self.tree.nodes)} nodes)")
 
     def _prune(self) -> None:
@@ -348,8 +386,10 @@ class PowerTreePage(QWidget):
                 "no passive-bridge pruning candidates found")
         self._render()
         self.save_to_model()
+        if pruned:
+            self._log("INFO", "Passive bridge pruning executed")
         for entry in pruned:
-            self.task_log.emit(
+            self._log(
                 "WARNING",
                 f"power net {entry['net']} pruned - load-side "
                 f"{entry['kept']} kept (bridge {entry['refdes']})")
@@ -367,6 +407,10 @@ class PowerTreePage(QWidget):
         if ok and name and self.tree.restore_pruned(name):
             self._render()
             self.save_to_model()
+            self._log(
+                "INFO",
+                f"Pruned topology restored: {name} back in the "
+                "power tree")
 
     def _fit(self) -> None:
         self.canvas.fit_view()
