@@ -71,16 +71,15 @@ def test_rows_from_testable_categories():
 
 
 def test_row_auto_validation_ok_nok():
-    """A row is OK only when every required cell is configured."""
+    """A row is OK only when every required cell is configured (the
+    Power row needs NO instrument / channel / status anymore)."""
     row = AllocatedRow(net="3V3")
     assert not row.is_configured("power")           # nothing set
     row.test_point = "U1.5"
-    row.instrument = "DAQ973A"
-    row.channel = "CH01"
-    assert not row.is_configured("power")           # Yes/No missing
-    row.impedance = "Yes"
-    row.power_rails = "No"
-    row.voltage = "Yes"
+    assert not row.is_configured("power")           # pools missing
+    row.impedance = "DAQM908A #1 CH101"
+    row.power_rails = "U2355A AI01"
+    row.voltage = "DAQM908A #2 CH201"
     assert row.is_configured("power") is True
 
     clock = AllocatedRow(net="CLK_24M", test_point="U1.10",
@@ -94,6 +93,28 @@ def test_row_auto_validation_ok_nok():
                         instrument="DAQ973A", channel="CH03")
     # DI/DO are fixed attributes - only TP/instrument/channel needed
     assert gpio.is_configured("gpio") is True
+
+
+def test_power_columns_drop_instrument_channel_status():
+    """Power tab: no Instrument / Channel / Status columns; the
+    Impedance / Voltage pools are the DAQM908A sense channels and the
+    Power rails pool the 12 offered U2355A AI channels."""
+    from mtkgui.gui.yamlbuild.channel_allocation import POWER_COLUMNS
+    keys = [k for k, _l, _c in POWER_COLUMNS]
+    assert keys == ["net", "test_point", "impedance",
+                    "power_rails", "voltage"]
+    from mtkgui.gui.yamlbuild.power_alloc import (
+        DAQM908A_SENSE_CHANNELS,
+        U2355A_AI_CHANNELS,
+    )
+    assert DAQM908A_SENSE_CHANNELS[0] == "DAQM908A #1 CH101"
+    assert DAQM908A_SENSE_CHANNELS[39] == "DAQM908A #1 CH140"
+    assert DAQM908A_SENSE_CHANNELS[40] == "DAQM908A #2 CH201"
+    assert DAQM908A_SENSE_CHANNELS[-1] == "DAQM908A #2 CH240"
+    assert len(DAQM908A_SENSE_CHANNELS) == 80
+    assert len(U2355A_AI_CHANNELS) == 12            # balanced sampling
+    assert U2355A_AI_CHANNELS[0] == "U2355A AI01"
+    assert U2355A_AI_CHANNELS[-1] == "U2355A AI12"
 
 
 def test_merge_rows_keeps_config_and_syncs_net_set():
@@ -137,28 +158,46 @@ def test_tables_populated_from_parse_result(page):
 
 def test_config_cells_are_dropdown_only(page):
     """Every configurable cell is a QComboBox (no free text); the
-    Status column is a read-only item."""
+    Power table has no Status column (Net stays read-only)."""
     table = page.table_power.table
     for r in range(table.rowCount()):
-        for c in range(1, table.columnCount() - 1):
+        for c in range(1, table.columnCount()):
             widget = table.cellWidget(r, c)
             assert isinstance(widget, QComboBox), (r, c)
-    for c in (0, table.columnCount() - 1):
-        assert table.cellWidget(0, c) is None       # net + status
+    assert table.cellWidget(0, 0) is None           # net read-only
+    assert table.columnCount() == 5                 # no status column
 
 
 def test_status_auto_updates(page):
-    """Filling every dropdown flips the Status from NOK to OK."""
+    """Filling every dropdown flips the Clock-row Status NOK -> OK
+    (the Power table has no Status column anymore)."""
     table = page.table_power.table
-    assert table.item(0, 7).text() == "NOK"
-    for c, value in ((1, "U1.5"), (2, "DAQ973A"), (3, "CH01"),
-                     (4, "Yes"), (5, "Yes"), (6, "Yes")):
-        table.cellWidget(0, c).setCurrentText(value)
-    assert table.item(0, 7).text() == "OK"
+    assert table.item(0, table.columnCount() - 1) is None
+    clock = page.table_clock.table
+    assert clock.item(0, 6).text() == "NOK"
+    for c, value in ((1, "U1.10"), (2, "U2355A"), (3, "CH02"),
+                     (4, "Yes"), (5, "CH2 source: U2355A")):
+        clock.cellWidget(0, c).setCurrentText(value)
+    assert clock.item(0, 6).text() == "OK"
     # status stays read-only: not editable by the user
-    assert not (table.item(0, 7).flags()
+    assert not (clock.item(0, 6).flags()
                 & __import__("PySide6.QtCore", fromlist=["Qt"])
                 .Qt.ItemFlag.ItemIsEditable)
+
+
+def test_power_pool_dropdowns(page):
+    """Power Impedance / Voltage combos offer the DAQM908A sense
+    channels, Power rails the 12 U2355A AI channels."""
+    table = page.table_power.table
+    impedance = table.cellWidget(0, 2)
+    rails = table.cellWidget(0, 3)
+    voltage = table.cellWidget(0, 4)
+    assert impedance.itemText(0) == UNSET
+    assert impedance.itemText(1) == "DAQM908A #1 CH101"
+    assert impedance.findText("DAQM908A #2 CH240") >= 0
+    assert voltage.findText("DAQM908A #2 CH201") >= 0
+    assert [rails.itemText(i) for i in range(rails.count())] == \
+        [UNSET, *(f"U2355A AI{n:02d}" for n in range(1, 13))]
 
 
 def test_gpio_fixed_attributes(page):
@@ -183,20 +222,22 @@ def test_frequency_band_hardware_mapping(page):
 def test_save_and_model_round_trip(page):
     """collect -> model -> fresh page keeps the configuration."""
     table = page.table_power.table
-    for c, value in ((1, "U1.5"), (2, "DAQ973A"), (3, "CH01"),
-                     (4, "Yes"), (5, "No"), (6, "Yes")):
+    for c, value in ((1, "U1.5"), (2, "DAQM908A #1 CH101"),
+                     (3, "U2355A AI01"), (4, "DAQM908A #2 CH201")):
         table.cellWidget(0, c).setCurrentText(value)
     page.save_to_model()
-    assert page.model.channel_allocation["power"][0]["channel"] == \
-        "CH01"
+    assert page.model.channel_allocation["power"][0]["impedance"] == \
+        "DAQM908A #1 CH101"
 
     fresh = ChannelAllocationPage()
     fresh.set_model(page.model)
     try:
         fresh.refresh_from_model()
         row = fresh.table_power.rows()[0]
-        assert row.channel == "CH01"
-        assert row.impedance == "Yes"
+        assert row.test_point == "U1.5"
+        assert row.impedance == "DAQM908A #1 CH101"
+        assert row.power_rails == "U2355A AI01"
+        assert row.voltage == "DAQM908A #2 CH201"
     finally:
         fresh.deleteLater()
 

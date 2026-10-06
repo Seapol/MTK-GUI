@@ -41,6 +41,17 @@ GPIO_DIO_CHANNELS: tuple[str, ...] = tuple(
 #: U2355A counters; the U2355A DIO stays fixture-reserved)
 CLOCK_CHANNELS: tuple[str, ...] = (
     "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1")
+#: DAQM908A sense resource for the Power-net Impedance / Voltage
+#: measurements: card #1 CH101-CH140, card #2 CH201-CH240
+DAQM908A_SENSE_CHANNELS: tuple[str, ...] = tuple(
+    f"DAQM908A #{card} CH{ch}"
+    for card, base in ((1, 101), (2, 201))
+    for ch in range(base, base + 40))
+#: U2355A analog-input capture pool for the Power rails: the hardware
+#: offers AI x16 but the GUI provides ONLY 12 channels (balanced
+#: sampling rate - user direction)
+U2355A_AI_CHANNELS: tuple[str, ...] = tuple(
+    f"U2355A AI{n:02d}" for n in range(1, 13))
 
 DONT_TEST = "Not Test"
 ASSIGNED = "Assigned"

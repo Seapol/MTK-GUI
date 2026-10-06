@@ -4,9 +4,9 @@
 The parsed testable nets (T8 Parse Nets result - the single data
 source) populate three independent tables:
 
-* **Power nets**  - Net / Test point / Instrument / Channel /
-  Impedance (Yes/No) / Power rails (Yes/No) / Voltage (Yes/No) /
-  Status;
+* **Power nets**  - Net / Test point / Impedance (DAQM908A sense
+  channel) / Power rails (U2355A AI channel) / Voltage (DAQM908A
+  sense channel) - no Instrument / Channel / Status columns;
 * **Clock nets**  - Net / Test point / Instrument / Channel /
   SE Clock Hz (Yes/No) / Frequency band / Status;
 * **GPIO nets**   - Net / Test point / Instrument / Channel /
@@ -42,6 +42,10 @@ from mtkgui.gui.yamlbuild.instrument_status import (
     STATUS_NOK,
     STATUS_OK,
 )
+from mtkgui.gui.yamlbuild.power_alloc import (
+    DAQM908A_SENSE_CHANNELS,
+    U2355A_AI_CHANNELS,
+)
 
 #: placeholder for an unconfigured dropdown cell
 UNSET = "—"
@@ -57,16 +61,17 @@ FREQ_BANDS = ("CH1 source: DAQM907A", "CH2 source: U2355A")
 GPIO_DI = "HighZ"
 GPIO_DO = "No Output"
 
-#: column layout per table kind: (key, label, choices or None)
+#: column layout per table kind: (key, label, choices or None).
+#: Power tab (user direction): NO Instrument / Channel / Status
+#: columns - Impedance and Voltage pick a real DAQM908A sense
+#: channel (#1 CH101-140 / #2 CH201-240), Power rails pick one of
+#: the 12 offered U2355A AI channels (balanced sampling rate).
 POWER_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("impedance", "Impedance", YES_NO),
-    ("power_rails", "Power rails", YES_NO),
-    ("voltage", "Voltage", YES_NO),
-    ("status", "Status", None),
+    ("impedance", "Impedance", DAQM908A_SENSE_CHANNELS),
+    ("power_rails", "Power rails", U2355A_AI_CHANNELS),
+    ("voltage", "Voltage", DAQM908A_SENSE_CHANNELS),
 )
 CLOCK_COLUMNS = (
     ("net", "Net", None),
@@ -157,8 +162,8 @@ class AllocatedRow:
         """Auto-validation rule: OK when every configurable cell of
         the row kind is set (no UNSET left)."""
         required = {
-            "power": ("test_point", "instrument", "channel",
-                      "impedance", "power_rails", "voltage"),
+            "power": ("test_point", "impedance", "power_rails",
+                      "voltage"),
             "clock": ("test_point", "instrument", "channel",
                       "se_clock_hz", "band"),
             "gpio": ("test_point", "instrument", "channel"),
@@ -264,8 +269,10 @@ class _NetTable(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         lay.addWidget(self.table)
-        self.status_col = [k for k, _l, *_rest in columns].index(
-            "status")
+        keys = [k for k, _l, *_rest in columns]
+        # tables WITHOUT a Status column (Power) keep it as None
+        self.status_col = (keys.index("status")
+                           if "status" in keys else None)
         # layout bookkeeping: programmatic resize guard (user drags
         # are persisted via column_widths() on save)
         self._applying = False
@@ -373,10 +380,21 @@ class _NetTable(QWidget):
                     if current and current != UNSET \
                             and combo.findText(current) >= 0:
                         combo.setCurrentText(current)
+                    elif current and current != UNSET:
+                        # legacy value no longer offered by the pool
+                        # (e.g. the pre-pool Power Yes/No cells) -> a
+                        # clean unconfigured state, never a hidden one
+                        setattr(row, key, UNSET)
                     combo.currentTextChanged.connect(
                         lambda value, rr=r, kk=key:
                             self._cell_changed(rr, kk, value))
                     self.table.setCellWidget(r, c, combo)
+                    # single-choice combos auto-show their only option
+                    # (e.g. one member pin) - the row state must mirror
+                    # what is displayed, never a hidden UNSET
+                    if getattr(row, key) in ("", UNSET) \
+                            and combo.currentText() != UNSET:
+                        setattr(row, key, combo.currentText())
         self.reflow()     # keep the adaptive layout after (re)fill
 
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
@@ -384,10 +402,12 @@ class _NetTable(QWidget):
         if row_index >= len(self._rows):
             return
         setattr(self._rows[row_index], key, value)
-        self._update_status(row_index)
+        self._update_status(row_index, key)
 
-    def _update_status(self, row_index: int) -> None:
+    def _update_status(self, row_index: int, key: str) -> None:
         row = self._rows[row_index]
+        if self.status_col is None or key == "status":
+            return                       # table without a Status column
         status = self.row_status(row)
         item = self.table.item(row_index, self.status_col)
         if item is not None:
@@ -427,7 +447,7 @@ class ChannelAllocationPage(QWidget):
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
             "module). All configuration cells are dropdown-only; the "
-            "Status column is auto-computed (read-only).")
+            "Clock / GPIO Status column is auto-computed (read-only).")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
