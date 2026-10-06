@@ -49,6 +49,10 @@ _NET_MARKER_RE = re.compile(r"^\s*\$?(PACKAGES|NETS|END)\b",
 _PSTX_FEATURE_RE = re.compile(
     r"^\s*(?:FILE_TYPE\s*=\s*NETLIST|NET_NAME\b|PART_NAME\b)",
     re.IGNORECASE)
+#: Allegro Report CSV export (the "net report" flavor):
+#: a header line "Net Name,Net Pins" followed by "name,pin pin pin"
+_REPORT_HEADER_RE = re.compile(r"^\s*Net Name\s*,\s*Net Pins",
+                               re.IGNORECASE)
 #: SPICE-style subckt lines carried by some NET exports (removed)
 _SUBCKT_RE = re.compile(r"^\s*\.(SUBCKT|ENDS|END|OPTIONS|INCLUDE)\b",
                         re.IGNORECASE)
@@ -70,6 +74,7 @@ def detect_netlist_format(text: str) -> str:
     spf_score = 0
     net_score = 0
     pstx_score = 0
+    report_score = 0
     seen = 0
     for raw_line in (text or "").splitlines():
         line = raw_line.lstrip("\ufeff").strip()
@@ -86,13 +91,18 @@ def detect_netlist_format(text: str) -> str:
         if _PSTX_FEATURE_RE.match(line):
             pstx_score += 1
             continue
+        if _REPORT_HEADER_RE.match(line) or line == "Allegro Report":
+            report_score += 1
+            continue
         if _NET_HEADER_RE.match(line) or _NET_MARKER_RE.match(line):
             net_score += 1
-    best = max(spf_score, net_score, pstx_score)
+    best = max(spf_score, net_score, pstx_score, report_score)
     if best == 0:
         return "unknown"
     if spf_score == best:
         return "spf"
+    if report_score == best and report_score > 0:
+        return "allegro_report"
     if pstx_score == best and pstx_score > 0:
         return "pstxnet"
     return "net"
@@ -193,6 +203,52 @@ def parse_pstxnet(text: str) -> NetlistData:
     return data
 
 
+def parse_allegro_report(text: str) -> NetlistData:
+    """Parse an Allegro Report CSV net export (the "net report"
+    flavor, as produced by Tools > Reports > Net List report).
+
+    Shape (``Allegro Report`` title + ``Net Name,Net Pins`` header,
+    then one row per net)::
+
+        Net Name,Net Pins
+        5V_SDA_PSW,C48.1 D43.A U17.C2 U17.D1
+        AGND,C186.2 C190.2 R2174.1
+
+    Quoted net names (``"A,B"``, embedded commas) are supported; pin
+    tokens are space separated.
+
+    Args:
+        text: Raw report text (any encoding already resolved).
+
+    Returns:
+        The unified :class:`NetlistData`.
+    """
+    data = NetlistData()
+    in_table = False
+    _pin_ok = re.compile(r"^[\w\.\-\[\]/#]+$")
+    for raw_line in (text or "").splitlines():
+        line = raw_line.lstrip("\ufeff").strip()
+        if not line:
+            continue
+        if not in_table:
+            if _REPORT_HEADER_RE.match(line):
+                in_table = True
+            continue
+        name, _, pins_part = line.partition(",")
+        name = name.strip().strip('"').strip()
+        if not name:
+            continue
+        members = data.nets.setdefault(name, [])
+        for token in pins_part.split():
+            token = token.strip('"').strip()
+            if token and _pin_ok.match(token):
+                members.append(token)
+    data.missing_tp = [
+        net for net, members in data.nets.items()
+        if not any(m.upper().startswith("TP") for m in members)]
+    return data
+
+
 def parse_netlist_auto(text: str) -> NetlistData:
     """Detect the format, run the matching branch, return the unified
     structured output.
@@ -224,6 +280,10 @@ def parse_netlist_auto(text: str) -> NetlistData:
         return data
     if fmt == "pstxnet":
         data = parse_pstxnet(text)
+        if data.nets:
+            return data
+    if fmt == "allegro_report":
+        data = parse_allegro_report(text)
         if data.nets:
             return data
     # NET (and unknown fallback): tolerant NET chain after cleaning

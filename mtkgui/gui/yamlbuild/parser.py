@@ -148,6 +148,42 @@ def extract_project_name(pdf_text: str) -> str:
     return ""
 
 
+_BOARD_NAME_RE = re.compile(
+    r"(?m)^\s*([A-Z]{2,}[0-9A-Z]*(?:-[0-9A-Z][0-9A-Z_]*)+)\s*$")
+
+
+def extract_drawing_board_name(pdf_text: str) -> str:
+    """Extract the board Project Part# / drawing title from schematic
+    PDF text (real Smart-PDF drawings, e.g. ``FRDM-IMXRT700``).
+
+    Heuristic (title-block scan): a standalone line in ALL-CAPS
+    board-name shape - at least two alnum groups joined by ``-``.
+    Prefers lines that also appear with a nearby revision marker
+    (``Rev.``), which is where the drawing title block sits.
+
+    Args:
+        pdf_text: Extracted PDF text (see :func:`extract_pdf_text`).
+
+    Returns:
+        The board name (e.g. ``"FRDM-IMXRT700"``), or "" when no
+        plausible title-block name exists in the drawing.
+    """
+    text = pdf_text or ""
+    candidates: list[str] = []
+    lines = [ln.strip() for ln in text.splitlines()]
+    for i, line in enumerate(lines):
+        match = _BOARD_NAME_RE.match(line)
+        if not match:
+            continue
+        window = " ".join(lines[max(0, i - 2):i + 4])
+        near_rev = "REV" in window.upper()
+        candidates.append((0 if near_rev else 1, i, match.group(1)))
+    if not candidates:
+        return ""
+    candidates.sort()
+    return candidates[0][2]
+
+
 # --------------------------------------------------------------- netlist
 @dataclass
 class NetlistData:

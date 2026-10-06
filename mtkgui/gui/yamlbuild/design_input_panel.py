@@ -206,7 +206,17 @@ class DesignInputPanel(QWidget):
         self.task_log.emit("INFO",
                            f"SPF import started: {Path(path).name}")
         try:
-            text = read_text_any_encoding(path)
+            if Path(path).suffix.lower() == ".pdf":
+                # real Smart-PDF drawing: extract the text through the
+                # bundled QtPdf module (a PDF is NOT plain text)
+                from mtkgui.gui.yamlbuild.parser import extract_pdf_text
+                text = extract_pdf_text(path)
+                if not text.strip():
+                    raise ValueError(
+                        "no extractable text in the PDF (scanned or "
+                        "vector-only drawing)")
+            else:
+                text = read_text_any_encoding(path)
             if not text.strip():
                 raise ValueError("the file is empty (0 content bytes)")
         except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -217,7 +227,15 @@ class DesignInputPanel(QWidget):
             return
         self.task_progress.emit(50, "spf import: extracting project info")
         core_id = core_id_from_filename(Path(path).name)
-        title = extract_spf_project_name(text)
+        title = ""
+        if Path(path).suffix.lower() == ".pdf":
+            # Smart-PDF drawing: the board Project Part# lives in the
+            # drawing title block (e.g. FRDM-IMXRT700)
+            from mtkgui.gui.yamlbuild.parser import \
+                extract_drawing_board_name
+            title = extract_drawing_board_name(text)
+        if not title:
+            title = extract_spf_project_name(text)
         if not core_id and not title:
             reason = ("SPF import: no Core ID in the file name and no "
                       "first-page title found - fill Product ID / "
