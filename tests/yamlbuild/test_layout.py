@@ -161,7 +161,9 @@ def test_module_dialog_adapts(page, qapp, module_key):
         # T7/T9: embedded panel dialogs host their dedicated widgets
         assert dialog.panel is not None
     else:
-        assert rows >= len(fields_for(module_key))  # no field dropped
+        # no field dropped (hidden bookkeeping fields are exempt)
+        visible = [f for f in fields_for(module_key) if not f.hidden]
+        assert rows >= len(visible)
     dialog.show()
     QApplication.processEvents()
     hint = dialog.sizeHint()

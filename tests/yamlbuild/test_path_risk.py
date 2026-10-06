@@ -160,7 +160,10 @@ def test_panel_parse_fills_risk_column(panel):
             panel.clock_table.item(r, 3).text()
             for r in range(panel.clock_table.rowCount())}
     assert rows["CLK1"] == "7 (High)"
-    # GPIO0 stays Low (direct passive)
+    # manually added signal nets are scored as well
+    idx = panel.gpio_candidate_combo.findText("GPIO0")
+    panel.gpio_candidate_combo.setCurrentIndex(idx)
+    panel._add_signal_net()
     gpio_rows = {panel.gpio_table.item(r, 0).text():
                  panel.gpio_table.item(r, 3).text()
                  for r in range(panel.gpio_table.rowCount())}

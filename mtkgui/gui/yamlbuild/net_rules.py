@@ -28,11 +28,13 @@ CATEGORY_SE_CLOCK = "SE Clock"
 CATEGORY_DIFF_PAIR = "Diff Pair"
 CATEGORY_SIGNAL = "Signal"
 
-#: the four editable rule slots (key -> (label, factory default regex))
+#: the editable rule slots (key -> (label, factory default regex)).
+#: GND is a SYSTEM-auto category (no user config entry - core standard
+#: 5.2); its default regex stays internal for the GND integrity check.
 RULE_SLOTS: tuple[tuple[str, str], ...] = (
     ("power", "Power Nets regex"),
-    ("gnd", "GND Nets regex"),
     ("se_clock", "SE Clock Nets regex"),
+    ("signal", "Signal Nets regex"),
     ("diff_pair", "Differential pair detection regex"),
 )
 
@@ -40,6 +42,7 @@ DEFAULT_RULES: dict[str, str] = {
     "power": r"^(V[A-Za-z]*(_)?(DD|CC|AA|IO|BAT|IN|OUT|SW|BUS|AUX|5V|3V3|1V8|12V|24V)|VDD\w*|VCC\w*|VIN\w*|\d*V\d*)$",
     "gnd": r"^(GND\w*|AGND\w*|DGND\w*|PGND\w*|VSS\w*)$",
     "se_clock": r"^(CLK\w*|OSC\w*|XTAL\w*|MCLK\w*|\d+MH?Z\w*)$",
+    "signal": "",
     "diff_pair": r"^\w+_(P|N)$",
 }
 
@@ -157,6 +160,7 @@ def classify_net(name: str,
     for key, category in (("power", CATEGORY_POWER),
                           ("gnd", CATEGORY_GND),
                           ("se_clock", CATEGORY_SE_CLOCK),
+                          ("signal", CATEGORY_SIGNAL),
                           ("diff_pair", CATEGORY_DIFF_PAIR)):
         if key in rules:
             # item 24 Task 1: an EXPLICITLY EMPTY custom regex skips

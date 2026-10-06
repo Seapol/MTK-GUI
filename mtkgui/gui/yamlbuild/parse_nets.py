@@ -26,14 +26,18 @@ module only orchestrates GUI-side; the kernel is untouched.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -64,6 +68,7 @@ from mtkgui.gui.yamlbuild.path_risk import (
 from mtkgui.gui.yamlbuild.power_alloc import (
     ASSIGNED,
     DONT_TEST,
+    GPIO_DIO_CHANNELS,
 )
 
 #: the three ICT test-object categories (Channel Allocation order)
@@ -77,6 +82,48 @@ _FILTER_REASONS = {
     NET_TYPE_DIFF_PAIR: "differential pair (not an ICT test object)",
     NET_TYPE_SIGNAL: "",          # placeholder, never filtered as such
 }
+
+#: user-rule category -> kernel net type (Step 2 override mapping)
+_USER_RULE_TYPES = {
+    "power": NET_TYPE_POWER,
+    "se_clock": NET_TYPE_CLOCK_SINGLE,
+    "signal": NET_TYPE_SIGNAL,
+    "diff_pair": NET_TYPE_DIFF_PAIR,
+}
+
+
+def _apply_user_rules(name: str, net_type: str,
+                      rules: dict | None) -> str:
+    """Step 2 user-regex override (user rules > system defaults).
+
+    For every user-configured category (Power / SE Clock / Signal /
+    Diff Pair - GND is system-auto and never overridden): a non-empty
+    user pattern that matches the name re-classifies the net; an
+    explicit EMPTY pattern suppresses the kernel's name-based default
+    for that category (the net falls to Signal).  Categories without
+    a user key keep the kernel classification unchanged.
+    """
+    rules = rules or {}
+    matched_user = False
+    for key, net_cls in _USER_RULE_TYPES.items():
+        if key not in rules:
+            continue
+        pattern = (rules.get(key) or "").strip()
+        if not pattern:
+            continue
+        try:
+            if re.match(pattern, name):
+                return net_cls
+        except re.error:
+            continue
+        matched_user = True     # this category HAS a working pattern
+    if not matched_user:
+        # explicit-empty categories suppress the kernel name default
+        for key, net_cls in _USER_RULE_TYPES.items():
+            if key in rules and not (rules.get(key) or "").strip() \
+                    and net_type == net_cls and key != "signal":
+                return NET_TYPE_SIGNAL
+    return net_type
 
 
 @dataclass
@@ -113,13 +160,17 @@ class ParseNetsResult:
                 f"filtered={len(self.filtered)}")
 
 
-def parse_testable_nets(net_text: str) -> ParseNetsResult:
+def parse_testable_nets(net_text: str,
+                        rules: dict | None = None) -> ParseNetsResult:
     """Formally parse the raw netlist text and extract the testable
     nets (headless core - unit-testable without Qt).
 
     Args:
-        net_text: Raw Allegro netlist text (from the Design Input
-                  import - load only there).
+        net_text: Raw netlist text (SPF or NET - auto-detected).
+        rules:    User custom classification regexes (core standard
+                  Step 2: user rules > system defaults; an explicit
+                  empty key suppresses the name-based default for that
+                  category).  GND is system-auto, never user-configured.
 
     Returns:
         :class:`ParseNetsResult` with the three categories.
@@ -138,6 +189,9 @@ def parse_testable_nets(net_text: str) -> ParseNetsResult:
     for rec in collection.nets:
         members = [t for t in rec.members if "." in t or
                    t.upper().startswith("TP")]
+        # Step 2: user regex override (user rules > system defaults;
+        # explicit-empty key = no name matching for that category)
+        rec.net_type = _apply_user_rules(rec.name, rec.net_type, rules)
         if not members:
             # invalid: a net without any testable member pin cannot
             # get a test point -> filtered with the reason
@@ -197,6 +251,30 @@ class ParseNetsPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
 
+        # --------------------------------- inline classification rules
+        # core standard section 6: Power / SE Clock / Signal regex
+        # inputs ABOVE the Parse button (GND is system-auto - no
+        # config entry); rules land in panel.net_rules (project YAML)
+        self.net_rules: dict = {}          # custom regexes (persisted)
+        rules_form = QFormLayout()
+        rules_form.setHorizontalSpacing(12)
+        self.rule_edits: dict[str, "QLineEdit"] = {}
+        for key, label in (("power", "Power Nets regex:"),
+                           ("se_clock", "SE Clock Nets regex:"),
+                           ("signal", "Signal Nets regex:")):
+            edit = QLineEdit()
+            edit.setPlaceholderText(
+                "user regex (empty = system default; saved to YAML)")
+            edit.setToolTip(
+                f"User classification regex for {label[:-1]}. User "
+                "rules take priority over the system defaults and "
+                "are persisted with the project.")
+            edit.editingFinished.connect(
+                lambda k=key, e=edit: self._rule_edited(k, e))
+            self.rule_edits[key] = edit
+            rules_form.addRow(label, edit)
+        lay.addLayout(rules_form)
+
         row = QHBoxLayout()
         self.btn_parse = QPushButton("Parse Nets for ICT")
         self.btn_parse.setToolTip(
@@ -237,13 +315,13 @@ class ParseNetsPanel(QWidget):
         # ------------------------------------------------ item 24 tools
         # Edit Net Classification Rules + Power Tree navigation, SE
         # clock / GPIO allocation tables (auto-filled on parse)
-        self.net_rules: dict = {}          # custom regexes (persisted)
         tools = QHBoxLayout()
         self.btn_rules = QPushButton("Edit Net Classification Rules")
         self.btn_rules.setToolTip(
-            "Edit the net name regex rules: Power / GND / SE Clock / "
-            "Differential pair, with instant test, factory reset and "
-            "save-time regex validation")
+            "Edit the net name regex rules: Power / SE Clock / "
+            "Signal / Differential pair, with instant test, factory "
+            "reset and save-time regex validation (GND is "
+            "system-auto)")
         self.btn_open_tree = QPushButton("Open Power Tree Editor")
         self.btn_open_tree.setToolTip(
             "Jump to the dedicated Power Tree page: interactive "
@@ -279,11 +357,52 @@ class ParseNetsPanel(QWidget):
              "Status (Assigned / Not Test)"])
         lay.addWidget(self.gpio_table)
 
+        # manual Signal Net add row (the Signal table starts empty)
+        add_row = QHBoxLayout()
+        self.gpio_candidate_combo = QComboBox()
+        self.gpio_candidate_combo.setToolTip(
+            "Eligible signal nets (invalid signals - differential / "
+            "enable / interrupt / feedback / analog - are excluded "
+            "automatically)")
+        add_row.addWidget(self.gpio_candidate_combo, 1)
+        self.btn_add_signal = QPushButton("Add Signal Net")
+        self.btn_add_signal.setToolTip(
+            "Add the selected signal net to the GPIO allocation "
+            "table (first free DAQM907A DIO channel)")
+        self.btn_add_signal.clicked.connect(self._add_signal_net)
+        add_row.addWidget(self.btn_add_signal)
+        lay.addLayout(add_row)
+        self._gpio_candidates: list[str] = []
+
         self.btn_rules.clicked.connect(self._edit_rules)
         self.btn_risk_thresholds.clicked.connect(
             self._edit_risk_thresholds)
 
     # ---------------------------------------------------------- item 24
+    def set_rules(self, rules: dict) -> None:
+        """Load the persisted classification rules (project YAML) into
+        the model AND the inline regex edits (restore on open)."""
+        self.net_rules = dict(rules or {})
+        for key, edit in self.rule_edits.items():
+            edit.setText(self.net_rules.get(key, ""))
+
+    def _rule_edited(self, key: str, edit: "QLineEdit") -> None:
+        """An inline regex was edited: update the rules (empty = back
+        to the system default for that category), persist via the
+        rules_changed mirror and re-parse live."""
+        value = edit.text().strip()
+        if value:
+            self.net_rules[key] = value
+        else:
+            self.net_rules.pop(key, None)
+        self.rules_changed.emit(dict(self.net_rules))
+        self.task_log.emit(
+            "INFO",
+            f"net classification rule updated: {key} = "
+            f"{value or '(system default)'}")
+        if self.result is not None:
+            self.parse_nets()       # rules take effect immediately
+
     def _build_alloc_table(self, headers: list[str]):
         """One allocation table: Net | Channel (editable) | Status +
         per-row Do-Not-Test toggle (manual override wins)."""
@@ -410,23 +529,74 @@ class ParseNetsPanel(QWidget):
         channel-carrying net (advisory column)."""
         from mtkgui.gui.yamlbuild.power_alloc import (
             CLOCK_CHANNELS,
-            GPIO_DIO_CHANNELS,
             allocate_channels,
         )
         clock_nets = [r.name for r in result.clock
                       if not self._auto_generated.get(r.name)]
-        gpio_nets = [r.name for r in result.gpio
-                     if not self._auto_generated.get(r.name)
-                     and not GPIO_EXCLUDE_RE.search(r.name)]
         clock_rows = allocate_channels(clock_nets, CLOCK_CHANNELS,
                                        self._clock_overrides)
-        gpio_rows = allocate_channels(gpio_nets, GPIO_DIO_CHANNELS,
-                                      self._gpio_overrides)
+        # Signal Nets table: starts EMPTY (core standard section 6) -
+        # invalid signals are auto-excluded, the engineer manually adds
+        # the target nets; manual overrides always survive a re-parse
+        gpio_rows = allocate_channels(
+            sorted(self._gpio_overrides), GPIO_DIO_CHANNELS,
+            self._gpio_overrides)
         self._evaluate_risk(result, clock_rows, gpio_rows)
         self._fill_alloc_table(
             self.clock_table, clock_rows, CLOCK_CHANNELS)
         self._fill_alloc_table(
             self.gpio_table, gpio_rows, GPIO_DIO_CHANNELS)
+        self._refresh_gpio_candidates(result, gpio_rows)
+
+    def _signal_candidates(self, result: ParseNetsResult) -> list[str]:
+        """Eligible manual-add signal nets: the parse Signal category
+        minus auto-generated nets, the fixed invalid-signal exclusion
+        regex and nets already present in the table."""
+        signal_rules = self.net_rules.get("signal")
+        rows_present = {row["net"] for row in self._alloc_rows(
+            self.gpio_table)}
+        candidates = []
+        for r in result.gpio:
+            if self._auto_generated.get(r.name):
+                continue
+            if GPIO_EXCLUDE_RE.search(r.name):
+                continue
+            if signal_rules and not re.match(signal_rules, r.name):
+                continue        # user signal inclusion regex
+            if r.name in rows_present:
+                continue
+            candidates.append(r.name)
+        return candidates
+
+    def _refresh_gpio_candidates(self, result: ParseNetsResult,
+                                 gpio_rows: list[dict]) -> None:
+        """Refill the manual 'Add Signal Net' dropdown (eligible
+        candidates only)."""
+        self._gpio_candidates = self._signal_candidates(result)
+        self.gpio_candidate_combo.clear()
+        if self._gpio_candidates:
+            self.gpio_candidate_combo.addItems(self._gpio_candidates)
+        else:
+            self.gpio_candidate_combo.addItem("(no eligible signal nets)")
+        self._gpio_rows_cache = gpio_rows
+
+    def _add_signal_net(self) -> None:
+        """Manually add one signal net to the GPIO allocation table
+        (first free DAQM907A DIO channel; Not Test when exhausted)."""
+        name = self.gpio_candidate_combo.currentText()
+        if not name or name.startswith("("):
+            return
+        if self.result is None:
+            return
+        used = {row["channel"] for row in
+                self._alloc_rows(self.gpio_table) if row["channel"]}
+        free = [c for c in GPIO_DIO_CHANNELS if c not in used]
+        self._gpio_overrides[name] = free[0] if free else DONT_TEST
+        self.task_log.emit(
+            "INFO",
+            f"signal net {name} added: "
+            f"{self._gpio_overrides[name]}")
+        self._auto_allocate(self.result)
 
     # ------------------------------------------------------ path risk
     def _gnd_nets(self, result: ParseNetsResult) -> set[str]:
@@ -541,9 +711,12 @@ class ParseNetsPanel(QWidget):
         dlg = NetRulesEditorDialog(self.net_rules, self)
         if dlg.exec() == NetRulesEditorDialog.DialogCode.Accepted:
             self.net_rules = dlg.rules()
+            self.set_rules(self.net_rules)   # sync the inline edits
             self.rules_changed.emit(dict(self.net_rules))
             self.task_log.emit(
                 "INFO", "net classification rules saved")
+            if self.result is not None:
+                self.parse_nets()            # live effect
 
     def _net_members(self) -> dict:
         """Net member pins from the raw netlist text (bridge detection;
@@ -594,7 +767,7 @@ class ParseNetsPanel(QWidget):
             self.task_progress.emit(25, "parse nets: cleaning")
             self.task_log.emit("INFO", "netlist cleaning done")
             self.task_progress.emit(40, "parse nets: parsing")
-            result = parse_testable_nets(text)
+            result = parse_testable_nets(text, rules=self.net_rules)
         except ValueError as exc:
             self.task_log.emit("ERROR", f"parse nets failed: {exc}")
             self.task_progress.emit(0, "parse nets: idle")

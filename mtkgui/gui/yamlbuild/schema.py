@@ -47,6 +47,8 @@ class FieldSpec:
         pattern:  Regex the string value must match (optional).
         unit:     Unit shown in the UI / Excel (informational).
         remarks:  Column for the Excel exchange.
+        hidden:   True = internal bookkeeping field (persisted +
+                  validated, but NOT rendered in the config dialog).
     """
 
     name: str
@@ -62,6 +64,7 @@ class FieldSpec:
     pattern: str = ""
     unit: str = ""
     remarks: str = ""
+    hidden: bool = False
 
     def validate(self, value) -> str:
         """Validate one value against this field spec.
@@ -168,22 +171,15 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
            default="true"),
     ),
     "parse_ict": (
-        _f("netlist_file", "Netlist File", required=True),
-        _f("include_nets", "Include Nets", ftype=T_TEXT,
-           remarks="one net pattern per line"),
-        _f("exclude_nets", "Exclude Nets", ftype=T_TEXT,
-           remarks="one net pattern per line"),
-        _f("filter_invalid_points", "Filter Invalid Points",
-           ftype=T_BOOL, default="true"),
-        _f("ict_test_file", "Import ICT Test File"),
-        _f("tp_resolutions", "TP Resolutions", ftype=T_TEXT,
-           remarks="one 'net=pin' (pin substitute) or 'net=skip' "
-                   "(point not tested) per line, for nets without TP"),
+        # internal bookkeeping: the netlist reference comes from the
+        # Design Input import (single import entry - no second one)
+        _f("netlist_file", "Netlist File", hidden=True),
+        # power waveform capture nets: OWNED by the Power Tree page
+        # (edited there, persisted here; not a Parse Nets dialog field)
         _f("power_capture_nets", "Power Waveform Capture Nets",
-           ftype=T_TEXT, max_lines=12,
-           remarks="one power net per line (max 12, auto-prefilled "
-                   "from the power tree); passed READ-ONLY to block 04 "
-                   "which cannot modify the selection"),
+           ftype=T_TEXT, max_lines=12, hidden=True,
+           remarks="one power net per line (max 12); passed READ-ONLY "
+                   "to block 04 which cannot modify the selection"),
     ),
     "rails": (
         # DUT power on/off sequence (moved from the legacy power_dut

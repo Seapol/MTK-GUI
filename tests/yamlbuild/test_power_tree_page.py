@@ -36,6 +36,15 @@ class ModelStub:
             "VIN_24V": {"score": 5, "level": "Medium",
                         "warning": True}}}
         self.changed = False
+        self._params = {"parse_ict": {}}
+
+    def get_params(self, key):
+        return dict(self._params.get(key, {}))
+
+    def set_params(self, key, params):
+        merged = dict(self._params.get(key, {}))
+        merged.update(params or {})
+        self._params[key] = merged
 
 
 @pytest.fixture(scope="module")

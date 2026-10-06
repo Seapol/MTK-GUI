@@ -127,6 +127,68 @@ def test_both_formats_equivalent_downstream():
     assert risk_spf == risk_net
 
 
+# ------------------------------------------------- user classification rules
+def test_user_rules_override_classification():
+    """Step 2: user regex rules take priority over the system
+    defaults (Power / SE Clock / Signal; GND is system-auto)."""
+    from mtkgui.gui.yamlbuild.parse_nets import parse_testable_nets
+    # GPIO_LED1 is a signal by default; the user power rule
+    # re-classifies it to Power
+    result = parse_testable_nets(NET_TEXT, rules={"power": r"^GPIO_"})
+    # VDD_3V3 keeps the kernel Power classification; GPIO_LED1 is
+    # re-classified to Power by the user rule
+    assert set(r.name for r in result.power) == \
+        {"VDD_3V3", "GPIO_LED1"}
+    # the clock rule wins for CLK_24M (user clock regex)
+    result2 = parse_testable_nets(
+        NET_TEXT, rules={"se_clock": r"^CLK_"})
+    assert any(r.name == "CLK_24M" for r in result2.clock)
+    # empty rules = pure system default classification
+    result3 = parse_testable_nets(NET_TEXT, rules={})
+    assert any(r.name == "CLK_24M" for r in result3.clock)
+    assert all(r.name != "GPIO_LED1" for r in result3.power)
+
+
+def test_signal_regex_filters_manual_candidates(qapp):
+    """The Signal Nets regex filters the eligible manual-add
+    candidates (only matching nets can be added)."""
+    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
+    panel = ParseNetsPanel()
+    try:
+        panel.set_rules({"signal": r"^GPIO"})
+        panel.set_net_source(NET_TEXT, "board.net")
+        panel.parse_nets()
+        assert panel.result is not None
+        assert panel._gpio_candidates == ["GPIO_LED1"]
+        # non-matching nets are not offerable
+        assert "CLK_24M" not in panel._gpio_candidates
+    finally:
+        panel.deleteLater()
+
+
+def test_inline_rules_live_in_panel(qapp):
+    """The inline regex edits restore persisted rules, update the
+    rules dict on edit and persist via the rules_changed mirror."""
+    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
+    panel = ParseNetsPanel()
+    try:
+        panel.set_rules({"power": r"^PWR_"})
+        assert panel.rule_edits["power"].text() == r"^PWR_"
+        changed = []
+        panel.rules_changed.connect(lambda d: changed.append(dict(d)))
+        panel.rule_edits["se_clock"].setText(r"^CLK\d")
+        panel._rule_edited("se_clock", panel.rule_edits["se_clock"])
+        assert panel.net_rules == {"power": r"^PWR_",
+                                   "se_clock": r"^CLK\d"}
+        assert changed and changed[-1] == panel.net_rules
+        # clearing the edit falls back to the system default
+        panel.rule_edits["se_clock"].clear()
+        panel._rule_edited("se_clock", panel.rule_edits["se_clock"])
+        assert "se_clock" not in panel.net_rules
+    finally:
+        panel.deleteLater()
+
+
 # ----------------------------------------------------- test-point Step 4
 def test_test_point_priority_strict_order():
     """TP > J > JP > SJ > C > L > R - the best dedicated point wins."""

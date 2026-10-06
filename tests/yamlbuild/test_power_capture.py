@@ -67,71 +67,66 @@ def test_capture_field_max_lines_12():
     assert "at most 12" in spec.validate(bad)
 
 
-# ---------------------------------------------------------------- dialog
-def test_dialog_autoprefills_from_candidates(qapp):
-    model = YamlBuildModel()
-    dlg = BlockConfigDialog("parse_ict", model.get_params("parse_ict"),
-                            power_candidates=NETS)
+# ---------------------------------------------------------------- page
+def test_capture_editor_hidden_in_parse_dialog(qapp):
+    """Core standard: the capture list is NOT a Parse Nets dialog
+    field any more (owned by the Power Tree page)."""
+    dlg = BlockConfigDialog("parse_ict", {"netlist_file": "d.net"})
     try:
-        text = dlg._editors[CAPTURE_FIELD].toPlainText()
-        picks = [ln for ln in text.splitlines() if ln.strip()]
-        assert 0 < len(picks) <= 12
-        assert "3V3" in picks
+        assert CAPTURE_FIELD not in dlg._editors
     finally:
         dlg.deleteLater()
 
 
-def test_dialog_preserves_user_finalized_list(qapp):
-    """A saved (finalized) capture list is never overwritten by the
-    auto pre-fill on reopen."""
+def test_tree_page_loads_persisted_capture_list(qapp):
+    """The Power Tree page loads the persisted list into its editor."""
+    from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
     model = YamlBuildModel()
     model.set_params("parse_ict", {CAPTURE_FIELD: "VDD_CORE\n1V8"})
-    dlg = BlockConfigDialog("parse_ict", model.get_params("parse_ict"),
-                            power_candidates=NETS)
+    page = PowerTreePage()
     try:
-        assert dlg._editors[CAPTURE_FIELD].toPlainText() == \
-            "VDD_CORE\n1V8"
+        page.set_model(model)
+        assert page.edit_capture.toPlainText() == "VDD_CORE\n1V8"
     finally:
-        dlg.deleteLater()
+        page.deleteLater()
 
 
-def test_dialog_accept_rejects_13_nets(qapp, monkeypatch):
-    """Manual add beyond the 12-net limit blocks the save (all-or-
-    nothing)."""
-    monkeypatch.setattr(
-        "mtkgui.gui.yamlbuild.blocks.QMessageBox.warning",
-        lambda *a, **k: 0)               # never open a real popup
+def test_tree_page_apply_updates_model_and_logs(qapp):
+    """Apply saves the list into the parse_ict params and traces the
+    change in the Event Log."""
+    from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
     model = YamlBuildModel()
-    params = model.get_params("parse_ict")
-    params[CAPTURE_FIELD] = "\n".join(f"NET{i}" for i in range(13))
-    dlg = BlockConfigDialog("parse_ict", params)
+    page = PowerTreePage()
     try:
-        dlg._on_accept()
-        # rejected: the error list is shown and accept() was never
-        # reached (the dialog stays open - all-or-nothing save)
-        assert "at most 12" in dlg.error_label.text()
+        page.set_model(model)
+        logs = []
+        page.task_log.connect(lambda lvl, msg: logs.append(msg))
+        page.edit_capture.setPlainText("VDDQ\nAVDD")
+        page._apply_capture()
+        assert (model.get_params("parse_ict")[CAPTURE_FIELD]
+                == "VDDQ\nAVDD")
+        assert any("Waveform capture nets updated (2 nets)" in m
+                   for m in logs)
     finally:
-        dlg.deleteLater()
+        page.deleteLater()
 
 
-def test_dialog_manual_add_remove_and_finalize(qapp, monkeypatch):
-    """The user can add / remove lines then save - the edited list
-    lands in the validated values."""
-    monkeypatch.setattr(
-        "mtkgui.gui.yamlbuild.blocks.QMessageBox.warning",
-        lambda *a, **k: 0)
-    dlg = BlockConfigDialog(
-        "parse_ict", {"netlist_file": "design.net"},
-        power_candidates=NETS)
+def test_tree_page_apply_rejects_13_nets(qapp, monkeypatch):
+    """Beyond the 12-net limit the apply is rejected (model untouched)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: 0)
+    model = YamlBuildModel()
+    page = PowerTreePage()
     try:
-        editor = dlg._editors[CAPTURE_FIELD]
-        # manual: remove everything, hand-pick two nets, finalize
-        editor.setPlainText("VDDQ\nAVDD")
-        dlg._on_accept()
-        assert dlg.error_label.text() == ""      # accepted cleanly
-        assert dlg.values()[CAPTURE_FIELD] == "VDDQ\nAVDD"
+        page.set_model(model)
+        page.edit_capture.setPlainText(
+            "\n".join(f"NET{i}" for i in range(13)))
+        page._apply_capture()
+        assert not model.get_params("parse_ict").get(CAPTURE_FIELD)
     finally:
-        dlg.deleteLater()
+        page.deleteLater()
 
 
 # ------------------------------------------------------------------ flow

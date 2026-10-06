@@ -146,6 +146,10 @@ class BlockConfigDialog(QDialog):
             lay.addWidget(self.panel)
         else:
             for spec in self._specs:
+                if spec.hidden:
+                    # internal bookkeeping field: kept in the params /
+                    # YAML but never rendered as a dialog input
+                    continue
                 editor = self._make_editor(spec)
                 self._editors[spec.name] = editor
                 self.form.addRow(f"{spec.label}" +
@@ -155,16 +159,6 @@ class BlockConfigDialog(QDialog):
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
         lay.addWidget(self.error_label)
-        # block 02: power waveform capture net selection (M0)
-        if module_key == "parse_ict" and CAPTURE_FIELD in self._editors:
-            btn_autoselect = QPushButton(
-                f"Auto-select Capture Nets (≤{MAX_CAPTURE_NETS})")
-            btn_autoselect.setToolTip(
-                "从电源树候选网络自动预选最多12路捕获网络；"
-                "可手动增删后定稿")
-            btn_autoselect.clicked.connect(self._autoselect_capture_nets)
-            lay.addWidget(btn_autoselect)
-            self._autoselect_capture_nets(initial=True)
         # block 02: formal net pre-analysis (T8 Parse Nets for ICT)
         self.nets_panel: QWidget | None = None
         if module_key == "parse_ict":
@@ -173,8 +167,7 @@ class BlockConfigDialog(QDialog):
             text, name = net_source or ("", "")
             self.nets_panel.set_net_source(text, name)
             state = panel_state or {}
-            self.nets_panel.net_rules = dict(
-                state.get("net_rules") or {})
+            self.nets_panel.set_rules(state.get("net_rules") or {})
             self.nets_panel._clock_overrides = dict(
                 state.get("clock_overrides") or {})
             self.nets_panel._gpio_overrides = dict(
@@ -275,31 +268,6 @@ class BlockConfigDialog(QDialog):
             return editor.currentText()
         return editor.text().strip()
 
-    # ------------------------------------------------- capture nets (M0)
-    def _autoselect_capture_nets(self, initial: bool = False) -> None:
-        """Auto-prefill the power waveform capture list (block 02).
-
-        Args:
-            initial: True when called from __init__ - prefill ONLY an
-                     empty list (an existing user-finalized list is
-                     never overwritten); False = explicit button
-                     click, which re-selects from the candidates.
-        """
-        editor = self._editors.get(CAPTURE_FIELD)
-        if editor is None:
-            return
-        current = editor.toPlainText()
-        if initial and current.strip():
-            return                       # keep the finalized list
-        from mtkgui.gui.designinput.netlist import \
-            power_capture_candidates
-        picks = power_capture_candidates(
-            self._power_candidates, MAX_CAPTURE_NETS)
-        if not picks:
-            return
-        editor.setPlainText("\n".join(picks))
-        self._edited[CAPTURE_FIELD] = "\n".join(picks)
-
     # ------------------------------------------------------------- save
     def _on_accept(self) -> None:
         """Validate all fields; accept only when clean."""
@@ -307,10 +275,17 @@ class BlockConfigDialog(QDialog):
             # Design Input: the embedded panel owns the values
             self._edited = dict(self.panel.values())
         else:
-            self._edited = {
+            edited = {
                 spec.name: self._editor_value(spec)
-                for spec in self._specs
+                for spec in self._specs if not spec.hidden
             }
+            # hidden bookkeeping fields keep their existing values
+            # (they are not dialog inputs - never blanked by a save)
+            for spec in self._specs:
+                if spec.hidden:
+                    edited[spec.name] = self._edited.get(spec.name,
+                                                         spec.default)
+            self._edited = edited
         errors = [msg for msg in (
             spec.validate(self._edited.get(spec.name, ""))
             for spec in self._specs) if msg]

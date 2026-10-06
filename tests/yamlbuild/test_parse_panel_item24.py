@@ -89,25 +89,36 @@ def test_power_tree_navigation_button(qapp, panel):
 
 # ------------------------------------------------- allocation behaviour
 def test_auto_allocate_se_clock_and_gpio_tables(panel):
-    """After parse: SE clock nets sequential into CLOCK_CHANNELS, GPIO
-    nets into DAQM907A DIO only; exclusion filters applied."""
+    """After parse: SE clock nets sequential into CLOCK_CHANNELS; the
+    GPIO (Signal) table starts EMPTY - the engineer manually adds the
+    target nets from the eligible candidates (invalid signals
+    excluded)."""
     _parse(panel)
     clock_rows = panel._alloc_rows(panel.clock_table)
-    gpio_rows = panel._alloc_rows(panel.gpio_table)
     # CLK1/CLK2 assigned the first two pool channels
     assert [r["net"] for r in clock_rows] == ["CLK1", "CLK2"]
     assert clock_rows[0]["channel"] == CLOCK_CHANNELS[0]
     assert clock_rows[1]["channel"] == CLOCK_CHANNELS[1]
-    # GPIO0 qualifies; SENSE_FB excluded by the fixed exclude regex
-    assert [r["net"] for r in gpio_rows] == ["GPIO0"]
-    assert gpio_rows[0]["channel"] == GPIO_DIO_CHANNELS[0]
-    assert gpio_rows[0]["channel"].startswith("DAQM907A DIO")
+    # GPIO table starts empty; GPIO0 is an eligible candidate,
+    # SENSE_FB is excluded by the fixed invalid-signal regex
+    assert panel._alloc_rows(panel.gpio_table) == []
+    assert "GPIO0" in panel._gpio_candidates
+    assert "SENSE_FB" not in panel._gpio_candidates
 
 
-def test_manual_override_and_dnt_toggle(panel):
-    """Manual channel override / Do-Not-Test toggle wins over the
-    auto assignment and survives via the overrides dicts."""
+def test_manual_signal_add_and_dnt_toggle(panel):
+    """Manual signal add assigns the first free DAQM907A DIO channel
+    and survives via the overrides; the Do-Not-Test toggle wins."""
     _parse(panel)
+    # manual add GPIO0 from the candidate list
+    idx = panel.gpio_candidate_combo.findText("GPIO0")
+    panel.gpio_candidate_combo.setCurrentIndex(idx)
+    panel._add_signal_net()
+    rows = panel._alloc_rows(panel.gpio_table)
+    assert [r["net"] for r in rows] == ["GPIO0"]
+    assert rows[0]["channel"] == GPIO_DIO_CHANNELS[0]
+    assert rows[0]["channel"].startswith("DAQM907A DIO")
+    # DNT toggle on a clock row
     panel.clock_table._dnt_boxes[0].setChecked(True)
     rows = panel._alloc_rows(panel.clock_table)
     assert rows[0]["status"] == "Not Test"

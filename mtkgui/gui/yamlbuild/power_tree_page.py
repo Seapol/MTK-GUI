@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
+    QPlainTextEdit,
 )
 
 from mtkgui.gui.yamlbuild.power_alloc import (
@@ -192,12 +193,68 @@ class PowerTreePage(QWidget):
         splitter.setSizes([700, 300])
         lay.addWidget(splitter, 1)
 
+        # ------------------------- power waveform capture configuration
+        # migrated from the Parse Nets dialog (core standard 5.4: the
+        # Tree page owns the capture list; persisted in the parse_ict
+        # params, passed READ-ONLY to block 04)
+        capture_row = QHBoxLayout()
+        lbl_capture = QLabel(
+            "Power Waveform Capture Nets (max 12, one per line - "
+            "block 04 reads this list read-only):")
+        lbl_capture.setObjectName("strong")
+        capture_row.addWidget(lbl_capture)
+        capture_row.addStretch(1)
+        self.btn_apply_capture = QPushButton("Apply Capture Nets")
+        self.btn_apply_capture.setToolTip(
+            "Save the capture net list into the project YAML "
+            "(Event-Log traced)")
+        self.btn_apply_capture.clicked.connect(self._apply_capture)
+        capture_row.addWidget(self.btn_apply_capture)
+        lay.addLayout(capture_row)
+        self.edit_capture = QPlainTextEdit()
+        self.edit_capture.setMaximumHeight(72)
+        self.edit_capture.setPlaceholderText(
+            "e.g.\nVDD_3V3\nVDD_CORE")
+        lay.addWidget(self.edit_capture)
+
     # ------------------------------------------------------------ model
     def set_model(self, model) -> None:
         """Inject the model AFTER construction (shiboken GC bug
         workaround) and refresh."""
         self.model = model
         self.refresh_from_model()
+        self._load_capture()
+
+    def _load_capture(self) -> None:
+        """Load the persisted capture list into the editor (only when
+        the editor is untouched - never clobber user input)."""
+        if self.model is None:
+            return
+        if self.edit_capture.toPlainText().strip():
+            return
+        current = (self.model.get_params("parse_ict") or {}).get(
+            "power_capture_nets") or ""
+        if current:
+            self.edit_capture.setPlainText(str(current))
+
+    def _apply_capture(self) -> None:
+        """Apply + persist the capture list (max 12 nets; Event-Log
+        traced - core standard 5.5)."""
+        nets = [ln.strip() for ln in
+                self.edit_capture.toPlainText().splitlines()
+                if ln.strip()]
+        if len(nets) > 12:
+            QMessageBox.warning(
+                self, "Capture Nets",
+                "at most 12 capture nets allowed "
+                f"({len(nets)} given)")
+            return
+        if self.model is not None:
+            self.model.set_params("parse_ict", {
+                "power_capture_nets": "\n".join(nets)})
+        self._log("INFO",
+                  f"Waveform capture nets updated "
+                  f"({len(nets)} nets)")
 
     def refresh_from_model(self) -> None:
         """Load the YAML draft (or auto-build from the Parse Nets

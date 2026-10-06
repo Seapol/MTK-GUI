@@ -13,11 +13,6 @@ yaml_build:
       group: design
     parse_ict:
       netlist_file: netlists/MTK6879-DEMO.net
-      include_nets: []
-      exclude_nets: []
-      filter_invalid_points: true
-      ict_test_file: ''
-      tp_resolutions: []
       power_capture_nets:
       - VDD_3V3
       - VDD_1V8
