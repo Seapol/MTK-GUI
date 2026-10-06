@@ -227,46 +227,21 @@ def test_signal_regex_filters_manual_candidates(qapp):
         panel.deleteLater()
 
 
-def test_inline_rules_readonly_with_dialog_edit(qapp, monkeypatch):
-    """The inline fields are read-only and show the EFFECTIVE regex
-    (user rule first, system default otherwise); the double-click
-    dialog edits one rule with Restore / Apply / Cancel."""
-    from PySide6.QtWidgets import QDialog
-
-    from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES
-    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel, \
-        _RuleEditDialog
+def test_inline_regex_fields_removed_rules_button_left_of_parse(qapp):
+    """The three inline regex fields are gone (redundant with the
+    Edit Net Classification Rules dialog); that button sits LEFT of
+    the Parse Nets for ICT button."""
+    from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
     panel = ParseNetsPanel()
     try:
-        # effective display: system defaults out of the box
-        assert panel.rule_edits["power"].isReadOnly()
-        assert panel.rule_edits["power"].text() == \
-            DEFAULT_RULES["power"]
-        # the dialog: Restore / Apply semantics
-        dlg = _RuleEditDialog("power", "", panel)
-        assert dlg.current_value() == ""
-        dlg._restore_default()
-        assert dlg.current_value() == DEFAULT_RULES["power"]
-        # invalid regex is rejected by Apply (dialog stays open)
-        dlg.edit_value.setText(r"^VDD[")
-        dlg._apply()
-        assert "invalid regex" in dlg.error_label.text()
-        # a valid user rule applies and lands in net_rules
-        monkeypatch.setattr(
-            _RuleEditDialog, "exec",
-            lambda self: QDialog.DialogCode.Accepted)
-        monkeypatch.setattr(_RuleEditDialog, "current_value",
-                            lambda self: r"^PWR_\w+$")
-        panel._open_rule_dialog("power")
-        assert panel.net_rules["power"] == r"^PWR_\w+$"
-        assert panel.rule_edits["power"].text() == r"^PWR_\w+$"
-        # Restore to default + Apply removes the user override
-        monkeypatch.setattr(_RuleEditDialog, "current_value",
-                            lambda self: DEFAULT_RULES["power"])
-        panel._open_rule_dialog("power")
-        assert "power" not in panel.net_rules
-        assert panel.rule_edits["power"].text() == \
-            DEFAULT_RULES["power"]
+        assert not hasattr(panel, "rule_edits")
+        assert panel.btn_rules.text() == "Edit Net Classification Rules"
+        # position: btn_rules directly before btn_parse in the row
+        from PySide6.QtWidgets import QHBoxLayout
+        row = next(lay for lay in panel.findChildren(QHBoxLayout)
+                   if lay.indexOf(panel.btn_parse) >= 0)
+        assert row.indexOf(panel.btn_rules) < \
+            row.indexOf(panel.btn_parse)
     finally:
         panel.deleteLater()
 
