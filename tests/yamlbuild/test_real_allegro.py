@@ -49,14 +49,17 @@ def test_real_net_file_parses_fully():
     parse without 'no nets found'."""
     result = parse_testable_nets(FIXTURE.read_text(encoding="utf-8"))
     assert result.total == 70
-    # classification: 2 power / 2 SE clock / 64 signal candidates,
-    # the two reference grounds filtered
-    assert len(result.power) == 2
-    assert {r.name for r in result.power} == \
-        {"5V_SDA_PSW", "5V_USB0_OTG"}
+    # classification: 10 power / 2 SE clock / 56 signal candidates,
+    # the two reference grounds filtered.  Power regex v2: DCDC /
+    # DC-input rails, voltage-suffix rails (_1V8 / _3V3 ...), VOUT /
+    # VREF tokens; INTB interrupt names stay Signal.
+    assert {r.name for r in result.power} == {
+        "5V_SDA_PSW", "5V_USB0_OTG", "CODEC_1V8", "CPVOUTN",
+        "CPVOUTP", "DBGIF_VREF", "DCDC_1V0", "DCDC_1V8",
+        "DCDC_3V3", "DC_5V_IN"}
     assert {r.name for r in result.clock} == \
         {"DBGIF_TCK_SWCLK", "DMIC_CLK"}
-    assert len(result.gpio) == 64
+    assert len(result.gpio) == 56
     assert {n for n, _r in result.filtered} == {"AGND", "GND"}
     # members map 1:1 (spot check)
     spot = next(r for r in result.gpio if r.name == "CORTEX7")

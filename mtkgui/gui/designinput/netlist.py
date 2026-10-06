@@ -35,9 +35,14 @@ NET_TYPES = (NET_TYPE_GND_REF, NET_TYPE_DIFF_PAIR, NET_TYPE_POWER,
 _GND_RE = re.compile(
     r"^(GND|AGND|DGND|PGND)([_\W].*)?$", re.IGNORECASE)
 _POWER_RE = re.compile(
-    r"^(V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D|DDL|DQL)"
-    r"([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*)$",
-    re.IGNORECASE)
+    r"^(?!.+INTB)(?:"
+    r"V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D|DDL|DQL)([0-9_].*)?"
+    r"|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?"
+    r"|P[35][V_][0-9A-Z_]*"
+    r"|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?"
+    r"|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*"
+    r"|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?"
+    r")$", re.IGNORECASE)
 _CLOCK_RE = re.compile(
     r"(CLK|XTAL|OSC|MCLK|SCKI|REFCLK)", re.IGNORECASE)
 _PIN_TOKEN_RE = re.compile(r"^[\w\.\-\[\]/#]+$")

@@ -39,7 +39,7 @@ RULE_SLOTS: tuple[tuple[str, str], ...] = (
 )
 
 DEFAULT_RULES: dict[str, str] = {
-    "power": r"^(V[A-Za-z]*(_)?(DD|CC|AA|IO|BAT|IN|OUT|SW|BUS|AUX|5V|3V3|1V8|12V|24V)|VDD\w*|VCC\w*|VIN\w*|\d*V\d*)$",
+    "power": r"^(?!.+INTB)(?:V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D)([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?)$",
     "gnd": r"^(GND\w*|AGND\w*|DGND\w*|PGND\w*|VSS\w*)$",
     "se_clock": r"^(CLK\w*|OSC\w*|XTAL\w*|MCLK\w*|\d+MH?Z\w*)$",
     "signal": "",
