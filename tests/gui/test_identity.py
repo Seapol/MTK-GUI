@@ -52,15 +52,21 @@ def test_fallbacks_never_empty(monkeypatch):
     assert get_user() == "UNKNOWN-USER"
 
 
-def test_event_log_entries_carry_identity(qapp):
+def test_event_log_entries_carry_timestamp(qapp):
     """Every Event-Log line written by the main window automatically
-    carries the [StationID|User] prefix (GUI + session file)."""
+    carries the DATE-TIME stamp and NO [StationID|User] prefix (user
+    direction: the prefix is gone, the stamp is always there)."""
+    import re
+
     from mtkgui.main_window import MainWindow
     window = MainWindow()
     try:
         window._append_event_log("[INFO] identity probe")
         log = window.event_log.toPlainText()
-        assert f"[{get_station_id()}|{get_user()}] " \
-               "[INFO] identity probe" in log
+        assert "[INFO] identity probe" in log
+        assert f"[{get_station_id()}|{get_user()}]" not in log
+        for line in log.strip().splitlines():
+            assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ",
+                            line), line
     finally:
         window.deleteLater()

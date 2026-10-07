@@ -12,6 +12,7 @@ received ANSI color sequences are rendered in place.
 """
 
 import getpass
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -110,6 +111,29 @@ LED_TEXT = {
     "disconnected": "Disconnected",
     "error": "Error",
 }
+
+#: Event Log verdict highlighting (user direction): PASS green,
+#: FAIL red, Error orange - easy to spot the matching lines
+_VERDICT_COLORS = {
+    "pass": "#22c55e", "passed": "#22c55e",
+    "fail": "#ef4444", "failed": "#ef4444",
+    "error": "#f59e0b",
+}
+_VERDICT_RE = re.compile(
+    r"\b(pass|passed|fail|failed|error)\b", re.IGNORECASE)
+
+
+def _colorize_verdicts(escaped_text):
+    """Wrap PASS / FAIL / Error words in colored spans (input must
+    already be HTML-escaped)."""
+
+    def _span(match):
+        word = match.group(0)
+        color = _VERDICT_COLORS[word.lower()]
+        return (f'<span style="color:{color};'
+                f'font-weight:bold;">{word}</span>')
+
+    return _VERDICT_RE.sub(_span, escaped_text)
 
 
 class StatusLed(QLabel):
@@ -1342,16 +1366,19 @@ class MainWindow(QMainWindow):
 
     def _append_event_log(self, text):
         """Show a line in the Event Log and mirror it into the session
-        auto-save file.  Every entry automatically carries the global
-        identity fields (core standard 5.3): the Station ID (host
-        name) and the OS login User - system-derived, unique by
-        source, never manually editable."""
-        from mtkgui.gui.identity import identity_prefix
-        text = f"{identity_prefix()} {text}"
-        self.event_log.appendPlainText(text)
+        auto-save file.  Every entry carries the DATE-TIME stamp (user
+        direction: no User / identity prefix); PASS / FAIL / Error
+        verdicts are highlighted in their own color so the matching
+        log lines are easy to find."""
+        from html import escape
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        plain = f"{stamp} {text}"
+        colored = _colorize_verdicts(escape(text))
+        self.event_log.appendHtml(
+            f'<span style="color:#9ca3af;">{stamp}</span> {colored}')
         if self._event_log_file is not None:
             try:
-                self._event_log_file.write(text + "\n")
+                self._event_log_file.write(plain + "\n")
                 self._event_log_file.flush()
             except OSError:
                 pass
