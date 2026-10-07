@@ -64,6 +64,98 @@ DONT_TEST = "Not Test"
 ASSIGNED = "Assigned"
 
 
+# ------------------------------------------------- AI topology helpers
+#: voltage token inside a rail name (VDD_3V3 -> 3.3, 5V_USB -> 5,
+#: VDD_0V8_P2 -> 0.8, DCDC_1V8 -> 1.8, 12V -> 12)
+_VOLT_RE = re.compile(
+    r"(?<![0-9A-Za-z])(\d{1,2})V(\d{1,2})?(?![0-9A-Za-z])")
+#: input-supply name patterns (primary fallback heuristic)
+_PRIMARY_RE = re.compile(
+    r"(?i)(^VIN|_VIN|^V\w*BUS|VBUS|VBAT|^DC_|_IN$|VPWR)")
+
+
+def voltage_from_name(name: str) -> str | None:
+    """Parse the rail voltage encoded in a net name.
+
+    Args:
+        name: Power net name (``VDD_3V3``, ``DCDC_1V8``, ``5V_USB``).
+
+    Returns:
+        The voltage as a plain string (``"3.3"``, ``"5"``) or None
+        when the name carries no voltage token.
+    """
+    m = _VOLT_RE.search(name or "")
+    if not m:
+        return None
+    whole, frac = m.group(1), m.group(2)
+    value = float(f"{whole}.{frac}") if frac else float(whole)
+    return f"{value:g}"
+
+
+def auto_primaries(power: list[str], bridges: list[dict]) -> list[str]:
+    """Heuristic primary (source) detection for the power tree.
+
+    Every bridge (passive AND regulator) with two decodable unequal
+    rail voltages is directed from the HIGHER voltage to the LOWER
+    one; nodes without an incoming directed edge become stage-0
+    primaries (the BFS then assigns the stages - no more all-stage-1
+    islands).  When no voltage pair is decodable the input-supply
+    name pattern (VIN / VBUS / VBAT / DC_ / *_IN) is used as the
+    fallback heuristic.
+
+    Args:
+        power:   Power net names.
+        bridges: Bridge dicts (``find_bridges`` output).
+
+    Returns:
+        The primary net names (possibly empty - the caller falls back
+        to the island default).
+    """
+    volts = {p: voltage_from_name(p) for p in power}
+    incoming: set[str] = set()
+    directed = False
+    for bridge in bridges:
+        a, c = bridge["nets"]
+        va, vc = volts.get(a), volts.get(c)
+        if va and vc and float(va) != float(vc):
+            src, dst = ((a, c) if float(va) > float(vc) else (c, a))
+            incoming.add(dst)
+            directed = True
+    if directed:
+        primaries = sorted(set(power) - incoming)
+        return primaries or sorted(set(power))
+    return sorted(p for p in power if _PRIMARY_RE.search(p))
+
+
+def auto_fill_voltage(tree: "PowerTree") -> int:
+    """Auto-fill Expected Voltage from the rail-name voltage token and
+    the +/-5 % limit tolerances (user direction: the automation does
+    the groundwork, the user edits afterwards).  Nodes already carrying
+    a voltage (manual override) are never touched; names without a
+    voltage token stay blank for manual entry.
+
+    Args:
+        tree: The built power tree draft.
+
+    Returns:
+        The number of nodes whose voltage was auto-filled.
+    """
+    filled = 0
+    for node in tree.nodes.values():
+        if node.expected_voltage:
+            continue
+        volt = voltage_from_name(node.name)
+        if not volt:
+            continue
+        node.expected_voltage = volt
+        if not node.tol_upper:
+            node.tol_upper = "5%"
+        if not node.tol_lower:
+            node.tol_lower = "5%"
+        filled += 1
+    return filled
+
+
 # --------------------------------------------------------------- bridges
 def find_bridges(net_members: dict[str, list[str]]) -> list[dict]:
     """Detect passive / regulator bridges between power-style nets.

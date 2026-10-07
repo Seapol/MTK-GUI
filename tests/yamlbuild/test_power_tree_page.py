@@ -101,8 +101,8 @@ def test_node_edit_records_manual_override(page, qapp, monkeypatch):
         return NodeEditDialog.DialogCode.Accepted
 
     monkeypatch.setattr(NodeEditDialog, "exec", fake_exec)
-    page._edit_node("VIN_24V")
-    node = page.tree.nodes["VIN_24V"]
+    page._edit_node("GND")
+    node = page.tree.nodes["GND"]
     assert node.expected_voltage == "3.3"
     assert node.dont_test is True
     assert node.stage_override == 2
@@ -164,16 +164,16 @@ def _spy(page):
 
 
 def test_rebuild_emits_event_log(page):
-    """Rebuild reports into the global Event Log (INFO level) with
-    the auto-pruned count - double-layer logging: the fine
-    tree.audit_log stays untouched."""
+    """The AI Power Tree Topology rebuild reports into the global
+    Event Log (INFO level) with the auto-pruned / auto-filled counts
+    - double-layer logging: the fine tree.audit_log stays untouched."""
     records = _spy(page)
     page.refresh_from_model()
     page._rebuild()
     messages = [msg for _lvl, msg in records]
-    assert any("Power tree rebuilt from parse result" in m
+    assert any("AI power tree topology built" in m for m in messages)
+    assert any("auto-pruned" in m and "auto-filled" in m
                for m in messages)
-    assert any("auto-pruned" in m for m in messages)
 
 
 def test_node_edit_logs_field_change_summary(page, monkeypatch):
@@ -191,10 +191,10 @@ def test_node_edit_logs_field_change_summary(page, monkeypatch):
         return NodeEditDialog.DialogCode.Accepted
 
     monkeypatch.setattr(NodeEditDialog, "exec", fake_exec)
-    page._edit_node("VIN_24V")
+    page._edit_node("GND")
     messages = [msg for _lvl, msg in records]
     assert any(m.startswith("Manual tree attribute override on "
-                           "VIN_24V:") for m in messages)
+                           "GND:") for m in messages)
     entry = next(m for m in messages if m.startswith("Manual tree"))
     assert "voltage" in entry and "Do Not Test" in entry
     assert "stage -> 2" in entry
@@ -212,9 +212,9 @@ def test_unedited_node_still_logged(page, monkeypatch):
     monkeypatch.setattr(
         NodeEditDialog, "exec",
         lambda self: NodeEditDialog.DialogCode.Accepted)
-    page._edit_node("VIN_24V")
+    page._edit_node("GND")
     assert any(m.startswith("Manual tree attribute override on "
-                            "VIN_24V: saved")
+                            "GND: saved")
                for _l, m in records)
 
 

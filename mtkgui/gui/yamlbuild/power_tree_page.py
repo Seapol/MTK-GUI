@@ -44,6 +44,8 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.power_alloc import (
     NODE_PRIMARY,
     PowerTree,
+    auto_fill_voltage,
+    auto_primaries,
     find_bridges,
 )
 from mtkgui.gui.yamlbuild.power_tree_editor import (
@@ -135,11 +137,15 @@ class PowerTreePage(QWidget):
         lay.addWidget(hint)
 
         row = QHBoxLayout()
-        btn_rebuild = QPushButton("Rebuild from Parse Nets")
+        btn_rebuild = QPushButton("AI Power Tree Topology")
         btn_rebuild.setToolTip(
-            "Rebuild the tree from the current Parse Nets result "
-            "(saved node attributes kept via the YAML draft); the "
-            "passive-bridge pruning runs automatically")
+            "Automated topology analysis (the groundwork, then manual "
+            "editing): detects the primary sources, assigns the power "
+            "stages via the bridge graph (regulator bridges increment "
+            "the stage), links the upstream / downstream power nets "
+            "and auto-fills Expected Voltage (+/-5 % tolerances) from "
+            "the rail names (blank when not parseable); saved node "
+            "attributes are kept via the YAML draft")
         btn_rebuild.clicked.connect(self._rebuild)
         btn_fit = QPushButton("Fit View")
         btn_fit.clicked.connect(self._fit)
@@ -192,15 +198,20 @@ class PowerTreePage(QWidget):
         return power, members
 
     def _build_tree(self) -> None:
-        """Auto-build the draft from the parse result (keeps nothing:
-        only called when no YAML draft exists yet).  The passive-bridge
-        pruning runs AUTOMATICALLY here (user direction: no manual
-        prune/restore buttons) - a wrongly-pruned net is restored by
-        re-categorizing it as Power in the Parse Nets Parsed Nets
-        table (the category_override flag travels via testable_nets)."""
+        """AI topology build from the parse result (keeps nothing:
+        only called when no YAML draft exists yet).  The automation
+        does the groundwork (user direction): primary detection ->
+        stage assignment (regulator bridges increment the stage, no
+        more all-stage-1 islands) -> upstream / downstream links ->
+        Expected Voltage (+/-5 %) auto-fill from the rail names.  The
+        passive-bridge pruning runs AUTOMATICALLY here and a wrongly
+        pruned net is restored by re-categorizing it as Power in the
+        Parse Nets Parsed Nets table (category_override flag)."""
         power, members = self._parse_members()
         self._bridges = find_bridges(members)
-        self.tree = PowerTree.build(power, self._bridges, primaries=[])
+        self.tree = PowerTree.build(power, self._bridges,
+                                    primaries=auto_primaries(
+                                        power, self._bridges))
         pruned = self.tree.prune_passive(self._bridges)
         testable = ((self.model.imported.get("testable_nets") or {})
                     if self.model else {})
@@ -208,6 +219,7 @@ class PowerTreePage(QWidget):
             if (testable.get(entry["net"]) or {}).get(
                     "category_override"):
                 self.tree.restore_pruned(entry["net"])
+        self._voltages_filled = auto_fill_voltage(self.tree)
 
     # ------------------------------------------------------------ canvas
     def _render(self) -> None:
@@ -318,17 +330,19 @@ class PowerTreePage(QWidget):
                 f"{name}: {', '.join(changed) or 'saved'}")
 
     def _rebuild(self) -> None:
-        """Rebuild the tree from the current Parse Nets result (the
-        passive-bridge pruning is part of the automatic build)."""
+        """AI Power Tree Topology: rebuild with the automatic primary
+        / stage / link / voltage analysis (the passive-bridge pruning
+        is part of the automatic build)."""
         self._build_tree()
         self._render()
         self.save_to_model()
         pruned = [n.name for n in self.tree.nodes.values() if n.pruned]
         self._log(
             "INFO",
-            f"Power tree rebuilt from parse result "
-            f"({len(self.tree.nodes)} nodes, "
-            f"{len(pruned)} auto-pruned)")
+            f"AI power tree topology built: {len(self.tree.nodes)} "
+            f"nodes, {len(pruned)} auto-pruned, "
+            f"{getattr(self, '_voltages_filled', 0)} voltages "
+            "auto-filled (+/-5%)")
 
     def _fit(self) -> None:
         self.canvas.fit_view()

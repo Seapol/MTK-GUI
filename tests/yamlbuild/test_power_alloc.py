@@ -12,7 +12,10 @@ from mtkgui.gui.yamlbuild.power_alloc import (
     GPIO_DIO_CHANNELS,
     PowerTree,
     allocate_channels,
+    auto_fill_voltage,
+    auto_primaries,
     find_bridges,
+    voltage_from_name,
 )
 
 NET_MEMBERS = {
@@ -22,6 +25,61 @@ NET_MEMBERS = {
     "VDD_3V3": ["U2.2", "U3.1"],
     "VDD_CORE": ["U3.2", "U4.1"],
 }
+
+
+# ------------------------------------------------- AI topology helpers
+def test_voltage_from_name_parses_rail_tokens():
+    assert voltage_from_name("VDD_3V3") == "3.3"
+    assert voltage_from_name("DCDC_1V8") == "1.8"
+    assert voltage_from_name("VDD_0V8_P2_DC") == "0.8"
+    assert voltage_from_name("5V_SDA_PSW") == "5"
+    assert voltage_from_name("DC_12V_IN") == "12"
+    assert voltage_from_name("CPVOUTP") is None
+    assert voltage_from_name("DBGIF_VREF") is None
+    assert voltage_from_name("CORTEX7") is None     # no V token
+
+
+def test_auto_primaries_direct_regulator_bridges_by_voltage():
+    """Bridges with two decodable voltages are directed high -> low:
+    the nodes without an incoming edge are the primaries (the
+    regulator-fed rails and the passive-bridged lower side lose)."""
+    primaries = auto_primaries(list(NET_MEMBERS),
+                               find_bridges(NET_MEMBERS))
+    assert "VIN_24V" in primaries        # highest rail: no incoming
+    assert "VDD_CORE" in primaries       # no voltage: direction unknown
+    assert "VDD_12V" not in primaries    # fed by the 24 V input (R5)
+    assert "VDD_5V" not in primaries
+    assert "VDD_3V3" not in primaries
+
+
+def test_auto_primaries_fallback_input_name_pattern():
+    """Without ANY decodable voltage pair the input-supply naming
+    heuristic (VIN / VBUS / VBAT / DC_ / *_IN) picks the primaries."""
+    power = ["PSW_MAIN", "VDD_CORE", "DC_5V_IN", "CPVOUTN"]
+    bridges = [{"refdes": "U9", "kind": "regulator",
+                "nets": ("PSW_MAIN", "VDD_CORE")}]
+    assert auto_primaries(power, bridges) == ["DC_5V_IN"]
+
+
+def test_auto_fill_voltage_and_tolerances():
+    tree = PowerTree.build(["VIN_24V", "VDD_12V", "VDD_5V",
+                            "VDD_3V3", "VDD_CORE"],
+                           find_bridges(NET_MEMBERS),
+                           primaries=auto_primaries(
+                               list(NET_MEMBERS),
+                               find_bridges(NET_MEMBERS)))
+    filled = auto_fill_voltage(tree)
+    assert filled == 4                   # VDD_CORE carries no voltage
+    assert tree.nodes["VIN_24V"].expected_voltage == "24"
+    assert tree.nodes["VDD_3V3"].expected_voltage == "3.3"
+    assert tree.nodes["VDD_3V3"].tol_upper == "5%"
+    assert tree.nodes["VDD_3V3"].tol_lower == "5%"
+    assert tree.nodes["VDD_CORE"].expected_voltage == ""
+    assert tree.nodes["VDD_CORE"].tol_upper == ""
+    # manual override is never touched
+    tree.nodes["VDD_5V"].expected_voltage = "5.1"
+    auto_fill_voltage(tree)
+    assert tree.nodes["VDD_5V"].expected_voltage == "5.1"
 
 
 def test_find_bridges_passive_vs_regulator():
