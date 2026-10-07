@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild.power_alloc import (
+    MAX_STAGE,
     NODE_LOAD,
     NODE_PRIMARY,
     PowerTree,
@@ -146,7 +147,8 @@ class NodeEditDialog(QDialog):
         self.edit_deps.setPlaceholderText(
             "e.g. requires firmware FW1.2, EN signal high (optional)")
         form.addRow("Dependency conditions:", self.edit_deps)
-        # upstream: SINGLE-select dropdown (one parent node)
+        # upstream: SINGLE-select dropdown (one parent node - the
+        # upstream stays unique); a primary power input has NO upstream
         self.combo_upstream = QComboBox()
         self.combo_upstream.addItem(NO_REFERENCE, "")
         for name, label in choices:
@@ -168,17 +170,23 @@ class NodeEditDialog(QDialog):
             "nets of the tree are listed)")
         form.addRow("Downstream node reference:", self.combo_downstream)
         self.spin_stage = QSpinBox()
-        self.spin_stage.setRange(-1, 99)
+        # stage levels 0..6 (user direction); -1 = auto traversal
+        self.spin_stage.setRange(-1, MAX_STAGE)
         self.spin_stage.setValue(
             node.stage if node.stage_override is None
             else node.stage_override)
         self.spin_stage.setSpecialValueText("auto")
         self.spin_stage.setToolTip(
-            "-1 = auto (traversal), 0..N = manual stage override")
+            "-1 = auto (traversal), 0..6 = manual stage override")
         form.addRow("Stage (manual override):", self.spin_stage)
         self.chk_dont_test = QCheckBox("Do Not Test")
         self.chk_dont_test.setChecked(node.dont_test)
         form.addRow("", self.chk_dont_test)
+        if node.node_type == NODE_PRIMARY:
+            # a primary power input has NO upstream node reference
+            self.combo_upstream.setEnabled(False)
+            self.combo_upstream.setToolTip(
+                "the primary power input has no upstream node")
         if node.node_type == NODE_LOAD or node.locked:
             hint = QLabel("Load node (end node) - read-only.")
             hint.setObjectName("muted")

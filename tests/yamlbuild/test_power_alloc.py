@@ -114,6 +114,55 @@ def test_island_node_without_upstream():
     assert tree.nodes["VDD_FLOAT"].stage == 1        # first conv default
 
 
+# ------------------------------------------------- manual graph edits
+def test_manual_link_unique_upstream_and_rules():
+    """Flow-arrow links (GUI drag): the upstream stays UNIQUE (a new
+    link replaces the old edge), a primary never gets an upstream,
+    self-links and cycles are rejected."""
+    tree = PowerTree.build(["VIN", "VDD", "VCC", "VFLOAT"], [],
+                           primaries=["VIN"])
+    ok, _ = tree.link("VIN", "VDD")
+    assert ok
+    ok, _ = tree.link("VDD", "VCC")
+    assert ok
+    # multiple downstream from one node
+    tree.link("VIN", "VCC")
+    assert tree.nodes["VCC"].upstream == ["VIN"]     # replaced, unique
+    assert "VCC" not in tree.nodes["VDD"].downstream
+    assert "VDD" in tree.nodes["VIN"].downstream
+    assert "VCC" in tree.nodes["VIN"].downstream
+    # primary: no upstream ever
+    ok, msg = tree.link("VCC", "VIN")
+    assert not ok and "primary" in msg
+    # self-link rejected
+    ok, _ = tree.link("VDD", "VDD")
+    assert not ok
+    # cycle rejected: VDD -> VFLOAT -> VCC -> VDD closes a loop
+    tree.link("VDD", "VFLOAT")
+    tree.link("VFLOAT", "VCC")
+    ok, msg = tree.link("VCC", "VDD")
+    assert not ok and "cycle" in msg
+    # audit trail
+    assert any("manual flow link" in a["reason"]
+               for a in tree.audit_log)
+
+
+def test_set_stage_clamps_to_max_stage():
+    tree = PowerTree.build(["VIN", "VDD"], [], primaries=["VIN"])
+    assert tree.set_stage("VDD", 9) == 6             # MAX_STAGE
+    assert tree.nodes["VDD"].stage_override == 6
+    assert tree.set_stage("VDD", -3) == 0
+    assert tree.nodes["VDD"].stage_override == 0
+
+
+def test_node_row_roundtrip():
+    tree = PowerTree.build(["VIN", "VDD"], [], primaries=["VIN"])
+    tree.nodes["VDD"].row = 3
+    clone = PowerTree.from_dict(tree.to_dict())
+    assert clone.nodes["VDD"].row == 3
+    assert clone.nodes["VIN"].row is None
+
+
 def test_prune_passive_keeps_load_side_with_audit():
     tree = PowerTree.build(["VIN_24V", "VDD_12V", "VDD_5V"],
                            find_bridges(NET_MEMBERS),

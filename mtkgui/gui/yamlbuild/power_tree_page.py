@@ -24,8 +24,15 @@ from __future__ import annotations
 
 import copy
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QWheelEvent
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QPainter,
+    QPen,
+    QPolygonF,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QGraphicsLineItem,
@@ -42,6 +49,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild.power_alloc import (
+    MAX_STAGE,
     NODE_PRIMARY,
     PowerTree,
     auto_fill_voltage,
@@ -63,19 +71,53 @@ ZOOM_FACTOR = 1.15
 
 
 class _NodeItem(QGraphicsRectItem):
-    """One power net node on the canvas (double-click opens the edit
-    dialog via the page callback)."""
+    """One power net node on the canvas.
 
-    def __init__(self, name: str, on_edit) -> None:
+    Normal mode: drag moves the node - on release the page snaps the
+    horizontal position to the stage column (defines the stage level
+    0..6) and the vertical position to the row of an upstream /
+    downstream node (aligning = same row).  Double-click opens the
+    edit dialog.  Link mode: drag draws a flow arrow - on release over
+    another node the page creates the upstream -> downstream edge.
+    """
+
+    def __init__(self, name: str, page: "PowerTreePage") -> None:
         super().__init__(0, 0, NODE_W, NODE_H)
         self.name = name
-        self._on_edit = on_edit
+        self._page = page
+        self._dragging = False
         self.setFlags(
             QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsRectItem.GraphicsItemFlag.ItemIsFocusable)
 
+    def mousePressEvent(self, event) -> None:
+        if self._page._link_mode:
+            self._page._link_start(self.name)
+            event.accept()
+            return
+        self._dragging = True
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._page._link_mode:
+            self._page._link_update(event.scenePos())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._page._link_mode:
+            self._page._link_end(self.name)
+            event.accept()
+            return
+        if self._dragging:
+            self._dragging = False
+            self._page._on_node_dropped(self.name, self.scenePos())
+        super().mouseReleaseEvent(event)
+
     def mouseDoubleClickEvent(self, event) -> None:
-        self._on_edit(self.name)
+        if not self._page._link_mode:
+            self._page._edit_node(self.name)
         super().mouseDoubleClickEvent(event)
 
 
@@ -121,6 +163,10 @@ class PowerTreePage(QWidget):
         self.model = None
         self.tree = PowerTree()
         self._bridges: list[dict] = []
+        self._link_mode = False          # draw-flow-arrow mode
+        self._link_from: str | None = None
+        self._link_line: QGraphicsLineItem | None = None
+        self._layout_pos: dict[str, tuple[float, float]] = {}
 
         lay = QVBoxLayout(self)
         hint = QLabel(
@@ -129,9 +175,13 @@ class PowerTreePage(QWidget):
             "at parse time; a wrongly-pruned net is restored by "
             "re-categorizing it as Power in the Parsed Nets table. "
             "Double-click a node to edit voltage, tolerances, "
-            "dependencies, upstream/downstream links, the stage "
-            "override and the Do-Not-Test flag. Wheel = zoom, "
-            "drag = pan.")
+            "dependencies, links, stage override and Do-Not-Test. "
+            "Drag a node horizontally to set its power stage (0-6); "
+            "drag it vertically onto an upstream/downstream node to "
+            "align rows. 'Draw Flow Arrow': drag from the upstream "
+            "node and drop on the downstream node to define the power "
+            "flow (the upstream stays unique; a primary has none). "
+            "Drag empty canvas to pan, wheel = zoom.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -156,7 +206,17 @@ class PowerTreePage(QWidget):
         btn_zoom_out.clicked.connect(
             lambda: self.canvas.scale(1 / ZOOM_FACTOR,
                                       1 / ZOOM_FACTOR))
-        for btn in (btn_rebuild, btn_fit, btn_zoom_in, btn_zoom_out):
+        btn_link = QPushButton("Draw Flow Arrow")
+        btn_link.setCheckable(True)
+        btn_link.setToolTip(
+            "Flow-arrow mode: press on the UPSTREAM node, drag and "
+            "drop on the DOWNSTREAM node to define the power flow. "
+            "Every node keeps at most ONE upstream (re-defining it "
+            "replaces the old edge); a primary power input has no "
+            "upstream; one node may feed many downstream nodes.")
+        btn_link.toggled.connect(self._set_link_mode)
+        for btn in (btn_rebuild, btn_fit, btn_zoom_in, btn_zoom_out,
+                    btn_link):
             row.addWidget(btn)
         row.addStretch(1)
         lay.addLayout(row)
@@ -229,36 +289,44 @@ class PowerTreePage(QWidget):
     def _render_canvas(self) -> None:
         scene = self.canvas.scene()
         scene.clear()
+        self._link_line = None
+        self._link_from = None
+        active = self.tree.active_nodes()
+        # layout: column = stage, row = manual row (vertical drag) or
+        # the first free row of the column (no overlaps)
         staged: dict[int, list] = {}
-        for node in self.tree.active_nodes():
+        for node in active:
             staged.setdefault(
                 node.stage if node.stage is not None else 0,
                 []).append(node)
         pos: dict[str, tuple[float, float]] = {}
         for stage in sorted(staged):
-            for i, node in enumerate(staged[stage]):
-                x = stage * COL_STEP
-                y = i * ROW_STEP
-                pos[node.name] = (x, y)
-        # edges first (behind the nodes)
-        for node in self.tree.active_nodes():
+            used: set[int] = {
+                n.row for n in staged[stage] if n.row is not None}
+            free = (r for r in range(len(active))
+                    if r not in used)
+            for node in staged[stage]:
+                row = node.row if node.row is not None else next(free)
+                used.add(row)
+                pos[node.name] = (stage * COL_STEP, row * ROW_STEP)
+        self._layout_pos = pos            # layout slot per node name
+        # edges first (behind the nodes): power-flow arrows
+        for node in active:
             for upstream in node.upstream:
                 if upstream not in pos:
                     continue
-                x0, y0 = pos[upstream]
-                x1, y1 = pos[node.name]
-                scene.addLine(x0 + NODE_W, y0 + NODE_H / 2,
-                              x1, y1 + NODE_H / 2,
-                              QBrush(QColor("#94a3b8")))
-        for node in self.tree.active_nodes():
+                self._add_arrow(scene, pos[upstream], pos[node.name])
+        for node in active:
             x, y = pos[node.name]
             color = QColor(DONT_TEST_COLOR if node.dont_test
                            else NODE_COLORS.get(node.node_type,
                                                 "#2563eb"))
-            item = _NodeItem(node.name, self._edit_node)
+            item = _NodeItem(node.name, self)
             item.setRect(x, y, NODE_W, NODE_H)
             item.setBrush(QBrush(color))
             item.setPen(Qt.PenStyle.NoPen)
+            item.setFlag(
+                QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
             label = scene.addText(
                 f"{node.name}\nStage {node.stage} · "
                 f"{node.expected_voltage or '-'}")
@@ -267,6 +335,125 @@ class PowerTreePage(QWidget):
             label.setParentItem(item)
             scene.addItem(item)
         self.canvas.fit_view()
+
+    @staticmethod
+    def _add_arrow(scene, src: tuple[float, float],
+                   dst: tuple[float, float]) -> None:
+        """Straight power-flow arrow: line + filled arrowhead at the
+        downstream end (power flows upstream -> downstream)."""
+        import math
+        x0, y0 = src[0] + NODE_W, src[1] + NODE_H / 2
+        x1, y1 = dst[0], dst[1] + NODE_H / 2
+        pen = QPen(QColor("#94a3b8"))
+        scene.addLine(x0, y0, x1, y1, pen)
+        # arrowhead triangle pointing along the line direction
+        rad = math.atan2(y1 - y0, x1 - x0)
+        back, side = 10.0, 4.5
+        dx, dy = math.cos(rad), math.sin(rad)
+        scene.addPolygon(QPolygonF([
+            QPointF(x1, y1),
+            QPointF(x1 - back * dx + side * -dy,
+                    y1 - back * dy + side * dx),
+            QPointF(x1 - back * dx - side * -dy,
+                    y1 - back * dy - side * dx),
+        ]), QPen(QColor("#94a3b8"), 0))
+
+    # --------------------------------------------------- mouse interactions
+    def _set_link_mode(self, enabled: bool) -> None:
+        """Toggle the flow-arrow drawing mode (canvas cursor + the
+        pending temp line reset)."""
+        self._link_mode = enabled
+        self.canvas.setCursor(
+            Qt.CursorShape.CrossCursor if enabled
+            else Qt.CursorShape.ArrowCursor)
+        self._link_reset()
+
+    def _link_reset(self) -> None:
+        if self._link_line is not None:
+            self._link_line.scene().removeItem(self._link_line)
+            self._link_line = None
+        self._link_from = None
+
+    def _link_start(self, name: str) -> None:
+        """Flow-arrow mode: press on the upstream node - start the
+        temp rubber line."""
+        node = self.tree.nodes.get(name)
+        if node is None or node.pruned:
+            return
+        self._link_from = name
+        pos = self._node_pos(name)
+        self._link_line = self.canvas.scene().addLine(
+            pos[0] + NODE_W, pos[1] + NODE_H / 2,
+            pos[0] + NODE_W, pos[1] + NODE_H / 2,
+            QPen(QColor("#16a34a")))
+
+    def _node_pos(self, name: str) -> tuple[float, float]:
+        """Scene position of the node item (default: layout slot)."""
+        for item in self.canvas.scene().items():
+            if isinstance(item, _NodeItem) and item.name == name:
+                return item.scenePos().x(), item.scenePos().y()
+        return self._layout_pos.get(name, (0.0, 0.0))
+
+    def _link_update(self, scene_pos) -> None:
+        """Flow-arrow mode: the temp line follows the mouse."""
+        if self._link_line is None:
+            return
+        line = self._link_line.line()
+        self._link_line.setLine(line.x1(), line.y1(),
+                                scene_pos.x(), scene_pos.y())
+
+    def _link_end(self, name: str | None) -> None:
+        """Flow-arrow mode: drop - a node target creates the
+        upstream -> downstream edge (unique upstream rules apply),
+        an empty target cancels."""
+        source = self._link_from
+        self._link_reset()
+        if not source or not name or name == source:
+            return
+        ok, message = self.tree.link(source, name)
+        if ok:
+            self._render()
+            self.save_to_model()
+            self._log("INFO", f"Power flow link: {source} -> {name}")
+        else:
+            QMessageBox.warning(self, "Flow link rejected", message)
+
+    def _on_node_dropped(self, name: str, scene_pos) -> None:
+        """Node drag released: horizontal snap defines the stage
+        (0..MAX_STAGE), the vertical snap aligns the row with an
+        upstream / downstream node (half-row tolerance) or falls back
+        to the nearest free row slot."""
+        node = self.tree.nodes.get(name)
+        if node is None or node.pruned:
+            return
+        changed = False
+        stage = round(scene_pos.x() / COL_STEP)
+        stage = max(0, min(MAX_STAGE, stage))
+        if stage != node.stage:
+            self.tree.set_stage(name, stage)
+            changed = True
+        # vertical: align with a linked node's row when close
+        linked = [self.tree.nodes[n] for n in
+                  list(node.upstream) + list(node.downstream)
+                  if n in self.tree.nodes and not self.tree.nodes[n].pruned]
+        target_row = None
+        for other in linked:
+            oy = self._node_pos(other.name)[1]
+            if abs(scene_pos.y() - oy) <= ROW_STEP / 2:
+                target_row = (other.row if other.row is not None
+                              else round(oy / ROW_STEP))
+                break
+        if target_row is None:
+            target_row = max(0, round(scene_pos.y() / ROW_STEP))
+        if target_row != node.row:
+            node.row = target_row
+            changed = True
+        self._render()
+        if changed:
+            self.save_to_model()
+            self._log("INFO",
+                      f"Node {name} moved: stage {node.stage}, "
+                      f"row {node.row}")
 
     # ------------------------------------------------------------ actions
     def _log(self, level: str, message: str) -> None:

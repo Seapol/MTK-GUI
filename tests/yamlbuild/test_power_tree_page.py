@@ -165,6 +165,80 @@ def test_node_edit_lists_pruned_nets(qapp):
         dlg.deleteLater()
 
 
+def test_node_edit_primary_has_no_upstream(qapp):
+    """The primary power input has NO upstream node reference (the
+    upstream combo is disabled) and the stage override spinner spans
+    the 0..MAX_STAGE levels."""
+    from mtkgui.gui.yamlbuild.power_alloc import MAX_STAGE
+    from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
+    tree = PowerTree.build(["VIN_24V", "VDD_5V"], [],
+                           primaries=["VIN_24V"])
+    dlg = NodeEditDialog(tree.nodes["VIN_24V"], tree)
+    try:
+        assert not dlg.combo_upstream.isEnabled()
+        assert dlg.spin_stage.maximum() == MAX_STAGE
+    finally:
+        dlg.deleteLater()
+
+
+def test_node_drag_sets_stage_and_row(page):
+    """Horizontal node drag defines the stage (snapped to the column,
+    clamped 0..MAX_STAGE), the vertical drag the row; both land in
+    the model draft."""
+    from PySide6.QtCore import QPointF
+    from mtkgui.gui.yamlbuild.power_alloc import MAX_STAGE
+    from mtkgui.gui.yamlbuild.power_tree_page import COL_STEP, ROW_STEP
+    page.refresh_from_model()
+    page.tree = PowerTree.build(["VIN_24V", "MID_A"], [],
+                                primaries=["VIN_24V"])
+    page._render()
+    page._on_node_dropped("MID_A", QPointF(3 * COL_STEP + 10,
+                                           2 * ROW_STEP + 5))
+    node = page.tree.nodes["MID_A"]
+    assert node.stage_override == 3 and node.stage == 3
+    assert node.row == 2
+    # horizontal clamp to the 0..6 stage range
+    page._on_node_dropped("MID_A", QPointF(99 * COL_STEP, 0))
+    assert page.tree.nodes["MID_A"].stage == MAX_STAGE
+    assert page.model.power_tree["nodes"]
+
+
+def test_node_drag_aligns_row_with_linked_node(page):
+    """Vertical drag onto an upstream/downstream node snaps the row
+    (same row = aligned, the MCU_LINK_3V3 / P3V3_LDO / MCU_3V3 case)."""
+    from PySide6.QtCore import QPointF
+    from mtkgui.gui.yamlbuild.power_tree_page import COL_STEP, ROW_STEP
+    page.refresh_from_model()
+    page.tree = PowerTree.build(["VIN_24V", "MID_A"], [],
+                                primaries=["VIN_24V"])
+    page.tree.link("VIN_24V", "MID_A")
+    page._render()
+    # drop MID_A at VIN_24V's y (layout row 0) within half a row
+    page._on_node_dropped("MID_A",
+                          QPointF(4 * COL_STEP, ROW_STEP / 2 - 1))
+    assert page.tree.nodes["MID_A"].row == 0
+    assert page.tree.nodes["VIN_24V"].row in (None, 0)
+
+
+def test_flow_arrow_link_via_page(page):
+    """Flow-arrow mode: press on the upstream node, drop on the
+    downstream node -> the edge is created, the draft saved and the
+    temp rubber line cleaned up."""
+    from PySide6.QtCore import QPointF
+    page.refresh_from_model()
+    page.tree = PowerTree.build(["VIN_24V", "MID_A", "MID_B"], [],
+                                primaries=["VIN_24V"])
+    page._render()
+    page._link_start("VIN_24V")
+    assert page._link_line is not None
+    page._link_update(QPointF(1, 1))
+    page._link_end("MID_B")
+    assert page.tree.nodes["MID_B"].upstream == ["VIN_24V"]
+    assert "MID_B" in page.tree.nodes["VIN_24V"].downstream
+    assert page.model.power_tree["nodes"]
+    assert page._link_line is None and page._link_from is None
+
+
 def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     """Double-click edit (dialog mocked): attributes land on the node,
     a manual-override record enters the audit log and the draft is

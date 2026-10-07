@@ -33,6 +33,10 @@ NODE_NORMAL = "normal"
 NODE_LOAD = "load"
 NODE_ISLAND = "island"
 
+#: power stage levels 0..6 (user direction: manual stage edits clamp
+#: to this range; the automatic build keeps its BFS result)
+MAX_STAGE = 6
+
 #: U2355A DIO is reserved for fixture IO - GPIO tests may ONLY use
 #: the DAQM907A DIO 16-ch open-drain resource (42 V / 400 mA)
 GPIO_DIO_CHANNELS: tuple[str, ...] = tuple(
@@ -205,6 +209,7 @@ class PowerNode:
     downstream: list[str] = field(default_factory=list)
     stage: int | None = None
     stage_override: int | None = None
+    row: int | None = None            # manual canvas row (vertical drag)
     pruned: bool = False
     pruned_reason: str = ""
     locked: bool = False              # load nodes: read-only
@@ -220,6 +225,7 @@ class PowerNode:
             "downstream": list(self.downstream),
             "stage": self.stage,
             "stage_override": self.stage_override,
+            "row": self.row,
             "pruned": self.pruned, "pruned_reason": self.pruned_reason,
             "locked": self.locked,
         }
@@ -241,6 +247,8 @@ class PowerNode:
             node.stage = int(data["stage"])
         if data.get("stage_override") is not None:
             node.stage_override = int(data["stage_override"])
+        if data.get("row") is not None:
+            node.row = int(data["row"])
         return node
 
 
@@ -398,6 +406,93 @@ class PowerTree:
     def active_nodes(self) -> list[PowerNode]:
         """Non-pruned nodes in insertion order."""
         return [n for n in self.nodes.values() if not n.pruned]
+
+    # ------------------------------------------------- manual graph edits
+    def rebuild_adjacency(self) -> None:
+        """Rebuild the undirected adjacency from the stored upstream /
+        downstream links (after a YAML load or manual flow-arrow
+        edits); every manual link counts as a regulator hop for the
+        stage BFS (manual stage overrides always win)."""
+        adjacency: dict[str, list[tuple[str, str]]] = {}
+        for node in self.nodes.values():
+            for up in node.upstream:
+                if up in self.nodes and up != node.name:
+                    adjacency.setdefault(up, []).append(
+                        (node.name, "regulator"))
+                    adjacency.setdefault(node.name, []).append(
+                        (up, "regulator"))
+        self.adjacency = adjacency
+
+    def _reaches(self, start: str, goal: str) -> bool:
+        """BFS over the downstream links: can ``start`` reach ``goal``."""
+        seen: set[str] = set()
+        frontier = [start]
+        while frontier:
+            name = frontier.pop(0)
+            if name == goal:
+                return True
+            if name in seen:
+                continue
+            seen.add(name)
+            frontier.extend(self.nodes[name].downstream
+                            if name in self.nodes else [])
+        return False
+
+    def link(self, source: str, target: str) -> tuple[bool, str]:
+        """Manual flow-arrow link (GUI drag): ``source`` becomes THE
+        upstream of ``target``.  Rules (user direction):
+
+        * the upstream reference stays UNIQUE - a previous upstream is
+          replaced (the old edge is removed on both ends);
+        * a primary power input NEVER gets an upstream;
+        * self-links and cycles are rejected.
+
+        Returns ``(ok, message)``; on success the tree is
+        re-classified, the adjacency rebuilt and the stages re-run
+        (overrides preserved)."""
+        src = self.nodes.get(source)
+        dst = self.nodes.get(target)
+        if src is None or dst is None or src.pruned or dst.pruned:
+            return False, "unknown or pruned node"
+        if source == target:
+            return False, "a node cannot reference itself"
+        if dst.node_type == NODE_PRIMARY:
+            return False, (f"{target} is the primary power input - "
+                           "it has no upstream")
+        if source in dst.upstream:
+            return True, "link already exists"
+        if self._reaches(target, source):
+            return False, "link rejected: it would create a cycle"
+        # unique upstream: drop the previous edge on both ends
+        for old in list(dst.upstream):
+            if old in self.nodes:
+                old_node = self.nodes[old]
+                if target in old_node.downstream:
+                    old_node.downstream.remove(target)
+        dst.upstream = [source]
+        if target not in src.downstream:
+            src.downstream.append(target)
+        self.audit_log.append({
+            "net": target,
+            "reason": f"manual flow link: {source} -> {target}",
+            "refdes": "", "kept": ""})
+        self._classify()
+        self.rebuild_adjacency()
+        self.assign_stages()
+        return True, f"linked {source} -> {target}"
+
+    def set_stage(self, name: str, stage: int) -> int:
+        """Manual stage edit (horizontal drag): clamps to 0..MAX_STAGE,
+        stores the override and re-runs the stage BFS.  Returns the
+        clamped stage."""
+        stage = max(0, min(MAX_STAGE, int(stage)))
+        node = self.nodes.get(name)
+        if node is None or node.pruned:
+            return stage
+        node.stage_override = stage
+        node.stage = stage
+        self.assign_stages()
+        return stage
 
     # -------------------------------------------------------- persistence
     def to_dict(self) -> dict:
