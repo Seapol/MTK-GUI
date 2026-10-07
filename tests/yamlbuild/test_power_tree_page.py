@@ -136,15 +136,11 @@ def test_node_edit_reference_dropdowns(qapp):
                  for i in range(dlg.combo_upstream.count())]
         assert items == [NO_REFERENCE, "VDD_12V", "VIN_24V"]
         assert "VDD_5V" not in items        # never self-reference
-        # downstream combo: checkable items for every other net
-        model = dlg.combo_downstream._model
-        names = [model.item(r).text()
-                 for r in range(1, model.rowCount())]
-        assert names == ["VDD_12V", "VIN_24V"]
+        # downstream multi-select: checkable items for every other net
+        assert dlg.combo_downstream.labels() == ["VDD_12V", "VIN_24V"]
         # single-select upstream + multi-select downstream
         dlg.combo_upstream.setCurrentText("VDD_12V")
-        for r in (1, 2):
-            model.item(r).setCheckState(Qt.CheckState.Checked)
+        dlg.combo_downstream.set_checked(["VDD_12V", "VIN_24V"])
         assert dlg.combo_downstream.checked_items() == \
             ["VDD_12V", "VIN_24V"]
         dlg._on_accept()
@@ -185,11 +181,9 @@ def test_node_edit_lists_pruned_nets(qapp):
         idx = dlg.combo_upstream.findData("VIN_24V")
         assert idx > 0
         dlg.combo_upstream.setCurrentIndex(idx)
-        model = dlg.combo_downstream._model
-        for r in range(1, model.rowCount()):
-            if model.item(r).data(
-                    Qt.ItemDataRole.UserRole) == "VIN_24V":
-                model.item(r).setCheckState(Qt.CheckState.Checked)
+        # the "(pruned)" annotation is only the LABEL - the stored
+        # value is the raw net name
+        dlg.combo_downstream.set_checked(["VIN_24V"])
         dlg._on_accept()
         node = tree.nodes["GND"]
         assert node.upstream == ["VIN_24V"]
@@ -198,36 +192,32 @@ def test_node_edit_lists_pruned_nets(qapp):
         dlg.deleteLater()
 
 
-def test_multiselect_combo_toggles_via_viewport_events(qapp):
-    """Multi-select FIX regression: a mouse press on the popup
-    viewport toggles the check state and is SWALLOWED (the popup must
-    not close - that was the broken multi-select behaviour)."""
-    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-    from PySide6.QtGui import QMouseEvent
-    from mtkgui.gui.yamlbuild.power_tree_editor import MultiSelectCombo
-    combo = MultiSelectCombo([("A", "A"), ("B", "B")], [])
-    combo.show()
+def test_multiselect_combo_state_and_popup_toggle(qapp):
+    """The portable multi-select (button + Qt.Popup checkable list):
+    the button text summarises the selection, popup list toggles write
+    back into the state and the stored values stay the RAW names."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListWidgetItem
+    from mtkgui.gui.yamlbuild.power_tree_editor import (
+        NO_REFERENCE,
+        MultiSelectCombo,
+    )
+    combo = MultiSelectCombo([("A", "A (pruned)"), ("B", "B")], [])
     try:
-        view = combo.view()
-        viewport = view.viewport()
-        # offscreen: the popup is not laid out - point indexAt at the
-        # first checkable row directly
-        view.indexAt = lambda _pos: combo._model.index(1, 0)
-        index = view.indexAt(QPoint(5, 5))
-        assert index.isValid()
-        event = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5),
-                            Qt.MouseButton.LeftButton,
-                            Qt.MouseButton.LeftButton,
-                            Qt.KeyboardModifier.NoModifier)
-        assert combo.eventFilter(viewport, event) is True
-        assert combo._model.itemFromIndex(index).checkState() == \
-            Qt.CheckState.Checked
-        # second toggle unchecks; the stored values follow
-        assert combo.eventFilter(viewport, event) is True
+        assert combo.text() == NO_REFERENCE        # nothing selected
+        combo.set_checked(["A"])
+        assert combo.checked_items() == ["A"]      # raw name stored
+        assert combo.text() == "A"                 # summary text
+        # a popup list toggle writes straight back into the state
+        item = QListWidgetItem("A (pruned)")
+        item.setData(Qt.ItemDataRole.UserRole, "A")
+        item.setCheckState(Qt.CheckState.Unchecked)
+        combo._on_popup_toggle(item)
         assert combo.checked_items() == []
-        # non-mouse events pass through untouched
-        assert combo.eventFilter(viewport,
-                                 QEvent(QEvent.Type.Resize)) is False
+        item.setCheckState(Qt.CheckState.Checked)
+        combo._on_popup_toggle(item)
+        assert combo.checked_items() == ["A"]
+        assert combo.text() == "A"
     finally:
         combo.deleteLater()
 

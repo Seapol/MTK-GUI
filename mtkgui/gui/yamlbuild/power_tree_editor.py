@@ -30,9 +30,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -62,72 +65,75 @@ DONT_TEST_COLOR = "#1f2937"
 NO_REFERENCE = "—"
 
 
-class MultiSelectCombo(QComboBox):
-    """Drop-down with CHECKABLE items (multi-select, user direction:
-    the downstream node reference allows multiple power nets); the
-    closed-state text summarises the current selection.  Items carry
-    ``(name, label)`` pairs - the label may be annotated (e.g. a
-    pruned net) while the stored value stays the raw net name.
+class MultiSelectCombo(QToolButton):
+    """MULTI-select drop-down (user direction: the downstream node
+    reference allows multiple power nets); the button text summarises
+    the current selection.  Items carry ``(name, label)`` pairs - the
+    label may be annotated (e.g. a pruned net) while the stored value
+    stays the raw net name.
 
-    Multi-select FIX: the default QComboBox closes the popup on the
-    first item click - the popup viewport therefore gets an event
-    filter that toggles the check state and SWALLOWS the mouse events
-    (the popup stays open until the user clicks elsewhere)."""
+    PORTABLE IMPLEMENTATION (the QComboBox-popup approach could not
+    keep the popup open on every platform): clicking the button opens
+    a ``Qt.Popup`` dialog with a checkable list - internal clicks
+    toggle the entries and KEEP the popup open, clicking outside
+    closes it."""
 
     def __init__(self, choices: list[tuple[str, str]],
                  checked: list[str], parent=None) -> None:
         super().__init__(parent)
-        self._model = QStandardItemModel(self)
-        placeholder = QStandardItem(NO_REFERENCE)
-        placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        self._model.appendRow(placeholder)
-        for name, label in choices:
-            item = QStandardItem(label)
-            item.setData(name, Qt.ItemDataRole.UserRole)
-            item.setCheckable(True)
-            item.setCheckState(
-                Qt.CheckState.Checked if name in checked
-                else Qt.CheckState.Unchecked)
-            self._model.appendRow(item)
-        from PySide6.QtWidgets import QAbstractItemView, QListView
-        list_view = QListView(self)
-        list_view.setSelectionMode(
-            QAbstractItemView.SelectionMode.NoSelection)
-        self.setView(list_view)
-        # toggle check states WITHOUT closing the popup
-        self.view().viewport().installEventFilter(self)
-        self._model.itemChanged.connect(lambda _i: self._sync_text())
+        self._choices: list[tuple[str, str]] = list(choices)
+        self._checked: dict[str, bool] = {
+            name: name in checked for name, _label in self._choices}
+        self.setStyleSheet("text-align: left; padding-left: 6px;")
+        self.clicked.connect(self._open_popup)
         self._sync_text()
 
-    def eventFilter(self, obj, event) -> bool:
-        from PySide6.QtCore import QEvent
-        if obj is self.view().viewport() and event.type() in (
-                QEvent.Type.MouseButtonPress,
-                QEvent.Type.MouseButtonRelease,
-                QEvent.Type.MouseButtonDblClick):
-            index = self.view().indexAt(event.position().toPoint())
-            item = self._model.itemFromIndex(index)
-            if item is not None and item.isCheckable():
-                if event.type() != QEvent.Type.MouseButtonRelease:
-                    item.setCheckState(
-                        Qt.CheckState.Unchecked
-                        if item.checkState() == Qt.CheckState.Checked
-                        else Qt.CheckState.Checked)
-                return True        # keep the popup open
-        return False
-
-    def _sync_text(self, *_args) -> None:
-        selected = self.checked_items()
-        self.setItemText(0, ", ".join(selected) if selected
-                         else NO_REFERENCE)
-        self.setCurrentIndex(0)
-
+    # ---------------------------------------------------------- state
     def checked_items(self) -> list[str]:
         """The currently checked net names (raw names, list order)."""
-        return [self._model.item(row).data(Qt.ItemDataRole.UserRole)
-                for row in range(1, self._model.rowCount())
-                if self._model.item(row).checkState()
-                == Qt.CheckState.Checked]
+        return [name for name, _label in self._choices
+                if self._checked.get(name)]
+
+    def set_checked(self, names: list[str]) -> None:
+        """Programmatic selection (tests / restore)."""
+        self._checked = {name: name in names
+                         for name, _label in self._choices}
+        self._sync_text()
+
+    def labels(self) -> list[str]:
+        """The item labels in list order (annotations included)."""
+        return [label for _name, label in self._choices]
+
+    def _sync_text(self) -> None:
+        selected = self.checked_items()
+        self.setText(", ".join(selected) if selected else NO_REFERENCE)
+
+    # ---------------------------------------------------------- popup
+    def _open_popup(self) -> None:
+        popup = QDialog(self, Qt.WindowType.Popup)
+        lay = QVBoxLayout(popup)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lst = QListWidget()
+        for name, label in self._choices:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if self._checked.get(name)
+                else Qt.CheckState.Unchecked)
+            lst.addItem(item)
+        lst.itemChanged.connect(self._on_popup_toggle)
+        lay.addWidget(lst)
+        popup.adjustSize()
+        popup.exec()
+
+    def _on_popup_toggle(self, item: QListWidgetItem) -> None:
+        name = item.data(Qt.ItemDataRole.UserRole)
+        if name is None:
+            return
+        self._checked[name] = \
+            item.checkState() == Qt.CheckState.Checked
+        self._sync_text()
 
 
 class NodeEditDialog(QDialog):
