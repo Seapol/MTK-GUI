@@ -267,22 +267,17 @@ class PowerTreePage(QWidget):
         btn_zoom_out.clicked.connect(
             lambda: self.canvas.scale(1 / ZOOM_FACTOR,
                                       1 / ZOOM_FACTOR))
-        btn_link = QPushButton("Draw Flow Arrow")
-        btn_link.setCheckable(True)
-        btn_link.setToolTip(
-            "Flow-arrow mode: press on the UPSTREAM node, drag and "
-            "drop on the DOWNSTREAM node to define the power flow. "
-            "Every node keeps at most ONE upstream (re-defining it "
-            "replaces the old edge); a primary power input has no "
-            "upstream; one node may feed many downstream nodes.")
-        btn_link.toggled.connect(self._set_link_mode)
+        # NOTE: the "Draw Flow Arrow" toolbar button is GONE (user
+        # direction); the link mode itself stays available for the
+        # programmatic/tests path only (_link_mode stays False in the
+        # GUI - upstream/downstream editing happens in the node dialog)
         btn_apply = QPushButton("Apply to YAML")
         btn_apply.setToolTip(
             "Persist the power tree draft into the YAML config and "
             "switch to the Yaml Build page")
         btn_apply.clicked.connect(self._apply_to_yaml)
         for btn in (btn_rebuild, btn_fit, btn_zoom_in, btn_zoom_out,
-                    btn_link, btn_apply):
+                    btn_apply):
             row.addWidget(btn)
         row.addStretch(1)
         lay.addLayout(row)
