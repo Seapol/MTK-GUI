@@ -324,6 +324,11 @@ class _ComboWheelGuard(QObject):
 
 
 class MainWindow(QMainWindow):
+
+    #: theme name whose QSS is CURRENTLY active app-wide (dedup guard
+    #: for apply_gui_theme - see the docstring there)
+    _applied_theme = None
+
     def __init__(self, role=ROLE_SUPERVISOR, mode="Real",
                  fixture=FIXTURE_ATE):
         super().__init__()
@@ -1275,10 +1280,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ theme
     def apply_gui_theme(self, name):
         """Apply one of the selectable GUI colour themes to the whole
-        application (all windows and dialogs) and remember the choice."""
+        application (all windows and dialogs) and remember the choice.
+
+        Re-setting an IDENTICAL app stylesheet is skipped: Qt re-polishes
+        every widget of every live window on each setStyleSheet call,
+        which is pathological with many windows alive (the test suite
+        spawns dozens of MainWindow instances - each redundant re-apply
+        cost seconds of 100 % CPU, appearing as a hung run)."""
         if name not in GUI_THEMES:
             return
-        QApplication.instance().setStyleSheet(build_qss(name))
+        if MainWindow._applied_theme != name:
+            QApplication.instance().setStyleSheet(build_qss(name))
+            MainWindow._applied_theme = name
         QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
         # theme fonts restyle every metric: re-prove the vertical
         # floor once the new stylesheet is polished
