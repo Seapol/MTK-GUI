@@ -251,6 +251,24 @@ QProgressBar::chunk {
 }
 
 QCheckBox { spacing: 8px; color: @text; }
+/* styling ANY QCheckBox property switches Qt to stylesheet rendering;
+   without an explicit indicator rule the checkbox degenerates into an
+   unreadable solid square (checked and unchecked look identical on
+   the dark themes) */
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border: 1px solid @border;
+    border-radius: 3px;
+    background-color: @card;
+}
+QCheckBox::indicator:hover {
+    border-color: @accent;
+}
+QCheckBox::indicator:checked {
+    background-color: @accent;
+    border-color: @accent;
+}
 QLabel { background-color: transparent; }
 QLabel#muted { color: @muted; }
 QLabel#strong { color: @text; font-weight: bold; }
