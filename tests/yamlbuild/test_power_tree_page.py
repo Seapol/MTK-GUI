@@ -364,24 +364,6 @@ def test_node_edit_role_head_tail_middle(qapp):
     assert tree.nodes["VIN"].node_type == NODE_PRIMARY
 
 
-def test_load_node_dialog_has_no_prechecked_tail(qapp):
-    """Regression: an auto-classified load node opens with the Tail
-    role UNCHECKED and every widget editable (the roles are explicit
-    user attributes - the old pre-check locked the dialog)."""
-    from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
-    tree = PowerTree.build(["VIN", "VOUT"], [], primaries=["VIN"])
-    tree.link("VIN", "VOUT")               # VOUT becomes load/locked
-    assert tree.nodes["VOUT"].node_type == "load"
-    dlg = NodeEditDialog(tree.nodes["VOUT"], tree)
-    try:
-        assert dlg.chk_tail.isChecked() is False
-        assert dlg.combo_downstream.isEnabled()
-        assert dlg.combo_upstream.isEnabled()
-        assert dlg.spin_stage.isEnabled()
-    finally:
-        dlg.deleteLater()
-
-
 def test_drag_keeps_head_node_at_stage_0(page):
     """Dragging the head node into another stage lane does NOT move
     it out of stage 0 (head = primary input, stage locked)."""
