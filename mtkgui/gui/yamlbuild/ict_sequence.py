@@ -251,15 +251,38 @@ class IctWorkFlowSequenceDialog(QDialog):
 
     # ------------------------------------------------- table plumbing
     def _refresh(self) -> None:
-        self.table.setRowCount(len(self._rows))
-        for r, (_kind, name, unit, _measured, lo, hi) in \
-                enumerate(self._rows):
-            method = name.split(" - ")[0] if " - " in name else name
-            for c, text in enumerate((method, name, unit, lo, hi)):
-                item = QTableWidgetItem(text)
-                item.setFlags(item.flags()
-                              & ~Qt.ItemFlag.ItemIsEditable)
-                self.table.setItem(r, c, item)
+        table = self.table
+        table.setUpdatesEnabled(False)
+        try:
+            table.setRowCount(len(self._rows))
+            for r, (_kind, name, unit, _measured, lo, hi) in \
+                    enumerate(self._rows):
+                method = (name.split(" - ")[0]
+                          if " - " in name else name)
+                for c, text in enumerate((method, name, unit, lo, hi)):
+                    item = QTableWidgetItem(text)
+                    item.setFlags(item.flags()
+                                  & ~Qt.ItemFlag.ItemIsEditable)
+                    table.setItem(r, c, item)
+        finally:
+            table.setUpdatesEnabled(True)
+
+    def _swap_rows(self, a: int, b: int) -> None:
+        """Swap two rows IN PLACE (item objects are reused, no full
+        table rebuild) - keeps rapid Move Up / Down clicks smooth; the
+        ResizeToContents header does not re-measure on a swap."""
+        self._rows[a], self._rows[b] = self._rows[b], self._rows[a]
+        table = self.table
+        table.setUpdatesEnabled(False)
+        try:
+            for c in range(len(self.COLUMNS)):
+                ia = table.takeItem(a, c)
+                ib = table.takeItem(b, c)
+                table.setItem(a, c, ib)
+                table.setItem(b, c, ia)
+        finally:
+            table.setUpdatesEnabled(True)
+        table.selectRow(b)
 
     def _selected(self) -> int:
         return self.table.currentRow()
@@ -268,19 +291,13 @@ class IctWorkFlowSequenceDialog(QDialog):
         r = self._selected()
         if r <= 0:
             return
-        self._rows[r - 1], self._rows[r] = \
-            self._rows[r], self._rows[r - 1]
-        self._refresh()
-        self.table.selectRow(r - 1)
+        self._swap_rows(r, r - 1)      # swap, selection follows up
 
     def _move_down(self) -> None:
         r = self._selected()
         if r < 0 or r >= len(self._rows) - 1:
             return
-        self._rows[r + 1], self._rows[r] = \
-            self._rows[r], self._rows[r + 1]
-        self._refresh()
-        self.table.selectRow(r + 1)
+        self._swap_rows(r, r + 1)      # swap, select lower row
 
     def _add(self) -> None:
         dlg = IctTestItemDialog(self._net_provider, parent=self)

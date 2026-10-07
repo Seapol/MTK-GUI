@@ -67,6 +67,27 @@ def test_move_up_down_and_duplicate(qapp):
         dlg.deleteLater()
 
 
+def test_rapid_moves_swap_in_place(qapp):
+    """Smoothness contract: Move Up / Down swaps rows IN PLACE - the
+    QTableWidgetItem objects are REUSED (no full table rebuild, so
+    rapid clicks stay responsive) and the selection follows the row."""
+    dlg = make_dialog()
+    try:
+        dlg.table.selectRow(2)
+        item = dlg.table.item(2, 1)            # Power Voltage - 1V8
+        dlg._move_up()
+        assert dlg.table.item(1, 1) is item    # same objects, swapped
+        dlg._move_up()
+        dlg._move_up()                         # rapid repeated clicks
+        assert dlg.table.currentRow() == 0     # clamped at the top
+        names = [dlg.table.item(r, 1).text()
+                 for r in range(dlg.table.rowCount())]
+        assert names[0] == "Power Voltage - 1V8_CORE"
+        assert names == [r[1] for r in dlg.result_tests()]
+    finally:
+        dlg.deleteLater()
+
+
 def test_daq_ai_needs_no_configuration(qapp):
     """DAQ AI (user direction): the Power rails are allocated in
     Channel Allocation - the item editor disables Net / Min / Max and

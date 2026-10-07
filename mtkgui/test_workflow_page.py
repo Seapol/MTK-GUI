@@ -2448,14 +2448,19 @@ class _SequenceEditorDialog(QDialog):
         return menu
 
     def _populate(self):
-        self.list_widget.clear()
-        for i, step in enumerate(self._steps):
-            label = self._label_for(i, step)
-            item = QListWidgetItem(label)
-            item.setCheckState(
-                Qt.CheckState.Checked if self._enables[i]
-                else Qt.CheckState.Unchecked)
-            self.list_widget.addItem(item)
+        lw = self.list_widget
+        lw.setUpdatesEnabled(False)
+        try:
+            lw.clear()
+            for i, step in enumerate(self._steps):
+                label = self._label_for(i, step)
+                item = QListWidgetItem(label)
+                item.setCheckState(
+                    Qt.CheckState.Checked if self._enables[i]
+                    else Qt.CheckState.Unchecked)
+                lw.addItem(item)
+        finally:
+            lw.setUpdatesEnabled(True)
         self._update_buttons()
 
     def _label_for(self, i, step):
