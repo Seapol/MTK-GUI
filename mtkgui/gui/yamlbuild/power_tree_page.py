@@ -33,6 +33,7 @@ from PySide6.QtGui import (
     QPolygonF,
     QWheelEvent,
 )
+import shiboken6
 from PySide6.QtWidgets import (
     QDialog,
     QGraphicsLineItem,
@@ -90,7 +91,16 @@ class _NodeItem(QGraphicsRectItem):
             QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsRectItem.GraphicsItemFlag.ItemIsFocusable)
 
+    def _alive(self) -> bool:
+        """True while the C++ item exists: a scene rebuild
+        (scene.clear) deletes the item while stale Qt events (the
+        double-click sequence spans press/release/dblclick) may still
+        dispatch to the Python wrapper - guard every override."""
+        return shiboken6.isValid(self)
+
     def mousePressEvent(self, event) -> None:
+        if not self._alive():
+            return
         if self._page._link_mode:
             self._page._link_start(self.name)
             event.accept()
@@ -99,6 +109,8 @@ class _NodeItem(QGraphicsRectItem):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        if not self._alive():
+            return
         if self._page._link_mode:
             self._page._link_update(event.scenePos())
             event.accept()
@@ -106,6 +118,8 @@ class _NodeItem(QGraphicsRectItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if not self._alive():
+            return
         if self._page._link_mode:
             self._page._link_end(self.name)
             event.accept()
@@ -116,6 +130,8 @@ class _NodeItem(QGraphicsRectItem):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
+        if not self._alive():
+            return
         if not self._page._link_mode:
             self._page._edit_node(self.name)
         super().mouseDoubleClickEvent(event)
@@ -170,6 +186,7 @@ class PowerTreePage(QWidget):
         self._link_from: str | None = None
         self._link_line: QGraphicsLineItem | None = None
         self._layout_pos: dict[str, tuple[float, float]] = {}
+        self._node_items: list[_NodeItem] = []
 
         lay = QVBoxLayout(self)
         hint = QLabel(
@@ -297,6 +314,7 @@ class PowerTreePage(QWidget):
     def _render_canvas(self) -> None:
         scene = self.canvas.scene()
         scene.clear()
+        self._node_items = []             # wrappers of the new items
         self._link_line = None
         self._link_from = None
         active = self.tree.active_nodes()
@@ -330,6 +348,7 @@ class PowerTreePage(QWidget):
                            else NODE_COLORS.get(node.node_type,
                                                 "#2563eb"))
             item = _NodeItem(node.name, self)
+            self._node_items.append(item)   # keep the wrapper alive
             item.setRect(x, y, NODE_W, NODE_H)
             item.setBrush(QBrush(color))
             item.setPen(Qt.PenStyle.NoPen)
