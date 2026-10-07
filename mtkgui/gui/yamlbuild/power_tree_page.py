@@ -522,11 +522,18 @@ class PowerTreePage(QWidget):
         if node is None or node.pruned:
             return
         changed = False
-        stage = round(scene_pos.x() / COL_STEP)
-        stage = max(0, min(MAX_STAGE, stage))
-        if stage != node.stage:
-            self.tree.set_stage(name, stage)
-            changed = True
+        if node.node_type == NODE_PRIMARY:
+            stage = 0                  # the head node stays stage 0
+            if node.stage != 0 or node.stage_override != 0:
+                node.stage = 0
+                node.stage_override = 0
+                changed = True
+        else:
+            stage = round(scene_pos.x() / COL_STEP)
+            stage = max(0, min(MAX_STAGE, stage))
+            if stage != node.stage:
+                self.tree.set_stage(name, stage)
+                changed = True
         # vertical: align with a linked node's row when close
         linked = [self.tree.nodes[n] for n in
                   list(node.upstream) + list(node.downstream)

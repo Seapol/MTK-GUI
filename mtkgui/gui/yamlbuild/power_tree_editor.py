@@ -41,17 +41,22 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.power_alloc import (
     MAX_STAGE,
     NODE_LOAD,
+    NODE_NORMAL,
     NODE_PRIMARY,
     PowerTree,
 )
 
 NODE_COLORS = {
+    # head node (primary power input) - green
     "primary": "#16a34a",
-    "normal": "#2563eb",
-    "load": "#9ca3af",
+    # middle node (neither head nor tail) - light gray
+    "normal": "#9ca3af",
     "island": "#9ca3af",
+    # tail node (end load) - dark gray
+    "load": "#4b5563",
 }
-DONT_TEST_COLOR = "#4b5563"
+#: Do-Not-Test nodes stay recognizable against the tail gray
+DONT_TEST_COLOR = "#1f2937"
 
 #: placeholder of the node-reference dropdowns (no selection)
 NO_REFERENCE = "—"
@@ -147,6 +152,16 @@ class NodeEditDialog(QDialog):
         self.edit_deps.setPlaceholderText(
             "e.g. requires firmware FW1.2, EN signal high (optional)")
         form.addRow("Dependency conditions:", self.edit_deps)
+        # node role (user direction): HEAD (primary input, stage 0, no
+        # upstream, green) / TAIL (end load, no downstream, dark gray)
+        # / MIDDLE (neither) - head and tail are mutually exclusive
+        self.chk_head = QCheckBox(
+            "Head node (primary power input, stage 0)")
+        self.chk_head.setChecked(node.node_type == NODE_PRIMARY)
+        form.addRow("", self.chk_head)
+        self.chk_tail = QCheckBox("Tail node (end load, no downstream)")
+        self.chk_tail.setChecked(node.node_type == NODE_LOAD)
+        form.addRow("", self.chk_tail)
         # upstream: SINGLE-select dropdown (one parent node - the
         # upstream stays unique); a primary power input has NO upstream
         self.combo_upstream = QComboBox()
@@ -182,20 +197,11 @@ class NodeEditDialog(QDialog):
         self.chk_dont_test = QCheckBox("Do Not Test")
         self.chk_dont_test.setChecked(node.dont_test)
         form.addRow("", self.chk_dont_test)
-        if node.node_type == NODE_PRIMARY:
-            # a primary power input has NO upstream node reference
-            self.combo_upstream.setEnabled(False)
-            self.combo_upstream.setToolTip(
-                "the primary power input has no upstream node")
-        if node.node_type == NODE_LOAD or node.locked:
-            hint = QLabel("Load node (end node) - read-only.")
-            hint.setObjectName("muted")
-            form.addRow("", hint)
-            for widget in (self.edit_voltage, self.edit_tol_upper,
-                           self.edit_tol_lower, self.edit_deps,
-                           self.combo_upstream, self.combo_downstream,
-                           self.chk_dont_test):
-                widget.setEnabled(False)
+        # mutual exclusion + derived disables (head: no upstream and
+        # stage locked to 0; tail: no downstream)
+        self.chk_head.toggled.connect(self._sync_role)
+        self.chk_tail.toggled.connect(self._sync_role)
+        self._sync_role()
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -203,26 +209,50 @@ class NodeEditDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
+    def _sync_role(self) -> None:
+        """Head/tail mutual exclusion with the derived widget states:
+        head -> tail disabled + upstream disabled + stage locked 0;
+        tail -> head disabled + downstream disabled."""
+        head = self.chk_head.isChecked()
+        tail = self.chk_tail.isChecked()
+        self.chk_tail.setEnabled(not head)
+        self.chk_head.setEnabled(not tail)
+        self.combo_upstream.setEnabled(not head)
+        self.combo_downstream.setEnabled(not tail)
+        self.spin_stage.setEnabled(not head)
+        if head:
+            self.spin_stage.setValue(0)
+
     def _on_accept(self) -> None:
-        if self._node.node_type == NODE_LOAD or self._node.locked:
-            QMessageBox.information(
-                self, "Read-only",
-                "Load nodes are read-only (end of the power tree).")
-            self.reject()
-            return
         node = self._node
         node.expected_voltage = self.edit_voltage.text().strip()
         node.tol_upper = self.edit_tol_upper.text().strip()
         node.tol_lower = self.edit_tol_lower.text().strip()
         node.dependencies = self.edit_deps.text().strip()
+        head = self.chk_head.isChecked()
+        tail = self.chk_tail.isChecked()
         # upstream: single-select dropdown (one parent node)
         upstream = self.combo_upstream.currentData()
-        node.upstream = ([upstream] if upstream else [])
+        node.upstream = ([] if head else
+                         [upstream] if upstream else [])
         # downstream: multi-select checkbox dropdown
-        node.downstream = self.combo_downstream.checked_items()
+        node.downstream = ([] if tail
+                           else self.combo_downstream.checked_items())
         node.dont_test = self.chk_dont_test.isChecked()
+        if head:
+            node.node_type = NODE_PRIMARY
+            node.locked = False
+            node.stage_override = 0     # the head node is stage 0
+            node.stage = 0
+        elif tail:
+            node.node_type = NODE_LOAD
+            node.locked = True
+        else:
+            node.node_type = NODE_NORMAL
+            node.locked = False
         override = self.spin_stage.value()
-        node.stage_override = None if override < 0 else override
+        node.stage_override = (0 if head else
+                               None if override < 0 else override)
         if node.stage_override is not None:
             node.stage = node.stage_override
         else:

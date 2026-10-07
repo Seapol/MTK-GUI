@@ -284,6 +284,66 @@ def test_flow_arrow_link_via_page(page):
     assert page._link_line is None and page._link_from is None
 
 
+def test_node_edit_role_head_tail_middle(qapp):
+    """Head/tail/middle roles (user direction): mutually exclusive;
+    head disables upstream and locks stage 0; tail disables the
+    downstream multi-select; the accepted role lands on the node."""
+    from mtkgui.gui.yamlbuild.power_alloc import (
+        NODE_LOAD,
+        NODE_NORMAL,
+        NODE_PRIMARY,
+    )
+    from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
+    tree = PowerTree.build(["VIN", "VMID", "VOUT"], [],
+                           primaries=["VIN"])
+    # middle by default
+    dlg = NodeEditDialog(tree.nodes["VMID"], tree)
+    try:
+        assert dlg.chk_head.isChecked() is False
+        assert dlg.chk_tail.isChecked() is False
+        assert dlg.combo_upstream.isEnabled()
+        assert dlg.combo_downstream.isEnabled()
+        # head: tail checkbox + upstream + stage get disabled
+        dlg.chk_head.setChecked(True)
+        assert not dlg.chk_tail.isEnabled()
+        assert not dlg.combo_upstream.isEnabled()
+        assert not dlg.spin_stage.isEnabled()
+        assert dlg.spin_stage.value() == 0
+        dlg._on_accept()
+        node = tree.nodes["VMID"]
+        assert node.node_type == NODE_PRIMARY
+        assert node.upstream == [] and node.stage == 0
+        # tail: head checkbox + downstream get disabled
+        dlg.chk_head.setChecked(False)
+        dlg.chk_tail.setChecked(True)
+        assert not dlg.chk_head.isEnabled()
+        assert not dlg.combo_downstream.isEnabled()
+        dlg._on_accept()
+        assert tree.nodes["VMID"].node_type == NODE_LOAD
+        assert tree.nodes["VMID"].downstream == []
+        # unchecking both falls back to the middle role
+        dlg.chk_tail.setChecked(False)
+        dlg._on_accept()
+        assert tree.nodes["VMID"].node_type == NODE_NORMAL
+    finally:
+        dlg.deleteLater()
+    assert tree.nodes["VIN"].node_type == NODE_PRIMARY
+
+
+def test_drag_keeps_head_node_at_stage_0(page):
+    """Dragging the head node into another stage lane does NOT move
+    it out of stage 0 (head = primary input, stage locked)."""
+    from PySide6.QtCore import QPointF
+    from mtkgui.gui.yamlbuild.power_tree_page import COL_STEP
+    page.refresh_from_model()
+    page.tree = PowerTree.build(["VIN_24V", "MID_A"], [],
+                                primaries=["VIN_24V"])
+    page._render()
+    page._on_node_dropped("VIN_24V", QPointF(3 * COL_STEP, 0))
+    node = page.tree.nodes["VIN_24V"]
+    assert node.stage == 0 and node.stage_override == 0
+
+
 def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     """Double-click edit (dialog mocked): attributes land on the node,
     a manual-override record enters the audit log and the draft is
