@@ -72,8 +72,12 @@ CATEGORY_GPIO = "GPIO"
 CATEGORY_GND = "GND"
 CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
 
-#: Parsed-Nets-table category labels (the combo the user can change)
-TABLE_CATEGORIES = ("Power", "SE Clock", "Signal", "GND")
+#: Parsed-Nets-table category labels (the combo the user can change;
+#: "Filtered" moves a net into the Filtered Nets table)
+TABLE_CATEGORIES = ("Power", "SE Clock", "Signal", "GND", "Filtered")
+
+#: the Filtered-Nets-table category (moved back by picking a real one)
+CATEGORY_FILTERED = "Filtered"
 
 #: nets of these categories default to Do Not Test (user direction)
 DNT_DEFAULT_CATEGORIES = ("Signal", "GND")
@@ -155,6 +159,9 @@ class ParseNetsResult:
     gpio: list[NetRecord] = field(default_factory=list)
     gnd: list[NetRecord] = field(default_factory=list)
     filtered: list[tuple[str, str]] = field(default_factory=list)
+    #: the dropped NetRecords (name + reason above) - the Filtered
+    #: Nets table uses them to move a net back into the parsed set
+    filtered_records: list[NetRecord] = field(default_factory=list)
     total: int = 0
     invalid_lines: list[str] = field(default_factory=list)
 
@@ -214,6 +221,7 @@ def parse_testable_nets(net_text: str,
                 if re.search(pattern, rec.name):
                     result.filtered.append(
                         (rec.name, EXCLUDED_REASON))
+                    result.filtered_records.append(rec)
                     continue
             except re.error:
                 pass
@@ -224,6 +232,7 @@ def parse_testable_nets(net_text: str,
             # get a test point -> filtered with the reason
             result.filtered.append(
                 (rec.name, "no valid member pin (no test point)"))
+            result.filtered_records.append(rec)
             continue
         if rec.net_type == NET_TYPE_POWER:
             rec.members = members
@@ -244,6 +253,7 @@ def parse_testable_nets(net_text: str,
             result.filtered.append(
                 (rec.name, _FILTER_REASONS.get(
                     rec.net_type, "not an ICT test object")))
+            result.filtered_records.append(rec)
     return result
 
 
@@ -330,8 +340,29 @@ class ParseNetsPanel(QWidget):
             0, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setMinimumHeight(260)
+        self.table.setMinimumHeight(220)
         lay.addWidget(self.table, 1)
+
+        # ------------------------------ table 2: Filtered Nets (user
+        # direction: the excluded nets stay visible with their reason;
+        # the Category combo defaults to "Filtered" - picking Power /
+        # SE Clock / Signal / GND moves the net BACK into the Parsed
+        # Nets table, and picking "Filtered" in the Parsed Nets table
+        # moves it here)
+        lbl_filtered = QLabel("Filtered Nets:")
+        lbl_filtered.setObjectName("strong")
+        lay.addWidget(lbl_filtered)
+        self.table_filtered = QTableWidget(0, 3)
+        self.table_filtered.setHorizontalHeaderLabels(
+            ["Net", "Reason", "Category"])
+        self.table_filtered.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents)
+        self.table_filtered.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch)
+        self.table_filtered.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_filtered.setMaximumHeight(160)
+        lay.addWidget(self.table_filtered)
 
         # GND integrity resident hint (core-algorithm standard 5.2):
         # advisory only - never blocks the parse
@@ -390,8 +421,14 @@ class ParseNetsPanel(QWidget):
 
     def _category_changed(self, name: str, category: str) -> None:
         """User re-categorization: the override survives re-parses and
-        the Do-Not-Test flag follows the new category default."""
+        the Do-Not-Test flag follows the new category default.  The
+        "Filtered" choice MOVES the net into the Filtered Nets table."""
         self._category_overrides[name] = category
+        if category == CATEGORY_FILTERED:
+            self.task_log.emit(
+                "INFO", f"net {name} moved to the Filtered Nets table")
+            self._refresh_tables()
+            return
         default = self._dnt_default(category)
         self._dnt_flags[name] = default
         # keep the row's DNT checkbox in sync (no double log)
@@ -407,6 +444,31 @@ class ParseNetsPanel(QWidget):
         self.task_log.emit(
             "INFO", f"net {name} re-categorized as {category}"
             + (" (Do Not Test)" if default else ""))
+
+    def _filtered_category_changed(self, name: str,
+                                   category: str) -> None:
+        """Filtered-Nets-table combo: picking a REAL category moves
+        the net back into the Parsed Nets table ("Filtered" keeps it
+        here)."""
+        self._category_overrides[name] = category
+        if category == CATEGORY_FILTERED:
+            self._dnt_flags.pop(name, None)
+            self.task_log.emit(
+                "INFO", f"net {name} stays filtered")
+            self._refresh_tables()
+            return
+        self._dnt_flags[name] = self._dnt_default(category)
+        self.task_log.emit(
+            "INFO", f"net {name} restored from Filtered as {category}")
+        self._refresh_tables()
+
+    def _refresh_tables(self) -> None:
+        """Re-render both tables from the current result + overrides
+        (the move between the tables is a re-render)."""
+        if self.result is None:
+            return
+        self._fill_preview(self.result)
+        self._fill_filtered(self.result)
 
     def set_rules(self, rules: dict) -> None:
         """Load the persisted classification rules (project YAML)."""
@@ -598,6 +660,7 @@ class ParseNetsPanel(QWidget):
         self.task_progress.emit(70, "parse nets: selecting test points")
         self.task_log.emit("INFO", "test point selection done")
         self._fill_preview(result)
+        self._fill_filtered(result)
         # Step 5: path risk (advisory scores for the non-DNT nets)
         self.task_progress.emit(85, "parse nets: scoring path risk")
         self.task_log.emit("INFO", "path risk calculation done")
@@ -644,21 +707,34 @@ class ParseNetsPanel(QWidget):
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
         """Render the PARSED NETS table (Net | Test Points | Category |
-        Do Not Test): every parsed net is listed - Power / SE Clock /
-        Signal / GND rows; the Category combo is user-changeable and
-        Signal / GND rows default to Do Not Test (explicit user flags
-        survive re-parses and win over the category defaults)."""
+        Do Not Test): the Power / SE Clock / Signal / GND nets MINUS
+        the ones overridden to "Filtered", PLUS the filtered nets
+        overridden back to a real category; the Category combo (with
+        the "Filtered" choice) drives the moves."""
         groups = ((CATEGORY_POWER, result.power),
                   ("SE Clock", result.clock),
                   ("Signal", result.gpio),
                   (CATEGORY_GND, result.gnd))
-        rows = [(rec, cat) for cat, records in groups for rec in records]
+        rows = [(rec, cat) for cat, records in groups for rec in records
+                if self._category_overrides.get(rec.name)
+                != CATEGORY_FILTERED]
+        # filtered nets restored by the user to a real category
+        for rec in result.filtered_records:
+            override = self._category_overrides.get(rec.name)
+            if override is not None \
+                    and override != CATEGORY_FILTERED:
+                rows.append((rec, override))
         self.table.setRowCount(len(rows))
         for row, (rec, auto_cat) in enumerate(rows):
             category = self._category_overrides.get(rec.name, auto_cat)
+            if category == CATEGORY_FILTERED:
+                category = auto_cat
             self._dnt_flags.setdefault(
                 rec.name, self._dnt_default(category))
-            best, kept = select_test_points(rec.members)
+            members = [t for t in rec.members if "." in t or
+                       t.upper().startswith("TP")]
+            best, kept = select_test_points(
+                members or rec.members)
             points = best if best else ""
             if len(kept) > 1:
                 points += f" (+{len(kept) - 1} alt)"
@@ -686,3 +762,44 @@ class ParseNetsPanel(QWidget):
             self.table.setCellWidget(row, 3, dnt)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
+
+    def _fill_filtered(self, result: ParseNetsResult) -> None:
+        """Render the FILTERED NETS table (Net | Reason | Category):
+        every dropped net with its reason PLUS the parsed nets the
+        user moved down ("Filtered" in the Parsed Nets table); the
+        Category combo defaults to "Filtered" - a real category moves
+        the net back into the Parsed Nets table."""
+        reasons = dict(result.filtered)
+        rows: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for rec in result.filtered_records:
+            if self._category_overrides.get(
+                    rec.name, CATEGORY_FILTERED) == CATEGORY_FILTERED:
+                rows.append((rec.name,
+                             reasons.get(rec.name, ""), ))
+                seen.add(rec.name)
+        for records in (result.power, result.clock, result.gpio,
+                        result.gnd):
+            for rec in records:
+                if rec.name not in seen and \
+                        self._category_overrides.get(rec.name) \
+                        == CATEGORY_FILTERED:
+                    rows.append(
+                        (rec.name, "manually moved to Filtered"))
+        self.table_filtered.setRowCount(len(rows))
+        for row, (name, reason) in enumerate(rows):
+            net_item = QTableWidgetItem(name)
+            net_item.setFlags(net_item.flags()
+                              & ~Qt.ItemFlag.ItemIsEditable)
+            reason_item = QTableWidgetItem(reason)
+            reason_item.setFlags(reason_item.flags()
+                                 & ~Qt.ItemFlag.ItemIsEditable)
+            self.table_filtered.setItem(row, 0, net_item)
+            self.table_filtered.setItem(row, 1, reason_item)
+            combo = QComboBox()
+            combo.addItems(TABLE_CATEGORIES)
+            combo.setCurrentText(CATEGORY_FILTERED)
+            combo.currentTextChanged.connect(
+                lambda value, net=name:
+                    self._filtered_category_changed(net, value))
+            self.table_filtered.setCellWidget(row, 2, combo)

@@ -242,22 +242,36 @@ class YamlBuildPage(QWidget):
                 and dialog.nets_panel is not None \
                 and dialog.nets_panel.result is not None:
             # the parse result is the single data source for the
-            # Channel Allocation tables (T10)
+            # Channel Allocation tables (T10); "Filtered" overrides
+            # keep a net out, restored filtered nets join a category
             result = dialog.nets_panel.result
             overrides = dialog.nets_panel._category_overrides
-            self.model.imported["testable_nets"] = {
-                rec.name: {"category": overrides.get(rec.name, cat),
-                           "members": list(rec.members),
-                           **({"auto_generated": True}
-                              if dialog.nets_panel._auto_generated.get(
-                                  rec.name) else {}),
-                           **({"category_override": True}
-                              if rec.name in overrides else {})}
-                for cat, records in
-                (("Power", result.power), ("Clock", result.clock),
-                 ("GPIO", result.gpio))
-                for rec in records
-            }
+            testable = {}
+            for cat, records in (("Power", result.power),
+                                 ("Clock", result.clock),
+                                 ("GPIO", result.gpio)):
+                for rec in records:
+                    if overrides.get(rec.name) == "Filtered":
+                        continue        # moved to Filtered Nets
+                    testable[rec.name] = {
+                        "category": overrides.get(rec.name, cat),
+                        "members": list(rec.members),
+                        **({"auto_generated": True}
+                           if dialog.nets_panel._auto_generated.get(
+                               rec.name) else {}),
+                        **({"category_override": True}
+                           if rec.name in overrides else {})}
+            for rec in result.filtered_records:
+                cat = overrides.get(rec.name)
+                if cat and cat != "Filtered":
+                    members = [t for t in rec.members
+                               if "." in t
+                               or t.upper().startswith("TP")]
+                    testable[rec.name] = {
+                        "category": cat,
+                        "members": members or list(rec.members),
+                        "category_override": True}
+            self.model.imported["testable_nets"] = testable
             # item 24: rules persistence (the channel assignment lives
             # in the Channel Allocation page only; the power tree draft
             # is owned by the dedicated Power Tree page)

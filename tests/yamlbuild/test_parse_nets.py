@@ -136,6 +136,53 @@ U1.48 J9.9
     assert "N12345" in [r.name for r in result3.gpio]
 
 
+# ------------------------------------------------- Filtered Nets table
+def test_kernel_keeps_filtered_records():
+    """The kernel keeps the dropped NetRecords so the Filtered Nets
+    table can move a net back into the parsed set."""
+    result = parse_testable_nets(NET_SAMPLE)
+    rec_names = {r.name for r in result.filtered_records}
+    assert rec_names == {n for n, _r in result.filtered}
+
+
+def test_panel_filtered_table_and_moves(panel):
+    """Filtered Nets table (Net | Reason | Category, default
+    "Filtered"): picking "Filtered" in the Parsed Nets table moves a
+    net down; picking a real category in the Filtered table moves it
+    back up (both are whole-row moves)."""
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    panel.parse_nets()
+    # the filtered table shows the 3 dropped nets with their reasons
+    assert panel.table_filtered.rowCount() == 3
+    names = {panel.table_filtered.item(r, 0).text(): r
+             for r in range(3)}
+    assert set(names) == {"USB_P", "USB_N", "NO_PINS"}
+    assert panel.table_filtered.cellWidget(names["USB_P"], 2) \
+        .currentText() == "Filtered"
+    # parsed -> filtered: pick "Filtered" on GPIO_LED1
+    parsed = {panel.table.item(r, 0).text(): r
+              for r in range(panel.table.rowCount())}
+    panel.table.cellWidget(parsed["GPIO_LED1"], 2).setCurrentText(
+        "Filtered")
+    assert panel.table_filtered.rowCount() == 4
+    assert panel.table.rowCount() == 4        # moved out of parsed
+    filtered_names = {panel.table_filtered.item(r, 0).text()
+                      for r in range(4)}
+    assert "GPIO_LED1" in filtered_names
+    # filtered -> parsed: restore USB_P as Power
+    panel.table_filtered.cellWidget(names["USB_P"], 2) \
+        .setCurrentText("Power")
+    assert panel.table_filtered.rowCount() == 3
+    assert panel.table.rowCount() == 5
+    restored = {panel.table.item(r, 0).text(): r
+                for r in range(panel.table.rowCount())}
+    assert "USB_P" in restored
+    assert panel.table.cellWidget(restored["USB_P"], 2) \
+        .currentText() == "Power"
+    assert panel.table.cellWidget(restored["USB_P"], 3) \
+        .isChecked() is False                 # Power DNT default
+
+
 # ------------------------------------------------------------ GUI panel
 def test_panel_parse_renders_parsed_nets_table(panel):
     """The single PARSED NETS table (Net | Test Points | Category |
