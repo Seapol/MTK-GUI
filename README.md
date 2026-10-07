@@ -362,6 +362,40 @@ Notes:
 3. **Git on Windows** needs to be installed once: <https://git-scm.com/download/win> (default options are fine).
 4. No Windows build machine at hand? Use the cloud build (**Option 3** above).
 
+### Offline transfer without GitHub (git bundle)
+
+When GitHub is unreachable (blocked network, no proxy, no hotspot), transfer the
+branch as a **single bundle file** over USB stick / AirDrop / LAN share — no
+network required.
+
+**on the machine that has the code (e.g. the Mac):**
+
+```bash
+git bundle create mtk-gui-p3b2.bundle feature/p3-b2-core
+```
+
+Copy `mtk-gui-p3b2.bundle` (one file) to the other machine by any means.
+
+**on the receiving machine (e.g. Windows):**
+
+```bat
+git clone mtk-gui-p3b2.bundle MTK-GUI -b feature/p3-b2-core
+cd MTK-GUI
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+```
+
+The bundle carries the full branch history, so the clone is a normal
+repository — later you can add GitHub back as a remote and push/pull as usual:
+
+```bash
+git remote add origin https://github.com/Seapol/MTK-GUI.git
+git push -u origin feature/p3-b2-core
+```
+
+To re-transfer newer commits, rebuild the bundle the same way (it always
+contains everything reachable from the branch tip).
+
 ## Platform notes
 
 ### Windows
