@@ -67,6 +67,25 @@ def test_move_up_down_and_duplicate(qapp):
         dlg.deleteLater()
 
 
+def test_daq_ai_needs_no_configuration(qapp):
+    """DAQ AI (user direction): the Power rails are allocated in
+    Channel Allocation - the item editor disables Net / Min / Max and
+    returns the fixed power-rails test row directly."""
+    from mtkgui.gui.yamlbuild.ict_sequence import IctTestItemDialog
+    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
+                            method="DAQ AI")
+    try:
+        assert dlg.combo_method.currentText() == "DAQ AI"
+        assert not dlg.combo_net.isEnabled()
+        assert not dlg.spin_lo.isEnabled()
+        assert not dlg.spin_hi.isEnabled()
+        assert dlg.edit_unit.text() == "V"
+        assert dlg.values() == ("test", "DAQ AI - Power rails",
+                                "V", "—", "—", "—")
+    finally:
+        dlg.deleteLater()
+
+
 def test_add_row_without_operations(qapp, monkeypatch):
     """Add opens the item dialog; the accepted row lands at the end.
     Standard operations never enter the table."""

@@ -53,6 +53,12 @@ METHOD_NET_CATEGORY = {
     "test": "GPIO",
 }
 
+#: the DAQ AI test needs NO net / limits here: the Power rails are
+#: already allocated in Channel Allocation - adding the test row is
+#: enough (user direction)
+DAQ_AI_METHOD = "DAQ AI"
+DAQ_AI_NAME = "DAQ AI - Power rails"
+
 #: the canonical generation order (user direction): impedance ->
 #: power rails (voltage) -> clock
 METHOD_ORDER = ("Static Impedance", "Power Voltage", "Clock Hz")
@@ -127,6 +133,17 @@ class IctTestItemDialog(QDialog):
 
     def _sync(self, method: str) -> None:
         self.edit_unit.setText(METHOD_UNITS.get(method, "—"))
+        if method == DAQ_AI_METHOD:
+            # the Power rails are allocated in Channel Allocation -
+            # a DAQ AI test needs NO net / limits here (user
+            # direction): add the test row directly
+            self.combo_net.setEnabled(False)
+            self.spin_lo.setEnabled(False)
+            self.spin_hi.setEnabled(False)
+            return
+        self.combo_net.setEnabled(True)
+        self.spin_lo.setEnabled(True)
+        self.spin_hi.setEnabled(True)
         current = self.combo_net.currentText()
         fresh = self._net_choices()
         if current and current not in fresh:
@@ -141,6 +158,9 @@ class IctTestItemDialog(QDialog):
     def values(self) -> tuple:
         """The step tuple of the edited row ("test" kind)."""
         method = self.combo_method.currentText()
+        if method == DAQ_AI_METHOD:
+            return ("test", DAQ_AI_NAME, METHOD_UNITS[method],
+                    "—", "—", "—")
         return ("test", self.combo_net.currentText().strip(),
                 METHOD_UNITS.get(method, "—"), "—",
                 _num_text(self.spin_lo), _num_text(self.spin_hi))
