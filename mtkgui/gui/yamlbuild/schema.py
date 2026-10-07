@@ -158,11 +158,17 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
                    "(load only, parsed by the Parse Nets module)"),
     ),
     "instruments": (
-        _f("psu_visa", "PSU VISA Address", required=True,
-           remarks="Keysight N5747A rack PSU (block03 = the ONLY "
-                   "rack-ATE instrument editor)"),
-        _f("daq_visa", "DAQ VISA Address", required=True,
-           remarks="Keysight DAQ973A + DAQM908A/907A"),
+        # NOTE: the VISA addresses are OWNED by the Equipment page
+        # (connection + validation live there); block 03 is a
+        # status-only passthrough, so these fields are NOT required -
+        # a save must never fail on values this page does not edit
+        # (a successful Connect proves the address exists anyway)
+        _f("psu_visa", "PSU VISA Address",
+           remarks="Keysight N5747A rack PSU (managed on the "
+                   "Equipment page)"),
+        _f("daq_visa", "DAQ VISA Address",
+           remarks="Keysight DAQ973A + DAQM908A/907A (managed on the "
+                   "Equipment page)"),
         _f("dmm_visa", "DMM VISA Address",
            remarks="Keysight DMM (optional)"),
         _f("channel_alloc", "Channel Allocation", ftype=T_TEXT,
