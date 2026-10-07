@@ -89,6 +89,27 @@ def _equipment_to_yaml(configs):
     return data
 
 
+def rails_up_sequence_config(page) -> dict:
+    """The power-rails up-sequence capture config of the Test Work
+    Flow page (rail set + capture window + rate) in its YAML shape -
+    shared by the project file save AND the Yaml Build model sync."""
+    return {
+        "instrument": "Keysight U2355A analog input",
+        "channels": len(page.rails),
+        "duration_s": round(getattr(page, "cap_end", DURATION_S)
+                            - getattr(page, "cap_start", -0.5), 3),
+        "pre_trigger_s": round(getattr(page, "cap_start", -0.5), 3),
+        "post_trigger_s": round(getattr(page, "cap_end", DURATION_S), 3),
+        "sample_rate_hz": getattr(page, "cap_rate", SAMPLE_HZ),
+        "judgment": "record only - no pass/fail",
+        "rails": [
+            {"name": name, "nominal_v": vnom,
+             "ramp_offset_s": ramp_off, "color": color}
+            for name, color, vnom, ramp_off in page.rails
+        ],
+    }
+
+
 def _workflow_to_yaml(page):
     overall_flow = []
     for r in range(page.overall.rowCount()):
@@ -131,19 +152,7 @@ def _workflow_to_yaml(page):
             case["breakpoint"] = True
         ict_cases.append(case)
 
-    rails = {
-        "instrument": "Keysight U2355A analog input",
-        "channels": len(page.rails),
-        "duration_s": round(getattr(page, "cap_end", DURATION_S)
-                            - getattr(page, "cap_start", -0.5), 3),
-        "sample_rate_hz": getattr(page, "cap_rate", SAMPLE_HZ),
-        "judgment": "record only - no pass/fail",
-        "rails": [
-            {"name": name, "nominal_v": vnom,
-             "ramp_offset_s": ramp_off, "color": color}
-            for name, color, vnom, ramp_off in page.rails
-        ],
-    }
+    rails = rails_up_sequence_config(page)
 
     fct_cases = []
     fct_kinds = getattr(page, "fct_kinds", None) or []

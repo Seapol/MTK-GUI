@@ -149,6 +149,10 @@ class YamlBuildModel:
         # card marks (user direction): module_key -> "star" (edited,
         # OK saved) / "check" (passed the block-09 full validation)
         self.marks: dict[str, str] = {}
+        # T10-adjacent: the Test Work Flow page's power-rails capture
+        # config synced into the model (user question: the configured
+        # power rails MUST appear in the YAML preview / Apply)
+        self.power_rails_up_sequence: dict = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -227,6 +231,20 @@ class YamlBuildModel:
         """Return the stored Channel Allocation configuration."""
         return dict(self.channel_allocation or {})
 
+    def set_power_rails(self, data: dict) -> None:
+        """Store the Test Work Flow page's power-rails capture config
+        (rail set + capture window + rate); the capture parameters are
+        mirrored into the rails module's fields (sample rate, pre /
+        post trigger)."""
+        if isinstance(data, dict):
+            self.power_rails_up_sequence = data
+            params = self._params.get("rails", {})
+            for key in ("sample_rate_hz", "pre_trigger_s",
+                        "post_trigger_s"):
+                if key in data:
+                    params[key] = str(data[key])
+            self.changed = True
+
     @property
     def plan_version(self) -> str:
         """Plan version used in the Draft/Final file naming."""
@@ -300,6 +318,9 @@ class YamlBuildModel:
         # T10 Channel Allocation configuration (project YAML)
         if self.channel_allocation:
             section["channel_allocation"] = self.channel_allocation
+        if self.power_rails_up_sequence:
+            section["power_rails_up_sequence"] = \
+                self.power_rails_up_sequence
         # item 24 sections (rules / power tree / allocations)
         if self.net_classification_rules:
             section["net_classification_rules"] = \
@@ -403,6 +424,10 @@ class YamlBuildModel:
         alloc = section.get("channel_allocation")
         if isinstance(alloc, dict):
             self.channel_allocation = alloc
+        # Test Work Flow power-rails capture config restore
+        pr = section.get("power_rails_up_sequence")
+        if isinstance(pr, dict):
+            self.power_rails_up_sequence = pr
         # item 24 sections restore (empty / legacy: blank, no error)
         rules = section.get("net_classification_rules")
         if isinstance(rules, dict):
@@ -499,6 +524,8 @@ class YamlBuildModel:
             "saved_at": datetime.now().isoformat(timespec="seconds"),
             "imported": copy.deepcopy(self.imported),
             "channel_allocation": copy.deepcopy(self.channel_allocation),
+            "power_rails_up_sequence":
+                copy.deepcopy(self.power_rails_up_sequence),
             "net_classification_rules":
                 copy.deepcopy(self.net_classification_rules),
             "power_tree": copy.deepcopy(self.power_tree),
@@ -540,6 +567,9 @@ class YamlBuildModel:
         # T10 Channel Allocation (legacy states: key absent -> blank)
         alloc = state.get("channel_allocation")
         self.channel_allocation = alloc if isinstance(alloc, dict) else {}
+        pr = state.get("power_rails_up_sequence")
+        self.power_rails_up_sequence = (pr if isinstance(pr, dict)
+                                        else {})
         # item 24 sections (legacy states: key absent -> blank)
         for key, default in (("net_classification_rules", {}),
                              ("power_tree", {}),

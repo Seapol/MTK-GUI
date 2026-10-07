@@ -369,6 +369,15 @@ class YamlBuildPage(QWidget):
         self.block_flow.set_module_mark(module_key, mark)
         self._persist()
 
+    def apply_power_rails(self, seq: dict) -> None:
+        """Sync the Test Work Flow page's power-rails capture config
+        into the model (user question: configured power rails MUST
+        land in the YAML): stored as its own section AND mirrored into
+        the rails module's capture parameters; the preview refreshes."""
+        self.model.set_power_rails(seq)
+        self._persist()
+        self.yaml_preview.set_model_text(self.model)
+
     def _on_preview_edited(self) -> None:
         """Slot for valid hand edits from the YAML preview: refresh
         the block cards (enable states) and persist.  The preview

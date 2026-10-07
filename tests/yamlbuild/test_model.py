@@ -66,6 +66,39 @@ def test_stage_count_and_order():
     assert "power_dut" not in STAGE_KEYS
 
 
+def test_power_rails_synced_into_yaml():
+    """User question: the Test Work Flow page's power-rails capture
+    config MUST land in the YAML - stored as its own section, mirrored
+    into the rails module's capture parameters, round-tripped."""
+    import yaml
+    model = YamlBuildModel()
+    model.set_power_rails({
+        "instrument": "Keysight U2355A analog input", "channels": 2,
+        "duration_s": 6.5, "pre_trigger_s": -0.5, "post_trigger_s": 6.0,
+        "sample_rate_hz": 200,
+        "rails": [
+            {"name": "VDD_3V3", "nominal_v": 3.3,
+             "ramp_offset_s": 0.0, "color": "#c00"},
+            {"name": "VDD_1V8", "nominal_v": 1.8,
+             "ramp_offset_s": 0.2, "color": "#0c0"},
+        ],
+    })
+    data = yaml.safe_load(model.to_effective_yaml())
+    seq = data["yaml_build"]["power_rails_up_sequence"]
+    assert seq["sample_rate_hz"] == 200
+    assert [r["name"] for r in seq["rails"]] == ["VDD_3V3", "VDD_1V8"]
+    # mirrored into the rails module capture parameters
+    params = model.get_params("rails")
+    assert params["sample_rate_hz"] == "200"
+    assert params["pre_trigger_s"] == "-0.5"
+    assert params["post_trigger_s"] == "6.0"
+    # state round trip (restart-safe)
+    restored = YamlBuildModel()
+    restored.apply_state(model.to_dict())
+    assert restored.power_rails_up_sequence["duration_s"] == 6.5
+    assert restored.get_params("rails")["sample_rate_hz"] == "200"
+
+
 def test_disabled_excluded_from_effective_yaml_but_retained():
     """Disable: skipped in the effective YAML, parameters silently
     retained in the model."""

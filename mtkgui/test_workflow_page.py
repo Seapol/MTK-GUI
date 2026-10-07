@@ -300,6 +300,9 @@ class WaveformWidget(QWidget):
 class TestWorkFlowPage(QWidget):
     # emitted when a whole test cycle completes -> main window jumps here
     run_finished = Signal()
+    # the power-rails capture config changed (properties OK) -> the
+    # main window syncs it into the Yaml Build model (YAML preview)
+    rail_config_changed = Signal()
     # emitted with (current, total) so the status bar progress bar can update
     run_progress = Signal(int, int)
     # run phase text ("Init...", "Connecting console...", ...) for the
@@ -1422,6 +1425,9 @@ class TestWorkFlowPage(QWidget):
         self.rail_samples, self.rail_volts =             self._generate_rail_samples(inject_faults=False)
         self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
         self._apply_rail_filter()
+        # the rail config feeds the Yaml Build model (user question:
+        # configured power rails MUST land in the YAML)
+        self.rail_config_changed.emit()
 
     def _build_fct(self):
         group = QGroupBox("FCT Test Cases")

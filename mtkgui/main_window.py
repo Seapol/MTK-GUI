@@ -496,6 +496,10 @@ class MainWindow(QMainWindow):
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         self.yaml_build_page.test_workflow_requested.connect(
             self._goto_test_workflow)
+        # Power Rails config (Test Work Flow properties) -> Yaml Build
+        # model: the configured rails land in the YAML preview / Apply
+        self.workflow_page.rail_config_changed.connect(
+            self._sync_rails_to_yaml)
         # the step edit dialog offers the nets PER TEST METHOD from
         # the Yaml Build model (parse result = single data source)
         self.workflow_page.net_catalog_provider = (
@@ -1250,6 +1254,13 @@ class MainWindow(QMainWindow):
         return project_config.build_config(
             self.workflow_page, self.equipment_page,
             self.yaml_build_page.model.to_dict())
+
+    def _sync_rails_to_yaml(self):
+        """The Power Rails properties were confirmed on the Test Work
+        Flow page: push the capture config into the Yaml Build model so
+        it shows up in the YAML preview and survives the Apply."""
+        self.yaml_build_page.apply_power_rails(
+            project_config.rails_up_sequence_config(self.workflow_page))
 
     def save_yaml_as(self):
         """File > Save as Yaml: always ask for a (new) file name.
