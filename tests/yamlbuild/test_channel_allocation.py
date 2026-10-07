@@ -297,8 +297,10 @@ def test_auto_allocate_top_down(page):
     clock = page.table_clock.rows()[0]
     assert clock.se_clock_hz == "DAQM907A TOT"
     assert clock.band == "0 ~ 100 kHz"
+    # the GPIO DIO channels are NOT auto-assigned (user direction:
+    # manual configuration only)
     gpio = page.table_gpio.rows()[0]
-    assert gpio.dio_channel == "DAQM907A DIO01"
+    assert gpio.dio_channel == UNSET
 
 
 def test_auto_allocate_pool_exhausted(page, monkeypatch):

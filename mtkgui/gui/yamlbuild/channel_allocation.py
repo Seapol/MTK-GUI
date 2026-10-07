@@ -509,14 +509,14 @@ class ChannelAllocationPage(QWidget):
         top = QHBoxLayout()
         btn_auto = QPushButton("Auto")
         btn_auto.setToolTip(
-            "Automatic allocation, top-down per table: best test "
-            "point (TP probe pin preferred, else the first member "
-            "pin), sequential instrument channels - Impedance and "
-            "Voltage share the SAME DAQM908A channel, Power rails "
-            "come from the U2355A AI pool, SE Clock / DIO from their "
-            "pools. Beyond the pool capacity a channel stays unset "
-            "(no test) - adjust manually; a net can be excluded by "
-            "manually setting its channels to unset.")
+            "Automatic allocation (Power / Clock tables only, "
+            "top-down): best test point (TP probe pin preferred, "
+            "else the first member pin), sequential instrument "
+            "channels - Impedance and Voltage share the SAME "
+            "DAQM908A channel, Power rails come from the U2355A AI "
+            "pool. Beyond the pool capacity a channel stays unset "
+            "(no test). The GPIO DIO channels are NOT auto-assigned "
+            "- configure them manually.")
         btn_auto.clicked.connect(self._auto_allocate)
         top.addWidget(btn_auto)
         top.addStretch(1)
@@ -701,19 +701,19 @@ class ChannelAllocationPage(QWidget):
         return probe or members[0]
 
     def _auto_allocate(self) -> None:
-        """Auto (user direction): assign every table top-down - the
-        best test point, then sequential channel resources.  The
-        Impedance and Voltage cells share the SAME DAQM908A channel;
-        Power rails draw from the U2355A AI pool; SE Clock / DIO from
-        their own pools.  Rows beyond the pool capacity stay unset
-        (cannot be tested) and are adjusted manually afterwards."""
+        """Auto (user direction): assign the Power / Clock tables
+        top-down - the best test point, then sequential channel
+        resources.  The Impedance and Voltage cells share the SAME
+        DAQM908A channel; Power rails draw from the U2355A AI pool;
+        SE Clock from its pool.  Rows beyond the pool capacity stay
+        unset (cannot be tested) and are adjusted manually afterwards.
+        The GPIO DIO channels are NOT touched - the user configures
+        them manually."""
         for kind, table in (("power", self.table_power),
-                            ("clock", self.table_clock),
-                            ("gpio", self.table_gpio)):
+                            ("clock", self.table_clock)):
             sense = iter(DAQM908A_SENSE_CHANNELS)
             rails = iter(U2355A_AI_CHANNELS)
             clocks = iter(CLOCK_CHANNELS)
-            dios = iter(GPIO_DIO_CHANNELS)
             rows = table.rows()
             for row in rows:
                 if row.test_point in ("", UNSET):
@@ -725,23 +725,19 @@ class ChannelAllocationPage(QWidget):
                         row.impedance = channel
                         row.voltage = channel   # SAME channel both
                         row.power_rails = next(rails)
-                    elif kind == "clock":
+                    else:
                         row.se_clock_hz = next(clocks)
                         row.band = CLOCK_BANDS.get(row.se_clock_hz,
                                                    UNSET)
-                    else:
-                        row.dio_channel = next(dios)
                 except StopIteration:
                     # pool exhausted: this net cannot be tested
                     if kind == "power":
                         row.impedance = UNSET
                         row.voltage = UNSET
                         row.power_rails = UNSET
-                    elif kind == "clock":
+                    else:
                         row.se_clock_hz = UNSET
                         row.band = UNSET
-                    else:
-                        row.dio_channel = UNSET
             table.load_rows(rows)
         self._update_summary()
 
