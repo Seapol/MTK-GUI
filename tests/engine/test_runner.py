@@ -157,6 +157,24 @@ class TestOperatorStop:
         runner.abort()
         assert summaries == []
 
+    def test_abort_with_fail_reports_fail_not_ignore(self, env):
+        # user rule: IGNORE only for a stop with NO failed item;
+        # a stop after a FAIL reports Overall Result: FAIL
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.start(1)
+        runner._put("ict", 0, StepStatus.FAIL, "measured")
+        runner.abort()
+        assert "Overall Result: FAIL" in "\n".join(env._log_lines())
+
+    def test_abort_without_fail_reports_ignore(self, env):
+        runner = TestRunner(env)
+        env.runner = runner
+        runner.start(1)
+        runner._put("ict", 0, StepStatus.PASS)
+        runner.abort()
+        assert "Overall Result: IGNORE" in "\n".join(env._log_lines())
+
 
 class TestDisabledSteps:
     def test_disabled_ict_row_is_ignored(self, env):

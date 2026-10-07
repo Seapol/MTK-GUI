@@ -958,14 +958,17 @@ class TestWorkFlowPage(QWidget):
 
     def _update_result(self):
         """Refresh the big verdict + the per-product statistics."""
-        if self._interrupted:
-            verdict, key = "IGNORE", "warn"
-        elif self.run_state == "running":
+        if self.run_state == "running":
             verdict, key = "RUNNING", "run"
         else:
             judged = self._judge_verdict()
             if judged == "FAIL":
+                # FAIL wins over Stop: a stopped run with FAIL items
+                # reports FAIL, never IGNORE (user rule)
                 verdict, key = "FAIL", "bad"
+            elif self._interrupted:
+                # IGNORE only for a stop with NO failed item
+                verdict, key = "IGNORE", "warn"
             elif judged == "PASS":
                 verdict, key = "PASS", "ok"
             else:

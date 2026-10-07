@@ -1192,6 +1192,20 @@ class MainWindow(QMainWindow):
         except (OSError, project_config.yaml.YAMLError) as exc:
             QMessageBox.critical(self, "Load Failed", str(exc))
             return
+        if isinstance(config, dict) and \
+                ("yaml_build" in config or "plan" in config):
+            # published plan file (plan + yaml_build sections, the
+            # Yaml Build page output) -> restore into the build model
+            errors = self.yaml_build_page.model.apply_yaml_dict(config)
+            self._sync_rails_to_workflow()
+            self.yaml_build_page.refresh_all()
+            if errors:
+                QMessageBox.warning(self, "Load Warnings",
+                                    "\n".join(errors))
+            self._project_path = path
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Plan yaml loaded: {path}")
+            return
         project_config.apply_config(
             config, self.workflow_page, self.equipment_page,
             self.yaml_build_page.model)
