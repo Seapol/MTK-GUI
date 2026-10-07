@@ -931,6 +931,14 @@ class MainWindow(QMainWindow):
             self._tools_gateway = self._tools_thread.gateway
         for line in lines:
             self._append_event_log(f"[Tools] {action}: {line}")
+        # the status-bar LEDs follow the batch result (same truth as
+        # the Equipment page connect state)
+        state = {"Connect all": "connected",
+                 "Disconnect all": "disconnected"}.get(action)
+        if state:
+            for abbr in self._configured_instruments():
+                if abbr in self.instr_status.states:
+                    self.instr_status.set_state(abbr, state)
         if ok:
             self.statusBar().showMessage(f"{action}: OK", 5000)
         else:
@@ -1550,11 +1558,14 @@ class MainWindow(QMainWindow):
                 abbr, "connected" if connected else "disconnected")
 
     def _connect_virtual_instruments(self):
-        """Virtual mode: simulated instruments report connected at start."""
-        self.instr_status.set_all("connected")
-        for abbr, title in INSTRUMENTS:
-            self._append_event_log(
-                f"Instrument {abbr} ({title}): connected (virtual).")
+        """Virtual mode: the simulated instruments are READY, but the
+        status-bar LEDs reflect the EQUIPMENT PAGE connect state (user
+        direction: no force-green - the operator connects manually and
+        the LEDs follow)."""
+        self._append_event_log(
+            "Virtual mode: simulated instruments ready - connect on "
+            "the Equipment page; the status-bar LEDs follow that "
+            "state.")
 
     def _on_instrument_error(self, abbr):
         """Virtual equipment fault: red light, auto-recover after 2.5 s."""

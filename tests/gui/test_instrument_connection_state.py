@@ -102,6 +102,24 @@ def test_rails_derived_from_channel_allocation(window, monkeypatch):
     assert window.workflow_page.cap_rate == 200
 
 
+def test_virtual_startup_does_not_force_green(qapp):
+    """User report: the LEDs were ALWAYS green - Virtual startup must
+    NOT force-connect the LEDs; they stay disconnected until the
+    operator connects on the Equipment page."""
+    w = MainWindow(role=ROLE_SUPERVISOR, mode="Virtual",
+                   fixture=FIXTURE_ATE)
+    try:
+        w._connect_virtual_instruments()   # the old force-green path
+        for abbr in ("DAQM", "DAQ", "PSU"):
+            assert w.instr_status.states[abbr] == "disconnected", abbr
+        # ... and a manual Equipment-page connect DOES light the LED
+        w.equipment_page.instrument_connection_changed.emit("psu", True)
+        assert w.instr_status.states["PSU"] == "connected"
+    finally:
+        w.close()
+        w.deleteLater()
+
+
 def test_status_leds_follow_equipment_connect(window, monkeypatch):
     """The status-bar LED for DAQ turns green exactly when the U2355A
     dialog connects, and gray on disconnect - no forced green."""
