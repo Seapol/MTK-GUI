@@ -54,6 +54,7 @@ from mtkgui.gui.designinput.netlist import (
     classify_nets,
 )
 from mtkgui.gui.yamlbuild.dual_format import parse_netlist_auto
+from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES
 from mtkgui.gui.yamlbuild.parser import parse_netlist
 from mtkgui.gui.yamlbuild.test_points import select_test_points
 from mtkgui.gui.yamlbuild.path_risk import (
@@ -87,21 +88,33 @@ _FILTER_REASONS = {
 _USER_RULE_TYPES = {
     "power": NET_TYPE_POWER,
     "se_clock": NET_TYPE_CLOCK_SINGLE,
-    "signal": NET_TYPE_SIGNAL,
     "diff_pair": NET_TYPE_DIFF_PAIR,
 }
+
+#: exclusion reason wording (Exclude Parse Nets regex matches)
+EXCLUDED_REASON = "excluded by Exclude Parse Nets regex"
+
+
+def _exclude_pattern(rules: dict | None) -> str:
+    """The active exclusion pattern: the user's Exclude Parse Nets
+    regex when configured, the factory default otherwise; an explicit
+    EMPTY user value disables the exclusion entirely."""
+    rules = rules or {}
+    if "exclude" in rules:
+        return (rules.get("exclude") or "").strip()
+    return DEFAULT_RULES["exclude"]
 
 
 def _apply_user_rules(name: str, net_type: str,
                       rules: dict | None) -> str:
     """Step 2 user-regex override (user rules > system defaults).
 
-    For every user-configured category (Power / SE Clock / Signal /
-    Diff Pair - GND is system-auto and never overridden): a non-empty
-    user pattern that matches the name re-classifies the net; an
-    explicit EMPTY pattern suppresses the kernel's name-based default
-    for that category (the net falls to Signal).  Categories without
-    a user key keep the kernel classification unchanged.
+    For every user-configured category (Power / SE Clock / Diff Pair
+    - GND is system-auto and never overridden): a non-empty user
+    pattern that matches the name re-classifies the net; an explicit
+    EMPTY pattern suppresses the kernel's name-based default for that
+    category (the net falls to Signal).  Categories without a user
+    key keep the kernel classification unchanged.
     """
     rules = rules or {}
     matched_user = False
@@ -121,7 +134,7 @@ def _apply_user_rules(name: str, net_type: str,
         # explicit-empty categories suppress the kernel name default
         for key, net_cls in _USER_RULE_TYPES.items():
             if key in rules and not (rules.get(key) or "").strip() \
-                    and net_type == net_cls and key != "signal":
+                    and net_type == net_cls:
                 return NET_TYPE_SIGNAL
     return net_type
 
@@ -189,11 +202,23 @@ def parse_testable_nets(net_text: str,
     collection = classify_nets(netlist)
     result = ParseNetsResult(total=len(collection.nets))
     for rec in collection.nets:
-        members = [t for t in rec.members if "." in t or
-                   t.upper().startswith("TP")]
         # Step 2: user regex override (user rules > system defaults;
         # explicit-empty key = no name matching for that category)
         rec.net_type = _apply_user_rules(rec.name, rec.net_type, rules)
+        # Exclude Parse Nets regex: matching SIGNAL nets never become
+        # ICT test objects (user regex when configured, factory
+        # default otherwise; an explicit empty value disables it)
+        pattern = _exclude_pattern(rules)
+        if pattern and rec.net_type == NET_TYPE_SIGNAL:
+            try:
+                if re.search(pattern, rec.name):
+                    result.filtered.append(
+                        (rec.name, EXCLUDED_REASON))
+                    continue
+            except re.error:
+                pass
+        members = [t for t in rec.members if "." in t or
+                   t.upper().startswith("TP")]
         if not members:
             # invalid: a net without any testable member pin cannot
             # get a test point -> filtered with the reason

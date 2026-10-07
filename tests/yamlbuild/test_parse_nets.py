@@ -94,6 +94,32 @@ def test_parse_summary_counts():
                                 "filtered=3")
 
 
+def test_exclude_regex_drops_signal_nets():
+    """The Exclude Parse Nets regex (factory default: DIFF / RESET /
+    ENABLE / UART / WAKE) drops matching SIGNAL nets from the parse
+    result; Power / Clock / GND rows are never excluded and an
+    explicit empty user value disables the exclusion."""
+    sample = NET_SAMPLE + """*SIGNAL* DEBUG_UART_TX
+U1.40 J9.1
+*SIGNAL* BT_WAKE_OUT
+U1.41 J9.2
+*SIGNAL* DBG_RESET_REQ
+U1.42 J9.3
+"""
+    result = parse_testable_nets(sample)
+    excluded = {n for n, _r in result.filtered}
+    assert {"DEBUG_UART_TX", "BT_WAKE_OUT", "DBG_RESET_REQ"} <= excluded
+    # power nets never excluded even on a name hit
+    result2 = parse_testable_nets(
+        sample, rules={"power": r"^DBG_",
+                       "exclude": r"RESET"})
+    assert [r.name for r in result2.power] == ["3V3", "1V8_CORE",
+                                               "DBG_RESET_REQ"]
+    # empty user value disables the exclusion entirely
+    result3 = parse_testable_nets(sample, rules={"exclude": ""})
+    assert "DEBUG_UART_TX" in [r.name for r in result3.gpio]
+
+
 # ------------------------------------------------------------ GUI panel
 def test_panel_parse_renders_parsed_nets_table(panel):
     """The single PARSED NETS table (Net | Test Points | Category |

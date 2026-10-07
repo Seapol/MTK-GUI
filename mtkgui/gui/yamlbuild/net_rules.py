@@ -34,7 +34,7 @@ CATEGORY_SIGNAL = "Signal"
 RULE_SLOTS: tuple[tuple[str, str], ...] = (
     ("power", "Power Nets regex"),
     ("se_clock", "SE Clock Nets regex"),
-    ("signal", "Signal Nets regex"),
+    ("exclude", "Exclude Parse Nets regex"),
     ("diff_pair", "Differential pair detection regex"),
 )
 
@@ -42,7 +42,10 @@ DEFAULT_RULES: dict[str, str] = {
     "power": r"^(?!.+INTB)(?:V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D)([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?)$",
     "gnd": r"^(GND\w*|AGND\w*|DGND\w*|PGND\w*|VSS\w*)$",
     "se_clock": r"^(CLK\w*|OSC\w*|XTAL\w*|MCLK\w*|\d+MH?Z\w*)$",
-    "signal": "",
+    # nets matching the Exclude regex NEVER become ICT test objects
+    # (differential signals, Reset / Enable / UART / WAKE ...); an
+    # EMPTY value disables the exclusion entirely
+    "exclude": r"(?i)(DIFF|RESET|ENABLE|UART|WAKE|_EN(_|$)|_(P|N)$)",
     "diff_pair": r"^\w+_(P|N)$",
 }
 
@@ -218,7 +221,10 @@ class NetRulesEditorDialog(QDialog):
         head = QLabel(
             "Priority: manual override > SPF pin attribute > custom "
             "regex > factory default.  An empty regex skips the name "
-            "match (SPF pin type only).")
+            "match (SPF pin type only); an empty Exclude regex "
+            "disables the exclusion.  Nets matching the Exclude "
+            "Parse Nets regex (differential / Reset / Enable / UART "
+            "/ WAKE ...) never become ICT test objects.")
         head.setObjectName("muted")
         head.setWordWrap(True)
         lay.addWidget(head)

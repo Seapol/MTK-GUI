@@ -49,20 +49,24 @@ def test_real_net_file_parses_fully():
     parse without 'no nets found'."""
     result = parse_testable_nets(FIXTURE.read_text(encoding="utf-8"))
     assert result.total == 70
-    # classification: 10 power / 2 SE clock / 56 signal candidates,
-    # the two reference grounds filtered.  Power regex v2: DCDC /
-    # DC-input rails, voltage-suffix rails (_1V8 / _3V3 ...), VOUT /
-    # VREF tokens; INTB interrupt names stay Signal.
+    # classification: 10 power / 2 SE clock / 48 signal candidates;
+    # the two reference grounds are GND rows (default Do Not Test)
+    # and the Exclude Parse Nets regex drops the UART / WAKE / RESET
+    # signal nets (8, factory default: DIFF/RESET/ENABLE/UART/WAKE)
     assert {r.name for r in result.power} == {
         "5V_SDA_PSW", "5V_USB0_OTG", "CODEC_1V8", "CPVOUTN",
         "CPVOUTP", "DBGIF_VREF", "DCDC_1V0", "DCDC_1V8",
         "DCDC_3V3", "DC_5V_IN"}
     assert {r.name for r in result.clock} == \
         {"DBGIF_TCK_SWCLK", "DMIC_CLK"}
-    assert len(result.gpio) == 56
-    # the two reference grounds are GND rows now (default Do Not Test)
+    assert len(result.gpio) == 48
     assert {r.name for r in result.gnd} == {"AGND", "GND"}
-    assert result.filtered == []
+    assert {n for n, _r in result.filtered} == {
+        "BT_154_WAKE_OUT", "BT_DEV_WAKE", "BT_UART_CTS",
+        "BT_UART_RTS", "BT_UART_RXD", "BT_UART_TXD",
+        "DBGIF_RESET", "DBGIF_RESET_TXEN"}
+    assert all(reason.startswith("excluded by")
+               for _n, reason in result.filtered)
     # members map 1:1 (spot check)
     spot = next(r for r in result.gpio if r.name == "CORTEX7")
     assert spot.members == ["J18.7", "TP20.1"]
