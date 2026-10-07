@@ -175,8 +175,11 @@ class NodeEditDialog(QDialog):
             "Head node (primary power input, stage 0)")
         self.chk_head.setChecked(node.node_type == NODE_PRIMARY)
         form.addRow("", self.chk_head)
+        # NOTE: the tail role is an EXPLICIT user attribute - the
+        # automatic load classification (no downstream yet) must NOT
+        # pre-check it (that locked the dialog and hid the downstream
+        # combo; user report)
         self.chk_tail = QCheckBox("Tail node (end load, no downstream)")
-        self.chk_tail.setChecked(node.node_type == NODE_LOAD)
         form.addRow("", self.chk_tail)
         # upstream: SINGLE-select dropdown (one parent node - the
         # upstream stays unique); a primary power input has NO upstream
