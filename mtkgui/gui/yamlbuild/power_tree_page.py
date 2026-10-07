@@ -645,10 +645,17 @@ class PowerTreePage(QWidget):
 
     def save_to_model(self) -> None:
         """Persist the draft into the model (project YAML section
-        ``power_tree``)."""
+        ``power_tree``) and the restart-safe project store."""
         if self.model is not None:
             self.model.power_tree = self.tree.to_dict()
             self.model.changed = True
+            try:
+                from mtkgui.gui.yamlbuild.store import \
+                    save_project_state
+                save_project_state(self.model.project_key(),
+                                   self.model.to_dict())
+            except Exception:     # persistence must never break the GUI
+                pass
 
     def showEvent(self, event) -> None:
         """Refresh on every tab entry (always mirrors the model)."""

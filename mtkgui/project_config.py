@@ -18,6 +18,8 @@ It stores:
     together with their connection parameters
 """
 
+from __future__ import annotations
+
 import re
 from datetime import datetime
 
@@ -36,10 +38,21 @@ SOFTWARE = "mtk-gui v2.0.0"
 # --------------------------------------------------------------------------
 # build
 # --------------------------------------------------------------------------
-def build_config(workflow_page, equipment_page):
-    """Collect the current project configuration from the pages."""
+def build_config(workflow_page, equipment_page,
+                 yaml_build_state: dict | None = None):
+    """Collect the current project configuration from the pages.
+
+    Args:
+        workflow_page: The Test Work Flow page.
+        equipment_page: The Equipment page.
+        yaml_build_state: Optional full state dict of the Yaml Build
+            model (includes the parse result, channel allocation and
+            the power tree draft) - archived so a project YAML reload
+            restores the edited Power Tree / Channel Allocation state
+            instead of re-running the automatic analysis.
+    """
     product = workflow_page.product_info()
-    return {
+    config = {
         "project": {
             "software": SOFTWARE,
             "revision": REVISION,
@@ -55,6 +68,9 @@ def build_config(workflow_page, equipment_page):
         "console": workflow_page.multi_console.yaml_channels(),
         "test_workflow": _workflow_to_yaml(workflow_page),
     }
+    if yaml_build_state:
+        config["yaml_build_state"] = yaml_build_state
+    return config
 
 
 def _equipment_to_yaml(configs):
@@ -214,15 +230,19 @@ def _ict_step_from_yaml(c):
     return step
 
 
-def apply_config(config, workflow_page, equipment_page):
+def apply_config(config, workflow_page, equipment_page,
+                 yaml_build_model=None):
     """Restore a loaded configuration into the pages.
 
-    Item 19 (Product Info auto-fill): part / core / batch / serial are
-    100% YAML-driven - they are refreshed only here (a new valid YAML
-    project load / switch); each field takes the corresponding
-    ``product`` node value, and a missing node leaves the field
-    blank (empty fallback, no residual cached data).  Normal test
-    operation never touches these fields."""
+    Args:
+        config: The loaded YAML dict.
+        workflow_page: The Test Work Flow page.
+        equipment_page: The Equipment page.
+        yaml_build_model: Optional YamlBuildModel - a stored
+            ``yaml_build_state`` section (saved by build_config) is
+            restored into it (parse result, channel allocation, power
+            tree draft, ...).
+    """
     product = config.get("product", {})
     workflow_page.part_edit.setText(
         str(product["part_number"])
@@ -364,6 +384,13 @@ def apply_config(config, workflow_page, equipment_page):
                 mc.remove_channel(key)
     if not mc.channels:
         mc.add_serial()
+
+    # Yaml Build model state (parse result / channel allocation /
+    # power tree draft / module params): restored when the project
+    # file carries a yaml_build_state section (older files: skipped)
+    state = config.get("yaml_build_state")
+    if yaml_build_model is not None and isinstance(state, dict):
+        yaml_build_model.apply_state(state)
 
 
 def _equipment_from_yaml(data):

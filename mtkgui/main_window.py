@@ -1121,7 +1121,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Load Failed", str(exc))
             return
         project_config.apply_config(
-            config, self.workflow_page, self.equipment_page)
+            config, self.workflow_page, self.equipment_page,
+            self.yaml_build_page.model)
+        self.yaml_build_page.refresh_all()
         self._project_path = path
         self.workflow_page.set_project_file(path)
         self._append_event_log(
@@ -1182,13 +1184,21 @@ class MainWindow(QMainWindow):
             return
         self._save_yaml_to(self._project_path)
 
+    def _build_project_config(self):
+        """The full project configuration dict: the workflow/equipment
+        pages PLUS the Yaml Build model state (parse result, channel
+        allocation, power tree draft) so a reload restores the edited
+        state instead of re-running the automatic analysis."""
+        return project_config.build_config(
+            self.workflow_page, self.equipment_page,
+            self.yaml_build_page.model.to_dict())
+
     def save_yaml_as(self):
         """File > Save as Yaml: always ask for a (new) file name.
 
         The suggested name follows
         ProductPartNumber_CoreID_Batch_rev1.0.yaml."""
-        config = project_config.build_config(
-            self.workflow_page, self.equipment_page)
+        config = self._build_project_config()
         path, _ = QFileDialog.getSaveFileName(
             self, "Save as Yaml",
             project_config.default_filename(config),
@@ -1198,8 +1208,7 @@ class MainWindow(QMainWindow):
         self._save_yaml_to(path)
 
     def _save_yaml_to(self, path):
-        config = project_config.build_config(
-            self.workflow_page, self.equipment_page)
+        config = self._build_project_config()
         try:
             project_config.save_config(config, path)
         except OSError as exc:

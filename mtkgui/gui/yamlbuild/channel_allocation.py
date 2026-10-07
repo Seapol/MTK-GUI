@@ -566,13 +566,21 @@ class ChannelAllocationPage(QWidget):
         }
 
     def save_to_model(self) -> None:
-        """Persist the tables into the model (project YAML channel)."""
+        """Persist the tables into the model (project YAML channel)
+        and the restart-safe project store."""
         if self.model is not None:
             self.model.set_channel_allocation(self.collect())
             self.task_log.emit(
                 "INFO",
                 "channel allocation saved: "
                 f"{self._summary_text()}")
+            try:
+                from mtkgui.gui.yamlbuild.store import \
+                    save_project_state
+                save_project_state(self.model.project_key(),
+                                   self.model.to_dict())
+            except Exception:     # persistence must never break the GUI
+                pass
 
     def _apply_to_yaml(self) -> None:
         """Apply-to-YAML (user direction): persist the tables into
