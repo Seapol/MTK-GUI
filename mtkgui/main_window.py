@@ -877,18 +877,35 @@ class MainWindow(QMainWindow):
             lambda: self._open_help("readme_quickstart"))
 
     # ------------------------------------------------- V4.0 Tools batch
-    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU", "JLINK")
+    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU")
+
+    #: status-bar abbreviation -> the Equipment page config keys that
+    # implement it (user report: the lookup used the ABBREVIATIONS as
+    # config keys - daq973a / u2355a / psu - and never matched, so
+    # 'No instruments are configured' popped up on a valid project)
+    _TOOL_KEYS = {
+        "DAQM": ("daq973a",),
+        "DAQ": ("u2355a",),
+        "PSU": ("psu",),
+    }
 
     def _configured_instruments(self) -> list[str]:
         """Instrument abbreviations configured in the current project.
 
         Returns:
-            Abbreviations present in the Equipment page configuration
-            (the verified YAML equipment section), in fixed order.
+            Abbreviations whose underlying Equipment-page config keys
+            exist (the verified YAML equipment section), in fixed
+            order.
         """
         configs = getattr(self.equipment_page, "configs", {}) or {}
-        return [k for k in self._TOOL_ABBRS
-                if (configs.get(k) or {}).get("fields")]
+
+        def _configured(abbr):
+            return any(k in configs and (
+                (configs.get(k) or {}).get("fields")
+                or (configs.get(k) or {}).get("connection"))
+                for k in self._TOOL_KEYS.get(abbr, ()))
+
+        return [k for k in self._TOOL_ABBRS if _configured(k)]
 
     def _tools_batch(self, action: str) -> None:
         """Tools > Set All instruments: run one batch operation over

@@ -116,6 +116,44 @@ def test_instrument_dialog_test_log_is_large(page):
         dlg.deleteLater()
 
 
+def test_instrument_config_round_trips_through_yaml(page):
+    """User question: 'why is the instrument config not saved in the
+    YAML?' - the edited connection (interface / address) and parameter
+    values are harvested into the page config, saved with the project
+    YAML and restored on load (dialog prefills -> direct connect)."""
+    import yaml as pyyaml
+
+    from mtkgui import project_config
+    from mtkgui.equipment_page import _InstrumentDialog
+    dlg = _InstrumentDialog(page, "U2355A", [("Model", "U2355A")],
+                            "u2355a", virtual=True)
+    try:
+        dlg._address.setText("USB0::0x2A8D::INSTR")
+        dlg.apply_to_config(page.configs["u2355a"])
+    finally:
+        dlg.deleteLater()
+
+    class _ConsoleStub:
+        def yaml_channels(self):
+            return []
+
+    # YAML round trip restores the connection into the page configs
+    equipment = project_config._equipment_to_yaml(page.configs)
+    entry = equipment["u2355a"]
+    assert entry["connection"]["address"] == "USB0::0x2A8D::INSTR"
+    assert "params" in entry
+    restored = project_config._equipment_from_yaml(
+        pyyaml.safe_load(pyyaml.safe_dump(equipment)))
+    page.configs = restored
+    dlg2 = _InstrumentDialog(page, "U2355A", restored["u2355a"]["fields"],
+                             "u2355a", virtual=True,
+                             config=restored["u2355a"])
+    try:
+        assert dlg2._address.text() == "USB0::0x2A8D::INSTR"
+    finally:
+        dlg2.deleteLater()
+
+
 def test_virtual_startup_does_not_force_green(qapp):
     """User report: the LEDs were ALWAYS green - Virtual startup must
     NOT force-connect the LEDs; they stay disconnected until the

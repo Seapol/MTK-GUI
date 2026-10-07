@@ -858,12 +858,15 @@ class _InstrumentDialog(QDialog):
     # (key, connected) - emitted live so the status-bar LEDs follow
     connection_changed = Signal(str, bool)
 
-    def __init__(self, parent, title, fields, key, virtual, manual=False):
+    def __init__(self, parent, title, fields, key, virtual, manual=False,
+                 config=None):
         super().__init__(parent)
         self._key = key
         self._virtual = virtual
         self._manual = manual
         self._connected = False
+        # persisted connection / parameter configuration (YAML-backed)
+        self._config = dict(config or {})
         self.setWindowTitle(f"{title} - Configuration")
         self.resize(920, 720)
         root = QVBoxLayout(self)
@@ -879,12 +882,13 @@ class _InstrumentDialog(QDialog):
         root.addWidget(info)
 
         # 2 ------------------------------------------------------ parameters
+        saved_params = self._config.get("params") or {}
         params = QGroupBox("Parameter Configuration")
         pform = QFormLayout(params)
         pform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self._param_edits = []
         for label, value in _INSTRUMENT_PARAMS[key]:
-            edit = QLineEdit(value)
+            edit = QLineEdit(str(saved_params.get(label, value)))
             self._param_edits.append(edit)
             pform.addRow(f"{label}:", edit)
         root.addWidget(params)
@@ -896,9 +900,15 @@ class _InstrumentDialog(QDialog):
         cform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self._iface = QComboBox()
         self._iface.addItems(list(_INSTRUMENT_CONN[key]))
+        # restore the SAVED interface / address (user direction: the
+        # connection parameters persist in the project YAML)
+        saved_conn = self._config.get("connection") or {}
+        if saved_conn.get("interface") in _INSTRUMENT_CONN[key]:
+            self._iface.setCurrentText(str(saved_conn["interface"]))
         self._address = QLineEdit()
-        self._address.setText(
-            _INSTRUMENT_CONN[key][self._iface.currentText()])
+        self._address.setText(str(
+            saved_conn.get("address")
+            or _INSTRUMENT_CONN[key][self._iface.currentText()]))
         self._iface.currentTextChanged.connect(self._iface_changed)
         cform.addRow("Interface:", self._iface)
         cform.addRow("Address:", self._address)
@@ -981,6 +991,21 @@ class _InstrumentDialog(QDialog):
         self._output.appendPlainText(text)
 
     # -------------------------------------------------------- connection
+    def apply_to_config(self, cfg: dict) -> None:
+        """Write the edited connection / parameter values back into the
+        Equipment page config dict - they are saved with the project
+        YAML (build_config) and restored on the next dialog open, so a
+        saved project connects directly (user direction)."""
+        cfg["connection"] = {
+            "interface": self._iface.currentText(),
+            "address": self._address.text().strip(),
+        }
+        cfg["params"] = {
+            label: edit.text().strip()
+            for (label, _v), edit in zip(
+                _INSTRUMENT_PARAMS[self._key], self._param_edits)
+        }
+
     def set_connected(self, connected: bool) -> None:
         """Restore a previously persisted connection state (the dialog
         is re-created on every open - the state lives on the page)."""
@@ -1373,7 +1398,8 @@ class EquipmentPage(QWidget):
             # connection / control-and-tests group boxes
             dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
                                     self.virtual_mode,
-                                    manual=self._manual_fixture)
+                                    manual=self._manual_fixture,
+                                    config=cfg)
             # the connect state lives on the PAGE (user report: it died
             # with the modal dialog); live LED sync to the status bar
             dlg.set_connected(self._instrument_connections.get(key, False))
@@ -1381,6 +1407,9 @@ class EquipmentPage(QWidget):
                 self.instrument_connection_changed)
             dlg.exec()
             self._instrument_connections[key] = dlg._connected
+            # persist the edited connection / parameters into the page
+            # config -> saved with the project YAML (build_config)
+            dlg.apply_to_config(cfg)
             return
         elif "table" in cfg:
             dlg = _table_dialog(self, cfg["title"], cfg["table"])

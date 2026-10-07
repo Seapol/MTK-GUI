@@ -74,12 +74,19 @@ def build_config(workflow_page, equipment_page,
 
 
 def _equipment_to_yaml(configs):
-    """Equipment page configs -> plain YAML-safe structure."""
+    """Equipment page configs -> plain YAML-safe structure.  The
+    instrument connection (interface / address) and the parameter
+    values are carried so a saved project reconnects directly (user
+    direction)."""
     data = {}
     for key, cfg in configs.items():
         entry = {"title": cfg["title"]}
         if "fields" in cfg:
             entry["fields"] = {label: value for label, value in cfg["fields"]}
+        if "params" in cfg:
+            entry["params"] = dict(cfg["params"])
+        if "connection" in cfg:
+            entry["connection"] = dict(cfg["connection"])
         if "table" in cfg:
             entry["table"] = [
                 {"item": item, "role": role, "status": status}
@@ -403,13 +410,18 @@ def apply_config(config, workflow_page, equipment_page,
 
 
 def _equipment_from_yaml(data):
-    """YAML structure -> the dict shape the Equipment page expects."""
+    """YAML structure -> the dict shape the Equipment page expects
+    (connection / parameter values included)."""
     configs = {}
     for key, entry in data.items():
         cfg = {"title": entry.get("title", key)}
         if entry.get("fields"):
             cfg["fields"] = [(label, value)
                              for label, value in entry["fields"].items()]
+        if entry.get("params"):
+            cfg["params"] = dict(entry["params"])
+        if entry.get("connection"):
+            cfg["connection"] = dict(entry["connection"])
         if entry.get("table"):
             cfg["table"] = [(row["item"], row["role"], row["status"])
                             for row in entry["table"]]
