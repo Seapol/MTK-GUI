@@ -855,6 +855,9 @@ class _InstrumentDialog(QDialog):
          clock / AI tests, power on-off (simulated replies)
     """
 
+    # (key, connected) - emitted live so the status-bar LEDs follow
+    connection_changed = Signal(str, bool)
+
     def __init__(self, parent, title, fields, key, virtual, manual=False):
         super().__init__(parent)
         self._key = key
@@ -966,6 +969,20 @@ class _InstrumentDialog(QDialog):
         self._output.appendPlainText(text)
 
     # -------------------------------------------------------- connection
+    def set_connected(self, connected: bool) -> None:
+        """Restore a previously persisted connection state (the dialog
+        is re-created on every open - the state lives on the page)."""
+        self._connected = bool(connected)
+        if not (connected and self._virtual):
+            return
+        self._led.set_color("#22c55e")
+        self._conn_state.setText("Connected (virtual)")
+        for btn in self._action_buttons:
+            btn.setEnabled(True)
+        self.btn_test.setEnabled(True)
+        self.btn_disconnect.setEnabled(True)
+        self.btn_connect.setEnabled(False)
+
     def _connect(self):
         addr = self._address.text().strip()
         self.btn_connect.setEnabled(False)
@@ -986,6 +1003,7 @@ class _InstrumentDialog(QDialog):
             # T9: sync the shared status hub (block 03 panel display)
             from mtkgui.gui.yamlbuild.instrument_status import HUB
             HUB.set_connected(True)
+            self.connection_changed.emit(self._key, True)
         else:
             self._led.set_color("#ef4444")
             self._conn_state.setText("Error: no hardware (demo)")
@@ -995,6 +1013,7 @@ class _InstrumentDialog(QDialog):
             from mtkgui.gui.yamlbuild.instrument_status import HUB
             HUB.set_connected(False)
             HUB.set_test_connection("NOK")
+            self.connection_changed.emit(self._key, False)
 
     def _disconnect(self):
         self._connected = False
@@ -1009,6 +1028,7 @@ class _InstrumentDialog(QDialog):
         # T9: sync the shared status hub + reset stale results
         from mtkgui.gui.yamlbuild.instrument_status import HUB
         HUB.disconnect()
+        self.connection_changed.emit(self._key, False)
 
     def _test_connection(self):
         self._log("*IDN? ...")
@@ -1047,10 +1067,25 @@ class _InstrumentDialog(QDialog):
 # the page
 # --------------------------------------------------------------------------
 class EquipmentPage(QWidget):
+    # (instrument key, connected) emitted by the instrument dialog when
+    # the user connects / disconnects INSIDE the dialog - the main
+    # window syncs the status-bar LEDs from it (user report: the LEDs
+    # never reflected the real connect state)
+    instrument_connection_changed = Signal(str, bool)
+
+    #: instrument dialog key -> status-bar LED abbreviation
+    _INSTRUMENT_ABBR = {
+        "daq973a": "DAQM", "m908a_1": "DAQM", "m908a_2": "DAQM",
+        "m907a": "DAQM", "u2355a": "DAQ", "psu": "PSU",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.configs = _mock_configs()
         self.blocks = {}
+        # per-instrument connect state (user report: the state died
+        # with the modal dialog - reopening showed Disconnected again)
+        self._instrument_connections: dict[str, bool] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login)
         self.virtual_mode = False
@@ -1327,6 +1362,14 @@ class EquipmentPage(QWidget):
             dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
                                     self.virtual_mode,
                                     manual=self._manual_fixture)
+            # the connect state lives on the PAGE (user report: it died
+            # with the modal dialog); live LED sync to the status bar
+            dlg.set_connected(self._instrument_connections.get(key, False))
+            dlg.connection_changed.connect(
+                self.instrument_connection_changed)
+            dlg.exec()
+            self._instrument_connections[key] = dlg._connected
+            return
         elif "table" in cfg:
             dlg = _table_dialog(self, cfg["title"], cfg["table"])
         else:

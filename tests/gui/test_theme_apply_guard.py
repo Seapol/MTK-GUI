@@ -21,7 +21,10 @@ FIXTURE_ATE = "ATE"
 
 @pytest.fixture()
 def window(qapp):
-    MainWindow._applied_theme = None
+    # do NOT reset MainWindow._applied_theme here: forcing a real
+    # setStyleSheet in a long session re-polishes every widget of
+    # every live window and can crash Qt (that is exactly what the
+    # dedup guard exists to avoid)
     w = MainWindow(role=ROLE_SUPERVISOR, fixture=FIXTURE_ATE)
     yield w
     w.close()

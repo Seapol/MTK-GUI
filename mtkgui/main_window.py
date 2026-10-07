@@ -642,18 +642,16 @@ class MainWindow(QMainWindow):
         self.status_date.setStyleSheet("padding: 0 6px;")
         sb.addPermanentWidget(self.status_date)
 
-        # instrument connection lights:
-        # running -> all connected; virtual fault -> red, auto-recover;
-        # run end -> clear any red back to connected
-        self.workflow_page.run_progress.connect(
-            lambda *_: self.instr_status.set_all("connected"))
+        # instrument connection lights: synced from the Equipment page
+        # connect / disconnect (user report: the LEDs were force-set
+        # green everywhere and never reflected the real state)
+        self.equipment_page.instrument_connection_changed.connect(
+            self._on_instrument_connection)
         # wire run progress to the status bar progress bar
         self.workflow_page.run_progress.connect(self._update_run_progress)
         # background phases (console connect, ...) -> busy progress bar
         self.workflow_page.phase_changed.connect(self._on_run_phase)
         self.workflow_page.instrument_error.connect(self._on_instrument_error)
-        self.workflow_page.run_finished.connect(
-            lambda: self.instr_status.set_all("connected"))
         # task complete: fill the progress bar full then auto-reset
         self.workflow_page.run_finished.connect(
             self._finish_run_progress)
@@ -1446,6 +1444,14 @@ class MainWindow(QMainWindow):
         else:
             self._update_run_progress(0, 0)
 
+    def _on_instrument_connection(self, key, connected):
+        """Equipment page instrument dialog connect / disconnect ->
+        sync the matching status-bar LED (user report: never synced)."""
+        abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
+        if abbr:
+            self.instr_status.set_state(
+                abbr, "connected" if connected else "disconnected")
+
     def _connect_virtual_instruments(self):
         """Virtual mode: simulated instruments report connected at start."""
         self.instr_status.set_all("connected")
@@ -1456,7 +1462,9 @@ class MainWindow(QMainWindow):
     def _on_instrument_error(self, abbr):
         """Virtual equipment fault: red light, auto-recover after 2.5 s."""
         self.instr_status.set_state(abbr, "error")
-        self._append_event_log(f"Instrument {abbr}: connection error.")
+        self._append_event_log(
+            f"Instrument {abbr}: equipment fault "
+            f"(virtual fault injection, auto-recover).")
         QTimer.singleShot(2500,
                           lambda: self._recover_instrument(abbr))
 
