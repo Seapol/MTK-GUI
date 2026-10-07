@@ -89,16 +89,6 @@ yaml_build:
       include_disabled: false
       stage_index: 11
       group: export
-    fct_parse:
-      spec_file: specs/fct_MTK6985-EVK_placeholder.json
-      interfaces:
-      - (FCT skipped - ICT-only plan)
-      protocols:
-      - (FCT skipped - ICT-only plan)
-      custom_checks: []
-      stage_index: 8
-      group: fct
-      enabled: false
     fct_build:
       flow_steps:
       - (FCT skipped - ICT-only plan)

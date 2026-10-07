@@ -47,7 +47,6 @@ def make_model(enabled=True) -> YamlBuildModel:
     model.set_params("gpios", {"groups": "LED1:PA0:out:none",
                                "level_threshold_v": "1.5",
                                "exception_check": "true"})
-    model.set_params("fct_parse", {"spec_file": "fct_spec.md"})
     model.set_params("fct_build", {"flow_steps": "step1\nstep2",
                                    "yield_threshold_pct": "98.0",
                                    "exception_branch": "stop",
@@ -56,12 +55,13 @@ def make_model(enabled=True) -> YamlBuildModel:
 
 
 def test_stage_count_and_order():
-    """Exactly the twelve fixed stages in the required order (item 23
-    redefinition: parse_ict moved to 02, instruments to 03, validate/
-    export close the flow, legacy power_dut absorbed into rails)."""
+    """Exactly the eleven fixed stages in the required order (item 23
+    redefinition: parse_ict moved to 02, instruments to 03, the FCT
+    parse block retired, validate/export close the flow, legacy
+    power_dut absorbed into rails)."""
     assert [s.key for s in WORKFLOW_STAGES] == [
         "design_input", "parse_ict", "instruments", "rails", "clocks",
-        "gpios", "programmer", "peripherals", "fct_parse", "fct_build",
+        "gpios", "programmer", "peripherals", "fct_build",
         "validate_sequence", "preview_export"]
     assert "power_dut" not in STAGE_KEYS
 

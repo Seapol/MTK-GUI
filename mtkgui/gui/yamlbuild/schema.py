@@ -262,15 +262,6 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("init_sequence", "Init Sequence", ftype=T_TEXT,
            remarks="one init step per line"),
     ),
-    "fct_parse": (
-        _f("spec_file", "Test Spec File", required=True),
-        _f("interfaces", "Interfaces", ftype=T_TEXT,
-           remarks="one interface per line"),
-        _f("protocols", "Protocols", ftype=T_TEXT,
-           remarks="one protocol per line"),
-        _f("custom_checks", "Custom Checks", ftype=T_TEXT,
-           remarks="one check rule per line"),
-    ),
     "fct_build": (
         _f("flow_steps", "FCT Flow", ftype=T_TEXT, required=True,
            remarks="one flow step per line"),

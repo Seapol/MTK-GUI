@@ -51,7 +51,6 @@ def test_yaml_round_trip(stem):
     model.enable_all()
     errors = model.apply_yaml_dict(document)
     assert errors == []
-    assert not model.is_enabled("fct_parse")
     assert not model.is_enabled("fct_build")
     for key in ("design_input", "instruments", "parse_ict", "rails",
                 "clocks", "gpios"):
@@ -97,7 +96,6 @@ def test_excel_round_trip(stem, tmp_path):
     model = YamlBuildModel()
     report = import_from_excel(model, str(xlsx))
     assert report.applied, report.errors
-    assert not model.is_enabled("fct_parse")
     assert not model.is_enabled("fct_build")
 
     # re-export and compare the three-table content 1:1

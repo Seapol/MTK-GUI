@@ -41,7 +41,7 @@ def test_page_assembly(page):
     assert not hasattr(page, "btn_build_draft")
     assert not hasattr(page, "btn_release_final")
     assert page.yaml_preview.btn_apply in page._action_buttons
-    assert len(page.block_flow._cards) == 10
+    assert len(page.block_flow._cards) == 9
     assert "ict_workflow" in page.block_flow._cards
     assert page.yaml_preview.editor.toPlainText().startswith(
         "yaml_build:")

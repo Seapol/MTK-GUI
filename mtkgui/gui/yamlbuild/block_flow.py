@@ -19,6 +19,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QSizePolicy,
@@ -111,8 +112,6 @@ MODULE_TOOLTIPS = {
         "不生成测试步骤",
     "peripherals":
         "DUT板载外设（WiFi/BT/SD/USB）参数配置；不生成测试步骤",
-    "fct_parse": "从DesignModel解析FCT接口定义生成FCTInterfaceModel；"
-                 "不生成测试序列",
     "fct_build":
         "生成FCT功能测试与固件烧录步骤；复用全部已定义资源模型，"
         "不重新配置仪器",
@@ -133,6 +132,15 @@ TT_DISABLE_ALL = "一键禁用全部流程模块，所有模块暂不参与流�
 #: original project status color (main_window LED "connected" green);
 #: used for the Enabled badge - NOT the theme link/text color
 STATUS_ENABLED_COLOR = "#22c55e"
+
+#: card marks (user direction): a configured module (OK saved) shows
+#: a star at the top-right; after the block-09 full validation PASSES
+#: the star becomes a check; failing validation keeps the star
+MARK_NONE = ""
+MARK_STAR = "star"
+MARK_CHECK = "check"
+_MARK_GLYPH = {MARK_STAR: "★", MARK_CHECK: "✓"}
+_MARK_COLOR = {MARK_STAR: "#f59e0b", MARK_CHECK: "#22c55e"}
 
 
 class BlockCard(QFrame):
@@ -170,13 +178,38 @@ class BlockCard(QFrame):
             f"{index + 1:02d} · {stage.title}")
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet("font-weight: bold;")
+        # top-right mark: ★ = edited (OK saved), ✓ = validated
+        self.mark_label = QLabel("")
+        self.mark_label.setStyleSheet("font-weight: bold;")
+        header = QHBoxLayout()
+        header.addWidget(self.title_label, 1)
+        header.addWidget(self.mark_label)
         self.state_label = QLabel("Disabled")
         self.state_label.setObjectName("muted")
-        lay.addWidget(self.title_label)
+        lay.addLayout(header)
         lay.addWidget(self.state_label)
         self._apply_state_style()
 
     # ----------------------------------------------------------- state
+    def set_mark(self, mark: str) -> None:
+        """Set the top-right mark: MARK_STAR (edited, not yet
+        validated) / MARK_CHECK (validated) / MARK_NONE.
+
+        Args:
+            mark: One of the MARK_* constants.
+        """
+        self.mark_label.setText(_MARK_GLYPH.get(mark, ""))
+        if mark in _MARK_GLYPH:
+            self.mark_label.setStyleSheet(
+                f"font-weight: bold; color: {_MARK_COLOR[mark]};")
+            self.mark_label.setToolTip(
+                "已编辑，尚未通过 Validate Full Test Sequence 校验"
+                if mark == MARK_STAR else
+                "已通过 Validate Full Test Sequence 校验")
+        else:
+            self.mark_label.setStyleSheet("font-weight: bold;")
+            self.mark_label.setToolTip("")
+
     def set_enabled(self, enabled: bool) -> None:
         """Refresh the visual state (grays out disabled blocks).
 
@@ -343,6 +376,21 @@ class BlockFlowWidget(QWidget):
                     self._module_states.get(m, False)
                     for m in modules))
                 return
+
+    def set_module_mark(self, module_key: str, mark: str) -> None:
+        """Set the mark of one module's card (the merged ICT workflow
+        card carries the mark of its rails / clocks / gpios modules).
+
+        Args:
+            module_key: Stage key of the underlying module.
+            mark:       One of the MARK_* constants.
+        """
+        display = next(
+            (d for d, mods in self._card_modules.items()
+             if module_key in mods), module_key)
+        card = self._cards.get(display)
+        if card is not None:
+            card.set_mark(mark)
 
     def open_dialog(self, module_key: str, params: dict,
                     parent: QWidget,

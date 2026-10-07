@@ -63,6 +63,10 @@ def _migrate_legacy_modules(modules: dict) -> dict:
         if target not in out:
             merged["enabled"] = bool(legacy.get("enabled", True))
         out[target] = merged
+    # retired blocks (user direction: the FCT parse block was removed)
+    # drop out SILENTLY so old files keep loading without errors
+    for retired in ("fct_parse",):
+        out.pop(retired, None)
     # item 23 legacy order: files saved before the 02/03 swap carry
     # instruments BEFORE parse_ict - normalize that exact pair onto
     # the canonical sequence (any other order deviation still fails
@@ -142,6 +146,9 @@ class YamlBuildModel:
         # test path complexity risk (topology-based, advisory):
         # {"thresholds": {...}, "scores": {net: {...}}}
         self.path_risk: dict = {}
+        # card marks (user direction): module_key -> "star" (edited,
+        # OK saved) / "check" (passed the block-09 full validation)
+        self.marks: dict[str, str] = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -167,6 +174,19 @@ class YamlBuildModel:
         if module_key in self._enabled:
             self._enabled[module_key] = bool(enabled)
             self.changed = True
+
+    def set_mark(self, module_key: str, mark: str) -> None:
+        """Store one module's card mark ("" clears it).
+
+        Args:
+            module_key: Stage key.
+            mark:       "star" / "check" / "".
+        """
+        if mark:
+            self.marks[module_key] = mark
+        else:
+            self.marks.pop(module_key, None)
+        self.changed = True
 
     def get_params(self, module_key: str) -> dict:
         """Return a copy of one module's parameters.
@@ -486,6 +506,7 @@ class YamlBuildModel:
                 copy.deepcopy(self.se_clock_allocation),
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
             "path_risk": copy.deepcopy(self.path_risk),
+            "marks": dict(self.marks),
             "modules": {
                 key: {
                     "enabled": self._enabled[key],
@@ -528,6 +549,8 @@ class YamlBuildModel:
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)
+        marks = state.get("marks")
+        self.marks = dict(marks) if isinstance(marks, dict) else {}
         modules = state.get("modules") or {}
         # legacy (pre-M0) migration: the absorbed power_dut block
         # hands its retained parameters to the rails block (04)

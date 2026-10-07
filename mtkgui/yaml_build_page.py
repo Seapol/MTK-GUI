@@ -37,7 +37,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.gui.yamlbuild.block_flow import BlockFlowWidget
+from mtkgui.gui.yamlbuild.block_flow import (
+    MARK_CHECK,
+    MARK_NONE,
+    MARK_STAR,
+    BlockFlowWidget,
+)
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -48,7 +53,10 @@ from mtkgui.gui.yamlbuild.publish import (
     plan_filename,
     publish,
 )
-from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
+from mtkgui.gui.yamlbuild.stages import (
+    DISPLAY_ICT_WORKFLOW,
+    STAGE_KEYS,
+)
 from mtkgui.gui.yamlbuild.store import load_project_state, \
     save_project_state
 from mtkgui.version_info import get_version_info
@@ -159,9 +167,9 @@ class YamlBuildPage(QWidget):
         right_lay.addLayout(buttons)
         right_lay.addWidget(self.yaml_preview)
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 6)
-        splitter.setStretchFactor(1, 4)
-        splitter.setSizes([600, 400])
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([700, 300])   # default 7 : 3 (user direction)
         root.addWidget(splitter, 1)
         self.hint = QLabel(
             "12-block workflow: click a block to configure it; "
@@ -185,6 +193,8 @@ class YamlBuildPage(QWidget):
         keeps the diagram <-> YAML sync loop-free)."""
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
+            self.block_flow.set_module_mark(
+                key, self.model.marks.get(key, MARK_NONE))
         self.yaml_preview.set_model_text(self.model)
 
     def _load_persisted(self) -> None:
@@ -218,6 +228,8 @@ class YamlBuildPage(QWidget):
                 parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.ict_sequence_ready.emit(dlg.result_tests())
+                # configured (OK) -> star mark (user direction)
+                self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
             return
         params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,
@@ -243,6 +255,28 @@ class YamlBuildPage(QWidget):
         if params is None:
             return
         self.model.set_params(module_key, params)
+        if module_key == "validate_sequence":
+            # block 09: on OK run the FULL sequence validation - every
+            # marked module that passes gets a check; a failure keeps
+            # the stars (edited but not validated, user direction)
+            errors = self.model.validate_all()
+            if errors:
+                self._tlog("ERROR", f"Validate Full Test Sequence: "
+                                    f"{len(errors)} error(s)")
+                QMessageBox.warning(
+                    self, "Validate Full Test Sequence",
+                    "Validation FAILED - the stars are kept "
+                    "(edited but not validated):\n"
+                    + "\n".join(errors[:15]))
+            else:
+                for key in STAGE_KEYS:
+                    if self.model.marks.get(key) == MARK_STAR:
+                        self._set_mark(key, MARK_CHECK)
+                self._tlog("INFO", "Validate Full Test Sequence: "
+                                   "PASS - all edited modules checked")
+        else:
+            # configured (OK) -> star mark (user direction)
+            self._set_mark(module_key, MARK_STAR)
         if module_key == "design_input" and dialog is not None \
                 and dialog.panel is not None:
             # keep the loaded NET bytes for the Parse Nets module (T8)
@@ -327,6 +361,13 @@ class YamlBuildPage(QWidget):
         """Single broadcast point after every model mutation."""
         self._persist()
         self.refresh_all()
+
+    def _set_mark(self, module_key: str, mark: str) -> None:
+        """Set one module's card mark (star = edited / check =
+        validated), persisted with the model (restart-safe)."""
+        self.model.set_mark(module_key, mark)
+        self.block_flow.set_module_mark(module_key, mark)
+        self._persist()
 
     def _on_preview_edited(self) -> None:
         """Slot for valid hand edits from the YAML preview: refresh

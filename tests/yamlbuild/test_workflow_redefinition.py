@@ -25,7 +25,7 @@ from mtkgui.gui.yamlbuild.stages import (
 def test_twelve_stage_fixed_order():
     assert [s.key for s in WORKFLOW_STAGES] == [
         "design_input", "parse_ict", "instruments", "rails", "clocks",
-        "gpios", "programmer", "peripherals", "fct_parse", "fct_build",
+        "gpios", "programmer", "peripherals", "fct_build",
         "validate_sequence", "preview_export"]
 
 
@@ -38,8 +38,9 @@ def test_titles_match_item23_numbering():
     assert titles[2] == "Configure Instruments"
     assert titles[3] == \
         "Build Impedance/Voltage/Power rails up sequence"
-    assert titles[10] == "Validate Full Test Sequence"
-    assert titles[11] == "Preview & Export YAML"
+    assert titles[8] == "Build FCT Test Work Flow Sequence"
+    assert titles[9] == "Validate Full Test Sequence"
+    assert titles[10] == "Preview & Export YAML"
 
 
 # ------------------------------------------------- responsibility boundary
@@ -81,7 +82,6 @@ def test_parse_build_separation_in_tooltips():
     'reuse instruments / no reconfiguration'; validate states 'no data
     modification' - the M0 boundary wording is normative."""
     assert "不生成测试序列" in MODULE_TOOLTIPS["parse_ict"]
-    assert "不生成测试序列" in MODULE_TOOLTIPS["fct_parse"]
     assert "不重新配置仪器" in MODULE_TOOLTIPS["fct_build"]
     assert "不重复配置仪器" in MODULE_TOOLTIPS["rails"]
     assert "不修改流程数据" in MODULE_TOOLTIPS["validate_sequence"]
@@ -99,11 +99,49 @@ def test_every_stage_has_tooltip():
         assert MODULE_TOOLTIPS.get(key, "").strip(), key
 
 
+# ------------------------------------------------------------------ marks
+def test_card_marks_star_then_check(qapp=None):
+    """User direction: OK on a module marks its card with a star
+    (top-right); a PASSING block-09 validation turns the star into a
+    check; a failing validation keeps the star.  Marks survive a
+    state round trip (restart-safe)."""
+    from PySide6.QtWidgets import QApplication
+    from mtkgui.gui.yamlbuild.block_flow import (
+        MARK_CHECK,
+        MARK_NONE,
+        MARK_STAR,
+    )
+    QApplication.instance() or QApplication([])
+    flow = BlockFlowWidget()
+    flow.set_module_mark("rails", MARK_STAR)
+    assert flow._cards["ict_workflow"].mark_label.text() == "★"
+    flow.set_module_mark("programmer", MARK_STAR)
+    assert flow._cards["programmer"].mark_label.text() == "★"
+    # validation pass: star -> check
+    flow.set_module_mark("rails", MARK_CHECK)
+    flow.set_module_mark("programmer", MARK_CHECK)
+    assert flow._cards["ict_workflow"].mark_label.text() == "✓"
+    assert flow._cards["programmer"].mark_label.text() == "✓"
+    flow.deleteLater()
+
+    model = YamlBuildModel()
+    model.set_mark("rails", MARK_STAR)
+    model.set_mark("instruments", MARK_CHECK)
+    state = model.to_dict()
+    restored = YamlBuildModel()
+    restored.apply_state(state)
+    assert restored.marks["rails"] == MARK_STAR
+    assert restored.marks["instruments"] == MARK_CHECK
+    model.set_mark("rails", MARK_NONE)
+    assert "rails" not in model.marks
+
+
 # ------------------------------------------------------------------ UI
 def test_block_flow_renders_merged_display_cards():
     """The UI renders the MERGED display sequence: 04/05/06 collapse
-    into the single 'Build ICT Test Work Flow Sequence' card (10
-    cards); the YAML model keeps the full 12-module sequence."""
+    into the single 'Build ICT Test Work Flow Sequence' card and the
+    FCT parse block is retired (9 cards); the YAML model keeps the
+    remaining 11-module sequence."""
     from PySide6.QtWidgets import QApplication
     from mtkgui.gui.yamlbuild.stages import (
         DISPLAY_ICT_WORKFLOW,
@@ -111,7 +149,7 @@ def test_block_flow_renders_merged_display_cards():
     )
     QApplication.instance() or QApplication([])
     flow = BlockFlowWidget()
-    assert len(flow._cards) == 10
+    assert len(flow._cards) == 9
     assert list(flow._cards) == [s.key for s in WORKFLOW_DISPLAY_STAGES]
     assert flow._card_modules[DISPLAY_ICT_WORKFLOW] == \
         ("rails", "clocks", "gpios")
