@@ -333,10 +333,6 @@ class ParseNetsPanel(QWidget):
         self.table.setMinimumHeight(260)
         lay.addWidget(self.table, 1)
 
-        self.lbl_filtered = QLabel("")
-        self.lbl_filtered.setWordWrap(True)
-        lay.addWidget(self.lbl_filtered)
-
         # GND integrity resident hint (core-algorithm standard 5.2):
         # advisory only - never blocks the parse
         self.lbl_gnd_risk = QLabel("GND integrity: (parse first)")
@@ -690,6 +686,3 @@ class ParseNetsPanel(QWidget):
             self.table.setCellWidget(row, 3, dnt)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
-        filtered = "; ".join(f"{n} ({r})"
-                             for n, r in result.filtered) or "-"
-        self.lbl_filtered.setText(f"Filtered: {filtered}")
