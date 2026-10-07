@@ -69,6 +69,11 @@ NODE_H = 44
 COL_STEP = NODE_W + 110
 ROW_STEP = NODE_H + 34
 ZOOM_FACTOR = 1.15
+#: stage lane visuals: the drop target of every stage level 0..6 is a
+#: tinted background cell with a gray dashed right separator and a
+#: header label (user direction)
+LANE_TOP = -70
+LANE_GAP = 44
 
 
 class _NodeItem(QGraphicsRectItem):
@@ -268,12 +273,20 @@ class PowerTreePage(QWidget):
 
     def refresh_from_model(self) -> None:
         """Load the YAML draft (or auto-build from the Parse Nets
-        result) and repaint canvas + panels."""
+        result) and repaint canvas + panels.  A STALE draft saved by
+        an older build (nodes without ANY upstream/downstream links)
+        is re-analysed once so the flow arrows exist."""
         if self.model is None:
             return
         draft = self.model.power_tree or {}
         if draft.get("nodes"):
             self.tree = PowerTree.from_dict(draft)
+            if not any(n.upstream or n.downstream
+                       for n in self.tree.nodes.values()):
+                self._build_tree()
+                self._log("INFO",
+                          "stale power tree draft without flow links "
+                          "re-analysed (AI Power Tree Topology)")
         else:
             self._build_tree()
         self._render()
@@ -343,7 +356,28 @@ class PowerTreePage(QWidget):
                 used.add(row)
                 pos[node.name] = (stage * COL_STEP, row * ROW_STEP)
         self._layout_pos = pos            # layout slot per node name
-        # edges first (behind the nodes): power-flow arrows
+        # ---- stage lanes 0..MAX_STAGE (user direction: gray dashed
+        # separators + tinted background cells + header labels make the
+        # horizontal drop target visible) ----
+        bottom = (max((y for _x, y in pos.values()), default=0)
+                  + 2 * ROW_STEP)
+        lane_pen = QPen(QColor("#cbd5e1"), 1, Qt.PenStyle.DashLine)
+        for stage in range(MAX_STAGE + 1):
+            x = stage * COL_STEP
+            lane = scene.addRect(x, LANE_TOP, COL_STEP - LANE_GAP,
+                                 bottom - LANE_TOP,
+                                 QPen(Qt.PenStyle.NoPen),
+                                 QBrush(QColor("#f1f5f9" if stage % 2
+                                               else "#f8fafc")))
+            lane.setZValue(-2)            # behind everything
+            sep = scene.addLine(x + COL_STEP - LANE_GAP, LANE_TOP,
+                                x + COL_STEP - LANE_GAP, bottom,
+                                lane_pen)
+            sep.setZValue(-1)
+            header = scene.addText(f"Stage {stage}")
+            header.setDefaultTextColor(QColor("#64748b"))
+            header.setPos(x + 6, LANE_TOP + 8)
+        # ---- power-flow arrows (behind the nodes) ----
         for node in active:
             for upstream in node.upstream:
                 if upstream not in pos:
@@ -378,11 +412,11 @@ class PowerTreePage(QWidget):
         import math
         x0, y0 = src[0] + NODE_W, src[1] + NODE_H / 2
         x1, y1 = dst[0], dst[1] + NODE_H / 2
-        pen = QPen(QColor("#94a3b8"))
+        pen = QPen(QColor("#475569"), 2.2)
         scene.addLine(x0, y0, x1, y1, pen)
         # arrowhead triangle pointing along the line direction
         rad = math.atan2(y1 - y0, x1 - x0)
-        back, side = 10.0, 4.5
+        back, side = 12.0, 5.5
         dx, dy = math.cos(rad), math.sin(rad)
         scene.addPolygon(QPolygonF([
             QPointF(x1, y1),
@@ -390,7 +424,7 @@ class PowerTreePage(QWidget):
                     y1 - back * dy + side * dx),
             QPointF(x1 - back * dx - side * -dy,
                     y1 - back * dy - side * dx),
-        ]), QPen(QColor("#94a3b8"), 0))
+        ]), QPen(QColor("#475569"), 0))
 
     # --------------------------------------------------- mouse interactions
     def _set_link_mode(self, enabled: bool) -> None:

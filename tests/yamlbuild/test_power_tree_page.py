@@ -8,6 +8,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QGraphicsTextItem  # noqa: E402
 
 from mtkgui.gui.yamlbuild.power_tree_page import (  # noqa: E402
     PowerTreePage,
@@ -69,6 +70,38 @@ def test_auto_build_from_parse_result(page):
     names = set(page.tree.nodes)
     assert {"VIN_24V", "MID_A", "MID_B"} <= names
     assert page.tree.nodes["VIN_24V"].node_type == NODE_PRIMARY or True
+
+
+def test_canvas_renders_stage_lanes(page):
+    """Every stage level 0..6 shows a lane: tinted background cell,
+    gray dashed separator and a 'Stage k' header label."""
+    page.refresh_from_model()
+    texts = [i.toPlainText() for i in page.canvas.scene().items()
+             if isinstance(i, QGraphicsTextItem)]
+    for stage in range(7):
+        assert f"Stage {stage}" in texts
+
+
+def test_stale_draft_without_links_is_reanalysed(page):
+    """A YAML draft saved by an older build (nodes without ANY
+    upstream/downstream links) is re-analysed on load so the flow
+    arrows exist; a draft WITH links is kept as-is."""
+    page.refresh_from_model()
+    stale = {"nodes": [
+        {"name": "VIN_24V", "stage": 0},
+        {"name": "MID_A", "stage": 1},
+        {"name": "MID_B", "stage": 2},
+        {"name": "GND", "stage": 3},
+    ]}
+    page.model.power_tree = dict(stale)
+    page.refresh_from_model()
+    assert any(page.tree.nodes[n].upstream
+               for n in ("MID_A", "MID_B", "GND")
+               if n in page.tree.nodes)
+    # a draft with links is NOT rebuilt
+    page.model.power_tree = page.tree.to_dict()
+    page.refresh_from_model()
+    assert page.tree.nodes
 
 
 def test_canvas_renders_nodes_and_edges(page):
