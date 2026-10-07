@@ -210,6 +210,9 @@ def test_multiselect_combo_toggles_via_viewport_events(qapp):
     try:
         view = combo.view()
         viewport = view.viewport()
+        # offscreen: the popup is not laid out - point indexAt at the
+        # first checkable row directly
+        view.indexAt = lambda _pos: combo._model.index(1, 0)
         index = view.indexAt(QPoint(5, 5))
         assert index.isValid()
         event = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5),
