@@ -198,6 +198,37 @@ def test_node_edit_lists_pruned_nets(qapp):
         dlg.deleteLater()
 
 
+def test_multiselect_combo_toggles_via_viewport_events(qapp):
+    """Multi-select FIX regression: a mouse press on the popup
+    viewport toggles the check state and is SWALLOWED (the popup must
+    not close - that was the broken multi-select behaviour)."""
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from mtkgui.gui.yamlbuild.power_tree_editor import MultiSelectCombo
+    combo = MultiSelectCombo([("A", "A"), ("B", "B")], [])
+    combo.show()
+    try:
+        view = combo.view()
+        viewport = view.viewport()
+        index = view.indexAt(QPoint(5, 5))
+        assert index.isValid()
+        event = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5),
+                            Qt.MouseButton.LeftButton,
+                            Qt.MouseButton.LeftButton,
+                            Qt.KeyboardModifier.NoModifier)
+        assert combo.eventFilter(viewport, event) is True
+        assert combo._model.itemFromIndex(index).checkState() == \
+            Qt.CheckState.Checked
+        # second toggle unchecks; the stored values follow
+        assert combo.eventFilter(viewport, event) is True
+        assert combo.checked_items() == []
+        # non-mouse events pass through untouched
+        assert combo.eventFilter(viewport,
+                                 QEvent(QEvent.Type.Resize)) is False
+    finally:
+        combo.deleteLater()
+
+
 def test_node_edit_primary_has_no_upstream(qapp):
     """The primary power input has NO upstream node reference (the
     upstream combo is disabled) and the stage override spinner spans

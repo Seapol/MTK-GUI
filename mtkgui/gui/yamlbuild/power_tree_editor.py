@@ -67,7 +67,12 @@ class MultiSelectCombo(QComboBox):
     the downstream node reference allows multiple power nets); the
     closed-state text summarises the current selection.  Items carry
     ``(name, label)`` pairs - the label may be annotated (e.g. a
-    pruned net) while the stored value stays the raw net name."""
+    pruned net) while the stored value stays the raw net name.
+
+    Multi-select FIX: the default QComboBox closes the popup on the
+    first item click - the popup viewport therefore gets an event
+    filter that toggles the check state and SWALLOWS the mouse events
+    (the popup stays open until the user clicks elsewhere)."""
 
     def __init__(self, choices: list[tuple[str, str]],
                  checked: list[str], parent=None) -> None:
@@ -84,21 +89,32 @@ class MultiSelectCombo(QComboBox):
                 Qt.CheckState.Checked if name in checked
                 else Qt.CheckState.Unchecked)
             self._model.appendRow(item)
-        self.setModel(self._model)
-        # clicking an item toggles its checkbox WITHOUT closing the
-        # popup; the combo index stays on the summary placeholder
-        self.view().pressed.connect(self._toggle_item)
+        from PySide6.QtWidgets import QAbstractItemView, QListView
+        list_view = QListView(self)
+        list_view.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection)
+        self.setView(list_view)
+        # toggle check states WITHOUT closing the popup
+        self.view().viewport().installEventFilter(self)
         self._model.itemChanged.connect(lambda _i: self._sync_text())
         self._sync_text()
 
-    def _toggle_item(self, index) -> None:
-        item = self._model.itemFromIndex(index)
-        if item is None or not item.isCheckable():
-            return
-        item.setCheckState(
-            Qt.CheckState.Unchecked
-            if item.checkState() == Qt.CheckState.Checked
-            else Qt.CheckState.Checked)
+    def eventFilter(self, obj, event) -> bool:
+        from PySide6.QtCore import QEvent
+        if obj is self.view().viewport() and event.type() in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseButtonDblClick):
+            index = self.view().indexAt(event.position().toPoint())
+            item = self._model.itemFromIndex(index)
+            if item is not None and item.isCheckable():
+                if event.type() != QEvent.Type.MouseButtonRelease:
+                    item.setCheckState(
+                        Qt.CheckState.Unchecked
+                        if item.checkState() == Qt.CheckState.Checked
+                        else Qt.CheckState.Checked)
+                return True        # keep the popup open
+        return False
 
     def _sync_text(self, *_args) -> None:
         selected = self.checked_items()
