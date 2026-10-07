@@ -120,14 +120,14 @@ def test_canvas_renders_nodes_and_edges(page):
 
 # ------------------------------------------------------------- editing
 def test_node_edit_reference_dropdowns(qapp):
-    """Upstream is a SINGLE-select dropdown, downstream a MULTI-select
-    checkbox dropdown; both list ALL power nets minus the node itself
-    and the selection round-trips onto the node."""
+    """A node defines ONLY its upstream (user direction): the
+    single-select upstream dropdown lists ALL power nets minus the
+    node itself and the selection round-trips; the downstream side is
+    derived (the parent of the new link gains this node)."""
     from mtkgui.gui.yamlbuild.power_tree_editor import (
         NO_REFERENCE,
         NodeEditDialog,
     )
-    from PySide6.QtCore import Qt
     tree = PowerTree.build(["VIN_24V", "VDD_12V", "VDD_5V"], [],
                            primaries=["VIN_24V"])
     dlg = NodeEditDialog(tree.nodes["VDD_5V"], tree)
@@ -136,29 +136,23 @@ def test_node_edit_reference_dropdowns(qapp):
                  for i in range(dlg.combo_upstream.count())]
         assert items == [NO_REFERENCE, "VDD_12V", "VIN_24V"]
         assert "VDD_5V" not in items        # never self-reference
-        # downstream multi-select: checkable items for every other net
-        assert dlg.combo_downstream.labels() == ["VDD_12V", "VIN_24V"]
-        # single-select upstream + multi-select downstream
         dlg.combo_upstream.setCurrentText("VDD_12V")
-        dlg.combo_downstream.set_checked(["VDD_12V", "VIN_24V"])
-        assert dlg.combo_downstream.checked_items() == \
-            ["VDD_12V", "VIN_24V"]
         dlg._on_accept()
         node = tree.nodes["VDD_5V"]
         assert node.upstream == ["VDD_12V"]
-        assert sorted(node.downstream) == ["VDD_12V", "VIN_24V"]
+        # downstream DERIVED: the parent now lists this node
+        assert "VDD_5V" in tree.nodes["VDD_12V"].downstream
+        assert node.downstream == []
     finally:
         dlg.deleteLater()
 
 
 def test_node_edit_lists_pruned_nets(qapp):
-    """Nets pruned by the passive-bridge rule STAY listed in both
-    reference dropdowns, annotated "(pruned)"; the stored value keeps
-    the raw net name."""
+    """Pruned nets STAY listed in the upstream dropdown, annotated
+    "(pruned)"; the stored value keeps the raw net name."""
     from mtkgui.gui.yamlbuild.power_tree_editor import (
         NodeEditDialog,
     )
-    from PySide6.QtCore import Qt
     members = {"VIN_24V": ["R4.1"], "MID_A": ["R4.2"],
                "MID_B": ["R5.1"], "GND": ["R5.2"]}
     tree = PowerTree.build(["VIN_24V", "MID_A", "MID_B", "GND"],
@@ -181,45 +175,12 @@ def test_node_edit_lists_pruned_nets(qapp):
         idx = dlg.combo_upstream.findData("VIN_24V")
         assert idx > 0
         dlg.combo_upstream.setCurrentIndex(idx)
-        # the "(pruned)" annotation is only the LABEL - the stored
-        # value is the raw net name
-        dlg.combo_downstream.set_checked(["VIN_24V"])
         dlg._on_accept()
         node = tree.nodes["GND"]
         assert node.upstream == ["VIN_24V"]
-        assert node.downstream == ["VIN_24V"]
+        assert node.downstream == []        # derived: GND has no child
     finally:
         dlg.deleteLater()
-
-
-def test_multiselect_combo_state_and_popup_toggle(qapp):
-    """The portable multi-select (button + Qt.Popup checkable list):
-    the button text summarises the selection, popup list toggles write
-    back into the state and the stored values stay the RAW names."""
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QListWidgetItem
-    from mtkgui.gui.yamlbuild.power_tree_editor import (
-        NO_REFERENCE,
-        MultiSelectCombo,
-    )
-    combo = MultiSelectCombo([("A", "A (pruned)"), ("B", "B")], [])
-    try:
-        assert combo.text() == NO_REFERENCE        # nothing selected
-        combo.set_checked(["A"])
-        assert combo.checked_items() == ["A"]      # raw name stored
-        assert combo.text() == "A"                 # summary text
-        # a popup list toggle writes straight back into the state
-        item = QListWidgetItem("A (pruned)")
-        item.setData(Qt.ItemDataRole.UserRole, "A")
-        item.setCheckState(Qt.CheckState.Unchecked)
-        combo._on_popup_toggle(item)
-        assert combo.checked_items() == []
-        item.setCheckState(Qt.CheckState.Checked)
-        combo._on_popup_toggle(item)
-        assert combo.checked_items() == ["A"]
-        assert combo.text() == "A"
-    finally:
-        combo.deleteLater()
 
 
 def test_node_edit_primary_has_no_upstream(qapp):
@@ -308,28 +269,20 @@ def test_flow_arrow_link_via_page(page):
     assert page._link_line is None and page._link_from is None
 
 
-def test_node_edit_role_head_tail_middle(qapp):
-    """Head/tail/middle roles (user direction): mutually exclusive;
-    head disables upstream and locks stage 0; tail disables the
-    downstream multi-select; the accepted role lands on the node."""
-    from mtkgui.gui.yamlbuild.power_alloc import (
-        NODE_LOAD,
-        NODE_NORMAL,
-        NODE_PRIMARY,
-    )
+def test_node_edit_role_head_middle(qapp):
+    """Head role (user direction): checking it disables the upstream
+    combo and locks stage 0; the tail role is DERIVED (no children)
+    and no longer user-defined."""
+    from mtkgui.gui.yamlbuild.power_alloc import NODE_PRIMARY
     from mtkgui.gui.yamlbuild.power_tree_editor import NodeEditDialog
     tree = PowerTree.build(["VIN", "VMID", "VOUT"], [],
                            primaries=["VIN"])
-    # middle by default
     dlg = NodeEditDialog(tree.nodes["VMID"], tree)
     try:
         assert dlg.chk_head.isChecked() is False
-        assert dlg.chk_tail.isChecked() is False
         assert dlg.combo_upstream.isEnabled()
-        assert dlg.combo_downstream.isEnabled()
-        # head: tail checkbox + upstream + stage get disabled
+        # head: upstream disabled + stage locked 0
         dlg.chk_head.setChecked(True)
-        assert not dlg.chk_tail.isEnabled()
         assert not dlg.combo_upstream.isEnabled()
         assert not dlg.spin_stage.isEnabled()
         assert dlg.spin_stage.value() == 0
@@ -337,18 +290,6 @@ def test_node_edit_role_head_tail_middle(qapp):
         node = tree.nodes["VMID"]
         assert node.node_type == NODE_PRIMARY
         assert node.upstream == [] and node.stage == 0
-        # tail: head checkbox + downstream get disabled
-        dlg.chk_head.setChecked(False)
-        dlg.chk_tail.setChecked(True)
-        assert not dlg.chk_head.isEnabled()
-        assert not dlg.combo_downstream.isEnabled()
-        dlg._on_accept()
-        assert tree.nodes["VMID"].node_type == NODE_LOAD
-        assert tree.nodes["VMID"].downstream == []
-        # unchecking both falls back to the middle role
-        dlg.chk_tail.setChecked(False)
-        dlg._on_accept()
-        assert tree.nodes["VMID"].node_type == NODE_NORMAL
     finally:
         dlg.deleteLater()
     assert tree.nodes["VIN"].node_type == NODE_PRIMARY

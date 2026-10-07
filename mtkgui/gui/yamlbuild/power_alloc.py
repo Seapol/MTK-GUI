@@ -408,6 +408,19 @@ class PowerTree:
         return [n for n in self.nodes.values() if not n.pruned]
 
     # ------------------------------------------------- manual graph edits
+    def derive_downstream(self) -> None:
+        """The downstream links are NOT user-defined (user direction:
+        a node only defines its upstream) - they are derived as the
+        exact reverse of the upstream links of the whole tree."""
+        for node in self.nodes.values():
+            node.downstream = []
+        for node in self.nodes.values():
+            for up in node.upstream:
+                if up in self.nodes and up != node.name:
+                    parent = self.nodes[up]
+                    if node.name not in parent.downstream:
+                        parent.downstream.append(node.name)
+
     def rebuild_adjacency(self) -> None:
         """Rebuild the undirected adjacency from the stored upstream /
         downstream links (after a YAML load or manual flow-arrow
@@ -461,21 +474,18 @@ class PowerTree:
                            "it has no upstream")
         if source in dst.upstream:
             return True, "link already exists"
+        # consistency first: the downstream side is derived
+        self.derive_downstream()
         if self._reaches(target, source):
             return False, "link rejected: it would create a cycle"
-        # unique upstream: drop the previous edge on both ends
-        for old in list(dst.upstream):
-            if old in self.nodes:
-                old_node = self.nodes[old]
-                if target in old_node.downstream:
-                    old_node.downstream.remove(target)
+        # unique upstream: the new link REPLACES the previous one; the
+        # downstream side follows from the upstream links
         dst.upstream = [source]
-        if target not in src.downstream:
-            src.downstream.append(target)
         self.audit_log.append({
             "net": target,
             "reason": f"manual flow link: {source} -> {target}",
             "refdes": "", "kept": ""})
+        self.derive_downstream()
         self._classify()
         self.rebuild_adjacency()
         self.assign_stages()
@@ -510,6 +520,9 @@ class PowerTree:
                 tree.nodes[node.name] = node
         tree.audit_log = [dict(a) for a in
                           (data or {}).get("audit_log") or []]
+        # the downstream side is derived from the upstream links (a
+        # draft saved with manual downstream lists is normalized)
+        tree.derive_downstream()
         return tree
 
 

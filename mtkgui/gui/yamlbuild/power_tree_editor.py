@@ -20,7 +20,7 @@ audit log; pruned nodes can be restored manually.  GUI layer only.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,12 +30,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSpinBox,
-    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -65,83 +62,14 @@ DONT_TEST_COLOR = "#1f2937"
 NO_REFERENCE = "—"
 
 
-class MultiSelectCombo(QToolButton):
-    """MULTI-select drop-down (user direction: the downstream node
-    reference allows multiple power nets); the button text summarises
-    the current selection.  Items carry ``(name, label)`` pairs - the
-    label may be annotated (e.g. a pruned net) while the stored value
-    stays the raw net name.
-
-    PORTABLE IMPLEMENTATION (the QComboBox-popup approach could not
-    keep the popup open on every platform): clicking the button opens
-    a ``Qt.Popup`` dialog with a checkable list - internal clicks
-    toggle the entries and KEEP the popup open, clicking outside
-    closes it."""
-
-    def __init__(self, choices: list[tuple[str, str]],
-                 checked: list[str], parent=None) -> None:
-        super().__init__(parent)
-        self._choices: list[tuple[str, str]] = list(choices)
-        self._checked: dict[str, bool] = {
-            name: name in checked for name, _label in self._choices}
-        self.setStyleSheet("text-align: left; padding-left: 6px;")
-        self.clicked.connect(self._open_popup)
-        self._sync_text()
-
-    # ---------------------------------------------------------- state
-    def checked_items(self) -> list[str]:
-        """The currently checked net names (raw names, list order)."""
-        return [name for name, _label in self._choices
-                if self._checked.get(name)]
-
-    def set_checked(self, names: list[str]) -> None:
-        """Programmatic selection (tests / restore)."""
-        self._checked = {name: name in names
-                         for name, _label in self._choices}
-        self._sync_text()
-
-    def labels(self) -> list[str]:
-        """The item labels in list order (annotations included)."""
-        return [label for _name, label in self._choices]
-
-    def _sync_text(self) -> None:
-        selected = self.checked_items()
-        self.setText(", ".join(selected) if selected else NO_REFERENCE)
-
-    # ---------------------------------------------------------- popup
-    def _open_popup(self) -> None:
-        popup = QDialog(self, Qt.WindowType.Popup)
-        lay = QVBoxLayout(popup)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lst = QListWidget()
-        for name, label in self._choices:
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked if self._checked.get(name)
-                else Qt.CheckState.Unchecked)
-            lst.addItem(item)
-        lst.itemChanged.connect(self._on_popup_toggle)
-        lay.addWidget(lst)
-        popup.adjustSize()
-        popup.exec()
-
-    def _on_popup_toggle(self, item: QListWidgetItem) -> None:
-        name = item.data(Qt.ItemDataRole.UserRole)
-        if name is None:
-            return
-        self._checked[name] = \
-            item.checkState() == Qt.CheckState.Checked
-        self._sync_text()
-
-
 class NodeEditDialog(QDialog):
-    """Edit one power node: voltage / tolerances / dependencies /
-    upstream (single-select dropdown) / downstream (multi-select
-    checkboxes) / stage override / Do-Not-Test.  Both reference
-    dropdowns list ALL power nets of the tree - including the nets
-    pruned by the passive-bridge rule (annotated "(pruned)")."""
+    """Edit one power node: voltage / tolerances / dependencies / the
+    upstream (single-select dropdown) / stage override / Do-Not-Test.
+    The upstream dropdown lists ALL power nets of the tree - including
+    the nets pruned by the passive-bridge rule (annotated "(pruned)").
+    The downstream side is NOT user-defined: it is derived from the
+    upstream links of the whole tree (the tail role is the derived
+    "no children" state)."""
 
     def __init__(self, node, tree: PowerTree, parent=None) -> None:
         super().__init__(parent)
@@ -174,16 +102,14 @@ class NodeEditDialog(QDialog):
         self.edit_deps.setPlaceholderText(
             "e.g. requires firmware FW1.2, EN signal high (optional)")
         form.addRow("Dependency conditions:", self.edit_deps)
-        # node role (user direction): HEAD (primary input, stage 0, no
-        # upstream, green) / TAIL (end load, no downstream, dark gray)
-        # / MIDDLE (neither) - head and tail are mutually exclusive
+        # node role (user direction): the ONLY user-defined reference
+        # is the UPSTREAM node - a head node (primary input) has no
+        # upstream, and the downstream side / tail role are DERIVED
+        # automatically from the upstream links
         self.chk_head = QCheckBox(
             "Head node (primary power input, stage 0)")
         self.chk_head.setChecked(node.node_type == NODE_PRIMARY)
         form.addRow("", self.chk_head)
-        self.chk_tail = QCheckBox("Tail node (end load, no downstream)")
-        self.chk_tail.setChecked(node.node_type == NODE_LOAD)
-        form.addRow("", self.chk_tail)
         # upstream: SINGLE-select dropdown (one parent node - the
         # upstream stays unique); a primary power input has NO upstream
         self.combo_upstream = QComboBox()
@@ -198,14 +124,6 @@ class NodeEditDialog(QDialog):
             "single-select: the upstream power node (all power nets "
             "of the tree are listed)")
         form.addRow("Upstream node reference:", self.combo_upstream)
-        # downstream: MULTI-select checkbox dropdown
-        self.combo_downstream = MultiSelectCombo(
-            choices, [n for n in node.downstream
-                      if n != node.name])
-        self.combo_downstream.setToolTip(
-            "multi-select: the downstream power nodes (all power "
-            "nets of the tree are listed)")
-        form.addRow("Downstream node reference:", self.combo_downstream)
         self.spin_stage = QSpinBox()
         # stage levels 0..6 (user direction); -1 = auto traversal
         self.spin_stage.setRange(-1, MAX_STAGE)
@@ -219,10 +137,8 @@ class NodeEditDialog(QDialog):
         self.chk_dont_test = QCheckBox("Do Not Test")
         self.chk_dont_test.setChecked(node.dont_test)
         form.addRow("", self.chk_dont_test)
-        # mutual exclusion + derived disables (head: no upstream and
-        # stage locked to 0; tail: no downstream)
+        # head: no upstream, stage locked to 0
         self.chk_head.toggled.connect(self._sync_role)
-        self.chk_tail.toggled.connect(self._sync_role)
         self._sync_role()
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -232,15 +148,10 @@ class NodeEditDialog(QDialog):
         form.addRow(buttons)
 
     def _sync_role(self) -> None:
-        """Head/tail mutual exclusion with the derived widget states:
-        head -> tail disabled + upstream disabled + stage locked 0;
-        tail -> head disabled + downstream disabled."""
+        """Head node: the upstream combo is disabled and the stage
+        locked to 0 (the primary power input has no upstream)."""
         head = self.chk_head.isChecked()
-        tail = self.chk_tail.isChecked()
-        self.chk_tail.setEnabled(not head)
-        self.chk_head.setEnabled(not tail)
         self.combo_upstream.setEnabled(not head)
-        self.combo_downstream.setEnabled(not tail)
         self.spin_stage.setEnabled(not head)
         if head:
             self.spin_stage.setValue(0)
@@ -252,33 +163,28 @@ class NodeEditDialog(QDialog):
         node.tol_lower = self.edit_tol_lower.text().strip()
         node.dependencies = self.edit_deps.text().strip()
         head = self.chk_head.isChecked()
-        tail = self.chk_tail.isChecked()
-        # upstream: single-select dropdown (one parent node)
+        # upstream: single-select dropdown (one parent node) - the
+        # ONLY reference a node defines; the downstream side is
+        # derived from the upstream links of the whole tree
         upstream = self.combo_upstream.currentData()
         node.upstream = ([] if head else
                          [upstream] if upstream else [])
-        # downstream: multi-select checkbox dropdown
-        node.downstream = ([] if tail
-                           else self.combo_downstream.checked_items())
         node.dont_test = self.chk_dont_test.isChecked()
         if head:
             node.node_type = NODE_PRIMARY
             node.locked = False
             node.stage_override = 0     # the head node is stage 0
             node.stage = 0
-        elif tail:
-            node.node_type = NODE_LOAD
-            node.locked = True
-        else:
-            node.node_type = NODE_NORMAL
-            node.locked = False
         override = self.spin_stage.value()
         node.stage_override = (0 if head else
                                None if override < 0 else override)
         if node.stage_override is not None:
             node.stage = node.stage_override
-        else:
-            self._tree.assign_stages([])
+        # the roles / downstream links are always re-derived from the
+        # upstream definitions of the whole tree
+        self._tree.derive_downstream()
+        self._tree._classify()
+        self._tree.assign_stages([])
         self.accept()
 
 
