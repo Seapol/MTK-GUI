@@ -102,6 +102,20 @@ def test_rails_derived_from_channel_allocation(window, monkeypatch):
     assert window.workflow_page.cap_rate == 200
 
 
+def test_instrument_dialog_test_log_is_large(page):
+    """User direction: the instrument dialog's Test Log is the main
+    lower area (>= 240 px, expands with the dialog) instead of a
+    cramped fixed 130 px strip."""
+    from mtkgui.equipment_page import _InstrumentDialog
+    dlg = _InstrumentDialog(page, "U2355A", [("Model", "U2355A")],
+                            "u2355a", virtual=True)
+    try:
+        assert dlg._output.minimumHeight() >= 240
+        assert dlg._output.maximumHeight() >= 100000  # NOT fixed
+    finally:
+        dlg.deleteLater()
+
+
 def test_virtual_startup_does_not_force_green(qapp):
     """User report: the LEDs were ALWAYS green - Virtual startup must
     NOT force-connect the LEDs; they stay disconnected until the

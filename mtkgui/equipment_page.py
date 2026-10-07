@@ -941,12 +941,24 @@ class _InstrumentDialog(QDialog):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         cl.addLayout(grid)
+        # the test log is the MAIN area of the lower half (user
+        # direction): it takes all remaining vertical space instead of
+        # a cramped fixed 130 px strip
+        lbl_log = QLabel("Test Log:")
+        lbl_log.setObjectName("strong")
+        cl.addWidget(lbl_log)
         self._output = QPlainTextEdit()
         self._output.setReadOnly(True)
-        self._output.setPlaceholderText("Action results appear here ...")
-        self._output.setFixedHeight(130)
-        cl.addWidget(self._output)
-        root.addWidget(ctl)
+        self._output.setPlaceholderText("Action / test results appear here ...")
+        self._output.setMinimumHeight(240)
+        cl.addWidget(self._output, 1)
+        root.addWidget(ctl, 1)
+        # the information / parameter groups stay compact; the log
+        # group above absorbs the resize
+        root.setStretch(0, 0)
+        root.setStretch(1, 0)
+        root.setStretch(2, 0)
+        root.setStretch(3, 1)
 
         note = QLabel("Demo mode - no hardware connected."
                       if not virtual else
