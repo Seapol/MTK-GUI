@@ -127,9 +127,25 @@ def _num_text(spin: QDoubleSpinBox) -> str:
     return f"{spin.value():.4f}".rstrip("0").rstrip(".")
 
 
+def expected_from_name(method: str, name: str) -> str:
+    """Prefill text for the Expected spin from the net name (voltage
+    / clock); "—" when the method has no expected or the name gives
+    nothing (user direction: impedance has NO expected value)."""
+    if method == "Power Voltage":
+        v = expected_voltage(name)
+        return _fmt_power(v) if v is not None else "—"
+    if method == "Clock Hz":
+        hz = expected_hz(name)
+        return _fmt_clock(hz) if hz is not None else "—"
+    return "—"
+
+
 class IctTestItemDialog(QDialog):
     """Add / edit ONE ICT test row: Test Method first, the Net combo
-    follows the method, the Unit auto-fills, Min / Max are numeric."""
+    follows the method, the Unit auto-fills, Expected / Min / Max are
+    numeric.  Voltage / Clock carry an EXPECTED value that derives
+    Min / Max (Expected * (1 -/+ tolerance)); Static Impedance has NO
+    expected value and NO Max - a lower limit only (user direction)."""
 
     def __init__(self, net_provider, method: str = "Static Impedance",
                  name: str = "", lo: str = "—", hi: str = "—",
@@ -145,6 +161,12 @@ class IctTestItemDialog(QDialog):
         self.combo_net = QComboBox()
         self.edit_unit = QLineEdit()
         self.edit_unit.setReadOnly(True)
+        # Expected prefill: parsed from the net name; skipped when the
+        # row already carries explicit limits (an edit must NOT clobber
+        # them with the recomputed values)
+        prefill = "—" if (lo != "—" or hi != "—") else \
+            expected_from_name(method, name)
+        self.spin_expected = _numeric(prefill)
         self.spin_lo = _numeric(lo)
         self.spin_hi = _numeric(hi)
         if name and name not in self._net_choices():
@@ -152,6 +174,7 @@ class IctTestItemDialog(QDialog):
         form.addRow("Test Method:", self.combo_method)
         form.addRow("Net:", self.combo_net)
         form.addRow("Unit:", self.edit_unit)
+        form.addRow("Expected:", self.spin_expected)
         form.addRow("Min:", self.spin_lo)
         form.addRow("Max:", self.spin_hi)
         buttons = QDialogButtonBox(
@@ -161,9 +184,12 @@ class IctTestItemDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
         self.combo_method.currentTextChanged.connect(self._sync)
+        self.combo_net.currentTextChanged.connect(self._on_net_changed)
+        self.spin_expected.valueChanged.connect(self._on_expected)
         self._sync(self.combo_method.currentText())
         if name:
             self.combo_net.setCurrentText(name)
+        self._sync(self.combo_method.currentText())
 
     def _net_choices(self) -> list[str]:
         category = METHOD_NET_CATEGORY.get(
@@ -174,6 +200,44 @@ class IctTestItemDialog(QDialog):
                       if (info or {}).get("category") == category)
         return nets or ["—"]
 
+    @staticmethod
+    def _tolerance(method: str) -> float | None:
+        """Relative tolerance used to derive Min / Max from Expected."""
+        if method == "Power Voltage":
+            return POWER_TOL
+        if method == "Clock Hz":
+            return CLOCK_TOL_PPM * 1e-6
+        return None
+
+    def _on_net_changed(self, name: str) -> None:
+        """A different net updates the Expected prefill (and thus the
+        derived Min / Max); the signals are blocked while the combo is
+        rebuilt, so this only fires on real user changes."""
+        if not self.spin_expected.isEnabled():
+            return
+        spin = self.spin_expected
+        spin.blockSignals(True)
+        try:
+            spin.setValue(float(expected_from_name(
+                self.combo_method.currentText(), name)))
+        except (TypeError, ValueError):
+            spin.setValue(spin.minimum())
+        spin.blockSignals(False)
+        self._on_expected()
+
+    def _on_expected(self) -> None:
+        """Expected drives Min / Max (Expected * (1 -/+ tol))."""
+        method = self.combo_method.currentText()
+        tol = self._tolerance(method)
+        value = self.spin_expected.value()
+        if tol is None or value <= self.spin_expected.minimum():
+            return
+        for spin, factor in ((self.spin_lo, 1 - tol),
+                             (self.spin_hi, 1 + tol)):
+            spin.blockSignals(True)
+            spin.setValue(value * factor)
+            spin.blockSignals(False)
+
     def _sync(self, method: str) -> None:
         self.edit_unit.setText(METHOD_UNITS.get(method, "—"))
         if method == DAQ_AI_METHOD:
@@ -181,12 +245,19 @@ class IctTestItemDialog(QDialog):
             # a DAQ AI test needs NO net / limits here (user
             # direction): add the test row directly
             self.combo_net.setEnabled(False)
+            self.spin_expected.setEnabled(False)
             self.spin_lo.setEnabled(False)
             self.spin_hi.setEnabled(False)
             return
         self.combo_net.setEnabled(True)
+        impedance = method == "Static Impedance"
+        # impedance: NO expected, NO Max - a lower limit only
+        self.spin_expected.setEnabled(not impedance)
+        self.spin_hi.setEnabled(not impedance)
         self.spin_lo.setEnabled(True)
-        self.spin_hi.setEnabled(True)
+        if impedance:
+            self.spin_expected.setValue(self.spin_expected.minimum())
+            self.spin_hi.setValue(self.spin_hi.minimum())
         current = self.combo_net.currentText()
         fresh = self._net_choices()
         if current and current not in fresh:
@@ -197,6 +268,8 @@ class IctTestItemDialog(QDialog):
         if current in fresh:
             self.combo_net.setCurrentText(current)
         self.combo_net.blockSignals(False)
+        if self.spin_expected.value() > self.spin_expected.minimum():
+            self._on_expected()
 
     def values(self) -> tuple:
         """The step tuple of the edited row ("test" kind)."""
@@ -204,8 +277,14 @@ class IctTestItemDialog(QDialog):
         if method == DAQ_AI_METHOD:
             return ("test", DAQ_AI_NAME, METHOD_UNITS[method],
                     "—", "—", "—")
+        if method == "Static Impedance":
+            # no expected value, no Max - lower limit only
+            return ("test", self.combo_net.currentText().strip(),
+                    METHOD_UNITS.get(method, "—"), "—",
+                    _num_text(self.spin_lo), "—")
         return ("test", self.combo_net.currentText().strip(),
-                METHOD_UNITS.get(method, "—"), "—",
+                METHOD_UNITS.get(method, "—"),
+                _num_text(self.spin_expected),
                 _num_text(self.spin_lo), _num_text(self.spin_hi))
 
 

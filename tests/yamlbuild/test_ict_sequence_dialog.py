@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.gui.yamlbuild.ict_sequence import (  # noqa: E402
+    IctTestItemDialog,
     IctWorkFlowSequenceDialog,
 )
 
@@ -137,6 +138,44 @@ def test_auto_fills_limits_from_net_names(qapp):
         # impedance: no nominal parsed -> untouched
         assert rows["Static Impedance - 1V8_CORE"][3] == "—"
         assert rows["Static Impedance - 1V8_CORE"][4] == "—"
+    finally:
+        dlg.deleteLater()
+
+
+def test_impedance_min_only(qapp):
+    """Impedance (user direction): NO expected value, NO Max - only
+    the Min (lower) limit is editable."""
+    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
+                            method="Static Impedance",
+                            name="Static Impedance - 5V_SDA_PSW")
+    try:
+        assert not dlg.spin_expected.isEnabled()
+        assert not dlg.spin_hi.isEnabled()
+        assert dlg.spin_lo.isEnabled()
+        dlg.spin_lo.setValue(1.5)
+        rows = dlg.values()
+        assert rows[3] == "—"            # no expected
+        assert rows[4] == "1.5"          # Min only
+        assert rows[5] == "—"            # no Max
+    finally:
+        dlg.deleteLater()
+
+
+def test_voltage_expected_drives_limits(qapp):
+    """Voltage / Clock carry an EXPECTED value (prefilled from the
+    net name); Min / Max derive as Expected * (1 -/+ tolerance)."""
+    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
+                            method="Power Voltage",
+                            name="Power Voltage - DCDC_3V3")
+    try:
+        assert dlg.spin_expected.isEnabled()
+        assert dlg.spin_hi.isEnabled()
+        # prefill 3.3 V from the name -> +/- 5 %
+        assert dlg.spin_expected.value() == pytest.approx(3.3)
+        rows = dlg.values()
+        assert rows[3] == "3.3"
+        assert rows[4] == "3.135"
+        assert rows[5] == "3.465"
     finally:
         dlg.deleteLater()
 
