@@ -86,6 +86,42 @@ def test_canvas_renders_nodes_and_edges(page):
 
 
 # ------------------------------------------------------------- editing
+def test_node_edit_reference_dropdowns(qapp):
+    """Upstream is a SINGLE-select dropdown, downstream a MULTI-select
+    checkbox dropdown; both list ALL power nets minus the node itself
+    and the selection round-trips onto the node."""
+    from mtkgui.gui.yamlbuild.power_tree_editor import (
+        NO_REFERENCE,
+        NodeEditDialog,
+    )
+    from PySide6.QtCore import Qt
+    tree = PowerTree.build(["VIN_24V", "VDD_12V", "VDD_5V"], [],
+                           primaries=["VIN_24V"])
+    dlg = NodeEditDialog(tree.nodes["VDD_5V"], tree)
+    try:
+        items = [dlg.combo_upstream.itemText(i)
+                 for i in range(dlg.combo_upstream.count())]
+        assert items == [NO_REFERENCE, "VDD_12V", "VIN_24V"]
+        assert "VDD_5V" not in items        # never self-reference
+        # downstream combo: checkable items for every other net
+        model = dlg.combo_downstream._model
+        names = [model.item(r).text()
+                 for r in range(1, model.rowCount())]
+        assert names == ["VDD_12V", "VIN_24V"]
+        # single-select upstream + multi-select downstream
+        dlg.combo_upstream.setCurrentText("VDD_12V")
+        for r in (1, 2):
+            model.item(r).setCheckState(Qt.CheckState.Checked)
+        assert dlg.combo_downstream.checked_items() == \
+            ["VDD_12V", "VIN_24V"]
+        dlg._on_accept()
+        node = tree.nodes["VDD_5V"]
+        assert node.upstream == ["VDD_12V"]
+        assert sorted(node.downstream) == ["VDD_12V", "VIN_24V"]
+    finally:
+        dlg.deleteLater()
+
+
 def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     """Double-click edit (dialog mocked): attributes land on the node,
     a manual-override record enters the audit log and the draft is

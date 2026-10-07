@@ -20,9 +20,10 @@ audit log; pruned nodes can be restored manually.  GUI layer only.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -51,10 +52,64 @@ NODE_COLORS = {
 }
 DONT_TEST_COLOR = "#4b5563"
 
+#: placeholder of the node-reference dropdowns (no selection)
+NO_REFERENCE = "—"
+
+
+class MultiSelectCombo(QComboBox):
+    """Drop-down with CHECKABLE items (multi-select, user direction:
+    the downstream node reference allows multiple power nets); the
+    closed-state text summarises the current selection."""
+
+    def __init__(self, choices: list[str], checked: list[str],
+                 parent=None) -> None:
+        super().__init__(parent)
+        self._model = QStandardItemModel(self)
+        placeholder = QStandardItem(NO_REFERENCE)
+        placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self._model.appendRow(placeholder)
+        for name in choices:
+            item = QStandardItem(name)
+            item.setCheckable(True)
+            item.setCheckState(
+                Qt.CheckState.Checked if name in checked
+                else Qt.CheckState.Unchecked)
+            self._model.appendRow(item)
+        self.setModel(self._model)
+        # clicking an item toggles its checkbox WITHOUT closing the
+        # popup; the combo index stays on the summary placeholder
+        self.view().pressed.connect(self._toggle_item)
+        self._model.itemChanged.connect(lambda _i: self._sync_text())
+        self._sync_text()
+
+    def _toggle_item(self, index) -> None:
+        item = self._model.itemFromIndex(index)
+        if item is None or not item.isCheckable():
+            return
+        item.setCheckState(
+            Qt.CheckState.Unchecked
+            if item.checkState() == Qt.CheckState.Checked
+            else Qt.CheckState.Checked)
+
+    def _sync_text(self, *_args) -> None:
+        selected = self.checked_items()
+        self.setItemText(0, ", ".join(selected) if selected
+                         else NO_REFERENCE)
+        self.setCurrentIndex(0)
+
+    def checked_items(self) -> list[str]:
+        """The currently checked net names (in list order)."""
+        return [self._model.item(row).text()
+                for row in range(1, self._model.rowCount())
+                if self._model.item(row).checkState()
+                == Qt.CheckState.Checked]
+
 
 class NodeEditDialog(QDialog):
     """Edit one power node: voltage / tolerances / dependencies /
-    upstream / downstream / stage override / Do-Not-Test."""
+    upstream (single-select dropdown) / downstream (multi-select
+    checkboxes) / stage override / Do-Not-Test.  Both reference
+    dropdowns list ALL power nets of the tree."""
 
     def __init__(self, node, tree: PowerTree, parent=None) -> None:
         super().__init__(parent)
@@ -62,6 +117,9 @@ class NodeEditDialog(QDialog):
         self.setMinimumWidth(420)
         self._node = node
         self._tree = tree
+        # every power net of the tree, minus the node itself (a node
+        # can never reference itself)
+        net_choices = sorted(n for n in tree.nodes if n != node.name)
         form = QFormLayout(self)
         form.setVerticalSpacing(10)
         self.edit_voltage = QLineEdit(node.expected_voltage)
@@ -77,14 +135,24 @@ class NodeEditDialog(QDialog):
         self.edit_deps.setPlaceholderText(
             "e.g. requires firmware FW1.2, EN signal high (optional)")
         form.addRow("Dependency conditions:", self.edit_deps)
-        self.edit_upstream = QLineEdit(",".join(node.upstream))
-        self.edit_upstream.setPlaceholderText(
-            "comma separated upstream net names (optional)")
-        form.addRow("Upstream node reference:", self.edit_upstream)
-        self.edit_downstream = QLineEdit(",".join(node.downstream))
-        self.edit_downstream.setPlaceholderText(
-            "comma separated downstream net names (optional)")
-        form.addRow("Downstream node reference:", self.edit_downstream)
+        # upstream: SINGLE-select dropdown (one parent node)
+        self.combo_upstream = QComboBox()
+        self.combo_upstream.addItem(NO_REFERENCE)
+        self.combo_upstream.addItems(net_choices)
+        if node.upstream and node.upstream[0] in net_choices:
+            self.combo_upstream.setCurrentText(node.upstream[0])
+        self.combo_upstream.setToolTip(
+            "single-select: the upstream power node (all power nets "
+            "of the tree are listed)")
+        form.addRow("Upstream node reference:", self.combo_upstream)
+        # downstream: MULTI-select checkbox dropdown
+        self.combo_downstream = MultiSelectCombo(
+            net_choices, [n for n in node.downstream
+                          if n in net_choices])
+        self.combo_downstream.setToolTip(
+            "multi-select: the downstream power nodes (all power "
+            "nets of the tree are listed)")
+        form.addRow("Downstream node reference:", self.combo_downstream)
         self.spin_stage = QSpinBox()
         self.spin_stage.setRange(-1, 99)
         self.spin_stage.setValue(
@@ -103,6 +171,7 @@ class NodeEditDialog(QDialog):
             form.addRow("", hint)
             for widget in (self.edit_voltage, self.edit_tol_upper,
                            self.edit_tol_lower, self.edit_deps,
+                           self.combo_upstream, self.combo_downstream,
                            self.chk_dont_test):
                 widget.setEnabled(False)
         buttons = QDialogButtonBox(
@@ -124,12 +193,12 @@ class NodeEditDialog(QDialog):
         node.tol_upper = self.edit_tol_upper.text().strip()
         node.tol_lower = self.edit_tol_lower.text().strip()
         node.dependencies = self.edit_deps.text().strip()
-        node.upstream = [x.strip() for x in
-                         self.edit_upstream.text().split(",")
-                         if x.strip()]
-        node.downstream = [x.strip() for x in
-                           self.edit_downstream.text().split(",")
-                           if x.strip()]
+        # upstream: single-select dropdown (one parent node)
+        upstream = self.combo_upstream.currentText()
+        node.upstream = ([upstream] if upstream != NO_REFERENCE
+                         else [])
+        # downstream: multi-select checkbox dropdown
+        node.downstream = self.combo_downstream.checked_items()
         node.dont_test = self.chk_dont_test.isChecked()
         override = self.spin_stage.value()
         node.stage_override = None if override < 0 else override
