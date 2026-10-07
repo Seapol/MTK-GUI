@@ -248,7 +248,7 @@ class PowerTreePage(QWidget):
         lay.addWidget(hint)
 
         row = QHBoxLayout()
-        btn_rebuild = QPushButton("AI Power Tree Topology")
+        btn_rebuild = QPushButton("Auto")
         btn_rebuild.setToolTip(
             "Automated topology analysis (the groundwork, then manual "
             "editing): detects the primary sources, assigns the power "
