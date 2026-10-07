@@ -339,6 +339,10 @@ class TestWorkFlowPage(QWidget):
         # call-sites; the runner reaches the UI through the RunnerEnv
         # bridge methods defined at the bottom of this class.
         self.project_path = None  # loaded YAML; Run is blocked until set
+        # net catalog provider (set by the main window): returns the
+        # testable_nets dict of the Yaml Build model - the step edit
+        # dialog offers the nets PER TEST METHOD from it
+        self.net_catalog_provider = None
         self._runner = TestRunner(self)
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
@@ -1845,6 +1849,9 @@ class TestWorkFlowPage(QWidget):
         dlg = _SequenceEditorDialog(
             kind, steps, enables, waits, timeouts, self, kinds=kinds,
             op_params=op_params)
+        # the step edit dialog offers the nets PER TEST METHOD from
+        # the page's net catalog (the Yaml Build parse result)
+        dlg.net_catalog_provider = self.net_catalog_provider
         dlg.setWindowTitle(title)
         if initial_row and initial_row < len(steps):
             dlg.select_row(initial_row)
@@ -2563,6 +2570,38 @@ class _SequenceEditorDialog(QDialog):
             self._enables[r] = item.checkState() == Qt.CheckState.Checked
 
     # ------------------------------------------------------- edit dialogs
+    #: Test Method -> unit (the Unit field is auto-filled, user
+    #: direction) and -> the net category offered in the Net combo
+    ICT_METHOD_UNITS = {
+        "Static Impedance": "Ω",
+        "Power Voltage": "V",
+        "Clock Hz": "Hz",
+        "DAQ AI": "V",
+        "test": "—",
+        "op": "—",
+    }
+    ICT_METHOD_NET_CATEGORY = {
+        "Static Impedance": "Power",
+        "Power Voltage": "Power",
+        "DAQ AI": "Power",
+        "Clock Hz": "Clock",
+        "test": "GPIO",
+        "op": "",
+    }
+
+    def _net_choices(self, method: str) -> list[str]:
+        """The nets offered for one Test Method (user direction: the
+        Net combo follows the method): Power nets for the impedance /
+        voltage / DAQ AI methods, Clock nets for Clock Hz, GPIO nets
+        for the generic test; without a parse result the list stays
+        empty (the current name is kept as the only entry)."""
+        category = self.ICT_METHOD_NET_CATEGORY.get(method, "")
+        catalog = (self.net_catalog_provider() if
+                   self.net_catalog_provider else {}) or {}
+        nets = sorted(name for name, info in catalog.items()
+                      if (info or {}).get("category") == category)
+        return nets if nets else ["—"]
+
     def _edit_ict_step(self, r):
         step = self._steps[r]
         if step[0] == "op":
@@ -2571,16 +2610,15 @@ class _SequenceEditorDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
         form = QFormLayout(dlg)
-        name_edit = QLineEdit(name)
+        # Test Method FIRST (user direction); Unit auto-fills, the
+        # Measured / Min / Max fields are numeric
         kind_combo = QComboBox()
         kind_combo.addItems(
             ["op", "test", "Static Impedance", "Power Voltage",
              "Clock Hz", "DAQ AI"])
         kind_combo.setCurrentText(kind)
         unit_edit = QLineEdit(unit)
-        measured_edit = QLineEdit(measured)
-        lo_edit = QLineEdit(lo)
-        hi_edit = QLineEdit(hi)
+        unit_edit.setReadOnly(True)
         enable_cb = QCheckBox()
         enable_cb.setChecked(self._enables[r])
         wait_spin = QSpinBox()
@@ -2591,15 +2629,60 @@ class _SequenceEditorDialog(QDialog):
         timeout_spin.setRange(0, 999999)
         timeout_spin.setValue(self._timeouts[r])
         timeout_spin.setSuffix(" ms")
-        form.addRow("Name:", name_edit)
+        # Net combo: the choices follow the Test Method; a legacy name
+        # not in the category list stays selectable (prepended)
+        net_combo = QComboBox()
+        choices = self._net_choices(kind)
+        if name and name not in choices:
+            choices.insert(0, name)
+        net_combo.addItems(choices)
+        if name in choices:
+            net_combo.setCurrentText(name)
+
+        def _numeric(value: str) -> QDoubleSpinBox:
+            spin = QDoubleSpinBox()
+            spin.setRange(-1e9, 1e9)
+            spin.setDecimals(4)
+            spin.setSpecialValueText("—")
+            spin.setMinimum(-1e9)
+            try:
+                spin.setValue(float(value))
+            except (TypeError, ValueError):
+                spin.setValue(spin.minimum())   # the "—" state
+            return spin
+
+        measured_spin = _numeric(measured)
+        lo_spin = _numeric(lo)
+        hi_spin = _numeric(hi)
         form.addRow("Test Method:", kind_combo)
+        form.addRow("Net:", net_combo)
         form.addRow("Enable:", enable_cb)
         form.addRow("Wait:", wait_spin)
         form.addRow("Timeout:", timeout_spin)
         form.addRow("Unit:", unit_edit)
-        form.addRow("Measured:", measured_edit)
-        form.addRow("Min:", lo_edit)
-        form.addRow("Max:", hi_edit)
+        form.addRow("Measured:", measured_spin)
+        form.addRow("Min:", lo_spin)
+        form.addRow("Max:", hi_spin)
+
+        def _sync_unit(method: str) -> None:
+            # the Unit follows the Test Method (read-only display)
+            unit_edit.setText(
+                self.ICT_METHOD_UNITS.get(method, "—"))
+            # the Net choices follow the method too (keep the old
+            # name selectable when it drops out of the category)
+            current = net_combo.currentText()
+            fresh = self._net_choices(method)
+            if current and current not in fresh:
+                fresh.insert(0, current)
+            net_combo.blockSignals(True)
+            net_combo.clear()
+            net_combo.addItems(fresh)
+            if current in fresh:
+                net_combo.setCurrentText(current)
+            net_combo.blockSignals(False)
+
+        _sync_unit(kind)
+        kind_combo.currentTextChanged.connect(_sync_unit)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -2608,13 +2691,20 @@ class _SequenceEditorDialog(QDialog):
         form.addRow(buttons)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
+
+        def _num_text(spin: QDoubleSpinBox) -> str:
+            if spin.value() <= spin.minimum():
+                return "—"
+            text = f"{spin.value():.4f}".rstrip("0").rstrip(".")
+            return text
+
         self._steps[r] = (
             kind_combo.currentText(),
-            name_edit.text().strip() or name,
+            net_combo.currentText().strip() or name,
             unit_edit.text().strip() or "—",
-            measured_edit.text().strip() or "—",
-            lo_edit.text().strip() or "—",
-            hi_edit.text().strip() or "—",
+            _num_text(measured_spin),
+            _num_text(lo_spin),
+            _num_text(hi_spin),
         )
         self._enables[r] = enable_cb.isChecked()
         self._waits[r] = wait_spin.value()

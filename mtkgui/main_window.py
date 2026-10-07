@@ -485,6 +485,11 @@ class MainWindow(QMainWindow):
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         self.yaml_build_page.test_workflow_requested.connect(
             self._goto_test_workflow)
+        # the step edit dialog offers the nets PER TEST METHOD from
+        # the Yaml Build model (parse result = single data source)
+        self.workflow_page.net_catalog_provider = (
+            lambda: self.yaml_build_page.model.imported.get(
+                "testable_nets") or {})
         # Apply-to-YAML from the config pages: persist (done in the
         # page) then switch to the Yaml Build tab
         self.channel_alloc_page.apply_yaml_requested.connect(
