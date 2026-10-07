@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QComboBox  # noqa: E402
 
@@ -21,8 +21,8 @@ def qapp():
 
 def _wheel(combo):
     return QWheelEvent(
-        QPointF(5, 5), QPointF(5, 5),
-        QPointF(0, 0), QPointF(0, 120),
+        QPoint(5, 5), QPoint(5, 5),
+        QPoint(0, 0), QPoint(0, 120),
         Qt.MouseButton.NoButton,
         Qt.KeyboardModifier.NoModifier,
         Qt.ScrollPhase.NoScrollPhase, False)
