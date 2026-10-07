@@ -26,6 +26,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -75,6 +76,11 @@ class YamlBuildPage(QWidget):
     #: the main window offers the file save (overwrite current yaml /
     #: save to a new yaml file)
     yaml_apply_committed = Signal()
+    #: the block-04 sequence dialog was accepted - carries the ICT
+    #: test rows (step tuples, "test" kind only); the main window
+    #: merges the standard operations on the Test Work Flow page and
+    #: offers the YAML save
+    ict_sequence_ready = Signal(list)
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -202,9 +208,19 @@ class YamlBuildPage(QWidget):
         the validated result (independent save + validation)."""
         net = self.model.imported.get("net") or {}
         if module_key == "ict_workflow":
-            # merged 04/05/06 node: no config dialog - jump to the
-            # Test Work Flow page (the ICT test cases live there)
-            self.test_workflow_requested.emit()
+            # merged 04/05/06 node: open the ICT Test Work Flow
+            # Sequence builder (user direction) - one test per row,
+            # impedance -> power rails (voltage) -> clock, manual
+            # adjustment; on OK the main window adds the standard
+            # operations and offers the YAML save
+            from mtkgui.gui.yamlbuild.ict_sequence import (
+                IctWorkFlowSequenceDialog,
+            )
+            dlg = IctWorkFlowSequenceDialog(
+                lambda: self.model.imported.get("testable_nets") or {},
+                parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.ict_sequence_ready.emit(dlg.result_tests())
             return
         params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,

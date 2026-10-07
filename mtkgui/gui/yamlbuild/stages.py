@@ -76,9 +76,9 @@ DISPLAY_ICT_WORKFLOW = "ict_workflow"
 WORKFLOW_DISPLAY_STAGES: tuple[Stage, ...] = (
     Stage("design_input", "Design Input", "design"),
     Stage("parse_ict", "Parse nets for ICT", "ict"),
-    Stage("instruments", "Configure Instruments", "instruments"),
     Stage(DISPLAY_ICT_WORKFLOW,
           "Build ICT Test Work Flow Sequence", "ict"),
+    Stage("instruments", "Configure Instruments", "instruments"),
     Stage("programmer", "Configure Programmer/Debugger", "programmer"),
     Stage("peripherals", "Configure Peripherals", "peripherals"),
     Stage("fct_parse", "Parse Func/Interface for FCT", "fct"),

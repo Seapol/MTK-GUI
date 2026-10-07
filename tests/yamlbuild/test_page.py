@@ -188,14 +188,35 @@ def test_block_cards_carry_sequence_badges(page):
         assert card.title_label.text().startswith(f"{index + 1:02d} ·")
 
 
-def test_ict_workflow_card_navigates_to_test_workflow(page):
-    """The merged 'Build ICT Test Work Flow Sequence' card opens NO
-    config dialog - it emits the Test Work Flow navigation request
-    (the main window then focuses the ICT Test Cases table)."""
+def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
+    """The merged 'Build ICT Test Work Flow Sequence' card opens the
+    sequence builder dialog; on accept it emits ict_sequence_ready
+    with the generated test rows (no standard operations)."""
+    from mtkgui.gui.yamlbuild import ict_sequence
     fired = []
-    page.test_workflow_requested.connect(lambda: fired.append(1))
+    page.ict_sequence_ready.connect(lambda rows: fired.append(rows))
+    page.model.imported["testable_nets"] = {
+        "3V3": {"category": "Power", "members": ["U1.5"]},
+        "CLK_24M": {"category": "Clock", "members": ["U1.10"]},
+    }
+    monkeypatch.setattr(
+        ict_sequence.IctWorkFlowSequenceDialog, "exec",
+        lambda self: self.DialogCode.Accepted)
     page._open_block("ict_workflow")
-    assert fired == [1]
+    assert len(fired) == 1
+    rows = fired[0]
+    assert rows and all(r[0] == "test" for r in rows)   # tests only
+    names = [r[1] for r in rows]
+    assert any(n.startswith("Static Impedance") for n in names)
+    assert any(n.startswith("Clock Hz") for n in names)
+    # no navigation any more (the main window navigates on the signal)
+    nav = []
+    page.test_workflow_requested.connect(lambda: nav.append(1))
+    monkeypatch.setattr(
+        ict_sequence.IctWorkFlowSequenceDialog, "exec",
+        lambda self: self.DialogCode.Rejected)
+    page._open_block("ict_workflow")
+    assert nav == []
 
 
 def test_standard_button_tooltips(page):

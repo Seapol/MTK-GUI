@@ -54,6 +54,7 @@ from .permissions import (
     save_permissions,
 )
 from .test_workflow_page import TestWorkFlowPage
+from .engine.steps import op_step
 from .version_info import get_version_info
 from .yaml_build_page import YamlBuildPage
 from .style import (
@@ -494,6 +495,10 @@ class MainWindow(QMainWindow):
         # page) then switch to the Yaml Build tab
         self.channel_alloc_page.apply_yaml_requested.connect(
             self._goto_yaml_build)
+        # block-04 sequence builder accepted: merge the standard
+        # operations on the Test Work Flow page, then apply to yaml
+        self.yaml_build_page.ict_sequence_ready.connect(
+            self._on_ict_sequence_ready)
         self.power_tree_page.apply_yaml_requested.connect(
             self._goto_yaml_build)
         # valid Apply on the Yaml Build page -> offer the file save
@@ -1143,6 +1148,46 @@ class MainWindow(QMainWindow):
         table.setFocus()
         table.setCurrentCell(0, 1)
         table.scrollToTop()
+
+    #: the canonical standard-operation skeleton around the generated
+    #: tests (impedance tests run BEFORE power-on: a short under power
+    #: risks damaging the board)
+    _ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Clamp Down",
+                            "Fixture Lock", "Fixture E-Stop Healthy")
+    _ICT_OPS_MID = ("Power On DUT",)
+    _ICT_OPS_AFTER_TEST = ("Power Off DUT", "Fixture Unlock",
+                           "Fixture Release", "Reset Instruments")
+
+    def _on_ict_sequence_ready(self, tests):
+        """Block-04 sequence builder accepted: rebuild the ICT Test
+        Cases table - the adjusted tests in order WITH the standard
+        operations around them (impedance before power-on) - jump to
+        the Test Work Flow page and offer the YAML save (apply)."""
+        page = self.workflow_page
+        by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
+
+        def op(name):
+            return by_name.get(name) or op_step(name)
+
+        impedance = [t for t in tests if "Impedance" in t[1]]
+        rest = [t for t in tests if "Impedance" not in t[1]]
+        seq = [op(n) for n in self._ICT_OPS_BEFORE_TEST] + impedance \
+            + [op(n) for n in self._ICT_OPS_MID] + rest \
+            + [op(n) for n in self._ICT_OPS_AFTER_TEST]
+        page.ict_steps = seq
+        page.ict_enables = [True] * len(seq)
+        page.ict_waits = [100] * len(seq)
+        page.ict_timeouts = [5000] * len(seq)
+        page.ict.setRowCount(len(seq))
+        page._ict_edit_guard = True
+        page._fill_ict(placeholder=True)
+        page._ict_edit_guard = False
+        self._goto_test_workflow()
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
+            f"{len(tests)} tests + standard operations")
+        # apply to yaml: the same save dialog as the preview Apply
+        self._on_yaml_apply_committed()
 
     def _goto_yaml_build(self):
         """Apply-to-YAML from the Channel Allocation / Power Tree
