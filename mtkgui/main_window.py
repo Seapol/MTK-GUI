@@ -21,6 +21,7 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -306,10 +307,29 @@ class _ToolsBatchWorker(QThread):
         self.finished_sig.emit(self.action, lines, ok)
 
 
+class _ComboWheelGuard(QObject):
+    """App-wide guard (user direction): the mouse wheel must NOT
+    change a CLOSED dropdown - scrolling over a combo changed the
+    selection by accident.  Wheel events are swallowed (and propagate
+    to the surrounding scroll area); the popup list itself keeps its
+    wheel scrolling."""
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Wheel \
+                and isinstance(obj, QComboBox) \
+                and not obj.view().isVisible():
+            event.ignore()
+            return True
+        return False
+
+
 class MainWindow(QMainWindow):
     def __init__(self, role=ROLE_SUPERVISOR, mode="Real",
                  fixture=FIXTURE_ATE):
         super().__init__()
+        # GUI-wide: the wheel never changes a closed dropdown
+        self._wheel_guard = _ComboWheelGuard(self)
+        QApplication.instance().installEventFilter(self._wheel_guard)
         self.setWindowTitle("MTK - Manufacturing Test Kit")
         self._init_size()
 
