@@ -633,16 +633,62 @@ class ChannelAllocationPage(QWidget):
     def _apply_to_yaml(self) -> None:
         """Apply-to-YAML (user direction): persist the tables into
         the model and jump to the Yaml Build page (operators cannot
-        modify the YAML config)."""
+        modify the YAML config).  FOOL-PROOFING: a shared instrument
+        channel BLOCKS the apply until the conflict is resolved."""
         if not self._edit_allowed:
             QMessageBox.information(
                 self, "Permission",
                 "Operator account cannot modify the YAML configuration.")
             return
+        conflicts = self._channel_conflicts()
+        if conflicts:
+            detail = "\n".join(
+                f"{pool}  {channel}  ->  {', '.join(nets)}"
+                for pool, channel, nets in conflicts[:10])
+            more = (f"\n... and {len(conflicts) - 10} more"
+                    if len(conflicts) > 10 else "")
+            QMessageBox.warning(
+                self, "Channel Conflict",
+                "The same instrument resource is used by more than "
+                "one net - resolve the conflicts first:\n\n"
+                + detail + more)
+            return
         self.save_to_model()
         self.apply_yaml_requested.emit()
 
     # ------------------------------------------------------------ auto
+    def _channel_conflicts(self) -> list[tuple[str, str, list[str]]]:
+        """Fool-proofing (user direction): one instrument channel used
+        by MORE THAN ONE net is a conflict.  Checked per resource pool
+        - the Impedance and Voltage columns share the DAQM908A pool,
+        Power rails the U2355A AI pool, SE Clock and DIO their own.
+        Returns (pool, channel, [net names]) tuples."""
+        conflicts: list[tuple[str, str, list[str]]] = []
+
+        def collect(table, keys, pool):
+            # per channel: the DISTINCT nets using it - one net using
+            # its channel for both Impedance and Voltage is the normal
+            # Auto behaviour, NOT a conflict
+            usage: dict[str, list[str]] = {}
+            for row in table.rows():
+                for key in keys:
+                    channel = getattr(row, key, UNSET)
+                    if channel in ("", UNSET):
+                        continue
+                    if row.net not in usage.setdefault(channel, []):
+                        usage[channel].append(row.net)
+            for channel in sorted(usage):
+                nets = usage[channel]
+                if len(nets) > 1:
+                    conflicts.append((pool, channel, nets))
+
+        collect(self.table_power, ("impedance", "voltage"),
+                "DAQM908A")
+        collect(self.table_power, ("power_rails",), "U2355A AI")
+        collect(self.table_clock, ("se_clock_hz",), "SE Clock")
+        collect(self.table_gpio, ("dio_channel",), "DAQM907A DIO")
+        return conflicts
+
     @staticmethod
     def _best_test_point(members: list[str]) -> str:
         """The best test point of a net (auto rule): a TP probe pin
@@ -704,10 +750,22 @@ class ChannelAllocationPage(QWidget):
         counts = {kind: len(getattr(data, kind))
                   for kind, _cols in TABLE_SPECS}
         ok = data.all_ok()
-        self.lbl_summary.setText(
-            f"rows: power={counts['power']} clock={counts['clock']} "
-            f"gpio={counts['gpio']} - validation: "
-            + (STATUS_OK if ok else "NOK (incomplete rows)"))
+        text = (f"rows: power={counts['power']} "
+                f"clock={counts['clock']} gpio={counts['gpio']} - "
+                "validation: "
+                + (STATUS_OK if ok else "NOK (incomplete rows)"))
+        conflicts = self._channel_conflicts()
+        if conflicts:
+            detail = "; ".join(
+                f"{pool} {channel} -> {', '.join(nets)}"
+                for pool, channel, nets in conflicts[:5])
+            more = (f" (+{len(conflicts) - 5} more)"
+                    if len(conflicts) > 5 else "")
+            text += f" - CONFLICT: {detail}{more}"
+            self.lbl_summary.setStyleSheet("color: #b91c1c;")
+        else:
+            self.lbl_summary.setStyleSheet("")
+        self.lbl_summary.setText(text)
 
     def _summary_text(self) -> str:
         data = ChannelAllocationData.from_dict(self.collect())

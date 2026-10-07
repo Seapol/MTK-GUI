@@ -332,6 +332,51 @@ def test_header_click_sorts_whole_rows(page):
     assert table.table.cellWidget(0, 1) is not None
 
 
+# ------------------------------------------------- conflict fool-proof
+def test_channel_conflict_detection(page):
+    """The same instrument channel used by more than one net is a
+    conflict, per resource pool (Impedance/Voltage share DAQM908A)."""
+    table = page.table_power
+    rows = table.rows()
+    # one net using its channel for BOTH impedance and voltage is the
+    # normal Auto behaviour, NOT a conflict
+    rows[0].impedance = rows[0].voltage = "DAQM908A #1 CH102"
+    rows[1].impedance = rows[1].voltage = "DAQM908A #1 CH103"
+    assert page._channel_conflicts() == []
+    # two nets on ONE channel -> conflict (DAQM908A pool)
+    rows[1].impedance = rows[1].voltage = "DAQM908A #1 CH102"
+    conflicts = page._channel_conflicts()
+    assert ("DAQM908A", "DAQM908A #1 CH102",
+            ["3V3", "1V8_CORE"]) in conflicts
+    # unset channels never conflict
+    rows[1].impedance = rows[1].voltage = UNSET
+    assert page._channel_conflicts() == []
+
+
+def test_conflict_blocks_apply_to_yaml(page, monkeypatch):
+    """Apply-to-YAML is BLOCKED while a channel conflict exists; the
+    warning box lists the offenders."""
+    shown = []
+    monkeypatch.setattr(
+        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.warning",
+        lambda *a, **k: shown.append(k[1] if len(k) > 1 else a[1]))
+    table = page.table_power
+    rows = table.rows()
+    rows[0].impedance = rows[1].impedance = "DAQM908A #1 CH105"
+    page._update_summary()
+    assert "CONFLICT" in page.lbl_summary.text()
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page._apply_to_yaml()
+    assert shown and emitted == []          # blocked, nothing emitted
+    # resolve -> apply passes
+    rows[1].impedance = "DAQM908A #1 CH106"
+    page._update_summary()
+    assert "CONFLICT" not in page.lbl_summary.text()
+    page._apply_to_yaml()
+    assert emitted == [True]
+
+
 # ------------------------------------------------------ persistence / compat
 def test_apply_to_yaml_persists_and_requests_navigation(page):
     """The 'Apply to YAML' button persists the tables into the model
