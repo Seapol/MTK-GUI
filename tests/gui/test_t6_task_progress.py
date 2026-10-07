@@ -79,7 +79,15 @@ def test_import_failure_logs_row_reasons_and_resets(page, tmp_path,
     back to 0, model untouched."""
     import openpyxl
     rec = Recorder(page)
-    before = page.state()
+
+    def semantic():
+        """State snapshot without the volatile saved_at timestamp
+        (the two snapshots may straddle a second boundary under
+        load)."""
+        return {k: v for k, v in page.state().items()
+                if k != "saved_at"}
+
+    before = semantic()
     xlsx = tmp_path / "bad.xlsx"
     wb = openpyxl.Workbook()
     wb.save(xlsx)                       # empty workbook: invalid rows
@@ -91,7 +99,7 @@ def test_import_failure_logs_row_reasons_and_resets(page, tmp_path,
     assert any(lvl == "ERROR" and "import rejected" in msg
                for lvl, msg in rec.log)
     assert rec.progress[-1] == (0, "import: idle")
-    assert page.state() == before       # nothing applied
+    assert semantic() == before         # nothing applied
 
 
 def test_import_no_file_no_progress_noise(page, monkeypatch):

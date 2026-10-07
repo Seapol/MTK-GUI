@@ -45,7 +45,9 @@ def test_empty_regex_skips_matching():
     """Empty regex skips the name match - SPF pin type only; unknown
     pin types fall through to Signal (no default fallback either).
     GND itself is system-auto: with no user gnd rule the default GND
-    regex applies, an explicit empty gnd rule suppresses it."""
+    regex applies, an explicit empty gnd rule suppresses it.  The
+    differential pair detection is kernel-internal (no user slot):
+    the factory default still applies."""
     rules = {key: "" for key, _ in RULE_SLOTS}
     assert classify_net("VDD_3V3", "", rules) == CATEGORY_SIGNAL
     assert classify_net("VDD_3V3", "POWER", rules) == CATEGORY_POWER
@@ -55,7 +57,8 @@ def test_empty_regex_skips_matching():
     assert classify_net("GND", "", dict(rules, gnd="")) == \
         CATEGORY_SIGNAL
     assert classify_net("CLK1", "", rules) == CATEGORY_SIGNAL
-    assert classify_net("USB_P", "", rules) == CATEGORY_SIGNAL
+    # diff pair detection has no user slot - the default still runs
+    assert classify_net("USB_P", "", rules) == CATEGORY_DIFF_PAIR
     assert classify_net("X1", "DIFF", rules) == CATEGORY_DIFF_PAIR
 
 

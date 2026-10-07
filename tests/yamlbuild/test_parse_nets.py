@@ -96,8 +96,9 @@ def test_parse_summary_counts():
 
 def test_exclude_regex_drops_signal_nets():
     """The Exclude Parse Nets regex (factory default: DIFF / RESET /
-    ENABLE / UART / WAKE) drops matching SIGNAL nets from the parse
-    result; Power / Clock / GND rows are never excluded and an
+    ENABLE / UART / WAKE / I2C / SPI / JTAG / DBGIF / DATA / ADC and
+    system random numeric names) drops matching SIGNAL nets from the
+    parse result; Power / Clock / GND rows are never excluded and an
     explicit empty user value disables the exclusion."""
     sample = NET_SAMPLE + """*SIGNAL* DEBUG_UART_TX
 U1.40 J9.1
@@ -105,10 +106,24 @@ U1.40 J9.1
 U1.41 J9.2
 *SIGNAL* DBG_RESET_REQ
 U1.42 J9.3
+*SIGNAL* SENSOR_I2C_SCL
+U1.43 J9.4
+*SIGNAL* FLASH_SPI_MOSI
+U1.44 J9.5
+*SIGNAL* CPU_JTAG_TDI
+U1.45 J9.6
+*SIGNAL* N12345
+U1.46 J9.7
+*SIGNAL* ADC0_IN
+U1.47 J9.8
+*SIGNAL* LCD_DATA01
+U1.48 J9.9
 """
     result = parse_testable_nets(sample)
     excluded = {n for n, _r in result.filtered}
-    assert {"DEBUG_UART_TX", "BT_WAKE_OUT", "DBG_RESET_REQ"} <= excluded
+    assert {"DEBUG_UART_TX", "BT_WAKE_OUT", "DBG_RESET_REQ",
+            "SENSOR_I2C_SCL", "FLASH_SPI_MOSI", "CPU_JTAG_TDI",
+            "N12345", "ADC0_IN", "LCD_DATA01"} <= excluded
     # power nets never excluded even on a name hit
     result2 = parse_testable_nets(
         sample, rules={"power": r"^DBG_",
@@ -118,6 +133,7 @@ U1.42 J9.3
     # empty user value disables the exclusion entirely
     result3 = parse_testable_nets(sample, rules={"exclude": ""})
     assert "DEBUG_UART_TX" in [r.name for r in result3.gpio]
+    assert "N12345" in [r.name for r in result3.gpio]
 
 
 # ------------------------------------------------------------ GUI panel

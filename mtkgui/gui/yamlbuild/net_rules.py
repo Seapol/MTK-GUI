@@ -35,7 +35,6 @@ RULE_SLOTS: tuple[tuple[str, str], ...] = (
     ("power", "Power Nets regex"),
     ("se_clock", "SE Clock Nets regex"),
     ("exclude", "Exclude Parse Nets regex"),
-    ("diff_pair", "Differential pair detection regex"),
 )
 
 DEFAULT_RULES: dict[str, str] = {
@@ -43,9 +42,13 @@ DEFAULT_RULES: dict[str, str] = {
     "gnd": r"^(GND\w*|AGND\w*|DGND\w*|PGND\w*|VSS\w*)$",
     "se_clock": r"^(CLK\w*|OSC\w*|XTAL\w*|MCLK\w*|\d+MH?Z\w*)$",
     # nets matching the Exclude regex NEVER become ICT test objects
-    # (differential signals, Reset / Enable / UART / WAKE ...); an
-    # EMPTY value disables the exclusion entirely
-    "exclude": r"(?i)(DIFF|RESET|ENABLE|UART|WAKE|_EN(_|$)|_(P|N)$)",
+    # (differential pairs, Reset / Enable / UART / WAKE / I2C / SPI /
+    # JTAG / DBGIF / DATA / ADC buses and Allegro system random
+    # numeric names); an EMPTY value disables the exclusion entirely.
+    # The differential PAIR DETECTION stays a kernel-internal rule
+    # (no user config entry).
+    "exclude": (r"(?i)(DIFF|RESET|ENABLE|UART|WAKE|I2C|SPI|JTAG|"
+                r"DBGIF|DATA|ADC|_EN(_|$)|_(P|N)$|^\$?N?\d+$)"),
     "diff_pair": r"^\w+_(P|N)$",
 }
 
@@ -223,8 +226,10 @@ class NetRulesEditorDialog(QDialog):
             "regex > factory default.  An empty regex skips the name "
             "match (SPF pin type only); an empty Exclude regex "
             "disables the exclusion.  Nets matching the Exclude "
-            "Parse Nets regex (differential / Reset / Enable / UART "
-            "/ WAKE ...) never become ICT test objects.")
+            "Parse Nets regex (differential pairs, Reset / Enable / "
+            "UART / WAKE / I2C / SPI / JTAG / DBGIF / DATA / ADC, "
+            "system random numeric names ...) never become ICT test "
+            "objects.  Differential pair detection is kernel-internal.")
         head.setObjectName("muted")
         head.setWordWrap(True)
         lay.addWidget(head)
