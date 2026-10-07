@@ -122,6 +122,49 @@ def test_node_edit_reference_dropdowns(qapp):
         dlg.deleteLater()
 
 
+def test_node_edit_lists_pruned_nets(qapp):
+    """Nets pruned by the passive-bridge rule STAY listed in both
+    reference dropdowns, annotated "(pruned)"; the stored value keeps
+    the raw net name."""
+    from mtkgui.gui.yamlbuild.power_tree_editor import (
+        NodeEditDialog,
+    )
+    from PySide6.QtCore import Qt
+    members = {"VIN_24V": ["R4.1"], "MID_A": ["R4.2"],
+               "MID_B": ["R5.1"], "GND": ["R5.2"]}
+    tree = PowerTree.build(["VIN_24V", "MID_A", "MID_B", "GND"],
+                           find_bridges(members),
+                           primaries=["VIN_24V"])
+    tree.prune_passive(find_bridges(members))
+    pruned = {n.name for n in tree.nodes.values() if n.pruned}
+    assert "VIN_24V" in pruned             # the bridge upstream side
+    dlg = NodeEditDialog(tree.nodes["GND"], tree)
+    try:
+        labels = [dlg.combo_upstream.itemText(i)
+                  for i in range(dlg.combo_upstream.count())]
+        # every pruned net (except the node itself) stays listed with
+        # the "(pruned)" annotation
+        for name in pruned:
+            if name != "GND":
+                assert f"{name} (pruned)" in labels, name
+        assert "MID_B" in labels            # kept nets: plain label
+        # stored value stays the RAW net name
+        idx = dlg.combo_upstream.findData("VIN_24V")
+        assert idx > 0
+        dlg.combo_upstream.setCurrentIndex(idx)
+        model = dlg.combo_downstream._model
+        for r in range(1, model.rowCount()):
+            if model.item(r).data(
+                    Qt.ItemDataRole.UserRole) == "VIN_24V":
+                model.item(r).setCheckState(Qt.CheckState.Checked)
+        dlg._on_accept()
+        node = tree.nodes["GND"]
+        assert node.upstream == ["VIN_24V"]
+        assert node.downstream == ["VIN_24V"]
+    finally:
+        dlg.deleteLater()
+
+
 def test_node_edit_records_manual_override(page, qapp, monkeypatch):
     """Double-click edit (dialog mocked): attributes land on the node,
     a manual-override record enters the audit log and the draft is
