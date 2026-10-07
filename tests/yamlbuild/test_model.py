@@ -99,6 +99,18 @@ def test_power_rails_synced_into_yaml():
     assert restored.get_params("rails")["sample_rate_hz"] == "200"
 
 
+def test_built_yaml_is_lean():
+    """User direction: the built YAML carries NO redundant fields -
+    no per-module stage_index / group bookkeeping and no power_tree
+    section (the Power Tree page was retired)."""
+    model = make_model()
+    data = yaml.safe_load(model.to_effective_yaml())
+    for name, entry in data["yaml_build"]["modules"].items():
+        assert "stage_index" not in entry, name
+        assert "group" not in entry, name
+    assert "power_tree" not in data["yaml_build"]
+
+
 def test_disabled_excluded_from_effective_yaml_but_retained():
     """Disable: skipped in the effective YAML, parameters silently
     retained in the model."""

@@ -9,20 +9,14 @@ yaml_build:
       batch: DVT (Proto-2)
       spf_file: spf/MTK8188-P1.spf
       net_file: netlists/MTK8188-P1.net
-      stage_index: 0
-      group: design
     parse_ict:
       netlist_file: netlists/MTK8188-P1.net
-      stage_index: 1
-      group: ict
     instruments:
       psu_visa: TCPIP0::192.168.1.27::inst0
       daq_visa: GPIB0::9::INSTR
       dmm_visa: ''
       channel_alloc: []
       self_test: true
-      stage_index: 2
-      group: instruments
     rails:
       on_voltage_v: 5.0
       current_limit_a: 2.0
@@ -39,8 +33,6 @@ yaml_build:
       pre_trigger_s: -0.5
       post_trigger_s: 6.0
       anomaly_policy: stop
-      stage_index: 3
-      group: ict
     clocks:
       clocks:
       - CLK1:32768:2
@@ -48,16 +40,12 @@ yaml_build:
       stabilize_ms: 100
       drift_check: true
       multi_domain_check: false
-      stage_index: 4
-      group: clocks
     gpios:
       groups:
       - GPIO0:TP_G0.1:out:none
       - GPIO1:TP_G1.1:in:pullup
       level_threshold_v: 1.5
       exception_check: true
-      stage_index: 5
-      group: gpio
     programmer:
       protocol: SWD
       speed_khz: 4000
@@ -65,8 +53,6 @@ yaml_build:
       flash_address: '0x0'
       retries: 1
       log_level: info
-      stage_index: 6
-      group: programmer
     peripherals:
       wifi_ssid: ''
       wifi_password: ''
@@ -76,27 +62,19 @@ yaml_build:
       spi_speed_hz: ''
       adc_ref_v: ''
       init_sequence: []
-      stage_index: 7
-      group: peripherals
     validate_sequence:
       resource_conflict_check: true
       param_range_check: true
       dependency_check: true
-      stage_index: 10
-      group: validate
     preview_export:
       export_dir: config/plans
       include_disabled: false
-      stage_index: 11
-      group: export
     fct_build:
       flow_steps:
       - (FCT skipped - ICT-only plan)
       yield_threshold_pct: 98.0
       exception_branch: stop
       case_link: ''
-      stage_index: 9
-      group: fct
       enabled: false
   design_data:
     net_file: netlists/MTK8188-P1.net

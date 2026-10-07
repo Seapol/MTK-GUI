@@ -133,8 +133,9 @@ def test_dnt_toggle_and_category_override_survive_reparse(panel):
 
 # -------------------------------------------------- model YAML persistence
 def test_model_persists_item24_sections():
-    """rules / power tree / allocations persist into the project YAML
-    and restore cleanly (empty/legacy files stay error-free)."""
+    """rules / allocations persist into the project YAML and restore
+    cleanly (empty/legacy files stay error-free); a stale power_tree
+    section (the retired page) is dropped from the built YAML."""
     import yaml
 
     from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -142,11 +143,6 @@ def test_model_persists_item24_sections():
     model.enable_all()
     fill_required(model)
     model.net_classification_rules = {"power": r"^PWR_"}
-    model.power_tree = {"nodes": [{"name": "VDD_12V",
-                                   "node_type": "normal",
-                                   "stage": 0}],
-                        "audit_log": [{"net": "VIN_24V",
-                                       "reason": "passive bridge"}]}
     model.se_clock_allocation = [{"net": "CLK1",
                                   "channel": CLOCK_CHANNELS[0],
                                   "status": "Assigned"}]
@@ -161,7 +157,6 @@ def test_model_persists_item24_sections():
     fill_required(fresh)
     assert fresh.apply_yaml_dict(yaml.safe_load(text)) == []
     assert fresh.net_classification_rules == {"power": r"^PWR_"}
-    assert fresh.power_tree == model.power_tree
     assert fresh.se_clock_allocation == model.se_clock_allocation
     assert fresh.gpio_allocation == model.gpio_allocation
     # legacy file without the sections: blank, no error
@@ -177,12 +172,10 @@ def test_model_state_round_trip_item24():
     from mtkgui.gui.yamlbuild.model import YamlBuildModel
     model = YamlBuildModel()
     model.net_classification_rules = {"gnd": r"^GND_"}
-    model.power_tree = {"nodes": [], "audit_log": []}
     model.se_clock_allocation = [{"net": "CLK1", "channel": "X",
                                   "status": "Assigned"}]
     model.gpio_allocation = []
     restored = YamlBuildModel()
     restored.apply_state(model.to_dict())
     assert restored.net_classification_rules == {"gnd": r"^GND_"}
-    assert restored.power_tree == {"nodes": [], "audit_log": []}
     assert restored.se_clock_allocation == model.se_clock_allocation

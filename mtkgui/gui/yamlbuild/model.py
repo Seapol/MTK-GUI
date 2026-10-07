@@ -137,10 +137,10 @@ class YamlBuildModel:
         # T10 Channel Allocation configuration (three tables, the
         # parse-result data source; see channel_allocation.py)
         self.channel_allocation: dict = {}
-        # item 24: net classification rules + power tree draft +
-        # SE clock / GPIO channel allocations (GUI + YAML data model)
+        # item 24: net classification rules + SE clock / GPIO channel
+        # allocations (GUI + YAML data model); the Power Tree page was
+        # RETIRED (user direction) - no power_tree state is kept
         self.net_classification_rules: dict = {}
-        self.power_tree: dict = {}
         self.se_clock_allocation: list = []
         self.gpio_allocation: list = []
         # test path complexity risk (topology-based, advisory):
@@ -298,9 +298,9 @@ class YamlBuildModel:
                     entry[spec.name] = lines
                 else:
                     entry[spec.name] = _coerce(spec.ftype, text)
-            stage = STAGE_BY_KEY[key]
-            entry["stage_index"] = _STAGE_INDEX[key]
-            entry["group"] = stage.group
+            # lean YAML (user direction): NO redundant bookkeeping
+            # fields (stage_index / group) - the module ORDER in the
+            # mapping IS the workflow order
             modules[key] = entry
         section: dict = {
             "plan_version": self._plan_version,
@@ -321,12 +321,12 @@ class YamlBuildModel:
         if self.power_rails_up_sequence:
             section["power_rails_up_sequence"] = \
                 self.power_rails_up_sequence
-        # item 24 sections (rules / power tree / allocations)
+        # item 24 sections (rules / allocations); the Power Tree page
+        # was RETIRED (user direction) - no power_tree section is
+        # emitted, and a stale section from an old file is dropped
         if self.net_classification_rules:
             section["net_classification_rules"] = \
                 self.net_classification_rules
-        if self.power_tree:
-            section["power_tree"] = self.power_tree
         if self.se_clock_allocation:
             section["se_clock_allocation"] = self.se_clock_allocation
         if self.gpio_allocation:
@@ -428,13 +428,12 @@ class YamlBuildModel:
         pr = section.get("power_rails_up_sequence")
         if isinstance(pr, dict):
             self.power_rails_up_sequence = pr
-        # item 24 sections restore (empty / legacy: blank, no error)
+        # item 24 sections restore (empty / legacy: blank, no error);
+        # a stale power_tree section from an old file is DROPPED
+        # (the Power Tree page was retired)
         rules = section.get("net_classification_rules")
         if isinstance(rules, dict):
             self.net_classification_rules = rules
-        tree = section.get("power_tree")
-        if isinstance(tree, dict):
-            self.power_tree = tree
         se_clock = section.get("se_clock_allocation")
         if isinstance(se_clock, list):
             self.se_clock_allocation = se_clock
@@ -528,7 +527,6 @@ class YamlBuildModel:
                 copy.deepcopy(self.power_rails_up_sequence),
             "net_classification_rules":
                 copy.deepcopy(self.net_classification_rules),
-            "power_tree": copy.deepcopy(self.power_tree),
             "se_clock_allocation":
                 copy.deepcopy(self.se_clock_allocation),
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
@@ -572,7 +570,6 @@ class YamlBuildModel:
                                         else {})
         # item 24 sections (legacy states: key absent -> blank)
         for key, default in (("net_classification_rules", {}),
-                             ("power_tree", {}),
                              ("se_clock_allocation", []),
                              ("gpio_allocation", []),
                              ("path_risk", {})):
