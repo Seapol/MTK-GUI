@@ -88,6 +88,57 @@ def test_rapid_moves_swap_in_place(qapp):
         dlg.deleteLater()
 
 
+def test_double_click_opens_editor(qapp, monkeypatch):
+    """Double-clicking a row opens the item editor for THAT row and
+    the accepted values replace it (user direction)."""
+    dlg = make_dialog()
+    try:
+        monkeypatch.setattr(
+            "mtkgui.gui.yamlbuild.ict_sequence.QDialog.exec",
+            lambda self: self.DialogCode.Accepted)
+        monkeypatch.setattr(
+            "mtkgui.gui.yamlbuild.ict_sequence."
+            "IctTestItemDialog.values",
+            lambda self: ("test", "Power Voltage - 3V3", "V", "—",
+                          "3.135", "3.465"))
+        dlg.table.cellDoubleClicked.emit(1, 0)   # Static Impedance-3V3
+        assert dlg.result_tests()[1] == ("test", "Power Voltage - 3V3",
+                                         "V", "—", "3.135", "3.465")
+        assert dlg.table.currentRow() == 1       # selection kept
+    finally:
+        dlg.deleteLater()
+
+
+def test_auto_fills_limits_from_net_names(qapp):
+    """Auto fills Min / Max from the parsed nominal: power +/- 5 %,
+    clock +/- 50 ppm; impedance rows (no nominal) stay untouched."""
+    from mtkgui.gui.yamlbuild.ict_sequence import expected_hz, expected_voltage
+    assert expected_voltage("P3V3_LDO") == 3.3
+    assert expected_voltage("MCU_1V8") == 1.8
+    assert expected_voltage("VIN_24V") == 24.0
+    assert expected_voltage("GND") is None
+    assert expected_hz("CLK_24M") == 24e6
+    assert expected_hz("OSC_125M") == 125e6
+    assert expected_hz("CLK_32K") == 32e3
+    assert expected_hz("GPIO_LED1") is None
+
+    dlg = make_dialog()
+    try:
+        dlg._auto()
+        rows = {r[1]: r for r in dlg.result_tests()}
+        # power: 1.8 V +/- 5 %
+        assert rows["Power Voltage - 1V8_CORE"][4] == "1.71"
+        assert rows["Power Voltage - 1V8_CORE"][5] == "1.89"
+        # clock: 24 MHz +/- 50 ppm
+        assert rows["Clock Hz - CLK_24M"][4] == "23998800"
+        assert rows["Clock Hz - CLK_24M"][5] == "24001200"
+        # impedance: no nominal parsed -> untouched
+        assert rows["Static Impedance - 1V8_CORE"][4] == "—"
+        assert rows["Static Impedance - 1V8_CORE"][5] == "—"
+    finally:
+        dlg.deleteLater()
+
+
 def test_daq_ai_needs_no_configuration(qapp):
     """DAQ AI (user direction): the Power rails are allocated in
     Channel Allocation - the item editor disables Net / Min / Max and

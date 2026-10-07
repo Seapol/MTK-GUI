@@ -12,6 +12,8 @@ on the Test Work Flow page when the dialog is accepted).
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -62,6 +64,42 @@ DAQ_AI_NAME = "DAQ AI - Power rails"
 #: the canonical generation order (user direction): impedance ->
 #: power rails (voltage) -> clock
 METHOD_ORDER = ("Static Impedance", "Power Voltage", "Clock Hz")
+
+#: default Auto tolerances (user direction): power rails +/- 5 %,
+#: clock +/- 50 ppm (= 0.005 %)
+POWER_TOL = 0.05
+CLOCK_TOL_PPM = 50.0
+
+_V_RE = re.compile(r"(\d+)V(\d+)")            # 3V3 / 1V8 / 1V05
+_V_PLAIN_RE = re.compile(r"(\d+)V\b")         # 24V / 5V
+
+
+def expected_voltage(net: str) -> float | None:
+    """Parse the nominal voltage from a power-net name
+    (P3V3_LDO -> 3.3, MCU_1V8 -> 1.8, VIN_24V -> 24.0)."""
+    m = _V_RE.search(net or "")
+    if m:
+        return float(f"{m.group(1)}.{m.group(2)}")
+    m = _V_PLAIN_RE.search(net or "")
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def expected_hz(net: str) -> float | None:
+    """Parse the nominal frequency from a clock-net name
+    (CLK_24M -> 24 MHz, OSC_125M -> 125 MHz, CLK_32K -> 32 kHz)."""
+    for suffix, mult in (("G", 1e9), ("M", 1e6), ("K", 1e3)):
+        m = re.search(rf"(\d+(?:\.\d+)?)\s*{suffix}", net or "",
+                      re.IGNORECASE)
+        if m:
+            return float(m.group(1)) * mult
+    return None
+
+
+def _fmt(value: float) -> str:
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _numeric(value: str) -> QDoubleSpinBox:
@@ -205,10 +243,14 @@ class IctWorkFlowSequenceDialog(QDialog):
             QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
+        # double-click opens the row editor (user direction)
+        self.table.cellDoubleClicked.connect(
+            lambda row, _col: self._edit(row))
         lay.addWidget(self.table, 1)
 
         btns = QHBoxLayout()
         for label, slot in (
+                ("Auto", self._auto),
                 ("Move Up", self._move_up),
                 ("Move Down", self._move_down),
                 ("Add", self._add),
@@ -282,6 +324,9 @@ class IctWorkFlowSequenceDialog(QDialog):
                 table.setItem(b, c, ia)
         finally:
             table.setUpdatesEnabled(True)
+        # the selection (keyboard cursor) FOLLOWS the moved row so
+        # repeated Move Up / Down / Edit clicks keep working
+        table.setFocus()
         table.selectRow(b)
 
     def _selected(self) -> int:
@@ -313,9 +358,9 @@ class IctWorkFlowSequenceDialog(QDialog):
         del self._rows[r]
         self._refresh()
 
-    def _edit(self) -> None:
-        r = self._selected()
-        if r < 0:
+    def _edit(self, row: int | None = None, _col: int = 0) -> None:
+        r = self.table.currentRow() if row is None else row
+        if r < 0 or r >= len(self._rows):
             return
         _kind, name, _unit, _measured, lo, hi = self._rows[r]
         method = name.split(" - ")[0] if " - " in name else "test"
@@ -324,6 +369,40 @@ class IctWorkFlowSequenceDialog(QDialog):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._rows[r] = dlg.values()
             self._refresh()
+            self.table.selectRow(r)
+
+    def _auto(self) -> None:
+        """Fill the limits from the parsed nominal values (user
+        direction): power voltage +/- 5 %, clock +/- 50 ppm; the
+        nominal is parsed from the net name (P3V3 -> 3.3 V,
+        CLK_24M -> 24 MHz).  Rows without a parseable nominal stay
+        untouched.  The Min / Max cells are updated in place."""
+        table = self.table
+        table.setUpdatesEnabled(False)
+        try:
+            for r, step in enumerate(self._rows):
+                kind, name, unit, _measured, _lo, _hi = step
+                method = (name.split(" - ")[0]
+                          if " - " in name else name)
+                net = name.split(" - ", 1)[1] if " - " in name else ""
+                nominal = None
+                tol = None
+                if method == "Power Voltage":
+                    nominal = expected_voltage(net)
+                    tol = POWER_TOL
+                elif method == "Clock Hz":
+                    nominal = expected_hz(net)
+                    tol = CLOCK_TOL_PPM * 1e-6
+                if nominal is None or tol is None:
+                    continue
+                row = (kind, name, unit, _measured,
+                       _fmt(nominal * (1 - tol)),
+                       _fmt(nominal * (1 + tol)))
+                self._rows[r] = row
+                for c, text in ((3, row[4]), (4, row[5])):
+                    table.item(r, c).setText(text)
+        finally:
+            table.setUpdatesEnabled(True)
 
     def _duplicate(self) -> None:
         r = self._selected()
