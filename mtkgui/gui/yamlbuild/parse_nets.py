@@ -747,6 +747,12 @@ class ParseNetsPanel(QWidget):
             self.table.setItem(row, 0, net_item)
             self.table.setItem(row, 1, tp_item)
             combo = QComboBox()
+            # the column width adapts to the combo content (user
+            # direction: both tables' column widths self-fit - without
+            # this policy the ResizeToContents header ignores the
+            # widget and clips "SE Clock" to "SE Cloc")
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.addItems(TABLE_CATEGORIES)
             combo.setCurrentText(
                 category if category in TABLE_CATEGORIES else "Signal")
@@ -762,6 +768,9 @@ class ParseNetsPanel(QWidget):
             self.table.setCellWidget(row, 3, dnt)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
+        # re-fit the columns AFTER the combos are in place (their
+        # sizeHint drives the category column width)
+        self.table.resizeColumnsToContents()
 
     def _fill_filtered(self, result: ParseNetsResult) -> None:
         """Render the FILTERED NETS table (Net | Reason | Category):
@@ -797,9 +806,12 @@ class ParseNetsPanel(QWidget):
             self.table_filtered.setItem(row, 0, net_item)
             self.table_filtered.setItem(row, 1, reason_item)
             combo = QComboBox()
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.addItems(TABLE_CATEGORIES)
             combo.setCurrentText(CATEGORY_FILTERED)
             combo.currentTextChanged.connect(
                 lambda value, net=name:
                     self._filtered_category_changed(net, value))
             self.table_filtered.setCellWidget(row, 2, combo)
+        self.table_filtered.resizeColumnsToContents()
