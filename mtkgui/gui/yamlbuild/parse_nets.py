@@ -334,8 +334,10 @@ class ParseNetsPanel(QWidget):
             ["Net", "Test Points", "Category", "Do Not Test"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
+        # the slack goes to the TEST POINTS column (user direction:
+        # a Net-stretch starved the other columns)
         self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
+            1, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setMinimumHeight(220)
@@ -355,8 +357,9 @@ class ParseNetsPanel(QWidget):
             ["Net", "Reason", "Category"])
         self.table_filtered.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
+        # the slack goes to the REASON column (user direction)
         self.table_filtered.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
+            1, QHeaderView.ResizeMode.Stretch)
         self.table_filtered.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_filtered.setMaximumHeight(160)
