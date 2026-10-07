@@ -79,6 +79,29 @@ def test_connect_state_survives_dialog_reopen(page, monkeypatch):
     assert dlg2._conn_state.text() == "Connected (virtual)"
 
 
+def test_rails_derived_from_channel_allocation(window, monkeypatch):
+    """User report: 'no rails defined' although Channel Allocation had
+    U2355A AI assignments - the rail set is now DERIVED from the power
+    rows (ordered by channel, nominal parsed from the net name) and
+    pushed into the Test Work Flow page."""
+    window.yaml_build_page.model.set_channel_allocation({
+        "power": [
+            {"net": "DCDC_1V8",
+             "power_rails": "U2355A AI02"},
+            {"net": "5V_SDA_PSW",
+             "power_rails": "U2355A AI01"},
+            {"net": "CPVOUTN", "power_rails": "—"},   # unassigned
+        ],
+    })
+    window._sync_rails_to_workflow()
+    rails = window.workflow_page.rails
+    assert [r[0] for r in rails] == ["5V_SDA_PSW", "DCDC_1V8"]
+    # nominal parsed from the net name where possible (1V8 -> 1.8)
+    assert rails[1][2] == pytest.approx(1.8)
+    # capture parameters mirror into the page
+    assert window.workflow_page.cap_rate == 200
+
+
 def test_status_leds_follow_equipment_connect(window, monkeypatch):
     """The status-bar LED for DAQ turns green exactly when the U2355A
     dialog connects, and gray on disconnect - no forced green."""

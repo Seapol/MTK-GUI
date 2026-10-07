@@ -688,6 +688,9 @@ class MainWindow(QMainWindow):
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
             QTimer.singleShot(800, self._connect_virtual_instruments)
+        # restore the power-rails capture from the persisted Yaml Build
+        # model state (channel allocation / previous rail config)
+        QTimer.singleShot(0, self._sync_rails_to_workflow)
 
         # --- assemble the splitter: top | middle (tabs) | bottom --------
         self.splitter.addWidget(top)
@@ -1167,6 +1170,7 @@ class MainWindow(QMainWindow):
         project_config.apply_config(
             config, self.workflow_page, self.equipment_page,
             self.yaml_build_page.model)
+        self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
         self._project_path = path
         self.workflow_page.set_project_file(path)
@@ -1227,8 +1231,74 @@ class MainWindow(QMainWindow):
         """Apply-to-YAML from the Channel Allocation / Power Tree
         page: the page already persisted its config into the model -
         switch to the Yaml Build tab and repaint the preview."""
+        self._sync_rails_to_workflow()
         self.tabs.setCurrentWidget(self.yaml_build_page)
         self.yaml_build_page.refresh_all()
+
+    def _sync_rails_to_workflow(self):
+        """Feed the Test Work Flow page's power-rails capture from the
+        Yaml Build model (user report: 'no rails defined' - the rail
+        set was empty unless a project file carried it).  Priority:
+        the model's power_rails_up_sequence rail set, else DERIVED
+        from the Channel Allocation power rows (every net with an
+        assigned U2355A AI power-rails channel becomes a rail; the
+        nominal is parsed from the net name)."""
+        model = self.yaml_build_page.model
+        seq = model.power_rails_up_sequence or {}
+        rails = [dict(r) for r in (seq.get("rails") or [])]
+        if not rails:
+            rails = self._rails_from_allocation(
+                model.get_channel_allocation())
+        if not rails:
+            return
+        palette = ("#ef4444", "#22c55e", "#3b82f6", "#f59e0b",
+                   "#a855f7", "#06b6d4", "#84cc16", "#f97316")
+        page_rails = []
+        for i, r in enumerate(rails):
+            name = str(r.get("name") or "").strip()
+            if not name:
+                continue
+            nominal = r.get("nominal_v")
+            if nominal in (None, "", 0, "0"):
+                from mtkgui.gui.yamlbuild.ict_sequence import \
+                    expected_voltage
+                nominal = expected_voltage(name) or 0.0
+            page_rails.append((
+                name, r.get("color") or palette[i % len(palette)],
+                float(nominal or 0.0),
+                float(r.get("ramp_offset_s") or 0.0)))
+        if not page_rails:
+            return
+        self.workflow_page.set_rails(page_rails)
+        if seq.get("sample_rate_hz"):
+            self.workflow_page.cap_rate = int(seq["sample_rate_hz"])
+        if seq.get("pre_trigger_s") is not None:
+            self.workflow_page.cap_start = float(seq["pre_trigger_s"])
+        if seq.get("post_trigger_s"):
+            self.workflow_page.cap_end = float(seq["post_trigger_s"])
+        self.workflow_page.rail_widget.t_start = \
+            self.workflow_page.cap_start
+        self._append_event_log(
+            f"Power rails: {len(page_rails)} rails configured "
+            f"from the Yaml Build model.")
+
+    @staticmethod
+    def _rails_from_allocation(alloc):
+        """Derive rail dicts from the Channel Allocation power rows:
+        every net with an assigned 'U2355A AI..' power-rails channel,
+        ordered by channel number."""
+        rows = (alloc or {}).get("power") or []
+        derived = []
+        for row in rows:
+            channel = str(row.get("power_rails") or "")
+            net = str(row.get("net") or "").strip()
+            if not net or "U2355A AI" not in channel:
+                continue
+            digits = "".join(ch for ch in channel if ch.isdigit())
+            derived.append((int(digits) if digits else 999,
+                            {"name": net, "ramp_offset_s": 0.0}))
+        derived.sort(key=lambda item: item[0])
+        return [r for _ch, r in derived]
 
     def _on_yaml_apply_committed(self):
         """The Apply button on the Yaml Build page succeeded (YAML
