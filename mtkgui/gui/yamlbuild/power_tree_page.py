@@ -93,9 +93,10 @@ class _NodeItem(QGraphicsRectItem):
 
     def _alive(self) -> bool:
         """True while the C++ item exists: a scene rebuild
-        (scene.clear) deletes the item while stale Qt events (the
-        double-click sequence spans press/release/dblclick) may still
-        dispatch to the Python wrapper - guard every override."""
+        (scene.clear) deletes the item - possibly DURING the event
+        handling itself (a drop re-render or the modal edit dialog
+        rebuild the scene), so EVERY override re-checks right before
+        the super() call as well."""
         return shiboken6.isValid(self)
 
     def mousePressEvent(self, event) -> None:
@@ -127,6 +128,9 @@ class _NodeItem(QGraphicsRectItem):
         if self._dragging:
             self._dragging = False
             self._page._on_node_dropped(self.name, self.scenePos())
+        if not self._alive():     # the drop re-render deleted this item
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
@@ -134,6 +138,9 @@ class _NodeItem(QGraphicsRectItem):
             return
         if not self._page._link_mode:
             self._page._edit_node(self.name)
+        if not self._alive():     # the edit dialog rebuilt the scene
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
 
