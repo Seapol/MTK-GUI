@@ -172,10 +172,6 @@ class BlockConfigDialog(QDialog):
                     DEFAULT_THRESHOLDS)
             self.nets_panel.risk_scores = dict(
                 state.get("risk_scores") or {})
-            # navigation: "Open Power Tree Editor" closes this dialog
-            # and asks the page to switch to the dedicated tab
-            self.nets_panel.power_tree_requested.connect(
-                self._request_power_tree_page)
             self.nets_panel.task_log.connect(self._panel_log)
             self.nets_panel.task_progress.connect(self._panel_progress)
             lay.addWidget(self.nets_panel)
@@ -194,12 +190,6 @@ class BlockConfigDialog(QDialog):
     def _panel_progress(self, percent: int, label: str) -> None:
         """Forward embedded-panel progress to the page."""
         self.task_progress.emit(percent, label)
-
-    def _request_power_tree_page(self) -> None:
-        """The Parse Nets panel asked for the dedicated Power Tree
-        page: save + close this dialog; the page switches the tab."""
-        self.requested_page = "power_tree"
-        self.accept()
 
     # ----------------------------------------------------------- editors
     def _make_editor(self, spec: FieldSpec) -> QWidget:

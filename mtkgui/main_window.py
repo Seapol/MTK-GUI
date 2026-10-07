@@ -487,21 +487,6 @@ class MainWindow(QMainWindow):
             lambda level, msg:
                 self._append_event_log(f"[{level}] {msg}"))
 
-        # dedicated Power Tree topology page (relocated from the
-        # Parse Nets panel; data binding = the model.power_tree YAML
-        # draft, data source = the Parse Nets result)
-        from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
-        self.power_tree_page = PowerTreePage()
-        self.tabs.addTab(self.power_tree_page, "Power Tree")
-        # model injected AFTER addTab (PySide shiboken GC bug
-        # workaround - see ChannelAllocationPage.__init__)
-        self.power_tree_page.set_model(self.yaml_build_page.model)
-        self.power_tree_page.task_log.connect(
-            lambda level, msg:
-                self._append_event_log(f"[{level}] {msg}"))
-        # navigation: Parse Nets "Open Power Tree Editor" -> this tab
-        self.yaml_build_page.power_tree_page_requested.connect(
-            lambda: self.tabs.setCurrentWidget(self.power_tree_page))
         # navigation: merged "Build ICT Test Work Flow Sequence" card
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         self.yaml_build_page.test_workflow_requested.connect(
@@ -519,8 +504,6 @@ class MainWindow(QMainWindow):
         # operations on the Test Work Flow page, then apply to yaml
         self.yaml_build_page.ict_sequence_ready.connect(
             self._on_ict_sequence_ready)
-        self.power_tree_page.apply_yaml_requested.connect(
-            self._goto_yaml_build)
         # valid Apply on the Yaml Build page -> offer the file save
         self.yaml_build_page.yaml_apply_committed.connect(
             self._on_yaml_apply_committed)

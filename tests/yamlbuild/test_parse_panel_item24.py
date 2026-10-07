@@ -71,22 +71,6 @@ def test_rules_editor_button_exists_and_persists(qapp, panel,
     assert captured == {"power": r"^PWR_"}
 
 
-def test_power_tree_editor_requires_parse(qapp, panel, monkeypatch):
-    """The topology editor moved to the dedicated Power Tree page:
-    the panel only offers the navigation button (no local editing)."""
-    assert not hasattr(panel, "btn_tree")
-    assert hasattr(panel, "btn_open_tree")
-
-
-def test_power_tree_navigation_button(qapp, panel):
-    """'Open Power Tree Editor' emits the navigation request (the
-    dialog closes and the page switches to the Power Tree tab)."""
-    captured = []
-    panel.power_tree_requested.connect(lambda: captured.append(1))
-    panel.btn_open_tree.click()
-    assert captured == [1]
-
-
 # ------------------------------------------------- parsed nets behaviour
 def test_parsed_nets_single_table_no_alloc_tables(panel):
     """The SE Clock / GPIO allocation tables are GONE (redundant - the

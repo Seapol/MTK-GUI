@@ -65,9 +65,6 @@ class YamlBuildPage(QWidget):
     task_progress = Signal(int, str)
     #: (level, message) Event-Log mirror for the main window (T6)
     task_log = Signal(str, str)
-    #: navigation: the Parse Nets block asked for the dedicated
-    #: Power Tree page (main window switches the tab)
-    power_tree_page_requested = Signal()
     #: navigation: the merged "Build ICT Test Work Flow Sequence"
     #: card asked for the Test Work Flow page (main window switches
     #: the tab and focuses the ICT Test Cases table)
@@ -303,12 +300,6 @@ class YamlBuildPage(QWidget):
                 "thresholds": dict(nets_panel.risk_thresholds),
                 "scores": dict(nets_panel.risk_scores),
             }
-        # navigation: the panel's "Open Power Tree Editor" button
-        # closes the dialog and switches to the dedicated page
-        if module_key == "parse_ict" and dialog is not None \
-                and getattr(dialog, "requested_page", None) \
-                == "power_tree":
-            self.power_tree_page_requested.emit()
         errors = self.model.validate_module(module_key)
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))

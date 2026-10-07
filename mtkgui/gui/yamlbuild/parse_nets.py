@@ -270,8 +270,6 @@ class ParseNetsPanel(QWidget):
     rules_changed = Signal(dict)
     #: test path risk evaluation result (thresholds + per-net scores)
     path_risk_changed = Signal(dict)
-    #: navigation request: open the dedicated Power Tree page
-    power_tree_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -374,17 +372,8 @@ class ParseNetsPanel(QWidget):
         self.btn_parse.clicked.connect(self.parse_nets)
 
         # ------------------------------------------------ item 24 tools
-        # Power Tree navigation + risk thresholds (the rules dialog
-        # button sits next to Parse)
+        # risk thresholds (the rules dialog button sits next to Parse)
         tools = QHBoxLayout()
-        self.btn_open_tree = QPushButton("Open Power Tree Editor")
-        self.btn_open_tree.setToolTip(
-            "Jump to the dedicated Power Tree page: interactive "
-            "topology graph, node editing, stage grouping, pruning "
-            "with audit log")
-        self.btn_open_tree.clicked.connect(
-            self.power_tree_requested.emit)
-        tools.addWidget(self.btn_open_tree)
         self.btn_risk_thresholds = QPushButton("Risk Thresholds")
         self.btn_risk_thresholds.setToolTip(
             "Configure the test path complexity score thresholds "

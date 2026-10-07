@@ -79,7 +79,7 @@ def test_global_layout_unpolluted(qapp):
     window = qapp
     tabs = [window.tabs.tabText(i) for i in range(window.tabs.count())]
     assert tabs == ["Test Work Flow", "Equipment", "Yaml Build",
-                    "Channel Allocation", "Power Tree"]
+                    "Channel Allocation"]
     assert window.tabs.currentWidget() is window.workflow_page
     assert window.event_log.isVisible() or window.event_log.parent() \
         is not None
