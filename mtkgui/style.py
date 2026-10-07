@@ -269,6 +269,22 @@ QCheckBox::indicator:checked {
     background-color: @accent;
     border-color: @accent;
 }
+/* the checkable item views (multi-select popups etc.) need the same
+   explicit indicator rules - otherwise the check mark degenerates
+   into an unreadable solid square on the dark themes */
+QListView::indicator, QListWidget::indicator, QTreeWidget::indicator,
+QTreeView::indicator {
+    width: 15px;
+    height: 15px;
+    border: 1px solid @border;
+    border-radius: 3px;
+    background-color: @card;
+}
+QListView::indicator:checked, QListWidget::indicator:checked,
+QTreeWidget::indicator:checked, QTreeView::indicator:checked {
+    background-color: @accent;
+    border-color: @accent;
+}
 QLabel { background-color: transparent; }
 QLabel#muted { color: @muted; }
 QLabel#strong { color: @text; font-weight: bold; }
