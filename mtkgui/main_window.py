@@ -485,6 +485,15 @@ class MainWindow(QMainWindow):
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         self.yaml_build_page.test_workflow_requested.connect(
             self._goto_test_workflow)
+        # Apply-to-YAML from the config pages: persist (done in the
+        # page) then switch to the Yaml Build tab
+        self.channel_alloc_page.apply_yaml_requested.connect(
+            self._goto_yaml_build)
+        self.power_tree_page.apply_yaml_requested.connect(
+            self._goto_yaml_build)
+        # valid Apply on the Yaml Build page -> offer the file save
+        self.yaml_build_page.yaml_apply_committed.connect(
+            self._on_yaml_apply_committed)
 
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
@@ -1127,6 +1136,41 @@ class MainWindow(QMainWindow):
         table.setFocus()
         table.setCurrentCell(0, 1)
         table.scrollToTop()
+
+    def _goto_yaml_build(self):
+        """Apply-to-YAML from the Channel Allocation / Power Tree
+        page: the page already persisted its config into the model -
+        switch to the Yaml Build tab and repaint the preview."""
+        self.tabs.setCurrentWidget(self.yaml_build_page)
+        self.yaml_build_page.refresh_all()
+
+    def _on_yaml_apply_committed(self):
+        """The Apply button on the Yaml Build page succeeded (YAML
+        valid, config in the model): with a loaded project yaml ask
+        whether to overwrite it or save to a new file; without one
+        only Save-as is possible."""
+        if not self._project_path:
+            self.save_yaml_as()
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Apply Yaml")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "The YAML is valid and applied.\n"
+            "Save the configuration to a file?")
+        btn_overwrite = box.addButton(
+            "Overwrite current yaml",
+            QMessageBox.ButtonRole.AcceptRole)
+        btn_new = box.addButton(
+            "Save to a new yaml file…",
+            QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_overwrite:
+            self._save_yaml_to(self._project_path)
+        elif clicked is btn_new:
+            self.save_yaml_as()
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.

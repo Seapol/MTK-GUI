@@ -154,6 +154,9 @@ class PowerTreePage(QWidget):
 
     #: (level, message) Event-Log mirror (T6)
     task_log = Signal(str, str)
+    #: Apply to YAML clicked: the tree draft was persisted into the
+    #: model - the main window switches to the Yaml Build tab
+    apply_yaml_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         # NOTE: the model is injected AFTER construction via
@@ -215,8 +218,13 @@ class PowerTreePage(QWidget):
             "replaces the old edge); a primary power input has no "
             "upstream; one node may feed many downstream nodes.")
         btn_link.toggled.connect(self._set_link_mode)
+        btn_apply = QPushButton("Apply to YAML")
+        btn_apply.setToolTip(
+            "Persist the power tree draft into the YAML config and "
+            "switch to the Yaml Build page")
+        btn_apply.clicked.connect(self._apply_to_yaml)
         for btn in (btn_rebuild, btn_fit, btn_zoom_in, btn_zoom_out,
-                    btn_link):
+                    btn_link, btn_apply):
             row.addWidget(btn)
         row.addStretch(1)
         lay.addLayout(row)
@@ -535,6 +543,12 @@ class PowerTreePage(QWidget):
         self.canvas.fit_view()
 
     # ------------------------------------------------------------ persist
+    def _apply_to_yaml(self) -> None:
+        """Apply-to-YAML (user direction): persist the tree draft
+        into the model and jump to the Yaml Build page."""
+        self.save_to_model()
+        self.apply_yaml_requested.emit()
+
     def save_to_model(self) -> None:
         """Persist the draft into the model (project YAML section
         ``power_tree``)."""

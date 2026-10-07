@@ -269,6 +269,39 @@ def test_legacy_band_value_resets(page):
     assert page.table_clock.rows()[0].band == "0.1 Hz ~ 6 MHz"
 
 
+# -------------------------------------------------- apply-to-yaml
+def test_apply_to_yaml_persists_and_requests_navigation(page):
+    """The 'Apply to YAML' button persists the tables into the model
+    and emits apply_yaml_requested (the main window switches to the
+    Yaml Build tab)."""
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page.table_power.table.cellWidget(0, 1).setCurrentText("U1.5")
+    page._apply_to_yaml()
+    assert emitted == [True]
+    assert page.model.channel_allocation["power"][0]["test_point"] == \
+        "U1.5"
+
+
+def test_apply_to_yaml_blocked_for_operator(page, monkeypatch):
+    """Operator accounts cannot apply the YAML config (permission
+    box mocked - it must never block the test)."""
+    shown = []
+    monkeypatch.setattr(
+        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.information",
+        lambda *a, **k: shown.append(True))
+    page.set_edit_allowed(False)
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page._apply_to_yaml()
+    assert shown == [True]                # permission box, no navigation
+    assert emitted == []
+    # supervisor passes through
+    page.set_edit_allowed(True)
+    page._apply_to_yaml()
+    assert emitted == [True]
+
+
 # -------------------------------------------------- persistence / compat
 def test_save_and_model_round_trip(page):
     """collect -> model -> fresh page keeps the configuration."""

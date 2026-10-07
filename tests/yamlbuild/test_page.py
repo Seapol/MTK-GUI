@@ -40,7 +40,7 @@ def test_page_assembly(page):
     assert page.btn_export_excel.text() == "Export to Excel"
     assert not hasattr(page, "btn_build_draft")
     assert not hasattr(page, "btn_release_final")
-    assert page.yaml_preview.btn_edit in page._action_buttons
+    assert page.yaml_preview.btn_apply in page._action_buttons
     assert len(page.block_flow._cards) == 10
     assert "ict_workflow" in page.block_flow._cards
     assert page.yaml_preview.editor.toPlainText().startswith(
@@ -99,16 +99,14 @@ def test_yaml_edit_apply_updates_blocks(page):
     page.model.enable_all()
     fill_required(page.model)   # required fields must be non-empty
     page._after_model_change()   # repaint the preview from the model
-    page.yaml_preview.btn_edit.click()           # enter edit mode
     text = page.yaml_preview.editor.toPlainText()
     doc = yaml.safe_load(text)
     doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 555
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
-    page.yaml_preview.btn_edit.click()           # Apply: validate+persist
-    # the edit was validated and applied, back to READ_ONLY
+    page.yaml_preview.btn_apply.click()           # Apply: validate+persist
+    # the edit was validated and applied into the model
     assert page.model.get_params("rails")["on_delay_ms"] == "555"
-    assert page.yaml_preview.btn_edit.text() == "Edit"
 
 
 def test_invalid_yaml_edit_rejected(page):
@@ -119,13 +117,30 @@ def test_invalid_yaml_edit_rejected(page):
 
     page.model.enable_all()
     before = semantic(page.model.to_dict())
-    page.yaml_preview.btn_edit.click()            # enter edit mode
     page.yaml_preview.editor.setPlainText("yaml_build: [broken")
-    page.yaml_preview.btn_edit.click()            # Apply -> FAIL
+    page.yaml_preview.btn_apply.click()           # Apply -> FAIL
     assert not page.yaml_preview.error_bar.isHidden()
-    assert page.yaml_preview.is_editing()         # stays in edit mode
-    assert page.yaml_preview.btn_edit.text() == "Apply"
+    assert "broken" in page.yaml_preview.editor.toPlainText()
+    assert page.yaml_preview.btn_apply.text() == "Apply"
     assert semantic(page.model.to_dict()) == before
+
+
+def test_yaml_apply_committed_forwarded(page):
+    """A valid Apply on the preview forwards the committed signal -
+    the main window uses it to offer the file save."""
+    from tests.yamlbuild.conftest import fill_required
+    page.model.enable_all()
+    fill_required(page.model)
+    page._after_model_change()
+    seen = []
+    page.yaml_apply_committed.connect(lambda: seen.append(True))
+    doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
+    doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 123
+    page.yaml_preview.editor.setPlainText(
+        yaml.safe_dump(doc, sort_keys=False))
+    page.yaml_preview.btn_apply.click()
+    assert seen == [True]
+    assert page.model.get_params("rails")["on_delay_ms"] == "123"
 
 
 def test_persistence_round_trip(page):
@@ -151,14 +166,14 @@ def test_yaml_hand_edit_disables_block_card(page):
     page.model.enable_all()
     fill_required(page.model)
     page._after_model_change()
-    page.yaml_preview.btn_edit.click()            # enter edit mode
+    page.yaml_preview.btn_apply.click()
     doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
     doc["yaml_build"]["modules"]["clocks"]["enabled"] = False
     doc["yaml_build"]["modules"]["rails"]["enabled"] = False
     doc["yaml_build"]["modules"]["gpios"]["enabled"] = False
     page.yaml_preview.editor.setPlainText(
         yaml.safe_dump(doc, sort_keys=False))
-    page.yaml_preview.btn_edit.click()            # Apply: persist
+    page.yaml_preview.btn_apply.click()
     assert page.block_flow._cards["ict_workflow"].state_label.text() \
         == "Disabled"
     assert page.model.is_enabled("clocks") is False

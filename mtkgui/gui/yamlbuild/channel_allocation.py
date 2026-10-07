@@ -31,8 +31,11 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTabWidget,
     QTableWidgetItem,
@@ -451,6 +454,9 @@ class ChannelAllocationPage(QWidget):
 
     #: (level, message) Event-Log mirror (T6)
     task_log = Signal(str, str)
+    #: Apply to YAML clicked: the tables were persisted into the
+    #: model - the main window switches to the Yaml Build tab
+    apply_yaml_requested = Signal()
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         # NOTE: the model is NOT accepted in __init__ ON PURPOSE.
@@ -464,6 +470,15 @@ class ChannelAllocationPage(QWidget):
         self._edit_allowed = True
 
         lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        top.addStretch(1)
+        btn_apply = QPushButton("Apply to YAML")
+        btn_apply.setToolTip(
+            "Persist the channel allocation into the YAML config and "
+            "switch to the Yaml Build page")
+        btn_apply.clicked.connect(self._apply_to_yaml)
+        top.addWidget(btn_apply)
+        lay.addLayout(top)
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
             "module). All configuration cells are dropdown-only.")
@@ -558,6 +573,18 @@ class ChannelAllocationPage(QWidget):
                 "INFO",
                 "channel allocation saved: "
                 f"{self._summary_text()}")
+
+    def _apply_to_yaml(self) -> None:
+        """Apply-to-YAML (user direction): persist the tables into
+        the model and jump to the Yaml Build page (operators cannot
+        modify the YAML config)."""
+        if not self._edit_allowed:
+            QMessageBox.information(
+                self, "Permission",
+                "Operator account cannot modify the YAML configuration.")
+            return
+        self.save_to_model()
+        self.apply_yaml_requested.emit()
 
     def _update_summary(self) -> None:
         data = ChannelAllocationData.from_dict(self.collect())

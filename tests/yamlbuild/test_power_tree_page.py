@@ -220,6 +220,18 @@ def test_node_drag_aligns_row_with_linked_node(page):
     assert page.tree.nodes["VIN_24V"].row in (None, 0)
 
 
+def test_apply_to_yaml_persists_and_requests_navigation(page):
+    """The 'Apply to YAML' button persists the tree draft into the
+    model and emits apply_yaml_requested (the main window switches
+    to the Yaml Build tab)."""
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page.refresh_from_model()
+    page._apply_to_yaml()
+    assert emitted == [True]
+    assert page.model.power_tree["nodes"]
+
+
 def test_flow_arrow_link_via_page(page):
     """Flow-arrow mode: press on the upstream node, drop on the
     downstream node -> the edge is created, the draft saved and the

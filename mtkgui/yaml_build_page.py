@@ -71,6 +71,10 @@ class YamlBuildPage(QWidget):
     #: card asked for the Test Work Flow page (main window switches
     #: the tab and focuses the ICT Test Cases table)
     test_workflow_requested = Signal()
+    #: a valid Apply from the YAML preview committed into the model -
+    #: the main window offers the file save (overwrite current yaml /
+    #: save to a new yaml file)
+    yaml_apply_committed = Signal()
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -81,12 +85,13 @@ class YamlBuildPage(QWidget):
         root.setSpacing(6)
 
         # the preview pane is created BEFORE the top button row: its
-        # Edit/Apply toggle is reparented into that row (item 16)
+        # Apply button is reparented into that row (item 16; user
+        # direction: no Edit mode - the editor is directly editable)
         self.yaml_preview = YamlPreviewWidget()
 
         # --- top fixed button row (item 16: Build Draft / Release Final
         # YAML buttons removed - the redundant YAML entry is gone; the
-        # Excel buttons sit LEFT of the Edit / Apply toggle, all three
+        # Excel buttons sit LEFT of the Apply button, all three
         # share one uniform adaptive width = the longest label among
         # them; the row lives ABOVE the YAML Preview pane (user
         # direction)) ----------
@@ -94,11 +99,11 @@ class YamlBuildPage(QWidget):
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
         self.btn_export_excel = QPushButton("Export to Excel")
-        # the Edit/Apply toggle is created by the preview pane (its
-        # state + permission gate stay there) and is reparented here
+        # the Apply button is created by the preview pane (its
+        # validation + permission gate stay there) and is reparented
         self._action_buttons = (
             self.btn_import_excel, self.btn_export_excel,
-            self.yaml_preview.btn_edit)
+            self.yaml_preview.btn_apply)
         for btn in self._action_buttons:
             btn.setFixedHeight(34)
             buttons.addWidget(btn, 0)   # uniform width, no stretching
@@ -109,9 +114,6 @@ class YamlBuildPage(QWidget):
             "批量导入流程配置Excel文件，快速回填所有模块参数与状态")
         self.btn_export_excel.setToolTip(
             "导出当前全流程模块配置为标准Excel归档文件")
-        # label flips (Edit <-> Apply) re-sync the uniform width
-        self.yaml_preview.label_changed.connect(
-            lambda _text: self._sync_action_button_widths())
 
         self.btn_import_excel.clicked.connect(self._import_excel)
         self.btn_export_excel.clicked.connect(self._export_excel)
@@ -141,6 +143,9 @@ class YamlBuildPage(QWidget):
         # cards (enable states) and persists; the preview text itself
         # keeps the operator's version while editing
         self.yaml_preview.edits_applied.connect(self._on_preview_edited)
+        # valid Apply committed -> the main window offers the file save
+        self.yaml_preview.edits_applied.connect(
+            self.yaml_apply_committed)
         # right pane: the action button row sits directly ABOVE the
         # YAML Preview (user direction)
         from PySide6.QtWidgets import QWidget as _QWidget
@@ -306,7 +311,7 @@ class YamlBuildPage(QWidget):
         """Slot for valid hand edits from the YAML preview: refresh
         the block cards (enable states) and persist.  The preview
         text is NOT repainted here - the operator's text stays until
-        edit mode is left."""
+        the next unmodified sync."""
         self._persist()
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
@@ -324,8 +329,8 @@ class YamlBuildPage(QWidget):
     def set_edit_allowed(self, allowed: bool) -> None:
         """Operator accounts cannot edit the YAML config (T5): the
         whole action row (Excel import / export) and the preview
-        Edit/Apply toggle follow the permission; a pending edit
-        session is rolled back to READ_ONLY."""
+        Apply button follow the permission; the editor stays
+        read-only for operators."""
         self._edit_allowed = bool(allowed)
         for btn in self._action_buttons:
             btn.setEnabled(self._edit_allowed)
@@ -333,9 +338,9 @@ class YamlBuildPage(QWidget):
 
     def _sync_action_button_widths(self) -> None:
         """Item 16: the three top toolbar buttons (Import from Excel /
-        Export to Excel / Edit-Apply) share one uniform adaptive width
-        = the widest label among them (re-synced whenever the toggle
-        label flips Edit <-> Apply).  Neat, aligned, equal in size."""
+        Export to Excel / Apply) share one uniform adaptive width
+        = the widest label among them.  Neat, aligned, equal in
+        size."""
         if not hasattr(self, "_action_buttons"):
             return
         widest = max(btn.sizeHint().width()
