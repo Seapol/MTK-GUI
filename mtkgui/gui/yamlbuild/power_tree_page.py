@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -92,9 +93,12 @@ class _NodeItem(QGraphicsRectItem):
         self.name = name
         self._page = page
         self._dragging = False
-        self.setFlags(
-            QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable
-            | QGraphicsRectItem.GraphicsItemFlag.ItemIsFocusable)
+        self._moved = False
+        # NOTE: intentionally NOT selectable/focusable - a plain left
+        # click must not respond at all (user direction); interaction
+        # = drag, double-click or the right-click menu
+        self.setFlag(
+            QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
 
     def _alive(self) -> bool:
         """True while the C++ item exists: a scene rebuild
@@ -111,7 +115,11 @@ class _NodeItem(QGraphicsRectItem):
             self._page._link_start(self.name)
             event.accept()
             return
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.accept()            # handled via contextMenuEvent
+            return
         self._dragging = True
+        self._moved = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
@@ -121,6 +129,7 @@ class _NodeItem(QGraphicsRectItem):
             self._page._link_update(event.scenePos())
             event.accept()
             return
+        self._moved = True
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
@@ -130,8 +139,10 @@ class _NodeItem(QGraphicsRectItem):
             self._page._link_end(self.name)
             event.accept()
             return
-        if self._dragging:
-            self._dragging = False
+        dragged, self._dragging, self._moved = \
+            self._dragging, False, False
+        if dragged and self._moved:   # a real drag only: a plain
+            # single click must NOT respond (user direction)
             self._page._on_node_dropped(self.name, self.scenePos())
         if not self._alive():     # the drop re-render deleted this item
             event.accept()
@@ -141,12 +152,24 @@ class _NodeItem(QGraphicsRectItem):
     def mouseDoubleClickEvent(self, event) -> None:
         if not self._alive():
             return
-        if not self._page._link_mode:
+        if not self._page._link_mode \
+                and event.button() == Qt.MouseButton.LeftButton:
             self._page._edit_node(self.name)
         if not self._alive():     # the edit dialog rebuilt the scene
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        """Right-click on the node: context menu with the node editor
+        entry (double-click opens it as well)."""
+        if not self._alive() or self._page._link_mode:
+            return
+        menu = QMenu(self._page)
+        act_edit = menu.addAction("Edit Node…")
+        act = menu.exec(event.screenPos())
+        if act is act_edit and shiboken6.isValid(self):
+            self._page._edit_node(self.name)
 
 
 class _TreeCanvas(QGraphicsView):
@@ -168,6 +191,12 @@ class _TreeCanvas(QGraphicsView):
             self.scale(ZOOM_FACTOR, ZOOM_FACTOR)
         else:
             self.scale(1 / ZOOM_FACTOR, 1 / ZOOM_FACTOR)
+
+    def contextMenuEvent(self, event) -> None:
+        """Right-click on the EMPTY canvas: no response (user
+        direction).  A right-click on a node is handled by the item
+        itself and never reaches this handler."""
+        event.accept()
 
     def fit_view(self) -> None:
         """Fit the whole topology into the viewport."""
@@ -393,8 +422,6 @@ class PowerTreePage(QWidget):
             item.setRect(x, y, NODE_W, NODE_H)
             item.setBrush(QBrush(color))
             item.setPen(Qt.PenStyle.NoPen)
-            item.setFlag(
-                QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
             label = scene.addText(
                 f"{node.name}\nStage {node.stage} · "
                 f"{node.expected_voltage or '-'}")
