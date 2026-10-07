@@ -504,6 +504,13 @@ class VirtualU2355A:
         volt samples (DUT-side, i.e. divider reconstructed).  A FAIL
         fault corrupts one rail (stuck at 0 V or excessive ripple/overshoot)
         so the AI wave review has something to flag.
+
+        Realism (user direction): the rails come up STAGGERED (per-rail
+        startup delay - sequenced power-up instead of a simultaneous
+        ramp), each rail has its OWN rise time / overshoot / ripple
+        signature (hashed per rail name), and every later rail turning
+        on produces a small decaying LOAD-STEP SAG on the rails that
+        are already up.
         """
         rng = random.Random()  # fresh entropy for every capture
         n = max(1, int(round((end_s - start_s) * rate_hz)))
@@ -514,21 +521,37 @@ class VirtualU2355A:
         if fault == "FAIL" and rails:
             bad_rail = rng.randrange(len(rails))
             bad_mode = rng.choice(("stuck", "ripple"))
+        # per-rail analog "personality" + turn-on schedule (hashed per
+        # name so every capture of the same project looks alike)
+        starts = []
+        for idx, (name, _color, vnom, offset) in enumerate(rails):
+            cr = _hash_rng(name, salt=2)
+            if offset > 0.0:
+                delay = offset
+            else:
+                # sequenced power-up: staggered by position + jitter
+                delay = 0.02 * idx + cr.uniform(0.0, 0.04)
+            starts.append(power_idx + int(delay * rate_hz))
         frac, volts = [], []
         for idx, (name, _color, vnom, offset) in enumerate(rails):
             cr = _hash_rng(name, salt=2)
-            rise_ms = cr.uniform(3.0, 9.0)
-            overshoot = cr.uniform(0.005, 0.04)
+            rise_ms = cr.uniform(1.5, 12.0)          # own rise time
+            overshoot = cr.uniform(0.004, 0.045)
+            overshoot2 = cr.choice((0.0, 0.0, 0.35))  # 2nd-order bump
             ripple_pct = cr.uniform(0.0008, 0.0035)
             ripple_hz = cr.uniform(80, 400)
+            ripple2_pct = cr.uniform(0.0, 0.0012)     # beat frequency
+            ripple2_hz = cr.uniform(500, 900)
             noise_pct = 0.0006
+            sag_pct = cr.uniform(0.006, 0.015)        # load-step sag
+            sag_tau = cr.uniform(0.010, 0.025)
             if idx == bad_rail:
                 anomaly = name
                 if bad_mode == "ripple":
                     overshoot = 0.12
                     ripple_pct = 0.06
             ramp_pts = max(1, int((rise_ms / 1000.0) * rate_hz))
-            off_pts = int(max(0.0, offset) * rate_hz)
+            off_pts = starts[idx]
             v_series, f_series = [], []
             for i in range(n):
                 t = (i - power_idx) / rate_hz
@@ -537,7 +560,7 @@ class VirtualU2355A:
                 elif i < power_idx:
                     v = rng.gauss(0, 0.0005)
                 else:
-                    j = i - power_idx - off_pts
+                    j = i - off_pts
                     if j < 0:
                         frac0 = 0.0
                     elif j < ramp_pts:
@@ -547,12 +570,28 @@ class VirtualU2355A:
                         frac0 = 1.0
                     settle_t = max(0.0, (j - ramp_pts) / rate_hz)
                     over = overshoot * math.exp(-settle_t / 0.02)
-                    rip = ripple_pct * math.sin(
-                        2 * math.pi * ripple_hz * t)
+                    # second-order bump ~2 rise-times after the ramp
+                    bump_t = 2.0 * ramp_pts / rate_hz
+                    bump = (overshoot2 * overshoot
+                            * math.exp(-max(0.0, settle_t - bump_t) / 0.012)
+                            if settle_t > bump_t else 0.0)
+                    rip = (ripple_pct * math.sin(2 * math.pi * ripple_hz * t)
+                           + ripple2_pct
+                           * math.sin(2 * math.pi * ripple2_hz * t))
                     noise = noise_pct * rng.gauss(0, 1)
+                    # load-step sag: a LATER rail energizing loads the
+                    # already-up rails (small decaying dip)
+                    sag = 0.0
+                    for jdx, jstart in enumerate(starts):
+                        if jdx == idx or jdx <= idx:
+                            continue
+                        dt = (i - jstart) / rate_hz
+                        if dt > 0.0:
+                            sag -= sag_pct * math.exp(-dt / sag_tau)
                     frac0 = max(0.0, min(1.18,
-                                         frac0 + over * (frac0 > 0)
-                                         + rip + noise))
+                                         frac0
+                                         + (over + bump) * (frac0 > 0)
+                                         + rip + noise + sag))
                     v = frac0 * vnom
                 v_series.append(v)
                 f_series.append(v / vnom if vnom else 0.0)
