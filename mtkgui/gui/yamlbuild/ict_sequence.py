@@ -97,9 +97,14 @@ def expected_hz(net: str) -> float | None:
     return None
 
 
-def _fmt(value: float) -> str:
-    text = f"{value:.6f}".rstrip("0").rstrip(".")
-    return text or "0"
+def _fmt_power(value: float) -> str:
+    """Power limits / expected: 0.001 V precision (user direction)."""
+    return f"{value:.3f}"
+
+
+def _fmt_clock(value: float) -> str:
+    """Clock limits / expected: 0.1 Hz precision (user direction)."""
+    return f"{value:.1f}"
 
 
 def _numeric(value: str) -> QDoubleSpinBox:
@@ -209,7 +214,7 @@ class IctWorkFlowSequenceDialog(QDialog):
     parse result (impedance -> voltage -> clock, one test per row) and
     lets the operator adjust it manually."""
 
-    COLUMNS = ("Test Method", "Net", "Unit", "Min", "Max")
+    COLUMNS = ("Test Method", "Net", "Unit", "Expected", "Min", "Max")
 
     def __init__(self, net_provider, initial_tests=None,
                  parent: QWidget | None = None) -> None:
@@ -297,11 +302,12 @@ class IctWorkFlowSequenceDialog(QDialog):
         table.setUpdatesEnabled(False)
         try:
             table.setRowCount(len(self._rows))
-            for r, (_kind, name, unit, _measured, lo, hi) in \
+            for r, (_kind, name, unit, expected, lo, hi) in \
                     enumerate(self._rows):
                 method = (name.split(" - ")[0]
                           if " - " in name else name)
-                for c, text in enumerate((method, name, unit, lo, hi)):
+                for c, text in enumerate(
+                        (method, name, unit, expected, lo, hi)):
                     item = QTableWidgetItem(text)
                     item.setFlags(item.flags()
                                   & ~Qt.ItemFlag.ItemIsEditable)
@@ -372,34 +378,37 @@ class IctWorkFlowSequenceDialog(QDialog):
             self.table.selectRow(r)
 
     def _auto(self) -> None:
-        """Fill the limits from the parsed nominal values (user
-        direction): power voltage +/- 5 %, clock +/- 50 ppm; the
-        nominal is parsed from the net name (P3V3 -> 3.3 V,
-        CLK_24M -> 24 MHz).  Rows without a parseable nominal stay
-        untouched.  The Min / Max cells are updated in place."""
+        """Fill Expected / Min / Max from the parsed nominal values
+        (user direction): Min = Expected * (1 - tolerance), Max =
+        Expected * (1 + tolerance); power voltage +/- 5 % (0.001 V
+        precision), clock +/- 50 ppm (0.1 Hz precision).  The nominal
+        is parsed from the net name (P3V3 -> 3.3 V, CLK_24M ->
+        24 MHz).  Rows without a parseable nominal stay untouched.
+        The cells are updated in place."""
         table = self.table
         table.setUpdatesEnabled(False)
         try:
             for r, step in enumerate(self._rows):
-                kind, name, unit, _measured, _lo, _hi = step
+                kind, name, unit, _expected, _lo, _hi = step
                 method = (name.split(" - ")[0]
                           if " - " in name else name)
                 net = name.split(" - ", 1)[1] if " - " in name else ""
-                nominal = None
+                nominal = fmt = None
                 tol = None
                 if method == "Power Voltage":
-                    nominal = expected_voltage(net)
-                    tol = POWER_TOL
+                    nominal, tol, fmt = (expected_voltage(net),
+                                         POWER_TOL, _fmt_power)
                 elif method == "Clock Hz":
-                    nominal = expected_hz(net)
-                    tol = CLOCK_TOL_PPM * 1e-6
+                    nominal, tol, fmt = (expected_hz(net),
+                                         CLOCK_TOL_PPM * 1e-6,
+                                         _fmt_clock)
                 if nominal is None or tol is None:
                     continue
-                row = (kind, name, unit, _measured,
-                       _fmt(nominal * (1 - tol)),
-                       _fmt(nominal * (1 + tol)))
+                row = (kind, name, unit, fmt(nominal),
+                       fmt(nominal * (1 - tol)),
+                       fmt(nominal * (1 + tol)))
                 self._rows[r] = row
-                for c, text in ((3, row[4]), (4, row[5])):
+                for c, text in ((3, row[3]), (4, row[4]), (5, row[5])):
                     table.item(r, c).setText(text)
         finally:
             table.setUpdatesEnabled(True)

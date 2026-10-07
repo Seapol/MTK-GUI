@@ -2616,7 +2616,9 @@ class _SequenceEditorDialog(QDialog):
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
         form = QFormLayout(dlg)
         # Test Method FIRST (user direction); Unit auto-fills, the
-        # Measured / Min / Max fields are numeric
+        # Expected / Min / Max fields are numeric (the "Measured" slot
+        # holds the EXPECTED value: Min = Expected * (1 - tol), Max =
+        # Expected * (1 + tol) - user direction)
         kind_combo = QComboBox()
         kind_combo.addItems(
             ["op", "test", "Static Impedance", "Power Voltage",
@@ -2665,7 +2667,7 @@ class _SequenceEditorDialog(QDialog):
         form.addRow("Wait:", wait_spin)
         form.addRow("Timeout:", timeout_spin)
         form.addRow("Unit:", unit_edit)
-        form.addRow("Measured:", measured_spin)
+        form.addRow("Expected:", measured_spin)
         form.addRow("Min:", lo_spin)
         form.addRow("Max:", hi_spin)
 

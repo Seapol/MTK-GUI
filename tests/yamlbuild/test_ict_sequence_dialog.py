@@ -126,15 +126,17 @@ def test_auto_fills_limits_from_net_names(qapp):
     try:
         dlg._auto()
         rows = {r[1]: r for r in dlg.result_tests()}
-        # power: 1.8 V +/- 5 %
-        assert rows["Power Voltage - 1V8_CORE"][4] == "1.71"
-        assert rows["Power Voltage - 1V8_CORE"][5] == "1.89"
-        # clock: 24 MHz +/- 50 ppm
-        assert rows["Clock Hz - CLK_24M"][4] == "23998800"
-        assert rows["Clock Hz - CLK_24M"][5] == "24001200"
+        # power: expected 1.800 V, +/- 5 %, 0.001 V precision
+        assert rows["Power Voltage - 1V8_CORE"][3] == "1.800"
+        assert rows["Power Voltage - 1V8_CORE"][4] == "1.710"
+        assert rows["Power Voltage - 1V8_CORE"][5] == "1.890"
+        # clock: expected 24000000.0 Hz, +/- 50 ppm, 0.1 Hz precision
+        assert rows["Clock Hz - CLK_24M"][3] == "24000000.0"
+        assert rows["Clock Hz - CLK_24M"][4] == "23998800.0"
+        assert rows["Clock Hz - CLK_24M"][5] == "24001200.0"
         # impedance: no nominal parsed -> untouched
+        assert rows["Static Impedance - 1V8_CORE"][3] == "—"
         assert rows["Static Impedance - 1V8_CORE"][4] == "—"
-        assert rows["Static Impedance - 1V8_CORE"][5] == "—"
     finally:
         dlg.deleteLater()
 
