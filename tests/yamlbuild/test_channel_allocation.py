@@ -269,7 +269,70 @@ def test_legacy_band_value_resets(page):
     assert page.table_clock.rows()[0].band == "0.1 Hz ~ 6 MHz"
 
 
-# -------------------------------------------------- apply-to-yaml
+# ------------------------------------------------------ auto allocation
+def test_best_test_point_prefers_probe():
+    """The best test point: a TP probe pin when present, else the
+    first member pin."""
+    from mtkgui.gui.yamlbuild.channel_allocation import \
+        ChannelAllocationPage as _P
+    assert _P._best_test_point(["U1.5", "TP7.2", "R4.1"]) == "TP7.2"
+    assert _P._best_test_point(["U1.5", "R4.1"]) == "U1.5"
+    assert _P._best_test_point([]) == UNSET
+
+
+def test_auto_allocate_top_down(page):
+    """Auto: top-down sequential assignment, Impedance == Voltage
+    (same DAQM908A channel), rails from AI01..., TP auto-picked; the
+    status reflects the fully configured rows."""
+    page._auto_allocate()
+    power = page.table_power.rows()
+    assert power[0].impedance == "DAQM908A #1 CH101"
+    assert power[0].voltage == "DAQM908A #1 CH101"   # SAME channel
+    assert power[0].power_rails == "U2355A AI01"
+    assert power[1].impedance == "DAQM908A #1 CH102"
+    assert power[1].voltage == "DAQM908A #1 CH102"
+    assert power[1].power_rails == "U2355A AI02"
+    assert power[0].test_point == "U1.5"             # first member
+    assert page.table_power.row_status(power[0]) == "OK"
+    clock = page.table_clock.rows()[0]
+    assert clock.se_clock_hz == "DAQM907A TOT"
+    assert clock.band == "0 ~ 100 kHz"
+    gpio = page.table_gpio.rows()[0]
+    assert gpio.dio_channel == "DAQM907A DIO01"
+
+
+def test_auto_allocate_pool_exhausted(page, monkeypatch):
+    """Beyond the pool capacity the channel stays unset (cannot be
+    tested); a manual unset stays possible afterwards."""
+    import mtkgui.gui.yamlbuild.channel_allocation as ca
+    monkeypatch.setattr(ca, "DAQM908A_SENSE_CHANNELS",
+                        ("DAQM908A #1 CH101",))
+    monkeypatch.setattr(ca, "U2355A_AI_CHANNELS", ("U2355A AI01",))
+    page._auto_allocate()
+    power = page.table_power.rows()
+    assert power[0].impedance == "DAQM908A #1 CH101"
+    assert power[1].impedance == UNSET               # pool exhausted
+    assert power[1].voltage == UNSET
+    assert power[1].power_rails == UNSET
+    assert page.table_power.row_status(power[1]) == "NOK"
+
+
+# ------------------------------------------------------ row sorting
+def test_header_click_sorts_whole_rows(page):
+    """Clicking a header sorts the WHOLE rows ascending, clicking
+    again toggles descending (net column here)."""
+    table = page.table_power
+    table._on_header_clicked(0)                  # net ascending
+    nets = [r.net for r in table.rows()]
+    assert nets == sorted(nets)
+    table._on_header_clicked(0)                  # descending
+    nets = [r.net for r in table.rows()]
+    assert nets == sorted(nets, reverse=True)
+    # the combo cells still hold their values after the re-render
+    assert table.table.cellWidget(0, 1) is not None
+
+
+# ------------------------------------------------------ persistence / compat
 def test_apply_to_yaml_persists_and_requests_navigation(page):
     """The 'Apply to YAML' button persists the tables into the model
     and emits apply_yaml_requested (the main window switches to the

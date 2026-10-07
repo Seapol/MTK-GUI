@@ -259,6 +259,15 @@ class _NetTable(QWidget):
         self.table.setHorizontalHeaderLabels(
             [label for _key, label, *_rest in columns])
         header = self.table.horizontalHeader()
+        # click a header section -> whole-row sort asc/desc (user
+        # direction); the sort is OURS (re-render via load_rows) and
+        # NOT the default QTableWidget sorting (that would break the
+        # per-cell widgets)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self._on_header_clicked)
+        self._sort_col: int | None = None
+        self._sort_desc = False
         # adaptive layout: every column is user-draggable (Interactive)
         # with a minimum width; the space distribution is done by
         # reflow() on viewport resize - NOT by a Stretch Net column
@@ -448,6 +457,33 @@ class _NetTable(QWidget):
     def rows(self) -> list[AllocatedRow]:
         return list(self._rows)
 
+    # ------------------------------------------------------- row sorting
+    def _on_header_clicked(self, col: int) -> None:
+        """Header click: sort the WHOLE rows by that column, toggling
+        ascending / descending on repeated clicks (the row objects are
+        re-rendered via load_rows so every cell widget moves along)."""
+        if self._sort_col == col:
+            self._sort_desc = not self._sort_desc
+        else:
+            self._sort_col, self._sort_desc = col, False
+        keys = [k for k, _l, *_rest in self.columns]
+        key = keys[col]
+
+        def sort_value(row: AllocatedRow) -> str:
+            if key == "net":
+                return row.net
+            if key == "status":
+                return self.row_status(row)
+            return str(getattr(row, key, ""))
+
+        rows = list(self._rows)
+        rows.sort(key=sort_value, reverse=self._sort_desc)
+        header = self.table.horizontalHeader()
+        header.setSortIndicator(col, Qt.SortOrder.DescendingOrder
+                                if self._sort_desc
+                                else Qt.SortOrder.AscendingOrder)
+        self.load_rows(rows)
+
 
 class ChannelAllocationPage(QWidget):
     """The dedicated Channel Allocation tab (three tables)."""
@@ -471,6 +507,18 @@ class ChannelAllocationPage(QWidget):
 
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
+        btn_auto = QPushButton("Auto")
+        btn_auto.setToolTip(
+            "Automatic allocation, top-down per table: best test "
+            "point (TP probe pin preferred, else the first member "
+            "pin), sequential instrument channels - Impedance and "
+            "Voltage share the SAME DAQM908A channel, Power rails "
+            "come from the U2355A AI pool, SE Clock / DIO from their "
+            "pools. Beyond the pool capacity a channel stays unset "
+            "(no test) - adjust manually; a net can be excluded by "
+            "manually setting its channels to unset.")
+        btn_auto.clicked.connect(self._auto_allocate)
+        top.addWidget(btn_auto)
         top.addStretch(1)
         btn_apply = QPushButton("Apply to YAML")
         btn_apply.setToolTip(
@@ -593,6 +641,63 @@ class ChannelAllocationPage(QWidget):
             return
         self.save_to_model()
         self.apply_yaml_requested.emit()
+
+    # ------------------------------------------------------------ auto
+    @staticmethod
+    def _best_test_point(members: list[str]) -> str:
+        """The best test point of a net (auto rule): a TP probe pin
+        when the members carry one, else the first member pin."""
+        members = [m for m in (members or []) if m]
+        if not members:
+            return UNSET
+        probe = next((m for m in members
+                      if m.upper().startswith("TP")), None)
+        return probe or members[0]
+
+    def _auto_allocate(self) -> None:
+        """Auto (user direction): assign every table top-down - the
+        best test point, then sequential channel resources.  The
+        Impedance and Voltage cells share the SAME DAQM908A channel;
+        Power rails draw from the U2355A AI pool; SE Clock / DIO from
+        their own pools.  Rows beyond the pool capacity stay unset
+        (cannot be tested) and are adjusted manually afterwards."""
+        for kind, table in (("power", self.table_power),
+                            ("clock", self.table_clock),
+                            ("gpio", self.table_gpio)):
+            sense = iter(DAQM908A_SENSE_CHANNELS)
+            rails = iter(U2355A_AI_CHANNELS)
+            clocks = iter(CLOCK_CHANNELS)
+            dios = iter(GPIO_DIO_CHANNELS)
+            rows = table.rows()
+            for row in rows:
+                if row.test_point in ("", UNSET):
+                    row.test_point = self._best_test_point(
+                        self._net_members(row.net))
+                try:
+                    if kind == "power":
+                        channel = next(sense)
+                        row.impedance = channel
+                        row.voltage = channel   # SAME channel both
+                        row.power_rails = next(rails)
+                    elif kind == "clock":
+                        row.se_clock_hz = next(clocks)
+                        row.band = CLOCK_BANDS.get(row.se_clock_hz,
+                                                   UNSET)
+                    else:
+                        row.dio_channel = next(dios)
+                except StopIteration:
+                    # pool exhausted: this net cannot be tested
+                    if kind == "power":
+                        row.impedance = UNSET
+                        row.voltage = UNSET
+                        row.power_rails = UNSET
+                    elif kind == "clock":
+                        row.se_clock_hz = UNSET
+                        row.band = UNSET
+                    else:
+                        row.dio_channel = UNSET
+            table.load_rows(rows)
+        self._update_summary()
 
     def _update_summary(self) -> None:
         data = ChannelAllocationData.from_dict(self.collect())
