@@ -64,6 +64,23 @@ class TestFullPass:
         assert env.rail_csv_path.exists()
         assert env.ai_review_text is not None
 
+    def test_daq_ai_builder_row_triggers_capture(self, env):
+        """The ICT sequence builder emits the DAQ AI row as kind="test"
+        with the fixed name "DAQ AI - Power rails" (the rails are
+        pre-allocated in Channel Allocation) - it MUST dispatch to the
+        rail-capture path: samples stored, PASS and the Measured cell
+        shows the rails summary (was blank, user report)."""
+        runner = TestRunner(env)
+        env.runner = runner
+        idx = next(i for i, s in enumerate(env.ict_steps)
+                   if s[1] == "Power Rails Up Sequence")
+        env.ict_steps[idx] = ("test", "DAQ AI - Power rails",
+                              "V", "—", "—", "—")
+        runner._exec_ict_row(idx)
+        assert env.rows[("ict", idx)] == "PASS"
+        assert "rails" in env.measured[("ict", idx)]
+        assert env.rail_samples is not None
+
     def test_disabled_stage_reports_skip(self, env):
         env._overall_en = [True, False]
         runner = run_demo(env)

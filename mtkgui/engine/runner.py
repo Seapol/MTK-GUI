@@ -52,6 +52,11 @@ _STATUS_TO_ENUM = {
     "Ignore": StepStatus.IGNORED, "RUNNING": StepStatus.RUNNING,
 }
 
+#: the DAQ AI step produced by the ICT sequence builder arrives as
+#: kind="test" with this NAME (the Power rails are pre-allocated in
+#: Channel Allocation) - it MUST dispatch to the rail-capture path
+DAQ_AI_STEP_NAME = "DAQ AI - Power rails"
+
 
 class TestRunner(QObject):
     """Executes one test cycle: the step list produced by the page's
@@ -363,7 +368,8 @@ class TestRunner(QObject):
         unit, measured, lo, hi = step[2], step[3], step[4], step[5]
         params = step[6] if len(step) > 6 else None
 
-        if kind == "DAQ AI":
+        if kind == "DAQ AI" or name == DAQ_AI_STEP_NAME \
+                or name.startswith("DAQ AI"):
             # power rails up sequence: samples (volts) + CSV + AI review
             self._exec_rail_capture_row(r)
             return
@@ -484,13 +490,15 @@ class TestRunner(QObject):
         env._store_rail_capture(rail_samples, rail_volts, plot_cache,
                                 path, review)
         n = len(env.rails)
+        # the Measured cell shows the capture summary (was blank)
+        measured_text = f"{n} rails{tag}"
         if anomaly:
-            self._put("ict", r, StepStatus.FAIL)
+            self._put("ict", r, StepStatus.FAIL, measured_text)
             env._log(f"ICT {name}: {n} rails captured{tag}, {saved}; "
                      f"AI review flags '{anomaly}' (abnormal waveform, "
                      f"virtual fail) -> FAIL")
         else:
-            self._put("ict", r, StepStatus.PASS)
+            self._put("ict", r, StepStatus.PASS, measured_text)
             env._log(f"ICT {name}: {n} rails captured{tag}, {saved} "
                      f"-> PASS")
 

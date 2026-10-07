@@ -2011,12 +2011,15 @@ class TestWorkFlowPage(QWidget):
                             review):
         """Keep the latest capture (samples / volts / plot cache / CSV
         path / AI review text) on the page for the waveform widget and
-        the properties dialog (engine hook)."""
+        the properties dialog (engine hook); the waveform is DRAWN on
+        the right immediately after the capture (user direction)."""
         self.rail_samples = samples
         self.rail_volts = volts
         self._rail_plot_cache = plot_cache
         self.rail_csv_path = csv_path
         self._ai_review_text = review
+        self.rail_widget.t_start = self.cap_start
+        self._apply_rail_filter()
 
     def _mark_stage_skipped(self, r, text):
         """Render a disabled Overall Flow stage as Skip (engine hook)."""
