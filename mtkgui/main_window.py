@@ -1028,14 +1028,18 @@ class MainWindow(QMainWindow):
     def _open_about(self):
         """Help > About: version, branch, build info (Module C)."""
         from .gui.help_content import about_html
-        box = QMessageBox(self)
-        box.setWindowTitle("About MTK GUI")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About MTK GUI")
+        lay = QVBoxLayout(dlg)
         browser = QTextBrowser()
         browser.setHtml(about_html())
-        browser.setMinimumSize(420, 300)
-        box.layout().addWidget(browser)
-        box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.exec()
+        browser.setOpenExternalLinks(False)
+        lay.addWidget(browser)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(dlg.accept)
+        lay.addWidget(buttons)
+        dlg.resize(460, 360)
+        dlg.exec()
 
     def _open_dut_report(self):
         """Report > Generate Report: DUT detail + batch summary for the
