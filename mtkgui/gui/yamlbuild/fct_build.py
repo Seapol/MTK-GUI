@@ -312,11 +312,15 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
                 family, "MessageOK")
         if s.params.get("op"):
             op_params = {"type": "op", "op": s.params["op"]}
+        # B4: the full step travels with the case (op_params.fct_step)
+        # so the runner routes the row to the fct_exec executor
+        marker = dict(op_params or {})
+        marker["fct_step"] = s.to_dict()
         cases.append({
             "name": name, "kind": kind, "enable": True,
             "wait_ms": 100, "timeout_ms": int(max(s.timeout_s, 1.0)
                                               * 1000),
-            **({"op_params": op_params} if op_params else {}),
+            "op_params": marker,
         })
     return cases
 

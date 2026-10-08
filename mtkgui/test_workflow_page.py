@@ -323,6 +323,12 @@ class TestWorkFlowPage(QWidget):
         self.rail_csv_path = None
         self._rail_plot_cache = []
         self._ai_review_text = None
+        # B4 §1.3: configurable FCT keyword tables (negative-wins);
+        # persisted in the project YAML as test_workflow.fct_keywords
+        from mtkgui.gui.yamlbuild.fct_build import (
+            DEFAULT_KEYWORD_FAIL, DEFAULT_KEYWORD_PASS)
+        self.fct_keyword_pass = list(DEFAULT_KEYWORD_PASS)
+        self.fct_keyword_fail = list(DEFAULT_KEYWORD_FAIL)
         # Virtual mode hardware rack (DAQ973A / U2355A / N5747A / fixture
         # simulation); None in Real mode until the SCPI drivers land
         self.rack = None

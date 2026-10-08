@@ -199,6 +199,11 @@ def _workflow_to_yaml(page):
         "ict_test_cases": ict_cases,
         "power_rails_up_sequence": rails,
         "fct_test_cases": fct_cases,
+        # B4 §1.3: configurable FCT keyword tables (negative-wins)
+        "fct_keywords": {
+            "pass": list(page.fct_keyword_pass),
+            "fail": list(page.fct_keyword_fail),
+        },
     }
 
 
@@ -314,6 +319,16 @@ def apply_config(config, workflow_page, equipment_page,
     workflow_page.set_capture_settings(
         duration_s=pr.get("duration_s"),
         rate_hz=pr.get("sample_rate_hz"))
+
+    # B4 §1.3: FCT keyword tables (negative-wins) restore
+    fct_kw = config.get("test_workflow", {}).get("fct_keywords") or {}
+    if isinstance(fct_kw, dict):
+        if isinstance(fct_kw.get("pass"), list) and fct_kw["pass"]:
+            workflow_page.fct_keyword_pass = [str(k)
+                                              for k in fct_kw["pass"]]
+        if isinstance(fct_kw.get("fail"), list) and fct_kw["fail"]:
+            workflow_page.fct_keyword_fail = [str(k)
+                                              for k in fct_kw["fail"]]
 
     # per-step enable / wait / timeout for ICT. The step list itself
     # (name / kind / unit / thresholds) is rebuilt from the YAML so a
