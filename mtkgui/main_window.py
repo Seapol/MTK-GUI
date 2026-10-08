@@ -19,6 +19,7 @@ from pathlib import Path
 from PySide6.QtCore import (QEvent, QObject, QSettings, Qt, QThread,
                             QTimer, Signal)
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
+from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtWidgets import (
     QApplication,
     QColorDialog,
@@ -391,6 +392,9 @@ class MainWindow(QMainWindow):
 
         # path of the currently loaded / saved project YAML (None = new)
         self._project_path = None
+        # Module B report session batch (auto-captured per product)
+        self._session_reports: list = []
+        self._last_batch = None
 
         self._build_ui()
         self._build_menus()
@@ -684,6 +688,9 @@ class MainWindow(QMainWindow):
         # task complete: fill the progress bar full then auto-reset
         self.workflow_page.run_finished.connect(
             self._finish_run_progress)
+        # Module B: every counted product is captured into the session
+        # batch (automatic report trigger, B4 §8.3)
+        self.workflow_page.run_finished.connect(self._on_run_report_auto)
         # long-task progress + Event-Log detail from the Yaml Build
         # page (Excel import / publish, T6): global status bar + log
         self.yaml_build_page.task_progress.connect(self._on_task_progress)
@@ -866,7 +873,8 @@ class MainWindow(QMainWindow):
 
         # ---------------------------------------------- V4.0: Report menu
         self.report_menu = self.menuBar().addMenu("Report")
-        self.report_menu.addAction("DUT Report", self._open_dut_report)
+        self.report_menu.addAction("Generate Report…",
+                                   self._open_dut_report)
         self.report_menu.addAction("Event Log", self._open_report_event_log)
         self.report_menu.addAction("Statistics", self._open_statistics)
 
@@ -874,14 +882,15 @@ class MainWindow(QMainWindow):
         # Help stays the rightmost menu of the fixed final order
         self.help_menu = self.menuBar().addMenu("Help")
         self.help_menu.addAction(
-            "User Guide", lambda: self._open_help("user_guide"))
+            "User Guide", lambda: self._open_help("overview"))
         self.help_menu.addAction(
-            "Developer Guide", lambda: self._open_help("developer_guide"))
+            "Page Guide", lambda: self._open_help("page_guide"))
         self.help_menu.addAction(
-            "Version History", lambda: self._open_help("version_history"))
+            "FAQ / Troubleshooting", lambda: self._open_help("faq"))
         self.help_menu.addAction(
-            "Readme & Quick Start",
-            lambda: self._open_help("readme_quickstart"))
+            "Security & Roles", lambda: self._open_help("security_roles"))
+        self.help_menu.addSeparator()
+        self.help_menu.addAction("About", self._open_about)
 
     # ------------------------------------------------- V4.0 Tools batch
     _TOOL_ABBRS = ("DAQM", "DAQ", "PSU")
@@ -987,42 +996,87 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self, key):
-        """Help menu: open the built-in guide dialog for one topic.
-
-        Phase A mounts the menu; the full guide content provider lands
-        with V4.0 phase B2 (interface_spec.md section 29).
+        """Help menu: render one built-in guide topic (Module C) from
+        docs/help/ markdown-lite files into a scrollable HTML dialog.
 
         Args:
-            key: One of the HELP_KEYS topic identifiers.
+            key: a help_content.HELP_TOPICS identifier.
         """
+        from .gui.help_content import HELP_TOPICS, load_topic_html
+        if key not in HELP_TOPICS:
+            return
         titles = {
-            "user_guide": "User Guide",
-            "developer_guide": "Developer Guide",
-            "version_history": "Version History",
-            "readme_quickstart": "Readme & Quick Start",
+            "overview": "User Guide — Overview",
+            "getting_started": "Getting Started",
+            "page_guide": "Page Guide",
+            "instruments": "Instruments & Connections",
+            "test_items": "Test Items",
+            "reports_logs": "Reports & Logs",
+            "faq": "FAQ / Troubleshooting",
+            "security_roles": "Security & Roles",
         }
-        text = (f"[ {titles.get(key, key)} ]\n\n"
-                "Full built-in guide content ships with V4.0 phase B2 "
-                "(feature/help-report-menus).")
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Help - {titles.get(key, key)}")
+        dlg.setWindowTitle(f"Help — {titles.get(key, key)}")
         lay = QVBoxLayout(dlg)
-        view = QPlainTextEdit()
-        view.setReadOnly(True)
-        view.setPlainText(text)
-        lay.addWidget(view)
-        dlg.resize(720, 520)
+        browser = QTextBrowser()
+        browser.setHtml(load_topic_html(key))
+        browser.setOpenExternalLinks(False)
+        lay.addWidget(browser)
+        dlg.resize(760, 560)
         dlg.exec()
 
-    def _open_dut_report(self):
-        """Report > DUT Report: per-unit PDF export placeholder.
+    def _open_about(self):
+        """Help > About: version, branch, build info (Module C)."""
+        from .gui.help_content import about_html
+        box = QMessageBox(self)
+        box.setWindowTitle("About MTK GUI")
+        browser = QTextBrowser()
+        browser.setHtml(about_html())
+        browser.setMinimumSize(420, 300)
+        box.layout().addWidget(browser)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
-        The PDF builder (Qt QPdfWriter, fixed DUT_[PASS/FAIL]_...
-        naming) ships with V4.0 phase B3 (interface_spec.md 30)."""
-        QMessageBox.information(
-            self, "DUT Report",
-            "Per-unit DUT report (PDF) export ships with V4.0 phase B3 "
-            "(feature/report-backend).")
+    def _open_dut_report(self):
+        """Report > Generate Report: DUT detail + batch summary for the
+        current session (Module B) - preview HTML + CSV export."""
+        from mtkgui.engine.report import (
+            BatchSummary,
+            DutReport,
+            save_batch_csv,
+            save_dut_csv,
+        )
+        page = self.workflow_page
+        report = DutReport.from_session(page)
+        summary = BatchSummary(reports=[report])
+        # preview: DUT detail + batch statistics (print view = the HTML)
+        box = QMessageBox(self)
+        box.setWindowTitle("Generate Report")
+        browser = QTextBrowser()
+        browser.setHtml(report.to_html() + "<hr>" + summary.to_html())
+        browser.setMinimumSize(680, 460)
+        box.layout().addWidget(browser)
+        box.setStandardButtons(QMessageBox.StandardButton.Close)
+        # export (Operator: current session is read-only preview only)
+        if self.role == ROLE_SUPERVISOR:
+            out_dir = Path("reports")
+            dut_csv = save_dut_csv(report, out_dir)
+            batch_csv = save_batch_csv(summary, out_dir)
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Report exported: "
+                f"{dut_csv} + {batch_csv}")
+        box.exec()
+
+    def _on_run_report_auto(self, summary: dict) -> None:
+        """Automatic report capture: every counted product appends to
+        the session batch (B4 §8.3 trigger)."""
+        if not summary.get("counted"):
+            return
+        from mtkgui.engine.report import BatchSummary, DutReport
+        report = DutReport.from_session(self.workflow_page)
+        self._session_reports.append(report)
+        # keep the latest batch on hand for Report > Batch Summary
+        self._last_batch = BatchSummary(reports=list(self._session_reports))
 
     def _open_report_event_log(self):
         """Report > Event Log: full-lifecycle TXT log viewer

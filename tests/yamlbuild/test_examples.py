@@ -30,9 +30,11 @@ EXPECTED_STEMS = (
 
 
 def test_examples_directory_complete():
-    """16 files: 8 YAML + 8 Excel with the fixed naming rule."""
-    yamls = sorted(p.name for p in EXAMPLES.glob("*.yaml"))
-    xlsxs = sorted(p.name for p in EXAMPLES.glob("*.xlsx"))
+    """16 files: 8 YAML + 8 Excel with the fixed naming rule (the
+    directory also hosts the B3 fct_sequence examples - out of this
+    test's scope)."""
+    yamls = sorted(p.name for p in EXAMPLES.glob("Plan_*.yaml"))
+    xlsxs = sorted(p.name for p in EXAMPLES.glob("Plan_*.xlsx"))
     assert yamls == [f"{stem}.yaml" for stem in EXPECTED_STEMS]
     assert xlsxs == [f"{stem}.xlsx" for stem in EXPECTED_STEMS]
 

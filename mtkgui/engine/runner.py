@@ -518,6 +518,13 @@ class TestRunner(QObject):
         t0 = time.monotonic()
         name = env.fct_rows[r] if r < len(env.fct_rows) else ""
         kind = (env.fct_kinds[r] if r < len(env.fct_kinds) else "")
+        # B4: a published fct_build step travels in op_params.fct_step
+        # -> route the row to the fct_exec executor (Virtual-verifiable)
+        marker = (env.fct_op_params[r] or {}).get("fct_step") \
+            if r < len(env.fct_op_params) else None
+        if marker:
+            self._exec_fct_b3(r, name, marker, t0, interactive)
+            return
         if kind == "op":
             # standard operation step: move fixture / PSU state, log
             # every sub-action, Done or Error (equipment fault)
@@ -584,6 +591,83 @@ class TestRunner(QObject):
                   else StepStatus.FAIL if verdict == "FAIL"
                   else StepStatus.ERROR,
                   None, time.monotonic() - t0)
+
+    def _exec_fct_b3(self, r: int, name: str, marker: dict,
+                     t0: float, interactive: bool) -> None:
+        """Execute one published fct_build step (B4 §2): the four step
+        types run through the fct_exec executor with the keyword
+        tables; GUI_CONFIRM answers via the operator dialog
+        (interactive) or a simulated GO (run_demo / smoke)."""
+        from ..gui.yamlbuild.fct_build import FctStep
+        from .fct_channels import BoundConsoleChannel, VirtualFctChannel
+        from .fct_exec import (
+            VERDICT_ERROR,
+            VERDICT_FAIL,
+            VERDICT_PASS,
+            VERDICT_SKIP,
+            FctContext,
+            execute_fct_step,
+        )
+        env = self.env
+        step = FctStep.from_dict(marker)
+        station, user = "", ""
+        try:
+            from ..gui import identity
+            station, user = (identity.get_station_id(),
+                             identity.get_user())
+        except Exception:                    # noqa: BLE001 - headless
+            pass
+        ctx = FctContext(station_id=station, user=user,
+                         log_sink=env._log,
+                         keyword_pass=list(getattr(
+                             env, "fct_keyword_pass", ()) or ()),
+                         keyword_fail=list(getattr(
+                             env, "fct_keyword_fail", ()) or ()))
+        ch_key = step.channel
+        if ch_key:
+            mc = getattr(env, "multi_console", None)
+            worker = (mc.channels.get(ch_key, {}).get("worker")
+                      if mc is not None else None)
+            if worker is not None:
+                ctx.channels[ch_key] = BoundConsoleChannel(worker)
+            else:
+                # Virtual: a fresh injectable channel stands in for the
+                # real transport (Virtual mode verifiable, no hardware);
+                # page-level fct_virtual_script pre-feeds output lines
+                # (tests / scripted Virtual runs)
+                ch = VirtualFctChannel()
+                for line in getattr(env, "fct_virtual_script",
+                                    {}).get(ch_key, []):
+                    ch.inject_output(line)
+                ctx.channels[ch_key] = ch
+        if step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
+            if interactive:
+                def _ask(s):
+                    return env._fct_message_dialog(
+                        "MessageGoStop",
+                        f"Confirm: {s.name}") == "PASS"
+            else:                            # run_demo: simulated GO
+                def _ask(s):
+                    env._log("human answer GO (simulated)")
+                    return True
+            ctx.human_confirm = _ask
+        elif step.step_type == "MESSAGE_CHECK" and not step.channel:
+            if interactive:
+                def _ask(s):
+                    return env._fct_message_dialog(
+                        "MessageOK", s.name) == "PASS"
+            else:
+                def _ask(s):
+                    env._log("human answer OK (simulated)")
+                    return True
+            ctx.human_confirm = _ask
+        outcome = execute_fct_step(step, ctx)
+        status = {VERDICT_PASS: StepStatus.PASS,
+                  VERDICT_FAIL: StepStatus.FAIL,
+                  VERDICT_ERROR: StepStatus.ERROR,
+                  VERDICT_SKIP: StepStatus.IGNORED}.get(
+            outcome.verdict, StepStatus.ERROR)
+        self._put("fct", r, status, None, time.monotonic() - t0)
 
     # ------------------------------------------------ FCT console (virtual)
     def _pick_serial_channel(self):
