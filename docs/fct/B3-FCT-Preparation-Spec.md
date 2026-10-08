@@ -4,8 +4,9 @@ Status: PREPARATION (structure layer only — NO execution engine in this
 phase)
 Branch: `feature/p3-b3-fct-prep` (from `develop` @ B2 closure)
 Author: TRAE (SOLO session) · 2026-10-08
-Decision authority: **D1 / D2 / D4 final decisions belong to the USER**
-— see the decision tables marked **[待拍板 / PENDING USER SIGN-OFF]**.
+Decision authority: **D1 / D2 / D4 SIGNED OFF by the USER on
+2026-10-08** (all recommendations accepted; D4 carries two
+implementation constraints + ops-scenario requirements — §7.1/§7.2).
 
 ---
 
@@ -62,7 +63,7 @@ configurable per sequence.
 
 ---
 
-## 2. Decision D1 — RF tests inside FCT  **[待拍板]**
+## 2. Decision D1 — RF tests inside FCT  **[SIGNED OFF: A]**
 
 ### 2.1 Capability list (proposed)
 
@@ -104,11 +105,11 @@ MESSAGE_CHECK  (pure channel message judgement)
 can LATER be layered as a MESSAGE_CHECK regex with capture-group limits
 without changing the model.
 
-**[PENDING USER SIGN-OFF: D1-A / D1-B / D1-C]**
+**[SIGNED OFF: D1-A]**
 
 ---
 
-## 3. Decision D2 — FAT / OOBE flash execution  **[待拍板]**
+## 3. Decision D2 — FAT / OOBE flash execution  **[SIGNED OFF: A]**
 
 Two paths, both first-class (a sequence declares which one per flash
 stage):
@@ -165,11 +166,11 @@ immediately (negative-wins rule, §3.3).
 
 **Recommendation: D2-A.**
 
-**[PENDING USER SIGN-OFF: D2-A / D2-B / D2-C]**
+**[SIGNED OFF: D2-A]**
 
 ---
 
-## 4. Decision D4 — password / credential storage  **[待拍板]**
+## 4. Decision D4 — password / credential storage  **[SIGNED OFF: A + constraints]**
 
 Scope: SSH channel passwords, DUT login credentials, future MES/Cloud
 tokens.  NOT in scope: the Supervisor login password (already a
@@ -336,13 +337,41 @@ tests; lossless for the fields the legacy shape carries (legacy
    generation / loader-compatibility tests;
 6. the decision sign-off table below.
 
-## 7. Decision sign-off table  **[全部待用户拍板]**
+## 7. Decision sign-off table  **[SIGNED OFF — 2026-10-08]**
 
 | ID | Question | Options | Recommendation | User decision |
 |---|---|---|---|---|
-| D1 | RF tests abstraction | A: as CLI_RUN/EXTERNAL_TOOL steps · B: dedicated RF module · C: defer | **A** | ______ |
-| D2 | Flash FAT/OOBE execution | A: GUI-confirm + CLI-parse both · B: GUI only · C: CLI only | **A** | ______ |
-| D4 | Credential storage | A: OS keyring (+`keyring` dep) · B: env vars · C: encrypted file · D: plaintext (FORBIDDEN) | **A** (fallback B) | ______ |
+| D1 | RF tests abstraction | A: as CLI_RUN/EXTERNAL_TOOL steps · B: dedicated RF module · C: defer | A | **A — SIGNED OFF** (RF = third-party tool/CLI + message parse, no dedicated RF module) |
+| D2 | Flash FAT/OOBE execution | A: GUI-confirm + CLI-parse both · B: GUI only · C: CLI only | A | **A — SIGNED OFF** (dual path is a product fact, fixed in spec) |
+| D4 | Credential storage | A: OS keyring · B: env vars · C: encrypted file · D: plaintext (FORBIDDEN) | A | **A — SIGNED OFF with two implementation constraints (below)** |
+
+### 7.1 D4 signed-off implementation constraints
+
+1. **Explicit fallback, never silent downgrade.**  When the OS keyring
+   backend is unavailable (Linux without a secret service, frozen
+   builds without the backend, headless sessions) the credential layer
+   MUST fall back to D4-B (environment variables) AND surface an
+   explicit warning to the operator (Event Log + UI banner on the
+   affected channel dialog).  Falling back to plaintext anywhere is
+   FORBIDDEN.
+2. **Windows PyInstaller packaging verification is part of the
+   acceptance.**  `keyring` needs hidden imports in
+   `MTK_GUI_windows.spec`; the packaged exe must be verified on a
+   production Windows station (store + read a credential).  If
+   packaging or on-target verification fails, the execution phase
+   falls back to D4-B and this spec documents the failure here.
+
+### 7.2 D4 operations scenarios (execution-phase design scope)
+
+The FCT execution-phase design MUST cover the shop-floor operations
+scenarios below; each gets a design subsection in the execution spec:
+
+| Scenario | Required design |
+|---|---|
+| Multi-PC deployment (per-station credentials) | credentials are stored PER OS USER on EACH station; a station-setup checklist (first-run credential entry, per-station keyring isolation); no cross-machine copy of secrets |
+| Supervisor password reset / recovery | reset procedure clears/rotates stored credential refs WITHOUT exposing old values; operator re-enters credentials after a reset; audit line in the Event Log |
+| OS reinstall / PC migration | keyring contents are NOT portable by design — a documented re-entry procedure (or optional export ONLY into an operator-supplied encrypted file, explicitly NOT the YAML; requires user approval at implementation time) |
+| Keyring locked / inaccessible at runtime | explicit fallback per §7.1 constraint 1 (env vars + warning), never plaintext |
 
 No example YAML or code contains any credential value; `credential_ref`
 placeholders only.
