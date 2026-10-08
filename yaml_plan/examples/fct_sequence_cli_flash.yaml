@@ -1,0 +1,145 @@
+fct_sequence:
+  name: FRDM-IMXRT700 FCT - CLI flash path
+  flash_mode: cli
+  keyword_pass:
+  - pass
+  - passed
+  - success
+  - succeed
+  - ok
+  - done
+  - complete
+  keyword_fail:
+  - fail
+  - failed
+  - failure
+  - error
+  - timeout
+  - abort
+  - exception
+  - refused
+  steps:
+  - name: Flash FAT Firmware
+    step_type: CLI_RUN
+    channel: ser1
+    command: blhost -p COM5 flash-image fat.bin
+    expect_pass:
+    - success
+    expect_fail:
+    - fail
+    - failed
+    - failure
+    - error
+    - timeout
+    - abort
+    - exception
+    - refused
+    timeout_s: 30.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: operator
+    params:
+      slot: fat
+  - name: Wi-Fi throughput iperf3
+    step_type: CLI_RUN
+    channel: ser1
+    command: iperf3 -c 192.168.1.1 -t 5
+    expect_pass:
+    - Mbits/sec
+    expect_fail:
+    - error
+    - refused
+    timeout_s: 30.0
+    retries: 1
+    on_fail: abort
+    depends: []
+    resource: console:ser1
+    params: {}
+  - name: All Tests done.
+    step_type: MESSAGE_CHECK
+    channel: ''
+    command: ''
+    expect_pass:
+    - done
+    expect_fail: []
+    timeout_s: 0.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: ''
+    params: {}
+  - name: Flash OOBE Firmware
+    step_type: CLI_RUN
+    channel: ser1
+    command: blhost -p COM5 flash-image fat.bin
+    expect_pass:
+    - success
+    expect_fail:
+    - fail
+    - failed
+    - failure
+    - error
+    - timeout
+    - abort
+    - exception
+    - refused
+    timeout_s: 30.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: operator
+    params:
+      slot: oobe
+  - name: Power Off DUT
+    step_type: GUI_CONFIRM
+    channel: ''
+    command: ''
+    expect_pass: []
+    expect_fail: []
+    timeout_s: 0.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: ''
+    params:
+      op: Power Off DUT
+  - name: Fixture Unlock
+    step_type: GUI_CONFIRM
+    channel: ''
+    command: ''
+    expect_pass: []
+    expect_fail: []
+    timeout_s: 0.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: ''
+    params:
+      op: Fixture Unlock
+  - name: Fixture Release
+    step_type: GUI_CONFIRM
+    channel: ''
+    command: ''
+    expect_pass: []
+    expect_fail: []
+    timeout_s: 0.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: ''
+    params:
+      op: Fixture Release
+  - name: Reset Instruments
+    step_type: GUI_CONFIRM
+    channel: ''
+    command: ''
+    expect_pass: []
+    expect_fail: []
+    timeout_s: 0.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: ''
+    params:
+      op: Reset Instruments
