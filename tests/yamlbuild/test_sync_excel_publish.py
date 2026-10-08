@@ -63,7 +63,6 @@ def make_model(enabled=True) -> YamlBuildModel:
     model.set_params("gpios", {"groups": "LED1:PA0:out:none",
                                "level_threshold_v": "1.5",
                                "exception_check": "true"})
-    model.set_params("fct_parse", {"spec_file": "fct_spec.md"})
     model.set_params("fct_build", {"flow_steps": "step1\nstep2",
                                    "yield_threshold_pct": "98.0",
                                    "exception_branch": "stop",
@@ -103,13 +102,20 @@ def test_invalid_edit_never_touches_model():
     """An invalid hand edit is rejected: the model keeps its state
     (dirty data never enters the configuration)."""
     model = make_model()
-    before = model.to_dict()
+
+    def semantic(model_dict: dict) -> dict:
+        """Content snapshot without the volatile save timestamp (the
+        two to_dict() calls may straddle a second boundary under
+        load)."""
+        return {k: v for k, v in model_dict.items() if k != "saved_at"}
+
+    before = semantic(model.to_dict())
     bad = yaml.safe_load(model.to_effective_yaml())
     bad["yaml_build"]["modules"]["rails"]["on_voltage_v"] = 99
     result = sync_preview_to_model(
         model, yaml.safe_dump(bad, sort_keys=False))
     assert not result.ok
-    assert model.to_dict() == before
+    assert semantic(model.to_dict()) == before
 
 
 def test_missing_section_rejected():

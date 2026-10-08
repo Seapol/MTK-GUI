@@ -16,7 +16,10 @@ archive/
 audit/
 demo/
 projects/
-config/review/
+# yaml plan workspace: runtime products only (examples/ is versioned
+# user documentation and stays tracked)
+yaml_plan/*
+!yaml_plan/examples/
 mtkgui/config/yamlbuild_state.json
 
 # macOS

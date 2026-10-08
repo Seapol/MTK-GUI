@@ -43,7 +43,7 @@ def test_adaptive_size(dlg):
     """Item 12: full adaptive layout - no fixed maximum; Qt layout
     rules drive width / height from the logical-px minimums."""
     assert dlg.minimumWidth() >= 470
-    assert dlg.minimumHeight() >= 550
+    assert dlg.minimumHeight() >= 530
     # resizable: no fixed max clamped to the minimum
     assert dlg.maximumWidth() > dlg.minimumWidth()
     assert dlg.maximumHeight() > dlg.minimumHeight()
@@ -66,17 +66,17 @@ def test_dialog_centers_on_show(qapp, dlg):
 
 # ------------------------------------------------------------- styling
 def test_inputs_share_uniform_style(dlg):
-    """Account combo and password edit: same height, radius 6, thin
+    """Account combo and password edit: same height, radius 8, thin
     border, uniform padding - one visual language."""
     t = _tokens()
     qss = dlg.styleSheet()
-    assert "border-radius: 6px" in qss
+    assert "border-radius: 8px" in qss
     assert f"border: 1px solid {t['border']}" in qss
     assert "padding: 6px 10px" in qss
     # same fixed content height for both inputs
     h_combo = dlg.role_combo.height()
     h_edit = dlg.password_edit.height()
-    assert h_combo == h_edit == 34
+    assert h_combo == h_edit == 36
 
 
 def test_login_button_accent_styling(dlg):
@@ -163,16 +163,22 @@ def test_hint_centered_in_middle_area(dlg, qapp):
 
 
 def test_bottom_fixed_info_bar(dlg, qapp):
-    """Station ID + live user info + copyright live in the absolute
-    bottom fixed area of the login window."""
-    from mtkgui.permissions import (
-        COPYRIGHT_TEXT,
-        STATION_ID,
-    )
-    assert dlg.station_label.text() == f"Station ID: {STATION_ID}"
-    assert dlg.user_label.text() == "User: Supervisor"
+    """Station ID + User + copyright live in the absolute bottom fixed
+    area of the login window.  Core standard 5.3: both identity fields
+    are the GLOBAL system-derived variables (host name + OS login),
+    the same source the Event-Log entries carry - never the selected
+    GUI account."""
+    import getpass
+
+    from mtkgui.gui.identity import get_station_id, get_user
+    from mtkgui.permissions import COPYRIGHT_TEXT
+    assert dlg.station_label.text() == \
+        f"Station ID: {get_station_id()}"
+    assert dlg.user_label.text() == f"User: {get_user()}"
+    assert get_user() == getpass.getuser()   # OS login, not the role
+    # switching the GUI account does NOT touch the identity footer
     dlg.role_combo.setCurrentText("Operator")
-    assert dlg.user_label.text() == "User: Operator"
+    assert dlg.user_label.text() == f"User: {get_user()}"
     dlg.role_combo.setCurrentText("Supervisor")
     copyr = dlg.findChild(QLabel, "login_copyright")
     assert copyr.text() == COPYRIGHT_TEXT == \

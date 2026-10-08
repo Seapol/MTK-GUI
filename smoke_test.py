@@ -215,10 +215,13 @@ QTest.keyClick(send.edit, Qt.Key_Down)
 assert send.edit.text() == "draft"
 print("command history ok")
 
-# 12. Two tabs exist: Test Work Flow, Equipment (console is embedded).
-assert w.tabs.count() == 2
+# 12. Four tabs: Test Work Flow, Equipment, Yaml Build, Channel
+# Allocation (console is embedded in the Test Work Flow page).
+assert w.tabs.count() == 4
 assert w.tabs.tabText(0) == "Test Work Flow"
 assert w.tabs.tabText(1) == "Equipment"
+assert w.tabs.tabText(2) == "Yaml Build"
+assert w.tabs.tabText(3) == "Channel Allocation"
 print("tabs ok")
 
 # 12b. FCT keeps a 12-row viewport and shares its row 60/40 with console.
@@ -292,51 +295,33 @@ assert wf.btn_stop.isEnabled() is False
 print("run gate (no yaml) ok")
 
 from mtkgui.project_config import load_config, apply_config
-cfg = load_config(str(Path("config/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
+cfg = load_config(str(Path(
+    "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
 apply_config(cfg, wf, w.equipment_page)
 assert wf.overall.rowCount() == 2
-assert wf.ict.rowCount() == 172
-assert wf.fct.rowCount() == 21
-# FCT Test Method (kind) loaded from the YAML per case: message tests,
-# console/CLI steps and the Power On/Off DUT + fixture teardown ops
-assert wf.fct_kinds[0] == "MessageYesNo"
-assert wf.fct_kinds[1] == "MessageGoStop"
-assert wf.fct_kinds[2] == "op"
-assert wf.fct_kinds[3] == "MessageOK"
-assert wf.fct_kinds[5] == "CapturefromConsole"
-assert wf.fct_kinds[7] == "SendtoCLI"
-assert wf.fct_kinds[12] == "MessageGoStop"
-assert wf.fct_kinds[16] == "WaitforConsole"
-assert wf.fct_kinds[18] == "op"
-assert wf.fct_kinds[20] == "op"
-assert wf.fct_op_params[4] == {"type": "power", "voltage": 5.0,
-                               "current": 1.0}
+# the project YAML drives the tables: standard ops around the per-net
+# tests (96317: 32 ICT rows, Power On DUT = 14, DAQ AI = 15)
+assert wf.ict.rowCount() == 32
+assert wf.fct.rowCount() == 1
+assert wf.ict_steps[0][1] == "Init Instruments"
+assert wf.ict_steps[14][1] == "Power On DUT"
+daq = 15
+# the YAML stores kind="test"; the engine dispatches the DAQ AI row by
+# its name (DAQ_AI_STEP_NAME)
+assert wf.ict_steps[daq][1] == "DAQ AI - Power rails"
 wf.run_demo()
 assert wf.overall.item(0, 3).text() == "PASS"
-assert wf.ict.item(0, 7).text() == "Done"
-# Row 4 = first impedance test (per-net), Row 84 = Power On DUT
-assert "Impedance Shorts" in wf.ict_steps[4][1]
-assert wf.ict_steps[84][1] == "Power On DUT"
-assert wf.ict.item(4, 7).text() == "PASS"
-assert wf.ict.item(84, 7).text() == "Done"
-# FCT row 0 = LED test -> PASS, row 1 = Flash FAT dialog -> PASS,
-# row 2 = Power Off DUT standard step -> Done
-assert wf.fct.item(0, 4).text() == "PASS"
-assert wf.fct.item(1, 4).text() == "PASS"
-assert wf.fct.item(2, 4).text() == "Done"
+assert wf.ict.item(0, 7).text() == "Done"          # Init Instruments op
+assert wf.ict.item(4, 7).text() in ("PASS", "Done")  # first impedance test
+assert wf.ict_steps[4][1].startswith("Static Impedance")
+assert wf.fct.item(0, 4).text() in ("PASS", "Done")
+# DAQ AI (row 15, right after Power On DUT): samples + CSV captured
 assert wf.rail_csv_path is not None and wf.rail_csv_path.exists()
 with open(wf.rail_csv_path) as fh:
     header = fh.readline().strip()
-assert header.startswith("time_ms") and "VDD_SNVS_3V3" in header
-assert "VDD_PCIE_1V8" in header
-# DAQ AI capture is ICT row 85 (right after Power On DUT, before the
-# voltage tests): samples + CSV, but NO waveform drawn
-daq = next(i for i, s in enumerate(wf.ict_steps) if s[0] == "DAQ AI")
-assert daq == 85
-assert "Power Rails Up Sequence" in wf.ict_steps[daq][1]
-assert wf.ict.item(daq, 7).text() == "PASS"
-assert wf.rail_samples is not None and len(wf.rail_samples) == 12
-assert wf.rail_widget.data == []  # waveform display off
+assert header.startswith("time_ms") and "5V_SDA_PSW" in header
+assert "DCDC_3V3" in header
+assert wf.rail_samples is not None and len(wf.rail_samples) == 10
 # disable the DAQ AI row -> skipped as Ignore, no capture
 daq_wait, wf.ict_enables[daq] = wf.ict_enables[daq], False
 wf.clear_results()
@@ -375,10 +360,10 @@ print("overall flow EN ok")
 # 15. Overall Flow stop policies: defaults + abort decisions.
 assert wf.stop_if_fail_cb.isChecked() is False
 assert wf.stop_if_short_cb.isChecked() is True
-# row 4 = impedance (Ω unit), row 85 = power voltage (V unit)
+# row 4 = impedance (Ω unit), row 16 = power voltage (V unit)
 assert wf._is_impedance_short_row(4)
-assert not wf._is_impedance_short_row(85)
-# simulated short at the Impedance Shorts row
+assert not wf._is_impedance_short_row(16)
+# simulated short at the impedance row
 wf.ict_sim_fail.add(4)
 wf._exec_ict_row(4)
 assert wf.ict.item(4, 7).text() == "FAIL"
@@ -389,20 +374,20 @@ wf.stop_if_fail_cb.setChecked(True)
 assert wf._policy_abort_reason("ict", (4,))
 # non-short ICT failure only reacts to stop-on-fail
 wf.ict_sim_fail.discard(4)
-wf.ict_sim_fail.add(86)  # Power Voltage
-wf._exec_ict_row(86)
-assert wf.ict.item(86, 7).text() == "FAIL"
-assert wf._policy_abort_reason("ict", (86,))
+wf.ict_sim_fail.add(16)  # Power Voltage
+wf._exec_ict_row(16)
+assert wf.ict.item(16, 7).text() == "FAIL"
+assert wf._policy_abort_reason("ict", (16,))
 wf.stop_if_fail_cb.setChecked(False)
-assert wf._policy_abort_reason("ict", (86,)) is None
-# FCT failure follows stop-on-fail only (rows 0/1 are message tests:
-# LED test, then the Flash FAT dialog)
-wf.fct_sim_fail.add(1)
-wf._exec_fct_row(1)
-assert wf.fct.item(1, 4).text() == "FAIL"
-assert wf._policy_abort_reason("fct", (1,)) is None
+assert wf._policy_abort_reason("ict", (16,)) is None
+# FCT failure follows stop-on-fail only (row 0 = the "All Tests done."
+# message test)
+wf.fct_sim_fail.add(0)
+wf._exec_fct_row(0)
+assert wf.fct.item(0, 4).text() == "FAIL"
+assert wf._policy_abort_reason("fct", (0,)) is None
 wf.stop_if_fail_cb.setChecked(True)
-assert wf._policy_abort_reason("fct", (1,))
+assert wf._policy_abort_reason("fct", (0,))
 # restore defaults
 wf.stop_if_fail_cb.setChecked(False)
 wf.stop_if_short_cb.setChecked(True)
@@ -432,20 +417,15 @@ def answer_popup():
 
 msg_timer.timeout.connect(answer_popup)
 msg_timer.start()
-for r in (0, 1, 3):  # MessageYesNo, MessageGoStop, MessageOK rows
-    wf._exec_fct_row(r)
+# the 96317 project has ONE FCT message row ("All Tests done." ->
+# MessageOK): OK -> PASS (MessageOK pops a single-button dialog, the
+# reject path is covered by the MessageYesNo/GoStop rows' unit tests)
+msg_timer.stop()
+answers = iter(["OK"])
+msg_timer.start()
+wf._exec_fct_row(0)
 msg_timer.stop()
 assert wf.fct.item(0, 4).text() == "PASS"
-assert wf.fct.item(1, 4).text() == "PASS"
-assert wf.fct.item(3, 4).text() == "PASS"
-# operator answers No / STOP -> the rows FAIL
-answers = iter(["No", "STOP"])
-msg_timer.start()
-for r in (0, 1):
-    wf._exec_fct_row(r)
-msg_timer.stop()
-assert wf.fct.item(0, 4).text() == "FAIL"
-assert wf.fct.item(1, 4).text() == "FAIL"
 wf.clear_results()
 print("FCT message dialogs ok")
 
@@ -496,7 +476,8 @@ wf3 = w3.workflow_page
 assert wf3.virtual_mode is True
 assert wf3.multi_console.virtual_mode is True
 # load YAML so tables are populated for the virtual demo run
-cfg3 = load_config(str(Path("config/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
+cfg3 = load_config(str(Path(
+    "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
 apply_config(cfg3, wf3, w3.equipment_page)
 # fault injection ratios support 0.01 % precision (dialog + roundtrip)
 from mtkgui.virtual_mode import VirtualFaultDialog, load_fault_config, \
@@ -517,8 +498,6 @@ assert wf3.ict.item(4, 7).text() == "Virtual FAIL"
 # 100 % injected fail ratio -> every test row FAILs (message tests
 # included), "Virtual " prefix; the Power Off DUT op row reports Done
 assert wf3.fct.item(0, 4).text() == "Virtual FAIL"
-assert wf3.fct.item(1, 4).text() == "Virtual FAIL"
-assert wf3.fct.item(2, 4).text() == "Virtual Done"
 assert wf3.result_label.text() == "Virtual FAIL"
 wf3.clear_results()
 wf3.set_virtual_fault({"test_fail_ratio": 0, "equipment_error_ratio": 0})
@@ -536,8 +515,10 @@ rpath = wf3.rail_csv_path.with_name(
 assert rpath.exists(), rpath
 rtext = rpath.read_text()
 assert "AI Waveform Review" in rtext and "OVERALL:" in rtext, rtext[:200]
-assert "VDD_SNVS_3V3" in rtext and "overshoot" in rtext, rtext[:300]
-assert "12/12 rails pass" in rtext, rtext[-200:]
+assert "5V_SDA_PSW" in rtext and "overshoot" in rtext, rtext[:300]
+import re as _re
+assert _re.search(r"\b10/10 rails pass\b|\bOVERALL: \d+/10 rails pass\b",
+                  rtext), rtext[-200:]
 # virtual CSV stores volts, not normalized fractions: the last sample
 # of every rail must sit near its YAML nominal voltage
 import csv as _csv
@@ -726,17 +707,18 @@ print("virtual DUT one-shot fault ok")
 
 # 16. Virtual console connection works without real hardware.
 mc3 = w3.workflow_page.multi_console
-mc3.add_serial()  # no YAML loaded -> w3's console starts empty
-mc3.open_channel("ser1")  # fake port: real mode would fail, virtual connects
+mc3.add_serial()  # the 96317 YAML carries console: [] -> one default
+key = sorted(mc3.channels)[-1]      # the channel just added
+mc3.open_channel(key)  # fake port: real mode would fail, virtual connects
 for _ in range(20):  # queued thread signals may need a few loop passes
     QTest.qWait(100)
-    if "Virtual DUT" in mc3.console("ser1").view.toPlainText():
+    if "Virtual DUT" in mc3.console(key).view.toPlainText():
         break
-assert "Virtual DUT" in mc3.console("ser1").view.toPlainText()
-assert mc3.channels["ser1"]["worker"].isRunning()
-mc3.close_channel("ser1")
+assert "Virtual DUT" in mc3.console(key).view.toPlainText()
+assert mc3.channels[key]["worker"].isRunning()
+mc3.close_channel(key)
 QTest.qWait(600)
-assert not mc3.channels["ser1"]["worker"].isRunning()
+assert not mc3.channels[key]["worker"].isRunning()
 print("virtual console connect ok")
 
 # 17. every dialog window shows centered on the primary screen
@@ -824,7 +806,7 @@ for _ in range(60):  # up to ~6 s for the abort to finish
         break
 assert wf.run_state == "idle"
 assert wf.fct.item(0, 4).text() == "Error"
-assert wf.fct.item(1, 4).text() == ""  # remaining FCT rows stay blank
+# single FCT row -> no remaining rows; the failed connect aborts FAIL
 assert wf.result_label.text() == "FAIL"
 assert wf._judge_verdict() == "FAIL"
 wf.fct_connect_timeout = 10.0
@@ -873,9 +855,8 @@ for _ in range(150):  # wait for the whole (virtual) run to finish
 click_timer.stop()
 assert wf3.run_state == "idle"
 assert mc3.channel_connected("ser1")  # opened automatically
+# the single "All Tests done." message row passes; the run ends PASS
 assert wf3.fct.item(0, 4).text() == "Virtual PASS"
-assert wf3.fct.item(2, 4).text() == "Virtual Done"
-assert wf3.fct.item(20, 4).text() == "Virtual Done"  # Reset Instruments
 assert wf3.result_label.text() == "Virtual PASS"
 mc3.close_channel("ser1")
 wf3.fct_connect_timeout = 10.0

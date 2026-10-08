@@ -2,36 +2,21 @@ yaml_build:
   plan_version: 1.0.0
   modules:
     design_input:
-      product_id: '50866'
-      part_number: MTK8678-P1
+      product_id: '80571'
+      part_number: MTK8188-P1
       sw_version: 1.0.0
       hw_version: 1.0.0
-      batch: MP (Production)
-      spf_file: spf/MTK8678-P1.spf
-      net_file: netlists/MTK8678-P1.net
-      stage_index: 0
-      group: design
+      batch: DVT (Proto-2)
+      spf_file: spf/MTK8188-P1.spf
+      net_file: netlists/MTK8188-P1.net
     parse_ict:
-      netlist_file: netlists/MTK8678-P1.net
-      include_nets: []
-      exclude_nets: []
-      filter_invalid_points: true
-      ict_test_file: ''
-      tp_resolutions: []
-      power_capture_nets:
-      - VDD_3V3
-      - VDD_1V8
-      - VDD_5V
-      stage_index: 1
-      group: ict
+      netlist_file: netlists/MTK8188-P1.net
     instruments:
-      psu_visa: TCPIP0::192.168.1.24::inst0
+      psu_visa: TCPIP0::192.168.1.27::inst0
       daq_visa: GPIB0::9::INSTR
       dmm_visa: ''
       channel_alloc: []
       self_test: true
-      stage_index: 2
-      group: instruments
     rails:
       on_voltage_v: 5.0
       current_limit_a: 2.0
@@ -48,8 +33,6 @@ yaml_build:
       pre_trigger_s: -0.5
       post_trigger_s: 6.0
       anomaly_policy: stop
-      stage_index: 3
-      group: ict
     clocks:
       clocks:
       - CLK1:32768:2
@@ -57,16 +40,12 @@ yaml_build:
       stabilize_ms: 100
       drift_check: true
       multi_domain_check: false
-      stage_index: 4
-      group: clocks
     gpios:
       groups:
       - GPIO0:TP_G0.1:out:none
       - GPIO1:TP_G1.1:in:pullup
       level_threshold_v: 1.5
       exception_check: true
-      stage_index: 5
-      group: gpio
     programmer:
       protocol: SWD
       speed_khz: 4000
@@ -74,8 +53,6 @@ yaml_build:
       flash_address: '0x0'
       retries: 1
       log_level: info
-      stage_index: 6
-      group: programmer
     peripherals:
       wifi_ssid: ''
       wifi_password: ''
@@ -85,40 +62,22 @@ yaml_build:
       spi_speed_hz: ''
       adc_ref_v: ''
       init_sequence: []
-      stage_index: 7
-      group: peripherals
     validate_sequence:
       resource_conflict_check: true
       param_range_check: true
       dependency_check: true
-      stage_index: 10
-      group: validate
     preview_export:
       export_dir: config/plans
       include_disabled: false
-      stage_index: 11
-      group: export
-    fct_parse:
-      spec_file: specs/fct_MTK8678-P1_placeholder.json
-      interfaces:
-      - (FCT skipped - ICT-only plan)
-      protocols:
-      - (FCT skipped - ICT-only plan)
-      custom_checks: []
-      stage_index: 8
-      group: fct
-      enabled: false
     fct_build:
       flow_steps:
       - (FCT skipped - ICT-only plan)
       yield_threshold_pct: 98.0
       exception_branch: stop
       case_link: ''
-      stage_index: 9
-      group: fct
       enabled: false
   design_data:
-    net_file: netlists/MTK8678-P1.net
+    net_file: netlists/MTK8188-P1.net
     testable_nets:
       VDD_3V3:
         category: Power
@@ -152,33 +111,27 @@ yaml_build:
     power:
     - net: VDD_3V3
       test_point: TP_P1.1
-      instrument: DAQ973A
-      channel: CH01
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH101'
+      power_rails: U2355A AI01
+      voltage: 'DAQM908A #2 CH201'
       se_clock_hz: —
       band: —
       digital_input: HighZ
       digital_output: No Output
     - net: VDD_1V8
       test_point: TP_P2.1
-      instrument: DAQ973A
-      channel: CH02
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH102'
+      power_rails: U2355A AI02
+      voltage: 'DAQM908A #2 CH202'
       se_clock_hz: —
       band: —
       digital_input: HighZ
       digital_output: No Output
     - net: VDD_5V
       test_point: TP_P3.1
-      instrument: DAQ973A
-      channel: CH03
-      impedance: 'Yes'
-      power_rails: 'Yes'
-      voltage: 'Yes'
+      impedance: 'DAQM908A #1 CH103'
+      power_rails: U2355A AI03
+      voltage: 'DAQM908A #2 CH203'
       se_clock_hz: —
       band: —
       digital_input: HighZ
@@ -186,53 +139,43 @@ yaml_build:
     clock:
     - net: CLK1_32K
       test_point: TP_C1.1
-      instrument: DAQ973A
-      channel: CH09
       impedance: —
       power_rails: —
       voltage: —
-      se_clock_hz: 'Yes'
-      band: 'CH1 source: DAQM907A'
+      se_clock_hz: DAQM907A TOT
+      band: 0 ~ 100 kHz
       digital_input: HighZ
       digital_output: No Output
     - net: CLK2_4M
       test_point: TP_C2.1
-      instrument: DAQ973A
-      channel: CH10
       impedance: —
       power_rails: —
       voltage: —
-      se_clock_hz: 'Yes'
-      band: 'CH2 source: U2355A'
+      se_clock_hz: U2355A CTR0
+      band: 0.1 Hz ~ 6 MHz
       digital_input: HighZ
       digital_output: No Output
     gpio:
     - net: GPIO0
       test_point: TP_G0.1
-      instrument: U2355A
-      channel: CH17
       impedance: —
       power_rails: —
       voltage: —
       se_clock_hz: —
       band: —
-      digital_input: HighZ
-      digital_output: No Output
+      dio_channel: DAQM907A DIO01
     - net: GPIO1
       test_point: TP_G1.1
-      instrument: U2355A
-      channel: CH18
       impedance: —
       power_rails: —
       voltage: —
       se_clock_hz: —
       band: —
-      digital_input: HighZ
-      digital_output: No Output
+      dio_channel: DAQM907A DIO02
 plan:
   kind: final
   plan_version: 1.0.0
-  core_id: '50866'
-  part_number: MTK8678-P1
+  core_id: '80571'
+  part_number: MTK8188-P1
   locked: true
   ict_only: true

@@ -28,7 +28,7 @@ from mtkgui.engine.casegen.sync import sync_review_excel
 from .case_store import CaseStore
 from .theme import StyleSpec
 
-DEFAULT_EXPORT_DIR = "config/review"
+DEFAULT_EXPORT_DIR = "yaml_plan/review"
 
 
 class CaseIOPage(QWidget):

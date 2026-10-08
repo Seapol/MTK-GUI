@@ -20,7 +20,6 @@ from mtkgui.permissions import (  # noqa: E402
 from mtkgui.test_workflow_page import TestWorkFlowPage  # noqa: E402
 from mtkgui.gui.yamlbuild.preview import (  # noqa: E402
     APPLY_LABEL,
-    EDIT_LABEL,
     YamlPreviewWidget,
 )
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
@@ -58,7 +57,7 @@ def test_yaml_build_page_operator_cannot_edit(yaml_page):
     yaml_page.set_edit_allowed(False)
     for btn in yaml_page._action_buttons:
         assert not btn.isEnabled()
-    assert not yaml_page.yaml_preview.btn_edit.isEnabled()
+    assert not yaml_page.yaml_preview.btn_apply.isEnabled()
 
 
 def test_yaml_build_page_supervisor_full_edit(yaml_page):
@@ -66,33 +65,32 @@ def test_yaml_build_page_supervisor_full_edit(yaml_page):
     assert yaml_page._edit_allowed is True
     for btn in yaml_page._action_buttons:
         assert btn.isEnabled()
-    assert yaml_page.yaml_preview.btn_edit.isEnabled()
+    assert yaml_page.yaml_preview.btn_apply.isEnabled()
 
 
-def test_yaml_preview_gate_rolls_back_pending_edit(qapp):
-    """Disabling the edit right while in EDIT mode exits the edit
-    session (pending text is discarded, READ_ONLY restored)."""
+def test_yaml_preview_gate_sets_editor_read_only(qapp):
+    """Disabling the edit right makes the editor read-only (the
+    preview stays viewable); the Apply button is disabled."""
     preview = YamlPreviewWidget()
     try:
-        preview._enter_edit()
-        assert preview.is_editing()
         preview.set_edit_allowed(False)
-        assert not preview.is_editing()
         assert preview.editor.isReadOnly()
-        assert preview.btn_edit.text() == EDIT_LABEL
+        assert not preview.btn_apply.isEnabled()
     finally:
         preview.deleteLater()
 
 
 def test_yaml_preview_gate_re_enables(qapp):
-    """Re-granting the right re-enables the Edit/Apply toggle."""
+    """Re-granting the right re-enables the Apply button and the
+    editor editing."""
     preview = YamlPreviewWidget()
     try:
         preview.set_edit_allowed(False)
-        assert not preview.btn_edit.isEnabled()
+        assert not preview.btn_apply.isEnabled()
         preview.set_edit_allowed(True)
-        assert preview.btn_edit.isEnabled()
-        assert preview.btn_edit.text() == EDIT_LABEL
+        assert preview.btn_apply.isEnabled()
+        assert preview.btn_apply.text() == APPLY_LABEL
+        assert not preview.editor.isReadOnly()
     finally:
         preview.deleteLater()
 

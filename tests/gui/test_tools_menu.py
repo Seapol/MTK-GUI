@@ -108,9 +108,10 @@ def test_tools_connect_all_smoke(window, monkeypatch):
     """Connect all opens the gateway with the YAML equipment config,
     reports OK lines into the Event Log and caches the session."""
     fake = _scripted_gateway(monkeypatch, fail=False)
+    # real Equipment-page keys (see MainWindow._TOOL_KEYS)
     window.equipment_page.configs = {
-        "DAQM": {"fields": {"Address": "TCPIP0::1.2.3.4::inst0::INSTR"}},
-        "PSU": {"fields": {"Address": "USB0::123::INSTR"}},
+        "daq973a": {"fields": {"Address": "TCPIP0::1.2.3.4::inst0::INSTR"}},
+        "psu": {"fields": {"Address": "USB0::123::INSTR"}},
     }
     window._tools_gateway = None
     window._tools_batch("Connect all")
@@ -131,6 +132,29 @@ def test_tools_connect_all_smoke(window, monkeypatch):
         == create_count
 
 
+def test_tools_virtual_mode_skips_real_gateway(window, monkeypatch):
+    """Virtual mode: the batch never builds a RealGateway (no real
+    rack, 'Address' may be absent) - it reports virtual OK lines and
+    syncs the LEDs directly."""
+    created = []
+    import mtkgui.main_window as mw
+    monkeypatch.setattr(mw, "_ToolsBatchWorker",
+                        lambda *a, **k: created.append(a))
+    window.mode = "Virtual"
+    window.equipment_page.configs = {
+        "daq973a": {"fields": {"Model": "Keysight DAQ973A"}},   # no Address
+        "psu": {"fields": {"Address": "USB0::123::INSTR"}},
+    }
+    window._tools_gateway = None
+    window._tools_batch("Connect all")
+    assert created == []                       # no worker / RealGateway
+    log = window.event_log.toPlainText()
+    assert "(virtual)" in log
+    assert window.instr_status.states.get("DAQM") == "connected"
+    assert window.instr_status.states.get("PSU") == "connected"
+    window.mode = "Real"                       # restore for other tests
+
+
 def test_tools_failure_popup_with_guidance(window, monkeypatch):
     """Failures pop up with the precise reason and the Equipment-page
     guidance, and are logged for traceability."""
@@ -140,7 +164,7 @@ def test_tools_failure_popup_with_guidance(window, monkeypatch):
         "mtkgui.main_window.QMessageBox.warning",
         lambda *a, **k: shown.append(a))
     window.equipment_page.configs = {
-        "DAQM": {"fields": {"Address": "TCPIP0::1.2.3.4::inst0::INSTR"}},
+        "daq973a": {"fields": {"Address": "TCPIP0::1.2.3.4::inst0::INSTR"}},
     }
     window._tools_gateway = None
     window._tools_batch("Connect all")

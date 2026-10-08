@@ -19,7 +19,7 @@ from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.schema import fields_for  # noqa: E402
 from mtkgui.gui.yamlbuild.stages import (  # noqa: E402
     STAGE_KEYS,
-    WORKFLOW_STAGES,
+    WORKFLOW_DISPLAY_STAGES,
 )
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
@@ -60,7 +60,7 @@ def _card_rects(page) -> dict:
     """Card geometries in flow coordinates (None when not laid out)."""
     out = {}
     flow = page.block_flow.flow
-    for stage in WORKFLOW_STAGES:
+    for stage in WORKFLOW_DISPLAY_STAGES:
         card = page.block_flow._cards[stage.key]
         out[stage.key] = card.geometry() if card.parent() is flow \
             else card.geometry()
@@ -79,7 +79,7 @@ def test_global_layout_unpolluted(qapp):
     window = qapp
     tabs = [window.tabs.tabText(i) for i in range(window.tabs.count())]
     assert tabs == ["Test Work Flow", "Equipment", "Yaml Build",
-                    "Channel Allocation", "Power Tree"]
+                    "Channel Allocation"]
     assert window.tabs.currentWidget() is window.workflow_page
     assert window.event_log.isVisible() or window.event_log.parent() \
         is not None
@@ -99,7 +99,10 @@ def test_resolution_adaptation(page, qapp, width, height):
     pane keeps its 6:4 ratio, cards never overlap or clip, and no
     horizontal overflow appears."""
     _activate(page, width, height)
-    # dual-pane ratio locked (stretch factors 6:4)
+    # dual-pane ratio ~6:4 (stretch factors 6:4); the right pane now
+    # carries the action button row (Import/Export/Apply ABOVE the
+    # preview), whose minimum width pulls the ratio slightly below
+    # 0.55 at the smaller resolutions - accepted bound 0.45-0.70
     split = None
     for child in page.children():
         if type(child).__name__ == "QSplitter":
@@ -107,7 +110,7 @@ def test_resolution_adaptation(page, qapp, width, height):
     assert split is not None
     sizes = split.sizes()
     ratio = sizes[0] / max(1, sum(sizes))
-    assert 0.55 <= ratio <= 0.65, f"pane ratio {ratio:.2f} at {width}x{height}"
+    assert 0.45 <= ratio <= 0.70, f"pane ratio {ratio:.2f} at {width}x{height}"
     # no child of the page extends beyond the page rect
     page_rect = page.rect()
     for child in page.findChildren(type(page.block_flow)):
@@ -116,8 +119,8 @@ def test_resolution_adaptation(page, qapp, width, height):
             f"horizontal overflow at {width}x{height}: "
             f"{type(child).__name__}")
     # flow cards: pairwise disjoint, fully inside the flow area
-    rects = [page.block_flow._cards[k].geometry()
-             for k in STAGE_KEYS]
+    rects = [page.block_flow._cards[stage.key].geometry()
+             for stage in WORKFLOW_DISPLAY_STAGES]
     for i, a in enumerate(rects):
         assert 0 <= a.left() and a.right() <= page.block_flow.width(), (
             f"card clipped at {width}x{height}")
@@ -161,11 +164,18 @@ def test_module_dialog_adapts(page, qapp, module_key):
         # T7/T9: embedded panel dialogs host their dedicated widgets
         assert dialog.panel is not None
     else:
-        assert rows >= len(fields_for(module_key))  # no field dropped
+        # no field dropped (hidden bookkeeping fields are exempt)
+        visible = [f for f in fields_for(module_key) if not f.hidden]
+        assert rows >= len(visible)
     dialog.show()
     QApplication.processEvents()
     hint = dialog.sizeHint()
-    assert dialog.width() >= min(int(hint.width() * 1.4), hint.width())
+    # the width must reach the size hint, bounded by the (offscreen)
+    # screen - the wide Parse Nets tables clamp to the screen edge
+    screen_w = dialog.screen().availableGeometry().width()
+    allowed = min(int(hint.width() * 1.4), hint.width(),
+                  screen_w - 70)
+    assert dialog.width() >= allowed
     screen = dialog.screen() or \
         QApplication.instance().primaryScreen()
     avail = screen.availableGeometry()

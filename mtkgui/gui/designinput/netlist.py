@@ -35,9 +35,14 @@ NET_TYPES = (NET_TYPE_GND_REF, NET_TYPE_DIFF_PAIR, NET_TYPE_POWER,
 _GND_RE = re.compile(
     r"^(GND|AGND|DGND|PGND)([_\W].*)?$", re.IGNORECASE)
 _POWER_RE = re.compile(
-    r"^(V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D|DDL|DQL)"
-    r"([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*)$",
-    re.IGNORECASE)
+    r"^(?!.+INTB)(?:"
+    r"V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D|DDL|DQL)([0-9_].*)?"
+    r"|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?"
+    r"|P[35][V_][0-9A-Z_]*"
+    r"|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?"
+    r"|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*"
+    r"|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?"
+    r")$", re.IGNORECASE)
 _CLOCK_RE = re.compile(
     r"(CLK|XTAL|OSC|MCLK|SCKI|REFCLK)", re.IGNORECASE)
 _PIN_TOKEN_RE = re.compile(r"^[\w\.\-\[\]/#]+$")
@@ -144,23 +149,6 @@ def parse_netlist_file(path: str) -> tuple[NetlistData, str]:
     """
     text = read_text_any_encoding(path)
     return parse_netlist(text), text
-
-
-def power_capture_candidates(net_names, limit: int = 12) -> list[str]:
-    """Pre-select power nets for the block-03 waveform capture list.
-
-    M0 additional requirement: block 02 auto-prefills up to 12
-    candidate power nets (the user finalizes the list manually);
-    block 04 consumes the final list read-only.
-
-    Args:
-        net_names: Net names (e.g. the keys of the imported netlist).
-        limit:     Maximum number of candidates (spec: 12).
-
-    Returns:
-        Up to *limit* power-type net names in input order.
-    """
-    return [name for name in net_names if _POWER_RE.match(name)][:limit]
 
 
 def _diff_pair_map(names: list[str]) -> dict[str, str]:

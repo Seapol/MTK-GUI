@@ -47,6 +47,8 @@ class FieldSpec:
         pattern:  Regex the string value must match (optional).
         unit:     Unit shown in the UI / Excel (informational).
         remarks:  Column for the Excel exchange.
+        hidden:   True = internal bookkeeping field (persisted +
+                  validated, but NOT rendered in the config dialog).
     """
 
     name: str
@@ -62,6 +64,7 @@ class FieldSpec:
     pattern: str = ""
     unit: str = ""
     remarks: str = ""
+    hidden: bool = False
 
     def validate(self, value) -> str:
         """Validate one value against this field spec.
@@ -155,11 +158,17 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
                    "(load only, parsed by the Parse Nets module)"),
     ),
     "instruments": (
-        _f("psu_visa", "PSU VISA Address", required=True,
-           remarks="Keysight N5747A rack PSU (block03 = the ONLY "
-                   "rack-ATE instrument editor)"),
-        _f("daq_visa", "DAQ VISA Address", required=True,
-           remarks="Keysight DAQ973A + DAQM908A/907A"),
+        # NOTE: the VISA addresses are OWNED by the Equipment page
+        # (connection + validation live there); block 03 is a
+        # status-only passthrough, so these fields are NOT required -
+        # a save must never fail on values this page does not edit
+        # (a successful Connect proves the address exists anyway)
+        _f("psu_visa", "PSU VISA Address",
+           remarks="Keysight N5747A rack PSU (managed on the "
+                   "Equipment page)"),
+        _f("daq_visa", "DAQ VISA Address",
+           remarks="Keysight DAQ973A + DAQM908A/907A (managed on the "
+                   "Equipment page)"),
         _f("dmm_visa", "DMM VISA Address",
            remarks="Keysight DMM (optional)"),
         _f("channel_alloc", "Channel Allocation", ftype=T_TEXT,
@@ -168,22 +177,13 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
            default="true"),
     ),
     "parse_ict": (
-        _f("netlist_file", "Netlist File", required=True),
-        _f("include_nets", "Include Nets", ftype=T_TEXT,
-           remarks="one net pattern per line"),
-        _f("exclude_nets", "Exclude Nets", ftype=T_TEXT,
-           remarks="one net pattern per line"),
-        _f("filter_invalid_points", "Filter Invalid Points",
-           ftype=T_BOOL, default="true"),
-        _f("ict_test_file", "Import ICT Test File"),
-        _f("tp_resolutions", "TP Resolutions", ftype=T_TEXT,
-           remarks="one 'net=pin' (pin substitute) or 'net=skip' "
-                   "(point not tested) per line, for nets without TP"),
-        _f("power_capture_nets", "Power Waveform Capture Nets",
-           ftype=T_TEXT, max_lines=12,
-           remarks="one power net per line (max 12, auto-prefilled "
-                   "from the power tree); passed READ-ONLY to block 04 "
-                   "which cannot modify the selection"),
+        # internal bookkeeping: the netlist reference comes from the
+        # Design Input import (single import entry - no second one)
+        _f("netlist_file", "Netlist File", hidden=True),
+        # Power-table Do-Not-Test flags (one net per line; edited in
+        # the Parse Nets panel Power table)
+        _f("power_dont_test", "Power Do Not Test Nets", ftype=T_TEXT,
+           hidden=True),
     ),
     "rails": (
         # DUT power on/off sequence (moved from the legacy power_dut
@@ -261,15 +261,6 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
            maximum=10.0, unit="V"),
         _f("init_sequence", "Init Sequence", ftype=T_TEXT,
            remarks="one init step per line"),
-    ),
-    "fct_parse": (
-        _f("spec_file", "Test Spec File", required=True),
-        _f("interfaces", "Interfaces", ftype=T_TEXT,
-           remarks="one interface per line"),
-        _f("protocols", "Protocols", ftype=T_TEXT,
-           remarks="one protocol per line"),
-        _f("custom_checks", "Custom Checks", ftype=T_TEXT,
-           remarks="one check rule per line"),
     ),
     "fct_build": (
         _f("flow_steps", "FCT Flow", ftype=T_TEXT, required=True,

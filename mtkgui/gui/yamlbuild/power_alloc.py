@@ -33,17 +33,131 @@ NODE_NORMAL = "normal"
 NODE_LOAD = "load"
 NODE_ISLAND = "island"
 
+#: power stage levels 0..6 (user direction: manual stage edits clamp
+#: to this range; the automatic build keeps its BFS result)
+MAX_STAGE = 6
+
 #: U2355A DIO is reserved for fixture IO - GPIO tests may ONLY use
 #: the DAQM907A DIO 16-ch open-drain resource (42 V / 400 mA)
 GPIO_DIO_CHANNELS: tuple[str, ...] = tuple(
     f"DAQM907A DIO{n:02d}" for n in range(1, 17))
 #: SE clock capture pool (rack reality: DAQM907A totalizer + the two
-#: U2355A counters; the U2355A DIO stays fixture-reserved)
+#: U2355A counters; the U2355A DIO stays fixture-reserved).  Each
+#: resource carries a fixed frequency band (user direction):
+#: DAQM907A TOT 0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz.
 CLOCK_CHANNELS: tuple[str, ...] = (
     "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1")
+CLOCK_BANDS: dict[str, str] = {
+    "DAQM907A TOT": "0 ~ 100 kHz",
+    "U2355A CTR0": "0.1 Hz ~ 6 MHz",
+    "U2355A CTR1": "0.1 Hz ~ 6 MHz",
+}
+#: DAQM908A sense resource for the Power-net Impedance / Voltage
+#: measurements: card #1 CH101-CH140, card #2 CH201-CH240
+DAQM908A_SENSE_CHANNELS: tuple[str, ...] = tuple(
+    f"DAQM908A #{card} CH{ch}"
+    for card, base in ((1, 101), (2, 201))
+    for ch in range(base, base + 40))
+#: U2355A analog-input capture pool for the Power rails: the hardware
+#: offers AI x16 but the GUI provides ONLY 12 channels (balanced
+#: sampling rate - user direction)
+U2355A_AI_CHANNELS: tuple[str, ...] = tuple(
+    f"U2355A AI{n:02d}" for n in range(1, 13))
 
 DONT_TEST = "Not Test"
 ASSIGNED = "Assigned"
+
+
+# ------------------------------------------------- AI topology helpers
+#: voltage token inside a rail name (VDD_3V3 -> 3.3, 5V_USB -> 5,
+#: VDD_0V8_P2 -> 0.8, DCDC_1V8 -> 1.8, 12V -> 12)
+_VOLT_RE = re.compile(
+    r"(?<![0-9A-Za-z])(\d{1,2})V(\d{1,2})?(?![0-9A-Za-z])")
+#: input-supply name patterns (primary fallback heuristic)
+_PRIMARY_RE = re.compile(
+    r"(?i)(^VIN|_VIN|^V\w*BUS|VBUS|VBAT|^DC_|_IN$|VPWR)")
+
+
+def voltage_from_name(name: str) -> str | None:
+    """Parse the rail voltage encoded in a net name.
+
+    Args:
+        name: Power net name (``VDD_3V3``, ``DCDC_1V8``, ``5V_USB``).
+
+    Returns:
+        The voltage as a plain string (``"3.3"``, ``"5"``) or None
+        when the name carries no voltage token.
+    """
+    m = _VOLT_RE.search(name or "")
+    if not m:
+        return None
+    whole, frac = m.group(1), m.group(2)
+    value = float(f"{whole}.{frac}") if frac else float(whole)
+    return f"{value:g}"
+
+
+def auto_primaries(power: list[str], bridges: list[dict]) -> list[str]:
+    """Heuristic primary (source) detection for the power tree.
+
+    Every bridge (passive AND regulator) with two decodable unequal
+    rail voltages is directed from the HIGHER voltage to the LOWER
+    one; nodes without an incoming directed edge become stage-0
+    primaries (the BFS then assigns the stages - no more all-stage-1
+    islands).  When no voltage pair is decodable the input-supply
+    name pattern (VIN / VBUS / VBAT / DC_ / *_IN) is used as the
+    fallback heuristic.
+
+    Args:
+        power:   Power net names.
+        bridges: Bridge dicts (``find_bridges`` output).
+
+    Returns:
+        The primary net names (possibly empty - the caller falls back
+        to the island default).
+    """
+    volts = {p: voltage_from_name(p) for p in power}
+    incoming: set[str] = set()
+    directed = False
+    for bridge in bridges:
+        a, c = bridge["nets"]
+        va, vc = volts.get(a), volts.get(c)
+        if va and vc and float(va) != float(vc):
+            src, dst = ((a, c) if float(va) > float(vc) else (c, a))
+            incoming.add(dst)
+            directed = True
+    if directed:
+        primaries = sorted(set(power) - incoming)
+        return primaries or sorted(set(power))
+    return sorted(p for p in power if _PRIMARY_RE.search(p))
+
+
+def auto_fill_voltage(tree: "PowerTree") -> int:
+    """Auto-fill Expected Voltage from the rail-name voltage token and
+    the +/-5 % limit tolerances (user direction: the automation does
+    the groundwork, the user edits afterwards).  Nodes already carrying
+    a voltage (manual override) are never touched; names without a
+    voltage token stay blank for manual entry.
+
+    Args:
+        tree: The built power tree draft.
+
+    Returns:
+        The number of nodes whose voltage was auto-filled.
+    """
+    filled = 0
+    for node in tree.nodes.values():
+        if node.expected_voltage:
+            continue
+        volt = voltage_from_name(node.name)
+        if not volt:
+            continue
+        node.expected_voltage = volt
+        if not node.tol_upper:
+            node.tol_upper = "5%"
+        if not node.tol_lower:
+            node.tol_lower = "5%"
+        filled += 1
+    return filled
 
 
 # --------------------------------------------------------------- bridges
@@ -95,6 +209,7 @@ class PowerNode:
     downstream: list[str] = field(default_factory=list)
     stage: int | None = None
     stage_override: int | None = None
+    row: int | None = None            # manual canvas row (vertical drag)
     pruned: bool = False
     pruned_reason: str = ""
     locked: bool = False              # load nodes: read-only
@@ -110,6 +225,7 @@ class PowerNode:
             "downstream": list(self.downstream),
             "stage": self.stage,
             "stage_override": self.stage_override,
+            "row": self.row,
             "pruned": self.pruned, "pruned_reason": self.pruned_reason,
             "locked": self.locked,
         }
@@ -131,6 +247,8 @@ class PowerNode:
             node.stage = int(data["stage"])
         if data.get("stage_override") is not None:
             node.stage_override = int(data["stage_override"])
+        if data.get("row") is not None:
+            node.row = int(data["row"])
         return node
 
 
@@ -289,6 +407,103 @@ class PowerTree:
         """Non-pruned nodes in insertion order."""
         return [n for n in self.nodes.values() if not n.pruned]
 
+    # ------------------------------------------------- manual graph edits
+    def derive_downstream(self) -> None:
+        """The downstream links are NOT user-defined (user direction:
+        a node only defines its upstream) - they are derived as the
+        exact reverse of the upstream links of the whole tree."""
+        for node in self.nodes.values():
+            node.downstream = []
+        for node in self.nodes.values():
+            for up in node.upstream:
+                if up in self.nodes and up != node.name:
+                    parent = self.nodes[up]
+                    if node.name not in parent.downstream:
+                        parent.downstream.append(node.name)
+
+    def rebuild_adjacency(self) -> None:
+        """Rebuild the undirected adjacency from the stored upstream /
+        downstream links (after a YAML load or manual flow-arrow
+        edits); every manual link counts as a regulator hop for the
+        stage BFS (manual stage overrides always win)."""
+        adjacency: dict[str, list[tuple[str, str]]] = {}
+        for node in self.nodes.values():
+            for up in node.upstream:
+                if up in self.nodes and up != node.name:
+                    adjacency.setdefault(up, []).append(
+                        (node.name, "regulator"))
+                    adjacency.setdefault(node.name, []).append(
+                        (up, "regulator"))
+        self.adjacency = adjacency
+
+    def _reaches(self, start: str, goal: str) -> bool:
+        """BFS over the downstream links: can ``start`` reach ``goal``."""
+        seen: set[str] = set()
+        frontier = [start]
+        while frontier:
+            name = frontier.pop(0)
+            if name == goal:
+                return True
+            if name in seen:
+                continue
+            seen.add(name)
+            frontier.extend(self.nodes[name].downstream
+                            if name in self.nodes else [])
+        return False
+
+    def link(self, source: str, target: str) -> tuple[bool, str]:
+        """Manual flow-arrow link (GUI drag): ``source`` becomes THE
+        upstream of ``target``.  Rules (user direction):
+
+        * the upstream reference stays UNIQUE - a previous upstream is
+          replaced (the old edge is removed on both ends);
+        * a primary power input NEVER gets an upstream;
+        * self-links and cycles are rejected.
+
+        Returns ``(ok, message)``; on success the tree is
+        re-classified, the adjacency rebuilt and the stages re-run
+        (overrides preserved)."""
+        src = self.nodes.get(source)
+        dst = self.nodes.get(target)
+        if src is None or dst is None or src.pruned or dst.pruned:
+            return False, "unknown or pruned node"
+        if source == target:
+            return False, "a node cannot reference itself"
+        if dst.node_type == NODE_PRIMARY:
+            return False, (f"{target} is the primary power input - "
+                           "it has no upstream")
+        if source in dst.upstream:
+            return True, "link already exists"
+        # consistency first: the downstream side is derived
+        self.derive_downstream()
+        if self._reaches(target, source):
+            return False, "link rejected: it would create a cycle"
+        # unique upstream: the new link REPLACES the previous one; the
+        # downstream side follows from the upstream links
+        dst.upstream = [source]
+        self.audit_log.append({
+            "net": target,
+            "reason": f"manual flow link: {source} -> {target}",
+            "refdes": "", "kept": ""})
+        self.derive_downstream()
+        self._classify()
+        self.rebuild_adjacency()
+        self.assign_stages()
+        return True, f"linked {source} -> {target}"
+
+    def set_stage(self, name: str, stage: int) -> int:
+        """Manual stage edit (horizontal drag): clamps to 0..MAX_STAGE,
+        stores the override and re-runs the stage BFS.  Returns the
+        clamped stage."""
+        stage = max(0, min(MAX_STAGE, int(stage)))
+        node = self.nodes.get(name)
+        if node is None or node.pruned:
+            return stage
+        node.stage_override = stage
+        node.stage = stage
+        self.assign_stages()
+        return stage
+
     # -------------------------------------------------------- persistence
     def to_dict(self) -> dict:
         return {
@@ -305,6 +520,9 @@ class PowerTree:
                 tree.nodes[node.name] = node
         tree.audit_log = [dict(a) for a in
                           (data or {}).get("audit_log") or []]
+        # the downstream side is derived from the upstream links (a
+        # draft saved with manual downstream lists is normalized)
+        tree.derive_downstream()
         return tree
 
 

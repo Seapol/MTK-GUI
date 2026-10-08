@@ -67,10 +67,6 @@ def spec_tooltip(spec: FieldSpec) -> str:
         parts.append(spec.remarks)
     return "；".join(parts)
 
-#: block 02 power waveform capture list (M0 additional requirement)
-CAPTURE_FIELD = "power_capture_nets"
-MAX_CAPTURE_NETS = 12
-
 
 class BlockConfigDialog(QDialog):
     """Dedicated configuration popup for exactly one workflow module.
@@ -88,7 +84,6 @@ class BlockConfigDialog(QDialog):
 
     def __init__(self, module_key: str, params: dict,
                  parent: QWidget | None = None,
-                 power_candidates: list[str] | None = None,
                  net_source: tuple[str, str] | None = None,
                  panel_state: dict | None = None) -> None:
         """Create the dialog for one module.
@@ -97,9 +92,6 @@ class BlockConfigDialog(QDialog):
             module_key:       Stage key (defines the field set).
             params:           Current parameter values (name -> str).
             parent:           Parent widget.
-            power_candidates: Block 02 only - candidate power nets
-                              (from the Parse Nets result) used to
-                              auto-prefill the capture list.
             net_source:       Block 02 only - (raw netlist text, file
                               name) loaded by the Design Input panel
                               (T8 formal parse source).
@@ -111,7 +103,6 @@ class BlockConfigDialog(QDialog):
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
-        self._power_candidates = list(power_candidates or [])
         # navigation target requested by an embedded panel (e.g. the
         # Parse Nets "Open Power Tree Editor" button); the page reads
         # this after the dialog accepts
@@ -146,6 +137,10 @@ class BlockConfigDialog(QDialog):
             lay.addWidget(self.panel)
         else:
             for spec in self._specs:
+                if spec.hidden:
+                    # internal bookkeeping field: kept in the params /
+                    # YAML but never rendered as a dialog input
+                    continue
                 editor = self._make_editor(spec)
                 self._editors[spec.name] = editor
                 self.form.addRow(f"{spec.label}" +
@@ -155,16 +150,6 @@ class BlockConfigDialog(QDialog):
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
         lay.addWidget(self.error_label)
-        # block 02: power waveform capture net selection (M0)
-        if module_key == "parse_ict" and CAPTURE_FIELD in self._editors:
-            btn_autoselect = QPushButton(
-                f"Auto-select Capture Nets (≤{MAX_CAPTURE_NETS})")
-            btn_autoselect.setToolTip(
-                "从电源树候选网络自动预选最多12路捕获网络；"
-                "可手动增删后定稿")
-            btn_autoselect.clicked.connect(self._autoselect_capture_nets)
-            lay.addWidget(btn_autoselect)
-            self._autoselect_capture_nets(initial=True)
         # block 02: formal net pre-analysis (T8 Parse Nets for ICT)
         self.nets_panel: QWidget | None = None
         if module_key == "parse_ict":
@@ -173,12 +158,8 @@ class BlockConfigDialog(QDialog):
             text, name = net_source or ("", "")
             self.nets_panel.set_net_source(text, name)
             state = panel_state or {}
-            self.nets_panel.net_rules = dict(
-                state.get("net_rules") or {})
-            self.nets_panel._clock_overrides = dict(
-                state.get("clock_overrides") or {})
-            self.nets_panel._gpio_overrides = dict(
-                state.get("gpio_overrides") or {})
+            self.nets_panel.set_rules(state.get("net_rules") or {})
+            self.nets_panel.set_dnt_state(state.get("power_dnt"))
             self.nets_panel.spf_nets = set(
                 state.get("spf_nets") or [])
             self.nets_panel.risk_thresholds = dict(
@@ -191,10 +172,6 @@ class BlockConfigDialog(QDialog):
                     DEFAULT_THRESHOLDS)
             self.nets_panel.risk_scores = dict(
                 state.get("risk_scores") or {})
-            # navigation: "Open Power Tree Editor" closes this dialog
-            # and asks the page to switch to the dedicated tab
-            self.nets_panel.power_tree_requested.connect(
-                self._request_power_tree_page)
             self.nets_panel.task_log.connect(self._panel_log)
             self.nets_panel.task_progress.connect(self._panel_progress)
             lay.addWidget(self.nets_panel)
@@ -213,12 +190,6 @@ class BlockConfigDialog(QDialog):
     def _panel_progress(self, percent: int, label: str) -> None:
         """Forward embedded-panel progress to the page."""
         self.task_progress.emit(percent, label)
-
-    def _request_power_tree_page(self) -> None:
-        """The Parse Nets panel asked for the dedicated Power Tree
-        page: save + close this dialog; the page switches the tab."""
-        self.requested_page = "power_tree"
-        self.accept()
 
     # ----------------------------------------------------------- editors
     def _make_editor(self, spec: FieldSpec) -> QWidget:
@@ -275,31 +246,6 @@ class BlockConfigDialog(QDialog):
             return editor.currentText()
         return editor.text().strip()
 
-    # ------------------------------------------------- capture nets (M0)
-    def _autoselect_capture_nets(self, initial: bool = False) -> None:
-        """Auto-prefill the power waveform capture list (block 02).
-
-        Args:
-            initial: True when called from __init__ - prefill ONLY an
-                     empty list (an existing user-finalized list is
-                     never overwritten); False = explicit button
-                     click, which re-selects from the candidates.
-        """
-        editor = self._editors.get(CAPTURE_FIELD)
-        if editor is None:
-            return
-        current = editor.toPlainText()
-        if initial and current.strip():
-            return                       # keep the finalized list
-        from mtkgui.gui.designinput.netlist import \
-            power_capture_candidates
-        picks = power_capture_candidates(
-            self._power_candidates, MAX_CAPTURE_NETS)
-        if not picks:
-            return
-        editor.setPlainText("\n".join(picks))
-        self._edited[CAPTURE_FIELD] = "\n".join(picks)
-
     # ------------------------------------------------------------- save
     def _on_accept(self) -> None:
         """Validate all fields; accept only when clean."""
@@ -307,10 +253,17 @@ class BlockConfigDialog(QDialog):
             # Design Input: the embedded panel owns the values
             self._edited = dict(self.panel.values())
         else:
-            self._edited = {
+            edited = {
                 spec.name: self._editor_value(spec)
-                for spec in self._specs
+                for spec in self._specs if not spec.hidden
             }
+            # hidden bookkeeping fields keep their existing values
+            # (they are not dialog inputs - never blanked by a save)
+            for spec in self._specs:
+                if spec.hidden:
+                    edited[spec.name] = self._edited.get(spec.name,
+                                                         spec.default)
+            self._edited = edited
         errors = [msg for msg in (
             spec.validate(self._edited.get(spec.name, ""))
             for spec in self._specs) if msg]

@@ -18,6 +18,8 @@ It stores:
     together with their connection parameters
 """
 
+from __future__ import annotations
+
 import re
 from datetime import datetime
 
@@ -36,10 +38,21 @@ SOFTWARE = "mtk-gui v2.0.0"
 # --------------------------------------------------------------------------
 # build
 # --------------------------------------------------------------------------
-def build_config(workflow_page, equipment_page):
-    """Collect the current project configuration from the pages."""
+def build_config(workflow_page, equipment_page,
+                 yaml_build_state: dict | None = None):
+    """Collect the current project configuration from the pages.
+
+    Args:
+        workflow_page: The Test Work Flow page.
+        equipment_page: The Equipment page.
+        yaml_build_state: Optional full state dict of the Yaml Build
+            model (includes the parse result, channel allocation and
+            the power tree draft) - archived so a project YAML reload
+            restores the edited Power Tree / Channel Allocation state
+            instead of re-running the automatic analysis.
+    """
     product = workflow_page.product_info()
-    return {
+    config = {
         "project": {
             "software": SOFTWARE,
             "revision": REVISION,
@@ -55,15 +68,25 @@ def build_config(workflow_page, equipment_page):
         "console": workflow_page.multi_console.yaml_channels(),
         "test_workflow": _workflow_to_yaml(workflow_page),
     }
+    if yaml_build_state:
+        config["yaml_build_state"] = yaml_build_state
+    return config
 
 
 def _equipment_to_yaml(configs):
-    """Equipment page configs -> plain YAML-safe structure."""
+    """Equipment page configs -> plain YAML-safe structure.  The
+    instrument connection (interface / address) and the parameter
+    values are carried so a saved project reconnects directly (user
+    direction)."""
     data = {}
     for key, cfg in configs.items():
         entry = {"title": cfg["title"]}
         if "fields" in cfg:
             entry["fields"] = {label: value for label, value in cfg["fields"]}
+        if "params" in cfg:
+            entry["params"] = dict(cfg["params"])
+        if "connection" in cfg:
+            entry["connection"] = dict(cfg["connection"])
         if "table" in cfg:
             entry["table"] = [
                 {"item": item, "role": role, "status": status}
@@ -71,6 +94,27 @@ def _equipment_to_yaml(configs):
             ]
         data[key] = entry
     return data
+
+
+def rails_up_sequence_config(page) -> dict:
+    """The power-rails up-sequence capture config of the Test Work
+    Flow page (rail set + capture window + rate) in its YAML shape -
+    shared by the project file save AND the Yaml Build model sync."""
+    return {
+        "instrument": "Keysight U2355A analog input",
+        "channels": len(page.rails),
+        "duration_s": round(getattr(page, "cap_end", DURATION_S)
+                            - getattr(page, "cap_start", -0.5), 3),
+        "pre_trigger_s": round(getattr(page, "cap_start", -0.5), 3),
+        "post_trigger_s": round(getattr(page, "cap_end", DURATION_S), 3),
+        "sample_rate_hz": getattr(page, "cap_rate", SAMPLE_HZ),
+        "judgment": "record only - no pass/fail",
+        "rails": [
+            {"name": name, "nominal_v": vnom,
+             "ramp_offset_s": ramp_off, "color": color}
+            for name, color, vnom, ramp_off in page.rails
+        ],
+    }
 
 
 def _workflow_to_yaml(page):
@@ -115,19 +159,7 @@ def _workflow_to_yaml(page):
             case["breakpoint"] = True
         ict_cases.append(case)
 
-    rails = {
-        "instrument": "Keysight U2355A analog input",
-        "channels": len(page.rails),
-        "duration_s": round(getattr(page, "cap_end", DURATION_S)
-                            - getattr(page, "cap_start", -0.5), 3),
-        "sample_rate_hz": getattr(page, "cap_rate", SAMPLE_HZ),
-        "judgment": "record only - no pass/fail",
-        "rails": [
-            {"name": name, "nominal_v": vnom,
-             "ramp_offset_s": ramp_off, "color": color}
-            for name, color, vnom, ramp_off in page.rails
-        ],
-    }
+    rails = rails_up_sequence_config(page)
 
     fct_cases = []
     fct_kinds = getattr(page, "fct_kinds", None) or []
@@ -214,15 +246,19 @@ def _ict_step_from_yaml(c):
     return step
 
 
-def apply_config(config, workflow_page, equipment_page):
+def apply_config(config, workflow_page, equipment_page,
+                 yaml_build_model=None):
     """Restore a loaded configuration into the pages.
 
-    Item 19 (Product Info auto-fill): part / core / batch / serial are
-    100% YAML-driven - they are refreshed only here (a new valid YAML
-    project load / switch); each field takes the corresponding
-    ``product`` node value, and a missing node leaves the field
-    blank (empty fallback, no residual cached data).  Normal test
-    operation never touches these fields."""
+    Args:
+        config: The loaded YAML dict.
+        workflow_page: The Test Work Flow page.
+        equipment_page: The Equipment page.
+        yaml_build_model: Optional YamlBuildModel - a stored
+            ``yaml_build_state`` section (saved by build_config) is
+            restored into it (parse result, channel allocation, power
+            tree draft, ...).
+    """
     product = config.get("product", {})
     workflow_page.part_edit.setText(
         str(product["part_number"])
@@ -365,15 +401,27 @@ def apply_config(config, workflow_page, equipment_page):
     if not mc.channels:
         mc.add_serial()
 
+    # Yaml Build model state (parse result / channel allocation /
+    # power tree draft / module params): restored when the project
+    # file carries a yaml_build_state section (older files: skipped)
+    state = config.get("yaml_build_state")
+    if yaml_build_model is not None and isinstance(state, dict):
+        yaml_build_model.apply_state(state)
+
 
 def _equipment_from_yaml(data):
-    """YAML structure -> the dict shape the Equipment page expects."""
+    """YAML structure -> the dict shape the Equipment page expects
+    (connection / parameter values included)."""
     configs = {}
     for key, entry in data.items():
         cfg = {"title": entry.get("title", key)}
         if entry.get("fields"):
             cfg["fields"] = [(label, value)
                              for label, value in entry["fields"].items()]
+        if entry.get("params"):
+            cfg["params"] = dict(entry["params"])
+        if entry.get("connection"):
+            cfg["connection"] = dict(entry["connection"])
         if entry.get("table"):
             cfg["table"] = [(row["item"], row["role"], row["status"])
                             for row in entry["table"]]

@@ -4,20 +4,22 @@
 The parsed testable nets (T8 Parse Nets result - the single data
 source) populate three independent tables:
 
-* **Power nets**  - Net / Test point / Instrument / Channel /
-  Impedance (Yes/No) / Power rails (Yes/No) / Voltage (Yes/No) /
-  Status;
-* **Clock nets**  - Net / Test point / Instrument / Channel /
-  SE Clock Hz (Yes/No) / Frequency band / Status;
-* **GPIO nets**   - Net / Test point / Instrument / Channel /
-  Digital Input (HighZ) / Digital Output (No Output) / Status.
+* **Power nets**  - Net / Test point / Impedance (DAQM908A sense
+  channel) / Power rails (U2355A AI channel) / Voltage (DAQM908A
+  sense channel) - no Instrument / Channel / Status columns;
+* **Clock nets**  - Net / Test point / SE Clock Hz (DAQM907A TOT or
+  one of the two U2355A counters) / Frequency band (read-only,
+  hardware-derived: DAQM907A 0 ~ 100 kHz, U2355A 0.1 Hz ~ 6 MHz) -
+  no Instrument / Channel / Status columns;
+* **GPIO nets**   - Net / Test point / DIO Channel (one of the 16
+  DAQM907A DIO resources; the U2355A DIO stays fixture-reserved) -
+  no Instrument / Channel / Status / Digital Input / Digital Output
+  columns.
 
 Rules (11.4): every configurable cell is dropdown-only (no free
-text); the Status column is read-only and auto-computed (OK when all
-required cells are configured, NOK otherwise); the configuration
-persists to the project YAML; empty / legacy files load blank
-without error.  Pure GUI/config layer - the test engine and
-scheduling logic are untouched.
+text); the configuration persists to the project YAML; empty /
+legacy files load blank without error.  Pure GUI/config layer - the
+test engine and scheduling logic are untouched.
 """
 
 from __future__ import annotations
@@ -29,8 +31,11 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTabWidget,
     QTableWidgetItem,
@@ -42,49 +47,51 @@ from mtkgui.gui.yamlbuild.instrument_status import (
     STATUS_NOK,
     STATUS_OK,
 )
+from mtkgui.gui.yamlbuild.power_alloc import (
+    CLOCK_BANDS,
+    CLOCK_CHANNELS,
+    DAQM908A_SENSE_CHANNELS,
+    GPIO_DIO_CHANNELS,
+    U2355A_AI_CHANNELS,
+)
 
 #: placeholder for an unconfigured dropdown cell
 UNSET = "—"
 
-#: fixed instrument choices (rack-ATE set, Equipment page owned)
-INSTRUMENTS = ("DAQ973A", "DAQM907A", "DAQM908A", "U2355A", "N5747A")
-#: fixed channel choices (multiplexer channels)
-CHANNELS = tuple(f"CH{n:02d}" for n in range(1, 33))
-YES_NO = (UNSET, "Yes", "No")
-#: clock frequency band: hardware channel mapping (rule 11.2)
-FREQ_BANDS = ("CH1 source: DAQM907A", "CH2 source: U2355A")
-#: fixed GPIO attributes (11.3)
+#: fixed GPIO attributes (legacy row defaults - the GPIO tab itself
+#: now picks a DAQM907A DIO channel directly)
 GPIO_DI = "HighZ"
 GPIO_DO = "No Output"
 
-#: column layout per table kind: (key, label, choices or None)
+#: keys rendered as READ-ONLY auto-filled items (not user dropdowns)
+AUTO_KEYS = frozenset({"band"})
+
+#: column layout per table kind: (key, label, choices or None).
+#: Power tab (user direction): NO Instrument / Channel / Status
+#: columns - Impedance and Voltage pick a real DAQM908A sense
+#: channel (#1 CH101-140 / #2 CH201-240), Power rails pick one of
+#: the 12 offered U2355A AI channels (balanced sampling rate).
 POWER_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("impedance", "Impedance", YES_NO),
-    ("power_rails", "Power rails", YES_NO),
-    ("voltage", "Voltage", YES_NO),
-    ("status", "Status", None),
+    ("impedance", "Impedance", DAQM908A_SENSE_CHANNELS),
+    ("power_rails", "Power rails", U2355A_AI_CHANNELS),
+    ("voltage", "Voltage", DAQM908A_SENSE_CHANNELS),
 )
 CLOCK_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("se_clock_hz", "SE Clock Hz", YES_NO),
-    ("band", "Frequency band", FREQ_BANDS),
-    ("status", "Status", None),
+    ("se_clock_hz", "SE Clock Hz", CLOCK_CHANNELS),
+    ("band", "Frequency band", None),
 )
+#: GPIO tab (user direction): NO Instrument / Channel / Status /
+#: Digital Input / Digital Output columns - the DIO Channel cell
+#: picks one of the 16 DAQM907A DIO resources (the U2355A DIO stays
+#: reserved for the fixture control)
 GPIO_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("instrument", "Instrument", INSTRUMENTS),
-    ("channel", "Channel", CHANNELS),
-    ("digital_input", "Digital Input", (GPIO_DI,)),
-    ("digital_output", "Digital Output", (GPIO_DO,)),
-    ("status", "Status", None),
+    ("dio_channel", "DIO Channel", GPIO_DIO_CHANNELS),
 )
 TABLE_SPECS = (("power", POWER_COLUMNS), ("clock", CLOCK_COLUMNS),
                ("gpio", GPIO_COLUMNS))
@@ -125,6 +132,7 @@ class AllocatedRow:
     voltage: str = UNSET
     se_clock_hz: str = UNSET
     band: str = UNSET
+    dio_channel: str = UNSET
     digital_input: str = GPIO_DI
     digital_output: str = GPIO_DO
 
@@ -137,6 +145,7 @@ class AllocatedRow:
             "impedance": self.impedance,
             "power_rails": self.power_rails, "voltage": self.voltage,
             "se_clock_hz": self.se_clock_hz, "band": self.band,
+            "dio_channel": self.dio_channel,
             "digital_input": self.digital_input,
             "digital_output": self.digital_output,
         }
@@ -147,8 +156,8 @@ class AllocatedRow:
         row = cls()
         for key in ("net", "test_point", "instrument", "channel",
                     "impedance", "power_rails", "voltage",
-                    "se_clock_hz", "band", "digital_input",
-                    "digital_output"):
+                    "se_clock_hz", "band", "dio_channel",
+                    "digital_input", "digital_output"):
             if data.get(key):
                 setattr(row, key, str(data[key]))
         return row
@@ -157,11 +166,10 @@ class AllocatedRow:
         """Auto-validation rule: OK when every configurable cell of
         the row kind is set (no UNSET left)."""
         required = {
-            "power": ("test_point", "instrument", "channel",
-                      "impedance", "power_rails", "voltage"),
-            "clock": ("test_point", "instrument", "channel",
-                      "se_clock_hz", "band"),
-            "gpio": ("test_point", "instrument", "channel"),
+            "power": ("test_point", "impedance", "power_rails",
+                      "voltage"),
+            "clock": ("test_point", "se_clock_hz", "band"),
+            "gpio": ("test_point", "dio_channel"),
         }[kind]
         return all(getattr(self, key) not in ("", UNSET)
                    for key in required)
@@ -251,6 +259,15 @@ class _NetTable(QWidget):
         self.table.setHorizontalHeaderLabels(
             [label for _key, label, *_rest in columns])
         header = self.table.horizontalHeader()
+        # click a header section -> whole-row sort asc/desc (user
+        # direction); the sort is OURS (re-render via load_rows) and
+        # NOT the default QTableWidget sorting (that would break the
+        # per-cell widgets)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self._on_header_clicked)
+        self._sort_col: int | None = None
+        self._sort_desc = False
         # adaptive layout: every column is user-draggable (Interactive)
         # with a minimum width; the space distribution is done by
         # reflow() on viewport resize - NOT by a Stretch Net column
@@ -264,8 +281,10 @@ class _NetTable(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         lay.addWidget(self.table)
-        self.status_col = [k for k, _l, *_rest in columns].index(
-            "status")
+        keys = [k for k, _l, *_rest in columns]
+        # tables WITHOUT a Status column (Power) keep it as None
+        self.status_col = (keys.index("status")
+                           if "status" in keys else None)
         # layout bookkeeping: programmatic resize guard (user drags
         # are persisted via column_widths() on save)
         self._applying = False
@@ -344,14 +363,23 @@ class _NetTable(QWidget):
         self._rows = rows
         for r, row in enumerate(rows):
             members = self._members_of(row.net)
+            # the Frequency band is hardware-derived from the chosen
+            # SE Clock resource - normalize it on every (re)load; a
+            # legacy free-text band resets to a clean state
+            if row.se_clock_hz in CLOCK_BANDS:
+                row.band = CLOCK_BANDS[row.se_clock_hz]
+            elif row.band not in ("", UNSET):
+                row.band = UNSET
             for c, (key, _label, *_rest) in enumerate(self.columns):
                 if key == "net":
                     item = QTableWidgetItem(row.net)
                     item.setFlags(item.flags() &
                                   ~Qt.ItemFlag.ItemIsEditable)
                     self.table.setItem(r, c, item)
-                elif key == "status":
-                    item = QTableWidgetItem(self.row_status(row))
+                elif key == "status" or key in AUTO_KEYS:
+                    item = QTableWidgetItem(
+                        self.row_status(row)
+                        if key == "status" else getattr(row, key))
                     item.setFlags(item.flags() &
                                   ~Qt.ItemFlag.ItemIsEditable)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -373,21 +401,45 @@ class _NetTable(QWidget):
                     if current and current != UNSET \
                             and combo.findText(current) >= 0:
                         combo.setCurrentText(current)
+                    elif current and current != UNSET:
+                        # legacy value no longer offered by the pool
+                        # (e.g. the pre-pool Power Yes/No cells) -> a
+                        # clean unconfigured state, never a hidden one
+                        setattr(row, key, UNSET)
                     combo.currentTextChanged.connect(
                         lambda value, rr=r, kk=key:
                             self._cell_changed(rr, kk, value))
                     self.table.setCellWidget(r, c, combo)
+                    # single-choice combos auto-show their only option
+                    # (e.g. one member pin) - the row state must mirror
+                    # what is displayed, never a hidden UNSET
+                    if getattr(row, key) in ("", UNSET) \
+                            and combo.currentText() != UNSET:
+                        setattr(row, key, combo.currentText())
         self.reflow()     # keep the adaptive layout after (re)fill
 
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
-        """A dropdown changed: store the value + recompute Status."""
+        """A dropdown changed: store the value + recompute Status.
+        Choosing an SE Clock resource auto-fills its fixed frequency
+        band (hardware mapping)."""
         if row_index >= len(self._rows):
             return
         setattr(self._rows[row_index], key, value)
-        self._update_status(row_index)
+        if key == "se_clock_hz":
+            row = self._rows[row_index]
+            row.band = CLOCK_BANDS.get(value, UNSET)
+            keys = [k for k, _l, *_r in self.columns]
+            if "band" in keys:
+                band_col = keys.index("band")
+                item = self.table.item(row_index, band_col)
+                if item is not None:
+                    item.setText(row.band)
+        self._update_status(row_index, key)
 
-    def _update_status(self, row_index: int) -> None:
+    def _update_status(self, row_index: int, key: str) -> None:
         row = self._rows[row_index]
+        if self.status_col is None or key == "status":
+            return                       # table without a Status column
         status = self.row_status(row)
         item = self.table.item(row_index, self.status_col)
         if item is not None:
@@ -405,12 +457,42 @@ class _NetTable(QWidget):
     def rows(self) -> list[AllocatedRow]:
         return list(self._rows)
 
+    # ------------------------------------------------------- row sorting
+    def _on_header_clicked(self, col: int) -> None:
+        """Header click: sort the WHOLE rows by that column, toggling
+        ascending / descending on repeated clicks (the row objects are
+        re-rendered via load_rows so every cell widget moves along)."""
+        if self._sort_col == col:
+            self._sort_desc = not self._sort_desc
+        else:
+            self._sort_col, self._sort_desc = col, False
+        keys = [k for k, _l, *_rest in self.columns]
+        key = keys[col]
+
+        def sort_value(row: AllocatedRow) -> str:
+            if key == "net":
+                return row.net
+            if key == "status":
+                return self.row_status(row)
+            return str(getattr(row, key, ""))
+
+        rows = list(self._rows)
+        rows.sort(key=sort_value, reverse=self._sort_desc)
+        header = self.table.horizontalHeader()
+        header.setSortIndicator(col, Qt.SortOrder.DescendingOrder
+                                if self._sort_desc
+                                else Qt.SortOrder.AscendingOrder)
+        self.load_rows(rows)
+
 
 class ChannelAllocationPage(QWidget):
     """The dedicated Channel Allocation tab (three tables)."""
 
     #: (level, message) Event-Log mirror (T6)
     task_log = Signal(str, str)
+    #: Apply to YAML clicked: the tables were persisted into the
+    #: model - the main window switches to the Yaml Build tab
+    apply_yaml_requested = Signal()
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         # NOTE: the model is NOT accepted in __init__ ON PURPOSE.
@@ -424,10 +506,30 @@ class ChannelAllocationPage(QWidget):
         self._edit_allowed = True
 
         lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        btn_auto = QPushButton("Auto")
+        btn_auto.setToolTip(
+            "Automatic allocation (Power / Clock tables only, "
+            "top-down): best test point (TP probe pin preferred, "
+            "else the first member pin), sequential instrument "
+            "channels - Impedance and Voltage share the SAME "
+            "DAQM908A channel, Power rails come from the U2355A AI "
+            "pool. Beyond the pool capacity a channel stays unset "
+            "(no test). The GPIO DIO channels are NOT auto-assigned "
+            "- configure them manually.")
+        btn_auto.clicked.connect(self._auto_allocate)
+        top.addWidget(btn_auto)
+        top.addStretch(1)
+        btn_apply = QPushButton("Apply to YAML")
+        btn_apply.setToolTip(
+            "Persist the channel allocation into the YAML config and "
+            "switch to the Yaml Build page")
+        btn_apply.clicked.connect(self._apply_to_yaml)
+        top.addWidget(btn_apply)
+        lay.addLayout(top)
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
-            "module). All configuration cells are dropdown-only; the "
-            "Status column is auto-computed (read-only).")
+            "module). All configuration cells are dropdown-only.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -512,23 +614,154 @@ class ChannelAllocationPage(QWidget):
         }
 
     def save_to_model(self) -> None:
-        """Persist the tables into the model (project YAML channel)."""
+        """Persist the tables into the model (project YAML channel)
+        and the restart-safe project store."""
         if self.model is not None:
             self.model.set_channel_allocation(self.collect())
             self.task_log.emit(
                 "INFO",
                 "channel allocation saved: "
                 f"{self._summary_text()}")
+            try:
+                from mtkgui.gui.yamlbuild.store import \
+                    save_project_state
+                save_project_state(self.model.project_key(),
+                                   self.model.to_dict())
+            except Exception:     # persistence must never break the GUI
+                pass
+
+    def _apply_to_yaml(self) -> None:
+        """Apply-to-YAML (user direction): persist the tables into
+        the model and jump to the Yaml Build page (operators cannot
+        modify the YAML config).  FOOL-PROOFING: a shared instrument
+        channel BLOCKS the apply until the conflict is resolved."""
+        if not self._edit_allowed:
+            QMessageBox.information(
+                self, "Permission",
+                "Operator account cannot modify the YAML configuration.")
+            return
+        conflicts = self._channel_conflicts()
+        if conflicts:
+            detail = "\n".join(
+                f"{pool}  {channel}  ->  {', '.join(nets)}"
+                for pool, channel, nets in conflicts[:10])
+            more = (f"\n... and {len(conflicts) - 10} more"
+                    if len(conflicts) > 10 else "")
+            QMessageBox.warning(
+                self, "Channel Conflict",
+                "The same instrument resource is used by more than "
+                "one net - resolve the conflicts first:\n\n"
+                + detail + more)
+            return
+        self.save_to_model()
+        self.apply_yaml_requested.emit()
+
+    # ------------------------------------------------------------ auto
+    def _channel_conflicts(self) -> list[tuple[str, str, list[str]]]:
+        """Fool-proofing (user direction): one instrument channel used
+        by MORE THAN ONE net is a conflict.  Checked per resource pool
+        - the Impedance and Voltage columns share the DAQM908A pool,
+        Power rails the U2355A AI pool, SE Clock and DIO their own.
+        Returns (pool, channel, [net names]) tuples."""
+        conflicts: list[tuple[str, str, list[str]]] = []
+
+        def collect(table, keys, pool):
+            # per channel: the DISTINCT nets using it - one net using
+            # its channel for both Impedance and Voltage is the normal
+            # Auto behaviour, NOT a conflict
+            usage: dict[str, list[str]] = {}
+            for row in table.rows():
+                for key in keys:
+                    channel = getattr(row, key, UNSET)
+                    if channel in ("", UNSET):
+                        continue
+                    if row.net not in usage.setdefault(channel, []):
+                        usage[channel].append(row.net)
+            for channel in sorted(usage):
+                nets = usage[channel]
+                if len(nets) > 1:
+                    conflicts.append((pool, channel, nets))
+
+        collect(self.table_power, ("impedance", "voltage"),
+                "DAQM908A")
+        collect(self.table_power, ("power_rails",), "U2355A AI")
+        collect(self.table_clock, ("se_clock_hz",), "SE Clock")
+        collect(self.table_gpio, ("dio_channel",), "DAQM907A DIO")
+        return conflicts
+
+    @staticmethod
+    def _best_test_point(members: list[str]) -> str:
+        """The best test point of a net (auto rule): a TP probe pin
+        when the members carry one, else the first member pin."""
+        members = [m for m in (members or []) if m]
+        if not members:
+            return UNSET
+        probe = next((m for m in members
+                      if m.upper().startswith("TP")), None)
+        return probe or members[0]
+
+    def _auto_allocate(self) -> None:
+        """Auto (user direction): assign the Power / Clock tables
+        top-down - the best test point, then sequential channel
+        resources.  The Impedance and Voltage cells share the SAME
+        DAQM908A channel; Power rails draw from the U2355A AI pool;
+        SE Clock from its pool.  Rows beyond the pool capacity stay
+        unset (cannot be tested) and are adjusted manually afterwards.
+        The GPIO DIO channels are NOT touched - the user configures
+        them manually."""
+        for kind, table in (("power", self.table_power),
+                            ("clock", self.table_clock)):
+            sense = iter(DAQM908A_SENSE_CHANNELS)
+            rails = iter(U2355A_AI_CHANNELS)
+            clocks = iter(CLOCK_CHANNELS)
+            rows = table.rows()
+            for row in rows:
+                if row.test_point in ("", UNSET):
+                    row.test_point = self._best_test_point(
+                        self._net_members(row.net))
+                try:
+                    if kind == "power":
+                        channel = next(sense)
+                        row.impedance = channel
+                        row.voltage = channel   # SAME channel both
+                        row.power_rails = next(rails)
+                    else:
+                        row.se_clock_hz = next(clocks)
+                        row.band = CLOCK_BANDS.get(row.se_clock_hz,
+                                                   UNSET)
+                except StopIteration:
+                    # pool exhausted: this net cannot be tested
+                    if kind == "power":
+                        row.impedance = UNSET
+                        row.voltage = UNSET
+                        row.power_rails = UNSET
+                    else:
+                        row.se_clock_hz = UNSET
+                        row.band = UNSET
+            table.load_rows(rows)
+        self._update_summary()
 
     def _update_summary(self) -> None:
         data = ChannelAllocationData.from_dict(self.collect())
         counts = {kind: len(getattr(data, kind))
                   for kind, _cols in TABLE_SPECS}
         ok = data.all_ok()
-        self.lbl_summary.setText(
-            f"rows: power={counts['power']} clock={counts['clock']} "
-            f"gpio={counts['gpio']} - validation: "
-            + (STATUS_OK if ok else "NOK (incomplete rows)"))
+        text = (f"rows: power={counts['power']} "
+                f"clock={counts['clock']} gpio={counts['gpio']} - "
+                "validation: "
+                + (STATUS_OK if ok else "NOK (incomplete rows)"))
+        conflicts = self._channel_conflicts()
+        if conflicts:
+            detail = "; ".join(
+                f"{pool} {channel} -> {', '.join(nets)}"
+                for pool, channel, nets in conflicts[:5])
+            more = (f" (+{len(conflicts) - 5} more)"
+                    if len(conflicts) > 5 else "")
+            text += f" - CONFLICT: {detail}{more}"
+            self.lbl_summary.setStyleSheet("color: #b91c1c;")
+        else:
+            self.lbl_summary.setStyleSheet("")
+        self.lbl_summary.setText(text)
 
     def _summary_text(self) -> str:
         data = ChannelAllocationData.from_dict(self.collect())

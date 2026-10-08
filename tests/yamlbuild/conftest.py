@@ -33,7 +33,6 @@ REQUIRED_FILL = {
                "drift_check": "true", "multi_domain_check": "false"},
     "gpios": {"groups": "LED1:PA0:out:none", "level_threshold_v": "1.5",
               "exception_check": "true"},
-    "fct_parse": {"spec_file": "fct_spec.md"},
     "fct_build": {"flow_steps": "step1\nstep2",
                   "yield_threshold_pct": "98.0",
                   "exception_branch": "stop", "case_link": ""},

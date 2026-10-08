@@ -71,58 +71,71 @@ def test_rules_editor_button_exists_and_persists(qapp, panel,
     assert captured == {"power": r"^PWR_"}
 
 
-def test_power_tree_editor_requires_parse(qapp, panel, monkeypatch):
-    """The topology editor moved to the dedicated Power Tree page:
-    the panel only offers the navigation button (no local editing)."""
-    assert not hasattr(panel, "btn_tree")
-    assert hasattr(panel, "btn_open_tree")
+# ------------------------------------------------- parsed nets behaviour
+def test_table_column_width_policy(panel):
+    """Column width policy (user direction): the Net column is
+    content-sized (NOT stretched) and the slack goes to Test Points /
+    Reason - a stretched Net column starved the other columns."""
+    from PySide6.QtWidgets import QHeaderView
+    hdr = panel.table.horizontalHeader()
+    assert hdr.sectionResizeMode(0) == \
+        QHeaderView.ResizeMode.ResizeToContents
+    assert hdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    fhdr = panel.table_filtered.horizontalHeader()
+    assert fhdr.sectionResizeMode(0) == \
+        QHeaderView.ResizeMode.ResizeToContents
+    assert fhdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
 
 
-def test_power_tree_navigation_button(qapp, panel):
-    """'Open Power Tree Editor' emits the navigation request (the
-    dialog closes and the page switches to the Power Tree tab)."""
-    captured = []
-    panel.power_tree_requested.connect(lambda: captured.append(1))
-    panel.btn_open_tree.click()
-    assert captured == [1]
-
-
-# ------------------------------------------------- allocation behaviour
-def test_auto_allocate_se_clock_and_gpio_tables(panel):
-    """After parse: SE clock nets sequential into CLOCK_CHANNELS, GPIO
-    nets into DAQM907A DIO only; exclusion filters applied."""
+def test_parsed_nets_single_table_no_alloc_tables(panel):
+    """The SE Clock / GPIO allocation tables are GONE (redundant - the
+    channel assignment lives in Channel Allocation only); the single
+    Parsed Nets table lists every net with a changeable Category and
+    the Do-Not-Test defaults (Signal / GND default Not Test)."""
     _parse(panel)
-    clock_rows = panel._alloc_rows(panel.clock_table)
-    gpio_rows = panel._alloc_rows(panel.gpio_table)
-    # CLK1/CLK2 assigned the first two pool channels
-    assert [r["net"] for r in clock_rows] == ["CLK1", "CLK2"]
-    assert clock_rows[0]["channel"] == CLOCK_CHANNELS[0]
-    assert clock_rows[1]["channel"] == CLOCK_CHANNELS[1]
-    # GPIO0 qualifies; SENSE_FB excluded by the fixed exclude regex
-    assert [r["net"] for r in gpio_rows] == ["GPIO0"]
-    assert gpio_rows[0]["channel"] == GPIO_DIO_CHANNELS[0]
-    assert gpio_rows[0]["channel"].startswith("DAQM907A DIO")
+    assert not hasattr(panel, "clock_table")
+    assert not hasattr(panel, "gpio_table")
+    assert not hasattr(panel, "btn_add_signal")
+    assert not hasattr(panel, "gpio_candidate_combo")
+    assert panel.table.columnCount() == 4
+    rows = {panel.table.item(r, 0).text():
+            (panel.table.cellWidget(r, 2).currentText(),
+             panel.table.cellWidget(r, 3).isChecked())
+            for r in range(panel.table.rowCount())}
+    assert rows["CLK1"] == ("SE Clock", False)
+    assert rows["GPIO0"] == ("Signal", True)      # default DNT
+    assert rows["SENSE_FB"] == ("Signal", True)   # default DNT
+    assert rows["VIN_24V"] == ("Power", False)
 
 
-def test_manual_override_and_dnt_toggle(panel):
-    """Manual channel override / Do-Not-Test toggle wins over the
-    auto assignment and survives via the overrides dicts."""
+def test_dnt_toggle_and_category_override_survive_reparse(panel):
+    """The Do-Not-Test toggle wins over the category default and the
+    user category override survives a re-parse."""
     _parse(panel)
-    panel.clock_table._dnt_boxes[0].setChecked(True)
-    rows = panel._alloc_rows(panel.clock_table)
-    assert rows[0]["status"] == "Not Test"
-    assert panel._clock_overrides["CLK1"] == "Not Test"
-    # manual channel override clears the DNT flag
-    panel.clock_table.cellWidget(0, 1).setCurrentText(
-        CLOCK_CHANNELS[1])
-    assert panel.clock_table._dnt_boxes[0].isChecked() is False
-    assert panel._clock_overrides["CLK1"] == CLOCK_CHANNELS[1]
+    rows = {panel.table.item(r, 0).text(): r
+            for r in range(panel.table.rowCount())}
+    # DNT toggle on the power net (NET_TEXT has no GND net; the two
+    # Signal nets GPIO0 / SENSE_FB default Do Not Test)
+    panel.table.cellWidget(rows["VIN_24V"], 3).setChecked(True)
+    assert panel.power_dnt_nets() == ["GPIO0", "SENSE_FB", "VIN_24V"]
+    # un-check a default-DNT signal
+    panel.table.cellWidget(rows["GPIO0"], 3).setChecked(False)
+    assert "GPIO0" not in panel.power_dnt_nets()
+    # category override survives the re-parse
+    panel.table.cellWidget(rows["GPIO0"], 2).setCurrentText("Power")
+    panel.parse_nets()
+    rows = {panel.table.item(r, 0).text(): r
+            for r in range(panel.table.rowCount())}
+    assert panel.table.cellWidget(rows["GPIO0"], 2).currentText() == \
+        "Power"
+    assert panel.table.cellWidget(rows["GPIO0"], 3).isChecked() is False
 
 
 # -------------------------------------------------- model YAML persistence
 def test_model_persists_item24_sections():
-    """rules / power tree / allocations persist into the project YAML
-    and restore cleanly (empty/legacy files stay error-free)."""
+    """rules / allocations persist into the project YAML and restore
+    cleanly (empty/legacy files stay error-free); a stale power_tree
+    section (the retired page) is dropped from the built YAML."""
     import yaml
 
     from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -130,11 +143,6 @@ def test_model_persists_item24_sections():
     model.enable_all()
     fill_required(model)
     model.net_classification_rules = {"power": r"^PWR_"}
-    model.power_tree = {"nodes": [{"name": "VDD_12V",
-                                   "node_type": "normal",
-                                   "stage": 0}],
-                        "audit_log": [{"net": "VIN_24V",
-                                       "reason": "passive bridge"}]}
     model.se_clock_allocation = [{"net": "CLK1",
                                   "channel": CLOCK_CHANNELS[0],
                                   "status": "Assigned"}]
@@ -149,7 +157,6 @@ def test_model_persists_item24_sections():
     fill_required(fresh)
     assert fresh.apply_yaml_dict(yaml.safe_load(text)) == []
     assert fresh.net_classification_rules == {"power": r"^PWR_"}
-    assert fresh.power_tree == model.power_tree
     assert fresh.se_clock_allocation == model.se_clock_allocation
     assert fresh.gpio_allocation == model.gpio_allocation
     # legacy file without the sections: blank, no error
@@ -165,12 +172,10 @@ def test_model_state_round_trip_item24():
     from mtkgui.gui.yamlbuild.model import YamlBuildModel
     model = YamlBuildModel()
     model.net_classification_rules = {"gnd": r"^GND_"}
-    model.power_tree = {"nodes": [], "audit_log": []}
     model.se_clock_allocation = [{"net": "CLK1", "channel": "X",
                                   "status": "Assigned"}]
     model.gpio_allocation = []
     restored = YamlBuildModel()
     restored.apply_state(model.to_dict())
     assert restored.net_classification_rules == {"gnd": r"^GND_"}
-    assert restored.power_tree == {"nodes": [], "audit_log": []}
     assert restored.se_clock_allocation == model.se_clock_allocation

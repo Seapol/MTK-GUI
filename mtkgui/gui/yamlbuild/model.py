@@ -20,6 +20,7 @@ from datetime import datetime
 
 import yaml
 
+from mtkgui.gui.yamlbuild.channel_allocation import UNSET
 from mtkgui.gui.yamlbuild.schema import (
     MODULE_FIELDS,
     T_BOOL,
@@ -63,6 +64,10 @@ def _migrate_legacy_modules(modules: dict) -> dict:
         if target not in out:
             merged["enabled"] = bool(legacy.get("enabled", True))
         out[target] = merged
+    # retired blocks (user direction: the FCT parse block was removed)
+    # drop out SILENTLY so old files keep loading without errors
+    for retired in ("fct_parse",):
+        out.pop(retired, None)
     # item 23 legacy order: files saved before the 02/03 swap carry
     # instruments BEFORE parse_ict - normalize that exact pair onto
     # the canonical sequence (any other order deviation still fails
@@ -133,15 +138,22 @@ class YamlBuildModel:
         # T10 Channel Allocation configuration (three tables, the
         # parse-result data source; see channel_allocation.py)
         self.channel_allocation: dict = {}
-        # item 24: net classification rules + power tree draft +
-        # SE clock / GPIO channel allocations (GUI + YAML data model)
+        # item 24: net classification rules + SE clock / GPIO channel
+        # allocations (GUI + YAML data model); the Power Tree page was
+        # RETIRED (user direction) - no power_tree state is kept
         self.net_classification_rules: dict = {}
-        self.power_tree: dict = {}
         self.se_clock_allocation: list = []
         self.gpio_allocation: list = []
         # test path complexity risk (topology-based, advisory):
         # {"thresholds": {...}, "scores": {net: {...}}}
         self.path_risk: dict = {}
+        # card marks (user direction): module_key -> "star" (edited,
+        # OK saved) / "check" (passed the block-09 full validation)
+        self.marks: dict[str, str] = {}
+        # T10-adjacent: the Test Work Flow page's power-rails capture
+        # config synced into the model (user question: the configured
+        # power rails MUST appear in the YAML preview / Apply)
+        self.power_rails_up_sequence: dict = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -167,6 +179,19 @@ class YamlBuildModel:
         if module_key in self._enabled:
             self._enabled[module_key] = bool(enabled)
             self.changed = True
+
+    def set_mark(self, module_key: str, mark: str) -> None:
+        """Store one module's card mark ("" clears it).
+
+        Args:
+            module_key: Stage key.
+            mark:       "star" / "check" / "".
+        """
+        if mark:
+            self.marks[module_key] = mark
+        else:
+            self.marks.pop(module_key, None)
+        self.changed = True
 
     def get_params(self, module_key: str) -> dict:
         """Return a copy of one module's parameters.
@@ -206,6 +231,47 @@ class YamlBuildModel:
     def get_channel_allocation(self) -> dict:
         """Return the stored Channel Allocation configuration."""
         return dict(self.channel_allocation or {})
+
+    def allocated_testable(self) -> dict:
+        """The testable nets that actually hold an instrument channel
+        resource (user rule: nets left unallocated in the Channel
+        Allocation tables are auto Do-Not-Test - they never enter the
+        Test Work Flow sequence builder).
+
+        A net qualifies when every channel cell of its table kind is
+        assigned: power = Impedance + Power rails + Voltage (the three
+        DAQM908A / U2355A resources), clock = SE Clock Hz, gpio = DIO
+        Channel.  Nets not present in the allocation keep the parse
+        result (they are not table objects)."""
+        testable = self.imported.get("testable_nets") or {}
+        required = {"power": ("impedance", "power_rails", "voltage"),
+                    "clock": ("se_clock_hz",),
+                    "gpio": ("dio_channel",)}
+        out = {}
+        for kind, keys in required.items():
+            for row in (self.channel_allocation or {}).get(kind) or []:
+                net = str(row.get("net") or "").strip()
+                info = testable.get(net)
+                if not info:
+                    continue
+                if all(str(row.get(k) or "").strip()
+                       not in ("", UNSET) for k in keys):
+                    out[net] = info
+        return out
+
+    def set_power_rails(self, data: dict) -> None:
+        """Store the Test Work Flow page's power-rails capture config
+        (rail set + capture window + rate); the capture parameters are
+        mirrored into the rails module's fields (sample rate, pre /
+        post trigger)."""
+        if isinstance(data, dict):
+            self.power_rails_up_sequence = data
+            params = self._params.get("rails", {})
+            for key in ("sample_rate_hz", "pre_trigger_s",
+                        "post_trigger_s"):
+                if key in data:
+                    params[key] = str(data[key])
+            self.changed = True
 
     @property
     def plan_version(self) -> str:
@@ -260,9 +326,9 @@ class YamlBuildModel:
                     entry[spec.name] = lines
                 else:
                     entry[spec.name] = _coerce(spec.ftype, text)
-            stage = STAGE_BY_KEY[key]
-            entry["stage_index"] = _STAGE_INDEX[key]
-            entry["group"] = stage.group
+            # lean YAML (user direction): NO redundant bookkeeping
+            # fields (stage_index / group) - the module ORDER in the
+            # mapping IS the workflow order
             modules[key] = entry
         section: dict = {
             "plan_version": self._plan_version,
@@ -280,12 +346,15 @@ class YamlBuildModel:
         # T10 Channel Allocation configuration (project YAML)
         if self.channel_allocation:
             section["channel_allocation"] = self.channel_allocation
-        # item 24 sections (rules / power tree / allocations)
+        if self.power_rails_up_sequence:
+            section["power_rails_up_sequence"] = \
+                self.power_rails_up_sequence
+        # item 24 sections (rules / allocations); the Power Tree page
+        # was RETIRED (user direction) - no power_tree section is
+        # emitted, and a stale section from an old file is dropped
         if self.net_classification_rules:
             section["net_classification_rules"] = \
                 self.net_classification_rules
-        if self.power_tree:
-            section["power_tree"] = self.power_tree
         if self.se_clock_allocation:
             section["se_clock_allocation"] = self.se_clock_allocation
         if self.gpio_allocation:
@@ -383,13 +452,16 @@ class YamlBuildModel:
         alloc = section.get("channel_allocation")
         if isinstance(alloc, dict):
             self.channel_allocation = alloc
-        # item 24 sections restore (empty / legacy: blank, no error)
+        # Test Work Flow power-rails capture config restore
+        pr = section.get("power_rails_up_sequence")
+        if isinstance(pr, dict):
+            self.power_rails_up_sequence = pr
+        # item 24 sections restore (empty / legacy: blank, no error);
+        # a stale power_tree section from an old file is DROPPED
+        # (the Power Tree page was retired)
         rules = section.get("net_classification_rules")
         if isinstance(rules, dict):
             self.net_classification_rules = rules
-        tree = section.get("power_tree")
-        if isinstance(tree, dict):
-            self.power_tree = tree
         se_clock = section.get("se_clock_allocation")
         if isinstance(se_clock, list):
             self.se_clock_allocation = se_clock
@@ -479,13 +551,15 @@ class YamlBuildModel:
             "saved_at": datetime.now().isoformat(timespec="seconds"),
             "imported": copy.deepcopy(self.imported),
             "channel_allocation": copy.deepcopy(self.channel_allocation),
+            "power_rails_up_sequence":
+                copy.deepcopy(self.power_rails_up_sequence),
             "net_classification_rules":
                 copy.deepcopy(self.net_classification_rules),
-            "power_tree": copy.deepcopy(self.power_tree),
             "se_clock_allocation":
                 copy.deepcopy(self.se_clock_allocation),
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
             "path_risk": copy.deepcopy(self.path_risk),
+            "marks": dict(self.marks),
             "modules": {
                 key: {
                     "enabled": self._enabled[key],
@@ -519,15 +593,19 @@ class YamlBuildModel:
         # T10 Channel Allocation (legacy states: key absent -> blank)
         alloc = state.get("channel_allocation")
         self.channel_allocation = alloc if isinstance(alloc, dict) else {}
+        pr = state.get("power_rails_up_sequence")
+        self.power_rails_up_sequence = (pr if isinstance(pr, dict)
+                                        else {})
         # item 24 sections (legacy states: key absent -> blank)
         for key, default in (("net_classification_rules", {}),
-                             ("power_tree", {}),
                              ("se_clock_allocation", []),
                              ("gpio_allocation", []),
                              ("path_risk", {})):
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)
+        marks = state.get("marks")
+        self.marks = dict(marks) if isinstance(marks, dict) else {}
         modules = state.get("modules") or {}
         # legacy (pre-M0) migration: the absorbed power_dut block
         # hands its retained parameters to the rails block (04)

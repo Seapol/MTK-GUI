@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Item 18: official ICT example projects (config/examples).
+"""Item 18: official ICT example projects (yaml_plan/examples).
 
 8 independent demo projects, each as one YAML plan document (ICT only
 - FCT modules explicitly disabled) plus one Excel workbook (YamlBuild
@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
-EXAMPLES = REPO / "config" / "examples"
+EXAMPLES = REPO / "yaml_plan" / "examples"
 
 EXPECTED_STEMS = (
     "Plan_10342_FRDM-IMX93_v1.0.0",
@@ -51,7 +51,6 @@ def test_yaml_round_trip(stem):
     model.enable_all()
     errors = model.apply_yaml_dict(document)
     assert errors == []
-    assert not model.is_enabled("fct_parse")
     assert not model.is_enabled("fct_build")
     for key in ("design_input", "instruments", "parse_ict", "rails",
                 "clocks", "gpios"):
@@ -97,7 +96,6 @@ def test_excel_round_trip(stem, tmp_path):
     model = YamlBuildModel()
     report = import_from_excel(model, str(xlsx))
     assert report.applied, report.errors
-    assert not model.is_enabled("fct_parse")
     assert not model.is_enabled("fct_build")
 
     # re-export and compare the three-table content 1:1

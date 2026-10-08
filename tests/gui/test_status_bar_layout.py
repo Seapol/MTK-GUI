@@ -47,11 +47,19 @@ def test_console_indicators_led_only(qapp):
     bar.sync_channels({"DUT": {"connected": True},
                        "AUX": {"connected": False}})
     children = bar.findChildren(QLabel)
-    # only StatusLed lights remain - no text labels beside them
-    assert all(isinstance(w, StatusLed) for w in children)
-    assert len(children) == 2
+    # the 'Console:' caption + one StatusLed per channel - no other
+    # text labels beside the lights
+    captions = [w for w in children if not isinstance(w, StatusLed)]
+    leds = [w for w in children if isinstance(w, StatusLed)]
+    assert len(captions) == 1 and captions[0].text() == "Console:"
+    assert len(leds) == 2
     # channel names live on the tooltips
-    assert "DUT" in children[0].toolTip()
+    assert "DUT" in leds[0].toolTip()
+    # a resync (channel set change) keeps the caption
+    bar.sync_channels({"DUT": {"connected": False}})
+    captions = [w for w in bar.findChildren(QLabel)
+                if not isinstance(w, StatusLed)]
+    assert [c.text() for c in captions] == ["Console:"]
     bar.deleteLater()
 
 

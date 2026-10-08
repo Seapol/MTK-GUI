@@ -54,8 +54,7 @@ WORKFLOW_STAGES: tuple[Stage, ...] = (
     Stage("gpios", "Build GPIOs", "gpio"),
     Stage("programmer", "Configure Programmer/Debugger", "programmer"),
     Stage("peripherals", "Configure Peripherals", "peripherals"),
-    Stage("fct_parse", "Parse Func/Interface for FCT", "fct"),
-    Stage("fct_build", "Build Func/Interface for FCT", "fct"),
+    Stage("fct_build", "Build FCT Test Work Flow Sequence", "fct"),
     Stage("validate_sequence", "Validate Full Test Sequence",
           "validate"),
     Stage("preview_export", "Preview & Export YAML", "export"),
@@ -66,6 +65,33 @@ STAGE_KEYS: tuple[str, ...] = tuple(s.key for s in WORKFLOW_STAGES)
 
 #: key -> Stage lookup.
 STAGE_BY_KEY: dict[str, Stage] = {s.key: s for s in WORKFLOW_STAGES}
+
+#: merged UI display node (user direction): the 04/05/06 build cards
+#: collapse into ONE "Build ICT Test Work Flow Sequence" card that
+#: opens the Test Work Flow page (double-click); the underlying
+#: rails / clocks / gpios YAML modules stay UNCHANGED (the Test Work
+#: Flow page owns the ICT test cases editing).
+DISPLAY_ICT_WORKFLOW = "ict_workflow"
+WORKFLOW_DISPLAY_STAGES: tuple[Stage, ...] = (
+    Stage("design_input", "Design Input", "design"),
+    Stage("parse_ict", "Parse nets for ICT", "ict"),
+    Stage(DISPLAY_ICT_WORKFLOW,
+          "Build ICT Test Work Flow Sequence", "ict"),
+    Stage("instruments", "Configure Instruments", "instruments"),
+    Stage("programmer", "Configure Programmer/Debugger", "programmer"),
+    Stage("peripherals", "Configure Peripherals", "peripherals"),
+    Stage("fct_build", "Build FCT Test Work Flow Sequence", "fct"),
+    Stage("validate_sequence", "Validate Full Test Sequence",
+          "validate"),
+    Stage("preview_export", "Preview & Export YAML", "export"),
+)
+
+#: display card -> the underlying YAML modules it represents (the
+#: Enable / Disable context menu applies to ALL of them; the card
+#: shows Enabled when ANY underlying module is enabled).
+DISPLAY_CARD_MODULES: dict[str, tuple[str, ...]] = {
+    DISPLAY_ICT_WORKFLOW: ("rails", "clocks", "gpios"),
+}
 
 #: Legacy (pre-M0) stage keys absorbed by the twelve-stage list:
 #: the DUT power-up configuration moved into the rails block (04).

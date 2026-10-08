@@ -855,12 +855,18 @@ class _InstrumentDialog(QDialog):
          clock / AI tests, power on-off (simulated replies)
     """
 
-    def __init__(self, parent, title, fields, key, virtual, manual=False):
+    # (key, connected) - emitted live so the status-bar LEDs follow
+    connection_changed = Signal(str, bool)
+
+    def __init__(self, parent, title, fields, key, virtual, manual=False,
+                 config=None):
         super().__init__(parent)
         self._key = key
         self._virtual = virtual
         self._manual = manual
         self._connected = False
+        # persisted connection / parameter configuration (YAML-backed)
+        self._config = dict(config or {})
         self.setWindowTitle(f"{title} - Configuration")
         self.resize(920, 720)
         root = QVBoxLayout(self)
@@ -876,12 +882,13 @@ class _InstrumentDialog(QDialog):
         root.addWidget(info)
 
         # 2 ------------------------------------------------------ parameters
+        saved_params = self._config.get("params") or {}
         params = QGroupBox("Parameter Configuration")
         pform = QFormLayout(params)
         pform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self._param_edits = []
         for label, value in _INSTRUMENT_PARAMS[key]:
-            edit = QLineEdit(value)
+            edit = QLineEdit(str(saved_params.get(label, value)))
             self._param_edits.append(edit)
             pform.addRow(f"{label}:", edit)
         root.addWidget(params)
@@ -893,9 +900,15 @@ class _InstrumentDialog(QDialog):
         cform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self._iface = QComboBox()
         self._iface.addItems(list(_INSTRUMENT_CONN[key]))
+        # restore the SAVED interface / address (user direction: the
+        # connection parameters persist in the project YAML)
+        saved_conn = self._config.get("connection") or {}
+        if saved_conn.get("interface") in _INSTRUMENT_CONN[key]:
+            self._iface.setCurrentText(str(saved_conn["interface"]))
         self._address = QLineEdit()
-        self._address.setText(
-            _INSTRUMENT_CONN[key][self._iface.currentText()])
+        self._address.setText(str(
+            saved_conn.get("address")
+            or _INSTRUMENT_CONN[key][self._iface.currentText()]))
         self._iface.currentTextChanged.connect(self._iface_changed)
         cform.addRow("Interface:", self._iface)
         cform.addRow("Address:", self._address)
@@ -938,12 +951,24 @@ class _InstrumentDialog(QDialog):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         cl.addLayout(grid)
+        # the test log is the MAIN area of the lower half (user
+        # direction): it takes all remaining vertical space instead of
+        # a cramped fixed 130 px strip
+        lbl_log = QLabel("Test Log:")
+        lbl_log.setObjectName("strong")
+        cl.addWidget(lbl_log)
         self._output = QPlainTextEdit()
         self._output.setReadOnly(True)
-        self._output.setPlaceholderText("Action results appear here ...")
-        self._output.setFixedHeight(130)
-        cl.addWidget(self._output)
-        root.addWidget(ctl)
+        self._output.setPlaceholderText("Action / test results appear here ...")
+        self._output.setMinimumHeight(240)
+        cl.addWidget(self._output, 1)
+        root.addWidget(ctl, 1)
+        # the information / parameter groups stay compact; the log
+        # group above absorbs the resize
+        root.setStretch(0, 0)
+        root.setStretch(1, 0)
+        root.setStretch(2, 0)
+        root.setStretch(3, 1)
 
         note = QLabel("Demo mode - no hardware connected."
                       if not virtual else
@@ -966,6 +991,35 @@ class _InstrumentDialog(QDialog):
         self._output.appendPlainText(text)
 
     # -------------------------------------------------------- connection
+    def apply_to_config(self, cfg: dict) -> None:
+        """Write the edited connection / parameter values back into the
+        Equipment page config dict - they are saved with the project
+        YAML (build_config) and restored on the next dialog open, so a
+        saved project connects directly (user direction)."""
+        cfg["connection"] = {
+            "interface": self._iface.currentText(),
+            "address": self._address.text().strip(),
+        }
+        cfg["params"] = {
+            label: edit.text().strip()
+            for (label, _v), edit in zip(
+                _INSTRUMENT_PARAMS[self._key], self._param_edits)
+        }
+
+    def set_connected(self, connected: bool) -> None:
+        """Restore a previously persisted connection state (the dialog
+        is re-created on every open - the state lives on the page)."""
+        self._connected = bool(connected)
+        if not (connected and self._virtual):
+            return
+        self._led.set_color("#22c55e")
+        self._conn_state.setText("Connected (virtual)")
+        for btn in self._action_buttons:
+            btn.setEnabled(True)
+        self.btn_test.setEnabled(True)
+        self.btn_disconnect.setEnabled(True)
+        self.btn_connect.setEnabled(False)
+
     def _connect(self):
         addr = self._address.text().strip()
         self.btn_connect.setEnabled(False)
@@ -986,6 +1040,7 @@ class _InstrumentDialog(QDialog):
             # T9: sync the shared status hub (block 03 panel display)
             from mtkgui.gui.yamlbuild.instrument_status import HUB
             HUB.set_connected(True)
+            self.connection_changed.emit(self._key, True)
         else:
             self._led.set_color("#ef4444")
             self._conn_state.setText("Error: no hardware (demo)")
@@ -995,6 +1050,7 @@ class _InstrumentDialog(QDialog):
             from mtkgui.gui.yamlbuild.instrument_status import HUB
             HUB.set_connected(False)
             HUB.set_test_connection("NOK")
+            self.connection_changed.emit(self._key, False)
 
     def _disconnect(self):
         self._connected = False
@@ -1009,6 +1065,7 @@ class _InstrumentDialog(QDialog):
         # T9: sync the shared status hub + reset stale results
         from mtkgui.gui.yamlbuild.instrument_status import HUB
         HUB.disconnect()
+        self.connection_changed.emit(self._key, False)
 
     def _test_connection(self):
         self._log("*IDN? ...")
@@ -1047,10 +1104,25 @@ class _InstrumentDialog(QDialog):
 # the page
 # --------------------------------------------------------------------------
 class EquipmentPage(QWidget):
+    # (instrument key, connected) emitted by the instrument dialog when
+    # the user connects / disconnects INSIDE the dialog - the main
+    # window syncs the status-bar LEDs from it (user report: the LEDs
+    # never reflected the real connect state)
+    instrument_connection_changed = Signal(str, bool)
+
+    #: instrument dialog key -> status-bar LED abbreviation
+    _INSTRUMENT_ABBR = {
+        "daq973a": "DAQM", "m908a_1": "DAQM", "m908a_2": "DAQM",
+        "m907a": "DAQM", "u2355a": "DAQ", "psu": "PSU",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.configs = _mock_configs()
         self.blocks = {}
+        # per-instrument connect state (user report: the state died
+        # with the modal dialog - reopening showed Disconnected again)
+        self._instrument_connections: dict[str, bool] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login)
         self.virtual_mode = False
@@ -1326,7 +1398,19 @@ class EquipmentPage(QWidget):
             # connection / control-and-tests group boxes
             dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
                                     self.virtual_mode,
-                                    manual=self._manual_fixture)
+                                    manual=self._manual_fixture,
+                                    config=cfg)
+            # the connect state lives on the PAGE (user report: it died
+            # with the modal dialog); live LED sync to the status bar
+            dlg.set_connected(self._instrument_connections.get(key, False))
+            dlg.connection_changed.connect(
+                self.instrument_connection_changed)
+            dlg.exec()
+            self._instrument_connections[key] = dlg._connected
+            # persist the edited connection / parameters into the page
+            # config -> saved with the project YAML (build_config)
+            dlg.apply_to_config(cfg)
+            return
         elif "table" in cfg:
             dlg = _table_dialog(self, cfg["title"], cfg["table"])
         else:

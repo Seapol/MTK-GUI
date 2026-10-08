@@ -12,6 +12,7 @@ received ANSI color sequences are rendered in place.
 """
 
 import getpass
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -54,6 +56,7 @@ from .permissions import (
     save_permissions,
 )
 from .test_workflow_page import TestWorkFlowPage
+from .engine.steps import op_step
 from .version_info import get_version_info
 from .yaml_build_page import YamlBuildPage
 from .style import (
@@ -108,6 +111,29 @@ LED_TEXT = {
     "disconnected": "Disconnected",
     "error": "Error",
 }
+
+#: Event Log verdict highlighting (user direction): PASS green,
+#: FAIL red, Error orange - easy to spot the matching lines
+_VERDICT_COLORS = {
+    "pass": "#22c55e", "passed": "#22c55e",
+    "fail": "#ef4444", "failed": "#ef4444",
+    "error": "#f59e0b",
+}
+_VERDICT_RE = re.compile(
+    r"\b(pass|passed|fail|failed|error)\b", re.IGNORECASE)
+
+
+def _colorize_verdicts(escaped_text):
+    """Wrap PASS / FAIL / Error words in colored spans (input must
+    already be HTML-escaped)."""
+
+    def _span(match):
+        word = match.group(0)
+        color = _VERDICT_COLORS[word.lower()]
+        return (f'<span style="color:{color};'
+                f'font-weight:bold;">{word}</span>')
+
+    return _VERDICT_RE.sub(_span, escaped_text)
 
 
 class StatusLed(QLabel):
@@ -185,12 +211,17 @@ class SerialStatusBar(QWidget):
         self._row = QHBoxLayout(self)
         self._row.setContentsMargins(6, 0, 6, 0)
         self._row.setSpacing(6)
+        # user direction: a 'Console:' caption before the first LED
+        caption = QLabel("Console:")
+        caption.setObjectName("muted")
+        self._row.addWidget(caption)
         self._leds = {}
 
     def sync_channels(self, channels):
         """Mirror the console channel set and connection states
-        (full rebuild - channel sets change rarely)."""
-        while self._row.count() > 0:
+        (full rebuild - channel sets change rarely; the caption at
+        index 0 is kept)."""
+        while self._row.count() > 1:
             item = self._row.takeAt(self._row.count() - 1)
             w = item.widget()
             if w is not None:
@@ -305,10 +336,34 @@ class _ToolsBatchWorker(QThread):
         self.finished_sig.emit(self.action, lines, ok)
 
 
+class _ComboWheelGuard(QObject):
+    """App-wide guard (user direction): the mouse wheel must NOT
+    change a CLOSED dropdown - scrolling over a combo changed the
+    selection by accident.  Wheel events are swallowed (and propagate
+    to the surrounding scroll area); the popup list itself keeps its
+    wheel scrolling."""
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Wheel \
+                and isinstance(obj, QComboBox) \
+                and not obj.view().isVisible():
+            event.ignore()
+            return True
+        return False
+
+
 class MainWindow(QMainWindow):
+
+    #: theme name whose QSS is CURRENTLY active app-wide (dedup guard
+    #: for apply_gui_theme - see the docstring there)
+    _applied_theme = None
+
     def __init__(self, role=ROLE_SUPERVISOR, mode="Real",
                  fixture=FIXTURE_ATE):
         super().__init__()
+        # GUI-wide: the wheel never changes a closed dropdown
+        self._wheel_guard = _ComboWheelGuard(self)
+        QApplication.instance().installEventFilter(self._wheel_guard)
         self.setWindowTitle("MTK - Manufacturing Test Kit")
         self._init_size()
 
@@ -466,21 +521,30 @@ class MainWindow(QMainWindow):
             lambda level, msg:
                 self._append_event_log(f"[{level}] {msg}"))
 
-        # dedicated Power Tree topology page (relocated from the
-        # Parse Nets panel; data binding = the model.power_tree YAML
-        # draft, data source = the Parse Nets result)
-        from mtkgui.gui.yamlbuild.power_tree_page import PowerTreePage
-        self.power_tree_page = PowerTreePage()
-        self.tabs.addTab(self.power_tree_page, "Power Tree")
-        # model injected AFTER addTab (PySide shiboken GC bug
-        # workaround - see ChannelAllocationPage.__init__)
-        self.power_tree_page.set_model(self.yaml_build_page.model)
-        self.power_tree_page.task_log.connect(
-            lambda level, msg:
-                self._append_event_log(f"[{level}] {msg}"))
-        # navigation: Parse Nets "Open Power Tree Editor" -> this tab
-        self.yaml_build_page.power_tree_page_requested.connect(
-            lambda: self.tabs.setCurrentWidget(self.power_tree_page))
+        # navigation: merged "Build ICT Test Work Flow Sequence" card
+        # -> Test Work Flow tab, cursor on the ICT Test Cases table
+        self.yaml_build_page.test_workflow_requested.connect(
+            self._goto_test_workflow)
+        # Power Rails config (Test Work Flow properties) -> Yaml Build
+        # model: the configured rails land in the YAML preview / Apply
+        self.workflow_page.rail_config_changed.connect(
+            self._sync_rails_to_yaml)
+        # the step edit dialog offers the nets PER TEST METHOD from
+        # the Yaml Build model (parse result = single data source)
+        self.workflow_page.net_catalog_provider = (
+            lambda: self.yaml_build_page.model.imported.get(
+                "testable_nets") or {})
+        # Apply-to-YAML from the config pages: persist (done in the
+        # page) then switch to the Yaml Build tab
+        self.channel_alloc_page.apply_yaml_requested.connect(
+            self._goto_yaml_build)
+        # block-04 sequence builder accepted: merge the standard
+        # operations on the Test Work Flow page, then apply to yaml
+        self.yaml_build_page.ict_sequence_ready.connect(
+            self._on_ict_sequence_ready)
+        # valid Apply on the Yaml Build page -> offer the file save
+        self.yaml_build_page.yaml_apply_committed.connect(
+            self._on_yaml_apply_committed)
 
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
@@ -607,18 +671,16 @@ class MainWindow(QMainWindow):
         self.status_date.setStyleSheet("padding: 0 6px;")
         sb.addPermanentWidget(self.status_date)
 
-        # instrument connection lights:
-        # running -> all connected; virtual fault -> red, auto-recover;
-        # run end -> clear any red back to connected
-        self.workflow_page.run_progress.connect(
-            lambda *_: self.instr_status.set_all("connected"))
+        # instrument connection lights: synced from the Equipment page
+        # connect / disconnect (user report: the LEDs were force-set
+        # green everywhere and never reflected the real state)
+        self.equipment_page.instrument_connection_changed.connect(
+            self._on_instrument_connection)
         # wire run progress to the status bar progress bar
         self.workflow_page.run_progress.connect(self._update_run_progress)
         # background phases (console connect, ...) -> busy progress bar
         self.workflow_page.phase_changed.connect(self._on_run_phase)
         self.workflow_page.instrument_error.connect(self._on_instrument_error)
-        self.workflow_page.run_finished.connect(
-            lambda: self.instr_status.set_all("connected"))
         # task complete: fill the progress bar full then auto-reset
         self.workflow_page.run_finished.connect(
             self._finish_run_progress)
@@ -631,6 +693,9 @@ class MainWindow(QMainWindow):
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
             QTimer.singleShot(800, self._connect_virtual_instruments)
+        # restore the power-rails capture from the persisted Yaml Build
+        # model state (channel allocation / previous rail config)
+        QTimer.singleShot(0, self._sync_rails_to_workflow)
 
         # --- assemble the splitter: top | middle (tabs) | bottom --------
         self.splitter.addWidget(top)
@@ -690,6 +755,8 @@ class MainWindow(QMainWindow):
             "Apply and Save Yaml", self.apply_and_save_yaml)
         self.act_save_yaml_as = file_menu.addAction(
             "Save as Yaml…", self.save_yaml_as)
+        self.act_close_yaml = file_menu.addAction(
+            "Close Yaml", self.close_yaml)
         file_menu.addSeparator()
         self.act_switch = file_menu.addAction(
             "Switch Account…", self.switch_account)
@@ -817,18 +884,35 @@ class MainWindow(QMainWindow):
             lambda: self._open_help("readme_quickstart"))
 
     # ------------------------------------------------- V4.0 Tools batch
-    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU", "JLINK")
+    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU")
+
+    #: status-bar abbreviation -> the Equipment page config keys that
+    # implement it (user report: the lookup used the ABBREVIATIONS as
+    # config keys - daq973a / u2355a / psu - and never matched, so
+    # 'No instruments are configured' popped up on a valid project)
+    _TOOL_KEYS = {
+        "DAQM": ("daq973a",),
+        "DAQ": ("u2355a",),
+        "PSU": ("psu",),
+    }
 
     def _configured_instruments(self) -> list[str]:
         """Instrument abbreviations configured in the current project.
 
         Returns:
-            Abbreviations present in the Equipment page configuration
-            (the verified YAML equipment section), in fixed order.
+            Abbreviations whose underlying Equipment-page config keys
+            exist (the verified YAML equipment section), in fixed
+            order.
         """
         configs = getattr(self.equipment_page, "configs", {}) or {}
-        return [k for k in self._TOOL_ABBRS
-                if (configs.get(k) or {}).get("fields")]
+
+        def _configured(abbr):
+            return any(k in configs and (
+                (configs.get(k) or {}).get("fields")
+                or (configs.get(k) or {}).get("connection"))
+                for k in self._TOOL_KEYS.get(abbr, ()))
+
+        return [k for k in self._TOOL_ABBRS if _configured(k)]
 
     def _tools_batch(self, action: str) -> None:
         """Tools > Set All instruments: run one batch operation over
@@ -846,6 +930,16 @@ class MainWindow(QMainWindow):
                 "YAML.\n\nPlease go to the Equipment page and check "
                 "the instrument configuration, ports and connection "
                 "parameters first.")
+            return
+        if self.mode == "Virtual":
+            # Virtual mode: there is no real rack - the RealGateway
+            # would fail on the missing 'Address' YAML field even
+            # though every Equipment-page dialog connects virtually.
+            # Report the virtual result directly (no worker thread).
+            lines = [f"{abbr} connect OK (virtual)" for abbr in abbrs] \
+                if action == "Connect all" else \
+                [f"{abbr} OK (virtual)" for abbr in abbrs]
+            self._tools_batch_done(action, lines, True)
             return
         if self._tools_thread is not None and self._tools_thread.isRunning():
             QMessageBox.information(
@@ -871,6 +965,14 @@ class MainWindow(QMainWindow):
             self._tools_gateway = self._tools_thread.gateway
         for line in lines:
             self._append_event_log(f"[Tools] {action}: {line}")
+        # the status-bar LEDs follow the batch result (same truth as
+        # the Equipment page connect state)
+        state = {"Connect all": "connected",
+                 "Disconnect all": "disconnected"}.get(action)
+        if state:
+            for abbr in self._configured_instruments():
+                if abbr in self.instr_status.states:
+                    self.instr_status.set_state(abbr, state)
         if ok:
             self.statusBar().showMessage(f"{action}: OK", 5000)
         else:
@@ -1107,24 +1209,222 @@ class MainWindow(QMainWindow):
         except (OSError, project_config.yaml.YAMLError) as exc:
             QMessageBox.critical(self, "Load Failed", str(exc))
             return
+        if isinstance(config, dict) and \
+                ("yaml_build" in config or "plan" in config):
+            # published plan file (plan + yaml_build sections, the
+            # Yaml Build page output) -> restore into the build model
+            errors = self.yaml_build_page.model.apply_yaml_dict(config)
+            self._sync_rails_to_workflow()
+            self.yaml_build_page.refresh_all()
+            if errors:
+                QMessageBox.warning(self, "Load Warnings",
+                                    "\n".join(errors))
+            self._project_path = path
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Plan yaml loaded: {path}")
+            return
         project_config.apply_config(
-            config, self.workflow_page, self.equipment_page)
+            config, self.workflow_page, self.equipment_page,
+            self.yaml_build_page.model)
+        self._sync_rails_to_workflow()
+        self.yaml_build_page.refresh_all()
         self._project_path = path
         self.workflow_page.set_project_file(path)
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
-        # B1 closure #4: non-silent Project Part# guidance on project
-        # load / new project - never a silent blank
-        if not self.workflow_page.part_edit.text().strip():
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] "
-                "[INFO] Auto fetch Project Part# unavailable, "
-                "please fill manually")
-            QMessageBox.information(
-                self, "Project Part#",
-                "System cannot auto-extract Project Part# from "
-                "SPF/Drawing Title, please manually input board "
-                "project part number")
+
+    def close_yaml(self):
+        """File > Close Yaml: drop the current project and reset the
+        GUI to the factory no-yaml state (blank product info, default
+        stop policies, empty ICT/FCT tables, no rails / consoles,
+        equipment defaults, fresh Yaml Build model)."""
+        if self._project_path:
+            answer = QMessageBox.question(
+                self, "Close Yaml",
+                "Close the current YAML and reset to the factory "
+                "state?\n\nUnsaved changes are kept on disk only if "
+                "you saved before.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        page = self.workflow_page
+        # product info + stop policies back to the factory defaults
+        page.part_edit.setText("")
+        page.core_edit.setText("")
+        page.batch_edit.setText("")
+        page.serial_edit.setText("")
+        page.stop_if_fail_cb.setChecked(False)
+        page.stop_if_short_cb.setChecked(True)
+        page.auto_sn.setChecked(False)
+        page._runner.set_retry(0, source="factory")
+        page._runner.reset_results()
+        # overall flow EN + tables / rails / consoles -> no-yaml state
+        page.set_overall_en([True, True])
+        page.clear_tables()
+        page.set_project_file(None)
+        # equipment defaults (same shape apply_config restores into)
+        from mtkgui.equipment_page import _mock_configs
+        self.equipment_page.configs = _mock_configs()
+        # Yaml Build model -> fresh (apply_state of an empty state
+        # clears imported nets / allocation / rail config, keeps the
+        # factory parameter defaults)
+        self.yaml_build_page.model.apply_state({})
+        self._sync_rails_to_workflow()
+        self.yaml_build_page.refresh_all()
+        self._project_path = None
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Yaml closed - "
+            "GUI reset to the factory state")
+
+    def _goto_test_workflow(self):
+        """Merged 'Build ICT Test Work Flow Sequence' card: switch to
+        the Test Work Flow tab and focus the ICT Test Cases table
+        (cursor on the first case row)."""
+        self.tabs.setCurrentWidget(self.workflow_page)
+        table = self.workflow_page.ict
+        table.setFocus()
+        table.setCurrentCell(0, 1)
+        table.scrollToTop()
+
+    #: the canonical standard-operation skeleton around the generated
+    #: tests (impedance tests run BEFORE power-on: a short under power
+    #: risks damaging the board)
+    _ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Clamp Down",
+                            "Fixture Lock", "Fixture E-Stop Healthy")
+    _ICT_OPS_MID = ("Power On DUT",)
+    _ICT_OPS_AFTER_TEST = ("Power Off DUT", "Fixture Unlock",
+                           "Fixture Release", "Reset Instruments")
+
+    def _on_ict_sequence_ready(self, tests):
+        """Block-04 sequence builder accepted: rebuild the ICT Test
+        Cases table - the adjusted tests in order WITH the standard
+        operations around them (impedance before power-on) - jump to
+        the Test Work Flow page and offer the YAML save (apply)."""
+        page = self.workflow_page
+        by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
+
+        def op(name):
+            return by_name.get(name) or op_step(name)
+
+        impedance = [t for t in tests if "Impedance" in t[1]]
+        rest = [t for t in tests if "Impedance" not in t[1]]
+        seq = [op(n) for n in self._ICT_OPS_BEFORE_TEST] + impedance \
+            + [op(n) for n in self._ICT_OPS_MID] + rest \
+            + [op(n) for n in self._ICT_OPS_AFTER_TEST]
+        page.ict_steps = seq
+        page.ict_enables = [True] * len(seq)
+        page.ict_waits = [100] * len(seq)
+        page.ict_timeouts = [5000] * len(seq)
+        page.ict.setRowCount(len(seq))
+        page._ict_edit_guard = True
+        page._fill_ict(placeholder=True)
+        page._ict_edit_guard = False
+        self._goto_test_workflow()
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
+            f"{len(tests)} tests + standard operations")
+        # apply to yaml: the same save dialog as the preview Apply
+        self._on_yaml_apply_committed()
+
+    def _goto_yaml_build(self):
+        """Apply-to-YAML from the Channel Allocation / Power Tree
+        page: the page already persisted its config into the model -
+        switch to the Yaml Build tab and repaint the preview."""
+        self._sync_rails_to_workflow()
+        self.tabs.setCurrentWidget(self.yaml_build_page)
+        self.yaml_build_page.refresh_all()
+
+    def _sync_rails_to_workflow(self):
+        """Feed the Test Work Flow page's power-rails capture from the
+        Yaml Build model (user report: 'no rails defined' - the rail
+        set was empty unless a project file carried it).  Priority:
+        the model's power_rails_up_sequence rail set, else DERIVED
+        from the Channel Allocation power rows (every net with an
+        assigned U2355A AI power-rails channel becomes a rail; the
+        nominal is parsed from the net name)."""
+        model = self.yaml_build_page.model
+        seq = model.power_rails_up_sequence or {}
+        rails = [dict(r) for r in (seq.get("rails") or [])]
+        if not rails:
+            rails = self._rails_from_allocation(
+                model.get_channel_allocation())
+        if not rails:
+            return
+        palette = ("#ef4444", "#22c55e", "#3b82f6", "#f59e0b",
+                   "#a855f7", "#06b6d4", "#84cc16", "#f97316")
+        page_rails = []
+        for i, r in enumerate(rails):
+            name = str(r.get("name") or "").strip()
+            if not name:
+                continue
+            nominal = r.get("nominal_v")
+            if nominal in (None, "", 0, "0"):
+                from mtkgui.gui.yamlbuild.ict_sequence import \
+                    expected_voltage
+                nominal = expected_voltage(name) or 0.0
+            page_rails.append((
+                name, r.get("color") or palette[i % len(palette)],
+                float(nominal or 0.0),
+                float(r.get("ramp_offset_s") or 0.0)))
+        if not page_rails:
+            return
+        self.workflow_page.set_rails(page_rails)
+        if seq.get("sample_rate_hz"):
+            self.workflow_page.cap_rate = int(seq["sample_rate_hz"])
+        if seq.get("pre_trigger_s") is not None:
+            self.workflow_page.cap_start = float(seq["pre_trigger_s"])
+        if seq.get("post_trigger_s"):
+            self.workflow_page.cap_end = float(seq["post_trigger_s"])
+        self.workflow_page.rail_widget.t_start = \
+            self.workflow_page.cap_start
+        self._append_event_log(
+            f"Power rails: {len(page_rails)} rails configured "
+            f"from the Yaml Build model.")
+
+    @staticmethod
+    def _rails_from_allocation(alloc):
+        """Derive rail dicts from the Channel Allocation power rows:
+        every net with an assigned 'U2355A AI..' power-rails channel,
+        ordered by channel number."""
+        rows = (alloc or {}).get("power") or []
+        derived = []
+        for row in rows:
+            channel = str(row.get("power_rails") or "")
+            net = str(row.get("net") or "").strip()
+            if not net or "U2355A AI" not in channel:
+                continue
+            digits = "".join(ch for ch in channel if ch.isdigit())
+            derived.append((int(digits) if digits else 999,
+                            {"name": net, "ramp_offset_s": 0.0}))
+        derived.sort(key=lambda item: item[0])
+        return [r for _ch, r in derived]
+
+    def _on_yaml_apply_committed(self):
+        """The Apply button on the Yaml Build page succeeded (YAML
+        valid, config in the model): with a loaded project yaml ask
+        whether to overwrite it or save to a new file; without one
+        only Save-as is possible."""
+        if not self._project_path:
+            self.save_yaml_as()
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Apply Yaml")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "The YAML is valid and applied.\n"
+            "Save the configuration to a file?")
+        btn_overwrite = box.addButton(
+            "Overwrite current yaml",
+            QMessageBox.ButtonRole.AcceptRole)
+        btn_new = box.addButton(
+            "Save to a new yaml file…",
+            QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_overwrite:
+            self._save_yaml_to(self._project_path)
+        elif clicked is btn_new:
+            self.save_yaml_as()
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.
@@ -1136,13 +1436,28 @@ class MainWindow(QMainWindow):
             return
         self._save_yaml_to(self._project_path)
 
+    def _build_project_config(self):
+        """The full project configuration dict: the workflow/equipment
+        pages PLUS the Yaml Build model state (parse result, channel
+        allocation, power tree draft) so a reload restores the edited
+        state instead of re-running the automatic analysis."""
+        return project_config.build_config(
+            self.workflow_page, self.equipment_page,
+            self.yaml_build_page.model.to_dict())
+
+    def _sync_rails_to_yaml(self):
+        """The Power Rails properties were confirmed on the Test Work
+        Flow page: push the capture config into the Yaml Build model so
+        it shows up in the YAML preview and survives the Apply."""
+        self.yaml_build_page.apply_power_rails(
+            project_config.rails_up_sequence_config(self.workflow_page))
+
     def save_yaml_as(self):
         """File > Save as Yaml: always ask for a (new) file name.
 
         The suggested name follows
         ProductPartNumber_CoreID_Batch_rev1.0.yaml."""
-        config = project_config.build_config(
-            self.workflow_page, self.equipment_page)
+        config = self._build_project_config()
         path, _ = QFileDialog.getSaveFileName(
             self, "Save as Yaml",
             project_config.default_filename(config),
@@ -1152,21 +1467,7 @@ class MainWindow(QMainWindow):
         self._save_yaml_to(path)
 
     def _save_yaml_to(self, path):
-        config = project_config.build_config(
-            self.workflow_page, self.equipment_page)
-        # B1 closure #4: second-chance reminder before the project
-        # lands on disk - advisory only (the save is NOT blocked)
-        if not str(config.get("product", {}).get("part_number") or "") \
-                .strip():
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] [WARNING] "
-                "Project Part# is still empty - please fill it "
-                "manually (no auto source)")
-            QMessageBox.information(
-                self, "Project Part# Missing",
-                "Board Project Part# is empty. It cannot be "
-                "auto-extracted - please fill it manually afterwards "
-                "(the save continues).")
+        config = self._build_project_config()
         try:
             project_config.save_config(config, path)
         except OSError as exc:
@@ -1180,10 +1481,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ theme
     def apply_gui_theme(self, name):
         """Apply one of the selectable GUI colour themes to the whole
-        application (all windows and dialogs) and remember the choice."""
+        application (all windows and dialogs) and remember the choice.
+
+        Re-setting an IDENTICAL app stylesheet is skipped: Qt re-polishes
+        every widget of every live window on each setStyleSheet call,
+        which is pathological with many windows alive (the test suite
+        spawns dozens of MainWindow instances - each redundant re-apply
+        cost seconds of 100 % CPU, appearing as a hung run)."""
         if name not in GUI_THEMES:
             return
-        QApplication.instance().setStyleSheet(build_qss(name))
+        if MainWindow._applied_theme != name:
+            QApplication.instance().setStyleSheet(build_qss(name))
+            MainWindow._applied_theme = name
         QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
         # theme fonts restyle every metric: re-prove the vertical
         # floor once the new stylesheet is polished
@@ -1225,11 +1534,19 @@ class MainWindow(QMainWindow):
 
     def _append_event_log(self, text):
         """Show a line in the Event Log and mirror it into the session
-        auto-save file."""
-        self.event_log.appendPlainText(text)
+        auto-save file.  Every entry carries the DATE-TIME stamp (user
+        direction: no User / identity prefix); PASS / FAIL / Error
+        verdicts are highlighted in their own color so the matching
+        log lines are easy to find."""
+        from html import escape
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        plain = f"{stamp} {text}"
+        colored = _colorize_verdicts(escape(text))
+        self.event_log.appendHtml(
+            f'<span style="color:#9ca3af;">{stamp}</span> {colored}')
         if self._event_log_file is not None:
             try:
-                self._event_log_file.write(text + "\n")
+                self._event_log_file.write(plain + "\n")
                 self._event_log_file.flush()
             except OSError:
                 pass
@@ -1322,17 +1639,30 @@ class MainWindow(QMainWindow):
         else:
             self._update_run_progress(0, 0)
 
+    def _on_instrument_connection(self, key, connected):
+        """Equipment page instrument dialog connect / disconnect ->
+        sync the matching status-bar LED (user report: never synced)."""
+        abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
+        if abbr:
+            self.instr_status.set_state(
+                abbr, "connected" if connected else "disconnected")
+
     def _connect_virtual_instruments(self):
-        """Virtual mode: simulated instruments report connected at start."""
-        self.instr_status.set_all("connected")
-        for abbr, title in INSTRUMENTS:
-            self._append_event_log(
-                f"Instrument {abbr} ({title}): connected (virtual).")
+        """Virtual mode: the simulated instruments are READY, but the
+        status-bar LEDs reflect the EQUIPMENT PAGE connect state (user
+        direction: no force-green - the operator connects manually and
+        the LEDs follow)."""
+        self._append_event_log(
+            "Virtual mode: simulated instruments ready - connect on "
+            "the Equipment page; the status-bar LEDs follow that "
+            "state.")
 
     def _on_instrument_error(self, abbr):
         """Virtual equipment fault: red light, auto-recover after 2.5 s."""
         self.instr_status.set_state(abbr, "error")
-        self._append_event_log(f"Instrument {abbr}: connection error.")
+        self._append_event_log(
+            f"Instrument {abbr}: equipment fault "
+            f"(virtual fault injection, auto-recover).")
         QTimer.singleShot(2500,
                           lambda: self._recover_instrument(abbr))
 

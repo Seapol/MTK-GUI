@@ -28,18 +28,27 @@ CATEGORY_SE_CLOCK = "SE Clock"
 CATEGORY_DIFF_PAIR = "Diff Pair"
 CATEGORY_SIGNAL = "Signal"
 
-#: the four editable rule slots (key -> (label, factory default regex))
+#: the editable rule slots (key -> (label, factory default regex)).
+#: GND is a SYSTEM-auto category (no user config entry - core standard
+#: 5.2); its default regex stays internal for the GND integrity check.
 RULE_SLOTS: tuple[tuple[str, str], ...] = (
     ("power", "Power Nets regex"),
-    ("gnd", "GND Nets regex"),
     ("se_clock", "SE Clock Nets regex"),
-    ("diff_pair", "Differential pair detection regex"),
+    ("exclude", "Exclude Parse Nets regex"),
 )
 
 DEFAULT_RULES: dict[str, str] = {
-    "power": r"^(V[A-Za-z]*(_)?(DD|CC|AA|IO|BAT|IN|OUT|SW|BUS|AUX|5V|3V3|1V8|12V|24V)|VDD\w*|VCC\w*|VIN\w*|\d*V\d*)$",
+    "power": r"^(?!.+INTB)(?:V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D)([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?)$",
     "gnd": r"^(GND\w*|AGND\w*|DGND\w*|PGND\w*|VSS\w*)$",
     "se_clock": r"^(CLK\w*|OSC\w*|XTAL\w*|MCLK\w*|\d+MH?Z\w*)$",
+    # nets matching the Exclude regex NEVER become ICT test objects
+    # (differential pairs, Reset / Enable / UART / WAKE / I2C / SPI /
+    # JTAG / DBGIF / DATA / ADC buses and Allegro system random
+    # numeric names); an EMPTY value disables the exclusion entirely.
+    # The differential PAIR DETECTION stays a kernel-internal rule
+    # (no user config entry).
+    "exclude": (r"(?i)(DIFF|RESET|ENABLE|UART|WAKE|I2C|SPI|JTAG|"
+                r"DBGIF|DATA|ADC|_EN(_|$)|_(P|N)$|^\$?N?\d+$)"),
     "diff_pair": r"^\w+_(P|N)$",
 }
 
@@ -157,6 +166,7 @@ def classify_net(name: str,
     for key, category in (("power", CATEGORY_POWER),
                           ("gnd", CATEGORY_GND),
                           ("se_clock", CATEGORY_SE_CLOCK),
+                          ("signal", CATEGORY_SIGNAL),
                           ("diff_pair", CATEGORY_DIFF_PAIR)):
         if key in rules:
             # item 24 Task 1: an EXPLICITLY EMPTY custom regex skips
@@ -214,7 +224,12 @@ class NetRulesEditorDialog(QDialog):
         head = QLabel(
             "Priority: manual override > SPF pin attribute > custom "
             "regex > factory default.  An empty regex skips the name "
-            "match (SPF pin type only).")
+            "match (SPF pin type only); an empty Exclude regex "
+            "disables the exclusion.  Nets matching the Exclude "
+            "Parse Nets regex (differential pairs, Reset / Enable / "
+            "UART / WAKE / I2C / SPI / JTAG / DBGIF / DATA / ADC, "
+            "system random numeric names ...) never become ICT test "
+            "objects.  Differential pair detection is kernel-internal.")
         head.setObjectName("muted")
         head.setWordWrap(True)
         lay.addWidget(head)

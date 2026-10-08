@@ -18,6 +18,7 @@ from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
 from mtkgui.gui.yamlbuild.parse_nets import (  # noqa: E402
     CATEGORY_CLOCK,
+    CATEGORY_GND,
     CATEGORY_GPIO,
     CATEGORY_POWER,
     ParseNetsPanel,
@@ -59,14 +60,14 @@ def panel(qapp):
 
 # ------------------------------------------------------- headless core
 def test_parse_categorizes_testable_nets():
-    """Power / Clock / GPIO categories extracted; grounds and diff
-    pairs filtered with documented reasons."""
+    """Power / Clock / GPIO / GND categories extracted; diff pairs and
+    pin-less nets filtered with documented reasons."""
     result = parse_testable_nets(NET_SAMPLE)
     assert [r.name for r in result.power] == ["3V3", "1V8_CORE"]
     assert [r.name for r in result.clock] == ["CLK_24M"]
     assert [r.name for r in result.gpio] == ["GPIO_LED1"]
+    assert [r.name for r in result.gnd] == ["GND"]
     filtered = dict(result.filtered)
-    assert filtered["GND"].startswith("reference ground")
     assert "USB_P" in filtered and "USB_N" in filtered
     assert filtered["NO_PINS"] == \
         "no valid member pin (no test point)"
@@ -78,7 +79,7 @@ def test_parse_result_category_lookup():
     assert result.category("3V3") == CATEGORY_POWER
     assert result.category("CLK_24M") == CATEGORY_CLOCK
     assert result.category("GPIO_LED1") == CATEGORY_GPIO
-    assert result.category("GND") == ""
+    assert result.category("GND") == CATEGORY_GND
 
 
 def test_parse_no_nets_raises_clear_error():
@@ -89,23 +90,143 @@ def test_parse_no_nets_raises_clear_error():
 
 def test_parse_summary_counts():
     result = parse_testable_nets(NET_SAMPLE)
-    assert result.summary() == ("power=2 clock=1 gpio=1 "
-                                "filtered=4")
+    assert result.summary() == ("power=2 clock=1 gpio=1 gnd=1 "
+                                "filtered=3")
+
+
+def test_exclude_regex_drops_signal_nets():
+    """The Exclude Parse Nets regex (factory default: DIFF / RESET /
+    ENABLE / UART / WAKE / I2C / SPI / JTAG / DBGIF / DATA / ADC and
+    system random numeric names) drops matching SIGNAL nets from the
+    parse result; Power / Clock / GND rows are never excluded and an
+    explicit empty user value disables the exclusion."""
+    sample = NET_SAMPLE + """*SIGNAL* DEBUG_UART_TX
+U1.40 J9.1
+*SIGNAL* BT_WAKE_OUT
+U1.41 J9.2
+*SIGNAL* DBG_RESET_REQ
+U1.42 J9.3
+*SIGNAL* SENSOR_I2C_SCL
+U1.43 J9.4
+*SIGNAL* FLASH_SPI_MOSI
+U1.44 J9.5
+*SIGNAL* CPU_JTAG_TDI
+U1.45 J9.6
+*SIGNAL* N12345
+U1.46 J9.7
+*SIGNAL* ADC0_IN
+U1.47 J9.8
+*SIGNAL* LCD_DATA01
+U1.48 J9.9
+"""
+    result = parse_testable_nets(sample)
+    excluded = {n for n, _r in result.filtered}
+    assert {"DEBUG_UART_TX", "BT_WAKE_OUT", "DBG_RESET_REQ",
+            "SENSOR_I2C_SCL", "FLASH_SPI_MOSI", "CPU_JTAG_TDI",
+            "N12345", "ADC0_IN", "LCD_DATA01"} <= excluded
+    # power nets never excluded even on a name hit
+    result2 = parse_testable_nets(
+        sample, rules={"power": r"^DBG_",
+                       "exclude": r"RESET"})
+    assert [r.name for r in result2.power] == ["3V3", "1V8_CORE",
+                                               "DBG_RESET_REQ"]
+    # empty user value disables the exclusion entirely
+    result3 = parse_testable_nets(sample, rules={"exclude": ""})
+    assert "DEBUG_UART_TX" in [r.name for r in result3.gpio]
+    assert "N12345" in [r.name for r in result3.gpio]
+
+
+# ------------------------------------------------- Filtered Nets table
+def test_kernel_keeps_filtered_records():
+    """The kernel keeps the dropped NetRecords so the Filtered Nets
+    table can move a net back into the parsed set."""
+    result = parse_testable_nets(NET_SAMPLE)
+    rec_names = {r.name for r in result.filtered_records}
+    assert rec_names == {n for n, _r in result.filtered}
+
+
+def test_panel_filtered_table_and_moves(panel):
+    """Filtered Nets table (Net | Reason | Category, default
+    "Filtered"): picking "Filtered" in the Parsed Nets table moves a
+    net down; picking a real category in the Filtered table moves it
+    back up (both are whole-row moves)."""
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    panel.parse_nets()
+    # the filtered table shows the 3 dropped nets with their reasons
+    assert panel.table_filtered.rowCount() == 3
+    names = {panel.table_filtered.item(r, 0).text(): r
+             for r in range(3)}
+    assert set(names) == {"USB_P", "USB_N", "NO_PINS"}
+    assert panel.table_filtered.cellWidget(names["USB_P"], 2) \
+        .currentText() == "Filtered"
+    # parsed -> filtered: pick "Filtered" on GPIO_LED1
+    parsed = {panel.table.item(r, 0).text(): r
+              for r in range(panel.table.rowCount())}
+    panel.table.cellWidget(parsed["GPIO_LED1"], 2).setCurrentText(
+        "Filtered")
+    assert panel.table_filtered.rowCount() == 4
+    assert panel.table.rowCount() == 4        # moved out of parsed
+    filtered_names = {panel.table_filtered.item(r, 0).text()
+                      for r in range(4)}
+    assert "GPIO_LED1" in filtered_names
+    # filtered -> parsed: restore USB_P as Power
+    panel.table_filtered.cellWidget(names["USB_P"], 2) \
+        .setCurrentText("Power")
+    assert panel.table_filtered.rowCount() == 3
+    assert panel.table.rowCount() == 5
+    restored = {panel.table.item(r, 0).text(): r
+                for r in range(panel.table.rowCount())}
+    assert "USB_P" in restored
+    assert panel.table.cellWidget(restored["USB_P"], 2) \
+        .currentText() == "Power"
+    assert panel.table.cellWidget(restored["USB_P"], 3) \
+        .isChecked() is False                 # Power DNT default
 
 
 # ------------------------------------------------------------ GUI panel
-def test_panel_parse_renders_preview(panel):
-    """The preview table lists every testable net with its category
-    and a read-only OK status; the summary label shows the counts."""
+def test_panel_parse_renders_parsed_nets_table(panel):
+    """The single PARSED NETS table (Net | Test Points | Category |
+    Do Not Test) lists every parsed net; Signal / GND rows default to
+    Do Not Test, the Category combo is user-changeable."""
     panel.set_net_source(NET_SAMPLE, "board.net")
     panel.parse_nets()
     assert panel.result is not None
-    assert panel.table.rowCount() == 4       # 2 power + 1 clock + 1 gpio
-    assert panel.table.item(0, 1).text() == CATEGORY_POWER
-    assert panel.table.item(2, 1).text() == CATEGORY_CLOCK
-    assert panel.table.item(3, 1).text() == CATEGORY_GPIO
-    assert panel.table.item(0, 3).text() == "OK"
+    assert panel.table.rowCount() == 5       # 2 power + clock + signal + gnd
+    assert panel.table.columnCount() == 4
+    headers = [panel.table.horizontalHeaderItem(i).text()
+               for i in range(4)]
+    assert headers == ["Net", "Test Points", "Category", "Do Not Test"]
+    names = {panel.table.item(r, 0).text(): r for r in range(5)}
+    # category combos reflect the parse categories
+    assert panel.table.cellWidget(names["3V3"], 2).currentText() == \
+        "Power"
+    assert panel.table.cellWidget(names["CLK_24M"], 2).currentText() == \
+        "SE Clock"
+    assert panel.table.cellWidget(names["GPIO_LED1"], 2).currentText() \
+        == "Signal"
+    assert panel.table.cellWidget(names["GND"], 2).currentText() == "GND"
+    # DNT defaults: Signal + GND checked, Power / SE Clock unchecked
+    assert panel.table.cellWidget(names["3V3"], 3).isChecked() is False
+    assert panel.table.cellWidget(names["CLK_24M"], 3).isChecked() is False
+    assert panel.table.cellWidget(names["GPIO_LED1"], 3).isChecked() is True
+    assert panel.table.cellWidget(names["GND"], 3).isChecked() is True
     assert "power=2" in panel.lbl_summary.text()
+
+
+def test_panel_category_change_updates_dnt_default(panel):
+    """Re-categorizing a net applies the new category DNT default and
+    survives re-parses."""
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    panel.parse_nets()
+    names = {panel.table.item(r, 0).text(): r for r in range(5)}
+    combo = panel.table.cellWidget(names["GPIO_LED1"], 2)
+    combo.setCurrentText("Power")
+    assert panel.table.cellWidget(names["GPIO_LED1"], 3).isChecked() \
+        is False
+    panel.parse_nets()                        # re-parse keeps the override
+    names = {panel.table.item(r, 0).text(): r for r in range(5)}
+    assert panel.table.cellWidget(names["GPIO_LED1"], 2).currentText() \
+        == "Power"
 
 
 def test_panel_parse_progress_and_log(panel):
@@ -121,7 +242,8 @@ def test_panel_parse_progress_and_log(panel):
     assert any("parse nets started" in m for _l, m in logs)
     assert any("parse nets done" in m and "power=2" in m
                for _l, m in logs)
-    assert any(l == "WARNING" and "GND" in m for l, m in logs)
+    # GND integrity advisory: single reference ground -> OK hint
+    assert "single global reference" in panel.lbl_gnd_risk.text()
 
 
 def test_panel_without_net_reports_reason(panel, monkeypatch):
@@ -157,7 +279,7 @@ def test_block03_dialog_embeds_parse_panel(qapp):
         dlg.nets_panel.set_net_source(NET_SAMPLE, "board.net")
         dlg.nets_panel.parse_nets()
         assert dlg.nets_panel.result is not None
-        assert dlg.nets_panel.table.rowCount() == 4
+        assert dlg.nets_panel.table.rowCount() == 5
     finally:
         dlg.deleteLater()
 

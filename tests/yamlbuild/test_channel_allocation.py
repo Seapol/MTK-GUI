@@ -71,29 +71,53 @@ def test_rows_from_testable_categories():
 
 
 def test_row_auto_validation_ok_nok():
-    """A row is OK only when every required cell is configured."""
+    """A row is OK only when every required cell is configured (the
+    Power row needs NO instrument / channel / status anymore)."""
     row = AllocatedRow(net="3V3")
     assert not row.is_configured("power")           # nothing set
     row.test_point = "U1.5"
-    row.instrument = "DAQ973A"
-    row.channel = "CH01"
-    assert not row.is_configured("power")           # Yes/No missing
-    row.impedance = "Yes"
-    row.power_rails = "No"
-    row.voltage = "Yes"
+    assert not row.is_configured("power")           # pools missing
+    row.impedance = "DAQM908A #1 CH101"
+    row.power_rails = "U2355A AI01"
+    row.voltage = "DAQM908A #2 CH201"
     assert row.is_configured("power") is True
 
     clock = AllocatedRow(net="CLK_24M", test_point="U1.10",
-                         instrument="U2355A", channel="CH02")
-    assert not clock.is_configured("clock")
-    clock.se_clock_hz = "Yes"
-    clock.band = "CH2 source: U2355A"
+                         se_clock_hz="DAQM907A TOT",
+                         band="0 ~ 100 kHz")
     assert clock.is_configured("clock") is True
+    assert not AllocatedRow(
+        net="CLK_24M", test_point="U1.10",
+        se_clock_hz="DAQM907A TOT").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
-                        instrument="DAQ973A", channel="CH03")
-    # DI/DO are fixed attributes - only TP/instrument/channel needed
+                        dio_channel="DAQM907A DIO01")
+    # the DIO channel is the only GPIO attribute needed anymore
     assert gpio.is_configured("gpio") is True
+    assert not AllocatedRow(
+        net="GPIO_LED1", test_point="U1.20").is_configured("gpio")
+
+
+def test_power_columns_drop_instrument_channel_status():
+    """Power tab: no Instrument / Channel / Status columns; the
+    Impedance / Voltage pools are the DAQM908A sense channels and the
+    Power rails pool the 12 offered U2355A AI channels."""
+    from mtkgui.gui.yamlbuild.channel_allocation import POWER_COLUMNS
+    keys = [k for k, _l, _c in POWER_COLUMNS]
+    assert keys == ["net", "test_point", "impedance",
+                    "power_rails", "voltage"]
+    from mtkgui.gui.yamlbuild.power_alloc import (
+        DAQM908A_SENSE_CHANNELS,
+        U2355A_AI_CHANNELS,
+    )
+    assert DAQM908A_SENSE_CHANNELS[0] == "DAQM908A #1 CH101"
+    assert DAQM908A_SENSE_CHANNELS[39] == "DAQM908A #1 CH140"
+    assert DAQM908A_SENSE_CHANNELS[40] == "DAQM908A #2 CH201"
+    assert DAQM908A_SENSE_CHANNELS[-1] == "DAQM908A #2 CH240"
+    assert len(DAQM908A_SENSE_CHANNELS) == 80
+    assert len(U2355A_AI_CHANNELS) == 12            # balanced sampling
+    assert U2355A_AI_CHANNELS[0] == "U2355A AI01"
+    assert U2355A_AI_CHANNELS[-1] == "U2355A AI12"
 
 
 def test_merge_rows_keeps_config_and_syncs_net_set():
@@ -137,66 +161,277 @@ def test_tables_populated_from_parse_result(page):
 
 def test_config_cells_are_dropdown_only(page):
     """Every configurable cell is a QComboBox (no free text); the
-    Status column is a read-only item."""
+    Power table has no Status column (Net stays read-only)."""
     table = page.table_power.table
     for r in range(table.rowCount()):
-        for c in range(1, table.columnCount() - 1):
+        for c in range(1, table.columnCount()):
             widget = table.cellWidget(r, c)
             assert isinstance(widget, QComboBox), (r, c)
-    for c in (0, table.columnCount() - 1):
-        assert table.cellWidget(0, c) is None       # net + status
+    assert table.cellWidget(0, 0) is None           # net read-only
+    assert table.columnCount() == 5                 # no status column
 
 
-def test_status_auto_updates(page):
-    """Filling every dropdown flips the Status from NOK to OK."""
-    table = page.table_power.table
-    assert table.item(0, 7).text() == "NOK"
-    for c, value in ((1, "U1.5"), (2, "DAQ973A"), (3, "CH01"),
-                     (4, "Yes"), (5, "Yes"), (6, "Yes")):
-        table.cellWidget(0, c).setCurrentText(value)
-    assert table.item(0, 7).text() == "OK"
-    # status stays read-only: not editable by the user
-    assert not (table.item(0, 7).flags()
+def test_no_status_instrument_channel_columns(page):
+    """No table carries Instrument / Channel / Status / Digital IO
+    columns anymore - the tabs pick real resource channels only."""
+    banned = {"Status", "Instrument", "Channel", "Digital Input",
+              "Digital Output"}
+    for name in ("table_power", "table_clock", "table_gpio"):
+        table = getattr(page, name).table
+        keys = [table.horizontalHeaderItem(c).text()
+                for c in range(table.columnCount())]
+        assert not (banned & set(keys)), (name, keys)
+
+
+def test_resource_pools_exclusive(page):
+    """Every dropdown contains ONLY the resources of its own
+    instrument - unrelated instruments never appear (Power:
+    DAQM908A-only for Impedance / Voltage, U2355A-only for Power
+    rails; Clock: DAQM907A TOT + U2355A counters; GPIO: DAQM907A DIO
+    only, the fixture-reserved U2355A DIO is never offered)."""
+    def items(table, col):
+        combo = table.cellWidget(0, col)
+        return [combo.itemText(i) for i in range(combo.count())
+                if combo.itemText(i) != UNSET]
+
+    power = page.table_power.table
+    for col in (2, 4):                       # Impedance / Voltage
+        pool = items(power, col)
+        assert pool and all(p.startswith("DAQM908A") for p in pool)
+    rails = items(power, 3)
+    assert rails and all(p.startswith("U2355A") for p in rails)
+    clock = items(page.table_clock.table, 2)
+    assert clock == ["DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
+    dio = items(page.table_gpio.table, 2)
+    assert dio == [f"DAQM907A DIO{n:02d}" for n in range(1, 17)]
+
+
+def test_gpio_dio_pool(page):
+    """The GPIO DIO Channel combo offers exactly the 16 DAQM907A DIO
+    resources - the U2355A DIO is NOT offered (fixture-reserved)."""
+    table = page.table_gpio.table
+    assert table.columnCount() == 3
+    combo = table.cellWidget(0, 2)
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == [UNSET, *(f"DAQM907A DIO{n:02d}"
+                              for n in range(1, 17))]
+    assert not any("U2355A" in t for t in items)
+
+
+def test_clock_resource_and_band_mapping(page):
+    """SE Clock Hz offers exactly the three capture resources; the
+    Frequency band is read-only and hardware-derived: DAQM907A TOT
+    0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz."""
+    table = page.table_clock.table
+    assert table.columnCount() == 4
+    combo = table.cellWidget(0, 2)
+    assert [combo.itemText(i) for i in range(combo.count())] == \
+        [UNSET, "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
+    # band is a read-only item, initially unconfigured
+    assert table.cellWidget(0, 3) is None
+    assert table.item(0, 3).text() == UNSET
+    combo.setCurrentText("DAQM907A TOT")
+    assert table.item(0, 3).text() == "0 ~ 100 kHz"
+    combo.setCurrentText("U2355A CTR1")
+    assert table.item(0, 3).text() == "0.1 Hz ~ 6 MHz"
+    # the band item is read-only
+    assert not (table.item(0, 3).flags()
                 & __import__("PySide6.QtCore", fromlist=["Qt"])
                 .Qt.ItemFlag.ItemIsEditable)
 
 
-def test_gpio_fixed_attributes(page):
-    """GPIO DI/DO combos carry exactly the fixed attributes."""
-    combo_di = page.table_gpio.table.cellWidget(0, 4)
-    combo_do = page.table_gpio.table.cellWidget(0, 5)
-    assert [combo_di.itemText(i)
-            for i in range(combo_di.count())] == ["HighZ"]
-    assert [combo_do.itemText(i)
-            for i in range(combo_do.count())] == ["No Output"]
+def test_power_pool_dropdowns(page):
+    """Power Impedance / Voltage combos offer the DAQM908A sense
+    channels, Power rails the 12 U2355A AI channels."""
+    table = page.table_power.table
+    impedance = table.cellWidget(0, 2)
+    rails = table.cellWidget(0, 3)
+    voltage = table.cellWidget(0, 4)
+    assert impedance.itemText(0) == UNSET
+    assert impedance.itemText(1) == "DAQM908A #1 CH101"
+    assert impedance.findText("DAQM908A #2 CH240") >= 0
+    assert voltage.findText("DAQM908A #2 CH201") >= 0
+    assert [rails.itemText(i) for i in range(rails.count())] == \
+        [UNSET, *(f"U2355A AI{n:02d}" for n in range(1, 13))]
 
 
-def test_frequency_band_hardware_mapping(page):
-    """Clock band dropdown: CH1 source DAQM907A / CH2 source U2355A."""
-    combo = page.table_clock.table.cellWidget(0, 5)
-    items = [combo.itemText(i) for i in range(combo.count())]
-    assert items == ["—", "CH1 source: DAQM907A",
-                     "CH2 source: U2355A"]
+def test_legacy_band_value_resets(page):
+    """A legacy band value (pre hardware-mapping free text) resets to
+    a clean unconfigured state on reload."""
+    page.model.channel_allocation = {
+        "clock": [{"net": "CLK_24M", "band": "CH2 source: U2355A"}]}
+    page.refresh_from_model()
+    row = page.table_clock.rows()[0]
+    assert row.band == UNSET
+    # choosing a resource fills the hardware band
+    page.table_clock.table.cellWidget(0, 2).setCurrentText(
+        "U2355A CTR0")
+    assert page.table_clock.rows()[0].band == "0.1 Hz ~ 6 MHz"
+
+
+# ------------------------------------------------------ auto allocation
+def test_best_test_point_prefers_probe():
+    """The best test point: a TP probe pin when present, else the
+    first member pin."""
+    from mtkgui.gui.yamlbuild.channel_allocation import \
+        ChannelAllocationPage as _P
+    assert _P._best_test_point(["U1.5", "TP7.2", "R4.1"]) == "TP7.2"
+    assert _P._best_test_point(["U1.5", "R4.1"]) == "U1.5"
+    assert _P._best_test_point([]) == UNSET
+
+
+def test_auto_allocate_top_down(page):
+    """Auto: top-down sequential assignment, Impedance == Voltage
+    (same DAQM908A channel), rails from AI01..., TP auto-picked; the
+    status reflects the fully configured rows."""
+    page._auto_allocate()
+    power = page.table_power.rows()
+    assert power[0].impedance == "DAQM908A #1 CH101"
+    assert power[0].voltage == "DAQM908A #1 CH101"   # SAME channel
+    assert power[0].power_rails == "U2355A AI01"
+    assert power[1].impedance == "DAQM908A #1 CH102"
+    assert power[1].voltage == "DAQM908A #1 CH102"
+    assert power[1].power_rails == "U2355A AI02"
+    assert power[0].test_point == "U1.5"             # first member
+    assert page.table_power.row_status(power[0]) == "OK"
+    clock = page.table_clock.rows()[0]
+    assert clock.se_clock_hz == "DAQM907A TOT"
+    assert clock.band == "0 ~ 100 kHz"
+    # the GPIO DIO channels are NOT auto-assigned (user direction:
+    # manual configuration only)
+    gpio = page.table_gpio.rows()[0]
+    assert gpio.dio_channel == UNSET
+
+
+def test_auto_allocate_pool_exhausted(page, monkeypatch):
+    """Beyond the pool capacity the channel stays unset (cannot be
+    tested); a manual unset stays possible afterwards."""
+    import mtkgui.gui.yamlbuild.channel_allocation as ca
+    monkeypatch.setattr(ca, "DAQM908A_SENSE_CHANNELS",
+                        ("DAQM908A #1 CH101",))
+    monkeypatch.setattr(ca, "U2355A_AI_CHANNELS", ("U2355A AI01",))
+    page._auto_allocate()
+    power = page.table_power.rows()
+    assert power[0].impedance == "DAQM908A #1 CH101"
+    assert power[1].impedance == UNSET               # pool exhausted
+    assert power[1].voltage == UNSET
+    assert power[1].power_rails == UNSET
+    assert page.table_power.row_status(power[1]) == "NOK"
+
+
+# ------------------------------------------------------ row sorting
+def test_header_click_sorts_whole_rows(page):
+    """Clicking a header sorts the WHOLE rows ascending, clicking
+    again toggles descending (net column here)."""
+    table = page.table_power
+    table._on_header_clicked(0)                  # net ascending
+    nets = [r.net for r in table.rows()]
+    assert nets == sorted(nets)
+    table._on_header_clicked(0)                  # descending
+    nets = [r.net for r in table.rows()]
+    assert nets == sorted(nets, reverse=True)
+    # the combo cells still hold their values after the re-render
+    assert table.table.cellWidget(0, 1) is not None
+
+
+# ------------------------------------------------- conflict fool-proof
+def test_channel_conflict_detection(page):
+    """The same instrument channel used by more than one net is a
+    conflict, per resource pool (Impedance/Voltage share DAQM908A)."""
+    table = page.table_power
+    rows = table.rows()
+    # one net using its channel for BOTH impedance and voltage is the
+    # normal Auto behaviour, NOT a conflict
+    rows[0].impedance = rows[0].voltage = "DAQM908A #1 CH102"
+    rows[1].impedance = rows[1].voltage = "DAQM908A #1 CH103"
+    assert page._channel_conflicts() == []
+    # two nets on ONE channel -> conflict (DAQM908A pool)
+    rows[1].impedance = rows[1].voltage = "DAQM908A #1 CH102"
+    conflicts = page._channel_conflicts()
+    assert ("DAQM908A", "DAQM908A #1 CH102",
+            ["3V3", "1V8_CORE"]) in conflicts
+    # unset channels never conflict
+    rows[1].impedance = rows[1].voltage = UNSET
+    assert page._channel_conflicts() == []
+
+
+def test_conflict_blocks_apply_to_yaml(page, monkeypatch):
+    """Apply-to-YAML is BLOCKED while a channel conflict exists; the
+    warning box lists the offenders."""
+    shown = []
+    monkeypatch.setattr(
+        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.warning",
+        lambda *a, **k: shown.append(k[1] if len(k) > 1 else a[1]))
+    table = page.table_power
+    rows = table.rows()
+    rows[0].impedance = rows[1].impedance = "DAQM908A #1 CH105"
+    page._update_summary()
+    assert "CONFLICT" in page.lbl_summary.text()
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page._apply_to_yaml()
+    assert shown and emitted == []          # blocked, nothing emitted
+    # resolve -> apply passes
+    rows[1].impedance = "DAQM908A #1 CH106"
+    page._update_summary()
+    assert "CONFLICT" not in page.lbl_summary.text()
+    page._apply_to_yaml()
+    assert emitted == [True]
+
+
+# ------------------------------------------------------ persistence / compat
+def test_apply_to_yaml_persists_and_requests_navigation(page):
+    """The 'Apply to YAML' button persists the tables into the model
+    and emits apply_yaml_requested (the main window switches to the
+    Yaml Build tab)."""
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page.table_power.table.cellWidget(0, 1).setCurrentText("U1.5")
+    page._apply_to_yaml()
+    assert emitted == [True]
+    assert page.model.channel_allocation["power"][0]["test_point"] == \
+        "U1.5"
+
+
+def test_apply_to_yaml_blocked_for_operator(page, monkeypatch):
+    """Operator accounts cannot apply the YAML config (permission
+    box mocked - it must never block the test)."""
+    shown = []
+    monkeypatch.setattr(
+        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.information",
+        lambda *a, **k: shown.append(True))
+    page.set_edit_allowed(False)
+    emitted = []
+    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+    page._apply_to_yaml()
+    assert shown == [True]                # permission box, no navigation
+    assert emitted == []
+    # supervisor passes through
+    page.set_edit_allowed(True)
+    page._apply_to_yaml()
+    assert emitted == [True]
 
 
 # -------------------------------------------------- persistence / compat
 def test_save_and_model_round_trip(page):
     """collect -> model -> fresh page keeps the configuration."""
     table = page.table_power.table
-    for c, value in ((1, "U1.5"), (2, "DAQ973A"), (3, "CH01"),
-                     (4, "Yes"), (5, "No"), (6, "Yes")):
+    for c, value in ((1, "U1.5"), (2, "DAQM908A #1 CH101"),
+                     (3, "U2355A AI01"), (4, "DAQM908A #2 CH201")):
         table.cellWidget(0, c).setCurrentText(value)
     page.save_to_model()
-    assert page.model.channel_allocation["power"][0]["channel"] == \
-        "CH01"
+    assert page.model.channel_allocation["power"][0]["impedance"] == \
+        "DAQM908A #1 CH101"
 
     fresh = ChannelAllocationPage()
     fresh.set_model(page.model)
     try:
         fresh.refresh_from_model()
         row = fresh.table_power.rows()[0]
-        assert row.channel == "CH01"
-        assert row.impedance == "Yes"
+        assert row.test_point == "U1.5"
+        assert row.impedance == "DAQM908A #1 CH101"
+        assert row.power_rails == "U2355A AI01"
+        assert row.voltage == "DAQM908A #2 CH201"
     finally:
         fresh.deleteLater()
 

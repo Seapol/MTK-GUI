@@ -26,6 +26,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -36,7 +37,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.gui.yamlbuild.block_flow import BlockFlowWidget
+from mtkgui.gui.yamlbuild.block_flow import (
+    MARK_CHECK,
+    MARK_NONE,
+    MARK_STAR,
+    BlockFlowWidget,
+)
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -47,7 +53,10 @@ from mtkgui.gui.yamlbuild.publish import (
     plan_filename,
     publish,
 )
-from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
+from mtkgui.gui.yamlbuild.stages import (
+    DISPLAY_ICT_WORKFLOW,
+    STAGE_KEYS,
+)
 from mtkgui.gui.yamlbuild.store import load_project_state, \
     save_project_state
 from mtkgui.version_info import get_version_info
@@ -64,9 +73,19 @@ class YamlBuildPage(QWidget):
     task_progress = Signal(int, str)
     #: (level, message) Event-Log mirror for the main window (T6)
     task_log = Signal(str, str)
-    #: navigation: the Parse Nets block asked for the dedicated
-    #: Power Tree page (main window switches the tab)
-    power_tree_page_requested = Signal()
+    #: navigation: the merged "Build ICT Test Work Flow Sequence"
+    #: card asked for the Test Work Flow page (main window switches
+    #: the tab and focuses the ICT Test Cases table)
+    test_workflow_requested = Signal()
+    #: a valid Apply from the YAML preview committed into the model -
+    #: the main window offers the file save (overwrite current yaml /
+    #: save to a new yaml file)
+    yaml_apply_committed = Signal()
+    #: the block-04 sequence dialog was accepted - carries the ICT
+    #: test rows (step tuples, "test" kind only); the main window
+    #: merges the standard operations on the Test Work Flow page and
+    #: offers the YAML save
+    ict_sequence_ready = Signal(list)
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -77,37 +96,35 @@ class YamlBuildPage(QWidget):
         root.setSpacing(6)
 
         # the preview pane is created BEFORE the top button row: its
-        # Edit/Apply toggle is reparented into that row (item 16)
+        # Apply button is reparented into that row (item 16; user
+        # direction: no Edit mode - the editor is directly editable)
         self.yaml_preview = YamlPreviewWidget()
 
         # --- top fixed button row (item 16: Build Draft / Release Final
         # YAML buttons removed - the redundant YAML entry is gone; the
-        # Excel buttons moved to the LEFT of the Edit / Apply toggle,
-        # all three share one uniform adaptive width = the longest
-        # label among them; resizing only rescales the row) ----------
+        # Excel buttons sit LEFT of the Apply button, all three
+        # share one uniform adaptive width = the longest label among
+        # them; the row lives ABOVE the YAML Preview pane (user
+        # direction)) ----------
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
         self.btn_export_excel = QPushButton("Export to Excel")
-        # the Edit/Apply toggle is created by the preview pane (its
-        # state + permission gate stay there) and is reparented here
+        # the Apply button is created by the preview pane (its
+        # validation + permission gate stay there) and is reparented
         self._action_buttons = (
             self.btn_import_excel, self.btn_export_excel,
-            self.yaml_preview.btn_edit)
+            self.yaml_preview.btn_apply)
         for btn in self._action_buttons:
             btn.setFixedHeight(34)
             buttons.addWidget(btn, 0)   # uniform width, no stretching
         buttons.addStretch(1)
-        root.addLayout(buttons)
         self._sync_action_button_widths()
         # standard tooltips (rule 6.1, fixed wording)
         self.btn_import_excel.setToolTip(
             "批量导入流程配置Excel文件，快速回填所有模块参数与状态")
         self.btn_export_excel.setToolTip(
             "导出当前全流程模块配置为标准Excel归档文件")
-        # label flips (Edit <-> Apply) re-sync the uniform width
-        self.yaml_preview.label_changed.connect(
-            lambda _text: self._sync_action_button_widths())
 
         self.btn_import_excel.clicked.connect(self._import_excel)
         self.btn_export_excel.clicked.connect(self._export_excel)
@@ -137,10 +154,22 @@ class YamlBuildPage(QWidget):
         # cards (enable states) and persists; the preview text itself
         # keeps the operator's version while editing
         self.yaml_preview.edits_applied.connect(self._on_preview_edited)
-        splitter.addWidget(self.yaml_preview)
-        splitter.setStretchFactor(0, 6)
-        splitter.setStretchFactor(1, 4)
-        splitter.setSizes([600, 400])
+        # valid Apply committed -> the main window offers the file save
+        self.yaml_preview.edits_applied.connect(
+            self.yaml_apply_committed)
+        # right pane: the action button row sits directly ABOVE the
+        # YAML Preview (user direction)
+        from PySide6.QtWidgets import QWidget as _QWidget
+        right = _QWidget()
+        right_lay = QVBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(6)
+        right_lay.addLayout(buttons)
+        right_lay.addWidget(self.yaml_preview)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([700, 300])   # default 7 : 3 (user direction)
         root.addWidget(splitter, 1)
         self.hint = QLabel(
             "12-block workflow: click a block to configure it; "
@@ -164,6 +193,8 @@ class YamlBuildPage(QWidget):
         keeps the diagram <-> YAML sync loop-free)."""
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
+            self.block_flow.set_module_mark(
+                key, self.model.marks.get(key, MARK_NONE))
         self.yaml_preview.set_model_text(self.model)
 
     def _load_persisted(self) -> None:
@@ -183,15 +214,28 @@ class YamlBuildPage(QWidget):
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
         net = self.model.imported.get("net") or {}
-        if module_key == "parse_ict" and net.get("raw"):
-            # T8: capture prefill candidates come from the formal
-            # Parse Nets result (power nets)
-            candidates = self._power_candidates()
-        else:
-            candidates = None
+        if module_key == "ict_workflow":
+            # merged 04/05/06 node: open the ICT Test Work Flow
+            # Sequence builder (user direction) - one test per row,
+            # impedance -> power rails (voltage) -> clock, manual
+            # adjustment; on OK the main window adds the standard
+            # operations and offers the YAML save
+            from mtkgui.gui.yamlbuild.ict_sequence import (
+                IctWorkFlowSequenceDialog,
+            )
+            dlg = IctWorkFlowSequenceDialog(
+                # user rule: nets WITHOUT an allocated instrument
+                # channel are auto Do-Not-Test - only allocated nets
+                # reach the Test Work Flow sequence builder
+                self.model.allocated_testable,
+                parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.ict_sequence_ready.emit(dlg.result_tests())
+                # configured (OK) -> star mark (user direction)
+                self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
+            return
         params, dialog = self.block_flow.open_dialog(
             module_key, self.model.get_params(module_key), self,
-            power_candidates=candidates,
             log_sink=self.task_log.emit,
             progress_sink=self.task_progress.emit,
             net_source=(net.get("raw", ""),
@@ -199,14 +243,11 @@ class YamlBuildPage(QWidget):
             if module_key == "parse_ict" else None,
             panel_state={
                 "net_rules": self.model.net_classification_rules,
-                "clock_overrides": {
-                    row["net"]: (row["channel"] or "Not Test")
-                    for row in self.model.se_clock_allocation
-                    if row["status"] == "Not Test" or row["channel"]},
-                "gpio_overrides": {
-                    row["net"]: (row["channel"] or "Not Test")
-                    for row in self.model.gpio_allocation
-                    if row["status"] == "Not Test" or row["channel"]},
+                "power_dnt": {
+                    ln.strip() for ln in
+                    (self.model.get_params("parse_ict") or {})
+                    .get("power_dont_test", "").splitlines()
+                    if ln.strip()},
                 "spf_nets": self.model.imported.get("spf_nets", set()),
                 "risk_thresholds": dict(
                     (self.model.path_risk or {}).get("thresholds")
@@ -217,6 +258,28 @@ class YamlBuildPage(QWidget):
         if params is None:
             return
         self.model.set_params(module_key, params)
+        if module_key == "validate_sequence":
+            # block 09: on OK run the FULL sequence validation - every
+            # marked module that passes gets a check; a failure keeps
+            # the stars (edited but not validated, user direction)
+            errors = self.model.validate_all()
+            if errors:
+                self._tlog("ERROR", f"Validate Full Test Sequence: "
+                                    f"{len(errors)} error(s)")
+                QMessageBox.warning(
+                    self, "Validate Full Test Sequence",
+                    "Validation FAILED - the stars are kept "
+                    "(edited but not validated):\n"
+                    + "\n".join(errors[:15]))
+            else:
+                for key in STAGE_KEYS:
+                    if self.model.marks.get(key) == MARK_STAR:
+                        self._set_mark(key, MARK_CHECK)
+                self._tlog("INFO", "Validate Full Test Sequence: "
+                                   "PASS - all edited modules checked")
+        else:
+            # configured (OK) -> star mark (user direction)
+            self._set_mark(module_key, MARK_STAR)
         if module_key == "design_input" and dialog is not None \
                 and dialog.panel is not None:
             # keep the loaded NET bytes for the Parse Nets module (T8)
@@ -229,54 +292,55 @@ class YamlBuildPage(QWidget):
                 and dialog.nets_panel is not None \
                 and dialog.nets_panel.result is not None:
             # the parse result is the single data source for the
-            # Channel Allocation tables (T10)
+            # Channel Allocation tables (T10); "Filtered" overrides
+            # keep a net out, restored filtered nets join a category
             result = dialog.nets_panel.result
-            self.model.imported["testable_nets"] = {
-                rec.name: {"category": cat,
-                           "members": list(rec.members),
-                           **({"auto_generated": True}
-                              if dialog.nets_panel._auto_generated.get(
-                                  rec.name) else {})}
-                for cat, records in
-                (("Power", result.power), ("Clock", result.clock),
-                 ("GPIO", result.gpio))
-                for rec in records
-            }
-            # item 24: rules / allocations persistence (the power tree
-            # draft is owned by the dedicated Power Tree page)
+            overrides = dialog.nets_panel._category_overrides
+            testable = {}
+            for cat, records in (("Power", result.power),
+                                 ("Clock", result.clock),
+                                 ("GPIO", result.gpio)):
+                for rec in records:
+                    if overrides.get(rec.name) == "Filtered":
+                        continue        # moved to Filtered Nets
+                    testable[rec.name] = {
+                        "category": overrides.get(rec.name, cat),
+                        "members": list(rec.members),
+                        **({"auto_generated": True}
+                           if dialog.nets_panel._auto_generated.get(
+                               rec.name) else {}),
+                        **({"category_override": True}
+                           if rec.name in overrides else {})}
+            for rec in result.filtered_records:
+                cat = overrides.get(rec.name)
+                if cat and cat != "Filtered":
+                    members = [t for t in rec.members
+                               if "." in t
+                               or t.upper().startswith("TP")]
+                    testable[rec.name] = {
+                        "category": cat,
+                        "members": members or list(rec.members),
+                        "category_override": True}
+            self.model.imported["testable_nets"] = testable
+            # item 24: rules persistence (the channel assignment lives
+            # in the Channel Allocation page only; the power tree draft
+            # is owned by the dedicated Power Tree page)
             nets_panel = dialog.nets_panel
             self.model.net_classification_rules = \
                 dict(nets_panel.net_rules)
-            self.model.se_clock_allocation = \
-                nets_panel._alloc_rows(nets_panel.clock_table)
-            self.model.gpio_allocation = \
-                nets_panel._alloc_rows(nets_panel.gpio_table)
+            # Do-Not-Test flags persist into the parse_ict params
+            self.model.set_params("parse_ict", {
+                "power_dont_test":
+                    "\n".join(nets_panel.power_dnt_nets())})
             # test path risk: thresholds + per-net advisory scores
             self.model.path_risk = {
                 "thresholds": dict(nets_panel.risk_thresholds),
                 "scores": dict(nets_panel.risk_scores),
             }
-        # navigation: the panel's "Open Power Tree Editor" button
-        # closes the dialog and switches to the dedicated page
-        if module_key == "parse_ict" and dialog is not None \
-                and getattr(dialog, "requested_page", None) \
-                == "power_tree":
-            self.power_tree_page_requested.emit()
         errors = self.model.validate_module(module_key)
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))
         self._after_model_change()
-
-    def _power_candidates(self) -> list[str]:
-        """Candidate power nets for the block-03 capture prefill:
-        power nets from the Parse Nets result (T8) when available,
-        else the legacy imported-netlist names."""
-        testable = self.model.imported.get("testable_nets") or {}
-        if testable:
-            return [name for name, info in testable.items()
-                    if info.get("category") == "Power"]
-        return list((self.model.imported.get("netlist") or {}).get(
-            "nets") or {})
 
     def _set_enabled(self, module_key: str, enabled: bool) -> None:
         """Enable / disable one module (parameters retained; disabled
@@ -301,11 +365,27 @@ class YamlBuildPage(QWidget):
         self._persist()
         self.refresh_all()
 
+    def _set_mark(self, module_key: str, mark: str) -> None:
+        """Set one module's card mark (star = edited / check =
+        validated), persisted with the model (restart-safe)."""
+        self.model.set_mark(module_key, mark)
+        self.block_flow.set_module_mark(module_key, mark)
+        self._persist()
+
+    def apply_power_rails(self, seq: dict) -> None:
+        """Sync the Test Work Flow page's power-rails capture config
+        into the model (user question: configured power rails MUST
+        land in the YAML): stored as its own section AND mirrored into
+        the rails module's capture parameters; the preview refreshes."""
+        self.model.set_power_rails(seq)
+        self._persist()
+        self.yaml_preview.set_model_text(self.model)
+
     def _on_preview_edited(self) -> None:
         """Slot for valid hand edits from the YAML preview: refresh
         the block cards (enable states) and persist.  The preview
         text is NOT repainted here - the operator's text stays until
-        edit mode is left."""
+        the next unmodified sync."""
         self._persist()
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
@@ -323,8 +403,8 @@ class YamlBuildPage(QWidget):
     def set_edit_allowed(self, allowed: bool) -> None:
         """Operator accounts cannot edit the YAML config (T5): the
         whole action row (Excel import / export) and the preview
-        Edit/Apply toggle follow the permission; a pending edit
-        session is rolled back to READ_ONLY."""
+        Apply button follow the permission; the editor stays
+        read-only for operators."""
         self._edit_allowed = bool(allowed)
         for btn in self._action_buttons:
             btn.setEnabled(self._edit_allowed)
@@ -332,9 +412,9 @@ class YamlBuildPage(QWidget):
 
     def _sync_action_button_widths(self) -> None:
         """Item 16: the three top toolbar buttons (Import from Excel /
-        Export to Excel / Edit-Apply) share one uniform adaptive width
-        = the widest label among them (re-synced whenever the toggle
-        label flips Edit <-> Apply).  Neat, aligned, equal in size."""
+        Export to Excel / Apply) share one uniform adaptive width
+        = the widest label among them.  Neat, aligned, equal in
+        size."""
         if not hasattr(self, "_action_buttons"):
             return
         widest = max(btn.sizeHint().width()
@@ -422,18 +502,6 @@ class YamlBuildPage(QWidget):
                 "Fix the validation errors first:\n"
                 + "\n".join(errors[:15]))
             return
-        # B1 closure #4: non-silent Project Part# reminder right before
-        # the plan lands on disk (advisory - the kept required-field
-        # validation has already passed here)
-        part = str((self.model.get_params("design_input") or {})
-                   .get("part_number") or "").strip()
-        if not part:
-            self._tlog("WARNING", "Auto fetch Project Part# "
-                                  "unavailable, please fill manually")
-            QMessageBox.information(
-                self, "Project Part# Missing",
-                "Board Project Part# is empty. It cannot be "
-                "auto-extracted - please fill it manually.")
         self._task(0, f"{kind}: publishing")
         self._tlog("INFO", f"{kind} publish started "
                            f"(project {self.model.project_key()})")
