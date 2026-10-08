@@ -20,6 +20,7 @@ from datetime import datetime
 
 import yaml
 
+from mtkgui.gui.yamlbuild.channel_allocation import UNSET
 from mtkgui.gui.yamlbuild.schema import (
     MODULE_FIELDS,
     T_BOOL,
@@ -230,6 +231,33 @@ class YamlBuildModel:
     def get_channel_allocation(self) -> dict:
         """Return the stored Channel Allocation configuration."""
         return dict(self.channel_allocation or {})
+
+    def allocated_testable(self) -> dict:
+        """The testable nets that actually hold an instrument channel
+        resource (user rule: nets left unallocated in the Channel
+        Allocation tables are auto Do-Not-Test - they never enter the
+        Test Work Flow sequence builder).
+
+        A net qualifies when every channel cell of its table kind is
+        assigned: power = Impedance + Power rails + Voltage (the three
+        DAQM908A / U2355A resources), clock = SE Clock Hz, gpio = DIO
+        Channel.  Nets not present in the allocation keep the parse
+        result (they are not table objects)."""
+        testable = self.imported.get("testable_nets") or {}
+        required = {"power": ("impedance", "power_rails", "voltage"),
+                    "clock": ("se_clock_hz",),
+                    "gpio": ("dio_channel",)}
+        out = {}
+        for kind, keys in required.items():
+            for row in (self.channel_allocation or {}).get(kind) or []:
+                net = str(row.get("net") or "").strip()
+                info = testable.get(net)
+                if not info:
+                    continue
+                if all(str(row.get(k) or "").strip()
+                       not in ("", UNSET) for k in keys):
+                    out[net] = info
+        return out
 
     def set_power_rails(self, data: dict) -> None:
         """Store the Test Work Flow page's power-rails capture config

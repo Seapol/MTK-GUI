@@ -167,6 +167,38 @@ class RealGateway:
                 pass
         self._drivers.clear()
 
+    # ------------------------------------------------- per-instrument
+    def connect_instrument(self, abbr: str) -> tuple[bool, str]:
+        """Open ONE instrument driver (per-instrument Connect).
+
+        Returns:
+            (ok, line) - the line is a human-readable result for the
+            Event Log.
+        """
+        try:
+            key = _INSTRUMENT_KEYS.get(abbr, abbr)
+            self._driver(abbr)
+            return True, f"{abbr} connected ({self._address(key)})"
+        except Exception as exc:  # noqa: BLE001 - outcome, not crash
+            return False, f"{abbr} init failed: {exc}"
+
+    def disconnect_instrument(self, abbr: str) -> tuple[bool, str]:
+        """Close ONE instrument driver (per-instrument Disconnect).
+
+        Returns:
+            (ok, line) - the line is a human-readable result for the
+            Event Log.
+        """
+        drv = self._drivers.pop(abbr, None)
+        if drv is None:
+            return True, f"{abbr} was not connected"
+        try:
+            drv.close()
+            return True, f"{abbr} disconnected"
+        except Exception as exc:  # noqa: BLE001 - keep the session
+            self._drivers[abbr] = drv
+            return False, f"{abbr} close failed: {exc}"
+
     # ------------------------------------------------------- op steps
     KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "power",
                       "flash", "generic")

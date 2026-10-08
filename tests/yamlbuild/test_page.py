@@ -199,6 +199,14 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
         "3V3": {"category": "Power", "members": ["U1.5"]},
         "CLK_24M": {"category": "Clock", "members": ["U1.10"]},
     }
+    # user rule: only nets WITH allocated channels enter the builder
+    page.model.set_channel_allocation({
+        "power": [{"net": "3V3", "impedance": "DAQM908A #1 CH101",
+                   "power_rails": "U2355A AI01",
+                   "voltage": "DAQM908A #1 CH101"}],
+        "clock": [{"net": "CLK_24M", "se_clock_hz": "DAQM907A TOT"}],
+        "gpio": [],
+    })
     monkeypatch.setattr(
         ict_sequence.IctWorkFlowSequenceDialog, "exec",
         lambda self: self.DialogCode.Accepted)

@@ -224,7 +224,10 @@ class YamlBuildPage(QWidget):
                 IctWorkFlowSequenceDialog,
             )
             dlg = IctWorkFlowSequenceDialog(
-                lambda: self.model.imported.get("testable_nets") or {},
+                # user rule: nets WITHOUT an allocated instrument
+                # channel are auto Do-Not-Test - only allocated nets
+                # reach the Test Work Flow sequence builder
+                self.model.allocated_testable,
                 parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.ict_sequence_ready.emit(dlg.result_tests())

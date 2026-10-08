@@ -242,3 +242,41 @@ def test_every_module_has_fields():
     is left without its dedicated parameters)."""
     for key in STAGE_KEYS:
         assert len(fields_for(key)) > 0, key
+
+
+def test_allocated_testable_filters_unallocated_nets():
+    """User rule: nets WITHOUT an allocated instrument channel are
+    auto Do-Not-Test - allocated_testable() only returns the nets
+    whose channel cells are fully assigned."""
+    model = YamlBuildModel()
+    model.imported["testable_nets"] = {
+        "VDD_1V8": {"category": "Power", "members": ["TP1.1"]},
+        "VDD_3V3": {"category": "Power", "members": ["TP2.1"]},
+        "CLK_OUT": {"category": "Clock", "members": ["TP3.1"]},
+        "CLK_RTC": {"category": "Clock", "members": ["TP4.1"]},
+        "GPIO_EN": {"category": "GPIO", "members": ["R1.1"]},
+        "GPIO_STRAP": {"category": "GPIO", "members": ["R2.1"]},
+    }
+    model.set_channel_allocation({
+        "power": [
+            {"net": "VDD_1V8", "impedance": "DAQM908A #1 CH101",
+             "power_rails": "U2355A AI01", "voltage": "DAQM908A #1 CH101"},
+            # VDD_3V3: no channels -> excluded
+            {"net": "VDD_3V3", "impedance": "—", "power_rails": "—",
+             "voltage": "—"},
+        ],
+        "clock": [
+            {"net": "CLK_OUT", "se_clock_hz": "DAQM907A TOT"},
+            {"net": "CLK_RTC", "se_clock_hz": "—"},   # excluded
+        ],
+        "gpio": [
+            {"net": "GPIO_EN", "dio_channel": "DIO1"},
+            {"net": "GPIO_STRAP", "dio_channel": ""},  # excluded
+        ],
+    })
+    got = model.allocated_testable()
+    assert set(got) == {"VDD_1V8", "CLK_OUT", "GPIO_EN"}
+    assert got["VDD_1V8"]["category"] == "Power"
+    # empty allocation -> nothing is testable
+    model.set_channel_allocation({})
+    assert model.allocated_testable() == {}

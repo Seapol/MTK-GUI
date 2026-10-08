@@ -40,6 +40,11 @@ _ROW_SPECS = (
     ("dmm_visa", "DMM (optional)"),
 )
 
+#: module param key -> engine instrument abbreviation (dmm_visa is the
+#: DAQ973A built-in 6.5-digit DMM - the same mainframe driver)
+_ROW_ABBRS = {"daq_visa": "DAQM", "psu_visa": "PSU",
+              "dmm_visa": "DAQM"}
+
 _CONN_COLORS = {"Connected": "#16a34a", "Disconnected": "#6b7280",
                 "Error": "#dc2626"}
 STATUS_DISCONNECTED = "Disconnected"
@@ -68,10 +73,10 @@ class InstrumentsPanel(QWidget):
         lay.setSpacing(10)
 
         note = QLabel(
-            "All instrument configuration and connection validation "
-            "is centralized on the Equipment page. This window only "
-            "lists the instruments with their connection status and "
-            "the Connect / Disconnect control.")
+            "Instrument parameters live on the Equipment page. This "
+            "window connects / disconnects each instrument "
+            "independently (the same connection kernel as Tools > "
+            "Set All instruments).")
         note.setObjectName("muted")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -168,10 +173,41 @@ class InstrumentsPanel(QWidget):
         self._paint_row(state)
         return state
 
+    def _main_window(self):
+        """The owning MainWindow (walks the parent chain; None when
+        the panel runs standalone in a unit test)."""
+        w = self.parentWidget()
+        while w is not None:
+            if hasattr(w, "_tools_gateway") \
+                    and hasattr(w, "equipment_page"):
+                return w
+            w = w.parentWidget()
+        return None
+
+    def _gateway(self, mw):
+        """The shared RealGateway session (reuses the Tools batch
+        cache on the main window; created lazily from the Equipment
+        page configs)."""
+        gw = getattr(mw, "_tools_gateway", None)
+        if gw is None:
+            from mtkgui.engine.instruments import RealGateway
+            gw = RealGateway(mw.equipment_page.configs)
+            mw._tools_gateway = gw
+        return gw
+
     def _toggle_row(self, state: dict) -> None:
-        """Individual Connect / Disconnect for ONE instrument row
-        (GUI layer only - the connection kernel is untouched)."""
+        """Individual Connect / Disconnect for ONE instrument row.
+
+        Real mode: opens / closes the actual driver via the shared
+        RealGateway session (same machinery as Tools > Set All
+        instruments).  Virtual mode: reports the virtual result - no
+        real rack exists.  Standalone (tests): GUI-only state paint."""
+        abbr = _ROW_ABBRS.get(state["key"])
+        mw = self._main_window()
         if state["connected"]:
+            if mw is not None and mw.mode != "Virtual" and abbr:
+                ok, line = self._gateway(mw).disconnect_instrument(abbr)
+                self.task_log.emit("INFO" if ok else "ERROR", line)
             state["connected"] = False
             state["conn"].setText(STATUS_DISCONNECTED)
             self.task_log.emit(
@@ -179,13 +215,29 @@ class InstrumentsPanel(QWidget):
             if not any(r["connected"] for r in self._rows.values()):
                 self._hub.disconnect()   # no instrument connected left
         else:
-            state["connected"] = True
-            state["conn"].setText("Connected")
-            self._hub.set_connected(True)
-            self.task_log.emit(
-                "INFO",
-                f"{state['name']} connect requested - connection "
-                "validated on the Equipment page")
+            if mw is None or not abbr:
+                # standalone: GUI-only paint (legacy behavior)
+                ok, line = True, "connect requested"
+            elif mw.mode == "Virtual":
+                ok, line = True, f"{abbr} connected (virtual)"
+            else:
+                ok, line = self._gateway(mw).connect_instrument(abbr)
+                self.task_log.emit("INFO" if ok else "ERROR", line)
+            if ok:
+                state["connected"] = True
+                state["conn"].setText("Connected")
+                self._hub.set_connected(True)
+            if line != "connect requested":
+                self.task_log.emit(
+                    "INFO" if ok else "ERROR",
+                    f"{state['name']}: {line}")
+            elif ok:
+                self.task_log.emit(
+                    "INFO",
+                    f"{state['name']} connect requested - connection "
+                    "validated on the Equipment page")
+            if not ok:
+                state["conn"].setText("Error")
         self._paint_row(state)
 
     def _connect_all(self) -> None:

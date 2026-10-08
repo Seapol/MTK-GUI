@@ -322,6 +322,7 @@ class TestWorkFlowPage(QWidget):
         self.rail_volts = None
         self.rail_csv_path = None
         self._rail_plot_cache = []
+        self._ai_review_text = None
         # Virtual mode hardware rack (DAQ973A / U2355A / N5747A / fixture
         # simulation); None in Real mode until the SCPI drivers land
         self.rack = None
@@ -2314,6 +2315,15 @@ class TestWorkFlowPage(QWidget):
         self._runner.reset_results()
         if self.rack is not None:
             self.rack.reset_cycle()  # new unit: PSU off, fixture released
+        # user direction: every new run clears the last power-rails
+        # capture - the waveform is re-captured and redrawn when the
+        # DAQ AI step executes again
+        self.rail_samples = None
+        self.rail_volts = None
+        self._rail_plot_cache = []
+        self.rail_csv_path = None
+        self._ai_review_text = None
+        self._apply_rail_filter()
         self._fill_ict(placeholder=True)
         for r in range(self.fct.rowCount()):
             self._set_status(self.fct, r, 3, "--")

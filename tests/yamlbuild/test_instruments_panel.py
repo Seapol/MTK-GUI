@@ -159,3 +159,84 @@ def test_block02_dialog_embeds_panel(qapp):
                                         "dmm_visa"}
     finally:
         dlg.deleteLater()
+
+
+# ------------------------------------------------- embedded real-mode
+def test_embedded_panel_uses_real_gateway(qapp, hub, monkeypatch):
+    """Inside the MainWindow the row buttons open / close the ACTUAL
+    driver via the shared RealGateway session (user direction: the
+    panel connects like Tools, not only paints)."""
+    import types
+
+    import mtkgui.engine.instruments as inst
+
+    calls = []
+
+    class _FakeGateway:
+        def __init__(self, equipment):
+            calls.append(("create", dict(equipment)))
+
+        def connect_instrument(self, abbr):
+            calls.append(("connect", abbr))
+            return True, f"{abbr} connected (FAKE)"
+
+        def disconnect_instrument(self, abbr):
+            calls.append(("disconnect", abbr))
+            return True, f"{abbr} disconnected"
+
+    monkeypatch.setattr(inst, "RealGateway", _FakeGateway)
+
+    holder = types.SimpleNamespace()          # duck-typed main window
+    holder._tools_gateway = None
+    holder.equipment_page = types.SimpleNamespace(
+        configs={"daq973a": {"fields": {"Address": "GPIB0::9::INSTR"}},
+                 "psu": {"fields": {"Address": "TCPIP0::1.2.3.4::inst0"}}})
+
+    from PySide6.QtWidgets import QWidget
+    shell = QWidget()
+    hub2 = InstrumentStatusHub()
+    panel = InstrumentsPanel(hub=hub2, parent=shell)
+    # emulate the parent chain the page provides
+    class _Page(QWidget):
+        pass
+    page = _Page()
+    panel.setParent(page)
+    page._tools_gateway = None               # duck-type marker
+    page.equipment_page = holder.equipment_page
+    page.mode = "Real"
+    holder = page
+
+    logs = []
+    panel.task_log.connect(lambda l, m: logs.append((l, m)))
+    panel._rows["daq_visa"]["btn"].click()
+    assert ("connect", "DAQM") in calls
+    assert panel._rows["daq_visa"]["conn"].text() == "Connected"
+    assert any("DAQM connected (FAKE)" in m for _l, m in logs)
+    # shared session created once and cached on the main window
+    assert page._tools_gateway is not None
+    panel._rows["daq_visa"]["btn"].click()
+    assert ("disconnect", "DAQM") in calls
+    assert panel._rows["daq_visa"]["conn"].text() == "Disconnected"
+    panel.deleteLater(); page.deleteLater(); shell.deleteLater()
+
+
+def test_embedded_panel_virtual_mode(qapp, monkeypatch):
+    """Virtual mode: the panel reports virtual results - no
+    RealGateway is ever created (no Address needed)."""
+    import types
+
+    import mtkgui.engine.instruments as inst
+
+    def _boom(*a, **k):
+        raise AssertionError("RealGateway must not be created")
+
+    monkeypatch.setattr(inst, "RealGateway", _boom)
+    from PySide6.QtWidgets import QWidget
+    page = QWidget()
+    page._tools_gateway = None
+    page.equipment_page = types.SimpleNamespace(configs={})
+    page.mode = "Virtual"
+    panel = InstrumentsPanel(parent=page)
+    panel._rows["psu_visa"]["btn"].click()
+    assert panel._rows["psu_visa"]["conn"].text() == "Connected"
+    panel.deleteLater(); page.deleteLater()

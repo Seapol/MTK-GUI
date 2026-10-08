@@ -211,12 +211,17 @@ class SerialStatusBar(QWidget):
         self._row = QHBoxLayout(self)
         self._row.setContentsMargins(6, 0, 6, 0)
         self._row.setSpacing(6)
+        # user direction: a 'Console:' caption before the first LED
+        caption = QLabel("Console:")
+        caption.setObjectName("muted")
+        self._row.addWidget(caption)
         self._leds = {}
 
     def sync_channels(self, channels):
         """Mirror the console channel set and connection states
-        (full rebuild - channel sets change rarely)."""
-        while self._row.count() > 0:
+        (full rebuild - channel sets change rarely; the caption at
+        index 0 is kept)."""
+        while self._row.count() > 1:
             item = self._row.takeAt(self._row.count() - 1)
             w = item.widget()
             if w is not None:
@@ -750,6 +755,8 @@ class MainWindow(QMainWindow):
             "Apply and Save Yaml", self.apply_and_save_yaml)
         self.act_save_yaml_as = file_menu.addAction(
             "Save as Yaml…", self.save_yaml_as)
+        self.act_close_yaml = file_menu.addAction(
+            "Close Yaml", self.close_yaml)
         file_menu.addSeparator()
         self.act_switch = file_menu.addAction(
             "Switch Account…", self.switch_account)
@@ -923,6 +930,16 @@ class MainWindow(QMainWindow):
                 "YAML.\n\nPlease go to the Equipment page and check "
                 "the instrument configuration, ports and connection "
                 "parameters first.")
+            return
+        if self.mode == "Virtual":
+            # Virtual mode: there is no real rack - the RealGateway
+            # would fail on the missing 'Address' YAML field even
+            # though every Equipment-page dialog connects virtually.
+            # Report the virtual result directly (no worker thread).
+            lines = [f"{abbr} connect OK (virtual)" for abbr in abbrs] \
+                if action == "Connect all" else \
+                [f"{abbr} OK (virtual)" for abbr in abbrs]
+            self._tools_batch_done(action, lines, True)
             return
         if self._tools_thread is not None and self._tools_thread.isRunning():
             QMessageBox.information(
@@ -1215,6 +1232,48 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_project_file(path)
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
+
+    def close_yaml(self):
+        """File > Close Yaml: drop the current project and reset the
+        GUI to the factory no-yaml state (blank product info, default
+        stop policies, empty ICT/FCT tables, no rails / consoles,
+        equipment defaults, fresh Yaml Build model)."""
+        if self._project_path:
+            answer = QMessageBox.question(
+                self, "Close Yaml",
+                "Close the current YAML and reset to the factory "
+                "state?\n\nUnsaved changes are kept on disk only if "
+                "you saved before.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        page = self.workflow_page
+        # product info + stop policies back to the factory defaults
+        page.part_edit.setText("")
+        page.core_edit.setText("")
+        page.batch_edit.setText("")
+        page.serial_edit.setText("")
+        page.stop_if_fail_cb.setChecked(False)
+        page.stop_if_short_cb.setChecked(True)
+        page.auto_sn.setChecked(False)
+        page._runner.set_retry(0, source="factory")
+        page._runner.reset_results()
+        # overall flow EN + tables / rails / consoles -> no-yaml state
+        page.set_overall_en([True, True])
+        page.clear_tables()
+        page.set_project_file(None)
+        # equipment defaults (same shape apply_config restores into)
+        from mtkgui.equipment_page import _mock_configs
+        self.equipment_page.configs = _mock_configs()
+        # Yaml Build model -> fresh (apply_state of an empty state
+        # clears imported nets / allocation / rail config, keeps the
+        # factory parameter defaults)
+        self.yaml_build_page.model.apply_state({})
+        self._sync_rails_to_workflow()
+        self.yaml_build_page.refresh_all()
+        self._project_path = None
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Yaml closed - "
+            "GUI reset to the factory state")
 
     def _goto_test_workflow(self):
         """Merged 'Build ICT Test Work Flow Sequence' card: switch to

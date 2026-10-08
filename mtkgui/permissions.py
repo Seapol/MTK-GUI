@@ -243,13 +243,13 @@ class LoginDialog(QDialog):
         # item 12: full adaptive layout - no fixed max size; Qt layout
         # rules drive width / height (Windows / macOS high-DPI safe:
         # logical px minimums, widgets grow with the window)
-        self.setMinimumSize(480, 570)
-        self.resize(480, 570)
+        self.setMinimumSize(480, 540)
+        self.resize(480, 540)
         self.setSizeGripEnabled(True)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(32, 24, 32, 12)
-        outer.setSpacing(10)
+        outer.setContentsMargins(40, 26, 40, 10)
+        outer.setSpacing(8)
 
         # brand logo (item 12): official mark, adaptive scaling, no
         # distortion / occlusion (aspect ratio locked by the SVG)
@@ -268,26 +268,31 @@ class LoginDialog(QDialog):
         version.setObjectName("login_version")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         outer.addWidget(version)
-        outer.addSpacing(6)
+        outer.addSpacing(16)
 
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
+        # form card: the inputs sit on a soft rounded panel, capped at
+        # a comfortable width and centered (no edge-to-edge stretch)
+        card = QFrame()
+        card.setObjectName("login_card")
+        card.setMaximumWidth(380)
+        form = QFormLayout(card)
+        form.setContentsMargins(20, 18, 20, 18)
         form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(12)
+        form.setVerticalSpacing(14)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight
                                | Qt.AlignmentFlag.AlignVCenter)
 
         # 1 ------------------------------------------------------- account
         self.role_combo = QComboBox()
         self.role_combo.addItems(ROLES)
-        self.role_combo.setFixedHeight(34)   # uniform control height
+        self.role_combo.setFixedHeight(36)   # uniform control height
         form.addRow("Account:", self.role_combo)
 
         # 2 ------------------------------------------------------ password
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_edit.setPlaceholderText("Supervisor password")
-        self.password_edit.setFixedHeight(34)
+        self.password_edit.setPlaceholderText("Password")
+        self.password_edit.setFixedHeight(36)
         form.addRow("Password:", self.password_edit)
 
         # 3 ---------------------------------------------------- mode switch
@@ -300,18 +305,24 @@ class LoginDialog(QDialog):
         # 4 ------------------------------------------------- fixture choice
         self.fixture_selector = FixtureSelector()
         form.addRow("Fixture:", self.fixture_selector)
-        outer.addLayout(form)
 
-        # descriptive text (item 12): moderate MIDDLE area, centered -
-        # no bottom-biased offset indentation; the stretches above and
-        # below park it in the middle of the free window space
-        outer.addStretch(1)
+        # center the capped-width card in the dialog
+        card_row = QHBoxLayout()
+        card_row.addStretch(1)
+        card_row.addWidget(card)
+        card_row.addStretch(1)
+        outer.addLayout(card_row)
+
+        # descriptive text (item 12): directly under the form card,
+        # centered - content clusters at the top, no mid-window hole
+        outer.addSpacing(10)
         hint = QLabel("Operator: no password needed.\n"
                       "Supervisor: enter the account password.\n"
                       "Mode switch unlocks for supervisor only.")
         hint.setObjectName("login_hint")
         hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(hint)
+
         outer.addStretch(1)
 
         # 5 --------------------------------------------------- login button
@@ -421,6 +432,11 @@ class LoginDialog(QDialog):
                 font-size: 12px;
                 color: {t['muted']};
             }}
+            QFrame#login_card {{
+                background-color: {t['card']};
+                border: 1px solid {t['border']};
+                border-radius: 12px;
+            }}
             QLabel#login_logo_text {{
                 font-size: 26px;
                 font-weight: 800;
@@ -428,8 +444,10 @@ class LoginDialog(QDialog):
                 color: #004c97;
             }}
             QLabel#login_hint {{
-                font-size: 11px;
+                font-size: 12px;
+                line-height: 150%;
                 color: {t['muted']};
+                background: transparent;
             }}
             QFrame#login_footer {{
                 border-top: 1px solid {t['border']};
@@ -445,10 +463,10 @@ class LoginDialog(QDialog):
                 background: transparent;
             }}
             QLineEdit, QComboBox {{
-                background-color: {t['card']};
+                background-color: {t['page']};
                 color: {t['text']};
                 border: 1px solid {t['border']};
-                border-radius: 6px;
+                border-radius: 8px;
                 padding: 6px 10px;
                 min-height: 22px;
                 selection-background-color: {t['sel_bg']};
@@ -475,10 +493,11 @@ class LoginDialog(QDialog):
                 background-color: {t['accent']};
                 color: {t['accent_text']};
                 border: none;
-                border-radius: 6px;
-                padding: 7px 18px;
+                border-radius: 8px;
+                padding: 8px 22px;
                 font-weight: bold;
-                min-width: 120px;
+                font-size: 14px;
+                min-width: 130px;
             }}
             QPushButton#login_btn:hover {{
                 background-color: {t['accent']};
@@ -487,11 +506,11 @@ class LoginDialog(QDialog):
                 background-color: {t['accent_press']};
             }}
             QPushButton#login_secondary {{
-                background-color: {t['card']};
+                background-color: transparent;
                 color: {t['muted']};
                 border: 1px solid {t['border']};
-                border-radius: 6px;
-                padding: 7px 14px;
+                border-radius: 8px;
+                padding: 8px 18px;
             }}
             QPushButton#login_secondary:hover {{
                 border: 1px solid {t['accent']};

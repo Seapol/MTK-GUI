@@ -43,7 +43,7 @@ def test_adaptive_size(dlg):
     """Item 12: full adaptive layout - no fixed maximum; Qt layout
     rules drive width / height from the logical-px minimums."""
     assert dlg.minimumWidth() >= 470
-    assert dlg.minimumHeight() >= 550
+    assert dlg.minimumHeight() >= 530
     # resizable: no fixed max clamped to the minimum
     assert dlg.maximumWidth() > dlg.minimumWidth()
     assert dlg.maximumHeight() > dlg.minimumHeight()
@@ -66,17 +66,17 @@ def test_dialog_centers_on_show(qapp, dlg):
 
 # ------------------------------------------------------------- styling
 def test_inputs_share_uniform_style(dlg):
-    """Account combo and password edit: same height, radius 6, thin
+    """Account combo and password edit: same height, radius 8, thin
     border, uniform padding - one visual language."""
     t = _tokens()
     qss = dlg.styleSheet()
-    assert "border-radius: 6px" in qss
+    assert "border-radius: 8px" in qss
     assert f"border: 1px solid {t['border']}" in qss
     assert "padding: 6px 10px" in qss
     # same fixed content height for both inputs
     h_combo = dlg.role_combo.height()
     h_edit = dlg.password_edit.height()
-    assert h_combo == h_edit == 34
+    assert h_combo == h_edit == 36
 
 
 def test_login_button_accent_styling(dlg):
