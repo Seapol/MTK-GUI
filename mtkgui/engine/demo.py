@@ -610,7 +610,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m mtkgui.engine.demo",
         description="Headless full-sequence test run (no GUI).")
     parser.add_argument(
-        "--config", default="yaml_plan/FRDM-IMX93_12345_Dev_rev1.1.yaml",
+        "--config",
+        default="projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml",
         help="project YAML (loaded via the Common loader)")
     parser.add_argument("--mode", choices=("virtual", "real"),
                         default="virtual",
