@@ -882,14 +882,15 @@ class MainWindow(QMainWindow):
         # Help stays the rightmost menu of the fixed final order
         self.help_menu = self.menuBar().addMenu("Help")
         self.help_menu.addAction(
-            "User Guide", lambda: self._open_help("user_guide"))
+            "User Guide", lambda: self._open_help("overview"))
         self.help_menu.addAction(
-            "Developer Guide", lambda: self._open_help("developer_guide"))
+            "Page Guide", lambda: self._open_help("page_guide"))
         self.help_menu.addAction(
-            "Version History", lambda: self._open_help("version_history"))
+            "FAQ / Troubleshooting", lambda: self._open_help("faq"))
         self.help_menu.addAction(
-            "Readme & Quick Start",
-            lambda: self._open_help("readme_quickstart"))
+            "Security & Roles", lambda: self._open_help("security_roles"))
+        self.help_menu.addSeparator()
+        self.help_menu.addAction("About", self._open_about)
 
     # ------------------------------------------------- V4.0 Tools batch
     _TOOL_ABBRS = ("DAQM", "DAQ", "PSU")
@@ -995,32 +996,46 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self, key):
-        """Help menu: open the built-in guide dialog for one topic.
-
-        Phase A mounts the menu; the full guide content provider lands
-        with V4.0 phase B2 (interface_spec.md section 29).
+        """Help menu: render one built-in guide topic (Module C) from
+        docs/help/ markdown-lite files into a scrollable HTML dialog.
 
         Args:
-            key: One of the HELP_KEYS topic identifiers.
+            key: a help_content.HELP_TOPICS identifier.
         """
+        from .gui.help_content import HELP_TOPICS, load_topic_html
+        if key not in HELP_TOPICS:
+            return
         titles = {
-            "user_guide": "User Guide",
-            "developer_guide": "Developer Guide",
-            "version_history": "Version History",
-            "readme_quickstart": "Readme & Quick Start",
+            "overview": "User Guide — Overview",
+            "getting_started": "Getting Started",
+            "page_guide": "Page Guide",
+            "instruments": "Instruments & Connections",
+            "test_items": "Test Items",
+            "reports_logs": "Reports & Logs",
+            "faq": "FAQ / Troubleshooting",
+            "security_roles": "Security & Roles",
         }
-        text = (f"[ {titles.get(key, key)} ]\n\n"
-                "Full built-in guide content ships with V4.0 phase B2 "
-                "(feature/help-report-menus).")
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Help - {titles.get(key, key)}")
+        dlg.setWindowTitle(f"Help — {titles.get(key, key)}")
         lay = QVBoxLayout(dlg)
-        view = QPlainTextEdit()
-        view.setReadOnly(True)
-        view.setPlainText(text)
-        lay.addWidget(view)
-        dlg.resize(720, 520)
+        browser = QTextBrowser()
+        browser.setHtml(load_topic_html(key))
+        browser.setOpenExternalLinks(False)
+        lay.addWidget(browser)
+        dlg.resize(760, 560)
         dlg.exec()
+
+    def _open_about(self):
+        """Help > About: version, branch, build info (Module C)."""
+        from .gui.help_content import about_html
+        box = QMessageBox(self)
+        box.setWindowTitle("About MTK GUI")
+        browser = QTextBrowser()
+        browser.setHtml(about_html())
+        browser.setMinimumSize(420, 300)
+        box.layout().addWidget(browser)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
     def _open_dut_report(self):
         """Report > Generate Report: DUT detail + batch summary for the
