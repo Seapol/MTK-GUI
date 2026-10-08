@@ -19,6 +19,7 @@ from pathlib import Path
 from PySide6.QtCore import (QEvent, QObject, QSettings, Qt, QThread,
                             QTimer, Signal)
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
+from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtWidgets import (
     QApplication,
     QColorDialog,
@@ -391,6 +392,9 @@ class MainWindow(QMainWindow):
 
         # path of the currently loaded / saved project YAML (None = new)
         self._project_path = None
+        # Module B report session batch (auto-captured per product)
+        self._session_reports: list = []
+        self._last_batch = None
 
         self._build_ui()
         self._build_menus()
@@ -684,6 +688,9 @@ class MainWindow(QMainWindow):
         # task complete: fill the progress bar full then auto-reset
         self.workflow_page.run_finished.connect(
             self._finish_run_progress)
+        # Module B: every counted product is captured into the session
+        # batch (automatic report trigger, B4 §8.3)
+        self.workflow_page.run_finished.connect(self._on_run_report_auto)
         # long-task progress + Event-Log detail from the Yaml Build
         # page (Excel import / publish, T6): global status bar + log
         self.yaml_build_page.task_progress.connect(self._on_task_progress)
@@ -866,7 +873,8 @@ class MainWindow(QMainWindow):
 
         # ---------------------------------------------- V4.0: Report menu
         self.report_menu = self.menuBar().addMenu("Report")
-        self.report_menu.addAction("DUT Report", self._open_dut_report)
+        self.report_menu.addAction("Generate Report…",
+                                   self._open_dut_report)
         self.report_menu.addAction("Event Log", self._open_report_event_log)
         self.report_menu.addAction("Statistics", self._open_statistics)
 
@@ -1015,14 +1023,45 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _open_dut_report(self):
-        """Report > DUT Report: per-unit PDF export placeholder.
+        """Report > Generate Report: DUT detail + batch summary for the
+        current session (Module B) - preview HTML + CSV export."""
+        from mtkgui.engine.report import (
+            BatchSummary,
+            DutReport,
+            save_batch_csv,
+            save_dut_csv,
+        )
+        page = self.workflow_page
+        report = DutReport.from_session(page)
+        summary = BatchSummary(reports=[report])
+        # preview: DUT detail + batch statistics (print view = the HTML)
+        box = QMessageBox(self)
+        box.setWindowTitle("Generate Report")
+        browser = QTextBrowser()
+        browser.setHtml(report.to_html() + "<hr>" + summary.to_html())
+        browser.setMinimumSize(680, 460)
+        box.layout().addWidget(browser)
+        box.setStandardButtons(QMessageBox.StandardButton.Close)
+        # export (Operator: current session is read-only preview only)
+        if self.role == ROLE_SUPERVISOR:
+            out_dir = Path("reports")
+            dut_csv = save_dut_csv(report, out_dir)
+            batch_csv = save_batch_csv(summary, out_dir)
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Report exported: "
+                f"{dut_csv} + {batch_csv}")
+        box.exec()
 
-        The PDF builder (Qt QPdfWriter, fixed DUT_[PASS/FAIL]_...
-        naming) ships with V4.0 phase B3 (interface_spec.md 30)."""
-        QMessageBox.information(
-            self, "DUT Report",
-            "Per-unit DUT report (PDF) export ships with V4.0 phase B3 "
-            "(feature/report-backend).")
+    def _on_run_report_auto(self, summary: dict) -> None:
+        """Automatic report capture: every counted product appends to
+        the session batch (B4 §8.3 trigger)."""
+        if not summary.get("counted"):
+            return
+        from mtkgui.engine.report import BatchSummary, DutReport
+        report = DutReport.from_session(self.workflow_page)
+        self._session_reports.append(report)
+        # keep the latest batch on hand for Report > Batch Summary
+        self._last_batch = BatchSummary(reports=list(self._session_reports))
 
     def _open_report_event_log(self):
         """Report > Event Log: full-lifecycle TXT log viewer

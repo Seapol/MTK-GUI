@@ -16,6 +16,7 @@ archive/
 audit/
 demo/
 projects/
+reports/
 # yaml plan workspace: runtime products only (examples/ is versioned
 # user documentation and stays tracked)
 yaml_plan/*
