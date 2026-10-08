@@ -374,7 +374,7 @@ class CaseIOPage(QWidget):                       # route: case_io
     last_report: dict | None                     # last diff report
     on_export() -> path | None
         # full 17-column review workbook; auto path
-        # config/review/ICT_REVIEW_<ts>.xlsx; empty case list -> None
+        # yaml_plan/review/ICT_REVIEW_<ts>.xlsx; empty case list -> None
     on_import() -> diff_report | None
         # pre-flight: dirty/empty workbook (ValueError) and
         # version-locked-case conflicts block the WHOLE import,

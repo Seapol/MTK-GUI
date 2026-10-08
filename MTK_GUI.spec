@@ -4,12 +4,21 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = []
 hiddenimports += collect_submodules('serial')
 
+# only the runtime-needed data files (the user's own YAML plans live
+# in yaml_plan/ OUTSIDE the package and are NOT shipped)
+datas = [
+    ('config/permissions.json', 'config'),
+    ('config/FRDM-IMX93_Nets.xlsx', 'config'),
+    ('config/12345_FRDM-IMX93_Nets_revA.xlsx', 'config'),
+    ('yaml_plan/examples', 'yaml_plan/examples'),
+    ('resources', 'resources'),
+]
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

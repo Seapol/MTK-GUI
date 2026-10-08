@@ -292,7 +292,7 @@ assert wf.btn_stop.isEnabled() is False
 print("run gate (no yaml) ok")
 
 from mtkgui.project_config import load_config, apply_config
-cfg = load_config(str(Path("config/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
+cfg = load_config(str(Path("yaml_plan/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
 apply_config(cfg, wf, w.equipment_page)
 assert wf.overall.rowCount() == 2
 assert wf.ict.rowCount() == 172
@@ -496,7 +496,7 @@ wf3 = w3.workflow_page
 assert wf3.virtual_mode is True
 assert wf3.multi_console.virtual_mode is True
 # load YAML so tables are populated for the virtual demo run
-cfg3 = load_config(str(Path("config/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
+cfg3 = load_config(str(Path("yaml_plan/FRDM-IMX93_12345_Dev_rev1.1.yaml")))
 apply_config(cfg3, wf3, w3.equipment_page)
 # fault injection ratios support 0.01 % precision (dialog + roundtrip)
 from mtkgui.virtual_mode import VirtualFaultDialog, load_fault_config, \

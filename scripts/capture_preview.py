@@ -32,7 +32,7 @@ app = QApplication(sys.argv)
 app.setStyleSheet(QSS)
 OUT.mkdir(exist_ok=True)
 
-YAML = REPO / "config" / "FRDM-IMX93_12345_Dev_rev1.1.yaml"
+YAML = REPO / "yaml_plan" / "FRDM-IMX93_12345_Dev_rev1.1.yaml"
 
 # ------------------------------------------------------------------ Real mode
 w = MainWindow()

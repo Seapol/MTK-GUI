@@ -4,11 +4,17 @@
 Run on a Windows machine:
     pyinstaller --noconfirm MTK_GUI_windows.spec
 
-The project "config" folder (permissions.json, sample project YAML /
-netlist workbooks) is bundled into the package.  In a frozen onedir
-bundle the mtkgui modules live in _internal/, so the bundled folder
-lands at _internal/config - exactly where permissions.py and
-quick_commands.py look first (candidate_paths() -> pkg_root/config).
+Bundled data (only the runtime-needed files - the user's own YAML
+plans live in yaml_plan/ OUTSIDE the package and are NOT shipped):
+
+* config/permissions.json          -> _internal/config
+* config/*.xlsx (sample netlists)  -> _internal/config
+* yaml_plan/examples               -> _internal/yaml_plan/examples
+* resources (logo / version.json)  -> _internal/resources
+
+In a frozen onedir bundle the mtkgui modules live in _internal/, so
+the bundled folders land where permissions.py / quick_commands.py
+look first (candidate_paths() -> pkg_root/config).
 """
 
 from PyInstaller.utils.hooks import collect_submodules
@@ -16,11 +22,19 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = []
 hiddenimports += collect_submodules('serial')
 
+datas = [
+    ('config/permissions.json', 'config'),
+    ('config/FRDM-IMX93_Nets.xlsx', 'config'),
+    ('config/12345_FRDM-IMX93_Nets_revA.xlsx', 'config'),
+    ('yaml_plan/examples', 'yaml_plan/examples'),
+    ('resources', 'resources'),
+]
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('config', 'config')],   # bundled at _internal/config
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

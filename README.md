@@ -142,9 +142,11 @@ mtk-gui/
 ├── requirements.txt
 ├── smoke_test.py              # Headless smoke / regression test
 ├── config/
-│   ├── FRDM-IMX93_12345_Dev_rev1.1.yaml   # Demo project (ICT/FCT/rails)
-│   ├── *_Nets.xlsx                         # Test-point net list
-│   └── permissions.json
+│   ├── permissions.json                    # Role / permission config
+│   └── *_Nets.xlsx                         # Test-point net list
+├── yaml_plan/
+│   ├── examples/                           # 8 official demo plans (shipped)
+│   └── *.yaml                              # User's own plans (NOT shipped)
 ├── mtkgui/
 │   ├── main_window.py         # Main window, menus, mode/role integration
 │   ├── equipment_page.py      # Equipment block diagram + config dialogs
