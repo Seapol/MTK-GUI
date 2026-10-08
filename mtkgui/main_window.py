@@ -1053,14 +1053,17 @@ class MainWindow(QMainWindow):
         page = self.workflow_page
         report = DutReport.from_session(page)
         summary = BatchSummary(reports=[report])
-        # preview: DUT detail + batch statistics (print view = the HTML)
-        box = QMessageBox(self)
-        box.setWindowTitle("Generate Report")
+        # preview dialog (proper QDialog: a QMessageBox squeezes the
+        # browser widget - same fix as the About window)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Generate Report")
+        lay = QVBoxLayout(dlg)
         browser = QTextBrowser()
         browser.setHtml(report.to_html() + "<hr>" + summary.to_html())
-        browser.setMinimumSize(680, 460)
-        box.layout().addWidget(browser)
-        box.setStandardButtons(QMessageBox.StandardButton.Close)
+        lay.addWidget(browser)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
         # export (Operator: current session is read-only preview only)
         if self.role == ROLE_SUPERVISOR:
             out_dir = Path("reports")
@@ -1069,7 +1072,8 @@ class MainWindow(QMainWindow):
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Report exported: "
                 f"{dut_csv} + {batch_csv}")
-        box.exec()
+        dlg.resize(720, 520)
+        dlg.exec()
 
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture: every counted product appends to
