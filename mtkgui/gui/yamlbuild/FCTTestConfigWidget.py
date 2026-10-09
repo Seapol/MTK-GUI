@@ -264,7 +264,7 @@ class FCTTestConfigPanel(QWidget):
                                         QCheckBox)
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
-        dlg.setMinimumWidth(500)
+        dlg.setMinimumWidth(750)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -304,18 +304,34 @@ class FCTTestConfigPanel(QWidget):
         else:
             timeout_spin.setValue(6)
         lay.addWidget(timeout_spin)
-        # pattern text (big, commonly used)
+        # pattern text (3 lines)
         lay.addWidget(QLabel("Pattern text:"))
         pattern_edit = QTextEdit()
         pattern_edit.setPlainText(self.cmd_table.item(row, col).text())
-        pattern_edit.setMinimumHeight(120)
+        pattern_edit.setMaximumHeight(70)
         lay.addWidget(pattern_edit)
-        # test input (disabled when not regex)
+        # test input (10 lines, disabled when not regex)
         lay.addWidget(QLabel("Regex match test (sample output per pattern):"))
         test_edit = QTextEdit()
-        test_edit.setMaximumHeight(80)
+        test_edit.setMinimumHeight(220)
         test_edit.setEnabled(False)
         lay.addWidget(test_edit)
+        # Load sample from file button
+        load_btn = QPushButton("Load sample from file...")
+        load_btn.setEnabled(False)
+        def _load_sample():
+            from PySide6.QtWidgets import QFileDialog
+            path, _ = QFileDialog.getOpenFileName(
+                dlg, "Open log file", "",
+                "Log files (*.log *.txt);;All files (*)")
+            if path:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        test_edit.setPlainText(f.read())
+                except Exception as e:
+                    result_label.setText(f"Load error: {e}")
+        load_btn.clicked.connect(_load_sample)
+        lay.addWidget(load_btn)
         test_btn = QPushButton("Test match")
         test_btn.setEnabled(False)
         lay.addWidget(test_btn)
@@ -325,6 +341,7 @@ class FCTTestConfigPanel(QWidget):
         def _on_regex_changed(state):
             test_edit.setEnabled(state)
             test_btn.setEnabled(state)
+            load_btn.setEnabled(state)
         regex_cb.toggled.connect(_on_regex_changed)
         def _test():
             import re
