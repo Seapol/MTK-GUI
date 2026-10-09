@@ -287,20 +287,28 @@ class FCTTestConfigPanel(QWidget):
         else:
             timeout_spin.setValue(6)
         lay.addWidget(timeout_spin)
-        # pattern text
+        # pattern text (big, commonly used)
         lay.addWidget(QLabel("Pattern text:"))
         pattern_edit = QTextEdit()
         pattern_edit.setPlainText(self.cmd_table.item(row, col).text())
-        pattern_edit.setMaximumHeight(80)
+        pattern_edit.setMinimumHeight(120)
         lay.addWidget(pattern_edit)
-        # test input
-        lay.addWidget(QLabel("Test against sample console output:"))
+        # test input (disabled when not regex)
+        lay.addWidget(QLabel("Regex match test (sample output per pattern):"))
         test_edit = QTextEdit()
-        test_edit.setMaximumHeight(100)
+        test_edit.setMaximumHeight(80)
+        test_edit.setEnabled(False)
         lay.addWidget(test_edit)
+        test_btn = QPushButton("Test match")
+        test_btn.setEnabled(False)
+        lay.addWidget(test_btn)
         # result
         result_label = QLabel("")
         lay.addWidget(result_label)
+        def _on_regex_changed(state):
+            test_edit.setEnabled(state)
+            test_btn.setEnabled(state)
+        regex_cb.toggled.connect(_on_regex_changed)
         def _test():
             import re
             pattern = pattern_edit.toPlainText()
@@ -330,9 +338,6 @@ class FCTTestConfigPanel(QWidget):
             except re.error as e:
                 result_label.setText(f"Regex error: {e}")
                 result_label.setStyleSheet("color: red")
-        test_btn = QPushButton("Test match")
-        test_btn.clicked.connect(_test)
-        lay.addWidget(test_btn)
         # common patterns hint
         lay.addWidget(QLabel("Regex common:  root@.*  |  login:  |  ERROR|FAIL  |  \\d+\\.\\d+"))
         # buttons
