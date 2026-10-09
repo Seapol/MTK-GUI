@@ -118,3 +118,35 @@ Engine evidence (EventLog, [Station] [User] fields present):
   `tests/yamlbuild/test_fct_test_panel.py` (3)
 - `scripts/build_frdm_imx93_yaml.py` / `scripts/run_frdm_fct.py`
 - Full regression: 1452 passed / 3 skipped / 0 failed
+
+## BSP capability list (to BUILD, verification DEFERRED — MTK decision)
+
+The BT music-playback test (a2dp_sink) is blocked by two DUT-side gaps.
+Per MTK direction: the BSP team BUILDS these capabilities; verification
+is deferred until delivery.  mtk-gui is ready and needs NO changes —
+when BSP delivers, set `bluetooth.mode: "a2dp_sink"` in the FRDM YAML
+and the FCT step (connect -> audio switch -> test tone -> GUI_CONFIRM)
+runs as-is.
+
+| # | Capability | Current evidence | BSP deliverable |
+|---|---|---|---|
+| 1 | DUT local audio route | `aplay` fails: "Cannot get card index for Loopback" / "audio open error: No such device" — pipewire's ALSA endpoint does not reach the mqs-audio card | pipewire-alsa / sound-card PCM config in the image so `aplay` opens the mqs device |
+| 2 | Audio session services | pipewire + wireplumber exist but are NOT running by default; manual start works (110b registered) but does not survive | systemd user services (pipewire + wireplumber) enabled at boot with XDG_RUNTIME_DIR |
+
+Already proven on the bench (no BSP work needed): BT data path
+(l2ping 10/10, 0% loss) and A2DP Sink UUID registration (110b = 1
+once the services run).
+
+BSP acceptance commands (one line each):
+
+    bluetoothctl show | grep -c 110b          # >= 1  (A2DP sink ready)
+    aplay /usr/share/sounds/alsa/Front_Center.wav   # DUT jack output
+    pw-dump | grep -c bluez5                  # >= 1  (audio node up)
+
+macOS-side check after BSP delivery: the DUT must appear in
+System Settings -> Sound -> Output (currently absent — the A2DP
+transport is the last link).
+
+Bench calibration note: current throughput threshold (2 Mbps) reflects
+the both-ends-wireless bench; recalibrate for the production form
+(wireless DUT vs WIRED host, ~17 Mbps measured with iperf2).
