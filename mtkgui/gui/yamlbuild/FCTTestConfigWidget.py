@@ -265,7 +265,8 @@ class FCTTestConfigPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(500)
-        dlg.setWindowModality(2)  # ApplicationModal = always on top
+        from PySide6.QtCore import Qt
+        dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
         lay = QVBoxLayout(dlg)
@@ -381,7 +382,8 @@ class FCTTestConfigPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("SendTo editor")
         dlg.setMinimumWidth(550)
-        dlg.setWindowModality(2)  # ApplicationModal = always on top
+        from PySide6.QtCore import Qt
+        dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
         lay = QVBoxLayout(dlg)
