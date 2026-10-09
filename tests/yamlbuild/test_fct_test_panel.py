@@ -102,3 +102,33 @@ def test_invalid_config_logged_not_lost(qapp):
     assert FctTestConfig.from_dict(
         node["fct_test_config"]).validate()   # and still invalid
     assert any("expected_name" in m for m in logs)
+
+
+def test_dut_type_grey_out_and_hint(qapp):
+    panel = FCTTestConfigPanel()
+    panel.dut_type.setCurrentText("bare_metal")
+    # no Linux shell: login chain, DUT-side ping/iperf, L2CAP greyed
+    assert not panel.login_table.isEnabled()
+    assert not panel.wifi_driver_cmd.isEnabled()
+    assert not panel.wifi_gateway.isEnabled()
+    assert not panel.wifi_ping_count.isEnabled()
+    assert not panel.wifi_loss_max.isEnabled()
+    assert not panel.bw_box.isEnabled()
+    assert not panel.bt_l2ping.isEnabled()
+    assert "Bare Metal" in panel.dut_hint.text()
+    # back to linux: everything re-enabled
+    panel.dut_type.setCurrentText("linux")
+    assert panel.login_table.isEnabled()
+    assert panel.wifi_gateway.isEnabled()
+    assert panel.bw_box.isEnabled()
+    assert panel.bt_l2ping.isEnabled()
+
+
+def test_set_values_restores_dut_type_grey(qapp):
+    panel = FCTTestConfigPanel()
+    node = yaml.safe_load(FRDM_YAML)
+    node["fct_test_config"]["dut_type"] = "bare_metal"
+    panel.set_values({"fct_test_config_yaml": yaml.safe_dump(node)})
+    assert panel.dut_type.currentText() == "bare_metal"
+    assert not panel.login_table.isEnabled()
+    assert "Bare Metal" in panel.dut_hint.text()

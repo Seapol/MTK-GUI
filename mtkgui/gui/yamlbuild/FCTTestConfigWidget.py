@@ -78,11 +78,38 @@ class FCTTestConfigPanel(QWidget):
         self.tabs.addTab(self._build_bt_tab(), "Bluetooth")
         self.dut_type = QComboBox()
         self.dut_type.addItems(["linux", "bare_metal"])
+        self.dut_type.currentTextChanged.connect(self._on_dut_type_changed)
+        self.dut_hint = QLabel("")
+        self.dut_hint.setWordWrap(True)
+        self.dut_hint.setStyleSheet("color: #6b7280;")
         head = QHBoxLayout()
         head.addWidget(QLabel("DUT type:"))
         head.addWidget(self.dut_type)
         head.addStretch(1)
         lay.insertLayout(0, head)
+        lay.insertWidget(1, self.dut_hint)
+        self._on_dut_type_changed(self.dut_type.currentText())
+
+    # ---------------------------------------------------------- DUT type
+    def _on_dut_type_changed(self, dut: str) -> None:
+        """DUT type gates the FCT test items: a Bare Metal/RTOS DUT has
+        no Linux shell, so the console login chain, DUT-side iperf and
+        L2CAP ping are not applicable (greyed out)."""
+        is_linux = dut == "linux"
+        self.login_table.setEnabled(is_linux)
+        self.wifi_driver_cmd.setEnabled(is_linux)
+        self.bw_box.setEnabled(is_linux)
+        self.wifi_gateway.setEnabled(is_linux)
+        self.wifi_ping_count.setEnabled(is_linux)
+        self.wifi_loss_max.setEnabled(is_linux)
+        self.bt_l2ping.setEnabled(is_linux)
+        self.dut_hint.setText(
+            "Linux BSP DUT: full console test set (login, shell commands,"
+            " DUT-side ping/iperf, L2CAP ping)."
+            if is_linux else
+            "Bare Metal/RTOS DUT: no Linux shell - console steps are "
+            "capture-only (firmware output / command protocol); Wi-Fi "
+            "RSSI is a host-side scan; iperf and L2CAP ping disabled.")
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:

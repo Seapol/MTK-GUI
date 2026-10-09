@@ -265,6 +265,12 @@ class FctTestConfig:
             if int(c.baudrate) not in BAUDRATES:
                 errors.append(f"console.baudrate must be one of "
                               f"{BAUDRATES}")
+            if (self.dut_type == "bare_metal" and c.login_sequence):
+                # no OS -> no shell -> no login chain (firmware output
+                # is capture-only; test_command "send" stays legal for
+                # firmware command protocols)
+                errors.append("bare_metal DUT: login_sequence requires "
+                              "a Linux shell - remove it")
         if w.enabled:
             if w.mode not in WIFI_MODES:
                 errors.append(f"wifi.mode must be one of {WIFI_MODES}")
@@ -276,12 +282,19 @@ class FctTestConfig:
                 errors.append("wifi.bandwidth.enabled: server_ip (the "
                               "host PC running the iperf server) is "
                               "required")
+            if (self.dut_type == "bare_metal"
+                    and w.bandwidth.enabled):
+                errors.append("bare_metal DUT: bandwidth iperf runs on "
+                              "the DUT console - not available")
         if b.enabled:
             if b.mode not in BT_MODES:
                 errors.append(f"bluetooth.mode must be one of {BT_MODES}")
             if not b.expected_name.strip():
                 errors.append("bluetooth.expected_name must not be "
                               "empty")
+            if self.dut_type == "bare_metal" and b.l2ping_count > 0:
+                errors.append("bare_metal DUT: L2CAP ping runs on the "
+                              "DUT console - set l2ping_count to 0")
         return errors
 
 
@@ -301,7 +314,9 @@ def build_fct_steps(cfg: FctTestConfig,
     """
     steps: list = []
     c = cfg.console
-    if c.enabled:
+    # the login chain is a Linux-shell concept: a bare-metal firmware
+    # has no login prompt (its console steps are capture-only below)
+    if c.enabled and cfg.dut_type == "linux":
         # login_sequence semantics (spec 3.1): pair i = wait for
         # `wait_for`, then `send`.  As sequential steps: pair 0 starts
         # with a capture-only wait; every `send` step expects the NEXT
@@ -340,16 +355,22 @@ def build_fct_steps(cfg: FctTestConfig,
                     expect_pass=[pair.wait_for],
                     timeout_s=DEFAULT_CMD_TIMEOUT,
                     params={"fct_console": True}))
+    if c.enabled:
+        # bare metal: capture-only unless the firmware defines a
+        # command protocol ("send" is optional per row)
         for cmd in c.test_commands:
+            params: dict = {"fct_console": True,
+                            "expect_pass_re": cmd.expect_pass,
+                            "expect_fail_re": cmd.expect_fail}
+            if cmd.send:
+                params["send"] = cmd.send
             steps.append(FctStep(
-                name=cmd.name or cmd.send, step_type=STEP_MESSAGE_CHECK,
-                channel=channel_key, timeout_s=float(cmd.timeout),
-                retries=int(cmd.retries),
-                params={"fct_console": True, "send": cmd.send,
-                        "expect_pass_re": cmd.expect_pass,
-                        "expect_fail_re": cmd.expect_fail}))
+                name=cmd.name or cmd.send or "Console capture",
+                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+                timeout_s=float(cmd.timeout), retries=int(cmd.retries),
+                params=params))
     if cfg.wifi.enabled:
-        if cfg.wifi.mode == "rssi_only":
+        if cfg.wifi.mode == "rssi_only" and cfg.dut_type == "linux":
             # station-mode Linux DUT: the RSSI is read ON THE DUT over
             # the console (iw dev <interface> link -> "signal: -X dBm";
             # the board's own FCT_SETUP.md defines this interface) - a
@@ -361,6 +382,15 @@ def build_fct_steps(cfg: FctTestConfig,
                 params={"tool_family": "wifi",
                         "rssi_via": "dut_console",
                         "fct_rf": cfg.wifi.to_dict()}))
+        elif cfg.wifi.mode == "rssi_only":
+            # bare metal: HOST-side discovery of the DUT-advertised
+            # SSID (B4 WifiAdapter rssi_only, discovery-based verdict)
+            steps.append(FctStep(
+                name="Wi-Fi FCT (host scan)",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=30.0,
+                params={"tool_family": "wifi",
+                        "fct_rf": cfg.wifi.to_dict()}))
         else:
             steps.append(FctStep(
                 name="Wi-Fi FCT", step_type=STEP_EXTERNAL_TOOL,
@@ -370,7 +400,7 @@ def build_fct_steps(cfg: FctTestConfig,
         # Linux DUT connectivity + throughput: ping the gateway and run
         # iperf (DUT client -> host PC server) over the console
         w = cfg.wifi
-        if w.gateway:
+        if w.gateway and cfg.dut_type == "linux":
             steps.append(FctStep(
                 name="Wi-Fi DUT ping gateway",
                 step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
@@ -380,7 +410,7 @@ def build_fct_steps(cfg: FctTestConfig,
                             "gateway": w.gateway,
                             "count": w.ping_count,
                             "loss_max": w.loss_max}}))
-        if w.bandwidth.enabled:
+        if w.bandwidth.enabled and cfg.dut_type == "linux":
             steps.append(FctStep(
                 name=f"Wi-Fi DUT iperf ({w.bandwidth.tool})",
                 step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
@@ -394,12 +424,14 @@ def build_fct_steps(cfg: FctTestConfig,
     if cfg.bluetooth.enabled:
         # make the DUT discoverable FIRST (hciconfig piscan per the
         # board FCT_SETUP) - hci0 UP RUNNING PSCAN alone is invisible
-        # to a host-side inquiry
-        steps.append(FctStep(
-            name="BT discoverable (piscan)",
-            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-            timeout_s=3.0,
-            params={"fct_console": True, "send": "hciconfig hci0 piscan"}))
+        # to a host-side inquiry.  Linux console only.
+        if cfg.dut_type == "linux":
+            steps.append(FctStep(
+                name="BT discoverable (piscan)",
+                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+                timeout_s=3.0,
+                params={"fct_console": True,
+                        "send": "hciconfig hci0 piscan"}))
         steps.append(FctStep(
             name="Bluetooth FCT", step_type=STEP_EXTERNAL_TOOL,
             channel="", timeout_s=60.0,
@@ -407,7 +439,7 @@ def build_fct_steps(cfg: FctTestConfig,
                     "fct_rf": cfg.bluetooth.to_dict()}))
         # data-transfer proof: L2CAP ping DUT -> host PC BT address
         # (BlueZ l2ping echoes real payload both ways)
-        if cfg.bluetooth.l2ping_count > 0:
+        if cfg.bluetooth.l2ping_count > 0 and cfg.dut_type == "linux":
             steps.append(FctStep(
                 name=f"BT L2CAP ping ({cfg.bluetooth.l2ping_count})",
                 step_type=STEP_EXTERNAL_TOOL, channel=channel_key,

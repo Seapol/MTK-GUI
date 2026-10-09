@@ -8,7 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 from mtkgui.engine.fct_test_config import (
+    BluetoothCfg,
+    ConsoleCfg,
+    ConsoleCommand,
     FctTestConfig,
+    LoginStep,
+    WifiCfg,
     build_fct_steps,
 )
 from mtkgui.engine.fct_test_runner import (
@@ -269,3 +274,62 @@ def test_fct_runner_command_fail_flips_overall():
     assert out["overall"] == "FAIL"
     assert any(r.name == "Load RF drivers" and r.verdict == "FAIL"
                for r in out["results"])
+
+
+# ------------------------------------------------------------ bare metal DUT
+def bare_config() -> FctTestConfig:
+    """Bare Metal/RTOS DUT: console capture-only, host-side RF scan."""
+    return FctTestConfig(
+        dut_type="bare_metal",
+        console=ConsoleCfg(
+            enabled=True, port="/dev/cu.usbmodem1",
+            test_commands=[
+                ConsoleCommand(name="FW version", send="version",
+                               expect_pass=r"FW v\d+"),
+                ConsoleCommand(name="Boot log capture"),
+            ]),
+        wifi=WifiCfg(enabled=True, mode="rssi_only", ssid="DUT-AP"),
+        bluetooth=BluetoothCfg(enabled=True, expected_name="DUT-BT",
+                               l2ping_count=0))
+
+
+def test_bare_metal_validate_clean():
+    assert bare_config().validate() == []
+
+
+def test_bare_metal_validate_rejects_host_side_gaps():
+    cfg = bare_config()
+    cfg.console.login_sequence = [LoginStep(wait_for="login:",
+                                            send="root")]
+    cfg.wifi.bandwidth.enabled = True
+    cfg.wifi.bandwidth.server_ip = "192.168.10.141"
+    cfg.bluetooth.l2ping_count = 5
+    errors = cfg.validate()
+    assert len(errors) == 3
+    assert any("login_sequence" in e for e in errors)
+    assert any("bandwidth" in e for e in errors)
+    assert any("l2ping_count" in e for e in errors)
+
+
+def test_bare_metal_steps_capture_only():
+    steps = build_fct_steps(bare_config(), channel_key="ser1")
+    names = [s.name for s in steps]
+    by_name = {s.name: s for s in steps}
+    # no login chain, no DUT-side piscan/ping/iperf/L2CAP steps
+    assert not any("Console wait" in n or "Console send" in n
+                   for n in names)
+    assert not any("piscan" in n or "L2CAP" in n or "iperf" in n
+                   or "ping gateway" in n for n in names)
+    # console rows keep "send" for firmware command protocols; a
+    # send-less row is a pure capture step
+    ver = by_name["FW version"]
+    assert ver.params["send"] == "version"
+    assert ver.params["expect_pass_re"] == r"FW v\d+"
+    cap = by_name["Boot log capture"]
+    assert "send" not in cap.params
+    # Wi-Fi RSSI is a HOST-side discovery scan (unbound channel)
+    wifi = next(s for s in steps if s.params.get("tool_family") == "wifi")
+    assert wifi.name == "Wi-Fi FCT (host scan)"
+    assert wifi.channel == ""
+    # BT verdict stays host-side; discoverability is firmware-owned
+    assert "Bluetooth FCT" in names
