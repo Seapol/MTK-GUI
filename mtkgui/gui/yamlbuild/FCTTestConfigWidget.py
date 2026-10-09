@@ -68,6 +68,7 @@ class FCTTestConfigPanel(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setMinimumWidth(1100)
         self._legacy: dict = {}             # preserved module params
         self._guard = False
         lay = QVBoxLayout(self)
