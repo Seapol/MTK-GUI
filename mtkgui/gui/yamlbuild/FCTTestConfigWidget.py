@@ -276,6 +276,11 @@ class FCTTestConfigPanel(QWidget):
         case_cb = QCheckBox("Case Sensitive (uncheck = ignore case, e.g. PASS=pass)")
         case_cb.setChecked(True)
         lay.addWidget(case_cb)
+        # Capture expected checkbox (only for Capture column)
+        expect_cb = QCheckBox("Expect to capture this message (checked = PASS when found, unchecked = FAIL when found)")
+        if title == "Capture":
+            expect_cb.setChecked(False)
+            lay.addWidget(expect_cb)
         # Timeout input
         from PySide6.QtWidgets import QSpinBox
         timeout_label = QLabel("Timeout (seconds, min 1):")
