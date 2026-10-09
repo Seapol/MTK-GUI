@@ -102,6 +102,7 @@ class ConsoleCommand:
     expect_fail_is_regex: bool = False
     case_sensitive: bool = True         # False = ignore case (PASS = pass)
     capture_is_expected: bool = False   # Capture column: True = found=PASS, False = found=FAIL
+    capture_end_line: str = ""          # end-of-range marker (only when capture_is_expected=False)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -120,6 +121,7 @@ class ConsoleCommand:
                 "expect_fail_is_regex": self.expect_fail_is_regex,
                 "case_sensitive": self.case_sensitive,
                 "capture_is_expected": self.capture_is_expected,
+                "capture_end_line": self.capture_end_line,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -263,6 +265,7 @@ class FctTestConfig:
                         expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
                         case_sensitive=bool(c.get("case_sensitive", True)),
                         capture_is_expected=bool(c.get("capture_is_expected", False)),
+                        capture_end_line=str(c.get("capture_end_line", "")),
                         timeout=float(c.get("timeout", 6.0)),
                         wait_timeout=float(c.get("wait_timeout", 10.0)),
                         send_timeout=float(c.get("send_timeout", 4.0)),
