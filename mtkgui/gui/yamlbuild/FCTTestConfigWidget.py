@@ -276,6 +276,17 @@ class FCTTestConfigPanel(QWidget):
         case_cb = QCheckBox("Case Sensitive (uncheck = ignore case, e.g. PASS=pass)")
         case_cb.setChecked(True)
         lay.addWidget(case_cb)
+        # Timeout input
+        from PySide6.QtWidgets import QSpinBox
+        timeout_label = QLabel("Timeout (seconds, min 1):")
+        lay.addWidget(timeout_label)
+        timeout_spin = QSpinBox()
+        timeout_spin.setRange(1, 3600)
+        if title == "WaitFor":
+            timeout_spin.setValue(10)
+        else:
+            timeout_spin.setValue(6)
+        lay.addWidget(timeout_spin)
         # pattern text
         lay.addWidget(QLabel("Pattern text:"))
         pattern_edit = QTextEdit()
