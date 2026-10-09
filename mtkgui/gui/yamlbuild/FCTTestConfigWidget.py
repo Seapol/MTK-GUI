@@ -282,7 +282,8 @@ class FCTTestConfigPanel(QWidget):
             expect_cb.setChecked(False)
             lay.addWidget(expect_cb)
         # End line input (always visible for Capture column)
-        end_line_label = QLabel("End line (marks end of capture range):")
+        # Regex / Case Sensitive reuse the same checkboxes above
+        end_line_label = QLabel("End line (marks end of range, same Regex/Case settings):")
         end_line_edit = QLineEdit()
         end_line_edit.setPlaceholderText("e.g. # TEST COMPLETE")
         if title == "Capture":
