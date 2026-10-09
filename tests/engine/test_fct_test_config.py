@@ -12,7 +12,6 @@ from mtkgui.engine.fct_test_config import (
     ConsoleCfg,
     ConsoleCommand,
     FctTestConfig,
-    LoginStep,
     WifiCfg,
     build_fct_steps,
 )
@@ -30,11 +29,10 @@ fct_test_config:
     enabled: true
     port: "/dev/cu.usbmodem53930099631"
     baudrate: 115200
-    login_sequence:
-      - {wait_for: "login:", send: root}
-      - {wait_for: "Password:", send: ""}
-      - {wait_for: root@imx93frdm}
     test_commands:
+      - {kind: wait, name: "Wait login prompt", expect_pass: "login:", timeout: 10}
+      - {kind: send, name: "Send root", send: "root", expect_pass: "Password:", timeout: 5}
+      - {kind: send, name: "Send empty password", send: "", expect_pass: "root@imx93frdm", timeout: 5}
       - {name: Kernel check, send: "uname -a",
          expect_pass: "Linux imx93frdm", expect_fail: "", timeout: 5}
       - {name: Load RF drivers, send: /root/load_rf_drivers.sh,
@@ -86,16 +84,15 @@ def test_validate_rejects_bad_mode_and_baud():
 def test_build_steps_console_chain():
     steps = build_fct_steps(frdm_config(), channel_key="ser1")
     names = [s.name for s in steps]
-    # wait login: -> send root (expects Password:) -> send "" (expects
-    # shell prompt) -> 2 test commands -> wifi -> bluetooth
-    # tolerance: every login step also accepts the FINAL prompt
-    final = "root@imx93frdm"
-    assert names[0] == "Console wait 'login:'"
-    assert steps[0].expect_pass == ["login:", final]
+    # wait login: -> send root (expects Password:) -> send empty (expects shell)
+    # -> 2 test commands -> wifi -> bluetooth
+    assert names[0] == "Wait login prompt"
+    assert steps[0].params["kind"] == "wait"
     assert steps[1].params["send"] == "root"
-    assert steps[1].expect_pass == ["Password:", final]
+    assert steps[1].params["kind"] == "send"
+    assert steps[1].params["expect_pass_re"] == "Password:"
     assert steps[2].params["send"] == ""
-    assert steps[2].expect_pass == [final]
+    assert steps[2].params["expect_pass_re"] == "root@imx93frdm"
     assert "Kernel check" in names and "Load RF drivers" in names
     wifi = next(s for s in steps
                 if s.params.get("tool_family") == "wifi")
@@ -254,7 +251,7 @@ def test_fct_runner_full_cycle_pass():
     out = runner.run(serial, host)
     assert out["overall"] == "PASS"
     names = [r.name for r in out["results"]]
-    assert any("login wait 'login:'" in n for n in names)
+    assert "Wait login prompt" in names
     assert "Kernel check" in names and "Load RF drivers" in names
     assert "Wi-Fi rssi_only" in names and "Bluetooth rssi_only" in names
     assert "Overall Result: PASS" in out["report"]
@@ -284,9 +281,10 @@ def bare_config() -> FctTestConfig:
         console=ConsoleCfg(
             enabled=True, port="/dev/cu.usbmodem1",
             test_commands=[
-                ConsoleCommand(name="FW version", send="version",
+                ConsoleCommand(name="FW version", kind="send",
+                               send="version",
                                expect_pass=r"FW v\d+"),
-                ConsoleCommand(name="Boot log capture"),
+                ConsoleCommand(name="Boot log capture", kind="capture"),
             ]),
         wifi=WifiCfg(enabled=True, mode="rssi_only", ssid="DUT-AP"),
         bluetooth=BluetoothCfg(enabled=True, expected_name="DUT-BT",
@@ -299,14 +297,13 @@ def test_bare_metal_validate_clean():
 
 def test_bare_metal_validate_rejects_host_side_gaps():
     cfg = bare_config()
-    cfg.console.login_sequence = [LoginStep(wait_for="login:",
-                                            send="root")]
+    cfg.console.ssh_host = "192.168.10.129"
     cfg.wifi.bandwidth.enabled = True
     cfg.wifi.bandwidth.server_ip = "192.168.10.141"
     cfg.bluetooth.l2ping_count = 5
     errors = cfg.validate()
     assert len(errors) == 3
-    assert any("login_sequence" in e for e in errors)
+    assert any("ssh_host" in e for e in errors)
     assert any("bandwidth" in e for e in errors)
     assert any("l2ping_count" in e for e in errors)
 

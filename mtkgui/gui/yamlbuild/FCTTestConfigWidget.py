@@ -288,14 +288,6 @@ class FCTTestConfigPanel(QWidget):
                     self.console_port.addItem(c.port)
                 self.console_port.setCurrentText(c.port)
             self.console_baud.setCurrentText(str(c.baudrate))
-            self.login_table.setRowCount(0)
-            for pair in c.login_sequence:
-                r = self.login_table.rowCount()
-                self.login_table.insertRow(r)
-                self.login_table.setItem(r, 0,
-                                         QTableWidgetItem(pair.wait_for))
-                self.login_table.setItem(r, 1,
-                                         QTableWidgetItem(pair.send))
             self.cmd_table.setRowCount(0)
             for cmd in c.test_commands:
                 r = self.cmd_table.rowCount()
@@ -353,16 +345,12 @@ class FCTTestConfigPanel(QWidget):
             BluetoothCfg,
             ConsoleCfg,
             ConsoleCommand,
-            LoginStep,
             WifiCfg,
         )
         cfg.console = ConsoleCfg(
             enabled=self.console_enabled.isChecked(),
             port=self.console_port.currentText().strip(),
             baudrate=int(self.console_baud.currentText()),
-            login_sequence=[
-                LoginStep(wait_for=row[0], send=row[1])
-                for row in self._table_lines(self.login_table, 2)],
             test_commands=[
                 ConsoleCommand(
                     name=row[0], send=row[1], expect_pass=row[2],

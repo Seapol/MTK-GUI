@@ -246,39 +246,43 @@ class FctTestRunner:
 
     # ---------------------------------------------------------- console
     def run_console(self, serial) -> list:
-        """Login sequence + test commands over the serial console."""
+        """Run console test commands (kind: wait/send/capture) over serial/ssh."""
         results: list = []
         c = self.cfg.console
         if not c.enabled or serial is None:
             return results
-        # login: wait_for -> send chain (regex per pair)
-        for i, pair in enumerate(c.login_sequence, 1):
-            verdict, text = "PASS", ""
-            if pair.wait_for:
-                verdict, text = self._wait_for(serial, pair.wait_for, 5.0)
+        for cmd in c.test_commands:
+            if cmd.kind == "wait":
+                # capture-only wait, no send
+                verdict, text = self._wait_for(serial, cmd.expect_pass,
+                                               cmd.timeout)
+                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
                 results.append(FctStepResult(
-                    f"login wait '{pair.wait_for}'", verdict,
-                    text[-200:]))
+                    cmd.name or f"wait '{cmd.expect_pass}'", verdict, detail))
+                self.log(f"console wait '{cmd.expect_pass}' -> {verdict}")
                 if verdict != "PASS":
                     return results
-            if pair.send is not None:
-                # empty string = bare newline (e.g. empty password) -
-                # still a real send, never skipped
-                serial.reset_input_buffer()
-                serial.write((pair.send + "\n").encode())
-                self.log(f"login send {pair.send!r}")
-        for cmd in c.test_commands:
-            verdict, text = console_send_and_expect(
-                serial, cmd.send, cmd.expect_pass, cmd.expect_fail,
-                cmd.timeout)
-            shown = "TIMEOUT" if verdict == "TIMEOUT" else verdict
-            detail = text.strip().splitlines()[-1][:120] if text.strip() \
-                else ""
-            results.append(FctStepResult(
-                cmd.name or cmd.send, shown if verdict != "TIMEOUT"
-                else "FAIL", detail))
-            self.log(f"console '{cmd.send}' -> "
-                     f"{'FAIL (timeout)' if verdict == 'TIMEOUT' else verdict}")
+            elif cmd.kind == "send":
+                # send command, then judge output
+                verdict, text = console_send_and_expect(
+                    serial, cmd.send, cmd.expect_pass, cmd.expect_fail,
+                    cmd.timeout)
+                shown = "TIMEOUT" if verdict == "TIMEOUT" else verdict
+                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
+                results.append(FctStepResult(
+                    cmd.name or cmd.send, shown, detail))
+                self.log(f"console send '{cmd.send}' -> {verdict}")
+            elif cmd.kind == "capture":
+                # capture-only judge (send optional)
+                if cmd.send:
+                    serial.reset_input_buffer()
+                    serial.write((cmd.send + "\n").encode())
+                verdict, text = self._wait_for(serial, cmd.expect_pass,
+                                               cmd.timeout)
+                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
+                results.append(FctStepResult(
+                    cmd.name or "capture", verdict, detail))
+                self.log(f"console capture -> {verdict}")
         return results
 
     def _wait_for(self, serial, pattern: str, timeout: float) -> tuple:

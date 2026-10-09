@@ -77,23 +77,43 @@ class LoginStep:
         return {"wait_for": self.wait_for, "send": self.send}
 
 
+#: console command kinds (P3-B5 v2: the three primitives)
+KIND_WAIT = "wait"              # capture until expect_pass matches
+KIND_SEND = "send"              # write line(s); verdict Pass ("sent")
+KIND_CAPTURE = "capture"        # judge output (send optional); fail-wins
+KIND_SFTP_PUT = "sftp_put"      # ssh file transfer DUT <- Host
+KIND_SFTP_GET = "sftp_get"      # ssh file transfer DUT -> Host
+CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
+                 KIND_SFTP_PUT, KIND_SFTP_GET)
+
+
 @dataclass
 class ConsoleCommand:
-    """One console test command row."""
+    """One console test step (model v2): a Wait / Send / Capture
+    primitive, or an SSH file-transfer row (sftp_put/sftp_get)."""
 
+    kind: str = "send"              # wait | send | capture | sftp_put | sftp_get
     name: str = ""
-    send: str = ""
-    expect_pass: str = ""           # REGEX (re.search), empty = any output
-    expect_fail: str = ""           # REGEX, wins over expect_pass
+    transport: str = "serial"       # serial | ssh
+    send: str = ""                  # command line(s), \n separated; {{var}} rendered
+    expect_pass: str = ""           # regex; multi-line = multiple, any hit passes
+    expect_fail: str = ""           # regex, wins over expect_pass
     timeout: float = DEFAULT_CMD_TIMEOUT
     retries: int = 0                # extra attempts on FAIL (fct_exec)
+    extract: str = ""               # "name=regex" lines; group 1 -> variables
+    action: str = ""                # sftp_put | sftp_get (transport=ssh rows)
+    local: str = ""                 # sftp local path (Host PC)
+    remote: str = ""                # sftp remote path (DUT)
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "send": self.send,
+        return {"kind": self.kind, "name": self.name,
+                "transport": self.transport, "send": self.send,
                 "expect_pass": self.expect_pass,
                 "expect_fail": self.expect_fail,
                 "timeout": float(self.timeout),
-                "retries": int(self.retries)}
+                "retries": int(self.retries),
+                "extract": self.extract, "action": self.action,
+                "local": self.local, "remote": self.remote}
 
 
 @dataclass
@@ -101,14 +121,19 @@ class ConsoleCfg:
     enabled: bool = False
     port: str = ""
     baudrate: int = 115200
-    login_sequence: list = field(default_factory=list)   # [LoginStep]
+    newline: str = "lf"             # lf | crlf (send line ending)
+    inter_cmd_delay_ms: int = 100   # settle time between command rows
+    ssh_host: str = ""              # DUT SSH endpoint for ssh/sftp rows
+    ssh_username: str = "root"
     test_commands: list = field(default_factory=list)    # [ConsoleCommand]
 
     def to_dict(self) -> dict:
         return {
             "enabled": self.enabled, "port": self.port,
             "baudrate": int(self.baudrate),
-            "login_sequence": [s.to_dict() for s in self.login_sequence],
+            "newline": self.newline,
+            "inter_cmd_delay_ms": int(self.inter_cmd_delay_ms),
+            "ssh_host": self.ssh_host, "ssh_username": self.ssh_username,
             "test_commands": [c.to_dict() for c in self.test_commands],
         }
 
@@ -210,19 +235,25 @@ class FctTestConfig:
                 enabled=bool(console.get("enabled", False)),
                 port=str(console.get("port", "")),
                 baudrate=int(console.get("baudrate", 115200)),
-                login_sequence=[
-                    LoginStep(wait_for=str(s.get("wait_for", "")),
-                              send=str(s.get("send", "")))
-                    for s in (console.get("login_sequence") or [])],
+                newline=str(console.get("newline", "lf")),
+                inter_cmd_delay_ms=int(console.get("inter_cmd_delay_ms", 100)),
+                ssh_host=str(console.get("ssh_host", "")),
+                ssh_username=str(console.get("ssh_username", "root")),
                 test_commands=[
                     ConsoleCommand(
+                        kind=str(c.get("kind", "send")),
                         name=str(c.get("name", "")),
+                        transport=str(c.get("transport", "serial")),
                         send=str(c.get("send", "")),
                         expect_pass=str(c.get("expect_pass", "")),
                         expect_fail=str(c.get("expect_fail", "")),
                         timeout=float(c.get("timeout",
                                             DEFAULT_CMD_TIMEOUT)),
-                        retries=int(c.get("retries", 0) or 0))
+                        retries=int(c.get("retries", 0) or 0),
+                        extract=str(c.get("extract", "")),
+                        action=str(c.get("action", "")),
+                        local=str(c.get("local", "")),
+                        remote=str(c.get("remote", "")))
                     for c in (console.get("test_commands") or [])],
             ),
             wifi=WifiCfg(
@@ -265,11 +296,9 @@ class FctTestConfig:
             if int(c.baudrate) not in BAUDRATES:
                 errors.append(f"console.baudrate must be one of "
                               f"{BAUDRATES}")
-            if (self.dut_type == "bare_metal" and c.login_sequence):
-                # no OS -> no shell -> no login chain (firmware output
-                # is capture-only; test_command "send" stays legal for
-                # firmware command protocols)
-                errors.append("bare_metal DUT: login_sequence requires "
+            if (self.dut_type == "bare_metal" and c.ssh_host.strip()):
+                # no OS -> no shell -> no SSH
+                errors.append("bare_metal DUT: ssh_host requires "
                               "a Linux shell - remove it")
         if w.enabled:
             if w.mode not in WIFI_MODES:
@@ -314,58 +343,23 @@ def build_fct_steps(cfg: FctTestConfig,
     """
     steps: list = []
     c = cfg.console
-    # the login chain is a Linux-shell concept: a bare-metal firmware
-    # has no login prompt (its console steps are capture-only below)
-    if c.enabled and cfg.dut_type == "linux":
-        # login_sequence semantics (spec 3.1): pair i = wait for
-        # `wait_for`, then `send`.  As sequential steps: pair 0 starts
-        # with a capture-only wait; every `send` step expects the NEXT
-        # pair's wait_for (proves the send was accepted); the last
-        # pair's wait_for is consumed by the previous send step.
-        pairs = c.login_sequence
-        # tolerance (spec 4.1: never dead-end): every login step ALSO
-        # passes when the FINAL shell prompt is already visible (the
-        # DUT auto-logs-in / a session survived) - the leftover sends
-        # are harmless "command not found" noise at the prompt
-        final = pairs[-1].wait_for if pairs else ""
-        for i, pair in enumerate(pairs):
-            if i == 0 and pair.wait_for:
-                steps.append(FctStep(
-                    name=f"Console wait '{pair.wait_for}'",
-                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                    expect_pass=[p for p in (pair.wait_for, final) if p],
-                    timeout_s=DEFAULT_CMD_TIMEOUT,
-                    # bare newline FIRST: elicits the prompt when the
-                    # DUT is already logged in (silent shell otherwise)
-                    params={"fct_console": True, "send": ""}))
-            if i + 1 < len(pairs):
-                nxt = pairs[i + 1].wait_for
-                expect = list(dict.fromkeys(
-                    p for p in (nxt, final) if p))
-                steps.append(FctStep(
-                    name=f"Console send '{pair.send}'",
-                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                    expect_pass=expect,
-                    timeout_s=DEFAULT_CMD_TIMEOUT,
-                    params={"fct_console": True, "send": pair.send}))
-            elif len(pairs) == 1 and pair.wait_for:
-                steps.append(FctStep(
-                    name=f"Console wait '{pair.wait_for}'",
-                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                    expect_pass=[pair.wait_for],
-                    timeout_s=DEFAULT_CMD_TIMEOUT,
-                    params={"fct_console": True}))
     if c.enabled:
+        # console steps: wait/send/capture primitives (v2 model)
         # bare metal: capture-only unless the firmware defines a
         # command protocol ("send" is optional per row)
         for cmd in c.test_commands:
             params: dict = {"fct_console": True,
                             "expect_pass_re": cmd.expect_pass,
-                            "expect_fail_re": cmd.expect_fail}
-            if cmd.send:
+                            "expect_fail_re": cmd.expect_fail,
+                            "kind": cmd.kind}
+            # send: kind=send always sends (even empty newline);
+            # kind=capture sends only if non-empty; kind=wait never sends
+            if cmd.kind == "send":
+                params["send"] = cmd.send
+            elif cmd.kind == "capture" and cmd.send:
                 params["send"] = cmd.send
             steps.append(FctStep(
-                name=cmd.name or cmd.send or "Console capture",
+                name=cmd.name or cmd.send or "Console step",
                 step_type=STEP_MESSAGE_CHECK, channel=channel_key,
                 timeout_s=float(cmd.timeout), retries=int(cmd.retries),
                 params=params))

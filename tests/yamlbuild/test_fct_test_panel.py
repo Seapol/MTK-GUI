@@ -62,8 +62,6 @@ def test_roundtrip_preserves_config(qapp):
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
     assert cfg.dut_type == "linux"
     assert cfg.console.enabled and cfg.console.baudrate == 115200
-    assert [p.wait_for for p in cfg.console.login_sequence] == \
-        ["login:", "Password:", "root@imx93frdm"]
     assert cfg.console.test_commands[0].expect_pass == "Linux imx93frdm"
     assert cfg.wifi.mode == "rssi_only" and cfg.wifi.ssid == \
         "FRDM-IMX93-DUT"
