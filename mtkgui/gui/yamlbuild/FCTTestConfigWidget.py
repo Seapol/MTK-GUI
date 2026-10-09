@@ -21,8 +21,10 @@ Preview & Export shows the complete configuration (spec §3.4).
 """
 from __future__ import annotations
 
+import copy
+
 import yaml
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -50,6 +52,12 @@ from mtkgui.engine.fct_test_config import (
     ConsoleCommand,
     FctTestConfig,
 )
+
+# Each cmd_table row carries its full ConsoleCommand on the Name cell's
+# UserRole so that advanced attributes (regex/case/expected/end line/
+# per-stage timeouts) survive the table -> YAML round-trip; the visible
+# cells are only a rendered summary.
+_CMD_ROLE = Qt.UserRole + 1
 
 
 def _serial_ports() -> list:
@@ -169,6 +177,10 @@ class FCTTestConfigPanel(QWidget):
             rb = QComboBox()
             rb.addItems(["no", "yes"])
             self.cmd_table.setCellWidget(r, 6, rb)
+            # default command: Send enabled, Wait/Capture off
+            self._save_row_cmd(r, ConsoleCommand(
+                kind="send", wait_enabled=False, send_enabled=True,
+                capture_enabled=False))
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
@@ -204,6 +216,10 @@ class FCTTestConfigPanel(QWidget):
             new_rb.addItems(["no", "yes"])
             new_rb.setCurrentText(src_rb.currentText())
             self.cmd_table.setCellWidget(r + 1, 6, new_rb)
+            # deep-copy the full source command (advanced attrs included)
+            src_cmd = self._row_cmd(r)
+            if src_cmd is not None:
+                self._save_row_cmd(r + 1, copy.deepcopy(src_cmd))
         duplicate.clicked.connect(_duplicate)
         edit = QPushButton("Edit")
         edit.clicked.connect(
@@ -235,8 +251,13 @@ class FCTTestConfigPanel(QWidget):
         return row
 
     def _swap_rows(self, r1: int, r2: int) -> None:
-        """Swap two rows in cmd_table (text cells + dropdown widgets)."""
-        # swap text cells
+        """Swap two rows in cmd_table (full command + rendered cells)."""
+        c1, c2 = self._row_cmd(r1), self._row_cmd(r2)
+        if c1 is not None and c2 is not None:
+            self._save_row_cmd(r1, copy.deepcopy(c2))
+            self._save_row_cmd(r2, copy.deepcopy(c1))
+            return
+        # fallback: swap text cells
         for col in (0, 2, 3, 4, 5):
             item1 = self.cmd_table.item(r1, col)
             item2 = self.cmd_table.item(r2, col)
@@ -281,23 +302,57 @@ class FCTTestConfigPanel(QWidget):
         dlg.raise_()
         dlg.activateWindow()
         lay = QVBoxLayout(dlg)
+        # load current state from the row's full ConsoleCommand
+        cmd = self._row_cmd(row)
+        cell_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
+        if cmd is not None:
+            if title == "WaitFor":
+                cur_pattern = cmd.expect_pass
+                cur_regex = cmd.expect_pass_is_regex
+                cur_enabled = cmd.wait_enabled
+                cur_timeout = int(cmd.wait_timeout)
+            else:
+                cur_pattern = cmd.expect_fail
+                cur_regex = cmd.expect_fail_is_regex
+                cur_enabled = cmd.capture_enabled
+                cur_timeout = int(cmd.timeout)
+            cur_case = cmd.case_sensitive
+            cur_expected = cmd.capture_is_expected
+            cur_endline = cmd.capture_end_line
+        else:
+            is_off0 = cell_text.strip() == "(off)"
+            cur_pattern = "" if is_off0 else cell_text
+            cur_regex = False
+            cur_enabled = not is_off0
+            cur_case = True
+            cur_expected = False
+            cur_endline = ""
+            cur_timeout = 10 if title == "WaitFor" else 6
+        # Enable this step checkbox
+        enable_cb = QCheckBox(f"Enable {title} step")
+        enable_cb.setChecked(cur_enabled)
+        lay.addWidget(enable_cb)
         # Use Regex checkbox (default off = exact match)
         regex_cb = QCheckBox("Use Regex (default off = exact substring match)")
+        regex_cb.setChecked(cur_regex)
         lay.addWidget(regex_cb)
         # Case sensitive checkbox (default on)
         case_cb = QCheckBox("Case Sensitive (uncheck = ignore case, e.g. PASS=pass)")
-        case_cb.setChecked(True)
+        case_cb.setChecked(cur_case)
         lay.addWidget(case_cb)
         # Capture expected checkbox (only for Capture column)
-        expect_cb = QCheckBox("Expect to capture this message")
+        expect_cb = QCheckBox(
+            "Expect to capture this message (yes = found is PASS; "
+            "no = found is FAIL, use End line to bound the clean window)")
         if title == "Capture":
-            expect_cb.setChecked(False)
+            expect_cb.setChecked(cur_expected)
             lay.addWidget(expect_cb)
         # End line input (always visible for Capture column)
         # Regex / Case Sensitive reuse the same checkboxes above
         end_line_label = QLabel("End line (marks end of range, same Regex/Case settings):")
         end_line_edit = QLineEdit()
         end_line_edit.setPlaceholderText("e.g. # TEST COMPLETE")
+        end_line_edit.setText(cur_endline)
         if title == "Capture":
             lay.addWidget(end_line_label)
             lay.addWidget(end_line_edit)
@@ -310,15 +365,12 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(timeout_label)
         timeout_spin = QSpinBox()
         timeout_spin.setRange(1, 3600)
-        if title == "WaitFor":
-            timeout_spin.setValue(10)
-        else:
-            timeout_spin.setValue(6)
+        timeout_spin.setValue(cur_timeout)
         lay.addWidget(timeout_spin)
         # pattern text (3 lines)
         lay.addWidget(QLabel("Pattern text:"))
         pattern_edit = QTextEdit()
-        pattern_edit.setPlainText(self.cmd_table.item(row, col).text())
+        pattern_edit.setPlainText(cur_pattern)
         pattern_edit.setMaximumHeight(70)
         lay.addWidget(pattern_edit)
         # test input (10 lines, disabled when not regex)
@@ -354,6 +406,7 @@ class FCTTestConfigPanel(QWidget):
             test_btn.setEnabled(state)
             load_btn.setEnabled(state)
         regex_cb.toggled.connect(_on_regex_changed)
+        _on_regex_changed(regex_cb.isChecked())
         def _test():
             import re
             pattern = pattern_edit.toPlainText()
@@ -396,16 +449,44 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addWidget(ok)
         lay.addLayout(btn_row)
         if dlg.exec() == QDialog.Accepted:
-            self.cmd_table.item(row, col).setText(pattern_edit.toPlainText())
+            if cmd is None:
+                cmd = self._get_row_cmd(row)
+            pat = pattern_edit.toPlainText()
+            enabled = enable_cb.isChecked()
+            cmd.case_sensitive = case_cb.isChecked()
+            if title == "WaitFor":
+                cmd.wait_enabled = enabled
+                cmd.expect_pass = pat if enabled else ""
+                cmd.expect_pass_is_regex = regex_cb.isChecked()
+                cmd.wait_timeout = float(timeout_spin.value())
+            else:
+                cmd.capture_enabled = enabled
+                cmd.expect_fail = pat if enabled else ""
+                cmd.expect_fail_is_regex = regex_cb.isChecked()
+                cmd.capture_is_expected = expect_cb.isChecked()
+                cmd.capture_end_line = end_line_edit.text()
+                cmd.timeout = float(timeout_spin.value())
+            # keep kind consistent for a wait-only row
+            if cmd.wait_enabled and not cmd.send_enabled:
+                cmd.kind = "wait"
+            elif cmd.kind == "wait" and cmd.send_enabled:
+                cmd.kind = "send"
+            self._save_row_cmd(row, cmd)
 
     def _edit_sendto_cell(self, row: int, col: int) -> None:
         """SendTo editor: shell command (serial/ssh) or SFTP transfer (ssh only)."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                                         QTextEdit, QLineEdit, QPushButton,
                                         QLabel, QComboBox, QFileDialog,
-                                        QStackedWidget)
+                                        QStackedWidget, QCheckBox,
+                                        QSpinBox, QWidget, QFormLayout)
         transport = self.cmd_table.cellWidget(row, 1).currentText()
         current_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
+        cmd = self._row_cmd(row)
+        if cmd is not None:
+            send_is_off = not cmd.send_enabled
+        else:
+            send_is_off = current_text.strip() == "(off)"
 
         dlg = QDialog(self)
         dlg.setWindowTitle("SendTo editor")
@@ -416,10 +497,16 @@ class FCTTestConfigPanel(QWidget):
         dlg.activateWindow()
         lay = QVBoxLayout(dlg)
 
+        # Enable Send step checkbox
+        send_enable_cb = QCheckBox("Enable Send step")
+        send_enable_cb.setChecked(not send_is_off)
+        lay.addWidget(send_enable_cb)
+
         # operation type (only for ssh)
+        op_label = QLabel("Operation:")
         op_type = QComboBox()
         op_type.addItems(["shell_command", "sftp_put", "sftp_get"])
-        lay.addWidget(QLabel("Operation:"))
+        lay.addWidget(op_label)
         lay.addWidget(op_type)
 
         # stacked widget for different operation types
@@ -440,7 +527,8 @@ class FCTTestConfigPanel(QWidget):
         timeout_row.addWidget(QLabel("Send timeout (seconds, min 1):"))
         send_timeout_spin = QSpinBox()
         send_timeout_spin.setRange(1, 3600)
-        send_timeout_spin.setValue(4)
+        send_timeout_spin.setValue(
+            int(cmd.send_timeout) if cmd is not None else 4)
         timeout_row.addWidget(send_timeout_spin)
         timeout_row.addStretch(1)
         lay_cmd.addLayout(timeout_row)
@@ -499,8 +587,19 @@ class FCTTestConfigPanel(QWidget):
             stack.setCurrentIndex(idx)
         op_type.currentIndexChanged.connect(_on_op_changed)
 
-        # restore from current cell text
-        if current_text.startswith("[PUT] "):
+        # restore from the row's full command, fall back to cell text
+        if cmd is not None and cmd.kind in ("sftp_put", "sftp_get"):
+            if cmd.kind == "sftp_put":
+                op_type.setCurrentIndex(1)
+                put_local.setText(cmd.local)
+                put_remote.setText(cmd.remote)
+                put_timeout.setValue(int(cmd.send_timeout))
+            else:
+                op_type.setCurrentIndex(2)
+                get_remote.setText(cmd.remote)
+                get_local.setText(cmd.local)
+                get_timeout.setValue(int(cmd.send_timeout))
+        elif current_text.startswith("[PUT] "):
             op_type.setCurrentIndex(1)
             rest = current_text[6:]  # after "[PUT] "
             if " -> " in rest:
@@ -514,7 +613,8 @@ class FCTTestConfigPanel(QWidget):
                 get_local.setText(rest.split(" -> ")[1])
         else:
             op_type.setCurrentIndex(0)
-            cmd_edit.setPlainText(current_text)
+            cmd_edit.setPlainText(cmd.send if cmd is not None
+                                  else current_text)
 
         # buttons
         btn_row = QHBoxLayout()
@@ -529,39 +629,43 @@ class FCTTestConfigPanel(QWidget):
 
         if dlg.exec() == QDialog.Accepted:
             idx = op_type.currentIndex()
-            from PySide6.QtCore import Qt as _Qt
+            if cmd is None:
+                cmd = self._get_row_cmd(row)
+            if not send_enable_cb.isChecked():
+                # Send disabled
+                cmd.send_enabled = False
+                cmd.send = ""
+                self._save_row_cmd(row, cmd)
+                return
+            cmd.send_enabled = True
             if idx == 0:
-                # shell_command: restore WaitFor/Capture editable
-                text = cmd_edit.toPlainText()
-                self.cmd_table.item(row, col).setText(text)
-                # enable WaitFor/Capture
-                for c in (2, 4):
-                    item = self.cmd_table.item(row, c)
-                    if item:
-                        item.setFlags(item.flags() | _Qt.ItemIsEditable)
-                # Timeout shows all 3
-                t_item = self.cmd_table.item(row, 5)
-                if t_item:
-                    t_item.setText("W:10s S:4s C:6s")
+                # shell command (one or many lines; newline auto-appended)
+                cmd.kind = "send"
+                cmd.send = cmd_edit.toPlainText()
+                cmd.send_timeout = float(send_timeout_spin.value())
+                cmd.local = ""
+                cmd.remote = ""
+            elif idx == 1:
+                # sftp_put: Wait/Capture are not used for a file transfer
+                cmd.kind = "sftp_put"
+                cmd.local = put_local.text()
+                cmd.remote = put_remote.text()
+                cmd.send_timeout = float(put_timeout.value())
+                cmd.wait_enabled = False
+                cmd.expect_pass = ""
+                cmd.capture_enabled = False
+                cmd.expect_fail = ""
             else:
-                # sftp_put / sftp_get: clear & disable WaitFor/Capture
-                if idx == 1:
-                    text = f"[PUT] {put_local.text()} -> {put_remote.text()}"
-                    s_to = put_timeout.value()
-                else:
-                    text = f"[GET] {get_remote.text()} -> {get_local.text()}"
-                    s_to = get_timeout.value()
-                self.cmd_table.item(row, col).setText(text)
-                # clear and disable WaitFor (col 2) and Capture (col 4)
-                for c in (2, 4):
-                    item = self.cmd_table.item(row, c)
-                    if item:
-                        item.setText("")
-                        item.setFlags(item.flags() & ~_Qt.ItemIsEditable)
-                # Timeout column shows only send timeout
-                t_item = self.cmd_table.item(row, 5)
-                if t_item:
-                    t_item.setText(f"S:{s_to}s")
+                # sftp_get
+                cmd.kind = "sftp_get"
+                cmd.remote = get_remote.text()
+                cmd.local = get_local.text()
+                cmd.send_timeout = float(get_timeout.value())
+                cmd.wait_enabled = False
+                cmd.expect_pass = ""
+                cmd.capture_enabled = False
+                cmd.expect_fail = ""
+            self._save_row_cmd(row, cmd)
 
     # --------------------------------------------------------------- wifi
     def _build_wifi_tab(self) -> QWidget:
@@ -657,16 +761,100 @@ class FCTTestConfigPanel(QWidget):
         return w
 
     # ------------------------------------------------------- helpers
+    # ------------------------------------------------- row model (UserRole)
+    def _row_cmd(self, r: int):
+        """The raw ConsoleCommand stored on the row (or None)."""
+        item = self.cmd_table.item(r, 0)
+        return item.data(_CMD_ROLE) if item is not None else None
+
+    def _set_cell(self, r: int, col: int, text: str,
+                  editable: bool = True) -> None:
+        item = self.cmd_table.item(r, col)
+        if item is None:
+            item = QTableWidgetItem()
+            self.cmd_table.setItem(r, col, item)
+        item.setText(text)
+        if editable:
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+        else:
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+
+    def _render_row_cmd(self, r: int, cmd: ConsoleCommand) -> None:
+        """Refresh the visible summary cells/dropdowns from cmd."""
+        self._set_cell(r, 0, cmd.name)
+        self._set_cell(r, 2, cmd.expect_pass if cmd.wait_enabled
+                       else "(off)")
+        if not cmd.send_enabled:
+            send_text = "(off)"
+        elif cmd.kind == "sftp_put":
+            send_text = f"[PUT] {cmd.local} -> {cmd.remote}"
+        elif cmd.kind == "sftp_get":
+            send_text = f"[GET] {cmd.remote} -> {cmd.local}"
+        else:
+            send_text = cmd.send
+        self._set_cell(r, 3, send_text)
+        self._set_cell(r, 4, cmd.expect_fail if cmd.capture_enabled
+                       else "(off)")
+        parts = []
+        if cmd.wait_enabled:
+            parts.append(f"W:{int(cmd.wait_timeout)}s")
+        if cmd.send_enabled:
+            parts.append(f"S:{int(cmd.send_timeout)}s")
+        if cmd.capture_enabled:
+            parts.append(f"C:{int(cmd.timeout)}s")
+        self._set_cell(r, 5, " ".join(parts) if parts else "-",
+                       editable=False)
+        cb = self.cmd_table.cellWidget(r, 1)
+        if cb is not None:
+            cb.setCurrentText(cmd.transport)
+        rb = self.cmd_table.cellWidget(r, 6)
+        if rb is not None:
+            rb.setCurrentText("yes" if cmd.retries > 0 else "no")
+
+    def _save_row_cmd(self, r: int, cmd: ConsoleCommand) -> None:
+        """Persist the full command on the row and re-render."""
+        item = self.cmd_table.item(r, 0)
+        if item is None:
+            item = QTableWidgetItem()
+            self.cmd_table.setItem(r, 0, item)
+        item.setData(_CMD_ROLE, cmd)
+        self._render_row_cmd(r, cmd)
+
+    def _get_row_cmd(self, r: int) -> ConsoleCommand:
+        """Return the row's command; overlay the directly-editable
+        Name / Console / Retry columns."""
+        item = self.cmd_table.item(r, 0)
+        cmd = item.data(_CMD_ROLE) if item is not None else None
+        if cmd is None:
+            return self._row_to_console_command(r)
+        if item is not None:
+            cmd.name = item.text()
+        cb = self.cmd_table.cellWidget(r, 1)
+        if cb is not None:
+            cmd.transport = cb.currentText()
+        rb = self.cmd_table.cellWidget(r, 6)
+        if rb is not None:
+            cmd.retries = 1 if rb.currentText() == "yes" else 0
+        return cmd
+
     def _row_to_console_command(self, r: int) -> ConsoleCommand:
         """Convert one cmd_table row to a ConsoleCommand.
         SendTo column encodes sftp ops as '[PUT] local -> remote' /
-        '[GET] remote -> local'."""
+        '[GET] remote -> local'. '(off)' means that stage is disabled."""
         name = self.cmd_table.item(r, 0).text() if self.cmd_table.item(r, 0) else ""
         transport = self.cmd_table.cellWidget(r, 1).currentText()
         waitfor = self.cmd_table.item(r, 2).text() if self.cmd_table.item(r, 2) else ""
         sendto = self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else ""
         capture = self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else ""
         retries = 1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0
+
+        wait_enabled = waitfor.strip() not in ("", "(off)")
+        capture_enabled = capture.strip() not in ("", "(off)")
+        send_enabled = sendto.strip() not in ("", "(off)")
+        if not wait_enabled:
+            waitfor = ""
+        if not capture_enabled:
+            capture = ""
 
         kind = "send"
         send = sendto
@@ -688,6 +876,8 @@ class FCTTestConfigPanel(QWidget):
 
         return ConsoleCommand(
             kind=kind, name=name, transport=transport,
+            wait_enabled=wait_enabled, send_enabled=send_enabled,
+            capture_enabled=capture_enabled,
             send=send, expect_pass=waitfor, expect_fail=capture,
             retries=retries, local=local, remote=remote)
 
@@ -729,9 +919,12 @@ class FCTTestConfigPanel(QWidget):
                 cb.setCurrentText(cmd.transport)
                 self.cmd_table.setCellWidget(r, 1, cb)
                 # WaitFor
-                self.cmd_table.setItem(r, 2, QTableWidgetItem(cmd.expect_pass))
+                wait_text = cmd.expect_pass if cmd.wait_enabled else "(off)"
+                self.cmd_table.setItem(r, 2, QTableWidgetItem(wait_text))
                 # SendTo: encode sftp ops as [PUT]/[GET]
-                if cmd.kind == "sftp_put":
+                if not cmd.send_enabled:
+                    sendto_text = "(off)"
+                elif cmd.kind == "sftp_put":
                     sendto_text = f"[PUT] {cmd.local} -> {cmd.remote}"
                 elif cmd.kind == "sftp_get":
                     sendto_text = f"[GET] {cmd.remote} -> {cmd.local}"
@@ -739,9 +932,17 @@ class FCTTestConfigPanel(QWidget):
                     sendto_text = cmd.send
                 self.cmd_table.setItem(r, 3, QTableWidgetItem(sendto_text))
                 # Capture
-                self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.expect_fail))
-                # Timeout (shows all 3: wait/send/capture; read-only)
-                timeout_text = f"W:{int(cmd.wait_timeout)}s S:{int(cmd.send_timeout)}s C:{int(cmd.timeout)}s"
+                cap_text = cmd.expect_fail if cmd.capture_enabled else "(off)"
+                self.cmd_table.setItem(r, 4, QTableWidgetItem(cap_text))
+                # Timeout (shows enabled stages only; read-only)
+                parts = []
+                if cmd.wait_enabled:
+                    parts.append(f"W:{int(cmd.wait_timeout)}s")
+                if cmd.send_enabled:
+                    parts.append(f"S:{int(cmd.send_timeout)}s")
+                if cmd.capture_enabled:
+                    parts.append(f"C:{int(cmd.timeout)}s")
+                timeout_text = " ".join(parts) if parts else "-"
                 timeout_item = QTableWidgetItem(timeout_text)
                 from PySide6.QtCore import Qt as _Qt
                 timeout_item.setFlags(timeout_item.flags() & ~_Qt.ItemIsEditable)
@@ -751,6 +952,8 @@ class FCTTestConfigPanel(QWidget):
                 rb.addItems(["no", "yes"])
                 rb.setCurrentText("yes" if cmd.retries > 0 else "no")
                 self.cmd_table.setCellWidget(r, 6, rb)
+                # persist the full command (advanced attrs) on the row
+                self.cmd_table.item(r, 0).setData(_CMD_ROLE, cmd)
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_mode.setCurrentText(w.mode)
@@ -804,7 +1007,7 @@ class FCTTestConfigPanel(QWidget):
             port=self.console_port.currentText().strip(),
             baudrate=int(self.console_baud.currentText()),
             test_commands=[
-                self._row_to_console_command(r)
+                self._get_row_cmd(r)
                 for r in range(self.cmd_table.rowCount())],
         )
         cfg.wifi = WifiCfg(
