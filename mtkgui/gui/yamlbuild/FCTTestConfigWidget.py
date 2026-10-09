@@ -343,7 +343,7 @@ class FCTTestConfigPanel(QWidget):
                                         QTextEdit, QLineEdit, QPushButton,
                                         QLabel, QComboBox, QFileDialog,
                                         QStackedWidget)
-        transport = self.cmd_table.cellWidget(row, 2).currentText()
+        transport = self.cmd_table.cellWidget(row, 1).currentText()
         current_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
 
         dlg = QDialog(self)
