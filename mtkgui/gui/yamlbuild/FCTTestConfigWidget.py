@@ -616,8 +616,9 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setItem(r, 3, QTableWidgetItem(sendto_text))
                 # Capture
                 self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.expect_fail))
-                # Timeout (shows capture_timeout; editable in editor windows)
-                self.cmd_table.setItem(r, 5, QTableWidgetItem(str(cmd.timeout)))
+                # Timeout (shows all 3: wait/send/capture; editable in dialogs)
+                timeout_text = f"W:{int(cmd.wait_timeout)}s S:{int(cmd.send_timeout)}s C:{int(cmd.timeout)}s"
+                self.cmd_table.setItem(r, 5, QTableWidgetItem(timeout_text))
                 # Retry = dropdown
                 rb = QComboBox()
                 rb.addItems(["no", "yes"])
