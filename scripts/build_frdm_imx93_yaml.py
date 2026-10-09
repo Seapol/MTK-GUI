@@ -56,6 +56,19 @@ FCT_TEST_CONFIG = {
         "driver_load_cmd": "/root/load_rf_drivers.sh",
         "ssid": DUT_SSID,
         "rssi_min": -70,
+        "gateway": "192.168.10.1",
+        "ping_count": 20,
+        "loss_max": 5,
+        "bandwidth": {
+            "enabled": True,
+            "tool": "iperf3",
+            "server_ip": "192.168.10.141",   # host PC running iperf3 -s
+            # bench calibration: BOTH ends are wireless on this bench
+            # (host Wi-Fi too) - the airtime is shared, ~1-4 Mbps is
+            # the bottleneck; recalibrate for the production form
+            # (wireless DUT vs WIRED host, ~17 Mbps)
+            "min_mbps": 2,
+        },
     },
     "bluetooth": {
         "enabled": True,
@@ -63,6 +76,7 @@ FCT_TEST_CONFIG = {
         "expected_name": DUT_BT_NAME,
         "rssi_min": -70,
         "audio_confirm": True,
+        "l2ping_count": 10,
     },
 }
 

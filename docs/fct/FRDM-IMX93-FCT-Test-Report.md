@@ -2,12 +2,12 @@
 
 ```
 === FCT Test Report - FRDM-IMX93 ===
-Date: 2026-10-09 11:36 (Asia/Shanghai)
+Date: 2026-10-09 13:24 (Asia/Shanghai)
 DUT: imx93frdm (NXP i.MX93 FRDM, u-blox MAYA-W276, BD B8:F4:4F:59:51:A0)
 Host: macOS 15.5, mtk-gui headless GUI stack (offscreen) + TestRunner
 Project YAML: projects/FRDM-IMX93/FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev1.1.yaml
               (built with the MTK GUI pipeline: scripts/build_frdm_imx93_yaml.py,
-               0 ICT cases - FCT only, 9 FCT cases, console ser1 on
+               0 ICT cases - FCT only, 12 FCT cases, console ser1 on
                /dev/cu.usbmodem53930099631 @ 115200)
 
 1. Console Login
@@ -30,10 +30,24 @@ Project YAML: projects/FRDM-IMX93/FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev1.1.yaml
 
 4. Wi-Fi RSSI (rssi_only, DUT console mode)
    - send "iw dev mlan0 link" ... PASS
-   - RSSI: -49.0 dBm (threshold -70) ... PASS
+   - RSSI: -55.0 dBm (threshold -70) ... PASS
    Result: PASS
 
-5. Bluetooth RSSI (rssi_only)
+5. Wi-Fi Ping Gateway (DUT side, Linux DUT)
+   - send "ping -c 20 192.168.10.1" ... PASS
+   - loss 0.0% (20/20) vs max 5% ... PASS
+   Result: PASS
+
+6. Wi-Fi iperf Throughput (DUT client -> host PC iperf3 server)
+   - send "iperf3 -c 192.168.10.141 -t 10 -O 1" ... PASS
+   - 2.1 Mbps vs min 2.0 Mbps ... PASS
+     (bench calibration: BOTH ends are wireless on this bench - the
+      airtime is shared, 1-4 Mbps is the physical bottleneck;
+      RECALIBRATE for the production form: wireless DUT vs WIRED host
+      measured ~17 Mbps with iperf2)
+   Result: PASS
+
+7. Bluetooth RSSI (rssi_only)
    - send "hciconfig hci0 piscan" (discoverable) ... PASS
    - host inquiry: blueutil found "FRDM-IMX93-DUT"
      (b8-f4-4f-59-51-a0) ... PASS
@@ -41,16 +55,25 @@ Project YAML: projects/FRDM-IMX93/FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev1.1.yaml
      verdict is DISCOVERY-based per the rssi_only policy
    Result: PASS
 
-Overall Result: PASS  (cycle 13.0 s, ICT -> FCT all PASS)
+8. Bluetooth Data Transfer (L2CAP ping, DUT -> host PC)
+   - send "l2ping -c 10 14:7D:DA:D2:BA:B4" (host PC BT address) ... PASS
+   - 10 sent, 10 received, 0.0% loss ... PASS
+     (L2CAP echo = real payload transferred both directions over the
+      Bluetooth link - the functional data-path proof)
+   Result: PASS
+
+Overall Result: PASS  (cycle 79.7 s, ICT -> FCT all PASS)
 
 Engine evidence (EventLog, [Station] [User] fields present):
   [..] Console wait 'login:': verdict PASS (keyword 'root@imx93frdm')
-  [..] console send: 'root'
   [..] Kernel check: verdict PASS (matched 'Linux imx93frdm')
   [..] Load RF drivers: verdict PASS (matched 'RF drivers loaded OK')
-  [..] Wi-Fi FCT (DUT RSSI): verdict PASS (RSSI -49.0 dBm vs min -70.0)
+  [..] Wi-Fi FCT (DUT RSSI): verdict PASS (RSSI -55.0 dBm vs min -70.0)
+  [..] Wi-Fi DUT ping gateway: verdict PASS (loss 0.0% (20/20) vs max 5.0%)
+  [..] Wi-Fi DUT iperf (iperf3): verdict PASS (2.1 Mbps vs min 2.0 Mbps)
   [..] BT discoverable (piscan): verdict PASS (output present)
   [..] Bluetooth FCT: verdict PASS ({})
+  [..] BT L2CAP ping (10): verdict PASS (l2ping 14:7D:DA:D2:BA:B4: 10/10, 0.0% loss)
   [..] Overall flow: ICT -> FCT all PASS
 ```
 

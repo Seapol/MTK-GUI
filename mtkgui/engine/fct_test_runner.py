@@ -107,6 +107,112 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
 
 
 # ---------------------------------------------------------------------------
+# Linux DUT connectivity / throughput / BT data-path primitives
+# (P3-B5 addendum: ping / iperf / L2CAP ping run ON THE DUT console)
+# ---------------------------------------------------------------------------
+def host_bt_address(host_runner) -> str:
+    """The host PC's own Bluetooth address (system_profiler); empty
+    when not determinable."""
+    if host_runner is None:
+        return ""
+    res = host_runner.run("system_profiler SPBluetoothDataType",
+                          timeout_s=15)
+    m = re.search(r"Address:\s*([0-9A-Fa-f:]{17})", "\n".join(res.lines))
+    return m.group(1) if m else ""
+
+
+def _console_probe(serial, cmd: str, expect: str, timeout: float):
+    return console_send_and_expect(serial, cmd, expect, "", timeout)
+
+
+def dut_wifi_ping(serial, gateway: str, count: int,
+                  loss_max: float) -> tuple:
+    """DUT-side ping of the gateway: PASS when packet loss <= loss_max."""
+    verdict, text = _console_probe(
+        serial, f"ping -c {count} {gateway}",
+        r"\d+ received, [\d.]+% packet loss", count + 10.0)
+    m = re.search(r"(\d+) received, ([\d.]+)% packet loss", text)
+    if not m:
+        return "FAIL", ("TIMEOUT waiting for ping summary"
+                        if verdict == "TIMEOUT" else "no ping summary")
+    received, loss = int(m.group(1)), float(m.group(2))
+    ok = received == count and loss <= loss_max
+    return ("PASS" if ok else "FAIL",
+            f"loss {loss}% ({received}/{count}) vs max {loss_max}%")
+
+
+def dut_wifi_iperf(serial, tool: str, server_ip: str, min_mbps: float,
+                   duration: int = 10) -> tuple:
+    """DUT-side iperf (client -> host PC server): PASS when the
+    receiver bitrate >= min_mbps.  iperf3 prints a receiver summary;
+    iperf2's last bitrate line is used (auto-scaled M/G normalised)."""
+    if tool == "iperf3":
+        cmd = f"iperf3 -c {server_ip} -t {duration} -O 1"
+        expect = r"\d+\.\d+\s+[MG]bits/sec.*receiver"
+    else:                                   # iperf2
+        cmd = f"iperf -c {server_ip} -t {duration} -i 1"
+        expect = r"\d+\.\d+\s+[MG]bits/sec"
+    verdict, text = _console_probe(serial, cmd, expect,
+                                   duration + 25.0)
+    m = re.findall(r"([\d.]+)\s+([MG])bits/sec", text)
+    if not m:
+        return "FAIL", ("TIMEOUT waiting for iperf summary"
+                        if verdict == "TIMEOUT"
+                        else f"no iperf summary (server {server_ip} "
+                             "reachable?)")
+    val, unit = m[-1]
+    mbps = float(val) * (1000.0 if unit.upper() == "G" else 1.0)
+    ok = mbps >= min_mbps
+    return ("PASS" if ok else "FAIL",
+            f"{mbps:.1f} Mbps vs min {min_mbps} Mbps")
+
+
+def dut_bt_l2ping(serial, host_runner, count: int) -> tuple:
+    """Bluetooth data-transfer proof: L2CAP echo ping from the DUT to
+    the HOST PC's Bluetooth adapter (real payload echoed both ways).
+    PASS when 0% loss (all pings answered)."""
+    addr = host_bt_address(host_runner)
+    if not addr:
+        return "FAIL", "host Bluetooth address not found"
+    verdict, text = _console_probe(
+        serial, f"l2ping -c {count} {addr}",
+        r"\d+ sent, \d+ received, [\d.]+% loss", count * 3.0 + 10.0)
+    m = re.search(r"(\d+) sent, (\d+) received, ([\d.]+)% loss", text)
+    if not m:
+        return "FAIL", ("TIMEOUT waiting for l2ping summary"
+                        if verdict == "TIMEOUT" else
+                        f"no l2ping summary (host {addr})")
+    sent, received, loss = (int(m.group(1)), int(m.group(2)),
+                            float(m.group(3)))
+    ok = received == sent == count and loss == 0.0
+    return ("PASS" if ok else "FAIL",
+            f"l2ping {addr}: {received}/{sent}, {loss}% loss")
+
+
+class ConsoleSerialShim:
+    """Adapts a ConsoleBufferChannel to the pyserial-like interface
+    (write / read / reset_input_buffer) the dut_* helpers expect."""
+
+    def __init__(self, channel) -> None:
+        self._ch = channel
+        self._buf = b""
+
+    def reset_input_buffer(self) -> None:
+        self._buf = b""
+
+    def write(self, data) -> int:
+        self._ch.write(data)
+        return len(data)
+
+    def read(self, n: int = 4096) -> bytes:
+        lines = self._ch.read_lines(max_lines=500)
+        if lines:
+            self._buf += ("\n".join(lines) + "\n").encode()
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+
+# ---------------------------------------------------------------------------
 # the orchestrator
 # ---------------------------------------------------------------------------
 class FctStepResult:
@@ -218,6 +324,18 @@ class FctTestRunner:
                           else "TIMEOUT waiting for link info")
             results.append(FctStepResult(f"Wi-Fi {w.mode}", verdict,
                                          detail))
+            # Linux DUT connectivity + throughput (console-based)
+            if w.gateway and serial is not None:
+                v2, d2 = dut_wifi_ping(serial, w.gateway, w.ping_count,
+                                       w.loss_max)
+                results.append(FctStepResult("Wi-Fi DUT ping gateway",
+                                             v2, d2))
+            bw = w.bandwidth
+            if bw.enabled and serial is not None:
+                v3, d3 = dut_wifi_iperf(serial, bw.tool, bw.server_ip,
+                                        bw.min_mbps)
+                results.append(FctStepResult(
+                    f"Wi-Fi DUT iperf ({bw.tool})", v3, d3))
             return results
         if host_runner is None:
             self.log("Wi-Fi full_stack skipped: no host runner bound")
@@ -245,13 +363,14 @@ class FctTestRunner:
             str(items)))
         return results
 
-    def run_bluetooth(self, runner, human_confirm=None) -> list:
-        """Host-side Bluetooth test through the B4 BluetoothAdapter."""
+    def run_bluetooth(self, serial, host_runner, human_confirm=None) -> list:
+        """Host-side Bluetooth test through the B4 BluetoothAdapter,
+        then the L2CAP data-transfer proof (DUT -> host)."""
         results: list = []
         b = self.cfg.bluetooth
         if not b.enabled:
             return results
-        if runner is None:
+        if host_runner is None:
             self.log("Bluetooth skipped: no host runner bound")
             return results
         from .rf_adapters import BluetoothAdapter
@@ -261,13 +380,19 @@ class FctTestRunner:
             "audio_confirm": b.audio_confirm,
             "cmds": {"mac": dict(BT_MAC_CMDS)},
         }}
-        ad = BluetoothAdapter(rf_cfg, runner,
+        ad = BluetoothAdapter(rf_cfg, host_runner,
                               human_confirm=human_confirm)
         out = ad.run_test()
         results.append(FctStepResult(
             f"Bluetooth {b.mode}",
             "PASS" if out["verdict"] == "Pass" else "FAIL",
             str(out["items"])))
+        # data-transfer proof: L2CAP ping DUT -> host PC (0% loss)
+        if b.l2ping_count > 0 and serial is not None:
+            verdict, detail = dut_bt_l2ping(serial, host_runner,
+                                            b.l2ping_count)
+            results.append(FctStepResult(
+                f"BT L2CAP ping ({b.l2ping_count})", verdict, detail))
         return results
 
     # ------------------------------------------------------------- full
@@ -291,7 +416,7 @@ class FctTestRunner:
                 text.strip().splitlines()[-1][:120] if text.strip()
                 else ""))
         results += self.run_wifi(serial, host_runner)
-        results += self.run_bluetooth(host_runner, human_confirm)
+        results += self.run_bluetooth(serial, host_runner, human_confirm)
         overall = ("PASS" if results and all(r.passed for r in results)
                    else "FAIL")
         self.log(f"FCT cycle end -> {overall}")

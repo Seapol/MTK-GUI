@@ -17,6 +17,7 @@ Usage: ./mtk_gui/bin/python scripts/run_frdm_fct.py [yaml_path]
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -51,6 +52,17 @@ def main() -> int:
 
     started = time.time()
     results: dict = {}
+    # host-side iperf3 server for the DUT bandwidth step (auto start/
+    # stop; one-shot server exits after the first test)
+    iperf_srv = None
+    try:
+        iperf_srv = subprocess.Popen(
+            ["iperf3", "-s", "-1"], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
+        print("[run] iperf3 server started (one-shot)")
+    except FileNotFoundError:
+        print("[run] WARNING: iperf3 not found - bandwidth step will "
+              "fail")
 
     def on_step_finished(idx, res):
         name = page.fct_rows[idx] if idx < len(page.fct_rows) else "?"

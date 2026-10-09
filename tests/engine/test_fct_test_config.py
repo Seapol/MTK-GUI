@@ -48,6 +48,7 @@ fct_test_config:
     expected_name: FRDM-IMX93-DUT
     rssi_min: -70
     audio_confirm: true
+    l2ping_count: 5
 """
 
 
@@ -113,9 +114,10 @@ def test_build_steps_disabled_sections_absent():
     cfg.console.enabled = False
     cfg.wifi.enabled = False
     steps = build_fct_steps(cfg)
-    # BT still emits the piscan step + the FCT step itself
+    # BT emits piscan + FCT + the L2CAP data-transfer proof
     assert [s.name for s in steps] == ["BT discoverable (piscan)",
-                                       "Bluetooth FCT"]
+                                       "Bluetooth FCT",
+                                       "BT L2CAP ping (5)"]
 
 
 # ---------------------------------------------------------------- matcher
@@ -205,6 +207,8 @@ def test_fct_runner_full_cycle_pass():
         "iw dev mlan0 link":
             "Connected to 9c:xx (mlan0)\r\n    signal: -49.0 dBm\r\n",
         "hciconfig hci0 piscan": "hci0 UP RUNNING PSCAN ISCAN\r\n",
+        "l2ping -c 5 14:7D:DA:D2:BA:B4":
+            "5 sent, 5 received, 0.0% loss\r\n",
         "/root/load_rf_drivers.sh":
             "moal inserted\r\nbtnxpuart inserted\r\nRF drivers loaded OK\r\n",
     }
@@ -233,7 +237,9 @@ def test_fct_runner_full_cycle_pass():
     bt_lines = "Not Connected:\n  JBL: RSSI: -55"
     host = StubRF({
         "system_profiler SPAirPortDataType": (wifi_lines.split("\n"), 0),
-        "system_profiler SPBluetoothDataType": (bt_lines.split("\n"), 0),
+        "system_profiler SPBluetoothDataType": (
+            ["Not Connected:", "  FRDM-IMX93-DUT:", "    RSSI: -55",
+             "Address: 14:7D:DA:D2:BA:B4"], 0),
         "networksetup -listpreferredwirelessnetworks en0": ([], 0),
         "blueutil --inquiry 10": (
             ["address: B8:F4:4F:59:51:A0, name: FRDM-IMX93-DUT, "

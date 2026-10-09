@@ -193,17 +193,23 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
             time.sleep(0.02)
 
 
+def runner_for(ctx: FctContext):
+    """A HostCliRunner bound to the context identity/log (host-side
+    commands such as the own-Bluetooth-address lookup)."""
+    from .host_cli import HostCliRunner
+    return HostCliRunner(log_sink=ctx.log, station_id=ctx.station_id,
+                         user=ctx.user)
+
+
 def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     """B5 RF tool execution (spec 3.2 / 3.3): build the B4 adapter
     from the embedded config (params.fct_rf) with the B4-verified mac
     command set, run it, log every command line, map the verdict.
     a2dp_sink routes the operator question through the confirm hook."""
-    from .host_cli import HostCliRunner
     from .fct_test_runner import BT_MAC_CMDS, WIFI_MAC_CMDS
     from .rf_adapters import BluetoothAdapter, WifiAdapter
     cfg = dict(step.params.get("fct_rf") or {})
-    runner = HostCliRunner(log_sink=ctx.log,
-                           station_id=ctx.station_id, user=ctx.user)
+    runner = runner_for(ctx)
     if family == "wifi":
         # B5 rssi_only on a station-mode Linux DUT: the RSSI is read
         # ON THE DUT over the console (iw dev <interface> link) - a
@@ -365,6 +371,35 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         return outcome
 
     if step.step_type == STEP_EXTERNAL_TOOL:
+        # B5 addendum: DUT-side connectivity / throughput / BT data-path
+        # steps (run over the console via the dut_* primitives)
+        channel = ctx.channels.get(step.channel)
+        if step.params.get("fct_wifi_ping") and channel is not None:
+            from .fct_test_runner import ConsoleSerialShim, dut_wifi_ping
+            p = step.params["fct_wifi_ping"]
+            verdict, detail = dut_wifi_ping(
+                ConsoleSerialShim(channel), p["gateway"], p["count"],
+                p["loss_max"])
+            ctx.log(f"DUT ping: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
+        if step.params.get("fct_wifi_iperf") and channel is not None:
+            from .fct_test_runner import ConsoleSerialShim, dut_wifi_iperf
+            p = step.params["fct_wifi_iperf"]
+            verdict, detail = dut_wifi_iperf(
+                ConsoleSerialShim(channel), p["tool"], p["server_ip"],
+                p["min_mbps"], p.get("duration", 10))
+            ctx.log(f"DUT iperf: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
+        if step.params.get("fct_bt_l2ping") and channel is not None:
+            from .fct_test_runner import (ConsoleSerialShim, dut_bt_l2ping)
+            verdict, detail = dut_bt_l2ping(
+                ConsoleSerialShim(channel), runner_for(ctx),
+                step.params["fct_bt_l2ping"]["count"])
+            ctx.log(f"DUT l2ping: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
         # B5: RF tool steps (wifi / bluetooth) run through the B4
         # adapters - the sub-config travels in params.fct_rf
         family = str(step.params.get("tool_family", "")).lower()

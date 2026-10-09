@@ -185,13 +185,16 @@ class FCTTestConfigPanel(QWidget):
         fs.addRow("Loss max (%):", self.wifi_loss_max)
         lay.addWidget(self.wifi_fs_box)
 
-        self.bw_box = QGroupBox("Bandwidth (iperf)")
+        self.bw_box = QGroupBox("Bandwidth (iperf, DUT client -> host server)")
         bw = QFormLayout(self.bw_box)
         self.bw_enabled = QCheckBox("Enabled")
         bw.addRow(self.bw_enabled)
         self.bw_tool = QComboBox()
         self.bw_tool.addItems(list(BW_TOOLS))
         bw.addRow("Tool:", self.bw_tool)
+        self.bw_server_ip = QLineEdit()
+        self.bw_server_ip.setPlaceholderText("host PC IP, e.g. 192.168.10.141")
+        bw.addRow("Server IP (host):", self.bw_server_ip)
         self.bw_min_mbps = QDoubleSpinBox()
         self.bw_min_mbps.setRange(0.0, 10000.0)
         self.bw_min_mbps.setValue(10.0)
@@ -222,6 +225,12 @@ class FCTTestConfigPanel(QWidget):
         self.bt_audio_confirm = QCheckBox(
             "GUI_CONFIRM on a2dp_sink (operator hears the tone)")
         form.addRow(self.bt_audio_confirm)
+        self.bt_l2ping = QSpinBox()
+        self.bt_l2ping.setRange(0, 100)
+        self.bt_l2ping.setValue(10)
+        self.bt_l2ping.setToolTip(
+            "L2CAP ping DUT -> host PC (data-transfer proof); 0 = off")
+        form.addRow("L2CAP ping count:", self.bt_l2ping)
         lay.addLayout(form)
         lay.addStretch(1)
         return w
@@ -284,6 +293,7 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_loss_max.setValue(w.loss_max)
             self.bw_enabled.setChecked(w.bandwidth.enabled)
             self.bw_tool.setCurrentText(w.bandwidth.tool)
+            self.bw_server_ip.setText(w.bandwidth.server_ip)
             self.bw_min_mbps.setValue(w.bandwidth.min_mbps)
             self.wifi_fs_box.setVisible(w.mode == "full_stack")
             b = cfg.bluetooth
@@ -292,6 +302,7 @@ class FCTTestConfigPanel(QWidget):
             self.bt_name.setText(b.expected_name)
             self.bt_rssi_min.setValue(b.rssi_min)
             self.bt_audio_confirm.setChecked(b.audio_confirm)
+            self.bt_l2ping.setValue(b.l2ping_count)
         finally:
             self._guard = False
 
@@ -347,6 +358,7 @@ class FCTTestConfigPanel(QWidget):
             bandwidth=BandwidthCfg(
                 enabled=self.bw_enabled.isChecked(),
                 tool=self.bw_tool.currentText(),
+                server_ip=self.bw_server_ip.text().strip(),
                 min_mbps=self.bw_min_mbps.value()),
         )
         cfg.bluetooth = BluetoothCfg(
@@ -355,6 +367,7 @@ class FCTTestConfigPanel(QWidget):
             expected_name=self.bt_name.text().strip(),
             rssi_min=self.bt_rssi_min.value(),
             audio_confirm=self.bt_audio_confirm.isChecked(),
+            l2ping_count=self.bt_l2ping.value(),
         )
         errors = cfg.validate()
         if errors:

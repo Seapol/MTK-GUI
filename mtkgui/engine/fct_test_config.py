@@ -118,10 +118,12 @@ class BandwidthCfg:
     enabled: bool = False
     tool: str = "iperf2"
     min_mbps: float = 10.0
+    server_ip: str = ""             # host PC running the iperf server
 
     def to_dict(self) -> dict:
         return {"enabled": self.enabled, "tool": self.tool,
-                "min_mbps": float(self.min_mbps)}
+                "min_mbps": float(self.min_mbps),
+                "server_ip": self.server_ip}
 
 
 @dataclass
@@ -159,6 +161,9 @@ class BluetoothCfg:
     expected_name: str = ""
     rssi_min: int = -70
     audio_confirm: bool = True
+    # data-transfer proof (Linux DUT): L2CAP ping DUT -> host PC BT
+    # address (BlueZ l2ping, real echo both ways); 0 = off
+    l2ping_count: int = 10
 
     def to_dict(self) -> dict:
         return {
@@ -166,6 +171,7 @@ class BluetoothCfg:
             "expected_name": self.expected_name,
             "rssi_min": int(self.rssi_min),
             "audio_confirm": self.audio_confirm,
+            "l2ping_count": int(self.l2ping_count),
         }
 
 
@@ -233,7 +239,8 @@ class FctTestConfig:
                 bandwidth=BandwidthCfg(
                     enabled=bool(bw.get("enabled", False)),
                     tool=str(bw.get("tool", "iperf2")),
-                    min_mbps=float(bw.get("min_mbps", 10.0))),
+                    min_mbps=float(bw.get("min_mbps", 10.0)),
+                    server_ip=str(bw.get("server_ip", ""))),
             ),
             bluetooth=BluetoothCfg(
                 enabled=bool(bt.get("enabled", False)),
@@ -241,6 +248,7 @@ class FctTestConfig:
                 expected_name=str(bt.get("expected_name", "")),
                 rssi_min=int(bt.get("rssi_min", -70)),
                 audio_confirm=bool(bt.get("audio_confirm", True)),
+                l2ping_count=int(bt.get("l2ping_count", 10) or 0),
             ),
         )
 
@@ -264,6 +272,10 @@ class FctTestConfig:
                 if not w.ssid.strip():
                     errors.append("wifi.full_stack: ssid must not be "
                                   "empty")
+            if w.bandwidth.enabled and not w.bandwidth.server_ip.strip():
+                errors.append("wifi.bandwidth.enabled: server_ip (the "
+                              "host PC running the iperf server) is "
+                              "required")
         if b.enabled:
             if b.mode not in BT_MODES:
                 errors.append(f"bluetooth.mode must be one of {BT_MODES}")
@@ -355,6 +367,30 @@ def build_fct_steps(cfg: FctTestConfig,
                 channel="", timeout_s=60.0,
                 params={"tool_family": "wifi",
                         "fct_rf": cfg.wifi.to_dict()}))
+        # Linux DUT connectivity + throughput: ping the gateway and run
+        # iperf (DUT client -> host PC server) over the console
+        w = cfg.wifi
+        if w.gateway:
+            steps.append(FctStep(
+                name="Wi-Fi DUT ping gateway",
+                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                timeout_s=float(w.ping_count) + 10.0,
+                params={"tool_family": "wifi",
+                        "fct_wifi_ping": {
+                            "gateway": w.gateway,
+                            "count": w.ping_count,
+                            "loss_max": w.loss_max}}))
+        if w.bandwidth.enabled:
+            steps.append(FctStep(
+                name=f"Wi-Fi DUT iperf ({w.bandwidth.tool})",
+                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                timeout_s=60.0,
+                params={"tool_family": "wifi",
+                        "fct_wifi_iperf": {
+                            "tool": w.bandwidth.tool,
+                            "server_ip": w.bandwidth.server_ip,
+                            "min_mbps": w.bandwidth.min_mbps,
+                            "duration": 10}}))
     if cfg.bluetooth.enabled:
         # make the DUT discoverable FIRST (hciconfig piscan per the
         # board FCT_SETUP) - hci0 UP RUNNING PSCAN alone is invisible
@@ -369,4 +405,14 @@ def build_fct_steps(cfg: FctTestConfig,
             channel="", timeout_s=60.0,
             params={"tool_family": "bluetooth",
                     "fct_rf": cfg.bluetooth.to_dict()}))
+        # data-transfer proof: L2CAP ping DUT -> host PC BT address
+        # (BlueZ l2ping echoes real payload both ways)
+        if cfg.bluetooth.l2ping_count > 0:
+            steps.append(FctStep(
+                name=f"BT L2CAP ping ({cfg.bluetooth.l2ping_count})",
+                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                timeout_s=float(cfg.bluetooth.l2ping_count) * 3.0 + 10.0,
+                params={"tool_family": "bluetooth",
+                        "fct_bt_l2ping": {
+                            "count": cfg.bluetooth.l2ping_count}}))
     return steps
