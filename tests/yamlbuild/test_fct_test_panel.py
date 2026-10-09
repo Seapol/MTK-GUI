@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 import yaml
 
-from mtkgui.engine.fct_test_config import FctTestConfig
+from mtkgui.engine.fct_test_config import ConsoleCommand, FctTestConfig
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
 
 
@@ -62,7 +62,12 @@ def test_roundtrip_preserves_config(qapp):
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
     assert cfg.dut_type == "linux"
     assert cfg.console.enabled and cfg.console.baudrate == 115200
-    assert cfg.console.test_commands[0].expect_pass == "Linux imx93frdm"
+    # legacy expect_pass of a send command migrates to the Capture
+    # positive keyword (WaitFor uses expect_pass; Capture uses expect_fail)
+    kernel = next(c for c in cfg.console.test_commands
+                  if c.name == "Kernel check")
+    assert kernel.capture_enabled and kernel.capture_is_expected
+    assert kernel.expect_fail == "Linux imx93frdm"
     assert cfg.wifi.mode == "rssi_only" and cfg.wifi.ssid == \
         "FRDM-IMX93-DUT"
     assert cfg.bluetooth.expected_name == "FRDM-IMX93-DUT"
@@ -127,3 +132,131 @@ def test_set_values_restores_dut_type_grey(qapp):
     panel.set_values({"fct_test_config_yaml": yaml.safe_dump(node)})
     assert panel.dut_type.currentText() == "bare_metal"
     assert "Bare Metal" in panel.dut_hint.text()
+
+
+THREE_STAGE_YAML = """
+fct_test_config:
+  dut_type: linux
+  console:
+    enabled: true
+    port: "/dev/cu.test"
+    baudrate: 115200
+    test_commands:
+      - name: "Boot capture"
+        kind: capture
+        wait_enabled: false
+        send_enabled: false
+        capture_enabled: true
+        expect_fail: "FW ready"
+        capture_is_expected: true
+        timeout: 6
+      - name: "Login"
+        kind: send
+        send: "root"
+        wait_enabled: true
+        send_enabled: true
+        capture_enabled: true
+        expect_pass: "login:"
+        expect_fail: "Password:"
+        capture_is_expected: true
+        wait_timeout: 10
+        send_timeout: 4
+        timeout: 6
+  wifi: {enabled: false, mode: rssi_only, interface: mlan0, ssid: x, rssi_min: -70}
+  bluetooth: {enabled: false, mode: rssi_only, expected_name: x, rssi_min: -70}
+"""
+
+
+def test_three_stage_off_cells_rendered(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
+    t = panel.cmd_table
+    assert t.rowCount() == 2
+    # row 0: capture-only -> WaitFor / SendTo show (off), Capture populated
+    assert t.item(0, 2).text() == "(off)"
+    assert t.item(0, 3).text() == "(off)"
+    assert t.item(0, 4).text() == "FW ready"
+    assert t.item(0, 5).text() == "C:6s"      # only capture timeout
+    # row 1: full Wait -> Send -> Capture chain
+    assert t.item(1, 2).text() == "login:"
+    assert t.item(1, 3).text() == "root"
+    assert t.item(1, 4).text() == "Password:"
+    assert t.item(1, 5).text() == "W:10s S:4s C:6s"
+
+
+def test_three_stage_off_roundtrip(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
+    out = panel.values()
+    node = yaml.safe_load(out["fct_test_config_yaml"])
+    cfg = FctTestConfig.from_dict(node["fct_test_config"])
+    cap, login = cfg.console.test_commands
+    # capture-only row keeps its stage flags through the table roundtrip
+    assert cap.wait_enabled is False
+    assert cap.send_enabled is False
+    assert cap.capture_enabled is True
+    assert cap.expect_fail == "FW ready"
+    # full chain row keeps all three stages
+    assert login.wait_enabled and login.send_enabled and login.capture_enabled
+    assert login.expect_pass == "login:"
+    assert login.expect_fail == "Password:"
+
+
+def test_timeout_column_read_only(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
+    from PySide6.QtCore import Qt
+    item = panel.cmd_table.item(1, 5)
+    assert not (item.flags() & Qt.ItemIsEditable)
+
+
+def test_advanced_capture_attrs_survive_roundtrip(qapp):
+    # expected=no + ignore-case + end line + custom timeout must not be
+    # lost when the row goes table -> values() -> YAML -> model
+    panel = FCTTestConfigPanel()
+    panel.set_values({})
+    panel.console_enabled.setChecked(True)
+    cmd = ConsoleCommand(
+        name="No error window", kind="send", send="run",
+        wait_enabled=False, send_enabled=True, capture_enabled=True,
+        expect_fail="ERROR", expect_fail_is_regex=False,
+        case_sensitive=False, capture_is_expected=False,
+        capture_end_line="DONE", timeout=8.0)
+    r = panel.cmd_table.rowCount()
+    panel.cmd_table.insertRow(r)
+    panel._save_row_cmd(r, cmd)
+    out = panel.values()
+    node = yaml.safe_load(out["fct_test_config_yaml"])
+    restored = FctTestConfig.from_dict(
+        node["fct_test_config"]).console.test_commands[0]
+    assert restored.capture_enabled and not restored.capture_is_expected
+    assert restored.expect_fail == "ERROR"
+    assert restored.case_sensitive is False
+    assert restored.capture_end_line == "DONE"
+    assert restored.timeout == 8.0
+
+
+def test_sftp_row_clears_wait_and_capture(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({})
+    panel.console_enabled.setChecked(True)
+    cmd = ConsoleCommand(
+        name="Deploy", kind="sftp_put", transport="ssh",
+        wait_enabled=False, send_enabled=True, capture_enabled=False,
+        local="load.sh", remote="/root/load.sh", send_timeout=30.0)
+    r = panel.cmd_table.rowCount()
+    panel.cmd_table.insertRow(r)
+    panel._save_row_cmd(r, cmd)
+    # rendered cells show (off) for Wait/Capture and only S timeout
+    assert panel.cmd_table.item(r, 2).text() == "(off)"
+    assert panel.cmd_table.item(r, 4).text() == "(off)"
+    assert panel.cmd_table.item(r, 5).text() == "S:30s"
+    out = panel.values()
+    node = yaml.safe_load(out["fct_test_config_yaml"])
+    restored = FctTestConfig.from_dict(
+        node["fct_test_config"]).console.test_commands[0]
+    assert restored.kind == "sftp_put"
+    assert restored.local == "load.sh" and restored.remote == "/root/load.sh"
+    assert not restored.wait_enabled and not restored.capture_enabled
+
+

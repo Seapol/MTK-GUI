@@ -136,10 +136,128 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
     return "TIMEOUT", buffer.decode("utf-8", errors="replace")
 
 
-# ---------------------------------------------------------------------------
-# Linux DUT connectivity / throughput / BT data-path primitives
-# (P3-B5 addendum: ping / iperf / L2CAP ping run ON THE DUT console)
-# ---------------------------------------------------------------------------
+def _pattern_hit(pattern: str, is_regex: bool, case_sensitive: bool,
+                 text: str) -> bool:
+    """True if pattern matches text (regex or exact substring)."""
+    if not pattern:
+        return False
+    if is_regex:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        return re.search(pattern, text, flags) is not None
+    if case_sensitive:
+        return pattern in text
+    return pattern.lower() in text.lower()
+
+
+def _read_until(serial, stop_fn, timeout: float) -> tuple:
+    """Drain the console into a buffer until stop_fn(text)->True or
+    timeout. Returns (status, text): status is whatever stop_fn returns
+    truthy-as (a non-empty string verdict), else 'TIMEOUT'."""
+    start = time.time()
+    buffer = b""
+    while time.time() - start < max(timeout, 0.1):
+        chunk = serial.read(4096)
+        if chunk:
+            buffer += chunk
+            text = buffer.decode("utf-8", errors="replace")
+            verdict = stop_fn(text)
+            if verdict:
+                return verdict, text
+        time.sleep(0.05)
+    return "TIMEOUT", buffer.decode("utf-8", errors="replace")
+
+
+def wait_stage(serial, pattern: str, is_regex: bool, case_sensitive: bool,
+               timeout: float) -> tuple:
+    """Wait stage: block until `pattern` appears or timeout.
+
+    Used to find the right moment to send (e.g. a login prompt). The
+    prompt is static (printed once), so do NOT reset the buffer here:
+    a prompt already present must match immediately. Send resets the
+    buffer before writing. Returns ('PASS', text) on hit,
+    ('TIMEOUT', text) on timeout.
+    """
+    def _stop(text):
+        return "PASS" if _pattern_hit(pattern, is_regex,
+                                      case_sensitive, text) else ""
+    return _read_until(serial, _stop, timeout)
+
+
+def send_stage(serial, cmd: str, timeout: float) -> tuple:
+    """Send stage: send each non-empty line (newline auto-appended).
+
+    A normal write returns immediately. The timeout guards against a
+    stuck serial / dead DUT blocking the write. Returns ('PASS','') on
+    success, ('FAIL', detail) if the write cannot complete.
+    """
+    lines = [ln for ln in cmd.splitlines() if ln.strip()]
+    if not lines:
+        # empty command: send a single newline (e.g. blank password)
+        lines = [""]
+    old_wto = getattr(serial, "write_timeout", None)
+    try:
+        if hasattr(serial, "write_timeout"):
+            serial.write_timeout = max(timeout, 0.1)
+        # clear stale bytes once, BEFORE writing: the command echo and
+        # its result that arrive after this are what Capture judges
+        if hasattr(serial, "reset_input_buffer"):
+            serial.reset_input_buffer()
+        for line in lines:
+            serial.write((line + "\n").encode())
+            time.sleep(0.05)
+        if hasattr(serial, "flush"):
+            serial.flush()
+        return "PASS", ""
+    except Exception as e:  # serial write timeout / port gone / DUT dead
+        return "FAIL", f"send error: {e}"
+    finally:
+        if hasattr(serial, "write_timeout"):
+            serial.write_timeout = old_wto
+
+
+def capture_stage(serial, pattern: str, end_line: str, expected: bool,
+                  is_regex: bool, case_sensitive: bool,
+                  timeout: float, forbid: str = "") -> tuple:
+    """Capture stage: judge the output after commands were sent.
+
+    expected=True  : pattern found = PASS; end_line reached without
+                     pattern = FAIL; timeout = FAIL.
+    expected=False : pattern found = FAIL; end_line reached without
+                     pattern = PASS; timeout without end_line = FAIL
+                     (or PASS if no end_line is defined).
+    `forbid` is an optional negative keyword that fails immediately
+    whenever it appears (legacy expect_fail alongside a positive).
+    """
+    def _stop(text):
+        if forbid and _pattern_hit(forbid, is_regex, case_sensitive, text):
+            return "FAIL"
+        found = _pattern_hit(pattern, is_regex, case_sensitive, text)
+        ended = _pattern_hit(end_line, is_regex, case_sensitive, text) \
+            if end_line else False
+        if expected:
+            if found:
+                return "PASS"
+            if ended:
+                return "FAIL"
+        else:
+            if found:
+                return "FAIL"
+            if ended:
+                return "PASS"
+        return ""
+
+    verdict, text = _read_until(serial, _stop, timeout)
+    if verdict == "TIMEOUT" and not expected and not end_line:
+        # no end line defined: survived the whole window without the
+        # unwanted message -> PASS
+        if not _pattern_hit(pattern, is_regex, case_sensitive, text) \
+                and not (forbid and _pattern_hit(forbid, is_regex,
+                                                 case_sensitive, text)):
+            return "PASS", text
+    return verdict, text
+
+
+
 def host_bt_address(host_runner) -> str:
     """The host PC's own Bluetooth address (system_profiler); empty
     when not determinable."""
@@ -152,7 +270,10 @@ def host_bt_address(host_runner) -> str:
 
 
 def _console_probe(serial, cmd: str, expect: str, timeout: float):
-    return console_send_and_expect(serial, cmd, expect, "", timeout)
+    """Console probe whose `expect` is always a REGEX (RSSI/ping/iperf/
+    l2ping summaries are parsed by the caller)."""
+    return console_send_and_expect(serial, cmd, expect, "", timeout,
+                                   expect_pass_is_regex=True)
 
 
 def dut_wifi_ping(serial, gateway: str, count: int,
@@ -276,58 +397,103 @@ class FctTestRunner:
 
     # ---------------------------------------------------------- console
     def run_console(self, serial) -> list:
-        """Run console test commands (kind: wait/send/capture) over serial/ssh."""
+        """Run console test commands.
+
+        Each ConsoleCommand is a Wait -> Send -> Capture pipeline with
+        every stage independently enabled. Any stage failure (incl.
+        timeout) retries the whole command up to cmd.retries times, then
+        FAILs and stops. SFTP rows (sftp_put/sftp_get) run over the SSH
+        channel and bypass Wait/Capture.
+        """
         results: list = []
         c = self.cfg.console
         if not c.enabled or serial is None:
             return results
         for cmd in c.test_commands:
-            if cmd.kind == "wait":
-                # capture-only wait, no send
-                verdict, text = self._wait_for(serial, cmd.expect_pass,
-                                               cmd.timeout)
-                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
-                results.append(FctStepResult(
-                    cmd.name or f"wait '{cmd.expect_pass}'", verdict, detail))
-                self.log(f"console wait '{cmd.expect_pass}' -> {verdict}")
-                if verdict != "PASS":
-                    return results
-            elif cmd.kind == "send":
-                # send command, then judge output
-                verdict, text = console_send_and_expect(
-                    serial, cmd.send, cmd.expect_pass, cmd.expect_fail,
-                    cmd.timeout)
-                shown = "TIMEOUT" if verdict == "TIMEOUT" else verdict
-                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
-                results.append(FctStepResult(
-                    cmd.name or cmd.send, shown, detail))
-                self.log(f"console send '{cmd.send}' -> {verdict}")
-            elif cmd.kind == "capture":
-                # capture-only judge (send optional)
-                if cmd.send:
-                    serial.reset_input_buffer()
-                    serial.write((cmd.send + "\n").encode())
-                verdict, text = self._wait_for(serial, cmd.expect_pass,
-                                               cmd.timeout)
-                detail = text.strip().splitlines()[-1][:120] if text.strip() else ""
-                results.append(FctStepResult(
-                    cmd.name or "capture", verdict, detail))
-                self.log(f"console capture -> {verdict}")
+            verdict, detail, stage = self._run_one_command(serial, cmd)
+            label = cmd.name or cmd.send or cmd.expect_pass or "console"
+            results.append(FctStepResult(label, verdict, detail))
+            self.log(f"console '{label}' [{stage}] -> {verdict} {detail}")
+            if verdict != "PASS":
+                return results  # stop the whole sequence on failure
         return results
 
+    def _run_one_command(self, serial, cmd) -> tuple:
+        """Run one ConsoleCommand with retry. Returns (verdict, detail,
+        stage)."""
+        attempts = cmd.retries + 1
+        last = ("FAIL", "not run", "?")
+        for attempt in range(attempts):
+            # SFTP rows: file transfer over the SSH channel only
+            if cmd.kind in ("sftp_put", "sftp_get"):
+                verdict, detail = self._run_sftp(serial, cmd)
+                if verdict == "PASS":
+                    return verdict, detail, "sftp"
+                last = (verdict, detail, "sftp")
+                if attempt + 1 < attempts:
+                    self.log(f"  retry sftp ({attempt + 1}/{cmd.retries})")
+                continue
+            # three-stage pipeline: Wait -> Send -> Capture
+            verdict, detail, stage = self._run_pipeline(serial, cmd)
+            if verdict == "PASS":
+                return verdict, detail, stage
+            last = (verdict, detail, stage)
+            if attempt + 1 < attempts:
+                self.log(f"  retry {stage} ({attempt + 1}/{cmd.retries})")
+        return last
+
+    def _run_pipeline(self, serial, cmd) -> tuple:
+        """Wait -> Send -> Capture for one command."""
+        # 1) WAIT (precondition to send, e.g. login prompt)
+        if cmd.wait_enabled and cmd.expect_pass:
+            verdict, text = wait_stage(
+                serial, cmd.expect_pass, cmd.expect_pass_is_regex,
+                cmd.case_sensitive, cmd.wait_timeout)
+            if verdict != "PASS":
+                return "FAIL", f"wait timeout, no '{cmd.expect_pass}'", "wait"
+        # 2) SEND (each line auto-newline; timeout guards a stuck link).
+        # kind=send with an empty command still sends one newline
+        # (e.g. blank password); a capture-only row sends nothing.
+        if (cmd.send_enabled
+                and cmd.kind not in ("sftp_put", "sftp_get")
+                and (cmd.send or cmd.kind == "send")):
+            verdict, detail = send_stage(serial, cmd.send, cmd.send_timeout)
+            if verdict != "PASS":
+                return "FAIL", detail, "send"
+        # 3) CAPTURE (judge the resulting output within capture timeout)
+        if cmd.capture_enabled and cmd.expect_fail:
+            verdict, text = capture_stage(
+                serial, cmd.expect_fail, cmd.capture_end_line,
+                cmd.capture_is_expected, cmd.expect_fail_is_regex,
+                cmd.case_sensitive, cmd.timeout,
+                forbid=cmd.capture_forbid)
+            if verdict == "TIMEOUT":
+                return "FAIL", "capture timeout", "capture"
+            if verdict != "PASS":
+                return "FAIL", "capture condition not met", "capture"
+        return "PASS", "", "done"
+
+    def _run_sftp(self, channel, cmd) -> tuple:
+        """sftp_put / sftp_get over an SSH channel exposing put_file /
+        get_file."""
+        try:
+            if cmd.kind == "sftp_put":
+                if not hasattr(channel, "put_file"):
+                    return "FAIL", "channel has no SFTP put_file"
+                channel.put_file(cmd.local, cmd.remote)
+                return "PASS", f"put {cmd.local} -> {cmd.remote}"
+            else:
+                if not hasattr(channel, "get_file"):
+                    return "FAIL", "channel has no SFTP get_file"
+                channel.get_file(cmd.remote, cmd.local)
+                return "PASS", f"get {cmd.remote} -> {cmd.local}"
+        except Exception as e:
+            return "FAIL", f"sftp error: {e}"
+
     def _wait_for(self, serial, pattern: str, timeout: float) -> tuple:
-        """Capture-only wait (no send): read until `pattern` matches."""
-        start = time.time()
-        buffer = b""
-        while time.time() - start < max(timeout, 0.1):
-            chunk = serial.read(4096)
-            if chunk:
-                buffer += chunk
-                text = buffer.decode("utf-8", errors="replace")
-                if re.search(pattern, text):
-                    return "PASS", text
-            time.sleep(0.05)
-        return "TIMEOUT", buffer.decode("utf-8", errors="replace")
+        """Legacy capture-only wait (kept for RF helpers)."""
+        return wait_stage(serial, pattern, True, True, timeout)
+
 
     # -------------------------------------------------------------- RF
     def run_wifi(self, serial, host_runner) -> list:
@@ -345,7 +511,9 @@ class FctTestRunner:
             verdict, text = console_send_and_expect(
                 serial, f"iw dev {w.interface} link",
                 r"signal:\s*(-?[\d.]+)\s*dBm",
-                r"not connected|No station|Invalid", 5.0)
+                r"not connected|No station|Invalid", 5.0,
+                expect_pass_is_regex=True,
+                expect_fail_is_regex=True)
             import re
             m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", text)
             if m:

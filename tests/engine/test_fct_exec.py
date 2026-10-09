@@ -114,6 +114,72 @@ def test_message_check_without_keywords_fails_explicitly():
     assert "no keywords" in out.reason
 
 
+def _console_step(**params):
+    base = {"fct_console": True}
+    base.update(params)
+    return FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+                   timeout_s=0.6, params=base)
+
+
+def test_fct_console_expected_yes_pattern_before_endline_passes():
+    ctx, _ = make_virtual_context({"ser1": ["FW v3.2 ready", "PROMPT"]})
+    step = _console_step(expect_pass_re=r"FW v[\d.]+ ready",
+                         expect_pass_is_regex=True,
+                         capture_is_expected=True,
+                         capture_end_line="PROMPT")
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+
+
+def test_fct_console_expected_yes_endline_without_pattern_fails():
+    ctx, _ = make_virtual_context({"ser1": ["some noise", "PROMPT"]})
+    step = _console_step(expect_pass_re="READY",
+                         capture_is_expected=True,
+                         capture_end_line="PROMPT")
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert "End Line" in out.reason
+
+
+def test_fct_console_expected_no_bad_message_fails():
+    ctx, _ = make_virtual_context({"ser1": ["starting", "ERROR boom"]})
+    step = _console_step(expect_fail_re="ERROR",
+                         capture_is_expected=False,
+                         capture_end_line="PROMPT")
+    assert execute_fct_step(step, ctx).verdict == VERDICT_FAIL
+
+
+def test_fct_console_expected_no_clean_window_to_endline_passes():
+    ctx, _ = make_virtual_context({"ser1": ["all good", "PROMPT"]})
+    step = _console_step(expect_fail_re="ERROR",
+                         capture_is_expected=False,
+                         capture_end_line="PROMPT")
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+
+
+def test_fct_console_expected_no_no_endline_clean_timeout_passes():
+    # expected=no without an End Line: a whole window with no bad
+    # message is a PASS (bounded by timeout)
+    ctx, _ = make_virtual_context({"ser1": ["booting", "still fine"]})
+    step = _console_step(expect_fail_re="FATAL",
+                         capture_is_expected=False)
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+
+
+def test_fct_console_regex_flag_is_honoured():
+    # regex pattern must not be treated as a literal substring
+    ctx, _ = make_virtual_context({"ser1": ["FW v3.2 ready"]})
+    step = _console_step(expect_pass_re=r"FW v[\d.]+ ready",
+                         expect_pass_is_regex=True,
+                         capture_is_expected=True)
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    # same text, but treated as exact literal -> no match -> timeout FAIL
+    ctx2, _ = make_virtual_context({"ser1": ["FW v3.2 ready"]})
+    step_lit = _console_step(expect_pass_re=r"FW v[\d.]+ ready",
+                             expect_pass_is_regex=False,
+                             capture_is_expected=True)
+    assert execute_fct_step(step_lit, ctx2).verdict == VERDICT_FAIL
+
+
 def test_skip_marker():
     ctx, _ = make_virtual_context()
     step = FctStep(name="s", step_type="MESSAGE_CHECK", channel="ser1",

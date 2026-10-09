@@ -95,18 +95,23 @@ class ConsoleCommand:
     kind: str = "send"              # wait | send | capture | sftp_put | sftp_get
     name: str = ""
     transport: str = "serial"       # serial | ssh
+    wait_enabled: bool = False      # Wait stage on/off
+    send_enabled: bool = True       # Send stage on/off
+    capture_enabled: bool = False   # Capture stage on/off
     send: str = ""                  # command line(s), \n separated; {{var}} rendered
-    expect_pass: str = ""           # exact match (default) or regex
-    expect_fail: str = ""           # exact match (default) or regex, wins over expect_pass
+    expect_pass: str = ""           # WaitFor pattern (exact default or regex)
+    expect_fail: str = ""           # Capture pattern (exact default or regex)
     expect_pass_is_regex: bool = False   # False = exact substring match
     expect_fail_is_regex: bool = False
     case_sensitive: bool = True         # False = ignore case (PASS = pass)
-    capture_is_expected: bool = False   # Capture column: True = found=PASS, False = found=FAIL
-    capture_end_line: str = ""          # end-of-range marker (only when capture_is_expected=False)
+    capture_is_expected: bool = False   # Capture: True = found=PASS, False = found=FAIL
+    capture_end_line: str = ""          # end-of-range marker
+    capture_forbid: str = ""            # optional negative keyword even when
+                                        # expecting a positive (legacy migrate)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
-    retries: int = 0                # extra attempts on FAIL (fct_exec)
+    retries: int = 0                # extra attempts on ANY fail (incl. timeout)
     extract: str = ""               # "name=regex" lines; group 1 -> variables
     action: str = ""                # sftp_put | sftp_get (transport=ssh rows)
     local: str = ""                 # sftp local path (Host PC)
@@ -114,7 +119,11 @@ class ConsoleCommand:
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "name": self.name,
-                "transport": self.transport, "send": self.send,
+                "transport": self.transport,
+                "wait_enabled": self.wait_enabled,
+                "send_enabled": self.send_enabled,
+                "capture_enabled": self.capture_enabled,
+                "send": self.send,
                 "expect_pass": self.expect_pass,
                 "expect_fail": self.expect_fail,
                 "expect_pass_is_regex": self.expect_pass_is_regex,
@@ -122,12 +131,96 @@ class ConsoleCommand:
                 "case_sensitive": self.case_sensitive,
                 "capture_is_expected": self.capture_is_expected,
                 "capture_end_line": self.capture_end_line,
+                "capture_forbid": self.capture_forbid,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
                 "retries": int(self.retries),
                 "extract": self.extract, "action": self.action,
                 "local": self.local, "remote": self.remote}
+
+    @staticmethod
+    def _from_dict_v2(c: dict) -> "ConsoleCommand":
+        """Build a ConsoleCommand, migrating the legacy single-window
+        model (send + expect_pass/expect_fail judged together) to the
+        Wait -> Send -> Capture pipeline.
+
+        Legacy semantics: expect_pass = positive keyword expected AFTER
+        send; expect_fail = negative keyword (fail wins). New rows carry
+        explicit wait_enabled/send_enabled/capture_enabled flags.
+        """
+        legacy = not any(k in c for k in
+                         ("wait_enabled", "send_enabled", "capture_enabled"))
+        kind = str(c.get("kind", "send"))
+        send = str(c.get("send", ""))
+        old_pass = str(c.get("expect_pass", ""))
+        old_fail = str(c.get("expect_fail", ""))
+
+        if not legacy:
+            return ConsoleCommand(
+                kind=kind, name=str(c.get("name", "")),
+                transport=str(c.get("transport", "serial")),
+                wait_enabled=bool(c.get("wait_enabled", False)),
+                send_enabled=bool(c.get("send_enabled", True)),
+                capture_enabled=bool(c.get("capture_enabled", False)),
+                send=send, expect_pass=old_pass, expect_fail=old_fail,
+                expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
+                expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
+                case_sensitive=bool(c.get("case_sensitive", True)),
+                capture_is_expected=bool(c.get("capture_is_expected", False)),
+                capture_end_line=str(c.get("capture_end_line", "")),
+                capture_forbid=str(c.get("capture_forbid", "")),
+                timeout=float(c.get("timeout", 6.0)),
+                wait_timeout=float(c.get("wait_timeout", 10.0)),
+                send_timeout=float(c.get("send_timeout", 4.0)),
+                retries=int(c.get("retries", 0) or 0),
+                extract=str(c.get("extract", "")),
+                action=str(c.get("action", "")),
+                local=str(c.get("local", "")),
+                remote=str(c.get("remote", "")))
+
+        # ---- legacy migration ----
+        if kind == "wait":
+            return ConsoleCommand(
+                kind="wait", name=str(c.get("name", "")),
+                transport=str(c.get("transport", "serial")),
+                wait_enabled=True, send_enabled=False, capture_enabled=False,
+                send="", expect_pass=old_pass, expect_fail="",
+                expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
+                expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
+                case_sensitive=bool(c.get("case_sensitive", True)),
+                timeout=float(c.get("timeout", 6.0)),
+                wait_timeout=float(c.get("timeout", 10.0)),
+                send_timeout=float(c.get("send_timeout", 4.0)),
+                retries=int(c.get("retries", 0) or 0))
+        # send/capture: the old expect_pass becomes the Capture positive
+        # keyword; old expect_fail becomes capture_forbid (or the main
+        # negative pattern when no positive exists).
+        capture_enabled = bool(old_pass or old_fail)
+        if old_pass:
+            main_pattern, is_expected, forbid = old_pass, True, old_fail
+        else:
+            main_pattern, is_expected, forbid = old_fail, False, ""
+        return ConsoleCommand(
+            kind=kind, name=str(c.get("name", "")),
+            transport=str(c.get("transport", "serial")),
+            wait_enabled=False,
+            send_enabled=bool(send) or kind == "send",
+            capture_enabled=capture_enabled,
+            send=send, expect_pass="", expect_fail=main_pattern,
+            expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
+            expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
+            case_sensitive=bool(c.get("case_sensitive", True)),
+            capture_is_expected=is_expected,
+            capture_end_line="", capture_forbid=forbid,
+            timeout=float(c.get("timeout", 6.0)),
+            wait_timeout=float(c.get("wait_timeout", 10.0)),
+            send_timeout=float(c.get("send_timeout", 4.0)),
+            retries=int(c.get("retries", 0) or 0),
+            extract=str(c.get("extract", "")),
+            action=str(c.get("action", "")),
+            local=str(c.get("local", "")),
+            remote=str(c.get("remote", "")))
 
 
 @dataclass
@@ -254,26 +347,7 @@ class FctTestConfig:
                 ssh_host=str(console.get("ssh_host", "")),
                 ssh_username=str(console.get("ssh_username", "root")),
                 test_commands=[
-                    ConsoleCommand(
-                        kind=str(c.get("kind", "send")),
-                        name=str(c.get("name", "")),
-                        transport=str(c.get("transport", "serial")),
-                        send=str(c.get("send", "")),
-                        expect_pass=str(c.get("expect_pass", "")),
-                        expect_fail=str(c.get("expect_fail", "")),
-                        expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
-                        expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
-                        case_sensitive=bool(c.get("case_sensitive", True)),
-                        capture_is_expected=bool(c.get("capture_is_expected", False)),
-                        capture_end_line=str(c.get("capture_end_line", "")),
-                        timeout=float(c.get("timeout", 6.0)),
-                        wait_timeout=float(c.get("wait_timeout", 10.0)),
-                        send_timeout=float(c.get("send_timeout", 4.0)),
-                        retries=int(c.get("retries", 0) or 0),
-                        extract=str(c.get("extract", "")),
-                        action=str(c.get("action", "")),
-                        local=str(c.get("local", "")),
-                        remote=str(c.get("remote", "")))
+                    ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
             ),
             wifi=WifiCfg(
@@ -368,18 +442,80 @@ def build_fct_steps(cfg: FctTestConfig,
         # bare metal: capture-only unless the firmware defines a
         # command protocol ("send" is optional per row)
         for cmd in c.test_commands:
-            params: dict = {"fct_console": True,
+            # SFTP file-transfer rows
+            if cmd.kind in ("sftp_put", "sftp_get"):
+                steps.append(FctStep(
+                    name=cmd.name or cmd.kind,
+                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+                    timeout_s=float(cmd.send_timeout),
+                    retries=int(cmd.retries),
+                    params={"fct_console": True, "kind": cmd.kind,
+                            "action": cmd.kind,
+                            "local": cmd.local, "remote": cmd.remote}))
+                continue
+            # Map the three-stage model to the MESSAGE_CHECK executor.
+            #   WaitFor (wait-only row) -> positive pattern, found=PASS
+            #   Capture expected=yes  -> positive=want, negative=forbid
+            #   Capture expected=no   -> negative=bad msg, End Line bounds
+            is_wait_only = (cmd.wait_enabled and not cmd.send_enabled)
+            if is_wait_only:
+                pass_pat, neg_pat = cmd.expect_pass, ""
+                pass_regex = cmd.expect_pass_is_regex
+                neg_regex = False
+                is_expected = True
+                end_line = ""
+            else:
+                if cmd.capture_enabled and cmd.capture_is_expected:
+                    pass_pat, neg_pat = cmd.expect_fail, cmd.capture_forbid
+                elif cmd.capture_enabled:
+                    pass_pat, neg_pat = "", cmd.expect_fail
+                else:
+                    pass_pat, neg_pat = "", ""
+                pass_regex = cmd.expect_fail_is_regex
+                neg_regex = cmd.expect_fail_is_regex
+                is_expected = (cmd.capture_is_expected
+                               if cmd.capture_enabled else False)
+                end_line = cmd.capture_end_line
+            params: dict = {
+                "fct_console": True,
+                "kind": "wait" if is_wait_only else "send",
+                "wait_enabled": cmd.wait_enabled,
+                "send_enabled": cmd.send_enabled,
+                "capture_enabled": cmd.capture_enabled,
+                "wait_pattern": cmd.expect_pass,
+                "wait_timeout": float(cmd.wait_timeout),
+                "send_timeout": float(cmd.send_timeout),
+                "capture_timeout": float(cmd.timeout),
+                "capture_end_line": end_line,
+                "capture_is_expected": is_expected,
+                "case_sensitive": cmd.case_sensitive,
+                "expect_pass_re": pass_pat,
+                "expect_fail_re": neg_pat,
+                "expect_pass_is_regex": pass_regex,
+                "expect_fail_is_regex": neg_regex,
+            }
+            if cmd.send_enabled and (cmd.send or cmd.kind == "send"):
+                params["send"] = cmd.send
+            base_name = cmd.name or cmd.send or "Console step"
+            # a row that both waits and sends becomes two ordered steps:
+            # a pre-send WaitFor then the Send+Capture step
+            if (not is_wait_only and cmd.wait_enabled
+                    and cmd.expect_pass):
+                steps.append(FctStep(
+                    name=f"{base_name} (wait)",
+                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+                    timeout_s=float(cmd.wait_timeout),
+                    retries=int(cmd.retries),
+                    params={"fct_console": True, "kind": "wait",
+                            "wait_enabled": True, "send_enabled": False,
+                            "capture_enabled": False,
                             "expect_pass_re": cmd.expect_pass,
-                            "expect_fail_re": cmd.expect_fail,
-                            "kind": cmd.kind}
-            # send: kind=send always sends (even empty newline);
-            # kind=capture sends only if non-empty; kind=wait never sends
-            if cmd.kind == "send":
-                params["send"] = cmd.send
-            elif cmd.kind == "capture" and cmd.send:
-                params["send"] = cmd.send
+                            "expect_pass_is_regex":
+                                cmd.expect_pass_is_regex,
+                            "capture_is_expected": True,
+                            "case_sensitive": cmd.case_sensitive}))
             steps.append(FctStep(
-                name=cmd.name or cmd.send or "Console step",
+                name=base_name,
                 step_type=STEP_MESSAGE_CHECK, channel=channel_key,
                 timeout_s=float(cmd.timeout), retries=int(cmd.retries),
                 params=params))

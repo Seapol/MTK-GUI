@@ -146,9 +146,17 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     ``expect_fail_re`` wins over ``expect_pass_re``, timeout = FAIL
     ("TIMEOUT waiting"), never blocks forever.  Falls back to the
     plain keyword tables when no regex is configured."""
-    from .fct_test_runner import match_expectation
-    pass_re = str(step.params.get("expect_pass_re", "") or "")
-    fail_re = str(step.params.get("expect_fail_re", "") or "")
+    from .fct_test_runner import match_expectation, _pattern_hit
+    p = step.params
+    pass_re = str(p.get("expect_pass_re", "") or "")
+    fail_re = str(p.get("expect_fail_re", "") or "")
+    pass_is_re = bool(p.get("expect_pass_is_regex", False))
+    fail_is_re = bool(p.get("expect_fail_is_regex", False))
+    case = bool(p.get("case_sensitive", True))
+    end_line = str(p.get("capture_end_line", "") or "")
+    is_expected = bool(p.get("capture_is_expected", True))
+    # End Line shares the main pattern's Regex/Case setting
+    end_is_re = pass_is_re if is_expected else fail_is_re
     collected: list = []
     deadline = time.monotonic() + max(step.timeout_s or 5.0, 0.1)
     while True:
@@ -160,7 +168,7 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
         if got:
             collected.extend(got)
             text = "\n".join(collected)
-            if not (pass_re or fail_re):
+            if not (pass_re or fail_re or end_line):
                 if not (step.expect_pass or step.expect_fail):
                     # no expectations at all (e.g. the BT piscan setup
                     # step): ANY output means the command reached the
@@ -176,18 +184,43 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                         return FctOutcome(verdict, f"keyword '{hit}'",
                                           list(collected))
             else:
-                verdict, detail = match_expectation(text, pass_re,
-                                                    fail_re)
-                if verdict == "FAIL":
-                    return FctOutcome(VERDICT_FAIL, detail,
+                # negative keyword always wins first
+                if fail_re and _pattern_hit(fail_re, fail_is_re,
+                                            case, text):
+                    return FctOutcome(VERDICT_FAIL,
+                                      f"matched unwanted '{fail_re}'",
                                       list(collected))
-                if verdict == "PASS":
-                    return FctOutcome(VERDICT_PASS, detail,
+                if is_expected and pass_re and _pattern_hit(
+                        pass_re, pass_is_re, case, text):
+                    return FctOutcome(VERDICT_PASS,
+                                      f"matched '{pass_re}'",
                                       list(collected))
+                if end_line and _pattern_hit(end_line, end_is_re,
+                                             case, text):
+                    if is_expected:
+                        # range ended without the wanted message
+                        return FctOutcome(
+                            VERDICT_FAIL,
+                            f"End Line reached without '{pass_re}'",
+                            list(collected))
+                    # expected=no: clean window, no unwanted message
+                    return FctOutcome(
+                        VERDICT_PASS,
+                        "clean window up to End Line",
+                        list(collected))
         if step.timeout_s and time.monotonic() > deadline:
+            text = "\n".join(collected)
+            if not is_expected and not end_line and not (
+                    fail_re and _pattern_hit(fail_re, fail_is_re,
+                                             case, text)):
+                # expected=no without an End Line: surviving the whole
+                # window without the bad message is a PASS
+                return FctOutcome(VERDICT_PASS,
+                                  "no unwanted message in window",
+                                  list(collected))
             return FctOutcome(VERDICT_FAIL,
                               "TIMEOUT waiting for "
-                              f"{pass_re or step.expect_pass}",
+                              f"{pass_re or end_line or 'output'}",
                               list(collected))
         if not got:
             time.sleep(0.02)
