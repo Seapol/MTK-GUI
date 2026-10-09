@@ -153,9 +153,14 @@ class FCTTestConfigPanel(QWidget):
         def _add():
             r = self.cmd_table.rowCount()
             self.cmd_table.insertRow(r)
-            # text columns: Name / WaitFor / SendTo / Capture / Timeout
-            for col in (0, 2, 3, 4, 5):
+            # text columns: Name / WaitFor / SendTo / Capture
+            for col in (0, 2, 3, 4):
                 self.cmd_table.setItem(r, col, QTableWidgetItem(""))
+            # Timeout column = read-only
+            from PySide6.QtCore import Qt as _Qt
+            timeout_item = QTableWidgetItem("W:10s S:4s C:6s")
+            timeout_item.setFlags(timeout_item.flags() & ~_Qt.ItemIsEditable)
+            self.cmd_table.setItem(r, 5, timeout_item)
             # Console column = dropdown
             cb = QComboBox()
             cb.addItems(["serial", "ssh"])
@@ -175,12 +180,18 @@ class FCTTestConfigPanel(QWidget):
             if r < 0:
                 return
             self.cmd_table.insertRow(r + 1)
-            # copy text cells
-            for col in (0, 2, 3, 4, 5):
+            # copy text cells (except Timeout which is read-only)
+            for col in (0, 2, 3, 4):
                 src = self.cmd_table.item(r, col)
                 if src:
                     self.cmd_table.setItem(r + 1, col,
                                            QTableWidgetItem(src.text()))
+            # copy Timeout as read-only
+            from PySide6.QtCore import Qt as _Qt
+            src_to = self.cmd_table.item(r, 5)
+            new_to = QTableWidgetItem(src_to.text() if src_to else "W:10s S:4s C:6s")
+            new_to.setFlags(new_to.flags() & ~_Qt.ItemIsEditable)
+            self.cmd_table.setItem(r + 1, 5, new_to)
             # copy Console dropdown
             src_cb = self.cmd_table.cellWidget(r, 1)
             new_cb = QComboBox()
@@ -695,9 +706,12 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setItem(r, 3, QTableWidgetItem(sendto_text))
                 # Capture
                 self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.expect_fail))
-                # Timeout (shows all 3: wait/send/capture; editable in dialogs)
+                # Timeout (shows all 3: wait/send/capture; read-only)
                 timeout_text = f"W:{int(cmd.wait_timeout)}s S:{int(cmd.send_timeout)}s C:{int(cmd.timeout)}s"
-                self.cmd_table.setItem(r, 5, QTableWidgetItem(timeout_text))
+                timeout_item = QTableWidgetItem(timeout_text)
+                from PySide6.QtCore import Qt as _Qt
+                timeout_item.setFlags(timeout_item.flags() & ~_Qt.ItemIsEditable)
+                self.cmd_table.setItem(r, 5, timeout_item)
                 # Retry = dropdown
                 rb = QComboBox()
                 rb.addItems(["no", "yes"])
