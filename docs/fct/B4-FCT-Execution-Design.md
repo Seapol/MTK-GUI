@@ -422,3 +422,38 @@ client full-stack RSSI->Ping->iPerf or RSSI only; Bluetooth host source
 -> DUT A2DP sink RSSI->Pair/Connect->Tone); bare_metal = the SAME
 Wait/Send/Capture flow over SERIAL only (firmware prompts can be answered,
 e.g. Button/LED y/n), no SSH/SFTP, Wi-Fi/BT host -> DUT RSSI-only scans.
+
+## 12. FCT power & fixture spine (P3-B5 Setup tab)
+
+FCT uses **no DAQ**. The DUT power source and the optional ATE fixture are
+configured in the FCT Test Config **Setup** tab (`fct_test_config.setup`)
+and wrap the generated FCT body through `wrap_fct_setup()`:
+
+| Field | Values | Sequence effect |
+|---|---|---|
+| `power_mode` | `manual` (default) | A `MessageGoStop` before the body asks the operator to connect the wall adapter / USB cable; a second one after `FCT done.` asks to remove it. No instrument action. |
+|  | `psu` | Standard ops **Power On DUT** before the body and **Power Off DUT** after `FCT done.` (rack N5747A, same ops as ICT). |
+|  | `none` | DUT already powered; no power action. |
+| `use_fixture` | bool | When true, **Fixture Clamp Down / Lock / E-Stop Healthy** precede the body and **Fixture Unlock / Release** follow it (fixture DIO). |
+| `manual_on_message` / `manual_off_message` | text | Operator prompts (editable only in `manual` mode). |
+
+Resulting order (`psu` + fixture): clamp -> lock -> e-stop -> Power On ->
+body -> `FCT done.` -> Power Off -> unlock -> release.
+
+Standard-op rows are `GUI_CONFIRM` steps carrying `params.op`; the fct_exec
+executor routes them through the injected `FctContext.run_op` hook (the
+runner binds it to `_run_op`, so Virtual drives the simulated rack and Real
+drives the gateway) — they never open an operator dialog. Plain
+`MessageGoStop` rows (manual prompts) still use the human-confirm hook.
+
+**ICT/FCT coexistence** — a project YAML may contain ICT only, FCT only, or
+both. An FCT config with every tab disabled is valid and yields zero FCT
+cases. The FCT Build block's OK button behaves exactly like the ICT Build
+block: on success it emits the sequence and opens the *Overwrite current
+yaml / Save to a new yaml* dialog; parse/validation errors raise a warning
+dialog and do not save.
+
+**Deferred to Real integration** — the physical fixture-DIO routing
+(U2355A vs DAQM907A) cannot be verified until instruments are purchased;
+the sequence layer only references the standard op names, and the
+instrument routing is settled during Real bring-up.

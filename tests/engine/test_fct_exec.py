@@ -353,3 +353,39 @@ def test_runner_fct_fail_blocks_overall(qapp):
     page.run_demo()
     assert page.fct.item(0, 4).text() == "FAIL"
     page.deleteLater()
+
+
+def test_standard_op_row_runs_instrument_op_not_dialog():
+    """P3-B5 FCT setup: a GUI_CONFIRM carrying params.op drives the
+    rack PSU / fixture (run_op hook), not an operator MessageGoStop."""
+    calls = []
+
+    def run_op(name, params):
+        calls.append((name, params))
+        return "Done"
+
+    def must_not_call(_s):
+        raise AssertionError("op rows must not open a confirm dialog")
+
+    ctx = FctContext(run_op=run_op, human_confirm=must_not_call)
+    step = FctStep(name="Power On DUT", step_type="GUI_CONFIRM",
+                   timeout_s=0, params={"op": "Power On DUT"})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert calls and calls[0][0] == "Power On DUT"
+    # catalog defaults (power type / voltage) are supplied to the runner
+    assert calls[0][1].get("type") == "power"
+
+
+def test_standard_op_error_verdict():
+    ctx = FctContext(run_op=lambda n, p: "Error")
+    step = FctStep(name="Fixture Clamp Down", step_type="GUI_CONFIRM",
+                   timeout_s=0, params={"op": "Fixture Clamp Down"})
+    assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
+
+
+def test_standard_op_without_runner_is_error():
+    ctx = FctContext()   # no run_op hook bound
+    step = FctStep(name="Power On DUT", step_type="GUI_CONFIRM",
+                   timeout_s=0, params={"op": "Power On DUT"})
+    assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR

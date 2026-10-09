@@ -283,3 +283,29 @@ def test_sftp_row_clears_wait_and_capture(qapp):
     assert not restored.wait_enabled and not restored.capture_enabled
 
 
+
+
+def test_setup_tab_round_trips_power_and_fixture(qapp):
+    """P3-B5: the Setup tab (power source + ATE fixture) persists into
+    fct_test_config_yaml and restores."""
+    panel = FCTTestConfigPanel()
+    text = yaml.safe_dump({"fct_test_config": {
+        "dut_type": "linux",
+        "setup": {"power_mode": "psu", "use_fixture": True,
+                  "manual_on_message": "plug it",
+                  "manual_off_message": "unplug it"}}}, sort_keys=False)
+    panel.set_values({"fct_test_config_yaml": text})
+    assert panel.setup_power.currentData() == "psu"
+    assert panel.setup_fixture.isChecked() is True
+    # psu mode disables the manual prompt editors
+    assert not panel.setup_on_msg.isEnabled()
+
+    out = panel.values()
+    node = yaml.safe_load(out["fct_test_config_yaml"])
+    setup = node["fct_test_config"]["setup"]
+    assert setup["power_mode"] == "psu"
+    assert setup["use_fixture"] is True
+
+    # switching to manual enables the prompt editors and keeps text
+    panel.setup_power.setCurrentIndex(0)   # manual is item 0
+    assert panel.setup_on_msg.isEnabled()

@@ -75,6 +75,10 @@ class FctContext:
     user: str = ""
     log_sink: object = None        # callable(str) -> None (EventLog)
     human_confirm: object = None   # callable(FctStep) -> bool (GO=True)
+    #: callable(op_name, params) -> "Done" | "Error" for standard
+    #: operation rows (rack PSU Power On/Off, fixture clamp/lock driven
+    #: by U2355A DIO). When None an op-flagged GUI_CONFIRM is an ERROR.
+    run_op: object = None
     keyword_pass: list = field(default_factory=list)
     keyword_fail: list = field(default_factory=list)
 
@@ -351,6 +355,23 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
     pass_kw, fail_kw = ctx.effective_keywords(step)
 
     if step.step_type == STEP_GUI_CONFIRM:
+        op_name = step.params.get("op")
+        if op_name:
+            # standard operation row (rack PSU Power On/Off, fixture
+            # clamp/lock via U2355A DIO) - drive the instrument gateway,
+            # not an operator dialog
+            if ctx.run_op is None:
+                return FctOutcome(VERDICT_ERROR,
+                                  f"standard op {op_name!r}: no op runner")
+            from .steps import OP_STEPS
+            op_params = dict(OP_STEPS.get(op_name, {}))
+            op_params.update({k: v for k, v in step.params.items()
+                              if k != "op"})
+            ctx.log(f"standard op: {op_name}")
+            verdict = ctx.run_op(op_name, op_params)
+            return FctOutcome(
+                VERDICT_PASS if verdict == "Done" else VERDICT_ERROR,
+                f"{op_name}: {verdict}")
         if ctx.human_confirm is None:
             return FctOutcome(VERDICT_ERROR, "no confirm hook bound")
         ctx.log("waiting for human confirmation")

@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 
 from ..gui.yamlbuild.fct_build import (
     STEP_EXTERNAL_TOOL,
+    STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     FctStep,
 )
@@ -57,6 +58,25 @@ BAUDRATES = (9600, 19200, 38400, 57600, 115200)
 WIFI_MODES = ("rssi_only", "full_stack")
 BT_MODES = ("rssi_only", "pair_connect", "a2dp_sink")
 BW_TOOLS = ("iperf2", "iperf3")
+
+#: FCT DUT power source (block 07 setup):
+#:   psu    - the rack PSU (N5747A) powers the DUT, same Power On/Off
+#:            operations as ICT;
+#:   manual - no PSU: a MessageGoStop prompts the operator to connect the
+#:            wall adapter / USB cable before the tests and remove it
+#:            afterwards;
+#:   none   - the DUT is already powered (no power action at all).
+POWER_PSU = "psu"
+POWER_MANUAL = "manual"
+POWER_NONE = "none"
+FCT_POWER_MODES = (POWER_PSU, POWER_MANUAL, POWER_NONE)
+
+DEFAULT_MANUAL_ON_MSG = (
+    "Connect the power adapter / USB cable to the DUT, then press GO "
+    "to start FCT.")
+DEFAULT_MANUAL_OFF_MSG = (
+    "FCT finished. Disconnect the power adapter / USB cable, then press "
+    "GO.")
 
 #: default per-command timeout (spec §4.1: commands 5 s, driver load
 #: 15 s, Wi-Fi join 30 s — configured per row)
@@ -308,6 +328,53 @@ class BluetoothCfg:
 
 
 @dataclass
+class FctSetupCfg:
+    """FCT fixture/power wrapper around the generated test body.
+
+    Unlike ICT, FCT needs NO DAQ. The DUT is powered either by the rack
+    PSU (Power On/Off operations) or by a wall adapter / USB cable the
+    operator connects when prompted (MessageGoStop). The ATE fixture,
+    when used, is driven through the U2355A DIO resource.
+    """
+
+    power_mode: str = POWER_MANUAL     # psu | manual | none
+    use_fixture: bool = False
+    manual_on_message: str = DEFAULT_MANUAL_ON_MSG
+    manual_off_message: str = DEFAULT_MANUAL_OFF_MSG
+
+    def to_dict(self) -> dict:
+        return {
+            "power_mode": self.power_mode,
+            "use_fixture": bool(self.use_fixture),
+            "manual_on_message": self.manual_on_message,
+            "manual_off_message": self.manual_off_message,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FctSetupCfg":
+        data = data or {}
+        return cls(
+            power_mode=str(data.get("power_mode", POWER_MANUAL)),
+            use_fixture=bool(data.get("use_fixture", False)),
+            manual_on_message=str(
+                data.get("manual_on_message", DEFAULT_MANUAL_ON_MSG)),
+            manual_off_message=str(
+                data.get("manual_off_message", DEFAULT_MANUAL_OFF_MSG)),
+        )
+
+    def validate(self) -> list:
+        errors: list = []
+        if self.power_mode not in FCT_POWER_MODES:
+            errors.append(f"setup.power_mode must be one of "
+                          f"{FCT_POWER_MODES}")
+        if self.power_mode == POWER_MANUAL and not \
+                self.manual_on_message.strip():
+            errors.append("setup.manual_on_message must not be empty "
+                          "for manual power mode")
+        return errors
+
+
+@dataclass
 class FctTestConfig:
     """The whole `fct_test_config:` node (block 07 three tabs)."""
 
@@ -315,6 +382,7 @@ class FctTestConfig:
     console: ConsoleCfg = field(default_factory=ConsoleCfg)
     wifi: WifiCfg = field(default_factory=WifiCfg)
     bluetooth: BluetoothCfg = field(default_factory=BluetoothCfg)
+    setup: FctSetupCfg = field(default_factory=FctSetupCfg)
 
     # ------------------------------------------------------------ YAML IO
     def to_dict(self) -> dict:
@@ -323,6 +391,7 @@ class FctTestConfig:
             "console": self.console.to_dict(),
             "wifi": self.wifi.to_dict(),
             "bluetooth": self.bluetooth.to_dict(),
+            "setup": self.setup.to_dict(),
         }
 
     def to_yaml_node(self) -> dict:
@@ -375,6 +444,7 @@ class FctTestConfig:
                 audio_confirm=bool(bt.get("audio_confirm", True)),
                 l2ping_count=int(bt.get("l2ping_count", 10) or 0),
             ),
+            setup=FctSetupCfg.from_dict(data.get("setup")),
         )
 
     # ---------------------------------------------------------- validation
@@ -431,6 +501,7 @@ class FctTestConfig:
             if self.dut_type == "bare_metal" and b.l2ping_count > 0:
                 errors.append("bare_metal DUT: L2CAP ping runs on the "
                               "DUT console - set l2ping_count to 0")
+        errors.extend(self.setup.validate())
         return errors
 
 
@@ -614,3 +685,47 @@ def build_fct_steps(cfg: FctTestConfig,
                         "fct_bt_l2ping": {
                             "count": cfg.bluetooth.l2ping_count}}))
     return steps
+
+
+def _fct_op_step(name: str) -> "FctStep":
+    """A standard-operation row (fixture / rack PSU) reused from the
+    engine OP_STEPS catalog; ``params.op`` makes to_project_fct_cases
+    emit an ``op`` row executed by the standard op runner."""
+    return FctStep(name=name, step_type=STEP_GUI_CONFIRM, timeout_s=0.0,
+                   params={"op": name})
+
+
+def wrap_fct_setup(cfg: FctTestConfig, body: list,
+                   channel_key: str = "ser1") -> list:
+    """Wrap the generated FCT test body with the production spine.
+
+    Order: optional fixture clamp/lock/E-Stop -> power on (rack PSU op OR
+    a manual adapter/USB MessageGoStop OR nothing) -> body -> "FCT
+    done." -> power off / manual remove prompt -> fixture unlock/release.
+
+    FCT uses NO DAQ; the ATE fixture (when present) is driven through the
+    U2355A DIO resource on the real rack (the op names are shared with
+    ICT; the instrument routing is resolved at run time).
+    """
+    s = cfg.setup
+    pre: list = []
+    post: list = []
+    if s.use_fixture:
+        pre += [_fct_op_step("Fixture Clamp Down"),
+                _fct_op_step("Fixture Lock"),
+                _fct_op_step("Fixture E-Stop Healthy")]
+        post += [_fct_op_step("Fixture Unlock"),
+                 _fct_op_step("Fixture Release")]
+    if s.power_mode == POWER_PSU:
+        pre.append(_fct_op_step("Power On DUT"))
+        post.insert(0, _fct_op_step("Power Off DUT"))
+    elif s.power_mode == POWER_MANUAL:
+        pre.append(FctStep(name=s.manual_on_message,
+                           step_type=STEP_GUI_CONFIRM, timeout_s=0.0))
+        post.insert(0, FctStep(name=s.manual_off_message,
+                               step_type=STEP_GUI_CONFIRM, timeout_s=0.0))
+    # power_mode == POWER_NONE: no power action
+    done = FctStep(name="FCT done.", step_type=STEP_MESSAGE_CHECK,
+                   expect_pass=["done"], timeout_s=0.0)
+    return pre + list(body) + [done] + post
+

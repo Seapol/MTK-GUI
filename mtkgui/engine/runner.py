@@ -619,6 +619,8 @@ class TestRunner(QObject):
             pass
         ctx = FctContext(station_id=station, user=user,
                          log_sink=env._log,
+                         run_op=lambda op_name, op_params:
+                         self._run_op("FCT", op_name, op_params),
                          keyword_pass=list(getattr(
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
