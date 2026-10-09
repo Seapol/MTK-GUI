@@ -1,0 +1,81 @@
+# P3-B4 Module F: Host PC peripheral + RF test platform configuration
+# (product YAML `rf:` section example).
+#
+# Rules:
+#   * every host command is a template under the platform backend key
+#     (mac / windows), placeholders use {{name}} and are injected from
+#     the YAML config, channel allocation or test variables;
+#   * the backend is selected by platform.system() at runtime; a
+#     backend marked `_todo` (or missing) raises PlatformBackendMissing
+#     - explicit error, never a silent downgrade;
+#   * credentials are NEVER in this file: SSH passwords come from the
+#     keyring credential layer (D4-A), Wi-Fi passwords may be injected
+#     as test variables at run time;
+#   * the mac commands below are verified on macOS 15.x (P3-B4).
+rf:
+  wifi:
+    mode: "full_stack"          # "full_stack" | "rssi_only"
+    expected_ssid: "DUT-AP-XXXX"
+    password: ""                # injected as test var `password` at run
+    gateway: "192.168.1.1"
+    rssi_min: -70
+    ping_count: 20
+    warmup_packets: 3
+    assoc_wait_s: 8
+    iperf3: false               # optional throughput step (needs an
+                                # iperf3 -s on the DUT side)
+    iperf_timeout_s: 60
+    cmds:
+      mac:
+        list_networks_cmd: 'networksetup -listpreferredwirelessnetworks en0'
+        remove_network_cmd: 'networksetup -removepreferredwirelessnetwork en0 "{{ssid}}"'
+        connect_cmd: 'networksetup -setairportnetwork en0 "{{ssid}}" "{{password}}"'
+        add_network_cmd: 'networksetup -addpreferredwirelessnetwork en0 "{{ssid}}"'
+        rssi_cmd: 'system_profiler SPAirPortDataType'
+        rssi_parse: 'Signal / Noise: (-?\d+) dBm'
+        gateway_cmd: 'route -n get default'
+        gateway_parse: 'gateway:\s+(\S+)'
+        ping_cmd: 'ping -c {{count}} {{gateway}}'
+        # with iperf3 enabled ({{ip}} = DUT address from test vars);
+        # throughput is normalised to Mbits/sec (M/G auto-scaled):
+        # iperf_cmd: 'iperf3 -c {{ip}} -t 10 -O 2'
+        # iperf_parse: '([\d.]+)\s+([MG])bits/sec\s+(?:\d+\s+\S+\s+)?receiver'
+      windows:
+        _todo: "Pending Windows on-site acceptance"
+  bluetooth:
+    mode: "a2dp_sink"           # "a2dp_sink" | "rssi_only"
+    expected_name: "DUT-BT-XXXX"
+    rssi_min: -70
+    scan_s: 10
+    test_tone: "resources/test_tone.wav"
+    cmds:
+      mac:
+        scan_cmd: 'blueutil --inquiry {{seconds}}'
+        addr_parse: '([0-9a-fA-F:-]{17})'
+        connect_cmd: 'blueutil --connect {{addr}}'
+        verify_cmd: 'blueutil --is-connected {{addr}}'
+        disconnect_cmd: 'blueutil --disconnect {{addr}}'
+        rssi_cmd: 'system_profiler SPBluetoothDataType'
+        rssi_parse: 'RSSI: (-?\d+)'
+        audio_switch_cmd: 'switchaudio-osx -s "{{name}}"'
+        tone_cmd: 'afplay {{tone}}'
+      windows:
+        _todo: "Pending Windows on-site acceptance"
+  console:
+    serial:
+      port: "/dev/tty.usbserial-XXXX"   # Windows: COMx
+      baudrate: 115200
+      bytesize: 8
+      parity: "N"
+      stopbits: 1
+      timeout: 1.0
+      reconnect: true
+      reconnect_interval_s: 2.0
+    ssh:
+      host: "192.168.1.100"
+      port: 22
+      username: "root"
+      credential_ref: "dut-ssh"         # keyring ref (D4-A) - no password here
+      timeout: 10.0
+      connect_timeout: 10.0
+      remote_dir: "/home/root/"         # SFTP default upload target (P3-B4 addendum)
