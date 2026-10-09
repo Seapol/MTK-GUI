@@ -83,7 +83,7 @@ class FCTTestConfigPanel(QWidget):
         self.dut_hint.setWordWrap(True)
         self.dut_hint.setStyleSheet("color: #6b7280;")
         head = QHBoxLayout()
-        head.addWidget(QLabel("DUT type:"))
+        head.addWidget(QLabel("DUT OS Firmware:"))
         head.addWidget(self.dut_type)
         head.addStretch(1)
         lay.insertLayout(0, head)
@@ -96,7 +96,6 @@ class FCTTestConfigPanel(QWidget):
         no Linux shell, so the console login chain, DUT-side iperf and
         L2CAP ping are not applicable (greyed out)."""
         is_linux = dut == "linux"
-        self.login_table.setEnabled(is_linux)
         self.wifi_driver_cmd.setEnabled(is_linux)
         self.bw_box.setEnabled(is_linux)
         self.wifi_gateway.setEnabled(is_linux)
@@ -129,23 +128,15 @@ class FCTTestConfigPanel(QWidget):
         form.addRow("Baudrate:", self.console_baud)
         lay.addLayout(form)
 
-        lay.addWidget(QLabel("Login sequence (wait_for -> send):"))
-        self.login_table = QTableWidget(0, 2)
-        self.login_table.setHorizontalHeaderLabels(["wait_for", "send"])
-        self.login_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch)
-        lay.addWidget(self.login_table)
-        lay.addLayout(self._row_buttons(self.login_table, 2))
-
         lay.addWidget(QLabel("Test commands:"))
-        self.cmd_table = QTableWidget(0, 6)
+        self.cmd_table = QTableWidget(0, 7)
         self.cmd_table.setHorizontalHeaderLabels(
-            ["name", "send", "expect_pass (regex)", "expect_fail (regex)",
-             "timeout (s)", "retries"])
+            ["#", "Name", "Console", "WaitFor (regex)", "SendTo",
+             "Capture (regex)", "Retry"])
         self.cmd_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
         lay.addWidget(self.cmd_table)
-        lay.addLayout(self._row_buttons(self.cmd_table, 6))
+        lay.addLayout(self._row_buttons(self.cmd_table, 7))
         return w
 
     @staticmethod
