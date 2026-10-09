@@ -394,6 +394,19 @@ class FctTestConfig:
                 # no OS -> no shell -> no SSH
                 errors.append("bare_metal DUT: ssh_host requires "
                               "a Linux shell - remove it")
+            if self.dut_type == "bare_metal":
+                # Bare metal/RTOS still interacts over SERIAL
+                # (Wait->Send->Capture, e.g. a Button/LED prompt answered
+                # with yes/no), but SSH and SFTP do not exist without an OS.
+                for cmd in c.test_commands:
+                    if cmd.transport == "ssh":
+                        errors.append(
+                            f"bare_metal DUT: command '{cmd.name}' uses SSH "
+                            "- serial console is the only transport")
+                    if cmd.kind in ("sftp_put", "sftp_get"):
+                        errors.append(
+                            f"bare_metal DUT: command '{cmd.name}' uses "
+                            f"{cmd.kind} - SFTP requires a Linux shell")
         if w.enabled:
             if w.mode not in WIFI_MODES:
                 errors.append(f"wifi.mode must be one of {WIFI_MODES}")
@@ -438,9 +451,12 @@ def build_fct_steps(cfg: FctTestConfig,
     steps: list = []
     c = cfg.console
     if c.enabled:
-        # console steps: wait/send/capture primitives (v2 model)
-        # bare metal: capture-only unless the firmware defines a
-        # command protocol ("send" is optional per row)
+        # console steps: Wait->Send->Capture primitives (v2 model).
+        # Both DUT kinds use the SAME three-stage flow over serial; a
+        # bare-metal/RTOS firmware can prompt and accept replies too
+        # (e.g. Button/LED: wait for the prompt -> send yes/no ->
+        # capture the result). The only console difference is that a
+        # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
         for cmd in c.test_commands:
             # SFTP file-transfer rows
             if cmd.kind in ("sftp_put", "sftp_get"):

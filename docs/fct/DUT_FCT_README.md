@@ -27,6 +27,7 @@ dut:
 | Capability | Bare Metal / RTOS | Full Stack Linux |
 |---|---|---|
 | Serial Console | ✅ | ✅ |
+| Interactive serial test (Wait→Send→Capture, e.g. Button/LED) | ✅ | ✅ |
 | SSH Connection | ❌ | ✅ |
 | SCP/SFTP File Transfer | ❌ | ✅ |
 | Host CLI (subprocess) | ❌ | ✅ |
@@ -47,7 +48,8 @@ dut:
 - After power-on, the firmware automatically enters **advertising / discoverable mode** for Wi-Fi and Bluetooth
 - Host PC only scans RSSI; no connection, no ping, no audio playback
 - All communication goes through the debug serial port
-- No remote shell, no file transfer
+- The serial port still supports the full **Wait → Send → Capture** flow: the firmware may print a prompt (e.g. `PRESS BUTTON 1 THEN CONFIRM`), the host sends a reply (e.g. `y`/`n`), then captures the result (e.g. `LED1 OK`) — used for interactive tests such as Button & LED. Each stage can be enabled/disabled per command, exactly like a Linux DUT.
+- No SSH, no SFTP/SCP, no remote shell, no file transfer
 
 ### 3.2 DUT Software Configuration Required
 
@@ -103,7 +105,9 @@ Wait power_on_delay_sec (8s)
 Host PC scans Wi-Fi → read RSSI → judge
 Host PC scans Bluetooth → read RSSI → judge
     ↓
-Serial: read boot log → PASS/FAIL keywords → judge
+Serial tests over the debug port (Wait → Send → Capture):
+  read autonomous boot log ([PASS]/[FAIL]) and/or answer firmware
+  prompts (e.g. Button/LED: wait prompt → send y/n → capture result)
     ↓
 Firmware flash (Path A: GUI tool + operator confirm, or Path B: CLI script auto-parse)
     ↓

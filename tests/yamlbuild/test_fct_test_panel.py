@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 import yaml
 
@@ -132,6 +132,29 @@ def test_set_values_restores_dut_type_grey(qapp):
     panel.set_values({"fct_test_config_yaml": yaml.safe_dump(node)})
     assert panel.dut_type.currentText() == "bare_metal"
     assert "Bare Metal" in panel.dut_hint.text()
+
+
+def test_bare_metal_console_transport_serial_only(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({})
+    panel.dut_type.setCurrentText("linux")
+    add_btn = next(b for b in panel.findChildren(QPushButton)
+                   if b.text() == "Add row")
+    add_btn.click()
+    cb = panel.cmd_table.cellWidget(0, 1)
+    assert cb.count() == 2  # linux: serial + ssh
+    cb.setCurrentText("ssh")
+    # switch to bare metal: ssh is removed and the row falls back
+    panel.dut_type.setCurrentText("bare_metal")
+    assert cb.count() == 1 and cb.itemText(0) == "serial"
+    assert cb.currentText() == "serial"
+    assert panel._get_row_cmd(0).transport == "serial"
+    # a row added under bare metal is serial-only too
+    add_btn.click()
+    assert panel.cmd_table.cellWidget(1, 1).count() == 1
+    # back to linux restores both transports
+    panel.dut_type.setCurrentText("linux")
+    assert cb.count() == 2
 
 
 THREE_STAGE_YAML = """

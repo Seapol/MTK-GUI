@@ -102,9 +102,17 @@ class FCTTestConfigPanel(QWidget):
 
     # ---------------------------------------------------------- DUT type
     def _on_dut_type_changed(self, dut: str) -> None:
-        """DUT type gates the FCT test items: a Bare Metal/RTOS DUT has
-        no Linux shell, so the console login chain, DUT-side iperf and
-        L2CAP ping are not applicable (greyed out)."""
+        """DUT OS/firmware gates the available FCT items.
+
+        Linux BSP DUT - full console set (Serial/SSH Wait->Send->Capture;
+        SSH sftp_put/sftp_get); Wi-Fi host server -> DUT client, full-stack
+        RSSI->Ping->iPerf or RSSI only; Bluetooth host source -> DUT A2DP
+        sink (RSSI->Pair/Connect->Tone over BT).
+
+        Bare Metal/RTOS DUT - serial-only console but the SAME
+        Wait->Send->Capture flow (firmware prompts can be answered, e.g.
+        Button/LED yes/no), no SSH/SFTP; Wi-Fi and Bluetooth are host ->
+        DUT RSSI-only discovery scans."""
         is_linux = dut == "linux"
         self.wifi_driver_cmd.setEnabled(is_linux)
         self.bw_box.setEnabled(is_linux)
@@ -113,12 +121,46 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_loss_max.setEnabled(is_linux)
         self.bt_l2ping.setEnabled(is_linux)
         self.dut_hint.setText(
-            "Linux BSP DUT: full console test set (login, shell commands,"
-            " DUT-side ping/iperf, L2CAP ping)."
+            "Linux BSP DUT - Console: full set (Serial/SSH "
+            "Wait->Send->Capture; SSH sftp_put/sftp_get). Wi-Fi: host "
+            "server -> DUT client, full-stack RSSI->Ping->iPerf or RSSI "
+            "only. Bluetooth: host source -> DUT A2DP sink, "
+            "RSSI->Pair/Connect->Tone over BT."
             if is_linux else
-            "Bare Metal/RTOS DUT: no Linux shell - console steps are "
-            "capture-only (firmware output / command protocol); Wi-Fi "
-            "RSSI is a host-side scan; iperf and L2CAP ping disabled.")
+            "Bare Metal/RTOS DUT - Console: serial only but the same "
+            "Wait->Send->Capture flow (e.g. Button/LED: wait prompt -> "
+            "send yes/no -> capture result); no SSH/SFTP. Wi-Fi: host -> "
+            "DUT RSSI only. Bluetooth: host -> DUT RSSI only.")
+        self._refresh_console_transport_options()
+
+    def _refresh_console_transport_options(self) -> None:
+        """Bare-metal rows may only use serial; Linux rows may choose
+        serial or ssh. An existing ssh/sftp row falls back to serial when
+        the selected DUT has no OS."""
+        if not hasattr(self, "cmd_table"):
+            return
+        is_linux = self.dut_type.currentText() == "linux"
+        options = ["serial", "ssh"] if is_linux else ["serial"]
+        for r in range(self.cmd_table.rowCount()):
+            cb = self.cmd_table.cellWidget(r, 1)
+            if not isinstance(cb, QComboBox):
+                continue
+            cur = cb.currentText()
+            cb.blockSignals(True)
+            cb.clear()
+            cb.addItems(options)
+            if cur in options:
+                cb.setCurrentText(cur)
+            else:
+                cb.setCurrentText("serial")
+                cmd = self._get_row_cmd(r)
+                if cmd is not None and cmd.transport != "serial":
+                    cmd.transport = "serial"
+                    if cmd.kind in ("sftp_put", "sftp_get"):
+                        cmd.kind = "send"
+                        cmd.local = cmd.remote = ""
+                    self._save_row_cmd(r, cmd)
+            cb.blockSignals(False)
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:
@@ -181,6 +223,8 @@ class FCTTestConfigPanel(QWidget):
             self._save_row_cmd(r, ConsoleCommand(
                 kind="send", wait_enabled=False, send_enabled=True,
                 capture_enabled=False))
+            # bare-metal DUT: the new row's Console combo is serial only
+            self._refresh_console_transport_options()
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
@@ -954,6 +998,9 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setCellWidget(r, 6, rb)
                 # persist the full command (advanced attrs) on the row
                 self.cmd_table.item(r, 0).setData(_CMD_ROLE, cmd)
+            # apply the serial-only / serial+ssh transport options for
+            # the restored dut_type after all rows are built
+            self._refresh_console_transport_options()
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_mode.setCurrentText(w.mode)
