@@ -131,16 +131,18 @@ class FCTTestConfigPanel(QWidget):
         lay.addLayout(form)
 
         lay.addWidget(QLabel("Test commands:"))
-        self.cmd_table = QTableWidget(0, 7)
+        self.cmd_table = QTableWidget(0, 9)
         self.cmd_table.setHorizontalHeaderLabels(
-            ["Name", "Console", "WaitFor", "SendTo",
-             "Capture", "Timeout(s)", "Retry"])
+            ["Name", "Console", "WaitFor", "SendTo", "Capture",
+             "WaitT(s)", "SendT(s)", "CapT(s)", "Retry"])
         self.cmd_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
-        self.cmd_table.setColumnWidth(0, 120)  # Name
-        self.cmd_table.setColumnWidth(1, 80)   # Console
-        self.cmd_table.setColumnWidth(5, 70)   # Timeout
-        self.cmd_table.setColumnWidth(6, 60)   # Retry
+        self.cmd_table.setColumnWidth(0, 100)  # Name
+        self.cmd_table.setColumnWidth(1, 70)   # Console
+        self.cmd_table.setColumnWidth(5, 60)   # WaitT
+        self.cmd_table.setColumnWidth(6, 60)   # SendT
+        self.cmd_table.setColumnWidth(7, 60)   # CapT
+        self.cmd_table.setColumnWidth(8, 50)   # Retry
         lay.addWidget(self.cmd_table)
         self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
         lay.addLayout(self._cmd_row_buttons())
@@ -153,8 +155,8 @@ class FCTTestConfigPanel(QWidget):
         def _add():
             r = self.cmd_table.rowCount()
             self.cmd_table.insertRow(r)
-            # text columns: Name / WaitFor / SendTo / Capture / Timeout
-            for col in (0, 2, 3, 4, 5):
+            # text columns: Name / WaitFor / SendTo / Capture / 3x Timeout
+            for col in (0, 2, 3, 4, 5, 6, 7):
                 self.cmd_table.setItem(r, col, QTableWidgetItem(""))
             # Console column = dropdown
             cb = QComboBox()
@@ -163,7 +165,7 @@ class FCTTestConfigPanel(QWidget):
             # Retry column = dropdown
             rb = QComboBox()
             rb.addItems(["no", "yes"])
-            self.cmd_table.setCellWidget(r, 6, rb)
+            self.cmd_table.setCellWidget(r, 8, rb)
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
@@ -176,7 +178,7 @@ class FCTTestConfigPanel(QWidget):
                 return
             self.cmd_table.insertRow(r + 1)
             # copy text cells
-            for col in (0, 2, 3, 4, 5):
+            for col in (0, 2, 3, 4, 5, 6, 7):
                 src = self.cmd_table.item(r, col)
                 if src:
                     self.cmd_table.setItem(r + 1, col,
@@ -188,11 +190,11 @@ class FCTTestConfigPanel(QWidget):
             new_cb.setCurrentText(src_cb.currentText())
             self.cmd_table.setCellWidget(r + 1, 1, new_cb)
             # copy Retry dropdown
-            src_rb = self.cmd_table.cellWidget(r, 6)
+            src_rb = self.cmd_table.cellWidget(r, 8)
             new_rb = QComboBox()
             new_rb.addItems(["no", "yes"])
             new_rb.setCurrentText(src_rb.currentText())
-            self.cmd_table.setCellWidget(r + 1, 6, new_rb)
+            self.cmd_table.setCellWidget(r + 1, 8, new_rb)
         duplicate.clicked.connect(_duplicate)
         edit = QPushButton("Edit")
         edit.clicked.connect(
@@ -226,7 +228,7 @@ class FCTTestConfigPanel(QWidget):
     def _swap_rows(self, r1: int, r2: int) -> None:
         """Swap two rows in cmd_table (text cells + dropdown widgets)."""
         # swap text cells
-        for col in (0, 2, 3, 4, 5):
+        for col in (0, 2, 3, 4, 5, 6, 7):
             item1 = self.cmd_table.item(r1, col)
             item2 = self.cmd_table.item(r2, col)
             text1 = item1.text() if item1 else ""
@@ -241,8 +243,8 @@ class FCTTestConfigPanel(QWidget):
         cb1.setCurrentText(text_cb2)
         cb2.setCurrentText(text_cb1)
         # swap Retry dropdown
-        rb1 = self.cmd_table.cellWidget(r1, 6)
-        rb2 = self.cmd_table.cellWidget(r2, 6)
+        rb1 = self.cmd_table.cellWidget(r1, 8)
+        rb2 = self.cmd_table.cellWidget(r2, 8)
         text_rb1 = rb1.currentText()
         text_rb2 = rb2.currentText()
         rb1.setCurrentText(text_rb2)
@@ -542,13 +544,10 @@ class FCTTestConfigPanel(QWidget):
         waitfor = self.cmd_table.item(r, 2).text() if self.cmd_table.item(r, 2) else ""
         sendto = self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else ""
         capture = self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else ""
-        timeout_text = self.cmd_table.item(r, 5).text() if self.cmd_table.item(r, 5) else "10"
-        retries = 1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0
-
-        try:
-            timeout = float(timeout_text)
-        except ValueError:
-            timeout = 10.0
+        wait_timeout = self._parse_timeout(r, 5, 10.0)
+        send_timeout = self._parse_timeout(r, 6, 30.0)
+        capture_timeout = self._parse_timeout(r, 7, 10.0)
+        retries = 1 if self.cmd_table.cellWidget(r, 8).currentText() == "yes" else 0
 
         kind = "send"
         send = sendto
@@ -568,10 +567,19 @@ class FCTTestConfigPanel(QWidget):
             if " -> " in rest:
                 remote, local = rest.split(" -> ", 1)
 
+        # use capture_timeout as the overall timeout for judgement
+        # (wait_timeout / send_timeout reserved for future split timing)
         return ConsoleCommand(
             kind=kind, name=name, transport=transport,
             send=send, expect_pass=waitfor, expect_fail=capture,
-            timeout=timeout, retries=retries, local=local, remote=remote)
+            timeout=capture_timeout, retries=retries, local=local, remote=remote)
+
+    def _parse_timeout(self, r: int, col: int, default: float) -> float:
+        text = self.cmd_table.item(r, col).text() if self.cmd_table.item(r, col) else ""
+        try:
+            return float(text) if text.strip() else default
+        except ValueError:
+            return default
 
     # ------------------------------------------------------- state in/out
     def set_values(self, params: dict) -> None:
@@ -622,13 +630,15 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setItem(r, 3, QTableWidgetItem(sendto_text))
                 # Capture
                 self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.expect_fail))
-                # Timeout
-                self.cmd_table.setItem(r, 5, QTableWidgetItem(str(cmd.timeout)))
+                # 3x Timeout (wait/send/capture)
+                self.cmd_table.setItem(r, 5, QTableWidgetItem("10"))
+                self.cmd_table.setItem(r, 6, QTableWidgetItem("30"))
+                self.cmd_table.setItem(r, 7, QTableWidgetItem(str(cmd.timeout)))
                 # Retry = dropdown
                 rb = QComboBox()
                 rb.addItems(["no", "yes"])
                 rb.setCurrentText("yes" if cmd.retries > 0 else "no")
-                self.cmd_table.setCellWidget(r, 6, rb)
+                self.cmd_table.setCellWidget(r, 8, rb)
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_mode.setCurrentText(w.mode)
