@@ -398,7 +398,7 @@ class FCTTestConfigPanel(QWidget):
 
         dlg = QDialog(self)
         dlg.setWindowTitle("SendTo editor")
-        dlg.setMinimumWidth(550)
+        dlg.setMinimumWidth(750)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -417,9 +417,22 @@ class FCTTestConfigPanel(QWidget):
         # page 0: shell command
         page_cmd = QWidget()
         lay_cmd = QVBoxLayout(page_cmd)
+        lay_cmd.addWidget(QLabel(
+            "One line = one command. Multiple lines = multiple commands,\n"
+            "sent in order. Newline auto-appended to each command (no need to type \\n)."))
         cmd_edit = QTextEdit()
+        cmd_edit.setMinimumHeight(150)
         lay_cmd.addWidget(cmd_edit)
-        lay_cmd.addWidget(QLabel("Tip: use \\n for newline"))
+        # send timeout
+        from PySide6.QtWidgets import QSpinBox
+        timeout_row = QHBoxLayout()
+        timeout_row.addWidget(QLabel("Send timeout (seconds, min 1):"))
+        send_timeout_spin = QSpinBox()
+        send_timeout_spin.setRange(1, 3600)
+        send_timeout_spin.setValue(4)
+        timeout_row.addWidget(send_timeout_spin)
+        timeout_row.addStretch(1)
+        lay_cmd.addLayout(timeout_row)
         stack.addWidget(page_cmd)
 
         # page 1: sftp_put
