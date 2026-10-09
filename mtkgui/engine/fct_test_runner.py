@@ -59,17 +59,23 @@ BT_MAC_CMDS = {
 def match_expectation(text: str, expect_pass: str,
                       expect_fail: str,
                       expect_pass_is_regex: bool = False,
-                      expect_fail_is_regex: bool = False) -> tuple:
+                      expect_fail_is_regex: bool = False,
+                      case_sensitive: bool = True) -> tuple:
     """Judgement over the accumulated output (fail wins).
 
     Default: exact substring match. Set *_is_regex=True for regex mode.
+    Set case_sensitive=False to ignore case (PASS = pass).
     Empty patterns mean "no opinion" (pass needs SOME output).
     Returns ``(verdict, detail)`` with verdict PASS/FAIL.
     """
+    flags = 0 if case_sensitive else re.IGNORECASE
+
     def _matches(pattern: str, is_regex: bool, sample: str):
         if is_regex:
-            return re.search(pattern, sample)
-        return pattern in sample
+            return re.search(pattern, sample, flags)
+        if case_sensitive:
+            return pattern in sample
+        return pattern.lower() in sample.lower()
 
     if expect_fail:
         m = _matches(expect_fail, expect_fail_is_regex, text)
@@ -88,7 +94,8 @@ def match_expectation(text: str, expect_pass: str,
 def console_send_and_expect(serial, cmd: str, expect_pass: str,
                             expect_fail: str, timeout: float,
                             expect_pass_is_regex: bool = False,
-                            expect_fail_is_regex: bool = False) -> tuple:
+                            expect_fail_is_regex: bool = False,
+                            case_sensitive: bool = True) -> tuple:
     """Send one or more commands (multi-line = sequential sends) over
     the console, then judge the reply stream.
 
@@ -121,7 +128,8 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
             text = buffer.decode("utf-8", errors="replace")
             verdict, _ = match_expectation(
                 text, expect_pass, expect_fail,
-                expect_pass_is_regex, expect_fail_is_regex)
+                expect_pass_is_regex, expect_fail_is_regex,
+                case_sensitive)
             if verdict:
                 return verdict, text
         time.sleep(0.05)

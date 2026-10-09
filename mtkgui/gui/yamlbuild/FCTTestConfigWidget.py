@@ -267,16 +267,20 @@ class FCTTestConfigPanel(QWidget):
         dlg.setMinimumWidth(500)
         lay = QVBoxLayout(dlg)
         # Use Regex checkbox (default off = exact match)
-        regex_cb = QCheckBox("Use Regex (default off = exact match)")
+        regex_cb = QCheckBox("Use Regex (default off = exact substring match)")
         lay.addWidget(regex_cb)
+        # Case sensitive checkbox (default on)
+        case_cb = QCheckBox("Case Sensitive (uncheck = ignore case, e.g. PASS=pass)")
+        case_cb.setChecked(True)
+        lay.addWidget(case_cb)
         # pattern text
-        lay.addWidget(QLabel("Pattern:"))
+        lay.addWidget(QLabel("Pattern text:"))
         pattern_edit = QTextEdit()
         pattern_edit.setPlainText(self.cmd_table.item(row, col).text())
         pattern_edit.setMaximumHeight(80)
         lay.addWidget(pattern_edit)
         # test input
-        lay.addWidget(QLabel("Test against sample text:"))
+        lay.addWidget(QLabel("Test against sample console output:"))
         test_edit = QTextEdit()
         test_edit.setMaximumHeight(100)
         lay.addWidget(test_edit)
@@ -287,10 +291,11 @@ class FCTTestConfigPanel(QWidget):
             import re
             pattern = pattern_edit.toPlainText()
             sample = test_edit.toPlainText()
+            flags = 0 if case_cb.isChecked() else re.IGNORECASE
             try:
                 if regex_cb.isChecked():
                     # regex mode
-                    if re.search(pattern, sample):
+                    if re.search(pattern, sample, flags):
                         result_label.setText("✓ REGEX MATCH")
                         result_label.setStyleSheet("color: green")
                     else:
@@ -298,7 +303,11 @@ class FCTTestConfigPanel(QWidget):
                         result_label.setStyleSheet("color: red")
                 else:
                     # exact substring mode
-                    if pattern in sample:
+                    if case_cb.isChecked():
+                        hit = pattern in sample
+                    else:
+                        hit = pattern.lower() in sample.lower()
+                    if hit:
                         result_label.setText("✓ EXACT MATCH")
                         result_label.setStyleSheet("color: green")
                     else:

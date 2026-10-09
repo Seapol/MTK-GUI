@@ -100,6 +100,7 @@ class ConsoleCommand:
     expect_fail: str = ""           # exact match (default) or regex, wins over expect_pass
     expect_pass_is_regex: bool = False   # False = exact substring match
     expect_fail_is_regex: bool = False
+    case_sensitive: bool = True         # False = ignore case (PASS = pass)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -116,6 +117,7 @@ class ConsoleCommand:
                 "expect_fail": self.expect_fail,
                 "expect_pass_is_regex": self.expect_pass_is_regex,
                 "expect_fail_is_regex": self.expect_fail_is_regex,
+                "case_sensitive": self.case_sensitive,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -257,6 +259,7 @@ class FctTestConfig:
                         expect_fail=str(c.get("expect_fail", "")),
                         expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
                         expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
+                        case_sensitive=bool(c.get("case_sensitive", True)),
                         timeout=float(c.get("timeout", 6.0)),
                         wait_timeout=float(c.get("wait_timeout", 10.0)),
                         send_timeout=float(c.get("send_timeout", 4.0)),
