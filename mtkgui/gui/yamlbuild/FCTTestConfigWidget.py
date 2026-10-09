@@ -136,30 +136,131 @@ class FCTTestConfigPanel(QWidget):
              "Capture (regex)", "Retry"])
         self.cmd_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
+        self.cmd_table.setColumnWidth(0, 40)   # #
+        self.cmd_table.setColumnWidth(1, 150)  # Name
+        self.cmd_table.setColumnWidth(2, 90)   # Console
         lay.addWidget(self.cmd_table)
-        lay.addLayout(self._row_buttons(self.cmd_table, 7))
+        self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
+        lay.addLayout(self._cmd_row_buttons())
         return w
 
-    @staticmethod
-    def _row_buttons(table: QTableWidget, width: int) -> QHBoxLayout:
+    def _cmd_row_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()
         add = QPushButton("Add row")
 
         def _add():
-            table.setRowCount(table.rowCount() + 1)
-            for col in range(width):
-                if table.item(table.rowCount() - 1, col) is None:
-                    table.setItem(table.rowCount() - 1, col,
-                                  QTableWidgetItem(""))
+            r = self.cmd_table.rowCount()
+            self.cmd_table.insertRow(r)
+            # # column = row number
+            self.cmd_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
+            # text columns
+            for col in (1, 3, 4, 5):
+                self.cmd_table.setItem(r, col, QTableWidgetItem(""))
+            # Console column = dropdown
+            cb = QComboBox()
+            cb.addItems(["serial", "ssh"])
+            self.cmd_table.setCellWidget(r, 2, cb)
+            # Retry column = dropdown
+            rb = QComboBox()
+            rb.addItems(["no", "yes"])
+            self.cmd_table.setCellWidget(r, 6, rb)
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
         remove.clicked.connect(
-            lambda: table.removeRow(table.currentRow()))
+            lambda: self.cmd_table.removeRow(self.cmd_table.currentRow()))
         row.addWidget(add)
         row.addWidget(remove)
         row.addStretch(1)
         return row
+
+    def _on_cmd_double_click(self, row: int, col: int) -> None:
+        """Double-click on WaitFor/SendTo/Capture opens an editor dialog."""
+        if col == 3:    # WaitFor
+            self._edit_regex_cell(row, col, "WaitFor (regex)")
+        elif col == 4:  # SendTo
+            self._edit_multiline_cell(row, col, "SendTo")
+        elif col == 5:  # Capture
+            self._edit_regex_cell(row, col, "Capture (regex)")
+
+    def _edit_regex_cell(self, row: int, col: int, title: str) -> None:
+        """Regex editor dialog with live match test."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                        QTextEdit, QLineEdit, QPushButton,
+                                        QLabel)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(500)
+        lay = QVBoxLayout(dlg)
+        # current regex
+        lay.addWidget(QLabel("Regex:"))
+        regex_edit = QTextEdit()
+        regex_edit.setPlainText(self.cmd_table.item(row, col).text())
+        regex_edit.setMaximumHeight(80)
+        lay.addWidget(regex_edit)
+        # test input
+        lay.addWidget(QLabel("Test against sample text:"))
+        test_edit = QTextEdit()
+        test_edit.setMaximumHeight(100)
+        lay.addWidget(test_edit)
+        # result
+        result_label = QLabel("")
+        lay.addWidget(result_label)
+        def _test():
+            import re
+            pattern = regex_edit.toPlainText()
+            sample = test_edit.toPlainText()
+            try:
+                if re.search(pattern, sample):
+                    result_label.setText("✓ MATCH")
+                    result_label.setStyleSheet("color: green")
+                else:
+                    result_label.setText("✗ no match")
+                    result_label.setStyleSheet("color: red")
+            except re.error as e:
+                result_label.setText(f"Regex error: {e}")
+                result_label.setStyleSheet("color: red")
+        test_btn = QPushButton("Test regex")
+        test_btn.clicked.connect(_test)
+        lay.addWidget(test_btn)
+        # common patterns hint
+        lay.addWidget(QLabel("Common:  root@.*  |  login:  |  ERROR|FAIL  |  \\d+\\.\\d+"))
+        # buttons
+        btn_row = QHBoxLayout()
+        ok = QPushButton("OK")
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(dlg.reject)
+        btn_row.addStretch(1)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(ok)
+        lay.addLayout(btn_row)
+        if dlg.exec() == QDialog.Accepted:
+            self.cmd_table.item(row, col).setText(regex_edit.toPlainText())
+
+    def _edit_multiline_cell(self, row: int, col: int, title: str) -> None:
+        """Multiline editor dialog (SendTo)."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                        QTextEdit, QPushButton, QLabel)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(500)
+        lay = QVBoxLayout(dlg)
+        edit = QTextEdit()
+        edit.setPlainText(self.cmd_table.item(row, col).text())
+        lay.addWidget(edit)
+        lay.addWidget(QLabel("Tip: use \\n for newline"))
+        btn_row = QHBoxLayout()
+        ok = QPushButton("OK")
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(dlg.reject)
+        btn_row.addStretch(1)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(ok)
+        lay.addLayout(btn_row)
+        if dlg.exec() == QDialog.Accepted:
+            self.cmd_table.item(row, col).setText(edit.toPlainText())
 
     # --------------------------------------------------------------- wifi
     def _build_wifi_tab(self) -> QWidget:
@@ -284,13 +385,26 @@ class FCTTestConfigPanel(QWidget):
             for cmd in c.test_commands:
                 r = self.cmd_table.rowCount()
                 self.cmd_table.insertRow(r)
-                for col, val in enumerate((cmd.name, cmd.send,
-                                           cmd.expect_pass,
-                                           cmd.expect_fail,
-                                           str(cmd.timeout),
-                                           str(cmd.retries))):
-                    self.cmd_table.setItem(r, col,
-                                           QTableWidgetItem(val))
+                # # = row number
+                self.cmd_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
+                # Name
+                self.cmd_table.setItem(r, 1, QTableWidgetItem(cmd.name))
+                # Console = dropdown
+                cb = QComboBox()
+                cb.addItems(["serial", "ssh"])
+                cb.setCurrentText(cmd.transport)
+                self.cmd_table.setCellWidget(r, 2, cb)
+                # WaitFor
+                self.cmd_table.setItem(r, 3, QTableWidgetItem(cmd.expect_pass))
+                # SendTo
+                self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.send))
+                # Capture
+                self.cmd_table.setItem(r, 5, QTableWidgetItem(cmd.expect_fail))
+                # Retry = dropdown
+                rb = QComboBox()
+                rb.addItems(["no", "yes"])
+                rb.setCurrentText("yes" if cmd.retries > 0 else "no")
+                self.cmd_table.setCellWidget(r, 6, rb)
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_mode.setCurrentText(w.mode)
@@ -345,11 +459,14 @@ class FCTTestConfigPanel(QWidget):
             baudrate=int(self.console_baud.currentText()),
             test_commands=[
                 ConsoleCommand(
-                    name=row[0], send=row[1], expect_pass=row[2],
-                    expect_fail=row[3],
-                    timeout=float(row[4] or 5),
-                    retries=int(row[5] or 0))
-                for row in self._table_lines(self.cmd_table, 6)],
+                    name=self.cmd_table.item(r, 1).text() if self.cmd_table.item(r, 1) else "",
+                    transport=self.cmd_table.cellWidget(r, 2).currentText(),
+                    send=self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else "",
+                    expect_pass=self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else "",
+                    expect_fail=self.cmd_table.item(r, 5).text() if self.cmd_table.item(r, 5) else "",
+                    retries=1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0,
+                )
+                for r in range(self.cmd_table.rowCount())],
         )
         cfg.wifi = WifiCfg(
             enabled=self.wifi_enabled.isChecked(),
