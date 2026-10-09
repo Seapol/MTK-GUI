@@ -89,13 +89,15 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
                             expect_fail: str, timeout: float,
                             expect_pass_is_regex: bool = False,
                             expect_fail_is_regex: bool = False) -> tuple:
-    """Send one command over the console and judge the reply stream.
+    """Send one or more commands (multi-line = sequential sends) over
+    the console, then judge the reply stream.
 
-    Spec §4.2: ``reset_input_buffer()`` BEFORE sending (stale output
-    must not judge this command), then keep reading inside `timeout`;
-    ``expect_fail`` has priority; on timeout return ``TIMEOUT`` (the
-    caller treats it as FAIL) with everything that DID arrive — the
-    station never hangs.
+    Behavior:
+    1. reset_input_buffer() BEFORE sending (stale output ignored)
+    2. Split cmd by newlines, send each line sequentially
+    3. After ALL commands sent, read inside `timeout` and judge output
+       with expect_pass / expect_fail (fail wins)
+    4. On timeout return TIMEOUT (caller treats as FAIL) — station never hangs.
 
     Args:
         serial: pyserial-like (write / read / reset_input_buffer).
@@ -104,7 +106,12 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
         ``(verdict, text)`` — verdict in PASS / FAIL / TIMEOUT.
     """
     serial.reset_input_buffer()
-    serial.write((cmd + "\n").encode())
+    # send all lines sequentially
+    lines = [l for l in cmd.splitlines() if l.strip()]
+    for line in lines:
+        serial.write((line + "\n").encode())
+        time.sleep(0.05)  # small gap between sends
+    # now judge the accumulated output within timeout
     start = time.time()
     buffer = b""
     while time.time() - start < max(timeout, 0.1):
