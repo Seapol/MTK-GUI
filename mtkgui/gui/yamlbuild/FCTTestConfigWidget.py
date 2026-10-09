@@ -281,19 +281,16 @@ class FCTTestConfigPanel(QWidget):
         if title == "Capture":
             expect_cb.setChecked(False)
             lay.addWidget(expect_cb)
-        # End line input (only for Capture + not expected)
+        # End line input (always visible for Capture column)
         end_line_label = QLabel("End line (marks end of capture range):")
         end_line_edit = QLineEdit()
         end_line_edit.setPlaceholderText("e.g. # TEST COMPLETE")
-        lay.addWidget(end_line_label)
-        lay.addWidget(end_line_edit)
-        def _on_expect_changed(state):
-            # when expected = yes, end line not needed
-            end_line_label.setVisible(not state)
-            end_line_edit.setVisible(not state)
-        expect_cb.toggled.connect(_on_expect_changed)
         if title == "Capture":
-            _on_expect_changed(expect_cb.isChecked())
+            lay.addWidget(end_line_label)
+            lay.addWidget(end_line_edit)
+        else:
+            end_line_label.setVisible(False)
+            end_line_edit.setVisible(False)
         # Timeout input
         from PySide6.QtWidgets import QSpinBox
         timeout_label = QLabel("Timeout (seconds, min 1):")
