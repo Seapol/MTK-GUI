@@ -47,6 +47,7 @@ from mtkgui.engine.fct_test_config import (
     BT_MODES,
     BW_TOOLS,
     WIFI_MODES,
+    ConsoleCommand,
     FctTestConfig,
 )
 
@@ -179,7 +180,7 @@ class FCTTestConfigPanel(QWidget):
         if col == 3:    # WaitFor
             self._edit_regex_cell(row, col, "WaitFor (regex)")
         elif col == 4:  # SendTo
-            self._edit_multiline_cell(row, col, "SendTo")
+            self._edit_sendto_cell(row, col)
         elif col == 5:  # Capture
             self._edit_regex_cell(row, col, "Capture (regex)")
 
@@ -238,18 +239,100 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec() == QDialog.Accepted:
             self.cmd_table.item(row, col).setText(regex_edit.toPlainText())
 
-    def _edit_multiline_cell(self, row: int, col: int, title: str) -> None:
-        """Multiline editor dialog (SendTo)."""
+    def _edit_sendto_cell(self, row: int, col: int) -> None:
+        """SendTo editor: shell command (serial/ssh) or SFTP transfer (ssh only)."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                                        QTextEdit, QPushButton, QLabel)
+                                        QTextEdit, QLineEdit, QPushButton,
+                                        QLabel, QComboBox, QFileDialog,
+                                        QStackedWidget)
+        transport = self.cmd_table.cellWidget(row, 2).currentText()
+        current_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
+
         dlg = QDialog(self)
-        dlg.setWindowTitle(title)
-        dlg.setMinimumWidth(500)
+        dlg.setWindowTitle("SendTo editor")
+        dlg.setMinimumWidth(550)
         lay = QVBoxLayout(dlg)
-        edit = QTextEdit()
-        edit.setPlainText(self.cmd_table.item(row, col).text())
-        lay.addWidget(edit)
-        lay.addWidget(QLabel("Tip: use \\n for newline"))
+
+        # operation type (only for ssh)
+        op_type = QComboBox()
+        op_type.addItems(["shell_command", "sftp_put", "sftp_get"])
+        lay.addWidget(QLabel("Operation:"))
+        lay.addWidget(op_type)
+
+        # stacked widget for different operation types
+        stack = QStackedWidget()
+
+        # page 0: shell command
+        page_cmd = QWidget()
+        lay_cmd = QVBoxLayout(page_cmd)
+        cmd_edit = QTextEdit()
+        lay_cmd.addWidget(cmd_edit)
+        lay_cmd.addWidget(QLabel("Tip: use \\n for newline"))
+        stack.addWidget(page_cmd)
+
+        # page 1: sftp_put
+        page_put = QWidget()
+        lay_put = QFormLayout(page_put)
+        put_local = QLineEdit()
+        put_remote = QLineEdit()
+        browse_put_local = QPushButton("Browse...")
+        def _browse_put():
+            path, _ = QFileDialog.getOpenFileName(dlg, "Select file to upload")
+            if path:
+                put_local.setText(path)
+        browse_put_local.clicked.connect(_browse_put)
+        lay_put.addRow("Local file:", put_local)
+        lay_put.addRow("", browse_put_local)
+        lay_put.addRow("Remote path:", put_remote)
+        stack.addWidget(page_put)
+
+        # page 2: sftp_get
+        page_get = QWidget()
+        lay_get = QFormLayout(page_get)
+        get_remote = QLineEdit()
+        get_local = QLineEdit()
+        browse_get_local = QPushButton("Browse...")
+        def _browse_get():
+            path, _ = QFileDialog.getSaveFileName(dlg, "Save file as")
+            if path:
+                get_local.setText(path)
+        browse_get_local.clicked.connect(_browse_get)
+        lay_get.addRow("Remote file:", get_remote)
+        lay_get.addRow("Local save:", get_local)
+        lay_get.addRow("", browse_get_local)
+        stack.addWidget(page_get)
+
+        lay.addWidget(stack)
+
+        # show/hide op type based on transport
+        if transport == "serial":
+            op_type.setVisible(False)
+            stack.setCurrentIndex(0)
+        else:
+            op_type.setVisible(True)
+
+        def _on_op_changed(idx):
+            stack.setCurrentIndex(idx)
+        op_type.currentIndexChanged.connect(_on_op_changed)
+
+        # restore from current cell text
+        if current_text.startswith("[PUT] "):
+            op_type.setCurrentIndex(1)
+            rest = current_text[6:]  # after "[PUT] "
+            if " -> " in rest:
+                put_local.setText(rest.split(" -> ")[0])
+                put_remote.setText(rest.split(" -> ")[1])
+        elif current_text.startswith("[GET] "):
+            op_type.setCurrentIndex(2)
+            rest = current_text[6:]  # after "[GET] "
+            if " -> " in rest:
+                get_remote.setText(rest.split(" -> ")[0])
+                get_local.setText(rest.split(" -> ")[1])
+        else:
+            op_type.setCurrentIndex(0)
+            cmd_edit.setPlainText(current_text)
+
+        # buttons
         btn_row = QHBoxLayout()
         ok = QPushButton("OK")
         ok.clicked.connect(dlg.accept)
@@ -259,8 +342,16 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addWidget(cancel)
         btn_row.addWidget(ok)
         lay.addLayout(btn_row)
+
         if dlg.exec() == QDialog.Accepted:
-            self.cmd_table.item(row, col).setText(edit.toPlainText())
+            idx = op_type.currentIndex()
+            if idx == 0:
+                text = cmd_edit.toPlainText()
+            elif idx == 1:
+                text = f"[PUT] {put_local.text()} -> {put_remote.text()}"
+            else:
+                text = f"[GET] {get_remote.text()} -> {get_local.text()}"
+            self.cmd_table.item(row, col).setText(text)
 
     # --------------------------------------------------------------- wifi
     def _build_wifi_tab(self) -> QWidget:
@@ -355,6 +446,41 @@ class FCTTestConfigPanel(QWidget):
         lay.addStretch(1)
         return w
 
+    # ------------------------------------------------------- helpers
+    def _row_to_console_command(self, r: int) -> ConsoleCommand:
+        """Convert one cmd_table row to a ConsoleCommand.
+        SendTo column encodes sftp ops as '[PUT] local -> remote' /
+        '[GET] remote -> local'."""
+        name = self.cmd_table.item(r, 1).text() if self.cmd_table.item(r, 1) else ""
+        transport = self.cmd_table.cellWidget(r, 2).currentText()
+        waitfor = self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else ""
+        sendto = self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else ""
+        capture = self.cmd_table.item(r, 5).text() if self.cmd_table.item(r, 5) else ""
+        retries = 1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0
+
+        kind = "send"
+        send = sendto
+        local = ""
+        remote = ""
+
+        if sendto.startswith("[PUT] "):
+            kind = "sftp_put"
+            send = ""
+            rest = sendto[6:]
+            if " -> " in rest:
+                local, remote = rest.split(" -> ", 1)
+        elif sendto.startswith("[GET] "):
+            kind = "sftp_get"
+            send = ""
+            rest = sendto[6:]
+            if " -> " in rest:
+                remote, local = rest.split(" -> ", 1)
+
+        return ConsoleCommand(
+            kind=kind, name=name, transport=transport,
+            send=send, expect_pass=waitfor, expect_fail=capture,
+            retries=retries, local=local, remote=remote)
+
     # ------------------------------------------------------- state in/out
     def set_values(self, params: dict) -> None:
         """Restore from the module params (round-trip safe)."""
@@ -396,8 +522,14 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setCellWidget(r, 2, cb)
                 # WaitFor
                 self.cmd_table.setItem(r, 3, QTableWidgetItem(cmd.expect_pass))
-                # SendTo
-                self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.send))
+                # SendTo: encode sftp ops as [PUT]/[GET]
+                if cmd.kind == "sftp_put":
+                    sendto_text = f"[PUT] {cmd.local} -> {cmd.remote}"
+                elif cmd.kind == "sftp_get":
+                    sendto_text = f"[GET] {cmd.remote} -> {cmd.local}"
+                else:
+                    sendto_text = cmd.send
+                self.cmd_table.setItem(r, 4, QTableWidgetItem(sendto_text))
                 # Capture
                 self.cmd_table.setItem(r, 5, QTableWidgetItem(cmd.expect_fail))
                 # Retry = dropdown
@@ -458,14 +590,7 @@ class FCTTestConfigPanel(QWidget):
             port=self.console_port.currentText().strip(),
             baudrate=int(self.console_baud.currentText()),
             test_commands=[
-                ConsoleCommand(
-                    name=self.cmd_table.item(r, 1).text() if self.cmd_table.item(r, 1) else "",
-                    transport=self.cmd_table.cellWidget(r, 2).currentText(),
-                    send=self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else "",
-                    expect_pass=self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else "",
-                    expect_fail=self.cmd_table.item(r, 5).text() if self.cmd_table.item(r, 5) else "",
-                    retries=1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0,
-                )
+                self._row_to_console_command(r)
                 for r in range(self.cmd_table.rowCount())],
         )
         cfg.wifi = WifiCfg(
