@@ -279,7 +279,9 @@ def test_fct_runner_command_fail_flips_overall():
 
 # ------------------------------------------------------------ bare metal DUT
 def bare_config() -> FctTestConfig:
-    """Bare Metal/RTOS DUT: console capture-only, host-side RF scan."""
+    """Bare Metal/RTOS DUT: full Wait->Send->Capture over SERIAL (the
+    firmware prompts and accepts replies, e.g. a Button/LED test), but no
+    SSH/SFTP; Wi-Fi and Bluetooth are host -> DUT RSSI-only scans."""
     return FctTestConfig(
         dut_type="bare_metal",
         console=ConsoleCfg(
@@ -290,6 +292,14 @@ def bare_config() -> FctTestConfig:
                                capture_enabled=True,
                                expect_fail=r"FW v\d+",
                                expect_fail_is_regex=True,
+                               capture_is_expected=True),
+                # interactive firmware test: wait prompt -> send yes/no
+                ConsoleCommand(name="Button 1 / LED", kind="send",
+                               send="y",
+                               wait_enabled=True, send_enabled=True,
+                               capture_enabled=True,
+                               expect_pass="PRESS BUTTON 1 THEN CONFIRM",
+                               expect_fail="LED1 OK",
                                capture_is_expected=True),
                 ConsoleCommand(name="Boot log capture", kind="capture",
                                send_enabled=False, capture_enabled=True),
@@ -316,28 +326,53 @@ def test_bare_metal_validate_rejects_host_side_gaps():
     assert any("l2ping_count" in e for e in errors)
 
 
-def test_bare_metal_steps_capture_only():
+def test_bare_metal_serial_three_stage_steps():
+    # Bare metal keeps the full Wait->Send->Capture flow over serial;
+    # only SSH/SFTP and the DUT-side RF data paths are absent.
     steps = build_fct_steps(bare_config(), channel_key="ser1")
     names = [s.name for s in steps]
     by_name = {s.name: s for s in steps}
-    # no login chain, no DUT-side piscan/ping/iperf/L2CAP steps
+    # no auto login chain, no DUT-side piscan/ping/iperf/L2CAP steps
     assert not any("Console wait" in n or "Console send" in n
                    for n in names)
     assert not any("piscan" in n or "L2CAP" in n or "iperf" in n
                    or "ping gateway" in n for n in names)
-    # console rows keep "send" for firmware command protocols; a
-    # send-less row is a pure capture step
+    # serial command rows still send to the firmware
     ver = by_name["FW version"]
     assert ver.params["send"] == "version"
     assert ver.params["expect_pass_re"] == r"FW v\d+"
     cap = by_name["Boot log capture"]
     assert "send" not in cap.params
+    # interactive Button/LED row: a pre-send Wait step then the send/capture
+    btn_wait = by_name["Button 1 / LED (wait)"]
+    btn = by_name["Button 1 / LED"]
+    assert btn_wait.params["kind"] == "wait"
+    assert "send" not in btn_wait.params
+    assert btn_wait.params["expect_pass_re"] == "PRESS BUTTON 1 THEN CONFIRM"
+    assert btn.params["send"] == "y"
+    assert btn.params["expect_pass_re"] == "LED1 OK"
+    # every console step is bound to the serial channel, none are ssh/sftp
+    for s in steps:
+        if s.params.get("fct_console"):
+            assert s.channel == "ser1"
+            assert s.params.get("kind") not in ("sftp_put", "sftp_get")
     # Wi-Fi RSSI is a HOST-side discovery scan (unbound channel)
     wifi = next(s for s in steps if s.params.get("tool_family") == "wifi")
     assert wifi.name == "Wi-Fi FCT (host scan)"
     assert wifi.channel == ""
     # BT verdict stays host-side; discoverability is firmware-owned
     assert "Bluetooth FCT" in names
+
+
+def test_bare_metal_rejects_ssh_transport_and_sftp():
+    cfg = bare_config()
+    cfg.console.test_commands[0].transport = "ssh"
+    cfg.console.test_commands.append(
+        ConsoleCommand(name="Deploy", kind="sftp_put", transport="ssh",
+                       send_enabled=True, local="a.sh", remote="/root/a.sh"))
+    errors = cfg.validate()
+    assert any("SSH" in e and "serial" in e for e in errors)
+    assert any("sftp_put" in e for e in errors)
 
 
 # ------------------------------------------------- three-stage Wait/Send/Capture

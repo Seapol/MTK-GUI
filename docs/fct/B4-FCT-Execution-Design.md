@@ -416,7 +416,9 @@ capture -> send optional? NO (pure capture) — the preceding Send row
 already wrote; _regex_capture judges the accumulated stream.
 Legacy parity: SendtoConsole / WaitforConsole / CapturefromConsole.
 
-dut_type gating (P3-B5): linux = full set (Wait/Send/Capture +
-DUT-side ping/iperf/l2ping/piscan steps); bare_metal = Wait/Capture
-only (no shell; firmware output capture + optional firmware command
-Send rows), Wi-Fi/BT host-side.
+dut_type gating (P3-B5): linux = full console set (Serial/SSH
+Wait/Send/Capture + SSH sftp_put/sftp_get; Wi-Fi host server -> DUT
+client full-stack RSSI->Ping->iPerf or RSSI only; Bluetooth host source
+-> DUT A2DP sink RSSI->Pair/Connect->Tone); bare_metal = the SAME
+Wait/Send/Capture flow over SERIAL only (firmware prompts can be answered,
+e.g. Button/LED y/n), no SSH/SFTP, Wi-Fi/BT host -> DUT RSSI-only scans.

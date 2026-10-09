@@ -10,23 +10,25 @@ explicit-error red line, never a silent downgrade.
 
 Modes (product YAML ``mode``):
 
-Wi-Fi:
-  * ``full_stack`` - Full Stack DUT (i.MX Linux): clean competing
-    networks, join the DUT AP, read RSSI via
-    ``system_profiler SPAirPortDataType`` (the ONLY reliable source on
-    modern macOS; ``airport -I/-s`` and
-    ``networksetup -getairportnetwork`` are deprecated/broken),
-    ping the gateway (warm-up packets ignored), optional iperf3,
-    restore the competing networks.
-  * ``rssi_only``  - Bare Metal DUT (i.MX RT): scan + read RSSI by
-    SSID, never joins, never pings.
+Wi-Fi (host -> DUT):
+  * ``full_stack`` - Full Stack Linux DUT: the host PC associates to the
+    DUT AP, reads RSSI via ``system_profiler SPAirPortDataType`` (the
+    ONLY reliable source on modern macOS; ``airport -I/-s`` and
+    ``networksetup -getairportnetwork`` are deprecated/broken), pings the
+    gateway (warm-up packets ignored), then runs iPerf with the HOST as
+    the iperf server and the DUT as the iperf client; restores the
+    competing networks afterwards.
+  * ``rssi_only``  - Bare Metal/RTOS DUT: host-side scan + read RSSI by
+    SSID, never associates, never pings (host -> DUT discovery only).
 
-Bluetooth:
-  * ``a2dp_sink`` - Full Stack DUT: blueutil inquiry -> connect ->
+Bluetooth (host -> DUT):
+  * ``a2dp_sink`` - Full Stack Linux DUT: the host is the A2DP SOURCE and
+    the DUT is the A2DP SINK - blueutil inquiry -> connect ->
     is-connected -> RSSI (system_profiler SPBluetoothDataType) ->
     switch audio output -> play test tone -> operator GUI confirm ->
     disconnect.
-  * ``rssi_only`` - Bare Metal DUT: inquiry + RSSI by name only.
+  * ``rssi_only`` - Bare Metal/RTOS DUT: host-side inquiry + RSSI by
+    name only (host -> DUT discovery, no pairing or audio path).
 
 All commands run through :class:`~mtkgui.engine.host_cli.HostCliRunner`
 so EventLog identity, timeouts and keyword judging are uniform.
