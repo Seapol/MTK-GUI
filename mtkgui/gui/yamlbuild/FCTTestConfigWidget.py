@@ -131,15 +131,15 @@ class FCTTestConfigPanel(QWidget):
         lay.addLayout(form)
 
         lay.addWidget(QLabel("Test commands:"))
-        self.cmd_table = QTableWidget(0, 7)
+        self.cmd_table = QTableWidget(0, 6)
         self.cmd_table.setHorizontalHeaderLabels(
-            ["#", "Name", "Console", "WaitFor (regex)", "SendTo",
-             "Capture (regex)", "Retry"])
+            ["Name", "Console", "WaitFor", "SendTo",
+             "Capture", "Retry"])
         self.cmd_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
-        self.cmd_table.setColumnWidth(0, 40)   # #
-        self.cmd_table.setColumnWidth(1, 150)  # Name
-        self.cmd_table.setColumnWidth(2, 90)   # Console
+        self.cmd_table.setColumnWidth(0, 150)  # Name
+        self.cmd_table.setColumnWidth(1, 90)   # Console
+        self.cmd_table.setColumnWidth(5, 80)   # Retry
         lay.addWidget(self.cmd_table)
         self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
         lay.addLayout(self._cmd_row_buttons())
@@ -152,53 +152,85 @@ class FCTTestConfigPanel(QWidget):
         def _add():
             r = self.cmd_table.rowCount()
             self.cmd_table.insertRow(r)
-            # # column = row number
-            self.cmd_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
-            # text columns
-            for col in (1, 3, 4, 5):
+            # text columns: Name / WaitFor / SendTo / Capture
+            for col in (0, 2, 3, 4):
                 self.cmd_table.setItem(r, col, QTableWidgetItem(""))
             # Console column = dropdown
             cb = QComboBox()
             cb.addItems(["serial", "ssh"])
-            self.cmd_table.setCellWidget(r, 2, cb)
+            self.cmd_table.setCellWidget(r, 1, cb)
             # Retry column = dropdown
             rb = QComboBox()
             rb.addItems(["no", "yes"])
-            self.cmd_table.setCellWidget(r, 6, rb)
+            self.cmd_table.setCellWidget(r, 5, rb)
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
         remove.clicked.connect(
             lambda: self.cmd_table.removeRow(self.cmd_table.currentRow()))
+        duplicate = QPushButton("Duplicate")
+        def _duplicate():
+            r = self.cmd_table.currentRow()
+            if r < 0:
+                return
+            self.cmd_table.insertRow(r + 1)
+            # copy text cells
+            for col in (0, 2, 3, 4):
+                src = self.cmd_table.item(r, col)
+                if src:
+                    self.cmd_table.setItem(r + 1, col,
+                                           QTableWidgetItem(src.text()))
+            # copy Console dropdown
+            src_cb = self.cmd_table.cellWidget(r, 1)
+            new_cb = QComboBox()
+            new_cb.addItems(["serial", "ssh"])
+            new_cb.setCurrentText(src_cb.currentText())
+            self.cmd_table.setCellWidget(r + 1, 1, new_cb)
+            # copy Retry dropdown
+            src_rb = self.cmd_table.cellWidget(r, 5)
+            new_rb = QComboBox()
+            new_rb.addItems(["no", "yes"])
+            new_rb.setCurrentText(src_rb.currentText())
+            self.cmd_table.setCellWidget(r + 1, 5, new_rb)
+        duplicate.clicked.connect(_duplicate)
+        edit = QPushButton("Edit")
+        edit.clicked.connect(
+            lambda: self._edit_sendto_cell(
+                self.cmd_table.currentRow(), 3))
         row.addWidget(add)
         row.addWidget(remove)
+        row.addWidget(duplicate)
+        row.addWidget(edit)
         row.addStretch(1)
         return row
 
     def _on_cmd_double_click(self, row: int, col: int) -> None:
         """Double-click on WaitFor/SendTo/Capture opens an editor dialog."""
-        if col == 3:    # WaitFor
-            self._edit_regex_cell(row, col, "WaitFor (regex)")
-        elif col == 4:  # SendTo
+        if col == 2:    # WaitFor
+            self._edit_regex_cell(row, col, "WaitFor")
+        elif col == 3:  # SendTo
             self._edit_sendto_cell(row, col)
-        elif col == 5:  # Capture
-            self._edit_regex_cell(row, col, "Capture (regex)")
+        elif col == 4:  # Capture
+            self._edit_regex_cell(row, col, "Capture")
 
     def _edit_regex_cell(self, row: int, col: int, title: str) -> None:
-        """Regex editor dialog with live match test."""
+        """Exact / Regex editor dialog with live match test."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                                        QTextEdit, QLineEdit, QPushButton,
-                                        QLabel)
+                                        QTextEdit, QPushButton, QLabel,
+                                        QCheckBox)
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(500)
         lay = QVBoxLayout(dlg)
-        # current regex
-        lay.addWidget(QLabel("Regex:"))
-        regex_edit = QTextEdit()
-        regex_edit.setPlainText(self.cmd_table.item(row, col).text())
-        regex_edit.setMaximumHeight(80)
-        lay.addWidget(regex_edit)
+        # Use Regex checkbox (default off = exact match)
+        regex_cb = QCheckBox("Use Regex (default off = exact match)")
+        lay.addWidget(regex_cb)
+        # pattern text
+        lay.addWidget(QLabel("Pattern:"))
+        pattern_edit = QTextEdit()
+        pattern_edit.setPlainText(self.cmd_table.item(row, col).text())
+        pattern_edit.setMaximumHeight(80)
+        lay.addWidget(pattern_edit)
         # test input
         lay.addWidget(QLabel("Test against sample text:"))
         test_edit = QTextEdit()
@@ -209,23 +241,33 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(result_label)
         def _test():
             import re
-            pattern = regex_edit.toPlainText()
+            pattern = pattern_edit.toPlainText()
             sample = test_edit.toPlainText()
             try:
-                if re.search(pattern, sample):
-                    result_label.setText("✓ MATCH")
-                    result_label.setStyleSheet("color: green")
+                if regex_cb.isChecked():
+                    # regex mode
+                    if re.search(pattern, sample):
+                        result_label.setText("✓ REGEX MATCH")
+                        result_label.setStyleSheet("color: green")
+                    else:
+                        result_label.setText("✗ no regex match")
+                        result_label.setStyleSheet("color: red")
                 else:
-                    result_label.setText("✗ no match")
-                    result_label.setStyleSheet("color: red")
+                    # exact substring mode
+                    if pattern in sample:
+                        result_label.setText("✓ EXACT MATCH")
+                        result_label.setStyleSheet("color: green")
+                    else:
+                        result_label.setText("✗ no exact match")
+                        result_label.setStyleSheet("color: red")
             except re.error as e:
                 result_label.setText(f"Regex error: {e}")
                 result_label.setStyleSheet("color: red")
-        test_btn = QPushButton("Test regex")
+        test_btn = QPushButton("Test match")
         test_btn.clicked.connect(_test)
         lay.addWidget(test_btn)
         # common patterns hint
-        lay.addWidget(QLabel("Common:  root@.*  |  login:  |  ERROR|FAIL  |  \\d+\\.\\d+"))
+        lay.addWidget(QLabel("Regex common:  root@.*  |  login:  |  ERROR|FAIL  |  \\d+\\.\\d+"))
         # buttons
         btn_row = QHBoxLayout()
         ok = QPushButton("OK")
@@ -237,7 +279,7 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addWidget(ok)
         lay.addLayout(btn_row)
         if dlg.exec() == QDialog.Accepted:
-            self.cmd_table.item(row, col).setText(regex_edit.toPlainText())
+            self.cmd_table.item(row, col).setText(pattern_edit.toPlainText())
 
     def _edit_sendto_cell(self, row: int, col: int) -> None:
         """SendTo editor: shell command (serial/ssh) or SFTP transfer (ssh only)."""
@@ -451,12 +493,12 @@ class FCTTestConfigPanel(QWidget):
         """Convert one cmd_table row to a ConsoleCommand.
         SendTo column encodes sftp ops as '[PUT] local -> remote' /
         '[GET] remote -> local'."""
-        name = self.cmd_table.item(r, 1).text() if self.cmd_table.item(r, 1) else ""
-        transport = self.cmd_table.cellWidget(r, 2).currentText()
-        waitfor = self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else ""
-        sendto = self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else ""
-        capture = self.cmd_table.item(r, 5).text() if self.cmd_table.item(r, 5) else ""
-        retries = 1 if self.cmd_table.cellWidget(r, 6).currentText() == "yes" else 0
+        name = self.cmd_table.item(r, 0).text() if self.cmd_table.item(r, 0) else ""
+        transport = self.cmd_table.cellWidget(r, 1).currentText()
+        waitfor = self.cmd_table.item(r, 2).text() if self.cmd_table.item(r, 2) else ""
+        sendto = self.cmd_table.item(r, 3).text() if self.cmd_table.item(r, 3) else ""
+        capture = self.cmd_table.item(r, 4).text() if self.cmd_table.item(r, 4) else ""
+        retries = 1 if self.cmd_table.cellWidget(r, 5).currentText() == "yes" else 0
 
         kind = "send"
         send = sendto
@@ -511,17 +553,15 @@ class FCTTestConfigPanel(QWidget):
             for cmd in c.test_commands:
                 r = self.cmd_table.rowCount()
                 self.cmd_table.insertRow(r)
-                # # = row number
-                self.cmd_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
                 # Name
-                self.cmd_table.setItem(r, 1, QTableWidgetItem(cmd.name))
+                self.cmd_table.setItem(r, 0, QTableWidgetItem(cmd.name))
                 # Console = dropdown
                 cb = QComboBox()
                 cb.addItems(["serial", "ssh"])
                 cb.setCurrentText(cmd.transport)
-                self.cmd_table.setCellWidget(r, 2, cb)
+                self.cmd_table.setCellWidget(r, 1, cb)
                 # WaitFor
-                self.cmd_table.setItem(r, 3, QTableWidgetItem(cmd.expect_pass))
+                self.cmd_table.setItem(r, 2, QTableWidgetItem(cmd.expect_pass))
                 # SendTo: encode sftp ops as [PUT]/[GET]
                 if cmd.kind == "sftp_put":
                     sendto_text = f"[PUT] {cmd.local} -> {cmd.remote}"
@@ -529,14 +569,14 @@ class FCTTestConfigPanel(QWidget):
                     sendto_text = f"[GET] {cmd.remote} -> {cmd.local}"
                 else:
                     sendto_text = cmd.send
-                self.cmd_table.setItem(r, 4, QTableWidgetItem(sendto_text))
+                self.cmd_table.setItem(r, 3, QTableWidgetItem(sendto_text))
                 # Capture
-                self.cmd_table.setItem(r, 5, QTableWidgetItem(cmd.expect_fail))
+                self.cmd_table.setItem(r, 4, QTableWidgetItem(cmd.expect_fail))
                 # Retry = dropdown
                 rb = QComboBox()
                 rb.addItems(["no", "yes"])
                 rb.setCurrentText("yes" if cmd.retries > 0 else "no")
-                self.cmd_table.setCellWidget(r, 6, rb)
+                self.cmd_table.setCellWidget(r, 5, rb)
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_mode.setCurrentText(w.mode)

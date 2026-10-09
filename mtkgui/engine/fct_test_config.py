@@ -96,8 +96,10 @@ class ConsoleCommand:
     name: str = ""
     transport: str = "serial"       # serial | ssh
     send: str = ""                  # command line(s), \n separated; {{var}} rendered
-    expect_pass: str = ""           # regex; multi-line = multiple, any hit passes
-    expect_fail: str = ""           # regex, wins over expect_pass
+    expect_pass: str = ""           # exact match (default) or regex
+    expect_fail: str = ""           # exact match (default) or regex, wins over expect_pass
+    expect_pass_is_regex: bool = False   # False = exact substring match
+    expect_fail_is_regex: bool = False
     timeout: float = DEFAULT_CMD_TIMEOUT
     retries: int = 0                # extra attempts on FAIL (fct_exec)
     extract: str = ""               # "name=regex" lines; group 1 -> variables
@@ -110,6 +112,8 @@ class ConsoleCommand:
                 "transport": self.transport, "send": self.send,
                 "expect_pass": self.expect_pass,
                 "expect_fail": self.expect_fail,
+                "expect_pass_is_regex": self.expect_pass_is_regex,
+                "expect_fail_is_regex": self.expect_fail_is_regex,
                 "timeout": float(self.timeout),
                 "retries": int(self.retries),
                 "extract": self.extract, "action": self.action,
@@ -247,6 +251,8 @@ class FctTestConfig:
                         send=str(c.get("send", "")),
                         expect_pass=str(c.get("expect_pass", "")),
                         expect_fail=str(c.get("expect_fail", "")),
+                        expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
+                        expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
                         timeout=float(c.get("timeout",
                                             DEFAULT_CMD_TIMEOUT)),
                         retries=int(c.get("retries", 0) or 0),

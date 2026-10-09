@@ -57,25 +57,38 @@ BT_MAC_CMDS = {
 # console matching primitives (spec §4.1 / §4.2)
 # ---------------------------------------------------------------------------
 def match_expectation(text: str, expect_pass: str,
-                      expect_fail: str) -> tuple:
-    """Regex judgement over the accumulated output (fail wins).
+                      expect_fail: str,
+                      expect_pass_is_regex: bool = False,
+                      expect_fail_is_regex: bool = False) -> tuple:
+    """Judgement over the accumulated output (fail wins).
 
+    Default: exact substring match. Set *_is_regex=True for regex mode.
     Empty patterns mean "no opinion" (pass needs SOME output).
     Returns ``(verdict, detail)`` with verdict PASS/FAIL.
     """
-    if expect_fail and re.search(expect_fail, text):
-        hit = re.search(expect_fail, text).group(0)
-        return "FAIL", f"matched expect_fail '{hit}'"
-    if expect_pass:
-        m = re.search(expect_pass, text)
+    def _matches(pattern: str, is_regex: bool, sample: str):
+        if is_regex:
+            return re.search(pattern, sample)
+        return pattern in sample
+
+    if expect_fail:
+        m = _matches(expect_fail, expect_fail_is_regex, text)
         if m:
-            return "PASS", f"matched '{m.group(0)}'"
+            hit = m.group(0) if expect_fail_is_regex else expect_fail
+            return "FAIL", f"matched expect_fail '{hit}'"
+    if expect_pass:
+        m = _matches(expect_pass, expect_pass_is_regex, text)
+        if m:
+            hit = m.group(0) if expect_pass_is_regex else expect_pass
+            return "PASS", f"matched '{hit}'"
         return "", ""
     return ("PASS", "output present") if text.strip() else ("", "")
 
 
 def console_send_and_expect(serial, cmd: str, expect_pass: str,
-                            expect_fail: str, timeout: float) -> tuple:
+                            expect_fail: str, timeout: float,
+                            expect_pass_is_regex: bool = False,
+                            expect_fail_is_regex: bool = False) -> tuple:
     """Send one command over the console and judge the reply stream.
 
     Spec §4.2: ``reset_input_buffer()`` BEFORE sending (stale output
@@ -99,7 +112,9 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
         if chunk:
             buffer += chunk
             text = buffer.decode("utf-8", errors="replace")
-            verdict, _ = match_expectation(text, expect_pass, expect_fail)
+            verdict, _ = match_expectation(
+                text, expect_pass, expect_fail,
+                expect_pass_is_regex, expect_fail_is_regex)
             if verdict:
                 return verdict, text
         time.sleep(0.05)
