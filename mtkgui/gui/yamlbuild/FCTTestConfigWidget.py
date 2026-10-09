@@ -460,6 +460,10 @@ class FCTTestConfigPanel(QWidget):
         lay_put.addRow("Local file:", put_local)
         lay_put.addRow("", browse_put_local)
         lay_put.addRow("Remote path:", put_remote)
+        put_timeout = QSpinBox()
+        put_timeout.setRange(1, 3600)
+        put_timeout.setValue(30)
+        lay_put.addRow("Timeout (seconds):", put_timeout)
         stack.addWidget(page_put)
 
         # page 2: sftp_get
@@ -476,6 +480,10 @@ class FCTTestConfigPanel(QWidget):
         lay_get.addRow("Remote file:", get_remote)
         lay_get.addRow("Local save:", get_local)
         lay_get.addRow("", browse_get_local)
+        get_timeout = QSpinBox()
+        get_timeout.setRange(1, 3600)
+        get_timeout.setValue(30)
+        lay_get.addRow("Timeout (seconds):", get_timeout)
         stack.addWidget(page_get)
 
         lay.addWidget(stack)
