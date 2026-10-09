@@ -1902,6 +1902,24 @@ class TestWorkFlowPage(QWidget):
 
 
     # ------------------------------------------------------------ demo data
+    def load_fct_cases(self, cases: list) -> None:
+        """P3-B5: the Yaml Build block 07 FCT sequence was accepted -
+        replace the FCT Test Cases table with the generated cases
+        (name / kind / enable / wait_ms / timeout_ms / op_params with
+        the fct_step marker)."""
+        self.fct_rows = [str(c.get("name", "")) for c in cases]
+        self.fct_enables = [bool(c.get("enable", True)) for c in cases]
+        self.fct_waits = [int(c.get("wait_ms", 100)) for c in cases]
+        self.fct_timeouts = [int(c.get("timeout_ms", 5000))
+                             for c in cases]
+        self.fct_kinds = [str(c.get("kind", "MessageOK")) for c in cases]
+        self.fct_op_params = [c.get("op_params") for c in cases]
+        self.fct_breakpoints = set()
+        self.fct.setRowCount(len(cases))
+        self._fct_edit_guard = True
+        self._fill_fct_all()
+        self._fct_edit_guard = False
+
     def _gen_rails(self):
         """Legacy demo rail waveforms (engine data service,
         mtkgui.engine.rails.generate_rails)."""
@@ -2306,6 +2324,10 @@ class TestWorkFlowPage(QWidget):
             self.cycle_times.append(summary["cycle_s"])
             self._count_product()
         self._update_result()
+        # P3-B5: keep the summary for the page-level run_finished
+        # consumers (B3 auto-report reads it - the page signal is
+        # argument-less by legacy contract)
+        self.last_run_summary = dict(summary)
         if reason != "stop":
             # legacy: abort / complete emit run_finished (page jump);
             # operator stop does not

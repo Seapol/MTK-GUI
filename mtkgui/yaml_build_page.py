@@ -86,6 +86,10 @@ class YamlBuildPage(QWidget):
     #: merges the standard operations on the Test Work Flow page and
     #: offers the YAML save
     ict_sequence_ready = Signal(list)
+    #: P3-B5: the block-07 FCT config was accepted - carries the
+    #: generated FCT case dicts (name/kind/enable/wait_ms/timeout_ms/
+    #: op_params.fct_step) for the Test Work Flow page's FCT table
+    fct_sequence_ready = Signal(list)
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -210,6 +214,50 @@ class YamlBuildPage(QWidget):
                            self.model.to_dict())
 
     # ------------------------------------------------------ UI -> model
+    def _emit_fct_sequence(self, params: dict) -> None:
+        """P3-B5: block 07 params -> FCT work-flow case dicts.
+
+        Parses ``fct_test_config_yaml``, builds the ordered FctStep
+        list (console login/commands + Wi-Fi + Bluetooth) and maps it
+        to the project-YAML case shape; a final "FCT done" operator
+        dialog closes the sequence.  Emitted even when the config is
+        empty EXCEPT when parsing fails (error logged instead)."""
+        import yaml as _yaml
+        from mtkgui.engine.fct_test_config import FctTestConfig
+        from mtkgui.gui.yamlbuild.fct_build import (
+            STEP_MESSAGE_CHECK,
+            FctSequence,
+            to_project_fct_cases,
+        )
+        text = str((params or {}).get("fct_test_config_yaml", "") or "")
+        if not text.strip():
+            return
+        try:
+            node = _yaml.safe_load(text) or {}
+            cfg = FctTestConfig.from_dict(
+                node.get("fct_test_config") or {})
+        except _yaml.YAMLError as exc:
+            self._tlog("ERROR", f"FCT config parse failed: {exc}")
+            return
+        errors = cfg.validate()
+        if errors:
+            self._tlog("ERROR", "FCT config invalid: " + "; ".join(errors))
+            return
+        from mtkgui.engine.fct_test_config import build_fct_steps
+        from mtkgui.gui.yamlbuild.fct_build import FctStep
+        steps = build_fct_steps(cfg)
+        steps.append(FctStep(name="FCT done.",
+                             step_type=STEP_MESSAGE_CHECK,
+                             expect_pass=["done"], timeout_s=0.0))
+        seq = FctSequence(name="FCT Test Work Flow", steps=steps)
+        cases = to_project_fct_cases(seq)
+        # every generated case carries its full step marker so the
+        # runner routes the row through fct_exec
+        for case, step in zip(cases, steps):
+            case.setdefault("op_params", {})["fct_step"] = step.to_dict()
+        self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
+        self.fct_sequence_ready.emit(cases)
+
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
@@ -258,6 +306,11 @@ class YamlBuildPage(QWidget):
         if params is None:
             return
         self.model.set_params(module_key, params)
+        if module_key == "fct_build":
+            # P3-B5: block 07 accepted -> generate the FCT work-flow
+            # cases from the configured fct_test_config and hand them
+            # to the Test Work Flow page (main window applies + saves)
+            self._emit_fct_sequence(params)
         if module_key == "validate_sequence":
             # block 09: on OK run the FULL sequence validation - every
             # marked module that passes gets a check; a failure keeps

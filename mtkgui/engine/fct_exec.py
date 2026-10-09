@@ -141,6 +141,143 @@ def _capture_loop(channel, pass_kw: list, fail_kw: list,
             time.sleep(0.02)            # engines may poll real channels
 
 
+def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
+    """B5 console-command capture: REGEX judgement (spec §4.2) —
+    ``expect_fail_re`` wins over ``expect_pass_re``, timeout = FAIL
+    ("TIMEOUT waiting"), never blocks forever.  Falls back to the
+    plain keyword tables when no regex is configured."""
+    from .fct_test_runner import match_expectation
+    pass_re = str(step.params.get("expect_pass_re", "") or "")
+    fail_re = str(step.params.get("expect_fail_re", "") or "")
+    collected: list = []
+    deadline = time.monotonic() + max(step.timeout_s or 5.0, 0.1)
+    while True:
+        try:
+            got = channel.read_lines(max_lines=200, timeout_s=0.1)
+        except ChannelClosed as exc:
+            return FctOutcome(VERDICT_ERROR, f"channel error: {exc}",
+                              list(collected))
+        if got:
+            collected.extend(got)
+            text = "\n".join(collected)
+            if not (pass_re or fail_re):
+                if not (step.expect_pass or step.expect_fail):
+                    # no expectations at all (e.g. the BT piscan setup
+                    # step): ANY output means the command reached the
+                    # DUT - the caller's timeout still bounds silence
+                    if text.strip():
+                        return FctOutcome(VERDICT_PASS,
+                                          "output present",
+                                          list(collected))
+                else:
+                    verdict, hit = judge_keywords(
+                        got, list(step.expect_pass), list(step.expect_fail))
+                    if verdict:
+                        return FctOutcome(verdict, f"keyword '{hit}'",
+                                          list(collected))
+            else:
+                verdict, detail = match_expectation(text, pass_re,
+                                                    fail_re)
+                if verdict == "FAIL":
+                    return FctOutcome(VERDICT_FAIL, detail,
+                                      list(collected))
+                if verdict == "PASS":
+                    return FctOutcome(VERDICT_PASS, detail,
+                                      list(collected))
+        if step.timeout_s and time.monotonic() > deadline:
+            return FctOutcome(VERDICT_FAIL,
+                              "TIMEOUT waiting for "
+                              f"{pass_re or step.expect_pass}",
+                              list(collected))
+        if not got:
+            time.sleep(0.02)
+
+
+def runner_for(ctx: FctContext):
+    """A HostCliRunner bound to the context identity/log (host-side
+    commands such as the own-Bluetooth-address lookup)."""
+    from .host_cli import HostCliRunner
+    return HostCliRunner(log_sink=ctx.log, station_id=ctx.station_id,
+                         user=ctx.user)
+
+
+def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
+    """B5 RF tool execution (spec 3.2 / 3.3): build the B4 adapter
+    from the embedded config (params.fct_rf) with the B4-verified mac
+    command set, run it, log every command line, map the verdict.
+    a2dp_sink routes the operator question through the confirm hook."""
+    from .fct_test_runner import BT_MAC_CMDS, WIFI_MAC_CMDS
+    from .rf_adapters import BluetoothAdapter, WifiAdapter
+    cfg = dict(step.params.get("fct_rf") or {})
+    runner = runner_for(ctx)
+    if family == "wifi":
+        # B5 rssi_only on a station-mode Linux DUT: the RSSI is read
+        # ON THE DUT over the console (iw dev <interface> link) - a
+        # host-side scan cannot see a station interface
+        if step.params.get("rssi_via") == "dut_console" \
+                and cfg.get("mode") == "rssi_only":
+            return _wifi_rssi_dut_console(step, cfg, ctx)
+        # B5 config key `ssid` -> adapter key `expected_ssid`
+        rf = dict(cfg)
+        rf.setdefault("expected_ssid", rf.get("ssid", ""))
+        rf_cfg = {"wifi": dict(rf, cmds={"mac": dict(WIFI_MAC_CMDS)})}
+        out = WifiAdapter(rf_cfg, runner).run_test()
+    else:
+        rf_cfg = {"bluetooth": dict(
+            cfg, cmds={"mac": dict(BT_MAC_CMDS)})}
+        adapter = BluetoothAdapter(rf_cfg, runner,
+                                   human_confirm=ctx.human_confirm)
+        out = adapter.run_test()
+    for line in out.get("lines", [])[:20]:
+        ctx.log(f"{family}: {line}")
+    ctx.log(f"{family} items: {out.get('items')}")
+    verdict = out.get("verdict")
+    return FctOutcome(VERDICT_PASS if verdict == "Pass" else VERDICT_FAIL,
+                      str(out.get("items")), out.get("lines", []))
+
+
+def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
+                           ctx: FctContext) -> FctOutcome:
+    """B5 Wi-Fi rssi_only via the DUT console: send
+    ``iw dev <interface> link``, parse ``signal: -X dBm`` (REGEX from
+    the board's FCT_SETUP interface), judge against rssi_min."""
+    import re
+    channel = ctx.channels.get(step.channel)
+    if channel is None:
+        return FctOutcome(VERDICT_ERROR,
+                          f"console channel '{step.channel}' not bound")
+    interface = str(cfg.get("interface", "mlan0"))
+    rssi_min = float(cfg.get("rssi_min", -70))
+    ctx.log(f"DUT: iw dev {interface} link")
+    channel.write(f"iw dev {interface} link\n")
+    deadline = time.monotonic() + max(step.timeout_s or 15.0, 1.0)
+    collected: list = []
+    while time.monotonic() < deadline:
+        try:
+            got = channel.read_lines(max_lines=200, timeout_s=0.1)
+        except ChannelClosed as exc:
+            return FctOutcome(VERDICT_ERROR, f"channel error: {exc}",
+                              list(collected))
+        collected.extend(got)
+        text = "\n".join(collected)
+        m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", text)
+        if m:
+            rssi = float(m.group(1))
+            ok = rssi >= rssi_min
+            ctx.log(f"DUT Wi-Fi RSSI: {rssi} dBm (min {rssi_min})")
+            return FctOutcome(
+                VERDICT_PASS if ok else VERDICT_FAIL,
+                f"RSSI {rssi} dBm vs min {rssi_min}", list(collected))
+        if re.search(r"not connected|No station|Invalid", text,
+                     re.IGNORECASE):
+            return FctOutcome(VERDICT_FAIL, "DUT Wi-Fi not connected",
+                              list(collected))
+        if not got:
+            time.sleep(0.02)
+    return FctOutcome(VERDICT_FAIL, "TIMEOUT waiting for Wi-Fi link "
+                      "info", list(collected))
+
+
 def _open_channel(step: FctStep, ctx: FctContext):
     """Bind the step channel; a host CLI step gets a fresh subprocess
     adapter (registered as __host__)."""
@@ -203,6 +340,14 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             return FctOutcome(
                 VERDICT_PASS if ok else VERDICT_FAIL,
                 "human OK" if ok else "human STOP")
+        # B5: console steps use the REGEX/own-keyword judge - the
+        # global keyword tables must NOT judge raw DUT output (a boot
+        # log contains 'timeout'/'error' words -> false negatives)
+        if step.params.get("fct_console"):
+            if "send" in step.params:
+                ctx.log(f"console send: {step.params.get('send')!r}")
+                channel.write(str(step.params.get("send") or "") + "\n")
+            return _regex_capture(channel, step, ctx)
         if not pass_kw and not fail_kw:
             return FctOutcome(VERDICT_FAIL, "no keywords configured")
         return _capture_loop(channel, pass_kw, fail_kw,
@@ -226,6 +371,40 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         return outcome
 
     if step.step_type == STEP_EXTERNAL_TOOL:
+        # B5 addendum: DUT-side connectivity / throughput / BT data-path
+        # steps (run over the console via the dut_* primitives)
+        channel = ctx.channels.get(step.channel)
+        if step.params.get("fct_wifi_ping") and channel is not None:
+            from .fct_test_runner import ConsoleSerialShim, dut_wifi_ping
+            p = step.params["fct_wifi_ping"]
+            verdict, detail = dut_wifi_ping(
+                ConsoleSerialShim(channel), p["gateway"], p["count"],
+                p["loss_max"])
+            ctx.log(f"DUT ping: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
+        if step.params.get("fct_wifi_iperf") and channel is not None:
+            from .fct_test_runner import ConsoleSerialShim, dut_wifi_iperf
+            p = step.params["fct_wifi_iperf"]
+            verdict, detail = dut_wifi_iperf(
+                ConsoleSerialShim(channel), p["tool"], p["server_ip"],
+                p["min_mbps"], p.get("duration", 10))
+            ctx.log(f"DUT iperf: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
+        if step.params.get("fct_bt_l2ping") and channel is not None:
+            from .fct_test_runner import (ConsoleSerialShim, dut_bt_l2ping)
+            verdict, detail = dut_bt_l2ping(
+                ConsoleSerialShim(channel), runner_for(ctx),
+                step.params["fct_bt_l2ping"]["count"])
+            ctx.log(f"DUT l2ping: {detail}")
+            return FctOutcome(VERDICT_PASS if verdict == "PASS"
+                              else VERDICT_FAIL, detail)
+        # B5: RF tool steps (wifi / bluetooth) run through the B4
+        # adapters - the sub-config travels in params.fct_rf
+        family = str(step.params.get("tool_family", "")).lower()
+        if family in ("wifi", "bluetooth") and step.params.get("fct_rf"):
+            return _run_rf_tool(step, family, ctx)
         # D1-A: same machinery — command (if any) then optional human
         # confirm (params.confirm) with keyword capture in between.
         if step.command:

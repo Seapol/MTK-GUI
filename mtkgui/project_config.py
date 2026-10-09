@@ -177,9 +177,13 @@ def _workflow_to_yaml(page):
             "wait_ms": wait,
             "timeout_ms": timeout,
         }
-        # standard-operation rows carry their configuration
-        if kind == "op" and i < len(fct_op_params) and fct_op_params[i]:
-            case["op_params"] = fct_op_params[i]
+        # standard-operation rows AND the B4/B5 fct_step marker rows
+        # carry their configuration (non-op dicts are fct_step markers)
+        if kind == "op" or (i < len(fct_op_params)
+                            and isinstance(fct_op_params[i], dict)
+                            and fct_op_params[i].get("fct_step")):
+            if i < len(fct_op_params) and fct_op_params[i]:
+                case["op_params"] = fct_op_params[i]
         # node comment (P3-B2 debug feature): archived when non-empty
         fct_comments = getattr(page, "fct_comments", None) or []
         if i < len(fct_comments) and fct_comments[i]:
@@ -377,8 +381,10 @@ def apply_config(config, workflow_page, equipment_page,
                 for c in fct_cases]
             workflow_page.fct_op_params = [
                 dict(c["op_params"])
-                if c.get("kind") == "op"
-                and isinstance(c.get("op_params"), dict) else None
+                # op rows AND the B4/B5 fct_step marker rows both carry
+                # op_params - dropping non-op dicts breaks the runner
+                # routing (op_params.fct_step)
+                if isinstance(c.get("op_params"), dict) else None
                 for c in fct_cases]
             workflow_page.fct_waits = [
                 max(0, min(9999, int(c.get("wait_ms", 100))))

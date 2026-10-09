@@ -135,6 +135,15 @@ class BlockConfigDialog(QDialog):
             self.panel.set_params(params or {})
             self.panel.task_log.connect(self._panel_log)
             lay.addWidget(self.panel)
+        elif module_key == "fct_build":
+            # P3-B5: the FCT Test Work Flow Sequence panel - three tabs
+            # (Console / Wi-Fi / Bluetooth) editing fct_test_config
+            from mtkgui.gui.yamlbuild.FCTTestConfigWidget import \
+                FCTTestConfigPanel
+            self.panel = FCTTestConfigPanel()
+            self.panel.set_values(params or {})
+            self.panel.task_log.connect(self._panel_log)
+            lay.addWidget(self.panel)
         else:
             for spec in self._specs:
                 if spec.hidden:

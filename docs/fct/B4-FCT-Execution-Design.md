@@ -368,3 +368,55 @@ station's capability; the production form is wireless DUT vs WIRED
 host PC.  (Also observed: the Windows host drops ICMP echo by
 firewall default while iperf3 TCP succeeds - joint exit-code/TCP
 judging handles this.)
+
+---
+
+## 11. Console command model v2 (P3-B5 refinement, SIGNED design)
+
+ALL FCT test commands are built from THREE primitives (user-signed):
+
+1. **ConsoleWait**  — wait for an expected message (regex) within
+   timeout; on match, IMMEDIATELY proceed to the next command.
+   Timeout -> FAIL ("TIMEOUT waiting for ...").  No send.
+2. **ConsoleSend**  — send one OR MULTIPLE lines to the DUT console
+   (newline policy per console config: lf/crlf).  Fire-and-forget:
+   verdict is Done/PASS ("sent") — judgement is the FOLLOWING
+   ConsoleCapture's job.
+3. **ConsoleCapture** — capture the output AFTER a ConsoleSend.
+   For Linux DUTs the output may interleave with OTHER processes'
+   output (weak real-time behaviour) — the capture scans the
+   ACCUMULATED stream, so interleaved noise is tolerated.  Judged by
+   an expected message and/or an UNEXPECTED message (fail-wins);
+   timeout -> FAIL.  Regex capture-groups may feed the variable store
+   (`extract`, referenced by later commands via {{var}}).
+
+Login becomes an ordinary Wait/Send/Wait chain (no separate
+login_sequence section):
+
+    Wait "login:" -> Send "root" -> Wait "Password:" ->
+    Send "" -> Wait "root@imx93frdm"
+
+Each row carries `transport: serial | ssh` (serial default; ssh for
+unstable links and SFTP file transfer rows: action sftp_put/sftp_get
+with local/remote paths — B4 SshFctChannel).  Console config gains:
+newline (lf|crlf), inter_cmd_delay_ms, per-row timeout override.
+Variable store is shared across rows and rendered via {{var}}.
+
+YAML row shape (test_commands, ordered):
+
+    - {kind: wait,    name: Login,  expect_pass: "login:", timeout: 5}
+    - {kind: send,    name: User,   send: root}
+    - {kind: capture, name: Kernel, expect_pass: "Linux imx93frdm",
+       expect_fail: "", timeout: 5, extract: "ip=(\\d+\\.\\d+\\.\\d+\\.\\d+)"}
+    - {kind: send,    name: Ping,   send: "ping -c 3 {{ip}}"}
+
+Engine mapping (all three are fct_console MESSAGE_CHECK steps):
+wait -> _regex_capture (no send); send -> channel.write, PASS "sent";
+capture -> send optional? NO (pure capture) — the preceding Send row
+already wrote; _regex_capture judges the accumulated stream.
+Legacy parity: SendtoConsole / WaitforConsole / CapturefromConsole.
+
+dut_type gating (P3-B5): linux = full set (Wait/Send/Capture +
+DUT-side ping/iperf/l2ping/piscan steps); bare_metal = Wait/Capture
+only (no shell; firmware output capture + optional firmware command
+Send rows), Wi-Fi/BT host-side.
