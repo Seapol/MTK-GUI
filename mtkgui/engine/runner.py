@@ -599,7 +599,7 @@ class TestRunner(QObject):
         tables; GUI_CONFIRM answers via the operator dialog
         (interactive) or a simulated GO (run_demo / smoke)."""
         from ..gui.yamlbuild.fct_build import FctStep
-        from .fct_channels import BoundConsoleChannel, VirtualFctChannel
+        from .fct_channels import ConsoleBufferChannel, VirtualFctChannel
         from .fct_exec import (
             VERDICT_ERROR,
             VERDICT_FAIL,
@@ -628,8 +628,28 @@ class TestRunner(QObject):
             mc = getattr(env, "multi_console", None)
             worker = (mc.channels.get(ch_key, {}).get("worker")
                       if mc is not None else None)
+            if worker is None and mc is not None:
+                # B5 fallback: the configured key may not match the
+                # live console set - bind the first CONNECTED serial
+                # channel so the FCT console steps still reach the DUT
+                for key, ch in mc.channels.items():
+                    if (ch.get("kind") == "serial"
+                            and mc.channel_connected(key)):
+                        worker = ch.get("worker")
+                        break
             if worker is not None:
-                ctx.channels[ch_key] = BoundConsoleChannel(worker)
+                # P3-B5: the multi-console buffer adapter - writes go
+                # through the SerialWorker transport, reads consume the
+                # console read buffer (SerialWorker has no send/pop API).
+                # pump = the GUI event loop: the RX reaches the buffer
+                # via queued signals, a blocking capture loop must pump
+                try:
+                    from PySide6.QtWidgets import QApplication
+                    pump = QApplication.processEvents
+                except Exception:             # noqa: BLE001 - headless
+                    pump = None
+                ctx.channels[ch_key] = ConsoleBufferChannel(
+                    mc, ch_key, pump=pump)
             else:
                 # Virtual: a fresh injectable channel stands in for the
                 # real transport (Virtual mode verifiable, no hardware);

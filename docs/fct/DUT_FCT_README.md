@@ -298,7 +298,73 @@ flash:
 
 ---
 
-## 6. Validation Checklist
+## 6. FCT Test Configuration (Modular & GUI-editable)
+
+All FCT test items are modular and independently configurable via YAML. Every field is editable in the MTK GUI (Equipment page / Yaml Build → Apply to YAML).
+
+### 6.1 Test Item Categories
+
+| Category | Items | Bare Metal | Linux |
+|---|---|---|---|
+| Basic | serial boot log, message test | ✅ | ✅ |
+| Wi-Fi | rssi_only, full_stack (ping/iperf) | rssi_only only | both |
+| Bluetooth | rssi_only, pair_connect, a2dp_sink | rssi_only only | all (BSP dependent) |
+| Flash | gui_confirm, cli script | both supported | both supported |
+| SSH/SCP | remote command, file transfer | ❌ | ✅ |
+
+### 6.2 Serial Console Login Flow (configurable)
+
+```yaml
+fct_steps:
+  - name: "Login root"
+    console:
+      port: "/dev/cu.usbmodem*"
+      baudrate: 115200
+      wait_for: "login:"
+      send: "root"
+      wait_for: "Password:"
+      send: ""          # empty password
+      wait_for: "root@"
+      timeout: 10
+```
+
+### 6.3 Wi-Fi Test Configuration
+
+```yaml
+wifi:
+  enabled: true
+  mode: "rssi_only"           # rssi_only | full_stack
+  interface: "mlan0"          # wlan0 | mlan0 (configurable)
+  driver_load_cmd: "/root/load_rf_drivers.sh"
+  rssi_min: -70
+  # full_stack only:
+  ssid: "TP-LINK_F68E_AP"
+  password: "xxx"             # stored in keyring
+  gateway: "192.168.10.1"
+  ping_count: 20
+  loss_max: 5
+  bandwidth:
+    enabled: false
+    tool: "iperf2"             # iperf2 | iperf3
+    min_mbps: 10
+```
+
+### 6.4 Bluetooth Test Configuration
+
+```yaml
+bluetooth:
+  enabled: true
+  mode: "rssi_only"            # rssi_only | pair_connect | a2dp_sink
+  expected_name: "DUT-BT-XXXX"
+  rssi_min: -70
+  # pair_connect / a2dp_sink only:
+  pair_with: "host"            # host | external_device
+  audio_confirm: true          # GUI_CONFIRM for a2dp_sink
+```
+
+---
+
+## 7. Validation Checklist
 
 ### Bare Metal DUT Validation
 - [ ] Firmware auto-enters Wi-Fi/Bluetooth advertising after boot

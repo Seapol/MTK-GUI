@@ -546,6 +546,10 @@ class MainWindow(QMainWindow):
         # operations on the Test Work Flow page, then apply to yaml
         self.yaml_build_page.ict_sequence_ready.connect(
             self._on_ict_sequence_ready)
+        # P3-B5: block-07 FCT config accepted -> replace the FCT Test
+        # Cases table with the generated sequence, then apply to yaml
+        self.yaml_build_page.fct_sequence_ready.connect(
+            self._on_fct_sequence_ready)
         # valid Apply on the Yaml Build page -> offer the file save
         self.yaml_build_page.yaml_apply_committed.connect(
             self._on_yaml_apply_committed)
@@ -690,7 +694,9 @@ class MainWindow(QMainWindow):
             self._finish_run_progress)
         # Module B: every counted product is captured into the session
         # batch (automatic report trigger, B4 §8.3)
-        self.workflow_page.run_finished.connect(self._on_run_report_auto)
+        self.workflow_page.run_finished.connect(
+            lambda: self._on_run_report_auto(
+                getattr(self.workflow_page, "last_run_summary", {})))
         # long-task progress + Event-Log detail from the Yaml Build
         # page (Excel import / publish, T6): global status bar + log
         self.yaml_build_page.task_progress.connect(self._on_task_progress)
@@ -1385,6 +1391,18 @@ class MainWindow(QMainWindow):
             f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
             f"{len(tests)} tests + standard operations")
         # apply to yaml: the same save dialog as the preview Apply
+        self._on_yaml_apply_committed()
+
+    def _on_fct_sequence_ready(self, cases):
+        """P3-B5 block-07 FCT config accepted: replace the FCT Test
+        Cases table with the generated sequence and offer the YAML
+        save (same apply flow as the ICT sequence builder)."""
+        page = self.workflow_page
+        page.load_fct_cases(cases)
+        self._goto_test_workflow()
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] FCT test sequence applied: "
+            f"{len(cases)} cases")
         self._on_yaml_apply_committed()
 
     def _goto_yaml_build(self):

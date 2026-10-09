@@ -263,13 +263,19 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
            remarks="one init step per line"),
     ),
     "fct_build": (
-        _f("flow_steps", "FCT Flow", ftype=T_TEXT, required=True,
-           remarks="one flow step per line"),
+        # B5: the FCT Test Work Flow Sequence block is edited through
+        # the FCTTestConfigPanel (Console / Wi-Fi / Bluetooth tabs);
+        # the legacy generic fields become hidden bookkeeping
+        _f("flow_steps", "FCT Flow", ftype=T_TEXT,
+           remarks="one flow step per line", hidden=True),
         _f("yield_threshold_pct", "Yield Threshold", ftype=T_FLOAT,
-           default="98.0", minimum=0.0, maximum=100.0, unit="%"),
+           default="98.0", minimum=0.0, maximum=100.0, unit="%",
+           hidden=True),
         _f("exception_branch", "Exception Branch", ftype=T_CHOICE,
-           choices=("continue", "stop"), default="stop"),
-        _f("case_link", "Case Link"),
+           choices=("continue", "stop"), default="stop", hidden=True),
+        _f("case_link", "Case Link", hidden=True),
+        _f("fct_test_config_yaml", "FCT Test Config", ftype=T_TEXT,
+           hidden=True, remarks="fct_test_config YAML node (P3-B5)"),
     ),
     "validate_sequence": (
         _f("resource_conflict_check", "Resource Conflict Check",

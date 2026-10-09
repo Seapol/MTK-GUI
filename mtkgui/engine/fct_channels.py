@@ -170,6 +170,60 @@ class BoundConsoleChannel:
         pass                            # the console owns the transport
 
 
+class ConsoleBufferChannel:
+    """P3-B5 adapter for a multi-console channel (real bench): writes
+    go through ``mc.write_to_channel`` (the SerialWorker transport),
+    reads consume the multi-console read buffer through an internal
+    line queue - complete lines are returned once, the trailing
+    PARTIAL line (a prompt like ``root@imx93frdm:~# `` never ends with
+    a newline) is appended to EVERY read so regex/keyword judges can
+    match prompts; it completes (and is returned exactly once) when
+    its newline arrives."""
+
+    kind = "console_buffer"
+
+    def __init__(self, mc, key: str, pump=None) -> None:
+        """`pump` (optional callable): injected event-loop pump — the
+        multi-console RX reaches the read buffer through QUEUED Qt
+        signals, so a blocking capture loop in the GUI thread must
+        pump the loop or the buffer starves.  The engine stays
+        Qt-free: the GUI injects ``QApplication.processEvents``."""
+        self._mc, self._key = mc, key
+        self._pump = pump
+        self._consumed = 0                    # bytes taken from mc buffer
+        self._pending = ""                    # un-terminated partial line
+
+    def write(self, data) -> None:
+        payload = data if isinstance(data, bytes) else str(data).encode()
+        self._mc.write_to_channel(self._key, payload)
+
+    def read_lines(self, max_lines: int = 100,
+                   timeout_s: float = 0.0) -> list:
+        if self._pump is not None:
+            try:
+                self._pump()
+            except Exception:                 # noqa: BLE001 - headless
+                pass
+        buf = self._mc.get_read_buffer(self._key)
+        if len(buf) > self._consumed:
+            self._pending += buf[self._consumed:].decode(errors="replace")
+            self._consumed = len(buf)
+        out: list = []
+        while "\n" in self._pending and len(out) < max(1, max_lines):
+            line, self._pending = self._pending.split("\n", 1)
+            if line.strip():
+                out.append(line.rstrip("\r"))
+        # the partial line is ALWAYS visible (judges re-scan it; the
+        # duplicate is harmless - verdicts are idempotent) unless the
+        # line quota is already consumed by complete lines
+        if len(out) < max(1, max_lines) and self._pending.strip():
+            out.append(self._pending.rstrip("\r"))
+        return out
+
+    def close(self) -> None:
+        pass                                # the console owns the transport
+
+
 # ---------------------------------------------------------------------------
 # P3-B4 Module A / B: first-class serial + SSH adapters
 # ---------------------------------------------------------------------------

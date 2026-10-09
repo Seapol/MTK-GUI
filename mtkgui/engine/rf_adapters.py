@@ -311,11 +311,25 @@ class BluetoothAdapter:
             items["rssi"] = rssi
 
         if self.mode == "rssi_only":
-            verdict = ("Pass" if rssi is not None
-                       and rssi >= self.rssi_min else "Fail")
-            return {"verdict": verdict, "items": items, "lines": lines}
+            if rssi is None:
+                # inquiry lines may carry no RSSI (blueutil) - fall back
+                # to the RSSI source (system_profiler shows RSSI for
+                # paired/discoverable classic devices)
+                rssi = self._read_rssi(addr or name)
+            # rssi_only verdict = DISCOVERY of the expected device; the
+            # RSSI gates only when the platform exposes one (macOS does
+            # not expose RSSI for unpaired discoverable devices)
+            if rssi is not None:
+                ok = rssi >= self.rssi_min
+            else:
+                ok = addr is not None or name.lower() in \
+                    "\n".join(lines).lower()
+            if rssi is not None:
+                items["rssi"] = rssi
+            return {"verdict": "Pass" if ok else "Fail",
+                    "items": items, "lines": lines}
 
-        # ---- a2dp_sink --------------------------------------------------
+        # ---- pair_connect / a2dp_sink -----------------------------------
         if not addr:
             return {"verdict": "Fail",
                     "items": items,
@@ -329,17 +343,23 @@ class BluetoothAdapter:
             rssi = self._read_rssi(addr)
             if rssi is not None:
                 items["rssi"] = rssi
-            # switch audio to the DUT and play the test tone
-            self._run(self.cmds["audio_switch_cmd"], {"name": name})
-            self._run(self.cmds["tone_cmd"], {"tone": self.tone_path})
-            heard = self._confirm(
-                f"Do you hear audio from DUT headphone jack? "
-                f"(DUT: {name}, addr: {addr})") \
-                if self._confirm else False
-            items["operator_confirmed"] = 1 if heard else 0
-            verdict = ("Pass" if heard
-                       and rssi is not None and rssi >= self.rssi_min
-                       else ("Pass" if heard and rssi is None else "Fail"))
+            verdict = "Fail"
+            if (rssi is None or rssi >= self.rssi_min):
+                if self.mode == "pair_connect":
+                    # connect + verify only - no audio, no operator step
+                    verdict = "Pass"
+                elif self.mode == "a2dp_sink":
+                    # switch audio to the DUT and play the test tone
+                    self._run(self.cmds["audio_switch_cmd"],
+                              {"name": name})
+                    self._run(self.cmds["tone_cmd"],
+                              {"tone": self.tone_path})
+                    heard = self._confirm(
+                        f"Do you hear audio from DUT headphone jack? "
+                        f"(DUT: {name}, addr: {addr})") \
+                        if self._confirm else False
+                    items["operator_confirmed"] = 1 if heard else 0
+                    verdict = "Pass" if heard else "Fail"
         else:
             verdict = "Fail"
             items["connected"] = 0
@@ -351,7 +371,8 @@ class BluetoothAdapter:
         import re
         pattern = self.cmds.get("rssi_parse", r"(-?\d+)\s*dBm")
         text = "\n".join(res.lines)
-        if addr in text.lower() or self.expected_name in text:
+        low = text.lower()
+        if (addr and addr in low) or self.expected_name in text:
             m = re.search(pattern, text)
             if m:
                 return int(m.group(1))
