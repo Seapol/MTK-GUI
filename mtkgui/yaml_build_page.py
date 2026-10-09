@@ -214,41 +214,47 @@ class YamlBuildPage(QWidget):
                            self.model.to_dict())
 
     # ------------------------------------------------------ UI -> model
-    def _emit_fct_sequence(self, params: dict) -> None:
+    def _emit_fct_sequence(self, params: dict):
         """P3-B5: block 07 params -> FCT work-flow case dicts.
 
-        Parses ``fct_test_config_yaml``, builds the ordered FctStep
-        list (console login/commands + Wi-Fi + Bluetooth) and maps it
-        to the project-YAML case shape; a final "FCT done" operator
-        dialog closes the sequence.  Emitted even when the config is
-        empty EXCEPT when parsing fails (error logged instead)."""
+        Parses ``fct_test_config_yaml``, builds the ordered FctStep list
+        (console commands + Wi-Fi + Bluetooth) and maps it to the
+        project-YAML case shape; a final "FCT done" operator dialog
+        closes a non-empty sequence.
+
+        A project may contain ICT only, FCT only, or both - an FCT
+        config with every tab disabled is valid and yields zero cases.
+
+        Returns ``(cases, errors)``: ``errors`` is an empty list on
+        success (cases may be empty for an ICT-only project); on a parse
+        or validation failure it carries the messages and cases is None.
+        """
         import yaml as _yaml
         from mtkgui.engine.fct_test_config import FctTestConfig
         from mtkgui.gui.yamlbuild.fct_build import (
-            STEP_MESSAGE_CHECK,
             FctSequence,
             to_project_fct_cases,
         )
         text = str((params or {}).get("fct_test_config_yaml", "") or "")
         if not text.strip():
-            return
+            # nothing configured -> ICT-only project is fine
+            return [], []
         try:
             node = _yaml.safe_load(text) or {}
             cfg = FctTestConfig.from_dict(
                 node.get("fct_test_config") or {})
         except _yaml.YAMLError as exc:
-            self._tlog("ERROR", f"FCT config parse failed: {exc}")
-            return
+            return None, [f"FCT config parse failed: {exc}"]
         errors = cfg.validate()
         if errors:
-            self._tlog("ERROR", "FCT config invalid: " + "; ".join(errors))
-            return
+            return None, list(errors)
         from mtkgui.engine.fct_test_config import build_fct_steps
-        from mtkgui.gui.yamlbuild.fct_build import FctStep
-        steps = build_fct_steps(cfg)
-        steps.append(FctStep(name="FCT done.",
-                             step_type=STEP_MESSAGE_CHECK,
-                             expect_pass=["done"], timeout_s=0.0))
+        body = build_fct_steps(cfg)
+        if not body:
+            # all FCT tabs disabled -> ICT-only project, zero cases
+            return [], []
+        from mtkgui.engine.fct_test_config import wrap_fct_setup
+        steps = wrap_fct_setup(cfg, body)
         seq = FctSequence(name="FCT Test Work Flow", steps=steps)
         cases = to_project_fct_cases(seq)
         # every generated case carries its full step marker so the
@@ -256,7 +262,7 @@ class YamlBuildPage(QWidget):
         for case, step in zip(cases, steps):
             case.setdefault("op_params", {})["fct_step"] = step.to_dict()
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
-        self.fct_sequence_ready.emit(cases)
+        return cases, []
 
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
@@ -307,10 +313,21 @@ class YamlBuildPage(QWidget):
             return
         self.model.set_params(module_key, params)
         if module_key == "fct_build":
-            # P3-B5: block 07 accepted -> generate the FCT work-flow
-            # cases from the configured fct_test_config and hand them
-            # to the Test Work Flow page (main window applies + saves)
-            self._emit_fct_sequence(params)
+            # P3-B5: block accepted -> generate the FCT work-flow cases
+            # from the configured fct_test_config. Errors are shown
+            # explicitly (no silent ignore); an all-disabled FCT is a
+            # valid ICT-only project and still offers the YAML save.
+            cases, fct_errors = self._emit_fct_sequence(params)
+            if fct_errors:
+                self._tlog("ERROR", "FCT config invalid: "
+                                    + "; ".join(fct_errors))
+                QMessageBox.warning(
+                    self, "Build FCT Test Work Flow",
+                    "The FCT configuration is invalid - fix the "
+                    "following before applying:\n\n"
+                    + "\n".join(fct_errors[:15]))
+                return
+            self.fct_sequence_ready.emit(cases)
         if module_key == "validate_sequence":
             # block 09: on OK run the FULL sequence validation - every
             # marked module that passes gets a check; a failure keeps

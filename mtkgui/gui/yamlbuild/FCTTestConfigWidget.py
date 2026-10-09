@@ -86,6 +86,7 @@ class FCTTestConfigPanel(QWidget):
         self.tabs.addTab(self._build_console_tab(), "Console")
         self.tabs.addTab(self._build_wifi_tab(), "Wi-Fi")
         self.tabs.addTab(self._build_bt_tab(), "Bluetooth")
+        self.tabs.addTab(self._build_setup_tab(), "Setup")
         self.dut_type = QComboBox()
         self.dut_type.addItems(["linux", "bare_metal"])
         self.dut_type.currentTextChanged.connect(self._on_dut_type_changed)
@@ -161,6 +162,57 @@ class FCTTestConfigPanel(QWidget):
                         cmd.local = cmd.remote = ""
                     self._save_row_cmd(r, cmd)
             cb.blockSignals(False)
+
+    # ------------------------------------------------------------ setup
+    def _build_setup_tab(self) -> QWidget:
+        """FCT fixture / power wrapper. FCT uses NO DAQ; the DUT is
+        powered by the rack PSU (Power On/Off ops) or a wall adapter /
+        USB cable the operator connects when prompted (MessageGoStop);
+        the optional ATE fixture is driven through U2355A DIO."""
+        from mtkgui.engine.fct_test_config import (
+            DEFAULT_MANUAL_OFF_MSG,
+            DEFAULT_MANUAL_ON_MSG,
+            POWER_MANUAL,
+            POWER_NONE,
+            POWER_PSU,
+        )
+        w = QWidget()
+        form = QFormLayout(w)
+        self.setup_power = QComboBox()
+        self._POWER_MANUAL = POWER_MANUAL
+        self.setup_power.addItem(
+            "Manual adapter/USB (operator prompt)", POWER_MANUAL)
+        self.setup_power.addItem("Rack PSU (N5747A Power On/Off)", POWER_PSU)
+        self.setup_power.addItem("Already powered (no power action)",
+                                 POWER_NONE)
+        self.setup_power.currentIndexChanged.connect(
+            self._on_setup_power_changed)
+        form.addRow("DUT power:", self.setup_power)
+
+        self.setup_fixture = QCheckBox(
+            "Use ATE fixture (clamp/lock, driven by U2355A DIO)")
+        form.addRow("Fixture:", self.setup_fixture)
+
+        self.setup_on_msg = QLineEdit(DEFAULT_MANUAL_ON_MSG)
+        form.addRow("Power-on prompt:", self.setup_on_msg)
+        self.setup_off_msg = QLineEdit(DEFAULT_MANUAL_OFF_MSG)
+        form.addRow("Power-off prompt:", self.setup_off_msg)
+
+        hint = QLabel(
+            "FCT needs no DAQ. With manual power a MessageGoStop asks the "
+            "operator to connect/remove the adapter or USB cable. The rack "
+            "PSU choice adds the same Power On/Off operations as ICT.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #6b7280;")
+        form.addRow(hint)
+        form.addRow(QLabel(""))
+        return w
+
+    def _on_setup_power_changed(self, _idx: int) -> None:
+        """The manual prompt texts are editable only in manual mode."""
+        manual = self.setup_power.currentData() == self._POWER_MANUAL
+        self.setup_on_msg.setEnabled(manual)
+        self.setup_off_msg.setEnabled(manual)
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:
@@ -1024,6 +1076,13 @@ class FCTTestConfigPanel(QWidget):
             self.bt_rssi_min.setValue(b.rssi_min)
             self.bt_audio_confirm.setChecked(b.audio_confirm)
             self.bt_l2ping.setValue(b.l2ping_count)
+            s = cfg.setup
+            idx = self.setup_power.findData(s.power_mode)
+            self.setup_power.setCurrentIndex(idx if idx >= 0 else 0)
+            self.setup_fixture.setChecked(s.use_fixture)
+            self.setup_on_msg.setText(s.manual_on_message)
+            self.setup_off_msg.setText(s.manual_off_message)
+            self._on_setup_power_changed(self.setup_power.currentIndex())
         finally:
             self._guard = False
 
@@ -1081,6 +1140,13 @@ class FCTTestConfigPanel(QWidget):
             rssi_min=self.bt_rssi_min.value(),
             audio_confirm=self.bt_audio_confirm.isChecked(),
             l2ping_count=self.bt_l2ping.value(),
+        )
+        from mtkgui.engine.fct_test_config import FctSetupCfg
+        cfg.setup = FctSetupCfg(
+            power_mode=self.setup_power.currentData(),
+            use_fixture=self.setup_fixture.isChecked(),
+            manual_on_message=self.setup_on_msg.text().strip(),
+            manual_off_message=self.setup_off_msg.text().strip(),
         )
         errors = cfg.validate()
         if errors:

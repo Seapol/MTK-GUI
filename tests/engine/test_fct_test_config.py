@@ -581,3 +581,77 @@ def test_sftp_row_has_no_wait_or_capture():
     assert "expect_pass_re" not in st.params or st.params["expect_pass_re"] == ""
     assert st.params["local"] == "load_drivers.sh"
 
+
+
+# ---------------------------------------------------------------------------
+# FCT setup wrapper (power source + ATE fixture spine), P3-B5
+# ---------------------------------------------------------------------------
+from mtkgui.gui.yamlbuild.fct_build import FctStep as _FctStep  # noqa: E402
+from mtkgui.engine.fct_test_config import (  # noqa: E402
+    FctSetupCfg,
+    POWER_MANUAL,
+    POWER_NONE,
+    POWER_PSU,
+    wrap_fct_setup,
+)
+
+
+def _body():
+    return [_FctStep(name="Body test", step_type="MESSAGE_CHECK")]
+
+
+def _setup_cfg(power_mode=POWER_MANUAL, use_fixture=False):
+    cfg = FctTestConfig()
+    cfg.setup = FctSetupCfg(power_mode=power_mode, use_fixture=use_fixture)
+    return cfg
+
+
+def test_setup_manual_wraps_on_and_off_prompts():
+    steps = wrap_fct_setup(_setup_cfg(POWER_MANUAL), _body())
+    names = [s.name for s in steps]
+    assert "Connect the power adapter" in names[0]
+    assert names[-1].startswith("FCT finished")
+    assert "FCT done." in names
+    # no standard op rows in manual mode
+    assert all(not s.params.get("op") for s in steps)
+
+
+def test_setup_psu_uses_power_on_off_ops():
+    steps = wrap_fct_setup(_setup_cfg(POWER_PSU), _body())
+    names = [s.name for s in steps]
+    assert names[0] == "Power On DUT"
+    assert "Power Off DUT" in names
+    on = names.index("Power On DUT")
+    off = names.index("Power Off DUT")
+    done = names.index("FCT done.")
+    assert on < names.index("Body test") < done < off
+
+
+def test_setup_none_adds_no_power_action():
+    steps = wrap_fct_setup(_setup_cfg(POWER_NONE), _body())
+    names = [s.name for s in steps]
+    assert names == ["Body test", "FCT done."]
+
+
+def test_setup_fixture_order_with_psu():
+    steps = wrap_fct_setup(_setup_cfg(POWER_PSU, use_fixture=True), _body())
+    names = [s.name for s in steps]
+    assert names[:3] == ["Fixture Clamp Down", "Fixture Lock",
+                         "Fixture E-Stop Healthy"]
+    assert names[3] == "Power On DUT"
+    assert names[-2:] == ["Fixture Unlock", "Fixture Release"]
+
+
+def test_setup_validation_rules():
+    assert FctSetupCfg(power_mode="bogus").validate()
+    assert FctSetupCfg(power_mode=POWER_MANUAL,
+                       manual_on_message="  ").validate()
+    assert FctSetupCfg(power_mode=POWER_PSU).validate() == []
+    assert FctSetupCfg(power_mode=POWER_NONE).validate() == []
+
+
+def test_setup_round_trips_through_yaml():
+    cfg = _setup_cfg(POWER_PSU, use_fixture=True)
+    restored = FctTestConfig.from_dict(cfg.to_dict())
+    assert restored.setup.power_mode == POWER_PSU
+    assert restored.setup.use_fixture is True
