@@ -265,6 +265,9 @@ class FCTTestConfigPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(500)
+        dlg.setWindowModality(2)  # ApplicationModal = always on top
+        dlg.raise_()
+        dlg.activateWindow()
         lay = QVBoxLayout(dlg)
         # Use Regex checkbox (default off = exact match)
         regex_cb = QCheckBox("Use Regex (default off = exact substring match)")
@@ -346,6 +349,9 @@ class FCTTestConfigPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("SendTo editor")
         dlg.setMinimumWidth(550)
+        dlg.setWindowModality(2)  # ApplicationModal = always on top
+        dlg.raise_()
+        dlg.activateWindow()
         lay = QVBoxLayout(dlg)
 
         # operation type (only for ssh)
