@@ -252,3 +252,119 @@ Operator restriction.
   Help window opens and renders, FAQ covers the known-issues list
   (netlist "no nets found", connect failures, CSV log missing,
   credential problems).
+
+---
+
+## 10. P3-B4 addendum: SSH file deployment (SFTP) + DUT driver prerequisite
+
+### 10.1 SFTP file transfer (`SshFctChannel`, Module B addendum)
+
+On top of message/command execution the SSH channel gains file
+DEPLOYMENT via paramiko SFTP (no new dependency):
+
+- `put_file(local_path, remote_path="")` — SFTP upload of one Host PC
+  local file (Linux shell script / bin / app package) to the DUT.
+  When `remote_path` is empty the file lands in the configured
+  `remote_dir` under its own basename; when `remote_dir` is empty too,
+  the login user's cwd is used.  An event line (`[sftp] put ...`)
+  lands in the channel read buffer so the FCT judge and EventLog see
+  the transfer.
+- `get_file(remote_path, local_path)` — SFTP download for read-back
+  verification (content comparison after upload).
+- Configuration (product YAML `console.ssh`): `remote_dir` — the DUT
+  target directory, e.g. `/tmp/` or `/home/root/`.
+- Credentials: SFTP reuses the authenticated SSH transport; the
+  password stays in the keyring credential layer (D4-A).  Nothing is
+  ever stored in the YAML.
+
+Typical deployment flow:
+
+```
+SSH connect -> sftp put (script / bin / app package, remote_dir)
+           -> Console send ("sh /tmp/load_drivers.sh")
+           -> read_lines() polls stdout/stderr + "[exit] N"
+```
+
+Mac verification baseline: connect the Mac's own sshd (Remote
+Login), upload a test file into `/tmp/`, read it back and compare
+content byte-for-byte.
+
+### 10.2 DUT driver prerequisite (documentation note, NOT a dev task)
+
+For Full Stack Linux DUTs (i.MX etc.): after boot, the Wi-Fi /
+Bluetooth drivers MUST be loaded and ready BEFORE any RF test step
+runs.  Loading is the BSP team's responsibility — either the kernel
+auto-loads the modules at boot, or BSP ships a shell script (e.g.
+`/home/root/load_wifi_bt.sh`).
+
+mtk-gui does NOT implement any driver logic.  It only reserves the
+ability to send the load command over the console (Console send, e.g.
+`sh /tmp/load_drivers.sh`) and to judge the result through the
+existing FCT keyword engine (Pass/Success vs Fail/Error).  The test
+flow owner deploys the script via the SFTP flow in §10.1 and invokes
+it as a regular FCT step.
+
+### 10.3 P3-B4 real-machine acceptance record (macOS 15.5, 2026-10-09)
+
+| Item | Mode | Result | Evidence |
+|---|---|---|---|
+| Serial (Module A) | socat pty pair | PASS 4/4 | normal tx/rx · timeout empty-read · 100-line burst 100/100 · disconnect ChannelClosed |
+| SSH (Module B) | loopback sshd | PASS 6/6 | connect · stdout/stderr/exit framing · negative exit · SFTP put /tmp + read-back identical · same-path guard · upload+`sh` execute |
+| Host CLI (Module C) | real commands | PASS 16/16 | sw_vers extract · df · ping loss% · negative exit · timeout kill · missing cmd · placeholder error · EventLog identity |
+| Wi-Fi (Module D) | full_stack | PASS | home AP TP-LINK_F68E_AP: RSSI -47 dBm, ping 20/20 0% loss, gateway auto-discovered |
+| Wi-Fi (Module D) | rssi_only | PASS | RSSI -50 dBm, zero connect commands issued |
+| BT (Module E) | a2dp_sink | PASS | JBL Pulse 5 40-c1-f6-84-8f-c5: connect · is-connected exit 0 · RSSI -54 dBm · audio output switch · test tone · operator GUI_CONFIRM Pass · disconnect |
+| BT (Module E) | rssi_only | PASS | pairing-mode inquiry hit + profiler RSSI -54 dBm, no connection |
+| Platform switch (F) | unit | PASS | mac backend selected; windows `_todo` raises PlatformBackendMissing |
+
+Full regression: 1431 passed / 3 skipped / 0 failed.
+
+Operational findings baked into the design (verified on-site):
+
+1. `networksetup -setairportnetwork` exits 0 even when the join fails
+   ("Could not find network") — association MUST be confirmed by
+   polling the RSSI source (`_wait_associated`), the exit code is not
+   evidence.
+2. iPhone hotspot broadcasting is intermittent; a hotspot may vanish
+   from scans while its page is open.  Production DUTs (own AP) do
+   not have this issue.
+3. macOS auto-rejoin restores removed preferred networks on its own;
+   re-adding a WPA network without its password fails (-3905) and is
+   logged as a warning only.
+4. `switchaudio-osx -s <name>` sets the output device by name
+   (`-n` cycles to the NEXT device — not a name selector).
+5. BT-classic devices are discoverable only in pairing mode; the
+   rssi_only step therefore expects the DUT to advertise (bare-metal
+   BLE) or the operator to put it into pairing mode.
+6. SFTP `put` with identical local/remote path truncates the source
+   (remote write handle opens after the local read handle) — guarded
+   with an explicit error in `put_file`.
+
+### 10.4 iperf3 throughput step (addendum, 2026-10-09)
+
+- WifiAdapter gains a real iperf3 step: product YAML sets
+  `iperf3: true` (+ optional `iperf_timeout_s`), commands provide
+  `iperf_cmd: 'iperf3 -c {{ip}} -t 10 -O 2'` ({{ip}} injected from
+  test vars = the DUT address running `iperf3 -s`).
+- Throughput is parsed from the RECEIVER summary line; iperf3
+  auto-scales the unit, so M/Gbits/sec are normalised to Mbits/sec
+  (`iperf_parse` overridable, default
+  `([\d.]+)\s+([MG])bits/sec\s+(?:\d+\s+\S+\s+)?receiver`).
+- Informational item (`throughput` in the report items); the
+  PASS/FAIL gate stays RSSI + ping loss.
+- Real verification: full_stack run on TP-LINK_F68E_AP with an
+  iperf3 server on the host (loopback) returned
+  Pass {rssi: -52, loss_pct: 0.0, throughput: 48200.0}.  Loopback
+  validates the command/parse/report chain; a meaningful Wi-Fi
+  throughput figure requires the server on the real DUT.
+- Unit tests: receiver-line extraction (not intermediate rows) and
+  disabled-by-default behaviour (14/14 adapter tests green).
+
+Real Wi-Fi throughput (TP-LINK_F68E_AP, server on a Windows PC):
+uplink 30.4 / downlink 31.7 Mbits/sec with RSSI -48 dBm and 0% ping
+loss - FULL_STACK Pass.  BOTH endpoints were wireless, so the AP
+airtime is shared and the figure reflects the bottleneck, not the
+station's capability; the production form is wireless DUT vs WIRED
+host PC.  (Also observed: the Windows host drops ICMP echo by
+firewall default while iperf3 TCP succeeds - joint exit-code/TCP
+judging handles this.)
