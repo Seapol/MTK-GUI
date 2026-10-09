@@ -529,13 +529,39 @@ class FCTTestConfigPanel(QWidget):
 
         if dlg.exec() == QDialog.Accepted:
             idx = op_type.currentIndex()
+            from PySide6.QtCore import Qt as _Qt
             if idx == 0:
+                # shell_command: restore WaitFor/Capture editable
                 text = cmd_edit.toPlainText()
-            elif idx == 1:
-                text = f"[PUT] {put_local.text()} -> {put_remote.text()}"
+                self.cmd_table.item(row, col).setText(text)
+                # enable WaitFor/Capture
+                for c in (2, 4):
+                    item = self.cmd_table.item(row, c)
+                    if item:
+                        item.setFlags(item.flags() | _Qt.ItemIsEditable)
+                # Timeout shows all 3
+                t_item = self.cmd_table.item(row, 5)
+                if t_item:
+                    t_item.setText("W:10s S:4s C:6s")
             else:
-                text = f"[GET] {get_remote.text()} -> {get_local.text()}"
-            self.cmd_table.item(row, col).setText(text)
+                # sftp_put / sftp_get: clear & disable WaitFor/Capture
+                if idx == 1:
+                    text = f"[PUT] {put_local.text()} -> {put_remote.text()}"
+                    s_to = put_timeout.value()
+                else:
+                    text = f"[GET] {get_remote.text()} -> {get_local.text()}"
+                    s_to = get_timeout.value()
+                self.cmd_table.item(row, col).setText(text)
+                # clear and disable WaitFor (col 2) and Capture (col 4)
+                for c in (2, 4):
+                    item = self.cmd_table.item(row, c)
+                    if item:
+                        item.setText("")
+                        item.setFlags(item.flags() & ~_Qt.ItemIsEditable)
+                # Timeout column shows only send timeout
+                t_item = self.cmd_table.item(row, 5)
+                if t_item:
+                    t_item.setText(f"S:{s_to}s")
 
     # --------------------------------------------------------------- wifi
     def _build_wifi_tab(self) -> QWidget:
