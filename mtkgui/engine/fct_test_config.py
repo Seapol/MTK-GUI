@@ -100,7 +100,9 @@ class ConsoleCommand:
     expect_fail: str = ""           # exact match (default) or regex, wins over expect_pass
     expect_pass_is_regex: bool = False   # False = exact substring match
     expect_fail_is_regex: bool = False
-    timeout: float = DEFAULT_CMD_TIMEOUT
+    timeout: float = 6.0            # capture timeout (overall judgement window)
+    wait_timeout: float = 10.0      # wait-for-message timeout
+    send_timeout: float = 4.0       # send command timeout
     retries: int = 0                # extra attempts on FAIL (fct_exec)
     extract: str = ""               # "name=regex" lines; group 1 -> variables
     action: str = ""                # sftp_put | sftp_get (transport=ssh rows)
@@ -115,6 +117,8 @@ class ConsoleCommand:
                 "expect_pass_is_regex": self.expect_pass_is_regex,
                 "expect_fail_is_regex": self.expect_fail_is_regex,
                 "timeout": float(self.timeout),
+                "wait_timeout": float(self.wait_timeout),
+                "send_timeout": float(self.send_timeout),
                 "retries": int(self.retries),
                 "extract": self.extract, "action": self.action,
                 "local": self.local, "remote": self.remote}
@@ -253,8 +257,9 @@ class FctTestConfig:
                         expect_fail=str(c.get("expect_fail", "")),
                         expect_pass_is_regex=bool(c.get("expect_pass_is_regex", False)),
                         expect_fail_is_regex=bool(c.get("expect_fail_is_regex", False)),
-                        timeout=float(c.get("timeout",
-                                            DEFAULT_CMD_TIMEOUT)),
+                        timeout=float(c.get("timeout", 6.0)),
+                        wait_timeout=float(c.get("wait_timeout", 10.0)),
+                        send_timeout=float(c.get("send_timeout", 4.0)),
                         retries=int(c.get("retries", 0) or 0),
                         extract=str(c.get("extract", "")),
                         action=str(c.get("action", "")),
