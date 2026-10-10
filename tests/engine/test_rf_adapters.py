@@ -265,3 +265,69 @@ def test_bt_rssi_only_never_connects():
     joined = "\n".join(r.calls)
     assert "connect" not in joined
     assert "afplay" not in joined
+
+
+def test_bt_a2dp_fixed_addr_fallback_when_inquiry_misses():
+    """pair/tone connect straight to a configured BD address when the
+    probabilistic inquiry fails to list the DUT."""
+    bt = dict(BT_CFG["bluetooth"],
+              expected_addr="40-c1-f6-84-8f-c5", scan_retries=0)
+    script = {
+        # inquiry never lists the DUT by name
+        "blueutil --inquiry 10": (0, ["address: 11-11-11-11-11-11, "
+                                      "name: Some Other Device"]),
+        "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
+        "blueutil --is-connected 40:c1:f6:84:8f:c5": (0, ["1"]),
+        "system_profiler SPBluetoothDataType": (0, ["RSSI: -55"]),
+        "switchaudio-output JBL Pulse 5": (0, []),
+        "afplay resources/test_tone.wav": (0, []),
+        "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
+    }
+    ad = BluetoothAdapter({"bluetooth": bt}, StubRunner(script),
+                          human_confirm=lambda q: True)
+    out = ad.run_test()
+    assert out["verdict"] == "Pass"
+    assert out["items"]["connected"] == 1
+    assert "blueutil --connect 40:c1:f6:84:8f:c5" in ad._runner.calls
+
+
+class _SequenceRunner(StubRunner):
+    """Inquiry returns queued lines on successive calls; other commands
+    come from the static script."""
+
+    def __init__(self, script, inquiry_sequence):
+        super().__init__(script)
+        self._inq = list(inquiry_sequence)
+
+    def run(self, template, params=None, **kw):
+        if "inquiry" in template:
+            cmd = template
+            for k, v in (params or {}).items():
+                cmd = cmd.replace("{{" + k + "}}", str(v))
+            self.calls.append(cmd)
+            exit_code, lines = self._inq.pop(0)
+            return self._make(cmd, lines, exit_code,
+                              kw.get("regex_extracts"))
+        return super().run(template, params, **kw)
+
+
+def test_bt_inquiry_retries_then_hits():
+    bt = dict(BT_CFG["bluetooth"], scan_retries=3)
+    seq = [
+        (0, ["address: aa-aa-aa-aa-aa-aa, name: Neighbour"]),   # miss
+        (0, [INQUIRY_HIT]),                                      # hit
+    ]
+    script = {
+        "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
+        "blueutil --is-connected 40:c1:f6:84:8f:c5": (0, ["1"]),
+        "system_profiler SPBluetoothDataType": (0, ["RSSI: -55"]),
+        "switchaudio-output JBL Pulse 5": (0, []),
+        "afplay resources/test_tone.wav": (0, []),
+        "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
+    }
+    ad = BluetoothAdapter({"bluetooth": bt},
+                          _SequenceRunner(script, seq),
+                          human_confirm=lambda q: True)
+    out = ad.run_test()
+    assert out["verdict"] == "Pass"
+    assert sum("inquiry" in c for c in ad._runner.calls) == 2

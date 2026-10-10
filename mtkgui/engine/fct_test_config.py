@@ -376,6 +376,11 @@ class BluetoothCfg:
     # 1) RSSI / discovery (both DUT kinds)
     rssi_enabled: bool = True
     expected_name: str = ""
+    # Optional fixed BD address (aa:bb:.. or aa-bb-..). When set, pair/tone
+    # skip the probabilistic inquiry and connect straight to it; RSSI still
+    # verifies discovery. Empty = always discover by expected_name.
+    expected_addr: str = ""
+    scan_retries: int = 3          # extra inquiry rounds if the DUT is missed
     rssi_min: int = -70
     rssi_timeout: float = 15.0
     # 2) pair & connect (Linux only)
@@ -392,6 +397,8 @@ class BluetoothCfg:
             "enabled": self.enabled,
             "rssi_enabled": self.rssi_enabled,
             "expected_name": self.expected_name,
+            "expected_addr": self.expected_addr,
+            "scan_retries": int(self.scan_retries),
             "rssi_min": int(self.rssi_min),
             "rssi_timeout": float(self.rssi_timeout),
             "pair_enabled": self.pair_enabled,
@@ -525,6 +532,9 @@ class FctTestConfig:
                 bmode in (None, "rssi_only", "pair_connect",
                           "a2dp_sink"))),
             expected_name=str(bt.get("expected_name", "")),
+            expected_addr=(str(bt.get("expected_addr", "")).strip()
+                           .lower().replace("-", ":")),
+            scan_retries=int(bt.get("scan_retries", 3) or 0),
             rssi_min=int(bt.get("rssi_min", -70)),
             rssi_timeout=float(bt.get("rssi_timeout",
                                      DEFAULT_RF_TIMEOUT)),

@@ -73,7 +73,14 @@ BT_MAC_CMDS = {
     "disconnect_cmd": "blueutil --disconnect {{addr}}",
     "rssi_cmd": "system_profiler SPBluetoothDataType",
     "rssi_parse": r"RSSI: (-?\d+)",
-    "audio_switch_cmd": 'switchaudio-osx -s "{{name}}"',
+    # After blueutil --connect the A2DP sink takes ~1-3 s to enumerate in
+    # CoreAudio; switching immediately fails (exit 1). Poll for the output
+    # device to appear, then switch (up to ~20 s, inside the tone timeout).
+    "audio_switch_cmd": (
+        'for i in $(seq 1 20); do '
+        'SwitchAudioSource -a 2>/dev/null | grep -qi "{{name}}" && '
+        '{ SwitchAudioSource -s "{{name}}" && exit 0; }; '
+        'sleep 1; done; exit 1'),
     "tone_cmd": "afplay {{tone}}",
 }
 
@@ -620,6 +627,8 @@ class FctTestRunner:
             ad = BluetoothAdapter(
                 {"bluetooth": {
                     "mode": mode, "expected_name": b.expected_name,
+                    "expected_addr": b.expected_addr,
+                    "scan_retries": b.scan_retries,
                     "rssi_min": b.rssi_min, "audio_confirm":
                         b.audio_confirm, "timeout_s": float(timeout),
                     "cmds": {"mac": dict(BT_MAC_CMDS)}}},

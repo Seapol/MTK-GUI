@@ -264,6 +264,9 @@ class BluetoothAdapter:
         cfg = rf_cfg.get("bluetooth", {})
         self.mode = cfg.get("mode", "rssi_only")
         self.expected_name = cfg.get("expected_name", "")
+        ea = str(cfg.get("expected_addr", "")).strip().lower()
+        self.expected_addr = ea.replace("-", ":") if ea else ""
+        self.scan_retries = int(cfg.get("scan_retries", 3))
         self.rssi_min = int(cfg.get("rssi_min", -70))
         self.scan_s = int(cfg.get("scan_s", 10))
         self.timeout_s = float(cfg.get("timeout_s", 30))
@@ -282,26 +285,37 @@ class BluetoothAdapter:
     # ------------------------------------------------------------ helpers
     def _scan_find(self, name: str) -> tuple:
         """Inquiry and match the DUT by name; returns
-        ``(address|None, rssi|None, lines)``."""
-        res = self._run(self.cmds["scan_cmd"],
-                        {"seconds": self.scan_s},
-                        timeout_s=self.scan_s + 10)
+        ``(address|None, rssi|None, lines)``.
+
+        Classic-Bluetooth discovery is probabilistic: a discoverable DUT
+        can be missed inside one inquiry window. Retry up to
+        ``scan_retries`` extra rounds before giving up."""
         import re
-        addr = None
-        rssi = None
-        addr_pattern = self.cmds.get("addr_parse",
-                                     r"([0-9a-fA-F:-]{17})\s")
+        addr_pattern = self.cmds.get(
+            "addr_parse", r"([0-9a-fA-F:-]{17})\s")
         rssi_pattern = self.cmds.get("rssi_parse", r"(-?\d+)\s*dBm")
-        for line in res.lines:
-            if name in line:
-                m = re.search(addr_pattern, line)
-                if m:
-                    addr = m.group(1).lower().replace("-", ":")
-                r = re.search(rssi_pattern, line)
-                if r:
-                    rssi = int(r.group(1))
-                break
-        return addr, rssi, res.lines
+        all_lines: list = []
+        for attempt in range(max(1, self.scan_retries + 1)):
+            res = self._run(self.cmds["scan_cmd"],
+                            {"seconds": self.scan_s},
+                            timeout_s=self.scan_s + 10)
+            addr = None
+            rssi = None
+            for line in res.lines:
+                if name in line:
+                    m = re.search(addr_pattern, line)
+                    if m:
+                        addr = m.group(1).lower().replace("-", ":")
+                    r = re.search(rssi_pattern, line)
+                    if r:
+                        rssi = int(r.group(1))
+                    break
+            if addr is not None:
+                return addr, rssi, res.lines
+            all_lines.extend(res.lines)
+            all_lines.append(f"[bt] inquiry {attempt + 1}: "
+                             f"'{name}' not found, retrying")
+        return None, None, all_lines
 
     # --------------------------------------------------------------- public
     def run_test(self, test_vars: dict | None = None) -> dict:
@@ -332,6 +346,12 @@ class BluetoothAdapter:
                     "items": items, "lines": lines}
 
         # ---- pair_connect / a2dp_sink -----------------------------------
+        # Pair/tone prove connectivity/audio, not discovery (the RSSI step
+        # already did a real inquiry). If that inquiry happened to miss the
+        # DUT but a fixed BD address is configured, connect straight to it.
+        if not addr and self.expected_addr:
+            addr = self.expected_addr
+            lines = lines + [f"[bt] using configured BD address {addr}"]
         if not addr:
             return {"verdict": "Fail",
                     "items": items,

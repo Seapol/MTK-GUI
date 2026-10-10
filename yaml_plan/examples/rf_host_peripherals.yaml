@@ -57,7 +57,9 @@ rf:
         disconnect_cmd: 'blueutil --disconnect {{addr}}'
         rssi_cmd: 'system_profiler SPBluetoothDataType'
         rssi_parse: 'RSSI: (-?\d+)'
-        audio_switch_cmd: 'switchaudio-osx -s "{{name}}"'
+        # Poll for the A2DP output device to enumerate (~1-3 s after
+        # connect) before switching; immediate switch exits 1.
+        audio_switch_cmd: 'for i in $(seq 1 20); do SwitchAudioSource -a 2>/dev/null | grep -qi "{{name}}" && { SwitchAudioSource -s "{{name}}" && exit 0; }; sleep 1; done; exit 1'
         tone_cmd: 'afplay {{tone}}'
       windows:
         _todo: "Pending Windows on-site acceptance"

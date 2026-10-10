@@ -909,6 +909,22 @@ class FCTTestConfigPanel(QWidget):
         self.bt_name = QLineEdit()
         self.bt_name.setPlaceholderText("DUT Bluetooth advertised name")
         rs.addRow("DUT BT name:", self.bt_name)
+        self.bt_expected_addr = QLineEdit()
+        self.bt_expected_addr.setPlaceholderText(
+            "Optional, e.g. B8:F4:4F:59:51:A0 - leave blank to always "
+            "discover by name")
+        self.bt_expected_addr.setToolTip(
+            "Optional fixed BD address. Pair/Tone connect straight to it "
+            "if an inquiry happens to miss the DUT (classic-BT discovery "
+            "is probabilistic). The RSSI step still does a real inquiry.")
+        rs.addRow("Fixed BD addr (optional):", self.bt_expected_addr)
+        self.bt_scan_retries = QSpinBox()
+        self.bt_scan_retries.setRange(0, 10)
+        self.bt_scan_retries.setValue(3)
+        self.bt_scan_retries.setToolTip(
+            "Extra inquiry rounds when the DUT is not found in one scan "
+            "window (classic-BT discovery can miss a discoverable device).")
+        rs.addRow("Scan retries:", self.bt_scan_retries)
         self.bt_rssi_min = QSpinBox()
         self.bt_rssi_min.setRange(-100, 0)
         self.bt_rssi_min.setValue(-70)
@@ -1181,6 +1197,8 @@ class FCTTestConfigPanel(QWidget):
             self.bt_enabled.setChecked(b.enabled)
             self.bt_rssi_box.setChecked(b.rssi_enabled)
             self.bt_name.setText(b.expected_name)
+            self.bt_expected_addr.setText(b.expected_addr)
+            self.bt_scan_retries.setValue(b.scan_retries)
             self.bt_rssi_min.setValue(b.rssi_min)
             self.bt_rssi_timeout.setValue(int(b.rssi_timeout))
             self.bt_pair_box.setChecked(b.pair_enabled)
@@ -1255,6 +1273,8 @@ class FCTTestConfigPanel(QWidget):
             enabled=self.bt_enabled.isChecked(),
             rssi_enabled=self.bt_rssi_box.isChecked(),
             expected_name=self.bt_name.text().strip(),
+            expected_addr=self.bt_expected_addr.text().strip(),
+            scan_retries=self.bt_scan_retries.value(),
             rssi_min=self.bt_rssi_min.value(),
             rssi_timeout=float(self.bt_rssi_timeout.value()),
             pair_enabled=self.bt_pair_box.isChecked(),

@@ -49,6 +49,8 @@ fct_test_config:
     enabled: true
     rssi_enabled: true
     expected_name: FRDM-IMX93-DUT
+    expected_addr: B8:F4:4F:59:51:A0
+    scan_retries: 2
     rssi_min: -70
     pair_enabled: false
     tone_enabled: false
@@ -77,6 +79,8 @@ def test_roundtrip_preserves_config(qapp):
         "FRDM-IMX93-DUT"
     assert cfg.bluetooth.rssi_enabled
     assert cfg.bluetooth.expected_name == "FRDM-IMX93-DUT"
+    assert cfg.bluetooth.expected_addr == "b8:f4:4f:59:51:a0"
+    assert cfg.bluetooth.scan_retries == 2
 
 
 def test_ui_edits_reach_values(qapp):
@@ -90,6 +94,8 @@ def test_ui_edits_reach_values(qapp):
     panel.wifi_ping_ssid.setText("DUT-AP")
     panel.bt_enabled.setChecked(True)
     panel.bt_name.setText("DUT-BT")
+    panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
+    panel.bt_scan_retries.setValue(4)
     panel.bt_tone_box.setChecked(True)
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
@@ -98,6 +104,8 @@ def test_ui_edits_reach_values(qapp):
     assert cfg.wifi.scan_enabled and cfg.wifi.scan_ssid == "DUT-AP"
     assert cfg.wifi.ping_enabled and cfg.wifi.ping_ssid == "DUT-AP"
     assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.tone_enabled
+    assert cfg.bluetooth.expected_addr == "aa:bb:cc:dd:ee:ff"
+    assert cfg.bluetooth.scan_retries == 4
 
 
 def test_invalid_config_logged_not_lost(qapp):
