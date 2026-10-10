@@ -415,11 +415,15 @@ class FctTestRunner:
     """Executes one FCT cycle from an :class:`FctTestConfig`."""
 
     def __init__(self, config: FctTestConfig, log_sink=None,
-                 station_id: str = "", user: str = "") -> None:
+                 station_id: str = "", user: str = "",
+                 scripts_base_dir: str = "") -> None:
         self.cfg = config
         self._log = log_sink or (lambda _m: None)
         self.station_id = station_id
         self.user = user
+        # Used to resolve a relative console.scripts_local_dir (the YAML
+        # folder in the GUI, the package root in a frozen Windows build).
+        self.scripts_base_dir = scripts_base_dir
 
     def _identity(self) -> str:
         return f"[{self.station_id}] [{self.user}]"
@@ -655,10 +659,58 @@ class FctTestRunner:
         return results
 
     # ------------------------------------------------------------- full
+    def deploy_scripts(self, channel):
+        """Provision the Linux DUT with the maintained local script-asset
+        folder over SFTP, once per unit (re-provisions a board whose /root
+        was wiped by a reboot). Returns FctStepResult or None when off."""
+        import os
+        c = self.cfg.console
+        if (not c.deploy_scripts or self.cfg.dut_type != "linux"
+                or channel is None):
+            return None
+        local = c.scripts_local_dir or ""
+        if local and not os.path.isabs(local) and self.scripts_base_dir:
+            local = os.path.join(self.scripts_base_dir, local)
+        remote = (c.scripts_remote_dir or "").rstrip("/")
+        try:
+            if not os.path.isdir(local):
+                raise FileNotFoundError(local)
+            if callable(getattr(channel, "put_dir", None)):
+                uploaded = channel.put_dir(local, remote)
+                n = len(uploaded)
+            elif callable(getattr(channel, "put_file", None)):
+                n = 0
+                for root, _dirs, files in os.walk(local):
+                    for fname in sorted(files):
+                        lp = os.path.join(root, fname)
+                        rel = os.path.relpath(lp, local).replace(os.sep, "/")
+                        rp = f"{remote}/{rel}" if remote else rel
+                        channel.put_file(lp, rp)
+                        n += 1
+            else:
+                return FctStepResult("Deploy DUT scripts", "FAIL",
+                                     "channel has no SFTP capability")
+            return FctStepResult(
+                "Deploy DUT scripts", "PASS",
+                f"{n} file(s) -> {remote or '~'}")
+        except Exception as exc:                    # noqa: BLE001
+            return FctStepResult("Deploy DUT scripts", "FAIL",
+                                 f"deploy error: {exc}")
+
     def run(self, serial, host_runner, human_confirm=None) -> dict:
         """One complete FCT cycle -> results + overall verdict."""
         self.log("FCT cycle start")
         results: list = []
+        # 0) provision generic Linux scripts over SFTP before anything runs
+        deploy = self.deploy_scripts(serial)
+        if deploy is not None:
+            results.append(deploy)
+            self.log(f"console '{deploy.name}' [sftp] -> "
+                     f"{deploy.verdict} {deploy.detail}")
+            if not deploy.passed:
+                overall = "FAIL"
+                return {"results": results, "overall": overall,
+                        "report": self.report(results, overall)}
         results += self.run_console(serial)
         # DUT-side driver load goes over the CONSOLE (spec 3.2) - only
         # when not already a console test command (no double execute)

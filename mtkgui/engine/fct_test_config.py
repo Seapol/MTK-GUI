@@ -280,6 +280,13 @@ class ConsoleCfg:
     ssh_host: str = ""              # DUT SSH endpoint for ssh/sftp rows
     ssh_username: str = "root"
     test_commands: list = field(default_factory=list)    # [ConsoleCommand]
+    # Linux DUT script-asset provisioning: as soon as SSH/SFTP is up the
+    # whole local asset folder is copied to the DUT (once per unit, so a
+    # board whose /root was wiped by a reboot is re-provisioned). Scripts
+    # stay GENERIC (no per-board MAC/BD/IP); they probe at runtime.
+    deploy_scripts: bool = False
+    scripts_local_dir: str = ""     # Host asset folder (rel to yaml/pkg)
+    scripts_remote_dir: str = "/root"   # DUT target directory
 
     def to_dict(self) -> dict:
         return {
@@ -288,6 +295,9 @@ class ConsoleCfg:
             "newline": self.newline,
             "inter_cmd_delay_ms": int(self.inter_cmd_delay_ms),
             "ssh_host": self.ssh_host, "ssh_username": self.ssh_username,
+            "deploy_scripts": bool(self.deploy_scripts),
+            "scripts_local_dir": self.scripts_local_dir,
+            "scripts_remote_dir": self.scripts_remote_dir,
             "test_commands": [c.to_dict() for c in self.test_commands],
         }
 
@@ -559,6 +569,11 @@ class FctTestConfig:
                 inter_cmd_delay_ms=int(console.get("inter_cmd_delay_ms", 100)),
                 ssh_host=str(console.get("ssh_host", "")),
                 ssh_username=str(console.get("ssh_username", "root")),
+                deploy_scripts=bool(console.get("deploy_scripts", False)),
+                scripts_local_dir=str(
+                    console.get("scripts_local_dir", "")),
+                scripts_remote_dir=str(
+                    console.get("scripts_remote_dir", "/root")),
                 test_commands=[
                     ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
@@ -585,6 +600,20 @@ class FctTestConfig:
                 # no OS -> no shell -> no SSH
                 errors.append("bare_metal DUT: ssh_host requires "
                               "a Linux shell - remove it")
+            if c.deploy_scripts:
+                if self.dut_type == "bare_metal":
+                    errors.append("bare_metal DUT: script deployment over "
+                                  "SFTP needs a Linux shell - disable it")
+                else:
+                    if not c.scripts_local_dir.strip():
+                        errors.append("console.deploy_scripts: "
+                                      "scripts_local_dir must not be empty")
+                    if not c.scripts_remote_dir.strip():
+                        errors.append("console.deploy_scripts: "
+                                      "scripts_remote_dir must not be empty")
+                    if not c.ssh_host.strip():
+                        errors.append("console.deploy_scripts: ssh_host is "
+                                      "required for SFTP deployment")
             if self.dut_type == "bare_metal":
                 # Bare metal/RTOS still interacts over SERIAL
                 # (Wait->Send->Capture, e.g. a Button/LED prompt answered
