@@ -8,6 +8,8 @@ mtk_gui/
 build/
 dist/
 dist_win/
+# generated User Guide HTML site (docs/help/*.md is the source of truth)
+docs/help/_build/
 
 # runtime output
 logs/

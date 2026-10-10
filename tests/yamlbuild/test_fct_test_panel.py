@@ -38,15 +38,20 @@ fct_test_config:
          expect_pass: "Linux imx93frdm", timeout: 5}
   wifi:
     enabled: true
-    mode: rssi_only
     interface: mlan0
-    ssid: FRDM-IMX93-DUT
+    scan_enabled: true
+    scan_ssid: FRDM-IMX93-DUT
+    scan_via: dut_console
     rssi_min: -70
+    ping_enabled: false
+    iperf_enabled: false
   bluetooth:
     enabled: true
-    mode: rssi_only
+    rssi_enabled: true
     expected_name: FRDM-IMX93-DUT
     rssi_min: -70
+    pair_enabled: false
+    tone_enabled: false
     audio_confirm: true
 """
 
@@ -68,8 +73,9 @@ def test_roundtrip_preserves_config(qapp):
                   if c.name == "Kernel check")
     assert kernel.capture_enabled and kernel.capture_is_expected
     assert kernel.expect_fail == "Linux imx93frdm"
-    assert cfg.wifi.mode == "rssi_only" and cfg.wifi.ssid == \
+    assert cfg.wifi.scan_enabled and cfg.wifi.scan_ssid == \
         "FRDM-IMX93-DUT"
+    assert cfg.bluetooth.rssi_enabled
     assert cfg.bluetooth.expected_name == "FRDM-IMX93-DUT"
 
 
@@ -79,17 +85,19 @@ def test_ui_edits_reach_values(qapp):
     panel.console_enabled.setChecked(True)
     panel.console_port.setCurrentText("/dev/cu.test")
     panel.wifi_enabled.setChecked(True)
-    panel.wifi_mode.setCurrentText("full_stack")
-    assert panel.wifi_fs_box.isVisibleTo(panel) or True  # visibility
-    panel.wifi_ssid.setText("DUT-AP")
+    panel.wifi_scan_ssid.setText("DUT-AP")
+    panel.wifi_ping_box.setChecked(True)
+    panel.wifi_ping_ssid.setText("DUT-AP")
     panel.bt_enabled.setChecked(True)
-    panel.bt_mode.setCurrentText("a2dp_sink")
+    panel.bt_name.setText("DUT-BT")
+    panel.bt_tone_box.setChecked(True)
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
     assert cfg.console.port == "/dev/cu.test"
-    assert cfg.wifi.mode == "full_stack" and cfg.wifi.ssid == "DUT-AP"
-    assert cfg.bluetooth.mode == "a2dp_sink"
+    assert cfg.wifi.scan_enabled and cfg.wifi.scan_ssid == "DUT-AP"
+    assert cfg.wifi.ping_enabled and cfg.wifi.ping_ssid == "DUT-AP"
+    assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.tone_enabled
 
 
 def test_invalid_config_logged_not_lost(qapp):
@@ -109,20 +117,27 @@ def test_invalid_config_logged_not_lost(qapp):
 
 def test_dut_type_grey_out_and_hint(qapp):
     panel = FCTTestConfigPanel()
+    # turn the master switches on so sub-test groups are live
+    panel.wifi_enabled.setChecked(True)
+    panel.bt_enabled.setChecked(True)
     panel.dut_type.setCurrentText("bare_metal")
-    # no Linux shell: DUT-side ping/iperf, L2CAP greyed
+    # no Linux shell: driver cmd, Connect&Ping, iPerf, Pair, Tone greyed;
+    # the Scan/RSSI discovery tests (both DUT kinds) stay available
     assert not panel.wifi_driver_cmd.isEnabled()
-    assert not panel.wifi_gateway.isEnabled()
-    assert not panel.wifi_ping_count.isEnabled()
-    assert not panel.wifi_loss_max.isEnabled()
-    assert not panel.bw_box.isEnabled()
-    assert not panel.bt_l2ping.isEnabled()
+    assert not panel.wifi_ping_box.isEnabled()
+    assert not panel.wifi_iperf_box.isEnabled()
+    assert not panel.bt_pair_box.isEnabled()
+    assert not panel.bt_tone_box.isEnabled()
+    assert panel.wifi_scan_box.isEnabled()
+    assert panel.bt_rssi_box.isEnabled()
     assert "Bare Metal" in panel.dut_hint.text()
-    # back to linux: everything re-enabled
+    # back to linux: Linux-only sub-tests re-enable
     panel.dut_type.setCurrentText("linux")
-    assert panel.wifi_gateway.isEnabled()
-    assert panel.bw_box.isEnabled()
-    assert panel.bt_l2ping.isEnabled()
+    assert panel.wifi_driver_cmd.isEnabled()
+    assert panel.wifi_ping_box.isEnabled()
+    assert panel.wifi_iperf_box.isEnabled()
+    assert panel.bt_pair_box.isEnabled()
+    assert panel.bt_tone_box.isEnabled()
 
 
 def test_set_values_restores_dut_type_grey(qapp):

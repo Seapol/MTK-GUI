@@ -55,7 +55,7 @@ def test_enabled_wifi_wraps_manual_power_spine(page):
     # "FCT done.", off-prompt
     cfg = {"fct_test_config": {
         "dut_type": "linux",
-        "wifi": {"enabled": True, "mode": "rssi_only"}}}
+        "wifi": {"enabled": True, "mode": "rssi_only", "ssid": "DUT-AP"}}}
     text = yaml.safe_dump(cfg, sort_keys=False)
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
@@ -71,7 +71,7 @@ def test_psu_power_uses_power_on_off_ops(page):
     cfg = {"fct_test_config": {
         "dut_type": "linux",
         "setup": {"power_mode": "psu", "use_fixture": True},
-        "wifi": {"enabled": True, "mode": "rssi_only"}}}
+        "wifi": {"enabled": True, "mode": "rssi_only", "ssid": "DUT-AP"}}}
     text = yaml.safe_dump(cfg, sort_keys=False)
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []

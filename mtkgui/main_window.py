@@ -885,16 +885,13 @@ class MainWindow(QMainWindow):
         self.report_menu.addAction("Statistics", self._open_statistics)
 
         # ------------------------------------------------ V4.0: Help menu
-        # Help stays the rightmost menu of the fixed final order
+        # Help stays the rightmost menu of the fixed final order; every
+        # User Guide chapter opens its own web page (chapter-based)
+        from .gui.help_content import CHAPTERS
         self.help_menu = self.menuBar().addMenu("Help")
-        self.help_menu.addAction(
-            "User Guide", lambda: self._open_help("overview"))
-        self.help_menu.addAction(
-            "Page Guide", lambda: self._open_help("page_guide"))
-        self.help_menu.addAction(
-            "FAQ / Troubleshooting", lambda: self._open_help("faq"))
-        self.help_menu.addAction(
-            "Security & Roles", lambda: self._open_help("security_roles"))
+        for _key, label, _filename in CHAPTERS:
+            self.help_menu.addAction(
+                label, lambda k=_key: self._open_help(k))
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self._open_about)
 
@@ -1002,34 +999,17 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self, key):
-        """Help menu: render one built-in guide topic (Module C) from
-        docs/help/ markdown-lite files into a scrollable HTML dialog.
+        """Help menu: render one User Guide chapter (Module C) from
+        docs/help/ into a styled HTML page and open it in the system
+        web browser (chapter-based guide with screenshots and prev /
+        next navigation).
 
         Args:
-            key: a help_content.HELP_TOPICS identifier.
+            key: a help_content.HELP_TOPICS identifier; unknown keys
+                are ignored (never a dead link).
         """
-        from .gui.help_content import HELP_TOPICS, load_topic_html
-        if key not in HELP_TOPICS:
-            return
-        titles = {
-            "overview": "User Guide — Overview",
-            "getting_started": "Getting Started",
-            "page_guide": "Page Guide",
-            "instruments": "Instruments & Connections",
-            "test_items": "Test Items",
-            "reports_logs": "Reports & Logs",
-            "faq": "FAQ / Troubleshooting",
-            "security_roles": "Security & Roles",
-        }
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Help — {titles.get(key, key)}")
-        lay = QVBoxLayout(dlg)
-        browser = QTextBrowser()
-        browser.setHtml(load_topic_html(key))
-        browser.setOpenExternalLinks(False)
-        lay.addWidget(browser)
-        dlg.resize(760, 560)
-        dlg.exec()
+        from .gui.help_content import open_topic
+        open_topic(key)
 
     def _open_about(self):
         """Help > About: version, branch, build info (Module C)."""
