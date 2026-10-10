@@ -389,3 +389,88 @@ def test_standard_op_without_runner_is_error():
     step = FctStep(name="Power On DUT", step_type="GUI_CONFIRM",
                    timeout_s=0, params={"op": "Power On DUT"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
+
+
+# ----------------------------------------------- RF per-sub-test execution
+import mtkgui.engine.fct_exec as fe
+import mtkgui.engine.rf_adapters as rf_adapters
+
+
+def test_is_lan_ipv4_classification():
+    assert fe._is_lan_ipv4("192.168.10.141")
+    assert fe._is_lan_ipv4("172.20.10.1")
+    assert fe._is_lan_ipv4("10.0.0.5")
+    assert not fe._is_lan_ipv4("127.0.0.1")
+    assert not fe._is_lan_ipv4("169.254.10.2")
+    assert not fe._is_lan_ipv4("0.0.0.0")
+    assert not fe._is_lan_ipv4("not-an-ip")
+
+
+def test_host_lan_ip_auto_detect(monkeypatch):
+    import platform
+    import subprocess
+
+    class _R:
+        def __init__(self, out):
+            self.stdout = out
+
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda cmd, **k: _R("192.168.10.141\n"
+                            if cmd[:2] == ["ipconfig", "getifaddr"]
+                            else ""))
+    ctx = FctContext()
+    assert fe.host_lan_ip(ctx) == "192.168.10.141"
+
+
+def _wifi_step():
+    return fe.FctStep(
+        name="Wi-Fi Connect & Ping", step_type="EXTERNAL_TOOL",
+        channel="", timeout_s=15.0,
+        params={"tool_family": "wifi",
+                "fct_rf": {"mode": "full_stack", "any_reply": True}})
+
+
+def test_connect_ping_passes_on_single_reply(monkeypatch):
+    # adapter would FAIL on its strict 5%-loss gate, but the >=1-reply
+    # rule overrides it (loss < 100%)
+    class FakeWifi:
+        def __init__(self, cfg, runner):
+            pass
+
+        def run_test(self):
+            return {"verdict": "Fail",
+                    "items": {"loss_pct": 99.0, "rssi_dbm": -45},
+                    "lines": ["1 received, 99 lost"]}
+    monkeypatch.setattr(rf_adapters, "WifiAdapter", FakeWifi)
+    out = fe._run_rf_tool(_wifi_step(), "wifi", FctContext())
+    assert out.verdict == VERDICT_PASS
+
+
+def test_connect_ping_fails_when_no_reply(monkeypatch):
+    class FakeWifi:
+        def __init__(self, cfg, runner):
+            pass
+
+        def run_test(self):
+            return {"verdict": "Fail", "items": {"loss_pct": 100.0},
+                    "lines": ["0 received, 20 lost"]}
+    monkeypatch.setattr(rf_adapters, "WifiAdapter", FakeWifi)
+    out = fe._run_rf_tool(_wifi_step(), "wifi", FctContext())
+    assert out.verdict == VERDICT_FAIL
+
+
+def test_iperf_missing_server_ip_is_error(monkeypatch):
+    # empty configured IP and undetectable host IP -> explicit ERROR
+    monkeypatch.setattr(fe, "host_lan_ip", lambda ctx: "")
+    step = fe.FctStep(
+        name="iperf", step_type="EXTERNAL_TOOL", channel="ser1",
+        timeout_s=15.0,
+        params={"tool_family": "wifi",
+                "fct_wifi_iperf": {"tool": "iperf3", "server_ip": "",
+                                   "min_mbps": 10.0, "duration": 10}})
+    ctx = FctContext()
+    ctx.channels = {"ser1": object()}      # a console channel exists
+    out = fe._execute_once(step, ctx)
+    assert out.verdict == VERDICT_ERROR

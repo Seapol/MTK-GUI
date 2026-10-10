@@ -23,6 +23,31 @@ from datetime import datetime
 
 from .fct_test_config import FctTestConfig
 
+
+def host_lan_ip() -> str:
+    """Best-effort Host PC LAN IPv4 (iperf server address the DUT client
+    connects to). macOS: ipconfig getifaddr en0..; Linux: hostname -I."""
+    import platform
+    import subprocess
+    if platform.system() == "Darwin":
+        tries = [["ipconfig", "getifaddr", ifc]
+                 for ifc in ("en0", "en1", "en2")]
+    else:
+        tries = [["hostname", "-I"], ["ip", "-4", "addr"]]
+    for cmd in tries:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True,
+                                 timeout=5).stdout.split()
+        except Exception:                   # noqa: BLE001
+            continue
+        for tok in out:
+            parts = tok.split(".")
+            if len(parts) == 4 and all(p.isdigit() for p in parts):
+                a, b = int(parts[0]), int(parts[1])
+                if a not in (0, 127) and not (a == 169 and b == 254):
+                    return tok
+    return ""
+
 #: host-side (mac) command set — B4-verified on macOS 15 (spec:
 #: deprecated airport / networksetup -getairportnetwork are NOT used)
 WIFI_MAC_CMDS = {
@@ -497,77 +522,91 @@ class FctTestRunner:
 
     # -------------------------------------------------------------- RF
     def run_wifi(self, serial, host_runner) -> list:
-        """Wi-Fi test: rssi_only reads the DUT's OWN link RSSI over the
-        console (station mode: a host-side scan cannot see the DUT);
-        full_stack runs through the B4 WifiAdapter (host join + ping)."""
+        """Wi-Fi sub-tests (per-sub-test model). The DUT advertises the
+        RF endpoint; the Host PC is the initiator.
+
+        Scan/RSSI runs on both DUT kinds (host scan, or a DUT-console
+        link read on a station-mode Linux DUT); Connect & Ping and iPerf
+        are Linux only. Ping PASSes on >=1 reply; iperf on >= min Mbps."""
         results: list = []
         w = self.cfg.wifi
         if not w.enabled:
             return results
-        if w.mode == "rssi_only":
-            if serial is None:
-                self.log("Wi-Fi skipped: no console bound")
-                return results
-            verdict, text = console_send_and_expect(
-                serial, f"iw dev {w.interface} link",
-                r"signal:\s*(-?[\d.]+)\s*dBm",
-                r"not connected|No station|Invalid", 5.0,
-                expect_pass_is_regex=True,
-                expect_fail_is_regex=True)
-            import re
-            m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", text)
-            if m:
-                rssi = float(m.group(1))
-                verdict = "PASS" if rssi >= w.rssi_min else "FAIL"
-                detail = f"RSSI {rssi} dBm vs min {w.rssi_min}"
-            else:
-                verdict = "FAIL"
-                detail = ("DUT Wi-Fi not connected" if verdict == "FAIL"
-                          else "TIMEOUT waiting for link info")
-            results.append(FctStepResult(f"Wi-Fi {w.mode}", verdict,
-                                         detail))
-            # Linux DUT connectivity + throughput (console-based)
-            if w.gateway and serial is not None:
-                v2, d2 = dut_wifi_ping(serial, w.gateway, w.ping_count,
-                                       w.loss_max)
-                results.append(FctStepResult("Wi-Fi DUT ping gateway",
-                                             v2, d2))
-            bw = w.bandwidth
-            if bw.enabled and serial is not None:
-                v3, d3 = dut_wifi_iperf(serial, bw.tool, bw.server_ip,
-                                        bw.min_mbps)
-                results.append(FctStepResult(
-                    f"Wi-Fi DUT iperf ({bw.tool})", v3, d3))
-            return results
-        if host_runner is None:
-            self.log("Wi-Fi full_stack skipped: no host runner bound")
-            return results
         from .rf_adapters import WifiAdapter
-        rf_cfg = {"wifi": {
-            # `ssid` is the scan target in rssi_only (e.g. the DUT's
-            # uap0 advertisement) and the join target in full_stack
-            "mode": w.mode, "expected_ssid": w.ssid,
-            "password": w.password, "gateway": w.gateway,
-            "rssi_min": w.rssi_min, "ping_count": w.ping_count,
-            "cmds": {"mac": dict(WIFI_MAC_CMDS)},
-        }}
-        ad = WifiAdapter(rf_cfg, runner)
-        out = ad.run_test()
-        verdict = out["verdict"]
-        items = out["items"]
-        # bandwidth gate (informational throughput -> FAIL below min)
-        bw = w.bandwidth
-        if bw.enabled and items.get("throughput") is not None:
-            if float(items["throughput"]) < float(bw.min_mbps):
-                verdict = "Fail"
-        results.append(FctStepResult(
-            f"Wi-Fi {w.mode}", "PASS" if verdict == "Pass" else "FAIL",
-            str(items)))
+
+        def _adapter(runner_, cfg: dict):
+            return WifiAdapter(
+                {"wifi": dict(cfg, cmds={"mac": dict(WIFI_MAC_CMDS)})},
+                runner_)
+
+        # 1) scan / RSSI
+        if w.scan_enabled:
+            if self.cfg.dut_type == "linux" and w.scan_via == "dut_console" \
+                    and serial is not None:
+                verdict, text = console_send_and_expect(
+                    serial, f"iw dev {w.interface} link",
+                    r"signal:\s*(-?[\d.]+)\s*dBm",
+                    r"not connected|No station|Invalid",
+                    float(w.scan_timeout),
+                    expect_pass_is_regex=True,
+                    expect_fail_is_regex=True)
+                import re
+                m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", text)
+                if m:
+                    rssi = float(m.group(1))
+                    results.append(FctStepResult(
+                        "Wi-Fi Scan / RSSI",
+                        "PASS" if rssi >= w.rssi_min else "FAIL",
+                        f"RSSI {rssi} dBm vs min {w.rssi_min}"))
+                else:
+                    results.append(FctStepResult(
+                        "Wi-Fi Scan / RSSI", "FAIL",
+                        "DUT Wi-Fi not connected / link info timeout"))
+            elif host_runner is not None:
+                out = _adapter(host_runner, {
+                    "mode": "rssi_only", "ssid": w.scan_ssid,
+                    "expected_ssid": w.scan_ssid,
+                    "rssi_min": w.rssi_min}).run_test()
+                results.append(FctStepResult(
+                    "Wi-Fi Scan / RSSI",
+                    "PASS" if out["verdict"] == "Pass" else "FAIL",
+                    str(out["items"])))
+            else:
+                self.log("Wi-Fi scan skipped: no host runner bound")
+        # 2) connect & ping (Linux only; >=1 reply passes)
+        if w.ping_enabled and self.cfg.dut_type == "linux":
+            if host_runner is None:
+                self.log("Wi-Fi connect & ping skipped: no host runner")
+            else:
+                out = _adapter(host_runner, {
+                    "mode": "full_stack", "ssid": w.ping_ssid,
+                    "expected_ssid": w.ping_ssid,
+                    "password": w.ping_password,
+                    "ssid_password": w.ping_password,
+                    "rssi_min": w.rssi_min, "ping_count": w.ping_count,
+                    "iperf3": False}).run_test()
+                loss = (out.get("items") or {}).get("loss_pct")
+                ok = loss is not None and float(loss) < 100.0
+                results.append(FctStepResult(
+                    "Wi-Fi Connect & Ping",
+                    "PASS" if ok else "FAIL", str(out.get("items"))))
+        # 3) iperf throughput (Linux only; host server / DUT client)
+        if w.iperf_enabled and self.cfg.dut_type == "linux" and serial:
+            server_ip = w.iperf_server_ip or host_lan_ip()
+            if not server_ip:
+                results.append(FctStepResult(
+                    f"Wi-Fi iPerf ({w.iperf_tool})", "FAIL",
+                    "cannot determine host server IP"))
+            else:
+                v, d = dut_wifi_iperf(serial, w.iperf_tool, server_ip,
+                                      w.iperf_min_mbps, w.iperf_duration)
+                results.append(FctStepResult(
+                    f"Wi-Fi iPerf Throughput ({w.iperf_tool})", v, d))
         return results
 
     def run_bluetooth(self, serial, host_runner, human_confirm=None) -> list:
-        """Host-side Bluetooth test through the B4 BluetoothAdapter,
-        then the L2CAP data-transfer proof (DUT -> host)."""
+        """Bluetooth sub-tests: RSSI (both DUT kinds), Pair & Connect and
+        A2DP Tone/Music (Linux only), each through the B4 adapter."""
         results: list = []
         b = self.cfg.bluetooth
         if not b.enabled:
@@ -576,25 +615,34 @@ class FctTestRunner:
             self.log("Bluetooth skipped: no host runner bound")
             return results
         from .rf_adapters import BluetoothAdapter
-        rf_cfg = {"bluetooth": {
-            "mode": b.mode, "expected_name": b.expected_name,
-            "rssi_min": b.rssi_min,
-            "audio_confirm": b.audio_confirm,
-            "cmds": {"mac": dict(BT_MAC_CMDS)},
-        }}
-        ad = BluetoothAdapter(rf_cfg, host_runner,
-                              human_confirm=human_confirm)
-        out = ad.run_test()
-        results.append(FctStepResult(
-            f"Bluetooth {b.mode}",
-            "PASS" if out["verdict"] == "Pass" else "FAIL",
-            str(out["items"])))
-        # data-transfer proof: L2CAP ping DUT -> host PC (0% loss)
-        if b.l2ping_count > 0 and serial is not None:
-            verdict, detail = dut_bt_l2ping(serial, host_runner,
-                                            b.l2ping_count)
+
+        def _run(mode: str, label: str, timeout: float):
+            ad = BluetoothAdapter(
+                {"bluetooth": {
+                    "mode": mode, "expected_name": b.expected_name,
+                    "rssi_min": b.rssi_min, "audio_confirm":
+                        b.audio_confirm, "timeout_s": float(timeout),
+                    "cmds": {"mac": dict(BT_MAC_CMDS)}}},
+                host_runner, human_confirm=human_confirm)
+            out = ad.run_test()
             results.append(FctStepResult(
-                f"BT L2CAP ping ({b.l2ping_count})", verdict, detail))
+                label, "PASS" if out["verdict"] == "Pass" else "FAIL",
+                str(out["items"])))
+
+        if b.rssi_enabled:
+            _run("rssi_only", "Bluetooth RSSI", b.rssi_timeout)
+        if self.cfg.dut_type == "linux":
+            if b.pair_enabled:
+                _run("pair_connect", "Bluetooth Pair & Connect",
+                     b.pair_timeout)
+                if b.l2ping_count > 0 and serial is not None:
+                    v, d = dut_bt_l2ping(serial, host_runner,
+                                         b.l2ping_count)
+                    results.append(FctStepResult(
+                        f"BT L2CAP ping ({b.l2ping_count})", v, d))
+            if b.tone_enabled:
+                _run("a2dp_sink", "Bluetooth Tone / Music (A2DP)",
+                     b.tone_timeout)
         return results
 
     # ------------------------------------------------------------- full

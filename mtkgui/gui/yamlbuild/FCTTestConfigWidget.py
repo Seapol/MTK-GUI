@@ -4,16 +4,21 @@
 Edits the `fct_test_config` product-YAML node (Console / Wi-Fi /
 Bluetooth) for the "Build FCT Test Work Flow Sequence" module:
 
-* Console tab   — port (serial device dropdown) + baudrate, the
-  login_sequence table (wait_for / send) and the test_commands table
-  (name / send / expect_pass / expect_fail / timeout); rows are
-  add/removable;
-* Wi-Fi tab     — enabled / mode / interface / driver_load_cmd /
-  rssi_min, the full_stack-only group (ssid / password / gateway /
-  ping_count / loss_max) and the bandwidth group (enabled / tool /
-  min_mbps);
-* Bluetooth tab — enabled / mode / expected_name / rssi_min /
-  audio_confirm.
+* Console tab   — port (serial device dropdown) + baudrate and the
+  test_commands table (one row = one test: Name / Console transport /
+  WaitFor / SendTo / Capture / Retry, each with its own timeout); rows
+  are add/remove/duplicate/reorder;
+* Wi-Fi tab     — base parameters (interface / driver load command)
+  plus three independently enabled sub-tests, each with its own
+  timeout (default 15 s): 1. Scan/RSSI (both DUT kinds), 2. Connect &
+  Ping (Linux only, PASS on >=1 reply), 3. iPerf throughput (Linux
+  only, Host server -> DUT client, iperf2/iperf3);
+* Bluetooth tab — three independently enabled sub-tests, each with
+  its own timeout: 1. RSSI discovery (both DUT kinds), 2. Pair &
+  connect with optional L2CAP ping (Linux only), 3. Tone/music over
+  A2DP with GUI confirm (Linux only, Host source -> DUT sink);
+* Setup tab     — FCT power source (manual prompts / PSU / none) and
+  ATE fixture DIO usage.
 
 `values()` returns the legacy module params preserved plus
 ``fct_test_config_yaml`` — the full node as YAML text — so the
@@ -49,6 +54,7 @@ from mtkgui.engine.fct_test_config import (
     BT_MODES,
     BW_TOOLS,
     WIFI_MODES,
+    WIFI_SCAN_VIA,
     ConsoleCommand,
     FctTestConfig,
 )
@@ -115,12 +121,8 @@ class FCTTestConfigPanel(QWidget):
         Button/LED yes/no), no SSH/SFTP; Wi-Fi and Bluetooth are host ->
         DUT RSSI-only discovery scans."""
         is_linux = dut == "linux"
-        self.wifi_driver_cmd.setEnabled(is_linux)
-        self.bw_box.setEnabled(is_linux)
-        self.wifi_gateway.setEnabled(is_linux)
-        self.wifi_ping_count.setEnabled(is_linux)
-        self.wifi_loss_max.setEnabled(is_linux)
-        self.bt_l2ping.setEnabled(is_linux)
+        self._sync_wifi_groups()
+        self._sync_bt_groups()
         self.dut_hint.setText(
             "Linux BSP DUT - Console: full set (Serial/SSH "
             "Wait->Send->Capture; SSH sftp_put/sftp_get). Wi-Fi: host "
@@ -764,97 +766,199 @@ class FCTTestConfigPanel(QWidget):
             self._save_row_cmd(row, cmd)
 
     # --------------------------------------------------------------- wifi
+    @staticmethod
+    def _tspin(value: int = 15) -> QSpinBox:
+        """A per-sub-test timeout spin box (seconds, 1..600, default 15)."""
+        s = QSpinBox()
+        s.setRange(1, 600)
+        s.setValue(int(value))
+        s.setSuffix(" s")
+        return s
+
     def _build_wifi_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        self.wifi_enabled = QCheckBox("Enable Wi-Fi FCT")
+        self.wifi_enabled = QCheckBox(
+            "Enable Wi-Fi FCT  (DUT advertises the Wi-Fi endpoint; "
+            "Host PC is the initiator)")
         lay.addWidget(self.wifi_enabled)
-        form = QFormLayout()
-        self.wifi_mode = QComboBox()
-        self.wifi_mode.addItems(list(WIFI_MODES))
-        self.wifi_mode.currentTextChanged.connect(
-            self._on_wifi_mode_changed)
-        form.addRow("Mode:", self.wifi_mode)
+        self.wifi_enabled.toggled.connect(self._sync_wifi_groups)
+
+        # ---- base parameters ------------------------------------------------
+        self.wifi_base = QGroupBox("Base parameters")
+        base = QFormLayout(self.wifi_base)
         self.wifi_interface = QLineEdit("mlan0")
-        form.addRow("Interface (DUT):", self.wifi_interface)
+        base.addRow("Interface (DUT):", self.wifi_interface)
         self.wifi_driver_cmd = QLineEdit()
-        self.wifi_driver_cmd.setPlaceholderText(
-            "/root/load_rf_drivers.sh")
-        form.addRow("Driver load cmd (DUT):", self.wifi_driver_cmd)
+        self.wifi_driver_cmd.setPlaceholderText("/root/load_rf_drivers.sh")
+        self.wifi_driver_cmd.setToolTip(
+            "Linux DUT only. Editable command sent over the console to "
+            "load the Wi-Fi/BT drivers; the driver script itself is a "
+            "BSP deliverable.")
+        base.addRow("Driver load cmd (DUT):", self.wifi_driver_cmd)
+        lay.addWidget(self.wifi_base)
+
+        # ---- 1) scan / RSSI (both DUT kinds) --------------------------------
+        self.wifi_scan_box = QGroupBox("1. Scan / RSSI test  (Linux + "
+                                      "Bare-metal/RTOS)")
+        self.wifi_scan_box.setCheckable(True)
+        self.wifi_scan_box.setChecked(True)
+        sc = QFormLayout(self.wifi_scan_box)
+        self.wifi_scan_ssid = QLineEdit()
+        self.wifi_scan_ssid.setPlaceholderText("DUT Wi-Fi SSID to scan")
+        sc.addRow("DUT SSID:", self.wifi_scan_ssid)
         self.wifi_rssi_min = QSpinBox()
         self.wifi_rssi_min.setRange(-100, 0)
         self.wifi_rssi_min.setValue(-70)
-        form.addRow("RSSI min (dBm):", self.wifi_rssi_min)
-        lay.addLayout(form)
+        sc.addRow("RSSI min (dBm):", self.wifi_rssi_min)
+        self.wifi_scan_via = QComboBox()
+        self.wifi_scan_via.addItems(list(WIFI_SCAN_VIA))
+        self.wifi_scan_via.setToolTip(
+            "host: Host PC scans the DUT AP/hotspot (default, works for "
+            "AP-mode & bare-metal). dut_console: read the station-mode "
+            "Linux DUT's own link RSSI over the console (iw dev).")
+        sc.addRow("RSSI via:", self.wifi_scan_via)
+        self.wifi_scan_timeout = self._tspin(15)
+        sc.addRow("Timeout:", self.wifi_scan_timeout)
+        lay.addWidget(self.wifi_scan_box)
 
-        self.wifi_fs_box = QGroupBox("full_stack only")
-        fs = QFormLayout(self.wifi_fs_box)
-        self.wifi_ssid = QLineEdit()
-        fs.addRow("SSID:", self.wifi_ssid)
-        self.wifi_password = QLineEdit()
-        self.wifi_password.setEchoMode(QLineEdit.Password)
-        fs.addRow("Password:", self.wifi_password)
-        self.wifi_gateway = QLineEdit()
-        fs.addRow("Gateway:", self.wifi_gateway)
+        # ---- 2) connect & ping (Linux only) --------------------------------
+        self.wifi_ping_box = QGroupBox("2. Connect & Ping test  (Linux only; "
+                                      "PASS on >=1 reply)")
+        self.wifi_ping_box.setCheckable(True)
+        self.wifi_ping_box.setChecked(False)
+        pg = QFormLayout(self.wifi_ping_box)
+        self.wifi_ping_ssid = QLineEdit()
+        pg.addRow("DUT AP SSID:", self.wifi_ping_ssid)
+        self.wifi_ping_password = QLineEdit()
+        self.wifi_ping_password.setEchoMode(QLineEdit.Password)
+        pg.addRow("Password:", self.wifi_ping_password)
         self.wifi_ping_count = QSpinBox()
         self.wifi_ping_count.setRange(1, 200)
         self.wifi_ping_count.setValue(20)
-        fs.addRow("Ping count:", self.wifi_ping_count)
-        self.wifi_loss_max = QDoubleSpinBox()
-        self.wifi_loss_max.setRange(0.0, 100.0)
-        self.wifi_loss_max.setValue(5.0)
-        fs.addRow("Loss max (%):", self.wifi_loss_max)
-        lay.addWidget(self.wifi_fs_box)
+        pg.addRow("Ping count:", self.wifi_ping_count)
+        self.wifi_ping_timeout = self._tspin(15)
+        pg.addRow("Timeout:", self.wifi_ping_timeout)
+        lay.addWidget(self.wifi_ping_box)
 
-        self.bw_box = QGroupBox("Bandwidth (iperf, DUT client -> host server)")
-        bw = QFormLayout(self.bw_box)
-        self.bw_enabled = QCheckBox("Enabled")
-        bw.addRow(self.bw_enabled)
-        self.bw_tool = QComboBox()
-        self.bw_tool.addItems(list(BW_TOOLS))
-        bw.addRow("Tool:", self.bw_tool)
-        self.bw_server_ip = QLineEdit()
-        self.bw_server_ip.setPlaceholderText("host PC IP, e.g. 192.168.10.141")
-        bw.addRow("Server IP (host):", self.bw_server_ip)
-        self.bw_min_mbps = QDoubleSpinBox()
-        self.bw_min_mbps.setRange(0.0, 10000.0)
-        self.bw_min_mbps.setValue(10.0)
-        bw.addRow("Min Mbps:", self.bw_min_mbps)
-        lay.addWidget(self.bw_box)
+        # ---- 3) iperf throughput (Linux only) ------------------------------
+        self.wifi_iperf_box = QGroupBox("3. iPerf throughput test  (Linux "
+                                        "only; Host server / DUT client)")
+        self.wifi_iperf_box.setCheckable(True)
+        self.wifi_iperf_box.setChecked(False)
+        ip = QFormLayout(self.wifi_iperf_box)
+        self.wifi_iperf_tool = QComboBox()
+        self.wifi_iperf_tool.addItems(list(BW_TOOLS)[::-1])  # iperf3 first
+        ip.addRow("Tool:", self.wifi_iperf_tool)
+        self.wifi_iperf_min = QDoubleSpinBox()
+        self.wifi_iperf_min.setRange(0.0, 10000.0)
+        self.wifi_iperf_min.setValue(10.0)
+        ip.addRow("Min throughput (Mbps):", self.wifi_iperf_min)
+        self.wifi_iperf_server = QLineEdit()
+        self.wifi_iperf_server.setPlaceholderText(
+            "Host PC server IP - leave empty to auto-detect")
+        ip.addRow("Server IP (host):", self.wifi_iperf_server)
+        self.wifi_iperf_duration = QSpinBox()
+        self.wifi_iperf_duration.setRange(1, 600)
+        self.wifi_iperf_duration.setValue(10)
+        self.wifi_iperf_duration.setSuffix(" s")
+        ip.addRow("Duration:", self.wifi_iperf_duration)
+        self.wifi_iperf_timeout = self._tspin(15)
+        ip.addRow("Timeout:", self.wifi_iperf_timeout)
+        lay.addWidget(self.wifi_iperf_box)
         lay.addStretch(1)
+        self._sync_wifi_groups()
         return w
 
-    def _on_wifi_mode_changed(self, mode: str) -> None:
-        self.wifi_fs_box.setVisible(mode == "full_stack")
+    def _sync_wifi_groups(self) -> None:
+        """Enable state = master Wi-Fi switch AND (for Linux-only
+        sub-tests) the DUT OS/firmware kind."""
+        if not hasattr(self, "wifi_scan_box") or not hasattr(
+                self, "dut_type"):
+            return
+        is_linux = self.dut_type.currentText() == "linux"
+        on = self.wifi_enabled.isChecked()
+        self.wifi_base.setEnabled(on)
+        self.wifi_driver_cmd.setEnabled(on and is_linux)
+        self.wifi_scan_box.setEnabled(on)
+        self.wifi_ping_box.setEnabled(on and is_linux)
+        self.wifi_iperf_box.setEnabled(on and is_linux)
+        # dut_console RSSI read needs a Linux shell; bare-metal = host scan
+        if not is_linux and self.wifi_scan_via.currentText() != "host":
+            self.wifi_scan_via.blockSignals(True)
+            self.wifi_scan_via.setCurrentText("host")
+            self.wifi_scan_via.blockSignals(False)
+        self.wifi_scan_via.setEnabled(on and is_linux)
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        self.bt_enabled = QCheckBox("Enable Bluetooth FCT")
+        self.bt_enabled = QCheckBox(
+            "Enable Bluetooth FCT  (Host PC is the initiator / A2DP "
+            "source; DUT is the sink / advertiser)")
         lay.addWidget(self.bt_enabled)
-        form = QFormLayout()
-        self.bt_mode = QComboBox()
-        self.bt_mode.addItems(list(BT_MODES))
-        form.addRow("Mode:", self.bt_mode)
+        self.bt_enabled.toggled.connect(self._sync_bt_groups)
+
+        # ---- 1) RSSI / discovery (both DUT kinds) --------------------------
+        self.bt_rssi_box = QGroupBox("1. RSSI / discovery test  (Linux + "
+                                     "Bare-metal/RTOS)")
+        self.bt_rssi_box.setCheckable(True)
+        self.bt_rssi_box.setChecked(True)
+        rs = QFormLayout(self.bt_rssi_box)
         self.bt_name = QLineEdit()
-        form.addRow("Expected name:", self.bt_name)
+        self.bt_name.setPlaceholderText("DUT Bluetooth advertised name")
+        rs.addRow("DUT BT name:", self.bt_name)
         self.bt_rssi_min = QSpinBox()
         self.bt_rssi_min.setRange(-100, 0)
         self.bt_rssi_min.setValue(-70)
-        form.addRow("RSSI min (dBm):", self.bt_rssi_min)
-        self.bt_audio_confirm = QCheckBox(
-            "GUI_CONFIRM on a2dp_sink (operator hears the tone)")
-        form.addRow(self.bt_audio_confirm)
+        rs.addRow("RSSI min (dBm):", self.bt_rssi_min)
+        self.bt_rssi_timeout = self._tspin(15)
+        rs.addRow("Timeout:", self.bt_rssi_timeout)
+        lay.addWidget(self.bt_rssi_box)
+
+        # ---- 2) pair & connect (Linux only) --------------------------------
+        self.bt_pair_box = QGroupBox("2. Pair & Connect test  (Linux only)")
+        self.bt_pair_box.setCheckable(True)
+        self.bt_pair_box.setChecked(False)
+        pr = QFormLayout(self.bt_pair_box)
+        self.bt_pair_timeout = self._tspin(15)
+        pr.addRow("Timeout:", self.bt_pair_timeout)
         self.bt_l2ping = QSpinBox()
         self.bt_l2ping.setRange(0, 100)
-        self.bt_l2ping.setValue(10)
+        self.bt_l2ping.setValue(0)
         self.bt_l2ping.setToolTip(
-            "L2CAP ping DUT -> host PC (data-transfer proof); 0 = off")
-        form.addRow("L2CAP ping count:", self.bt_l2ping)
-        lay.addLayout(form)
+            "Optional L2CAP ping DUT -> host PC (data-transfer proof, "
+            "real echo both ways); 0 = off.")
+        pr.addRow("L2CAP ping count (0=off):", self.bt_l2ping)
+        lay.addWidget(self.bt_pair_box)
+
+        # ---- 3) tone / music over A2DP (Linux only) ------------------------
+        self.bt_tone_box = QGroupBox("3. Tone / Music over A2DP  (Linux "
+                                    "only; Host source -> DUT sink)")
+        self.bt_tone_box.setCheckable(True)
+        self.bt_tone_box.setChecked(False)
+        tn = QFormLayout(self.bt_tone_box)
+        self.bt_audio_confirm = QCheckBox(
+            "GUI_CONFIRM: operator confirms the tone is heard on the DUT")
+        self.bt_audio_confirm.setChecked(True)
+        tn.addRow(self.bt_audio_confirm)
+        self.bt_tone_timeout = self._tspin(15)
+        tn.addRow("Timeout:", self.bt_tone_timeout)
+        lay.addWidget(self.bt_tone_box)
         lay.addStretch(1)
+        self._sync_bt_groups()
         return w
+
+    def _sync_bt_groups(self) -> None:
+        if not hasattr(self, "bt_rssi_box") or not hasattr(
+                self, "dut_type"):
+            return
+        is_linux = self.dut_type.currentText() == "linux"
+        on = self.bt_enabled.isChecked()
+        self.bt_rssi_box.setEnabled(on)
+        self.bt_pair_box.setEnabled(on and is_linux)
+        self.bt_tone_box.setEnabled(on and is_linux)
 
     # ------------------------------------------------------- helpers
     # ------------------------------------------------- row model (UserRole)
@@ -1055,27 +1159,38 @@ class FCTTestConfigPanel(QWidget):
             self._refresh_console_transport_options()
             w = cfg.wifi
             self.wifi_enabled.setChecked(w.enabled)
-            self.wifi_mode.setCurrentText(w.mode)
             self.wifi_interface.setText(w.interface)
             self.wifi_driver_cmd.setText(w.driver_load_cmd)
+            self.wifi_scan_box.setChecked(w.scan_enabled)
+            self.wifi_scan_ssid.setText(w.scan_ssid)
             self.wifi_rssi_min.setValue(w.rssi_min)
-            self.wifi_ssid.setText(w.ssid)
-            self.wifi_password.setText(w.password)
-            self.wifi_gateway.setText(w.gateway)
+            self.wifi_scan_via.setCurrentText(w.scan_via)
+            self.wifi_scan_timeout.setValue(int(w.scan_timeout))
+            self.wifi_ping_box.setChecked(w.ping_enabled)
+            self.wifi_ping_ssid.setText(w.ping_ssid)
+            self.wifi_ping_password.setText(w.ping_password)
             self.wifi_ping_count.setValue(w.ping_count)
-            self.wifi_loss_max.setValue(w.loss_max)
-            self.bw_enabled.setChecked(w.bandwidth.enabled)
-            self.bw_tool.setCurrentText(w.bandwidth.tool)
-            self.bw_server_ip.setText(w.bandwidth.server_ip)
-            self.bw_min_mbps.setValue(w.bandwidth.min_mbps)
-            self.wifi_fs_box.setVisible(w.mode == "full_stack")
+            self.wifi_ping_timeout.setValue(int(w.ping_timeout))
+            self.wifi_iperf_box.setChecked(w.iperf_enabled)
+            self.wifi_iperf_tool.setCurrentText(w.iperf_tool)
+            self.wifi_iperf_min.setValue(w.iperf_min_mbps)
+            self.wifi_iperf_server.setText(w.iperf_server_ip)
+            self.wifi_iperf_duration.setValue(w.iperf_duration)
+            self.wifi_iperf_timeout.setValue(int(w.iperf_timeout))
             b = cfg.bluetooth
             self.bt_enabled.setChecked(b.enabled)
-            self.bt_mode.setCurrentText(b.mode)
+            self.bt_rssi_box.setChecked(b.rssi_enabled)
             self.bt_name.setText(b.expected_name)
             self.bt_rssi_min.setValue(b.rssi_min)
-            self.bt_audio_confirm.setChecked(b.audio_confirm)
+            self.bt_rssi_timeout.setValue(int(b.rssi_timeout))
+            self.bt_pair_box.setChecked(b.pair_enabled)
+            self.bt_pair_timeout.setValue(int(b.pair_timeout))
             self.bt_l2ping.setValue(b.l2ping_count)
+            self.bt_tone_box.setChecked(b.tone_enabled)
+            self.bt_audio_confirm.setChecked(b.audio_confirm)
+            self.bt_tone_timeout.setValue(int(b.tone_timeout))
+            self._sync_wifi_groups()
+            self._sync_bt_groups()
             s = cfg.setup
             idx = self.setup_power.findData(s.power_mode)
             self.setup_power.setCurrentIndex(idx if idx >= 0 else 0)
@@ -1102,7 +1217,6 @@ class FCTTestConfigPanel(QWidget):
             dut_type=self.dut_type.currentText(),
             console=None, wifi=None, bluetooth=None)
         from mtkgui.engine.fct_test_config import (
-            BandwidthCfg,
             BluetoothCfg,
             ConsoleCfg,
             ConsoleCommand,
@@ -1118,28 +1232,37 @@ class FCTTestConfigPanel(QWidget):
         )
         cfg.wifi = WifiCfg(
             enabled=self.wifi_enabled.isChecked(),
-            mode=self.wifi_mode.currentText(),
             interface=self.wifi_interface.text().strip(),
             driver_load_cmd=self.wifi_driver_cmd.text().strip(),
+            scan_enabled=self.wifi_scan_box.isChecked(),
+            scan_ssid=self.wifi_scan_ssid.text().strip(),
             rssi_min=self.wifi_rssi_min.value(),
-            ssid=self.wifi_ssid.text(),
-            password=self.wifi_password.text(),
-            gateway=self.wifi_gateway.text().strip(),
+            scan_via=self.wifi_scan_via.currentText(),
+            scan_timeout=float(self.wifi_scan_timeout.value()),
+            ping_enabled=self.wifi_ping_box.isChecked(),
+            ping_ssid=self.wifi_ping_ssid.text().strip(),
+            ping_password=self.wifi_ping_password.text(),
             ping_count=self.wifi_ping_count.value(),
-            loss_max=self.wifi_loss_max.value(),
-            bandwidth=BandwidthCfg(
-                enabled=self.bw_enabled.isChecked(),
-                tool=self.bw_tool.currentText(),
-                server_ip=self.bw_server_ip.text().strip(),
-                min_mbps=self.bw_min_mbps.value()),
+            ping_timeout=float(self.wifi_ping_timeout.value()),
+            iperf_enabled=self.wifi_iperf_box.isChecked(),
+            iperf_tool=self.wifi_iperf_tool.currentText(),
+            iperf_min_mbps=self.wifi_iperf_min.value(),
+            iperf_server_ip=self.wifi_iperf_server.text().strip(),
+            iperf_duration=self.wifi_iperf_duration.value(),
+            iperf_timeout=float(self.wifi_iperf_timeout.value()),
         )
         cfg.bluetooth = BluetoothCfg(
             enabled=self.bt_enabled.isChecked(),
-            mode=self.bt_mode.currentText(),
+            rssi_enabled=self.bt_rssi_box.isChecked(),
             expected_name=self.bt_name.text().strip(),
             rssi_min=self.bt_rssi_min.value(),
-            audio_confirm=self.bt_audio_confirm.isChecked(),
+            rssi_timeout=float(self.bt_rssi_timeout.value()),
+            pair_enabled=self.bt_pair_box.isChecked(),
+            pair_timeout=float(self.bt_pair_timeout.value()),
             l2ping_count=self.bt_l2ping.value(),
+            tone_enabled=self.bt_tone_box.isChecked(),
+            audio_confirm=self.bt_audio_confirm.isChecked(),
+            tone_timeout=float(self.bt_tone_timeout.value()),
         )
         from mtkgui.engine.fct_test_config import FctSetupCfg
         cfg.setup = FctSetupCfg(

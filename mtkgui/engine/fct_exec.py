@@ -238,6 +238,40 @@ def runner_for(ctx: FctContext):
                          user=ctx.user)
 
 
+def _is_lan_ipv4(tok: str) -> bool:
+    parts = tok.split(".")
+    if len(parts) != 4 or not all(p.isdigit() for p in parts):
+        return False
+    a, b = int(parts[0]), int(parts[1])
+    if a == 127 or (a == 169 and b == 254) or a == 0:
+        return False
+    return True
+
+
+def host_lan_ip(ctx: FctContext) -> str:
+    """Best-effort Host PC LAN IPv4 (the iperf server address the DUT
+    client connects to). Tries the active Wi-Fi/Ethernet interfaces;
+    macOS first (ipconfig getifaddr), Linux fallback (hostname -I)."""
+    import platform
+    import subprocess
+    if platform.system() == "Darwin":
+        tries = [["ipconfig", "getifaddr", ifc]
+                 for ifc in ("en0", "en1", "en2")]
+    else:
+        tries = [["hostname", "-I"], ["ip", "-4", "addr"]]
+    for cmd in tries:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True,
+                                 timeout=5).stdout.split()
+        except Exception:                   # noqa: BLE001
+            continue
+        for tok in out:
+            if _is_lan_ipv4(tok):
+                ctx.log(f"host iperf server IP: {tok} ({' '.join(cmd)})")
+                return tok
+    return ""
+
+
 def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     """B5 RF tool execution (spec 3.2 / 3.3): build the B4 adapter
     from the embedded config (params.fct_rf) with the B4-verified mac
@@ -269,6 +303,14 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
         ctx.log(f"{family}: {line}")
     ctx.log(f"{family} items: {out.get('items')}")
     verdict = out.get("verdict")
+    # Connect & Ping sub-test: PASS as soon as >=1 reply is received
+    # (loss < 100%); the RSSI / 5%-loss gate of full_stack is not used.
+    if family == "wifi" and cfg.get("any_reply"):
+        loss = (out.get("items") or {}).get("loss_pct")
+        if loss is not None:
+            verdict = "Pass" if float(loss) < 100.0 else "Fail"
+            ctx.log(f"connect&ping: loss {loss}% -> {verdict} "
+                    f"(>=1 reply rule)")
     return FctOutcome(VERDICT_PASS if verdict == "Pass" else VERDICT_FAIL,
                       str(out.get("items")), out.get("lines", []))
 
@@ -440,8 +482,14 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         if step.params.get("fct_wifi_iperf") and channel is not None:
             from .fct_test_runner import ConsoleSerialShim, dut_wifi_iperf
             p = step.params["fct_wifi_iperf"]
+            server_ip = p.get("server_ip") or host_lan_ip(ctx)
+            if not server_ip:
+                return FctOutcome(
+                    VERDICT_ERROR,
+                    "iperf: cannot determine host server IP (set it in "
+                    "the Wi-Fi iPerf config)")
             verdict, detail = dut_wifi_iperf(
-                ConsoleSerialShim(channel), p["tool"], p["server_ip"],
+                ConsoleSerialShim(channel), p["tool"], server_ip,
                 p["min_mbps"], p.get("duration", 10))
             ctx.log(f"DUT iperf: {detail}")
             return FctOutcome(VERDICT_PASS if verdict == "PASS"

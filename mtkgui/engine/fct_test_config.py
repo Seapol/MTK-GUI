@@ -28,20 +28,42 @@ YAML shape (product YAML `fct_test_config:` node):
              expect_pass: "Linux imx93frdm", timeout: 5}
       wifi:
         enabled: true
-        mode: "rssi_only"          # rssi_only | full_stack
-        ssid: "FRDM-IMX93-DUT"     # scanned (rssi_only) or joined
-        password: ""               # full_stack join password
-        gateway: "192.168.10.1"
-        ping_count: 20
-        loss_max: 5
+        interface: "mlan0"          # DUT wireless interface
+        driver_load_cmd: ""        # optional DUT-side driver script
+        # 1. Scan / RSSI  (both Linux and bare-metal/RTOS DUTs)
+        scan_enabled: true
+        scan_ssid: "FRDM-AP"       # DUT Wi-Fi endpoint the Host scans
+        scan_via: "host"           # host | dut_console
         rssi_min: -70
-        bandwidth: {enabled: false, tool: iperf2, min_mbps: 10}
+        scan_timeout: 15
+        # 2. Connect & Ping  (Linux DUT only)
+        ping_enabled: false
+        ping_ssid: "FRDM-AP"
+        ping_password: ""
+        ping_count: 20             # PASS if >=1 reply (loss < 100%)
+        ping_timeout: 15
+        # 3. iPerf throughput: Host server -> DUT client (Linux only)
+        iperf_enabled: false
+        iperf_tool: "iperf3"       # iperf2 | iperf3
+        iperf_min_mbps: 10
+        iperf_server_ip: ""        # empty = auto-detect Host LAN IP
+        iperf_duration: 10
+        iperf_timeout: 15
       bluetooth:
         enabled: true
-        mode: "rssi_only"          # rssi_only | pair_connect | a2dp_sink
+        # 1. RSSI discovery (both Linux and bare-metal/RTOS DUTs)
+        rssi_enabled: true
         expected_name: "FRDM-IMX93-DUT"
         rssi_min: -70
+        rssi_timeout: 15
+        # 2. Pair & connect, optional L2CAP ping (Linux DUT only)
+        pair_enabled: false
+        pair_timeout: 15
+        l2ping_count: 0
+        # 3. Tone / music over A2DP, Host source -> DUT sink (Linux only)
+        tone_enabled: false
         audio_confirm: true
+        tone_timeout: 15
 """
 from __future__ import annotations
 
@@ -55,9 +77,14 @@ from ..gui.yamlbuild.fct_build import (
 )
 
 BAUDRATES = (9600, 19200, 38400, 57600, 115200)
+#: adapter modes (rf_adapters) reused by the per-sub-test orchestration
 WIFI_MODES = ("rssi_only", "full_stack")
 BT_MODES = ("rssi_only", "pair_connect", "a2dp_sink")
 BW_TOOLS = ("iperf2", "iperf3")
+#: how the Wi-Fi scan/RSSI is read
+WIFI_SCAN_VIA = ("host", "dut_console")
+#: default per-sub-test timeout (seconds); minimum 1 s
+DEFAULT_RF_TIMEOUT = 15.0
 
 #: FCT DUT power source (block 07 setup):
 #:   psu    - the rack PSU (N5747A) powers the DUT, same Power On/Off
@@ -266,64 +293,113 @@ class ConsoleCfg:
 
 
 @dataclass
-class BandwidthCfg:
-    enabled: bool = False
-    tool: str = "iperf2"
-    min_mbps: float = 10.0
-    server_ip: str = ""             # host PC running the iperf server
-
-    def to_dict(self) -> dict:
-        return {"enabled": self.enabled, "tool": self.tool,
-                "min_mbps": float(self.min_mbps),
-                "server_ip": self.server_ip}
-
-
-@dataclass
 class WifiCfg:
+    """Wi-Fi FCT split into independently enabled sub-tests.
+
+    Topology: the DUT advertises the RF endpoint (Wi-Fi AP / hotspot);
+    the Host PC is the initiator.
+
+    * Scan/RSSI test  - host scans the DUT SSID and reads RSSI; works on
+      BOTH Linux and bare-metal/RTOS DUTs (firmware auto-broadcasts after
+      power-up on bare metal).
+    * Connect & Ping  - host associates to the DUT AP (SSID + password)
+      and pings; PASS as soon as >=1 reply is received. Linux DUT only.
+    * iPerf throughput- host is the iperf SERVER, DUT the client; PASS at
+      or above ``iperf_min_mbps``; iperf2/iperf3 selectable. Linux only.
+
+    ``interface`` / ``driver_load_cmd`` are base parameters (the driver
+    load is a BSP deliverable; MTK only sends the editable command over
+    the console). Each sub-test carries its own timeout (default 15 s)."""
     enabled: bool = False
-    mode: str = "rssi_only"
+    # base parameters
     interface: str = "mlan0"
     driver_load_cmd: str = ""
+    # 1) scan / RSSI (both DUT kinds)
+    scan_enabled: bool = True
+    scan_ssid: str = ""
     rssi_min: int = -70
-    # full_stack only
-    ssid: str = ""
-    password: str = ""
-    gateway: str = ""
+    scan_timeout: float = 15.0
+    scan_via: str = "host"          # host | dut_console (station-mode DUT)
+    # 2) connect & ping (Linux only)
+    ping_enabled: bool = False
+    ping_ssid: str = ""
+    ping_password: str = ""
     ping_count: int = 20
-    loss_max: float = 5.0
-    bandwidth: BandwidthCfg = field(default_factory=BandwidthCfg)
+    ping_timeout: float = 15.0
+    # 3) iperf throughput (Linux only; host server / DUT client)
+    iperf_enabled: bool = False
+    iperf_tool: str = "iperf3"      # iperf2 | iperf3
+    iperf_min_mbps: float = 10.0
+    iperf_server_ip: str = ""       # host PC IP; empty = auto-detect
+    iperf_duration: int = 10
+    iperf_timeout: float = 15.0
 
     def to_dict(self) -> dict:
         return {
-            "enabled": self.enabled, "mode": self.mode,
+            "enabled": self.enabled,
             "interface": self.interface,
             "driver_load_cmd": self.driver_load_cmd,
+            "scan_enabled": self.scan_enabled, "scan_ssid": self.scan_ssid,
             "rssi_min": int(self.rssi_min),
-            "ssid": self.ssid, "password": self.password,
-            "gateway": self.gateway, "ping_count": int(self.ping_count),
-            "loss_max": float(self.loss_max),
-            "bandwidth": self.bandwidth.to_dict(),
+            "scan_timeout": float(self.scan_timeout),
+            "scan_via": self.scan_via,
+            "ping_enabled": self.ping_enabled, "ping_ssid": self.ping_ssid,
+            "ping_password": self.ping_password,
+            "ping_count": int(self.ping_count),
+            "ping_timeout": float(self.ping_timeout),
+            "iperf_enabled": self.iperf_enabled,
+            "iperf_tool": self.iperf_tool,
+            "iperf_min_mbps": float(self.iperf_min_mbps),
+            "iperf_server_ip": self.iperf_server_ip,
+            "iperf_duration": int(self.iperf_duration),
+            "iperf_timeout": float(self.iperf_timeout),
         }
 
 
 @dataclass
 class BluetoothCfg:
+    """Bluetooth FCT split into independently enabled sub-tests.
+
+    Topology: the Host PC is the A2DP SOURCE / initiator, the DUT is the
+    sink / advertiser.
+
+    * RSSI test         - host inquiry discovers the DUT by name and
+      reads RSSI; works on BOTH Linux and bare-metal/RTOS DUTs.
+    * Pair-Connect test - host pairs and connects to the DUT. Linux
+      only; optional ``l2ping_count`` (0 = off) proves the data path both
+      ways.
+    * Tone/Music test   - host routes audio to the DUT A2DP sink and
+      plays a test tone; operator GUI confirm. Linux only.
+
+    Each sub-test carries its own timeout (default 15 s)."""
     enabled: bool = False
-    mode: str = "rssi_only"
+    # 1) RSSI / discovery (both DUT kinds)
+    rssi_enabled: bool = True
     expected_name: str = ""
     rssi_min: int = -70
+    rssi_timeout: float = 15.0
+    # 2) pair & connect (Linux only)
+    pair_enabled: bool = False
+    pair_timeout: float = 15.0
+    l2ping_count: int = 0           # optional L2CAP data-path proof, 0=off
+    # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
+    tone_enabled: bool = False
     audio_confirm: bool = True
-    # data-transfer proof (Linux DUT): L2CAP ping DUT -> host PC BT
-    # address (BlueZ l2ping, real echo both ways); 0 = off
-    l2ping_count: int = 10
+    tone_timeout: float = 15.0
 
     def to_dict(self) -> dict:
         return {
-            "enabled": self.enabled, "mode": self.mode,
+            "enabled": self.enabled,
+            "rssi_enabled": self.rssi_enabled,
             "expected_name": self.expected_name,
             "rssi_min": int(self.rssi_min),
-            "audio_confirm": self.audio_confirm,
+            "rssi_timeout": float(self.rssi_timeout),
+            "pair_enabled": self.pair_enabled,
+            "pair_timeout": float(self.pair_timeout),
             "l2ping_count": int(self.l2ping_count),
+            "tone_enabled": self.tone_enabled,
+            "audio_confirm": self.audio_confirm,
+            "tone_timeout": float(self.tone_timeout),
         }
 
 
@@ -405,6 +481,64 @@ class FctTestConfig:
         wifi = data.get("wifi") or {}
         bt = data.get("bluetooth") or {}
         bw = wifi.get("bandwidth") or {}
+        # ---- legacy single-mode migration ------------------------------
+        wmode = wifi.get("mode")          # rssi_only | full_stack | None
+        legacy_ssid = str(wifi.get("ssid", ""))
+        bmode = bt.get("mode")            # rssi_only | pair_connect | a2dp_sink
+        wifi_cfg = WifiCfg(
+            enabled=bool(wifi.get("enabled", False)),
+            interface=str(wifi.get("interface", "mlan0")),
+            driver_load_cmd=str(wifi.get("driver_load_cmd", "")),
+            scan_enabled=bool(wifi.get(
+                "scan_enabled",
+                wmode in (None, "rssi_only", "full_stack"))),
+            scan_ssid=str(wifi.get("scan_ssid", legacy_ssid)),
+            rssi_min=int(wifi.get("rssi_min", -70)),
+            scan_timeout=float(wifi.get("scan_timeout",
+                                       DEFAULT_RF_TIMEOUT)),
+            scan_via=str(wifi.get("scan_via", "host")),
+            ping_enabled=bool(wifi.get(
+                "ping_enabled", wmode == "full_stack")),
+            ping_ssid=str(wifi.get("ping_ssid", legacy_ssid)),
+            ping_password=str(wifi.get("ping_password",
+                                      wifi.get("password", ""))),
+            ping_count=int(wifi.get("ping_count", 20)),
+            ping_timeout=float(wifi.get("ping_timeout",
+                                       DEFAULT_RF_TIMEOUT)),
+            iperf_enabled=bool(wifi.get(
+                "iperf_enabled", bool(bw.get("enabled", False)))),
+            iperf_tool=str(wifi.get("iperf_tool",
+                                   bw.get("tool", "iperf3"))),
+            iperf_min_mbps=float(wifi.get(
+                "iperf_min_mbps", bw.get("min_mbps", 10.0))),
+            iperf_server_ip=str(wifi.get(
+                "iperf_server_ip", bw.get("server_ip", ""))),
+            iperf_duration=int(wifi.get(
+                "iperf_duration", bw.get("duration", 10))),
+            iperf_timeout=float(wifi.get("iperf_timeout",
+                                        DEFAULT_RF_TIMEOUT)),
+        )
+        bt_cfg = BluetoothCfg(
+            enabled=bool(bt.get("enabled", False)),
+            rssi_enabled=bool(bt.get(
+                "rssi_enabled",
+                bmode in (None, "rssi_only", "pair_connect",
+                          "a2dp_sink"))),
+            expected_name=str(bt.get("expected_name", "")),
+            rssi_min=int(bt.get("rssi_min", -70)),
+            rssi_timeout=float(bt.get("rssi_timeout",
+                                     DEFAULT_RF_TIMEOUT)),
+            pair_enabled=bool(bt.get(
+                "pair_enabled", bmode == "pair_connect")),
+            pair_timeout=float(bt.get("pair_timeout",
+                                     DEFAULT_RF_TIMEOUT)),
+            l2ping_count=int(bt.get("l2ping_count", 0) or 0),
+            tone_enabled=bool(bt.get(
+                "tone_enabled", bmode == "a2dp_sink")),
+            audio_confirm=bool(bt.get("audio_confirm", True)),
+            tone_timeout=float(bt.get("tone_timeout",
+                                     DEFAULT_RF_TIMEOUT)),
+        )
         return cls(
             dut_type=str(data.get("dut_type", "linux")),
             console=ConsoleCfg(
@@ -419,31 +553,8 @@ class FctTestConfig:
                     ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
             ),
-            wifi=WifiCfg(
-                enabled=bool(wifi.get("enabled", False)),
-                mode=str(wifi.get("mode", "rssi_only")),
-                interface=str(wifi.get("interface", "mlan0")),
-                driver_load_cmd=str(wifi.get("driver_load_cmd", "")),
-                rssi_min=int(wifi.get("rssi_min", -70)),
-                ssid=str(wifi.get("ssid", "")),
-                password=str(wifi.get("password", "")),
-                gateway=str(wifi.get("gateway", "")),
-                ping_count=int(wifi.get("ping_count", 20)),
-                loss_max=float(wifi.get("loss_max", 5.0)),
-                bandwidth=BandwidthCfg(
-                    enabled=bool(bw.get("enabled", False)),
-                    tool=str(bw.get("tool", "iperf2")),
-                    min_mbps=float(bw.get("min_mbps", 10.0)),
-                    server_ip=str(bw.get("server_ip", ""))),
-            ),
-            bluetooth=BluetoothCfg(
-                enabled=bool(bt.get("enabled", False)),
-                mode=str(bt.get("mode", "rssi_only")),
-                expected_name=str(bt.get("expected_name", "")),
-                rssi_min=int(bt.get("rssi_min", -70)),
-                audio_confirm=bool(bt.get("audio_confirm", True)),
-                l2ping_count=int(bt.get("l2ping_count", 10) or 0),
-            ),
+            wifi=wifi_cfg,
+            bluetooth=bt_cfg,
             setup=FctSetupCfg.from_dict(data.get("setup")),
         )
 
@@ -478,29 +589,55 @@ class FctTestConfig:
                             f"bare_metal DUT: command '{cmd.name}' uses "
                             f"{cmd.kind} - SFTP requires a Linux shell")
         if w.enabled:
-            if w.mode not in WIFI_MODES:
-                errors.append(f"wifi.mode must be one of {WIFI_MODES}")
-            if w.mode == "full_stack":
-                if not w.ssid.strip():
-                    errors.append("wifi.full_stack: ssid must not be "
-                                  "empty")
-            if w.bandwidth.enabled and not w.bandwidth.server_ip.strip():
-                errors.append("wifi.bandwidth.enabled: server_ip (the "
-                              "host PC running the iperf server) is "
-                              "required")
-            if (self.dut_type == "bare_metal"
-                    and w.bandwidth.enabled):
-                errors.append("bare_metal DUT: bandwidth iperf runs on "
-                              "the DUT console - not available")
+            if not (w.scan_enabled or w.ping_enabled or w.iperf_enabled):
+                errors.append("wifi.enabled: enable at least one of "
+                              "scan / ping / iperf")
+            if w.scan_via not in WIFI_SCAN_VIA:
+                errors.append(f"wifi.scan_via must be one of "
+                              f"{WIFI_SCAN_VIA}")
+            if w.scan_enabled and not w.scan_ssid.strip():
+                errors.append("wifi scan: scan_ssid (DUT SSID) must not "
+                              "be empty")
+            if w.scan_timeout < 1 or w.ping_timeout < 1 \
+                    or w.iperf_timeout < 1:
+                errors.append("wifi timeouts must be >= 1 s")
+            if w.ping_enabled:
+                if self.dut_type == "bare_metal":
+                    errors.append("bare_metal DUT: Wi-Fi connect & ping "
+                                  "needs a Linux stack - disable it")
+                elif not w.ping_ssid.strip():
+                    errors.append("wifi ping: ping_ssid must not be empty")
+                elif int(w.ping_count) < 1:
+                    errors.append("wifi ping: ping_count must be >= 1")
+            if w.iperf_enabled:
+                if self.dut_type == "bare_metal":
+                    errors.append("bare_metal DUT: iperf needs a Linux "
+                                  "stack - disable it")
+                elif w.iperf_tool not in BW_TOOLS:
+                    errors.append(f"wifi iperf: tool must be one of "
+                                  f"{BW_TOOLS}")
+                elif float(w.iperf_min_mbps) <= 0:
+                    errors.append("wifi iperf: iperf_min_mbps must be > 0")
         if b.enabled:
-            if b.mode not in BT_MODES:
-                errors.append(f"bluetooth.mode must be one of {BT_MODES}")
-            if not b.expected_name.strip():
-                errors.append("bluetooth.expected_name must not be "
-                              "empty")
-            if self.dut_type == "bare_metal" and b.l2ping_count > 0:
-                errors.append("bare_metal DUT: L2CAP ping runs on the "
-                              "DUT console - set l2ping_count to 0")
+            if not (b.rssi_enabled or b.pair_enabled or b.tone_enabled):
+                errors.append("bluetooth.enabled: enable at least one of "
+                              "rssi / pair / tone")
+            if b.rssi_timeout < 1 or b.pair_timeout < 1 \
+                    or b.tone_timeout < 1:
+                errors.append("bluetooth timeouts must be >= 1 s")
+            if b.rssi_enabled and not b.expected_name.strip():
+                errors.append("bluetooth rssi: expected_name (DUT BT name) "
+                              "must not be empty")
+            if self.dut_type == "bare_metal":
+                if b.pair_enabled:
+                    errors.append("bare_metal DUT: BT pair/connect needs a "
+                                  "Linux stack - disable it")
+                if b.tone_enabled:
+                    errors.append("bare_metal DUT: BT A2DP tone needs a "
+                                  "Linux stack - disable it")
+                if b.l2ping_count > 0:
+                    errors.append("bare_metal DUT: L2CAP ping runs on the "
+                                  "DUT console - set l2ping_count to 0")
         errors.extend(self.setup.validate())
         return errors
 
@@ -606,62 +743,72 @@ def build_fct_steps(cfg: FctTestConfig,
                 step_type=STEP_MESSAGE_CHECK, channel=channel_key,
                 timeout_s=float(cmd.timeout), retries=int(cmd.retries),
                 params=params))
+    # Linux DUT only: load the Wi-Fi/BT RF drivers once (editable BSP
+    # command; the driver script itself is a BSP deliverable) before any
+    # RF sub-test runs.
+    if cfg.dut_type == "linux" and (cfg.wifi.enabled or cfg.bluetooth.enabled) \
+            and cfg.wifi.driver_load_cmd.strip():
+        steps.append(FctStep(
+            name="Load RF drivers",
+            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+            timeout_s=15.0,
+            params={"fct_console": True,
+                    "send": cfg.wifi.driver_load_cmd.strip()}))
     if cfg.wifi.enabled:
-        if cfg.wifi.mode == "rssi_only" and cfg.dut_type == "linux":
-            # station-mode Linux DUT: the RSSI is read ON THE DUT over
-            # the console (iw dev <interface> link -> "signal: -X dBm";
-            # the board's own FCT_SETUP.md defines this interface) - a
-            # host-side scan cannot see a station
-            steps.append(FctStep(
-                name="Wi-Fi FCT (DUT RSSI)",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=15.0,
-                params={"tool_family": "wifi",
-                        "rssi_via": "dut_console",
-                        "fct_rf": cfg.wifi.to_dict()}))
-        elif cfg.wifi.mode == "rssi_only":
-            # bare metal: HOST-side discovery of the DUT-advertised
-            # SSID (B4 WifiAdapter rssi_only, discovery-based verdict)
-            steps.append(FctStep(
-                name="Wi-Fi FCT (host scan)",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
-                timeout_s=30.0,
-                params={"tool_family": "wifi",
-                        "fct_rf": cfg.wifi.to_dict()}))
-        else:
-            steps.append(FctStep(
-                name="Wi-Fi FCT", step_type=STEP_EXTERNAL_TOOL,
-                channel="", timeout_s=60.0,
-                params={"tool_family": "wifi",
-                        "fct_rf": cfg.wifi.to_dict()}))
-        # Linux DUT connectivity + throughput: ping the gateway and run
-        # iperf (DUT client -> host PC server) over the console
         w = cfg.wifi
-        if w.gateway and cfg.dut_type == "linux":
+        # 1) scan / RSSI (both DUT kinds). A station-mode Linux DUT can
+        #    only report its own RSSI over the console; the default host
+        #    scan discovers the DUT-advertised AP/hotspot.
+        if w.scan_enabled:
+            rf = {"mode": "rssi_only", "ssid": w.scan_ssid,
+                  "expected_ssid": w.scan_ssid,
+                  "rssi_min": int(w.rssi_min),
+                  "interface": w.interface}
+            if cfg.dut_type == "linux" and w.scan_via == "dut_console":
+                steps.append(FctStep(
+                    name="Wi-Fi Scan / RSSI (DUT console)",
+                    step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                    timeout_s=float(w.scan_timeout),
+                    params={"tool_family": "wifi",
+                            "rssi_via": "dut_console", "fct_rf": rf}))
+            else:
+                steps.append(FctStep(
+                    name="Wi-Fi Scan / RSSI",
+                    step_type=STEP_EXTERNAL_TOOL, channel="",
+                    timeout_s=float(w.scan_timeout),
+                    params={"tool_family": "wifi", "fct_rf": rf}))
+        # 2) connect & ping (Linux only): host associates to the DUT AP;
+        #    PASS as soon as >=1 ping reply is received.
+        if w.ping_enabled and cfg.dut_type == "linux":
             steps.append(FctStep(
-                name="Wi-Fi DUT ping gateway",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=float(w.ping_count) + 10.0,
-                params={"tool_family": "wifi",
-                        "fct_wifi_ping": {
-                            "gateway": w.gateway,
-                            "count": w.ping_count,
-                            "loss_max": w.loss_max}}))
-        if w.bandwidth.enabled and cfg.dut_type == "linux":
+                name="Wi-Fi Connect & Ping",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=float(w.ping_timeout),
+                params={"tool_family": "wifi", "fct_rf": {
+                    "mode": "full_stack", "ssid": w.ping_ssid,
+                    "expected_ssid": w.ping_ssid,
+                    "password": w.ping_password,
+                    "ssid_password": w.ping_password,
+                    "rssi_min": int(w.rssi_min),
+                    "ping_count": int(w.ping_count),
+                    "iperf3": False, "any_reply": True,
+                    "rf_timeout_s": float(w.ping_timeout)}}))
+        # 3) iperf throughput (Linux only; host server / DUT client).
+        if w.iperf_enabled and cfg.dut_type == "linux":
             steps.append(FctStep(
-                name=f"Wi-Fi DUT iperf ({w.bandwidth.tool})",
+                name=f"Wi-Fi iPerf Throughput ({w.iperf_tool})",
                 step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=60.0,
+                timeout_s=float(w.iperf_timeout),
                 params={"tool_family": "wifi",
                         "fct_wifi_iperf": {
-                            "tool": w.bandwidth.tool,
-                            "server_ip": w.bandwidth.server_ip,
-                            "min_mbps": w.bandwidth.min_mbps,
-                            "duration": 10}}))
+                            "tool": w.iperf_tool,
+                            "server_ip": w.iperf_server_ip,
+                            "min_mbps": float(w.iperf_min_mbps),
+                            "duration": int(w.iperf_duration)}}))
     if cfg.bluetooth.enabled:
+        b = cfg.bluetooth
         # make the DUT discoverable FIRST (hciconfig piscan per the
-        # board FCT_SETUP) - hci0 UP RUNNING PSCAN alone is invisible
-        # to a host-side inquiry.  Linux console only.
+        # board FCT_SETUP) - Linux console only.
         if cfg.dut_type == "linux":
             steps.append(FctStep(
                 name="BT discoverable (piscan)",
@@ -669,21 +816,48 @@ def build_fct_steps(cfg: FctTestConfig,
                 timeout_s=3.0,
                 params={"fct_console": True,
                         "send": "hciconfig hci0 piscan"}))
-        steps.append(FctStep(
-            name="Bluetooth FCT", step_type=STEP_EXTERNAL_TOOL,
-            channel="", timeout_s=60.0,
-            params={"tool_family": "bluetooth",
-                    "fct_rf": cfg.bluetooth.to_dict()}))
-        # data-transfer proof: L2CAP ping DUT -> host PC BT address
-        # (BlueZ l2ping echoes real payload both ways)
-        if cfg.bluetooth.l2ping_count > 0 and cfg.dut_type == "linux":
+        # 1) RSSI / discovery (both DUT kinds, host-side inquiry)
+        if b.rssi_enabled:
             steps.append(FctStep(
-                name=f"BT L2CAP ping ({cfg.bluetooth.l2ping_count})",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=float(cfg.bluetooth.l2ping_count) * 3.0 + 10.0,
-                params={"tool_family": "bluetooth",
-                        "fct_bt_l2ping": {
-                            "count": cfg.bluetooth.l2ping_count}}))
+                name="Bluetooth RSSI",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=float(b.rssi_timeout),
+                params={"tool_family": "bluetooth", "fct_rf": {
+                    "mode": "rssi_only",
+                    "expected_name": b.expected_name,
+                    "rssi_min": int(b.rssi_min),
+                    "rf_timeout_s": float(b.rssi_timeout)}}))
+        # 2) pair & connect (Linux only)
+        if b.pair_enabled and cfg.dut_type == "linux":
+            steps.append(FctStep(
+                name="Bluetooth Pair & Connect",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=float(b.pair_timeout),
+                params={"tool_family": "bluetooth", "fct_rf": {
+                    "mode": "pair_connect",
+                    "expected_name": b.expected_name,
+                    "rssi_min": int(b.rssi_min),
+                    "rf_timeout_s": float(b.pair_timeout)}}))
+            # optional L2CAP data-path proof (DUT -> host BT address)
+            if b.l2ping_count > 0:
+                steps.append(FctStep(
+                    name=f"BT L2CAP ping ({b.l2ping_count})",
+                    step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                    timeout_s=float(b.pair_timeout),
+                    params={"tool_family": "bluetooth",
+                            "fct_bt_l2ping": {
+                                "count": int(b.l2ping_count)}}))
+        # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
+        if b.tone_enabled and cfg.dut_type == "linux":
+            steps.append(FctStep(
+                name="Bluetooth Tone / Music (A2DP)",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=float(b.tone_timeout),
+                params={"tool_family": "bluetooth", "fct_rf": {
+                    "mode": "a2dp_sink",
+                    "expected_name": b.expected_name,
+                    "audio_confirm": bool(b.audio_confirm),
+                    "rf_timeout_s": float(b.tone_timeout)}}))
     return steps
 
 
