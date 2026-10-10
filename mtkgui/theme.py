@@ -10,8 +10,8 @@ DEFAULT_BACKGROUND = "#000000"
 
 THEMES = {
     "dark": {
-        "rx": "#33d17a",
-        "tx": "#55a3ff",
+        "rx": "#e6e6e6",
+        "tx": "#00e5e5",
         "sys": "#f5c211",
         "err": "#ff7b63",
         "timestamp": "#7a828a",
@@ -20,8 +20,8 @@ THEMES = {
         "border": "#3a3f46",
     },
     "light": {
-        "rx": "#1a7a3c",
-        "tx": "#1f5fbf",
+        "rx": "#222222",
+        "tx": "#007d7d",
         "sys": "#cc6600",
         "err": "#c0504d",
         "timestamp": "#888888",

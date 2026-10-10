@@ -70,14 +70,24 @@ class ConsoleWidget(QGroupBox):
         self.palette = THEMES["dark"]
         self.decoder = AnsiDecoder()
         self.filter_text = ""
-        # optional per-channel accent color for the RX/TX/SYS tag
+        # optional per-channel accent color for the SYS tag
         self.tag_color = None
+        # Streaming RX state (Tera Term-style): serial data arrives in
+        # arbitrary chunks that must be stitched together. A new line is
+        # started ONLY on '\n'; a lone '\r' moves the cursor back to the
+        # start of the current line and overwrites it (progress bars such
+        # as fat.py's "Progress: [###] 51%" then stay on one line instead
+        # of being concatenated into a huge line). Chunk boundaries never
+        # start new lines, which removes the fragmented/blank-line noise.
+        self._rx_own_line = False       # current block is an open RX line
+        self._rx_line_empty = True
+        self._rx_want_timestamp = False
 
         layout = QVBoxLayout(self)
         bar = QHBoxLayout()
 
         self.check_timestamp = QCheckBox("Timestamp")
-        self.check_timestamp.setChecked(True)
+        self.check_timestamp.setChecked(False)
         self.check_hex = QCheckBox("HEX")
         self.check_autoscroll = QCheckBox("Auto scroll")
         self.check_autoscroll.setChecked(True)
@@ -174,20 +184,56 @@ class ConsoleWidget(QGroupBox):
         return cursor
 
     def _start_new_line(self, cursor):
-        doc_empty = (self.view.document().blockCount() <= 1
-                     and not self.view.toPlainText())
-        if not doc_empty:
+        """Move to a fresh block before a TX/SYS message: insert one only
+        when the current block already holds text (a streamed RX line
+        ending in '\\n' has already opened an empty block)."""
+        if self._current_block_has_text(cursor):
             cursor.insertBlock()
 
-    def _insert_prefix(self, cursor, tag):
+    def _insert_timestamp(self, cursor):
         if self.check_timestamp.isChecked():
             stamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(self.palette["timestamp"]))
             cursor.insertText(f"[{stamp}] ", fmt)
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(self.tag_color or self.palette["tag"]))
-        cursor.insertText(f"{tag}>> ", fmt)
+
+    def _insert_prefix(self, cursor, tag):
+        """Timestamp (optional) on every line; only SYS keeps a text
+        tag. RX and TX are told apart by color alone (Tera Term style),
+        so no RX>> / TX>> prefix is drawn."""
+        self._insert_timestamp(cursor)
+        if tag == "SYS":
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(self.tag_color or self.palette["tag"]))
+            cursor.insertText("SYS>> ", fmt)
+
+    def _current_block_has_text(self, cursor):
+        probe = QTextCursor(cursor)
+        probe.movePosition(QTextCursor.StartOfBlock)
+        probe.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        return bool(probe.selectedText())
+
+    def _rx_ensure_line(self, cursor):
+        """Continue the open RX line, or start a new block when the
+        current line belongs to a TX/SYS message (or is freshly ended)."""
+        cursor.movePosition(QTextCursor.End)
+        if self._rx_own_line:
+            return
+        if self._current_block_has_text(cursor):
+            cursor.insertBlock()
+        self._rx_own_line = True
+        self._rx_line_empty = True
+        self._rx_want_timestamp = self.check_timestamp.isChecked()
+
+    def _rx_overwrite_line(self, cursor):
+        """Lone CR: return to the line start and clear it so the next
+        text overwrites in place (in-place progress refresh)."""
+        cursor.movePosition(QTextCursor.StartOfBlock)
+        cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        cursor.removeSelectedText()
+        self._rx_line_empty = True
+        self._rx_own_line = True
+        self._rx_want_timestamp = False
 
     def _insert_plain(self, cursor, text, color, highlight=False):
         """Insert text line-by-line; with highlight=True every line is
@@ -218,8 +264,9 @@ class ConsoleWidget(QGroupBox):
     def append_message(self, tag, text, color=None):
         """Append a plain colored message (SYS / TX / HEX RX).
 
-        The active log filter drops non-matching lines; Error/Warning
-        keywords are highlighted per line."""
+        TX and RX carry no text prefix (color identifies them); only
+        SYS keeps a ``SYS>>`` tag. The log filter drops non-matching
+        lines and Error/Warning keywords are highlighted per line."""
         color = color or self.palette["base"]
         if not self._text_allowed(text):
             return
@@ -228,40 +275,58 @@ class ConsoleWidget(QGroupBox):
         self._insert_prefix(cursor, tag)
         self._insert_plain(cursor, text, color, highlight=True)
         self._scroll()
+        # the TX/SYS line now owns the block; the next streamed RX byte
+        # starts on a fresh line rather than being glued to it
+        self._rx_own_line = False
+        self._rx_line_empty = True
+        self._rx_want_timestamp = self.check_timestamp.isChecked()
 
     def append_rx(self, tag, data):
-        """Append received bytes, honoring ANSI SGR sequences.
+        """Append received bytes as a STREAM, honoring ANSI SGR colors.
 
-        The active log filter drops non-matching lines; keyword
-        highlighting applies to plain (non-ANSI-colored) lines."""
+        Chunk boundaries never start a new line (a shell line can arrive
+        in many reads); lines split only on ``\\n``. A lone ``\\r``
+        overwrites the current line in place (progress bars), while
+        ``\\r\\n`` is treated as one line ending. There is no RX>>
+        prefix; keyword highlighting applies to plain (uncolored) text."""
         if not self._text_allowed(data):
             return
         cursor = self._end_cursor()
-        self._start_new_line(cursor)
-        self._insert_prefix(cursor, tag)
-
         base_fg = self.palette["rx"]
         for text, attrs in self.decoder.feed(data):
-            if not self._text_allowed(text):
-                continue
-            fmt = self._char_format(attrs, base_fg)
-            text = text.replace("\r\n", "\n").replace("\r", "") \
-                       .replace("\t", "    ")
-            parts = text.split("\n")
-            for index, part in enumerate(parts):
-                if index:
+            # CRLF is one line ending; a lone CR that remains is an
+            # in-place progress refresh (handled below as overwrite).
+            text = text.replace("\r\n", "\n").replace("\t", "    ")
+            tokens = re.split(r"([\r\n])", text)
+            i = 0
+            while i < len(tokens):
+                tok = tokens[i]
+                if tok == "\r":
+                    self._rx_overwrite_line(cursor)
+                elif tok == "\n":
+                    cursor.movePosition(QTextCursor.End)
                     cursor.insertBlock()
-                if not part:
-                    continue
-                if attrs["fg"] is None:
-                    # no explicit ANSI color -> keyword highlight
-                    line_color, bold = \
-                        ConsoleWidget._line_color(part, base_fg)
-                    fmt = QTextCharFormat(fmt)
-                    fmt.setForeground(QColor(line_color))
-                    if bold:
-                        fmt.setFontWeight(QFont.Bold)
-                cursor.insertText(part, fmt)
+                    self._rx_own_line = False
+                    self._rx_line_empty = True
+                    self._rx_want_timestamp = \
+                        self.check_timestamp.isChecked()
+                elif tok:
+                    self._rx_ensure_line(cursor)
+                    if self._rx_want_timestamp:
+                        self._insert_timestamp(cursor)
+                        self._rx_want_timestamp = False
+                    if attrs["fg"] is None:
+                        line_color, bold = \
+                            ConsoleWidget._line_color(tok, base_fg)
+                        fmt = QTextCharFormat()
+                        fmt.setForeground(QColor(line_color))
+                        if bold:
+                            fmt.setFontWeight(QFont.Bold)
+                    else:
+                        fmt = self._char_format(attrs, base_fg)
+                    cursor.insertText(tok, fmt)
+                    self._rx_line_empty = False
+                i += 1
         self._scroll()
 
     def _text_allowed(self, text: str) -> bool:
@@ -298,6 +363,9 @@ class ConsoleWidget(QGroupBox):
     def clear_all(self):
         self.view.clear()
         self.decoder.reset()
+        self._rx_own_line = False
+        self._rx_line_empty = True
+        self._rx_want_timestamp = False
 
     def save_log(self):
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
