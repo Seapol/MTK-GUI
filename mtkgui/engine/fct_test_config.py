@@ -130,8 +130,17 @@ KIND_SEND = "send"              # write line(s); verdict Pass ("sent")
 KIND_CAPTURE = "capture"        # judge output (send optional); fail-wins
 KIND_SFTP_PUT = "sftp_put"      # ssh file transfer DUT <- Host
 KIND_SFTP_GET = "sftp_get"      # ssh file transfer DUT -> Host
+KIND_MESSAGE = "message"        # operator dialog (MessageOK/YesNo/GoStop);
+                                # no console interaction - the row joins
+                                # the ordered sequence where it is placed
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
-                 KIND_SFTP_PUT, KIND_SFTP_GET)
+                 KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE)
+
+#: dialog styles of a message row (ConsoleCommand.dialog_style)
+DIALOG_OK = "ok"
+DIALOG_YESNO = "yesno"
+DIALOG_GOSTOP = "gostop"
+DIALOG_STYLES = (DIALOG_OK, DIALOG_YESNO, DIALOG_GOSTOP)
 
 
 @dataclass
@@ -139,7 +148,8 @@ class ConsoleCommand:
     """One console test step (model v2): a Wait / Send / Capture
     primitive, or an SSH file-transfer row (sftp_put/sftp_get)."""
 
-    kind: str = "send"              # wait | send | capture | sftp_put | sftp_get
+    kind: str = "send"              # wait | send | capture | sftp_put |
+                                    # sftp_get | message
     name: str = ""
     transport: str = "serial"       # serial | ssh
     wait_enabled: bool = False      # Wait stage on/off
@@ -159,6 +169,9 @@ class ConsoleCommand:
                                         # Wait and Send (interactive DUT
                                         # prompts, e.g. fat.py questions)
     confirm_message: str = ""           # dialog text ("" -> use step name)
+    dialog_style: str = DIALOG_YESNO    # kind == "message": ok | yesno |
+                                        # gostop - which operator dialog
+                                        # the row pops (MessageOK/YesNo/GoStop)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -185,6 +198,7 @@ class ConsoleCommand:
                 "capture_forbid": self.capture_forbid,
                 "confirm_enabled": self.confirm_enabled,
                 "confirm_message": self.confirm_message,
+                "dialog_style": self.dialog_style,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -225,6 +239,8 @@ class ConsoleCommand:
                 capture_forbid=str(c.get("capture_forbid", "")),
                 confirm_enabled=bool(c.get("confirm_enabled", False)),
                 confirm_message=str(c.get("confirm_message", "")),
+                dialog_style=str(c.get("dialog_style",
+                                       DIALOG_YESNO) or DIALOG_YESNO),
                 timeout=float(c.get("timeout", 6.0)),
                 wait_timeout=float(c.get("wait_timeout", 10.0)),
                 send_timeout=float(c.get("send_timeout", 4.0)),
@@ -235,6 +251,19 @@ class ConsoleCommand:
                 remote=str(c.get("remote", "")))
 
         # ---- legacy migration ----
+        if kind == KIND_MESSAGE:
+            # message rows are new-model only (no legacy shape existed):
+            # a flagless dict still restores the dialog style
+            return ConsoleCommand(
+                kind=KIND_MESSAGE, name=str(c.get("name", "")),
+                transport=str(c.get("transport", "serial")),
+                wait_enabled=False, send_enabled=False,
+                capture_enabled=False,
+                confirm_message=str(c.get("confirm_message", "")),
+                dialog_style=str(c.get("dialog_style",
+                                       DIALOG_YESNO) or DIALOG_YESNO),
+                timeout=float(c.get("timeout", 6.0)),
+                retries=int(c.get("retries", 0) or 0))
         if kind == "wait":
             return ConsoleCommand(
                 kind="wait", name=str(c.get("name", "")),
@@ -723,6 +752,21 @@ def build_fct_steps(cfg: FctTestConfig,
                     params={"fct_console": True, "kind": cmd.kind,
                             "action": cmd.kind,
                             "local": cmd.local, "remote": cmd.remote}))
+                continue
+            # Operator-dialog rows (MessageOK / MessageYesNo /
+            # MessageGoStop): no console interaction at all — the step
+            # is a GUI_CONFIRM without a channel, executed by the
+            # existing human_confirm hook. The row joins the ordered
+            # sequence exactly where it is placed.
+            if cmd.kind == KIND_MESSAGE:
+                steps.append(FctStep(
+                    name=cmd.name or "Operator message",
+                    step_type=STEP_GUI_CONFIRM,
+                    timeout_s=float(cmd.timeout),
+                    retries=int(cmd.retries),
+                    params={"style": cmd.dialog_style or DIALOG_YESNO,
+                            "message": cmd.confirm_message
+                            or cmd.name or "Operator message"}))
                 continue
             # Map the three-stage model to the MESSAGE_CHECK executor.
             #   WaitFor (wait-only row) -> positive pattern, found=PASS

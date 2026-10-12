@@ -103,3 +103,32 @@ def test_validation_failure_returns_error(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert cases is None
     assert any("port" in e for e in errors)
+
+
+def test_message_row_becomes_standard_op_case(page):
+    """P3-B7: a Console '(message)' row publishes as the standard op
+    kind (MessageYesNo / MessageOK) at its sequence position - the
+    Test Work Flow page keeps showing the same op kinds it always
+    did, so editing either side no longer overwrites the other."""
+    cfg = {"fct_test_config": {
+        "dut_type": "linux",
+        "console": {"enabled": True, "port": "/dev/cu.test",
+                    "test_commands": [
+                        {"name": "Kernel check", "kind": "send",
+                         "send": "uname -a", "timeout": 5},
+                        {"name": "Swap DUT fixture", "kind": "message",
+                         "dialog_style": "yesno", "timeout": 30},
+                        {"name": "Ready check", "kind": "message",
+                         "dialog_style": "ok", "timeout": 10}]}},
+        "wifi": {"enabled": False}, "bluetooth": {"enabled": False}}
+    text = yaml.safe_dump(cfg, sort_keys=False)
+    cases, errors = page._emit_fct_sequence(_params(text))
+    assert errors == []
+    by_name = {c["name"]: c["kind"] for c in cases}
+    assert by_name["Kernel check: 'done' (expected)"] == "CapturefromConsole"
+    assert by_name["Swap DUT fixture"] == "MessageYesNo"
+    assert by_name["Ready check"] == "MessageOK"
+    # message rows carry no channel-bound step (no console I/O)
+    for c in cases:
+        if c["kind"] in ("MessageOK", "MessageYesNo"):
+            assert c["op_params"]["fct_step"]["channel"] == ""

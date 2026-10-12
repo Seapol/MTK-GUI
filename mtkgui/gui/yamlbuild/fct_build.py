@@ -302,7 +302,10 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
             else:
                 kind = "MessageOK"
         elif s.step_type == STEP_GUI_CONFIRM:
-            kind = "MessageGoStop"
+            # dialog style travels in params ("style"): ok -> MessageOK,
+            # yesno -> MessageYesNo, everything else -> MessageGoStop
+            kind = {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
+                str(s.params.get("style") or ""), "MessageGoStop")
         elif s.step_type == STEP_CLI_RUN:
             kind = "SendtoCLI"
             name = _kw_name(f"{s.name}: '{s.command}'", s.expect_pass)

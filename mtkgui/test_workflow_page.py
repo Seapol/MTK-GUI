@@ -1924,7 +1924,38 @@ class TestWorkFlowPage(QWidget):
         """P3-B5: the Yaml Build block 07 FCT sequence was accepted -
         replace the FCT Test Cases table with the generated cases
         (name / kind / enable / wait_ms / timeout_ms / op_params with
-        the fct_step marker)."""
+        the fct_step marker).
+
+        Merge protection (P3-B7): standard operator dialogs added by
+        hand on this page (MessageOK / MessageYesNo / MessageGoStop
+        rows WITHOUT the generated fct_step marker) are not part of
+        the sequence built in block 07 — they are kept and appended
+        after the generated cases, so a sequence rebuild no longer
+        wipes them."""
+        generated = {str(c.get("name", "")) for c in cases}
+        kept: list = []
+        for i, kind in enumerate(self.fct_kinds):
+            name = (self.fct_rows[i] if i < len(self.fct_rows) else "")
+            marker = (self.fct_op_params[i] or {}
+                      if i < len(self.fct_op_params) else {})
+            if (kind in ("MessageOK", "MessageYesNo", "MessageGoStop")
+                    and not marker.get("fct_step")
+                    and name and name not in generated):
+                kept.append({
+                    "name": name, "kind": kind,
+                    "enable": (self.fct_enables[i]
+                               if i < len(self.fct_enables) else True),
+                    "wait_ms": (self.fct_waits[i]
+                                if i < len(self.fct_waits) else 100),
+                    "timeout_ms": (self.fct_timeouts[i]
+                                   if i < len(self.fct_timeouts) else 5000),
+                    "op_params": self.fct_op_params[i]
+                    if i < len(self.fct_op_params) else None,
+                })
+        if kept:
+            cases = list(cases) + kept
+            self._log(f"FCT sequence rebuilt: {len(kept)} manual standard "
+                      f"op(s) kept (appended at the end)")
         self.fct_rows = [str(c.get("name", "")) for c in cases]
         self.fct_enables = [bool(c.get("enable", True)) for c in cases]
         self.fct_waits = [int(c.get("wait_ms", 100)) for c in cases]
