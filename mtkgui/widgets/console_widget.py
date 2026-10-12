@@ -82,6 +82,7 @@ class ConsoleWidget(QGroupBox):
         self._rx_own_line = False       # current block is an open RX line
         self._rx_line_empty = True
         self._rx_want_timestamp = False
+        self._rx_pending_cr = False     # lone CR seen, overwrite pending
 
         layout = QVBoxLayout(self)
         bar = QHBoxLayout()
@@ -226,14 +227,25 @@ class ConsoleWidget(QGroupBox):
         self._rx_want_timestamp = self.check_timestamp.isChecked()
 
     def _rx_overwrite_line(self, cursor):
-        """Lone CR: return to the line start and clear it so the next
-        text overwrites in place (in-place progress refresh)."""
+        """Lone CR: arm the overwrite but do NOT clear anything yet.
+
+        The line is only cleared when fresh RX text actually arrives on
+        it (:meth:`_rx_apply_pending_cr`).  A line that ENDS right after
+        the CR - systemd terminates every status line with ``\\r\\r\\n``
+        - keeps its text, exactly like on a real terminal; clearing on
+        the CR itself blanked every status line and flooded the boot log
+        with empty lines."""
+        self._rx_pending_cr = True
+        self._rx_want_timestamp = False
+
+    def _rx_apply_pending_cr(self, cursor):
+        """Carry out the deferred CR overwrite: clear the current line
+        so the arriving text rewrites it in place (progress refresh)."""
         cursor.movePosition(QTextCursor.StartOfBlock)
         cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
         cursor.removeSelectedText()
         self._rx_line_empty = True
         self._rx_own_line = True
-        self._rx_want_timestamp = False
 
     def _insert_plain(self, cursor, text, color, highlight=False):
         """Insert text line-by-line; with highlight=True every line is
@@ -279,16 +291,19 @@ class ConsoleWidget(QGroupBox):
         # starts on a fresh line rather than being glued to it
         self._rx_own_line = False
         self._rx_line_empty = True
+        self._rx_pending_cr = False    # a pending CR must not wipe the TX/SYS line
         self._rx_want_timestamp = self.check_timestamp.isChecked()
 
     def append_rx(self, tag, data):
         """Append received bytes as a STREAM, honoring ANSI SGR colors.
 
         Chunk boundaries never start a new line (a shell line can arrive
-        in many reads); lines split only on ``\\n``. A lone ``\\r``
-        overwrites the current line in place (progress bars), while
-        ``\\r\\n`` is treated as one line ending. There is no RX>>
-        prefix; keyword highlighting applies to plain (uncolored) text."""
+        in many reads); lines split only on ``\\n``. A lone ``\\r`` arms
+        an in-place overwrite (progress bars): the line is cleared only
+        when fresh text arrives on it, so systemd's ``\\r\\r\\n`` line
+        endings keep their text instead of turning into blank lines.
+        There is no RX>> prefix; keyword highlighting applies to plain
+        (uncolored) text."""
         if not self._text_allowed(data):
             return
         cursor = self._end_cursor()
@@ -304,6 +319,7 @@ class ConsoleWidget(QGroupBox):
                 if tok == "\r":
                     self._rx_overwrite_line(cursor)
                 elif tok == "\n":
+                    self._rx_pending_cr = False
                     cursor.movePosition(QTextCursor.End)
                     cursor.insertBlock()
                     self._rx_own_line = False
@@ -311,7 +327,11 @@ class ConsoleWidget(QGroupBox):
                     self._rx_want_timestamp = \
                         self.check_timestamp.isChecked()
                 elif tok:
-                    self._rx_ensure_line(cursor)
+                    if self._rx_pending_cr:
+                        self._rx_pending_cr = False
+                        self._rx_apply_pending_cr(cursor)
+                    else:
+                        self._rx_ensure_line(cursor)
                     if self._rx_want_timestamp:
                         self._insert_timestamp(cursor)
                         self._rx_want_timestamp = False
@@ -366,6 +386,7 @@ class ConsoleWidget(QGroupBox):
         self._rx_own_line = False
         self._rx_line_empty = True
         self._rx_want_timestamp = False
+        self._rx_pending_cr = False
 
     def save_log(self):
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
