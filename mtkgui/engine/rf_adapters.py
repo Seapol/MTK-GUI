@@ -322,11 +322,32 @@ class BluetoothAdapter:
         tv = dict(test_vars or {})
         name = tv.get("name", self.expected_name)
         items: dict = {}
-        addr, rssi, lines = self._scan_find(name)
+        if (self.mode in ("pair_connect", "a2dp_sink")
+                and self.expected_addr):
+            # fixed BD address configured - connect straight to it and
+            # skip the probabilistic discovery phase entirely (discovery
+            # is proven by the rssi_only step; the post-connect RSSI
+            # read proves the link).  Cuts 2 inquiry phases per unit.
+            addr = self.expected_addr
+            rssi = None
+            lines = [f"[bt] using configured BD address {addr} "
+                     "(discovery skipped)"]
+        else:
+            addr, rssi, lines = self._scan_find(name)
         if rssi is not None:
             items["rssi"] = rssi
 
         if self.mode == "rssi_only":
+            if rssi is None and self.expected_addr:
+                # paired-device fast path: the info/RSSI source answers
+                # for an already-paired BD address without an inquiry
+                # window
+                rssi = self._read_rssi(self.expected_addr)
+                if rssi is not None:
+                    lines = lines + [
+                        f"[bt] rssi via configured address "
+                        f"{self.expected_addr} (no inquiry)"]
+                    items["rssi"] = rssi
             if rssi is None:
                 # inquiry lines may carry no RSSI (blueutil) - fall back
                 # to the RSSI source (system_profiler shows RSSI for

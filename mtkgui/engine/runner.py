@@ -25,7 +25,6 @@ verdicts are kept (no behavior change).
 """
 from __future__ import annotations
 
-import random
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -320,7 +319,7 @@ class TestRunner(QObject):
         gw = getattr(env, "gateway", None)
         is_flash = (params or {}).get("type") == "flash"
         if is_flash:
-            if gw is not None:
+            if gw is not None and hasattr(gw, "execute_op"):
                 out = gw.execute_op(name, params)
             else:  # engine-side simulated flash (virtual / legacy)
                 out = None
@@ -540,52 +539,46 @@ class TestRunner(QObject):
         if r in env.fct_sim_fail:
             verdict = "FAIL"
             env._log(f"FCT {name}: expected pass marker not found -> FAIL")
-        elif (interactive and env.virtual_mode
-                and kind in CONSOLE_KINDS + ("WIFI", "Bluetooth")):
-            # Virtual mode: console / RF methods run for real against
-            # the simulated DUT behind the virtual serial channel
+        elif interactive and kind in ("WIFI", "Bluetooth"):
+            # Wi-Fi / BT ALWAYS run against the real host RF adapters
+            # (the access points and Bluetooth are real peripherals,
+            # never virtualised - user rule): no gateway configured is
+            # an honest FAIL, not a simulated pass
+            gw = getattr(env, "gateway", None)
+            if gw is None:
+                verdict = "FAIL"
+                env._log(f"FCT {name}: no RF gateway (host Wi-Fi/BT "
+                         f"adapters not configured) -> FAIL")
+            else:
+                cfg = (env.fct_op_params[r]
+                       if r < len(env.fct_op_params) else None)
+                out = gw.rf_test(kind, name, cfg)
+                for line in out.lines:
+                    env._log(line)
+                if out.verdict == "Error":
+                    env._instrument_error("DAQ")
+                self._put("fct", r,
+                          StepStatus.PASS if out.verdict == "PASS"
+                          else StepStatus.FAIL if out.verdict == "FAIL"
+                          else StepStatus.ERROR,
+                          out.text, time.monotonic() - t0)
+                return
+        elif interactive and kind in CONSOLE_KINDS:
+            # console methods run against the connected serial channel
+            # (a REAL DUT console when one is connected - Virtual mode
+            # never virtualises FCT, only the ICT instruments)
             self._exec_fct_console(r, kind, name, t0)
-            return
-        elif (not env.virtual_mode
-                and getattr(env, "gateway", None) is not None
-                and kind in ("WIFI", "Bluetooth")):
-            # Real mode: RF connectivity test via the T1 RF drivers
-            cfg = (env.fct_op_params[r]
-                   if r < len(env.fct_op_params) else None)
-            out = env.gateway.rf_test(kind, name, cfg)
-            for line in out.lines:
-                env._log(line)
-            if out.verdict == "Error":
-                env._instrument_error("DAQ")
-            self._put("fct", r,
-                      StepStatus.PASS if out.verdict == "PASS"
-                      else StepStatus.FAIL if out.verdict == "FAIL"
-                      else StepStatus.ERROR,
-                      out.text, time.monotonic() - t0)
             return
         elif interactive and kind in ("MessageOK", "MessageYesNo",
                                       "MessageGoStop"):
             verdict = env._fct_message_dialog(kind, name)
         if verdict is None:
-            fault = env._virtual_fault_roll()
-            if fault == "Error":
-                verdict = "Error"
-                env._instrument_error(random.choice(("DAQ", "PSU")))
-                env._log(f"FCT {name}: random equipment / serial fault "
-                         f"(virtual) -> Error")
-            elif fault == "FAIL":
-                verdict = "FAIL"
-                env._log(f"FCT {name}: unexpected reply (virtual fail) "
-                         f"-> FAIL")
+            # FCT is always real: no virtual fault roll here
+            verdict = "PASS"
+            if kind in ("MessageOK", "MessageYesNo", "MessageGoStop"):
+                env._log(f"FCT {name}: operator confirmed -> PASS")
             else:
-                verdict = "PASS"
-                if kind in ("MessageOK", "MessageYesNo", "MessageGoStop"):
-                    env._log(f"FCT {name}: operator confirmed -> PASS")
-                elif r < 5:
-                    env._log(f"FCT {name}: output contained 'Pass' "
-                             f"-> PASS")
-                else:
-                    env._log(f"FCT {name}: operator confirmed PASS")
+                env._log(f"FCT {name}: operator confirmed PASS")
         self._put("fct", r,
                   StepStatus.PASS if verdict == "PASS"
                   else StepStatus.FAIL if verdict == "FAIL"
@@ -683,6 +676,23 @@ class TestRunner(QObject):
                     env._log("human answer OK (simulated)")
                     return True
             ctx.human_confirm = _ask
+        elif (step.step_type == "MESSAGE_CHECK" and step.channel
+                and step.params.get("fct_console")
+                and step.params.get("confirm_enabled")):
+            # interactive console row (Wait -> MessageYesNo -> Send):
+            # bind the operator dialog before the answer is sent
+            if interactive:
+                _msg = str(step.params.get("confirm_message")
+                           or f"Confirm: {step.name}")
+
+                def _ask(_s, _m=_msg):
+                    return env._fct_message_dialog(
+                        "MessageYesNo", _m) == "PASS"
+            else:                            # run_demo: simulated GO
+                def _ask(_s):
+                    env._log("human answer GO (simulated)")
+                    return True
+            ctx.human_confirm = _ask
         outcome = execute_fct_step(step, ctx)
         status = {VERDICT_PASS: StepStatus.PASS,
                   VERDICT_FAIL: StepStatus.FAIL,
@@ -741,11 +751,7 @@ class TestRunner(QObject):
 
         if kind == "SendtoConsole":
             # send only: the step passes when the payload was written
-            fault = env._virtual_fault_roll()
-            if fault == "Error":
-                finish("Error", f"FCT {name}: random serial fault "
-                                f"(virtual) -> Error")
-                return
+            # (FCT is always real - no virtual fault roll)
             payload = (quotes[0] if quotes
                        else console_keyword_fallback(rest))
             payload = payload.strip().strip("'\"").strip()
@@ -757,11 +763,6 @@ class TestRunner(QObject):
             return
 
         if kind == "SendtoCLI":
-            fault = env._virtual_fault_roll()
-            if fault == "Error":
-                worker.inject_fault("no_response")
-            elif fault == "FAIL":
-                worker.inject_fault("wrong_reply")
             payload = (quotes[0] if quotes
                        else rest.split(",")[0].strip())
             payload = payload.strip().strip("'\"").strip()
@@ -784,17 +785,7 @@ class TestRunner(QObject):
 
         if kind in ("WaitforConsole", "WaitforCLI"):
             # search the whole accumulated buffer: the boot log may
-            # already contain the expected keyword
-            fault = env._virtual_fault_roll()
-            if fault == "Error":
-                finish("Error", f"FCT {name}: random serial fault "
-                                f"(virtual) -> Error")
-                return
-            if fault == "FAIL":
-                finish("FAIL", f"FCT {name}: expected keyword never "
-                               f"observed in the console output "
-                               f"(virtual fail) -> FAIL")
-                return
+            # already contain the expected keyword (no virtual fault)
             keywords = [q for q in quotes if q]
             if not keywords:
                 fallback = console_keyword_fallback(rest)
@@ -812,19 +803,13 @@ class TestRunner(QObject):
             return
 
         # CapturefromConsole / CapturefromCLI: instant buffer capture
-        fault = env._virtual_fault_roll()
-        if fault == "Error":
-            finish("Error", f"FCT {name}: random serial/equipment fault "
-                            f"(virtual) -> Error")
-            return
+        # (FCT is always real - no virtual fault roll)
         keywords = [q for q in quotes if q]
         if not keywords:
             fallback = console_keyword_fallback(rest)
             keywords = [fallback] if fallback else []
         text = mc.get_read_buffer(key).decode("utf-8", "replace")
         healthy = (not keywords) or any(k in text for k in keywords)
-        if fault == "FAIL":
-            healthy = False
         if healthy:
             finish("PASS", f"FCT {name}: buffer contains "
                            f"{' / '.join(keywords)} -> PASS")

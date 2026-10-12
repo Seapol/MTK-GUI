@@ -209,6 +209,71 @@ def open_topic(key: str) -> bool:
     return True
 
 
+#: layout + behaviour of the all-in-one User Guide home page
+_GUIDE_CSS = _PAGE_CSS + """
+layout { display: block; }
+aside { position: fixed; top: 0; left: 0; bottom: 0; width: 250px;
+        overflow-y: auto; background: #14375a; padding: 18px 14px; }
+aside h2 { color: #fff; font-size: 15px; margin: 0 0 12px; }
+aside a { display: block; color: #cfe0f1; text-decoration: none;
+          font-size: 13.5px; padding: 6px 8px; border-radius: 4px;
+          margin: 2px 0; }
+aside a:hover { background: #25527e; color: #fff; }
+div.guide { margin-left: 250px; }
+div.guide > main { max-width: 920px; }
+section.chapter { border-top: 1px solid #d7dee5;
+                  padding-top: 8px; margin-top: 26px; }
+section.chapter:first-of-type { border-top: none; }
+@media (max-width: 900px) { aside { position: static; width: auto; }
+  div.guide { margin-left: 0; } }
+"""
+
+
+def guide_page_html() -> str:
+    """The all-in-one User Guide home page: a fixed sidebar with the
+    chapter table of contents and all twelve chapters rendered on one
+    page (anchor links, screenshots included)."""
+    toc = "".join(
+        f'<a href="#chapter-{i + 1}">{label}</a>'
+        for i, (_k, label, _f) in enumerate(CHAPTERS))
+    body = "".join(
+        f'<section class="chapter" id="chapter-{i + 1}">'
+        f"{load_topic_html(key)}</section>"
+        for i, (key, _label, _f) in enumerate(CHAPTERS))
+    return (f"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            f"<title>MTK GUI User Guide</title>"
+            f"<style>{_GUIDE_CSS}</style></head><body>"
+            f"<aside><h2>MTK GUI User Guide</h2>{toc}</aside>"
+            f"<div class='guide'>"
+            f"<header><h1>MTK GUI User Guide &mdash; "
+            f"Manufacturing Test Kit</h1></header>"
+            f"<main>{body}</main></div>"
+            f"</body></html>")
+
+
+def guide_temp_path() -> Path:
+    """Stable temp file of the User Guide home page."""
+    import tempfile
+    out_dir = Path(tempfile.gettempdir()) / "mtk_gui_help"
+    out_dir.mkdir(exist_ok=True)
+    return out_dir / "User_Guide.html"
+
+
+def open_guide() -> None:
+    """Render the all-in-one User Guide and open it in the system web
+    browser (the sidebar TOC scrolls to each chapter)."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    page = guide_page_html()
+    # the per-chapter links inside a chapter body (if any) resolve to
+    # the sibling single-chapter pages, so also render those
+    for k in HELP_TOPICS:
+        topic_temp_path(k).write_text(topic_page_html(k), encoding="utf-8")
+    path = guide_temp_path()
+    path.write_text(page, encoding="utf-8")
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
 def about_html() -> str:
     """About dialog body: version + branch + build info."""
     from ..gui_version import load_gui_version

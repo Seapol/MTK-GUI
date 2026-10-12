@@ -181,38 +181,45 @@ def _pattern_hit(pattern: str, is_regex: bool, case_sensitive: bool,
     return pattern.lower() in text.lower()
 
 
-def _read_until(serial, stop_fn, timeout: float) -> tuple:
+def _read_until(serial, stop_fn, timeout: float,
+                history: str = "") -> tuple:
     """Drain the console into a buffer until stop_fn(text)->True or
     timeout. Returns (status, text): status is whatever stop_fn returns
-    truthy-as (a non-empty string verdict), else 'TIMEOUT'."""
+    truthy-as (a non-empty string verdict), else 'TIMEOUT'.  `history`
+    is prior session output prepended to the judgement text (the stop
+    function sees history + fresh bytes)."""
     start = time.time()
-    buffer = b""
+    buffer = history.encode("utf-8", errors="replace")
     while time.time() - start < max(timeout, 0.1):
         chunk = serial.read(4096)
         if chunk:
             buffer += chunk
-            text = buffer.decode("utf-8", errors="replace")
-            verdict = stop_fn(text)
-            if verdict:
-                return verdict, text
+        # judge on every pass: a history-only match (no fresh bytes)
+        # must return immediately
+        text = buffer.decode("utf-8", errors="replace")
+        verdict = stop_fn(text)
+        if verdict:
+            return verdict, text
         time.sleep(0.05)
     return "TIMEOUT", buffer.decode("utf-8", errors="replace")
 
 
 def wait_stage(serial, pattern: str, is_regex: bool, case_sensitive: bool,
-               timeout: float) -> tuple:
+               timeout: float, history: str = "") -> tuple:
     """Wait stage: block until `pattern` appears or timeout.
 
     Used to find the right moment to send (e.g. a login prompt). The
     prompt is static (printed once), so do NOT reset the buffer here:
     a prompt already present must match immediately. Send resets the
-    buffer before writing. Returns ('PASS', text) on hit,
-    ('TIMEOUT', text) on timeout.
-    """
+    buffer before writing. `history` is prior session output (see
+    FctTestRunner._con_hist): a prompt consumed by an earlier row's
+    capture still matches here, mirroring the GUI accumulated-buffer
+    semantics. Returns ('PASS', text) on hit,
+    ('TIMEOUT', text) on timeout."""
     def _stop(text):
         return "PASS" if _pattern_hit(pattern, is_regex,
                                       case_sensitive, text) else ""
-    return _read_until(serial, _stop, timeout)
+    return _read_until(serial, _stop, timeout, history=history)
 
 
 def send_stage(serial, cmd: str, timeout: float) -> tuple:
@@ -401,10 +408,12 @@ class ConsoleSerialShim:
 class FctStepResult:
     """One executed FCT step (report row)."""
 
-    def __init__(self, name: str, verdict: str, detail: str = "") -> None:
+    def __init__(self, name: str, verdict: str, detail: str = "",
+                 duration: float = 0.0) -> None:
         self.name = name
         self.verdict = verdict          # PASS / FAIL / TIMEOUT / ERROR
         self.detail = detail
+        self.duration = float(duration)  # step wall time, seconds
 
     @property
     def passed(self) -> bool:
@@ -424,6 +433,12 @@ class FctTestRunner:
         # Used to resolve a relative console.scripts_local_dir (the YAML
         # folder in the GUI, the package root in a frozen Windows build).
         self.scripts_base_dir = scripts_base_dir
+        # Session history of console output (mirrors the GUI ConsoleWidget
+        # read_buffer semantics): the yaml-row WAIT stage matches against
+        # history + fresh bytes, so a prompt consumed by an earlier row's
+        # capture still satisfies a later row's wait (e.g. waiting for
+        # 'root@...#' right before launching fat.py).
+        self._con_hist = ""
 
     def _identity(self) -> str:
         return f"[{self.station_id}] [{self.user}]"
@@ -446,9 +461,11 @@ class FctTestRunner:
         if not c.enabled or serial is None:
             return results
         for cmd in c.test_commands:
+            t0 = time.time()
             verdict, detail, stage = self._run_one_command(serial, cmd)
             label = cmd.name or cmd.send or cmd.expect_pass or "console"
-            results.append(FctStepResult(label, verdict, detail))
+            results.append(FctStepResult(label, verdict, detail,
+                                         duration=time.time() - t0))
             self.log(f"console '{label}' [{stage}] -> {verdict} {detail}")
             if verdict != "PASS":
                 return results  # stop the whole sequence on failure
@@ -480,13 +497,26 @@ class FctTestRunner:
 
     def _run_pipeline(self, serial, cmd) -> tuple:
         """Wait -> Send -> Capture for one command."""
-        # 1) WAIT (precondition to send, e.g. login prompt)
+        # 1) WAIT (precondition to send, e.g. login prompt) — matched
+        # against session history + fresh bytes (GUI-equivalent).
         if cmd.wait_enabled and cmd.expect_pass:
             verdict, text = wait_stage(
                 serial, cmd.expect_pass, cmd.expect_pass_is_regex,
-                cmd.case_sensitive, cmd.wait_timeout)
+                cmd.case_sensitive, cmd.wait_timeout,
+                history=self._con_hist)
+            self._con_hist = (text or "")[-65536:]
             if verdict != "PASS":
                 return "FAIL", f"wait timeout, no '{cmd.expect_pass}'", "wait"
+        # 1.5) CONFIRM (operator MessageYesNo between Wait and Send,
+        # e.g. a fat.py question): No stops the unit with a FAIL and
+        # nothing is sent to the DUT.
+        if cmd.confirm_enabled:
+            ask = getattr(self, "_human_confirm", None)
+            if not callable(ask):
+                return "ERROR", "no confirm hook bound", "confirm"
+            question = cmd.confirm_message or cmd.name or "Confirm?"
+            if not ask(question):
+                return "FAIL", "operator answered No", "confirm"
         # 2) SEND (each line auto-newline; timeout guards a stuck link).
         # kind=send with an empty command still sends one newline
         # (e.g. blank password); a capture-only row sends nothing.
@@ -503,10 +533,27 @@ class FctTestRunner:
                 cmd.capture_is_expected, cmd.expect_fail_is_regex,
                 cmd.case_sensitive, cmd.timeout,
                 forbid=cmd.capture_forbid)
+            self._con_hist = (self._con_hist + "\n" +
+                              (text or ""))[-65536:]
             if verdict == "TIMEOUT":
                 return "FAIL", "capture timeout", "capture"
             if verdict != "PASS":
+                if (cmd.capture_forbid
+                        and _pattern_hit(cmd.capture_forbid,
+                                         cmd.expect_fail_is_regex,
+                                         cmd.case_sensitive, text or "")):
+                    return ("FAIL",
+                            f"matched unwanted '{cmd.capture_forbid}'",
+                            "capture")
                 return "FAIL", "capture condition not met", "capture"
+            # keep the last output line as evidence - it flows into the
+            # report/CSV "measured" column (e.g. 'Overall result: PASS')
+            last = ""
+            for ln in (text or "").splitlines():
+                if ln.strip():
+                    last = ln.replace("\r", "").strip()[:160]
+            if last:
+                return "PASS", last, "done"
         return "PASS", "", "done"
 
     def _run_sftp(self, channel, cmd) -> tuple:
@@ -554,6 +601,7 @@ class FctTestRunner:
         if w.scan_enabled:
             if self.cfg.dut_type == "linux" and w.scan_via == "dut_console" \
                     and serial is not None:
+                t0 = time.time()
                 verdict, text = console_send_and_expect(
                     serial, f"iw dev {w.interface} link",
                     r"signal:\s*(-?[\d.]+)\s*dBm",
@@ -568,12 +616,15 @@ class FctTestRunner:
                     results.append(FctStepResult(
                         "Wi-Fi Scan / RSSI",
                         "PASS" if rssi >= w.rssi_min else "FAIL",
-                        f"RSSI {rssi} dBm vs min {w.rssi_min}"))
+                        f"RSSI {rssi} dBm vs min {w.rssi_min}",
+                        duration=time.time() - t0))
                 else:
                     results.append(FctStepResult(
                         "Wi-Fi Scan / RSSI", "FAIL",
-                        "DUT Wi-Fi not connected / link info timeout"))
+                        "DUT Wi-Fi not connected / link info timeout",
+                        duration=time.time() - t0))
             elif host_runner is not None:
+                t0 = time.time()
                 out = _adapter(host_runner, {
                     "mode": "rssi_only", "ssid": w.scan_ssid,
                     "expected_ssid": w.scan_ssid,
@@ -581,7 +632,7 @@ class FctTestRunner:
                 results.append(FctStepResult(
                     "Wi-Fi Scan / RSSI",
                     "PASS" if out["verdict"] == "Pass" else "FAIL",
-                    str(out["items"])))
+                    str(out["items"]), duration=time.time() - t0))
             else:
                 self.log("Wi-Fi scan skipped: no host runner bound")
         # 2) connect & ping (Linux only; >=1 reply passes)
@@ -589,6 +640,7 @@ class FctTestRunner:
             if host_runner is None:
                 self.log("Wi-Fi connect & ping skipped: no host runner")
             else:
+                t0 = time.time()
                 out = _adapter(host_runner, {
                     "mode": "full_stack", "ssid": w.ping_ssid,
                     "expected_ssid": w.ping_ssid,
@@ -600,7 +652,8 @@ class FctTestRunner:
                 ok = loss is not None and float(loss) < 100.0
                 results.append(FctStepResult(
                     "Wi-Fi Connect & Ping",
-                    "PASS" if ok else "FAIL", str(out.get("items"))))
+                    "PASS" if ok else "FAIL", str(out.get("items")),
+                    duration=time.time() - t0))
         # 3) iperf throughput (Linux only; host server / DUT client)
         if w.iperf_enabled and self.cfg.dut_type == "linux" and serial:
             server_ip = w.iperf_server_ip or host_lan_ip()
@@ -609,10 +662,12 @@ class FctTestRunner:
                     f"Wi-Fi iPerf ({w.iperf_tool})", "FAIL",
                     "cannot determine host server IP"))
             else:
+                t0 = time.time()
                 v, d = dut_wifi_iperf(serial, w.iperf_tool, server_ip,
                                       w.iperf_min_mbps, w.iperf_duration)
                 results.append(FctStepResult(
-                    f"Wi-Fi iPerf Throughput ({w.iperf_tool})", v, d))
+                    f"Wi-Fi iPerf Throughput ({w.iperf_tool})", v, d,
+                    duration=time.time() - t0))
         return results
 
     def run_bluetooth(self, serial, host_runner, human_confirm=None) -> list:
@@ -628,6 +683,7 @@ class FctTestRunner:
         from .rf_adapters import BluetoothAdapter
 
         def _run(mode: str, label: str, timeout: float):
+            t0 = time.time()
             ad = BluetoothAdapter(
                 {"bluetooth": {
                     "mode": mode, "expected_name": b.expected_name,
@@ -640,7 +696,7 @@ class FctTestRunner:
             out = ad.run_test()
             results.append(FctStepResult(
                 label, "PASS" if out["verdict"] == "Pass" else "FAIL",
-                str(out["items"])))
+                str(out["items"]), duration=time.time() - t0))
 
         if b.rssi_enabled:
             _run("rssi_only", "Bluetooth RSSI", b.rssi_timeout)
@@ -649,10 +705,12 @@ class FctTestRunner:
                 _run("pair_connect", "Bluetooth Pair & Connect",
                      b.pair_timeout)
                 if b.l2ping_count > 0 and serial is not None:
+                    t0 = time.time()
                     v, d = dut_bt_l2ping(serial, host_runner,
                                          b.l2ping_count)
                     results.append(FctStepResult(
-                        f"BT L2CAP ping ({b.l2ping_count})", v, d))
+                        f"BT L2CAP ping ({b.l2ping_count})", v, d,
+                        duration=time.time() - t0))
             if b.tone_enabled:
                 _run("a2dp_sink", "Bluetooth Tone / Music (A2DP)",
                      b.tone_timeout)
@@ -672,6 +730,7 @@ class FctTestRunner:
         if local and not os.path.isabs(local) and self.scripts_base_dir:
             local = os.path.join(self.scripts_base_dir, local)
         remote = (c.scripts_remote_dir or "").rstrip("/")
+        t0 = time.time()
         try:
             if not os.path.isdir(local):
                 raise FileNotFoundError(local)
@@ -689,17 +748,23 @@ class FctTestRunner:
                         n += 1
             else:
                 return FctStepResult("Deploy DUT scripts", "FAIL",
-                                     "channel has no SFTP capability")
+                                     "channel has no SFTP capability",
+                                     duration=time.time() - t0)
             return FctStepResult(
                 "Deploy DUT scripts", "PASS",
-                f"{n} file(s) -> {remote or '~'}")
+                f"{n} file(s) -> {remote or '~'}",
+                duration=time.time() - t0)
         except Exception as exc:                    # noqa: BLE001
             return FctStepResult("Deploy DUT scripts", "FAIL",
-                                 f"deploy error: {exc}")
+                                 f"deploy error: {exc}",
+                                 duration=time.time() - t0)
 
     def run(self, serial, host_runner, human_confirm=None) -> dict:
         """One complete FCT cycle -> results + overall verdict."""
         self.log("FCT cycle start")
+        # operator confirm hook, shared by the console Confirm stage and
+        # the Bluetooth A2DP tone step (callable(question) -> bool)
+        self._human_confirm = human_confirm
         results: list = []
         # 0) provision generic Linux scripts over SFTP before anything runs
         deploy = self.deploy_scripts(serial)
@@ -718,6 +783,7 @@ class FctTestRunner:
         console_cmds = {c.send for c in self.cfg.console.test_commands}
         if (w.enabled and w.driver_load_cmd and serial is not None
                 and w.driver_load_cmd not in console_cmds):
+            t0 = time.time()
             verdict, text = console_send_and_expect(
                 serial, w.driver_load_cmd, r"RF drivers loaded OK",
                 r"FAILED", 15.0)
@@ -725,7 +791,7 @@ class FctTestRunner:
                 f"Load RF drivers ({w.driver_load_cmd})",
                 "PASS" if verdict == "PASS" else "FAIL",
                 text.strip().splitlines()[-1][:120] if text.strip()
-                else ""))
+                else "", duration=time.time() - t0))
         results += self.run_wifi(serial, host_runner)
         results += self.run_bluetooth(serial, host_runner, human_confirm)
         overall = ("PASS" if results and all(r.passed for r in results)

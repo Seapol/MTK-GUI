@@ -15,7 +15,7 @@ from pathlib import Path
 
 #: CSV column header (DUT detail rows, MES-importable flat shape)
 CSV_HEADER = ("serial_no", "station_id", "user", "timestamp",
-              "test_name", "category", "channel", "measured", "low",
+              "test_name", "category", "channel", "duration", "low",
               "high", "unit", "result")
 
 #: item categories (directive §B1)
@@ -38,6 +38,9 @@ class ReportItem:
     category: str
     channel: str = ""
     measured: str = ""
+    # test execution time (seconds, formatted by the caller).  FCT rows
+    # carry it; ICT rows keep their measured value instead.
+    duration: str = ""
     low: str = ""
     high: str = ""
     unit: str = ""
@@ -49,8 +52,8 @@ class ReportItem:
         """Flat MES row (the DUT header fields repeated per item)."""
         return [dut.serial_no, dut.station_id, dut.user, dut.timestamp,
                 self.test_name, self.category, self.channel,
-                self.measured, self.low, self.high, self.unit,
-                self.result]
+                self.duration or self.measured, self.low, self.high,
+                self.unit, self.result]
 
 
 @dataclass
@@ -104,7 +107,8 @@ class DutReport:
                 low=_cell(page.ict, r, 5), high=_cell(page.ict, r, 6),
                 unit=_clean(step[2]) if len(step) > 2 else "",
                 result=result))
-        # FCT rows (RF kinds -> RF category)
+        # FCT rows (RF kinds -> RF category); the FCT table col 3 is the
+        # per-row Duration (s) cell
         for r, name in enumerate(getattr(page, "fct_rows", [])):
             result = _cell(page.fct, r, 4)
             if not result or result in ("Pending", "--"):
@@ -113,9 +117,10 @@ class DutReport:
                     if r < len(page.fct_kinds) else "")
             category = (CAT_RF if kind in ("WIFI", "Bluetooth")
                         else CAT_FCT)
+            dur = _cell(page.fct, r, 3)
             report.items.append(ReportItem(
                 test_name=name, category=category, channel="console",
-                measured=_cell(page.fct, r, 3), result=result))
+                duration="" if dur == "--" else dur, result=result))
         return report
 
     # ------------------------------------------------------------- output
@@ -128,8 +133,8 @@ class DutReport:
         """Print-view HTML (in-app QTextBrowser render)."""
         rows = "".join(
             f"<tr><td>{i.test_name}</td><td>{i.category}</td>"
-            f"<td>{i.measured}</td><td>{i.low}</td><td>{i.high}</td>"
-            f"<td>{i.unit}</td><td>{i.result}</td></tr>"
+            f"<td>{i.duration or i.measured}</td><td>{i.low}</td>"
+            f"<td>{i.high}</td><td>{i.unit}</td><td>{i.result}</td></tr>"
             for i in self.items)
         color = "#1d7a3c" if "PASS" in self.overall_result else "#b02a2a"
         return (

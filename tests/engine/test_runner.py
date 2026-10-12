@@ -206,13 +206,36 @@ class TestVirtualConsoleSteps:
         runner._poll_fct_console()   # scripted DUT replies instantly
         assert env.rows[("fct", 1)] == "PASS"
 
-    def test_wifi_row_uses_cli_path(self, env):
+    def test_wifi_row_requires_real_gateway(self, env):
+        # FCT Wi-Fi/BT always run against the REAL host RF adapters -
+        # Virtual mode never simulates them: without a configured
+        # gateway the row is an honest FAIL (user rule)
+        env.gateway = None
         self._connect(env)
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
         runner._exec_fct_row(2, interactive=True)  # WIFI row
-        runner._poll_fct_console()
+        assert env.rows[("fct", 2)] == "FAIL"
+        assert any("no RF gateway" in line
+                   for line in env._log_lines())
+
+    def test_wifi_row_uses_real_gateway(self, env):
+        # with a gateway present the row runs the real RF adapter path
+        class FakeOut:
+            verdict = "PASS"
+            text = "rssi -42 dBm"
+            lines: list = []
+
+        class FakeGw:
+            def rf_test(self, kind, name, cfg):
+                return FakeOut()
+
+        env.gateway = FakeGw()
+        runner = TestRunner(env)
+        runner.state = "running"
+        env.runner = runner
+        runner._exec_fct_row(2, interactive=True)  # WIFI row
         assert env.rows[("fct", 2)] == "PASS"
 
     def test_no_serial_channel_reports_error(self, env):

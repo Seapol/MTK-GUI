@@ -107,9 +107,12 @@ def test_light_theme_palette_untouched():
 
 
 def test_light_verdicts_untouched():
+    # virtual_ok / virtual_bad added 2026-10: the Virtual-mode ICT
+    # verdict colours (yellow-green / orange-red) - user-directed
     assert GUI_THEMES["Light"]["verdicts"] == {
         "ok": "#1d7a3c", "bad": "#c0392b", "run": "#2f6fb3",
         "warn": "#b35c00", "neutral": "#5b6b7a",
+        "virtual_ok": "#7aa016", "virtual_bad": "#d35400",
     }
 
 

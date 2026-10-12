@@ -93,12 +93,19 @@ run is active.
   Overall Result becomes `IGNORE` (only when no item failed).
 - **FAIL wins over Stop**: a stopped run that already has FAIL items
   reports `FAIL`, never `IGNORE`.
-- In Virtual mode the verdict text is prefixed, e.g. `Virtual PASS`.
+- In Virtual mode only the **ICT** results (instrument measurements)
+  are virtualised: they show `Virtual PASS` (yellow-green) /
+  `Virtual FAIL` (orange-red). **FCT always runs on real hardware**
+  (real DUT + Host PC Wi-Fi/Bluetooth + Wi-Fi router) and its results
+  are plain `PASS` (green) / `FAIL` (red) in every mode.
 
 ### Overall Result
 
 - Big verdict label: `—` (nothing judged), `RUNNING`, `PASS`, `FAIL`,
-  `IGNORE` (or `Virtual <verdict>` in Virtual mode).
+  `IGNORE`. In Virtual mode the label reads `Virtual PASS` /
+  `Virtual FAIL` (yellow-green / orange-red) **only when virtualised
+  ICT results contributed**; a pure-FCT run reports plain `PASS` /
+  `FAIL` even in Virtual mode.
 - Statistics line underneath, counted **per product** (one complete
   test cycle), not per individual item:
 
@@ -196,7 +203,8 @@ Unlock`, `Fixture Release`, `Reset Instruments`.
 - The row being executed is highlighted (amber) and scrolled into
   view.
 - `Measured` updates as each measurement completes.
-- In Virtual mode result texts carry the `Virtual` prefix.
+- In Virtual mode the **ICT** result texts carry the `Virtual` prefix
+  (FCT results are always plain - FCT runs on real hardware).
 
 ### Context Menu (right-click a row)
 

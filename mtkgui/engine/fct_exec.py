@@ -440,6 +440,17 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # global keyword tables must NOT judge raw DUT output (a boot
         # log contains 'timeout'/'error' words -> false negatives)
         if step.params.get("fct_console"):
+            if step.params.get("confirm_enabled"):
+                # operator MessageYesNo between Wait and Send
+                # (interactive DUT prompts, e.g. fat.py questions)
+                if ctx.human_confirm is None:
+                    return FctOutcome(VERDICT_ERROR,
+                                      "no confirm hook bound")
+                go = bool(ctx.human_confirm(step))
+                ctx.log(f"human answer {'GO' if go else 'STOP'}")
+                if not go:
+                    return FctOutcome(VERDICT_FAIL,
+                                      "operator answered No")
             if "send" in step.params:
                 ctx.log(f"console send: {step.params.get('send')!r}")
                 channel.write(str(step.params.get("send") or "") + "\n")

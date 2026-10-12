@@ -22,23 +22,34 @@ OUT = ROOT / "docs" / "help" / "_build"
 
 
 def main() -> int:
-    from mtkgui.gui.help_content import CHAPTERS, HELP_ROOT, topic_page_html
+    from mtkgui.gui.help_content import (
+        CHAPTERS,
+        HELP_ROOT,
+        guide_page_html,
+        topic_page_html,
+    )
 
     if OUT.exists():                          # regen from scratch
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
     shutil.copytree(HELP_ROOT / "images", OUT / "images", dirs_exist_ok=True)
 
-    for key, _label, filename in CHAPTERS:
-        page = topic_page_html(key)
+    def relativize(page: str) -> str:
         # temp-dir file:// image URIs -> relative _build/images/ paths
         page = re.sub(
             r'src="file://[^"]*/images/([^"]+)"',
             r'src="images/\1"', page)
         # temp-dir sibling chapter links -> relative html files
-        page = page.replace('href="mtkgui-help://', 'href="')
+        return page.replace('href="mtkgui-help://', 'href="')
+
+    # all-in-one home page (sidebar TOC + every chapter on one page)
+    (OUT / "User_Guide.html").write_text(
+        relativize(guide_page_html()), encoding="utf-8")
+    print("built User_Guide.html")
+
+    for key, _label, filename in CHAPTERS:
         (OUT / filename.replace(".md", ".html")).write_text(
-            page, encoding="utf-8")
+            relativize(topic_page_html(key)), encoding="utf-8")
         print(f"built {filename.replace('.md', '.html')}")
 
     print(f"\nDone -> {OUT}")

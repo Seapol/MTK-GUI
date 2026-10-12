@@ -963,6 +963,18 @@ class TestWorkFlowPage(QWidget):
         (rollup lives in the engine, interface_spec.md §3)."""
         return self._runner.verdict()
 
+    def _ict_virtual_seen(self):
+        """True when at least one ICT Result cell carries the Virtual
+        prefix - the Overall verdict is only Virtual-prefixed when the
+        (virtualised) instrument stage actually contributed a result;
+        a pure-FCT run reports plain PASS / FAIL even in Virtual mode
+        (FCT always runs against real hardware)."""
+        for r in range(self.ict.rowCount()):
+            item = self.ict.item(r, 7)
+            if item is not None and item.text().startswith("Virtual"):
+                return True
+        return False
+
     def _update_result(self):
         """Refresh the big verdict + the per-product statistics."""
         if self.run_state == "running":
@@ -980,8 +992,13 @@ class TestWorkFlowPage(QWidget):
                 verdict, key = "PASS", "ok"
             else:
                 verdict, key = "—", "neutral"
-        if self.virtual_mode and verdict != "—":
+        if self.virtual_mode and verdict in ("PASS", "FAIL") \
+                and self._ict_virtual_seen():
+            # only the virtualised ICT stage earns the Virtual prefix
+            # + the dedicated virtual verdict colours
             verdict = f"Virtual {verdict}"
+            key = "virtual_ok" if verdict == "Virtual PASS" \
+                else "virtual_bad"
         self.result_label.setText(verdict)
         self.result_label.setStyleSheet(
             f"font-size:36px; font-weight:bold;"
@@ -1228,7 +1245,8 @@ class TestWorkFlowPage(QWidget):
                         if self.virtual_mode and res_val != "Pending"
                         else res_val)
         if res_val in ("PASS", "Done"):
-            res_item.setForeground(QColor(gui_theme_color("ok")))
+            key = "virtual_ok" if self.virtual_mode else "ok"
+            res_item.setForeground(QColor(gui_theme_color(key)))
             res_item.setFont(_bold())
         else:
             res_item.setForeground(QBrush())
@@ -1941,8 +1959,13 @@ class TestWorkFlowPage(QWidget):
                          self.cap_start, self.cap_rate, self.virtual_mode)
 
     # ------------------------------------------------------------ actions
-    def _set_status(self, table, row, col, status):
-        text = f"Virtual {status}" if self.virtual_mode else status
+    def _set_status(self, table, row, col, status, virtual=False):
+        """Write one status cell. Virtual mode prefixes ICT results
+        with 'Virtual' and colours them with the dedicated virtual
+        verdict palette (yellow-green PASS / orange-red FAIL); FCT
+        always runs on real hardware and is never prefixed."""
+        virtual = virtual and self.virtual_mode
+        text = f"Virtual {status}" if virtual else status
         item = table.item(row, col)
         if item is None:
             item = QTableWidgetItem()
@@ -1952,10 +1975,12 @@ class TestWorkFlowPage(QWidget):
             item.setText(text)   # skip unchanged: avoids column re-layout
         font = QFont()
         if status in ("PASS", "Done"):
-            item.setForeground(QColor(gui_theme_color("ok")))
+            key = "virtual_ok" if virtual else "ok"
+            item.setForeground(QColor(gui_theme_color(key)))
             font.setBold(True)
         elif status in ("FAIL", "Error"):
-            item.setForeground(QColor(gui_theme_color("bad")))
+            key = "virtual_bad" if virtual else "bad"
+            item.setForeground(QColor(gui_theme_color(key)))
             font.setBold(True)
         elif status == "Ignore":
             item.setForeground(QColor(gui_theme_color("neutral")))
@@ -2027,7 +2052,8 @@ class TestWorkFlowPage(QWidget):
                     item.setText(str(measured))
             self._set_status(self.ict, row, 7,
                              display_text(status,
-                                          "op" if step_kind == "op" else ""))
+                                          "op" if step_kind == "op" else ""),
+                             virtual=self.virtual_mode)
         elif kind == "fct":
             step_kind = (self.fct_kinds[row]
                          if row < len(self.fct_kinds) else "")

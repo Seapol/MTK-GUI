@@ -155,6 +155,10 @@ class ConsoleCommand:
     capture_end_line: str = ""          # end-of-range marker
     capture_forbid: str = ""            # optional negative keyword even when
                                         # expecting a positive (legacy migrate)
+    confirm_enabled: bool = False       # operator MessageYesNo stage between
+                                        # Wait and Send (interactive DUT
+                                        # prompts, e.g. fat.py questions)
+    confirm_message: str = ""           # dialog text ("" -> use step name)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -179,6 +183,8 @@ class ConsoleCommand:
                 "capture_is_expected": self.capture_is_expected,
                 "capture_end_line": self.capture_end_line,
                 "capture_forbid": self.capture_forbid,
+                "confirm_enabled": self.confirm_enabled,
+                "confirm_message": self.confirm_message,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -217,6 +223,8 @@ class ConsoleCommand:
                 capture_is_expected=bool(c.get("capture_is_expected", False)),
                 capture_end_line=str(c.get("capture_end_line", "")),
                 capture_forbid=str(c.get("capture_forbid", "")),
+                confirm_enabled=bool(c.get("confirm_enabled", False)),
+                confirm_message=str(c.get("confirm_message", "")),
                 timeout=float(c.get("timeout", 6.0)),
                 wait_timeout=float(c.get("wait_timeout", 10.0)),
                 send_timeout=float(c.get("send_timeout", 4.0)),
@@ -752,6 +760,8 @@ def build_fct_steps(cfg: FctTestConfig,
                 "capture_end_line": end_line,
                 "capture_is_expected": is_expected,
                 "case_sensitive": cmd.case_sensitive,
+                "confirm_enabled": bool(cmd.confirm_enabled),
+                "confirm_message": str(cmd.confirm_message or ""),
                 "expect_pass_re": pass_pat,
                 "expect_fail_re": neg_pat,
                 "expect_pass_is_regex": pass_regex,

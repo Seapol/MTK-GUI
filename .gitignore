@@ -19,6 +19,11 @@ audit/
 demo/
 projects/
 reports/
+# quick commands: per-station runtime storage (built-in defaults apply
+# when the file is missing)
+config/commands.json
+# real-board fat.py run artifacts (never ship in the Windows package)
+yaml_plan/examples/**/fat_result.json
 # yaml plan workspace: runtime products only (examples/ is versioned
 # user documentation and stays tracked)
 yaml_plan/*
