@@ -109,6 +109,56 @@ def test_crlf_is_one_line_end_no_blank(qapp):
         c.deleteLater()
 
 
+def test_systemd_crlf_status_lines_keep_text(qapp):
+    # systemd ends every status line with '\r\r\n'; the lone CR must
+    # NOT blank the line that just ended (boot log was flooded with
+    # empty lines where the [ OK ] lines should be)
+    c = ConsoleWidget("k", "T", "f")
+    try:
+        c.append_rx("RX",
+                    b"[\x1b[0;32m  OK  \x1b[0m] Mounted /var/volatile."
+                    b"\r\r\n")
+        c.append_rx("RX",
+                    b"         Starting Load/Save OS Random Seed...\r\r\n")
+        c.append_rx("RX", b"[    5.603174] audit: prog-id=9 op=LOAD\r\n")
+        assert _block_texts(c) == [
+            "[  OK  ] Mounted /var/volatile.",
+            "         Starting Load/Save OS Random Seed...",
+            "[    5.603174] audit: prog-id=9 op=LOAD",
+        ]
+        # two text blocks + the document's final empty block only:
+        # no blank lines in between
+        assert c.view.document().blockCount() == 4
+    finally:
+        c.deleteLater()
+
+
+def test_lone_cr_across_chunks_line_end_keeps_text(qapp):
+    # a CR at the end of one chunk with the '\r\n' split off into the
+    # next chunk must not blank the line either (USB CDC chunk split)
+    c = ConsoleWidget("k", "T", "f")
+    try:
+        c.append_rx("RX", b"Stopping Network Time Synchronization...\r")
+        c.append_rx("RX", b"\r\n")
+        assert _block_texts(c) == [
+            "Stopping Network Time Synchronization..."]
+    finally:
+        c.deleteLater()
+
+
+def test_chunked_cr_progress_still_overwrites(qapp):
+    # the deferred overwrite must still clear the line when fresh text
+    # actually arrives on it (chunk-boundary progress refresh)
+    c = ConsoleWidget("k", "T", "f")
+    try:
+        c.append_rx("RX", b"Progress: 30%\r")
+        c.append_rx("RX", b"Progress: 60%\r")
+        c.append_rx("RX", b"Progress: 100%\n")
+        assert _block_texts(c) == ["Progress: 100%"]
+    finally:
+        c.deleteLater()
+
+
 def test_ansi_red_preserved(qapp):
     c = ConsoleWidget("k", "T", "f")
     try:
