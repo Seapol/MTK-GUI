@@ -355,6 +355,44 @@ def test_runner_fct_fail_blocks_overall(qapp):
     page.deleteLater()
 
 
+def test_load_fct_cases_keeps_manual_standard_ops(qapp):
+    """P3-B7 merge protection: standard operator dialogs added by hand
+    on the Test Work Flow page (MessageOK/YesNo/GoStop rows without a
+    generated fct_step marker) survive a sequence rebuild - they are
+    appended after the generated cases, never silently wiped."""
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+    page = TestWorkFlowPage()
+    # the page constructor preloads demo rows (manual standard ops) -
+    # start from an empty table so the assertions stay deterministic
+    page.fct_rows = []
+    page.fct_kinds = []
+    page.fct_enables = []
+    page.fct_waits = []
+    page.fct_timeouts = []
+    page.fct_op_params = []
+    cases = to_project_fct_cases(
+        build_fct_sequence("e2e-merge", flash_mode=FLASH_GUI))
+    page.load_fct_cases(cases)
+    n_generated = len(page.fct_rows)
+    # the operator adds standard ops by hand on the page
+    page.fct_kinds = list(page.fct_kinds) + ["MessageYesNo", "MessageOK"]
+    page.fct_rows = list(page.fct_rows) + ["Swap DUT fixture", "Check power"]
+    page.fct_enables = list(page.fct_enables) + [True, True]
+    page.fct_waits = list(page.fct_waits) + [100, 100]
+    page.fct_timeouts = list(page.fct_timeouts) + [30000, 10000]
+    page.fct_op_params = list(page.fct_op_params) + [None, None]
+    # rebuild the SAME sequence: manual rows are kept at the end
+    page.load_fct_cases(cases)
+    assert page.fct_rows[:n_generated] == [str(c["name"]) for c in cases]
+    assert page.fct_rows[-2:] == ["Swap DUT fixture", "Check power"]
+    assert page.fct_kinds[-2:] == ["MessageYesNo", "MessageOK"]
+    # a manual row whose name matches a generated row is NOT duplicated
+    page.fct_rows[-1] = page.fct_rows[0]
+    page.load_fct_cases(cases)
+    assert page.fct_rows.count(page.fct_rows[0]) == 1
+    page.deleteLater()
+
+
 def test_standard_op_row_runs_instrument_op_not_dialog():
     """P3-B5 FCT setup: a GUI_CONFIRM carrying params.op drives the
     rack PSU / fixture (run_op hook), not an operator MessageGoStop."""

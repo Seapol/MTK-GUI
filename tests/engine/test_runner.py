@@ -682,3 +682,55 @@ class TestStateMachine:
         assert "[STATE] paused -> running (trigger=operator)" in text
         assert "[STATE] running -> aborted (trigger=operator)" in text
         assert "[STATE] aborted -> idle (trigger=reset)" in text
+
+
+class TestFctMessageRows:
+    """P3-B7: sequence message rows (Console "(message)") travel as
+    GUI_CONFIRM params style/message - the interactive operator dialog
+    follows them; plain GUI_CONFIRM steps keep the legacy GoStop
+    "Confirm: <step>" prompt."""
+
+    @staticmethod
+    def _marker(style, message="Did the DUT pass?"):
+        from mtkgui.gui.yamlbuild.fct_build import FctStep
+        return {"fct_step": FctStep(
+            name="Operator check", step_type="GUI_CONFIRM",
+            timeout_s=12.0,
+            params={"style": style, "message": message}).to_dict()}
+
+    def _run_row(self, env, marker, name="Operator check"):
+        env.fct_rows = [name]
+        env.fct_kinds = ["MessageYesNo"]
+        env.fct_op_params = [marker]
+        env.fct_enables = [True]
+        dialogs = []
+        env._fct_message_dialog = lambda kind, text: (
+            dialogs.append((kind, text)), "PASS")[1]
+        runner = TestRunner(env)
+        env.runner = runner
+        runner._exec_fct_row(0, interactive=True)
+        return runner, dialogs
+
+    def test_yesno_style_pops_messageyesno(self, env):
+        _, dialogs = self._run_row(env, self._marker("yesno"))
+        assert dialogs == [("MessageYesNo", "Did the DUT pass?")]
+        assert env.rows[("fct", 0)] == "PASS"
+
+    def test_ok_style_pops_messageok(self, env):
+        _, dialogs = self._run_row(env, self._marker("ok"))
+        assert dialogs == [("MessageOK", "Did the DUT pass?")]
+
+    def test_gostop_style_pops_messagegostop(self, env):
+        _, dialogs = self._run_row(env, self._marker("gostop"))
+        assert dialogs == [("MessageGoStop", "Did the DUT pass?")]
+
+    def test_plain_confirm_step_keeps_legacy_prompt(self, env):
+        # no style/message params -> the pre-P3-B7 behaviour
+        marker = {"fct_step": {
+            "name": "Flash FAT Firmware", "step_type": "GUI_CONFIRM",
+            "channel": "", "command": "", "expect_pass": [],
+            "expect_fail": [], "timeout_s": 5.0, "retries": 0,
+            "on_fail": "", "depends": [], "resource": "", "params": {}}}
+        _, dialogs = self._run_row(env, marker, name="Flash FAT Firmware")
+        assert dialogs == [("MessageGoStop",
+                            "Confirm: Flash FAT Firmware")]

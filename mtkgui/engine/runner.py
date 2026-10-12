@@ -657,10 +657,17 @@ class TestRunner(QObject):
                 ctx.channels[ch_key] = ch
         if step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
             if interactive:
-                def _ask(s):
-                    return env._fct_message_dialog(
-                        "MessageGoStop",
-                        f"Confirm: {s.name}") == "PASS"
+                # dialog style travels in params ("style": ok | yesno |
+                # gostop) — the FCT Sequence message rows pick the
+                # operator dialog; plain GUI_CONFIRM steps keep GoStop
+                _kind = {"ok": "MessageOK",
+                         "yesno": "MessageYesNo"}.get(
+                    str(step.params.get("style") or ""), "MessageGoStop")
+                _text = str(step.params.get("message")
+                            or f"Confirm: {step.name}")
+
+                def _ask(_s, _k=_kind, _t=_text):
+                    return env._fct_message_dialog(_k, _t) == "PASS"
             else:                            # run_demo: simulated GO
                 def _ask(s):
                     env._log("human answer GO (simulated)")

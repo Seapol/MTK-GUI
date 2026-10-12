@@ -165,19 +165,19 @@ def test_bare_metal_console_transport_serial_only(qapp):
                    if b.text() == "Add row")
     add_btn.click()
     cb = panel.cmd_table.cellWidget(0, 1)
-    assert cb.count() == 2  # linux: serial + ssh
+    assert cb.count() == 3  # linux: serial + ssh + "(message)"
     cb.setCurrentText("ssh")
     # switch to bare metal: ssh is removed and the row falls back
     panel.dut_type.setCurrentText("bare_metal")
-    assert cb.count() == 1 and cb.itemText(0) == "serial"
+    assert cb.count() == 2 and cb.itemText(0) == "serial"
     assert cb.currentText() == "serial"
     assert panel._get_row_cmd(0).transport == "serial"
-    # a row added under bare metal is serial-only too
+    # a row added under bare metal is serial-only (+ "(message)") too
     add_btn.click()
-    assert panel.cmd_table.cellWidget(1, 1).count() == 1
+    assert panel.cmd_table.cellWidget(1, 1).count() == 2
     # back to linux restores both transports
     panel.dut_type.setCurrentText("linux")
-    assert cb.count() == 2
+    assert cb.count() == 3
 
 
 THREE_STAGE_YAML = """
@@ -332,3 +332,76 @@ def test_setup_tab_round_trips_power_and_fixture(qapp):
     # switching to manual enables the prompt editors and keeps text
     panel.setup_power.setCurrentIndex(0)   # manual is item 0
     assert panel.setup_on_msg.isEnabled()
+
+
+# --------------------------------------------------- message rows (P3-B7)
+MESSAGE_YAML = """
+fct_test_config:
+  dut_type: linux
+  console:
+    enabled: true
+    port: "/dev/cu.test"
+    baudrate: 115200
+    test_commands:
+      - {name: Kernel check, kind: send, send: "uname -a", timeout: 5}
+      - {name: Swap DUT fixture, kind: message, dialog_style: yesno,
+         timeout: 30}
+      - {name: Ready check, kind: message, dialog_style: ok, timeout: 10}
+  wifi: {enabled: false}
+  bluetooth: {enabled: false}
+"""
+
+
+def test_message_rows_render_and_round_trip(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
+    t = panel.cmd_table
+    # message rows: combo "(message)", style in the Capture column,
+    # one row timeout
+    assert t.cellWidget(1, 1).currentText() == "(message)"
+    assert t.item(1, 4).text() == "Yes-No dialog"
+    assert t.item(1, 5).text() == "T:30s"
+    assert t.item(2, 4).text() == "OK dialog"
+    assert t.item(2, 5).text() == "T:10s"
+    cmd = panel._row_cmd(1)
+    assert cmd.kind == "message" and cmd.dialog_style == "yesno"
+    # values() keeps the message rows (no data loss on OK)
+    out = panel.values()
+    cfg = FctTestConfig.from_dict(yaml.safe_load(
+        out["fct_test_config_yaml"])["fct_test_config"])
+    cmds = cfg.console.test_commands
+    assert [c.kind for c in cmds] == ["send", "message", "message"]
+    assert [c.dialog_style for c in cmds] == ["yesno", "yesno", "ok"]
+
+
+def test_console_choice_switches_row_kind(qapp):
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
+    # switch the send row to a message row via the Console column
+    combo0 = panel.cmd_table.cellWidget(0, 1)
+    combo0.setCurrentText("(message)")
+    cmd0 = panel._get_row_cmd(0)
+    assert cmd0.kind == "message"
+    assert not cmd0.send_enabled and not cmd0.wait_enabled
+    assert panel.cmd_table.item(0, 4).text() == "Yes-No dialog"
+    # ...and back to a transport: the row returns to a Send row
+    combo0.setCurrentText("serial")
+    cmd0 = panel._get_row_cmd(0)
+    assert cmd0.kind == "send" and cmd0.send_enabled
+
+
+def test_message_row_survives_bare_metal_switch(qapp):
+    """"(message)" stays selectable on bare-metal DUTs and a restored
+    message row is never reset by the transport refresh."""
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
+    panel.dut_type.setCurrentText("bare_metal")
+    combo = panel.cmd_table.cellWidget(1, 1)
+    assert combo.currentText() == "(message)"
+    cmd = panel._get_row_cmd(1)
+    assert cmd.kind == "message" and cmd.transport == "serial"
+    out = panel.values()
+    cfg = FctTestConfig.from_dict(yaml.safe_load(
+        out["fct_test_config_yaml"])["fct_test_config"])
+    assert cfg.console.test_commands[1].kind == "message"
+    assert cfg.validate() == []

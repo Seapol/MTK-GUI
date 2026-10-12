@@ -208,3 +208,21 @@ def test_examples_have_no_credentials():
         flat = str(doc).lower()
         for forbidden in ("password", "secret", "token", "credential:"):
             assert forbidden not in flat, (path, forbidden)
+
+
+# --------------------------------------------------- message rows (P3-B7)
+def test_gui_confirm_style_maps_to_message_kinds():
+    """The dialog style travels in params: ok -> MessageOK,
+    yesno -> MessageYesNo, no/unknown style -> MessageGoStop."""
+    seq = FctSequence(name="t", steps=[
+        FctStep(name="a", step_type=STEP_GUI_CONFIRM,
+                params={"style": "ok"}),
+        FctStep(name="b", step_type=STEP_GUI_CONFIRM,
+                params={"style": "yesno"}),
+        FctStep(name="c", step_type=STEP_GUI_CONFIRM,
+                params={"style": "gostop"}),
+        FctStep(name="d", step_type=STEP_GUI_CONFIRM, params={}),
+    ])
+    kinds = [c["kind"] for c in to_project_fct_cases(seq)]
+    assert kinds == ["MessageOK", "MessageYesNo",
+                     "MessageGoStop", "MessageGoStop"]

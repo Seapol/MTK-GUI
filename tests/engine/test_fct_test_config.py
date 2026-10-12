@@ -943,3 +943,66 @@ def test_rf_default_timeouts_are_15s_minimum_one():
     w, b = WifiCfg(), BluetoothCfg()
     assert (w.scan_timeout, w.ping_timeout, w.iperf_timeout) == (15.0,)*3
     assert (b.rssi_timeout, b.pair_timeout, b.tone_timeout) == (15.0,)*3
+
+
+# --------------------------------------------- message rows (P3-B7)
+from mtkgui.engine.fct_test_config import (  # noqa: E402
+    DIALOG_GOSTOP,
+    DIALOG_OK,
+    DIALOG_YESNO,
+    KIND_MESSAGE,
+)
+
+
+def test_message_command_round_trips_dialog_style():
+    cmd = _cmd(name="Swap DUT fixture", kind=KIND_MESSAGE,
+               dialog_style=DIALOG_GOSTOP, timeout=30.0)
+    cfg = frdm_config()
+    cfg.console.test_commands = [cmd]
+    restored = FctTestConfig.from_dict(cfg.to_dict())
+    c = restored.console.test_commands[0]
+    assert c.kind == KIND_MESSAGE
+    assert c.dialog_style == DIALOG_GOSTOP
+    assert restored.to_dict() == cfg.to_dict()
+
+
+def test_message_command_defaults_to_yesno():
+    assert ConsoleCommand(kind=KIND_MESSAGE).dialog_style == DIALOG_YESNO
+
+
+def test_build_steps_message_row_is_channel_free_gui_confirm():
+    """A '(message)' console row becomes a GUI_CONFIRM without a
+    channel at its sequence position - executed through the existing
+    human_confirm hook (fct_exec unchanged)."""
+    cfg = frdm_config()
+    cfg.console.test_commands = [
+        _cmd(name="Kernel check", kind="send", send="uname -a"),
+        _cmd(name="Swap DUT fixture", kind=KIND_MESSAGE,
+             dialog_style=DIALOG_YESNO, timeout=30.0),
+    ]
+    steps = build_fct_steps(cfg)
+    assert steps[0].step_type == "MESSAGE_CHECK"     # console neighbour
+    msg = steps[1]
+    assert msg.name == "Swap DUT fixture"
+    assert msg.step_type == "GUI_CONFIRM"
+    assert not msg.channel                           # no console I/O
+    assert msg.timeout_s == 30.0
+    assert msg.params["style"] == DIALOG_YESNO
+    assert msg.params["message"] == "Swap DUT fixture"
+
+
+def test_build_steps_message_row_styles_reach_params():
+    for style in (DIALOG_OK, DIALOG_YESNO, DIALOG_GOSTOP):
+        cfg = frdm_config()
+        cfg.console.test_commands = [
+            _cmd(name="op ask", kind=KIND_MESSAGE, dialog_style=style)]
+        msg = next(s for s in build_fct_steps(cfg) if s.name == "op ask")
+        assert msg.params["style"] == style
+
+
+def test_validate_accepts_message_row_on_bare_metal():
+    """A message row needs no OS: serial default transport, no SFTP."""
+    cfg = FctTestConfig(dut_type="bare_metal", console=ConsoleCfg(
+        enabled=True, port="/dev/cu.usbmodem1",
+        test_commands=[ConsoleCommand(kind=KIND_MESSAGE, name="ask")]))
+    assert cfg.validate() == []
