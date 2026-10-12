@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Run FRDM-IMX93_FCT_Demo_v1.0.1.yaml on the REAL board, N units.
+"""Run FRDM-IMX93_FCT_Demo_v1.0.2.yaml on the REAL board, N units.
 
 Loads the published project YAML (the file produced by Build FCT Test
 Work Flow -> Apply and Save) and executes its ``fct_test_config`` with the
@@ -31,7 +31,6 @@ from __future__ import annotations
 import os
 import random
 import re
-import shutil
 import string
 import subprocess
 import sys
@@ -58,11 +57,11 @@ from mtkgui.engine.host_cli import HostCliRunner
 from mtkgui.engine.report import (
     DutReport, ReportItem, BatchSummary, save_dut_csv, save_batch_csv,
     CAT_FCT, CAT_RF)
-from mtkgui.gui.report_export import export_pdf
+from mtkgui.gui.report_export import export_pdf, console_log_html
 from mtkgui.gui import identity
 
 YAML_PATH = (ROOT / "yaml_plan" / "examples" / "imx93frdm"
-             / "FRDM-IMX93_FCT_Demo_v1.0.1.yaml")
+             / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
 IPERF3 = "/usr/local/bin/iperf3"
 HEADLESS = os.environ.get("MTK_FCT_HEADLESS") == "1"
@@ -80,6 +79,10 @@ class SerialConsole:
         self.ser = serial.Serial(port, baud, timeout=0.1,
                                  bytesize=8, parity="N", stopbits=1)
         self.write_timeout = 4.0
+        # full console transcript of the current unit (raw bytes, ANSI
+        # codes included) — dumped into the DUT report PDF after the
+        # test table (ANSI stripped there)
+        self.transcript = bytearray()
         # ssh_host is resolved LAZILY (first ssh/sftp use): probing the IP
         # at the pre-test login prompt would type the probe as a username
         # and leave getty at 'Password:', breaking the yaml's own login
@@ -152,7 +155,17 @@ class SerialConsole:
         return n
 
     def read(self, n: int = 4096) -> bytes:
-        return self.ser.read(n)
+        chunk = self.ser.read(n)
+        if chunk:
+            self.transcript += chunk
+        return chunk
+
+    def transcript_reset(self):
+        """Start a fresh transcript for the next unit."""
+        self.transcript.clear()
+
+    def transcript_text(self) -> str:
+        return self.transcript.decode("utf-8", errors="replace")
 
     def flush(self):
         self.ser.flush()
@@ -229,12 +242,19 @@ def dut_html(product: dict, rep: DutReport) -> str:
         "<td style='padding-left:24px'>Overall Result</td>"
         f"<td><font color='{color}'><b>{rep.overall_result}</b></font></td></tr>"
         "</table>")
+    def _item_color(result: str) -> str:
+        up = (result or "").upper()
+        if "PASS" in up:
+            return "#1d7a3c"
+        if any(k in up for k in ("FAIL", "TIMEOUT", "ERROR")):
+            return "#b02a2a"
+        return "#555555"        # INFO / WARN / SKIP: neutral
     rows = "".join(
         f"<tr><td>{i.test_name}</td><td>{i.category}</td><td>{i.channel}</td>"
         f"<td align='center'>{i.duration if i.duration else '-'}</td>"
-        f"<td align='center'><font color='"
-        f"{'#1d7a3c' if 'PASS' in i.result else '#b02a2a'}'>"
-        f"<b>{'PASS' if 'PASS' in i.result else i.result}</b></font></td></tr>"
+        f"<td align='center'><font color='{_item_color(i.result)}'>"
+        f"<b>{'PASS' if 'PASS' in i.result else i.result}</b>"
+        f"</font></td></tr>"
         for i in rep.items)
     body = (
         "<table border='1' cellspacing='0' cellpadding='5' width='100%'>"
@@ -248,10 +268,12 @@ def dut_html(product: dict, rep: DutReport) -> str:
         "<th bgcolor='#e6ebf0'>Duration (s)</th>"
         "<th bgcolor='#e6ebf0'>Result</th></tr>"
         f"{rows}</table>")
+    # full console transcript after the test table (ANSI stripped)
+    log_html = console_log_html(rep.console_log) if rep.console_log else ""
     return (
         "<html><head><meta charset='utf-8'></head><body>"
         f"<h2>DUT FCT Test Report &mdash; {product['part']}</h2>"
-        f"{meta}<br>{body}</body></html>")
+        f"{meta}<br>{body}{log_html}</body></html>")
 
 
 def batch_html(product: dict, summary: BatchSummary) -> str:
@@ -384,6 +406,7 @@ def main() -> int:
         for u in range(1, n_units + 1):
             sn = random_sn()
             print(f"\n===== UNIT {u}/{n_units}  SN={sn} =====")
+            con.transcript_reset()  # full console log for THIS unit
             con.prime()   # fresh prompt for this unit's first WaitFor
             con.reset_ssh_host()   # re-probe IP lazily at first ssh/sftp use
             runner = FctTestRunner(
@@ -395,7 +418,8 @@ def main() -> int:
             print(f"[run] unit {sn} -> {out['overall']} in {dt:.0f}s")
 
             rep = DutReport(serial_no=sn, station_id=station, user=user,
-                            overall_result=out["overall"])
+                            overall_result=out["overall"],
+                            console_log=con.transcript_text())
             for r in out["results"]:
                 cat, chan = category_for(r.name)
                 rep.items.append(ReportItem(
@@ -407,9 +431,6 @@ def main() -> int:
             # per-unit artefacts
             udir = OUT_DIR / "reports" / sn
             udir.mkdir(parents=True, exist_ok=True)
-            landing = OUT_DIR / "_run_work" / "fat_result.json"
-            if landing.exists():
-                shutil.copy2(landing, udir / "fat_result.json")
             pdf = udir / f"FRDM-IMX93_{sn}_FCT.pdf"
             export_pdf(dut_html(product, rep), pdf)
             csv_path = save_dut_csv(rep, udir, batch=product["batch"])

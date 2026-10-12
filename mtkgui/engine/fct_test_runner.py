@@ -86,6 +86,45 @@ BT_MAC_CMDS = {
 
 
 # ---------------------------------------------------------------------------
+# fat.py Summary parsing (per-item report rows)
+# ---------------------------------------------------------------------------
+#: ANSI escape sequences in DUT console output (SGR colors, cursor ops
+#: incl. clear-line [K, OSC strings) — stripped before matching/reporting
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
+
+#: one fat.py Summary table row (ANSI stripped), e.g.
+#: ``20      USB1_C / USB2_A U-disk read/write speed       FAIL          99.50s``
+FAT_SUMMARY_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(.+?)\s{2,}(PASS|FAIL|WARN|INFO|SKIP)\s+([\d.]+)s\s*$")
+
+
+def strip_ansi(text: str) -> str:
+    """Strip ANSI escape sequences and normalize \\r line ends to \\n."""
+    return ANSI_RE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def parse_fat_summary(text: str) -> list:
+    """Parse a fat.py ``Summary:`` table into per-test rows.
+
+    Returns ``[(index, name, status, duration), ...]`` (duration keeps
+    its ``s`` suffix, status is PASS/FAIL/WARN/INFO/SKIP verbatim);
+    empty when no Summary block is present.  Only lines after the LAST
+    ``Summary:`` anchor are considered, so earlier chatter cannot
+    produce phantom rows."""
+    stripped = strip_ansi(text)
+    anchor = stripped.rfind("Summary:")
+    if anchor < 0:
+        return []
+    rows = []
+    for line in stripped[anchor:].splitlines():
+        m = FAT_SUMMARY_ROW_RE.match(line)
+        if m:
+            rows.append((int(m.group(1)), m.group(2).strip(),
+                         m.group(3), m.group(4) + "s"))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # console matching primitives (spec §4.1 / §4.2)
 # ---------------------------------------------------------------------------
 def match_expectation(text: str, expect_pass: str,
@@ -256,16 +295,24 @@ def send_stage(serial, cmd: str, timeout: float) -> tuple:
 
 def capture_stage(serial, pattern: str, end_line: str, expected: bool,
                   is_regex: bool, case_sensitive: bool,
-                  timeout: float, forbid: str = "") -> tuple:
+                  timeout: float, forbid: str = "",
+                  history: str = "") -> tuple:
     """Capture stage: judge the output after commands were sent.
 
     expected=True  : pattern found = PASS; end_line reached without
                      pattern = FAIL; timeout = FAIL.
     expected=False : pattern found = FAIL; end_line reached without
                      pattern = PASS; timeout without end_line = FAIL
-                     (or PASS if no end_line is defined).
+                     (or PASS if no end_line is defined AND the DUT
+                     actually produced output in this window).
     `forbid` is an optional negative keyword that fails immediately
     whenever it appears (legacy expect_fail alongside a positive).
+    `history` is prior session output prepended to the judgement text
+    (capture-only rows look back at the whole transcript — "from the
+    console start to the End Line"); send rows pass "" so ONLY bytes
+    received after the send-time buffer reset are judged.
+    Reverse validation: a window with ZERO received bytes (dead DUT /
+    dead link) always FAILs — silence can never satisfy a capture.
     """
     def _stop(text):
         if forbid and _pattern_hit(forbid, is_regex, case_sensitive, text):
@@ -285,14 +332,25 @@ def capture_stage(serial, pattern: str, end_line: str, expected: bool,
                 return "PASS"
         return ""
 
-    verdict, text = _read_until(serial, _stop, timeout)
-    if verdict == "TIMEOUT" and not expected and not end_line:
-        # no end line defined: survived the whole window without the
-        # unwanted message -> PASS
-        if not _pattern_hit(pattern, is_regex, case_sensitive, text) \
-                and not (forbid and _pattern_hit(forbid, is_regex,
-                                                 case_sensitive, text)):
-            return "PASS", text
+    verdict, text = _read_until(serial, _stop, timeout, history=history)
+    fresh = text[len(history):] if history and text.startswith(history) \
+        else text
+    if verdict == "TIMEOUT":
+        if not text.strip():
+            # nothing received at all (dead DUT / dead link): FAIL
+            # regardless of expected / end_line — silence is no evidence
+            return "FAIL", "no console output (DUT unresponsive?)"
+        if not expected and not end_line:
+            # no end line defined: survived the whole window without the
+            # unwanted message -> PASS, but ONLY when the DUT actually
+            # spoke in this window (fresh bytes, not stale history)
+            if fresh.strip() \
+                    and not _pattern_hit(pattern, is_regex, case_sensitive,
+                                         text) \
+                    and not (forbid and _pattern_hit(forbid, is_regex,
+                                                     case_sensitive, text)):
+                return "PASS", text
+            return "FAIL", "no console output in capture window"
     return verdict, text
 
 
@@ -408,16 +466,22 @@ class ConsoleSerialShim:
 class FctStepResult:
     """One executed FCT step (report row)."""
 
+    #: verdicts that do NOT fail the unit: fat.py Summary rows carry
+    #: their real status (INFO/WARN/SKIP) but only FAIL/TIMEOUT/ERROR
+    #: count as failures
+    NON_FAIL = ("PASS", "INFO", "SKIP", "WARN")
+
     def __init__(self, name: str, verdict: str, detail: str = "",
                  duration: float = 0.0) -> None:
         self.name = name
         self.verdict = verdict          # PASS / FAIL / TIMEOUT / ERROR
+                                        # / INFO / WARN / SKIP (summary rows)
         self.detail = detail
         self.duration = float(duration)  # step wall time, seconds
 
     @property
     def passed(self) -> bool:
-        return self.verdict == "PASS"
+        return self.verdict in self.NON_FAIL
 
 
 class FctTestRunner:
@@ -433,12 +497,33 @@ class FctTestRunner:
         # Used to resolve a relative console.scripts_local_dir (the YAML
         # folder in the GUI, the package root in a frozen Windows build).
         self.scripts_base_dir = scripts_base_dir
-        # Session history of console output (mirrors the GUI ConsoleWidget
-        # read_buffer semantics): the yaml-row WAIT stage matches against
-        # history + fresh bytes, so a prompt consumed by an earlier row's
-        # capture still satisfies a later row's wait (e.g. waiting for
-        # 'root@...#' right before launching fat.py).
+        # Session transcript of console output (capture-only rows look
+        # back through it: "capture from the console start to the
+        # End Line", e.g. the fat.py Summary printed inside an earlier
+        # row's read window).
         self._con_hist = ""
+        # Fresh window: bytes RECEIVED SINCE THE LAST SEND.  A WAIT
+        # stage judges only this window, so a prompt that appeared
+        # BEFORE the previous command was sent (session history /
+        # stale OS buffer) can never satisfy it — a recurring prompt
+        # must appear AGAIN after the previous send.  This is what
+        # keeps the sequence synchronous with the DUT (no row can run
+        # ahead of the previous command's completion) and what makes a
+        # dead DUT fail its WAIT instead of sailing through on stale
+        # matches.  send_stage resets the OS input buffer at the send
+        # moment; the window here restarts at the same point.
+        self._cycle = ""
+
+    def _note_fresh(self, text: str, history_len: int = 0) -> None:
+        """Record freshly-received console bytes into the session
+        transcript and the current fresh window (`text` is
+        `history + fresh`; only the tail beyond `history_len` is
+        new)."""
+        fresh = text[history_len:] if history_len < len(text) else ""
+        if not fresh:
+            return
+        self._con_hist = (self._con_hist + fresh)[-65536:]
+        self._cycle = (self._cycle + fresh)[-65536:]
 
     def _identity(self) -> str:
         return f"[{self.station_id}] [{self.user}]"
@@ -454,7 +539,9 @@ class FctTestRunner:
         every stage independently enabled. Any stage failure (incl.
         timeout) retries the whole command up to cmd.retries times, then
         FAILs and stops. SFTP rows (sftp_put/sftp_get) run over the SSH
-        channel and bypass Wait/Capture.
+        channel and bypass Wait/Capture. A parse_summary capture row
+        expands the captured fat.py Summary table into one FctStepResult
+        per test line (appended right after the row itself).
         """
         results: list = []
         c = self.cfg.console
@@ -462,81 +549,134 @@ class FctTestRunner:
             return results
         for cmd in c.test_commands:
             t0 = time.time()
-            verdict, detail, stage = self._run_one_command(serial, cmd)
+            verdict, detail, stage, extras = \
+                self._run_one_command(serial, cmd)
             label = cmd.name or cmd.send or cmd.expect_pass or "console"
             results.append(FctStepResult(label, verdict, detail,
                                          duration=time.time() - t0))
+            results.extend(extras)
             self.log(f"console '{label}' [{stage}] -> {verdict} {detail}")
+            for extra in extras:
+                self.log(f"  summary row '{extra.name}' -> {extra.verdict}")
             if verdict != "PASS":
                 return results  # stop the whole sequence on failure
         return results
 
     def _run_one_command(self, serial, cmd) -> tuple:
         """Run one ConsoleCommand with retry. Returns (verdict, detail,
-        stage)."""
+        stage, extras) — extras are additional FctStepResult rows (the
+        fat.py Summary expansion) appended after the main row."""
         attempts = cmd.retries + 1
-        last = ("FAIL", "not run", "?")
+        last = ("FAIL", "not run", "?", [])
         for attempt in range(attempts):
             # SFTP rows: file transfer over the SSH channel only
             if cmd.kind in ("sftp_put", "sftp_get"):
                 verdict, detail = self._run_sftp(serial, cmd)
                 if verdict == "PASS":
-                    return verdict, detail, "sftp"
-                last = (verdict, detail, "sftp")
+                    return verdict, detail, "sftp", []
+                last = (verdict, detail, "sftp", [])
                 if attempt + 1 < attempts:
                     self.log(f"  retry sftp ({attempt + 1}/{cmd.retries})")
                 continue
             # three-stage pipeline: Wait -> Send -> Capture
-            verdict, detail, stage = self._run_pipeline(serial, cmd)
+            verdict, detail, stage, extras = self._run_pipeline(serial, cmd)
             if verdict == "PASS":
-                return verdict, detail, stage
-            last = (verdict, detail, stage)
+                return verdict, detail, stage, extras
+            last = (verdict, detail, stage, extras)
             if attempt + 1 < attempts:
                 self.log(f"  retry {stage} ({attempt + 1}/{cmd.retries})")
         return last
 
+    def _expand_fat_summary(self, text: str) -> tuple:
+        """Parse a fat.py Summary table into per-item FctStepResult rows.
+
+        The step row itself PASSes when the Summary was parsed (execution
+        success — the per-item FAILs live in the expanded rows, so the
+        sequence keeps running); it FAILs when no Summary is present."""
+        rows = parse_fat_summary(text)
+        if not rows:
+            return "FAIL", "no fat.py Summary found in capture", []
+        counts: dict = {}
+        extras: list = []
+        for idx, name, status, dur in rows:
+            counts[status] = counts.get(status, 0) + 1
+            try:
+                seconds = float(dur[:-1])
+            except ValueError:
+                seconds = 0.0
+            extras.append(FctStepResult(
+                f"{idx}. {name}", status, f"{status} in {dur}",
+                duration=seconds))
+        detail = f"{len(rows)} items: " + ", ".join(
+            f"{k} {v}" for k, v in sorted(counts.items()))
+        return "PASS", detail, extras
+
     def _run_pipeline(self, serial, cmd) -> tuple:
-        """Wait -> Send -> Capture for one command."""
-        # 1) WAIT (precondition to send, e.g. login prompt) — matched
-        # against session history + fresh bytes (GUI-equivalent).
+        """Wait -> Send -> Capture for one command. Returns (verdict,
+        detail, stage, extras).
+
+        Timing discipline (v1.0.2): the WAIT stage matches only the
+        FRESH WINDOW — bytes received since the last SEND — so a
+        recurring command prompt must appear AGAIN after the previous
+        command was sent; stale prompts in the session history can
+        never let a row run ahead.  The SEND stage resets the OS input
+        buffer and restarts the window.  A CAPTURE stage on a send row
+        judges only post-send bytes (the echo plus the command's
+        output); a capture-only row looks back through the whole
+        session transcript (console start -> End Line)."""
+        # 1) WAIT (precondition to send, e.g. login prompt or the
+        #    shell prompt that proves the PREVIOUS command finished) —
+        #    matched against the fresh window only.
         if cmd.wait_enabled and cmd.expect_pass:
             verdict, text = wait_stage(
                 serial, cmd.expect_pass, cmd.expect_pass_is_regex,
                 cmd.case_sensitive, cmd.wait_timeout,
-                history=self._con_hist)
-            self._con_hist = (text or "")[-65536:]
+                history=self._cycle)
+            self._note_fresh(text or "", len(self._cycle))
             if verdict != "PASS":
-                return "FAIL", f"wait timeout, no '{cmd.expect_pass}'", "wait"
+                return "FAIL", f"wait timeout, no '{cmd.expect_pass}'", \
+                    "wait", []
         # 1.5) CONFIRM (operator MessageYesNo between Wait and Send,
         # e.g. a fat.py question): No stops the unit with a FAIL and
         # nothing is sent to the DUT.
         if cmd.confirm_enabled:
             ask = getattr(self, "_human_confirm", None)
             if not callable(ask):
-                return "ERROR", "no confirm hook bound", "confirm"
+                return "ERROR", "no confirm hook bound", "confirm", []
             question = cmd.confirm_message or cmd.name or "Confirm?"
             if not ask(question):
-                return "FAIL", "operator answered No", "confirm"
+                return "FAIL", "operator answered No", "confirm", []
         # 2) SEND (each line auto-newline; timeout guards a stuck link).
         # kind=send with an empty command still sends one newline
         # (e.g. blank password); a capture-only row sends nothing.
+        sent = False
         if (cmd.send_enabled
                 and cmd.kind not in ("sftp_put", "sftp_get")
                 and (cmd.send or cmd.kind == "send")):
             verdict, detail = send_stage(serial, cmd.send, cmd.send_timeout)
             if verdict != "PASS":
-                return "FAIL", detail, "send"
+                return "FAIL", detail, "send", []
+            # the send-time reset_input_buffer() in send_stage starts a
+            # new fresh window: only bytes received AFTER this point
+            # (the echo and the command's own output) may satisfy the
+            # capture below and any later WAIT stage
+            self._cycle = ""
+            sent = True
         # 3) CAPTURE (judge the resulting output within capture timeout)
         if cmd.capture_enabled and cmd.expect_fail:
+            # send row  -> judge ONLY the post-send bytes (fresh window;
+            #              the echo cannot be confused with earlier output)
+            # capture-only row -> look back at the whole session
+            #              transcript (console start -> End Line)
+            history = "" if sent else self._con_hist
             verdict, text = capture_stage(
                 serial, cmd.expect_fail, cmd.capture_end_line,
                 cmd.capture_is_expected, cmd.expect_fail_is_regex,
                 cmd.case_sensitive, cmd.timeout,
-                forbid=cmd.capture_forbid)
-            self._con_hist = (self._con_hist + "\n" +
-                              (text or ""))[-65536:]
+                forbid=cmd.capture_forbid, history=history)
+            self._note_fresh(text or "", len(history))
             if verdict == "TIMEOUT":
-                return "FAIL", "capture timeout", "capture"
+                return "FAIL", "capture timeout", "capture", []
             if verdict != "PASS":
                 if (cmd.capture_forbid
                         and _pattern_hit(cmd.capture_forbid,
@@ -544,8 +684,18 @@ class FctTestRunner:
                                          cmd.case_sensitive, text or "")):
                     return ("FAIL",
                             f"matched unwanted '{cmd.capture_forbid}'",
-                            "capture")
-                return "FAIL", "capture condition not met", "capture"
+                            "capture", [])
+                # keep capture_stage's own diagnosis (e.g. 'no console
+                # output (DUT unresponsive?)' returned in place of the
+                # text) when it carries one
+                fail_detail = "capture condition not met"
+                if (text or "").startswith("no console output"):
+                    fail_detail = text.strip()
+                return "FAIL", fail_detail, "capture", []
+            if cmd.parse_summary:
+                # expand the fat.py Summary table into per-item rows
+                v, d, extras = self._expand_fat_summary(text or "")
+                return v, d, "done", extras
             # keep the last output line as evidence - it flows into the
             # report/CSV "measured" column (e.g. 'Overall result: PASS')
             last = ""
@@ -553,8 +703,8 @@ class FctTestRunner:
                 if ln.strip():
                     last = ln.replace("\r", "").strip()[:160]
             if last:
-                return "PASS", last, "done"
-        return "PASS", "", "done"
+                return "PASS", last, "done", []
+        return "PASS", "", "done", []
 
     def _run_sftp(self, channel, cmd) -> tuple:
         """sftp_put / sftp_get over an SSH channel exposing put_file /

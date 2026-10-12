@@ -96,6 +96,21 @@ def _status_cell(status) -> str:
     return f'<td class="{cls}">{s}</td>'
 
 
+def console_log_html(text: str, max_chars: int = 400_000) -> str:
+    """Full DUT console transcript as a printable section appended after
+    the test table.  ANSI escape sequences are stripped (QTextDocument
+    cannot render them — they would pollute the PDF as garbage glyphs)
+    and the text is HTML-escaped inside a compact monospace <pre>."""
+    from ..engine.fct_test_runner import strip_ansi
+    clean = strip_ansi(text or "")
+    if len(clean) > max_chars:
+        clean = clean[:max_chars] + "\n... (truncated)"
+    return ("<h3>Console Log</h3>"
+            "<pre style='font-family:Menlo,Consolas,monospace; "
+            "font-size:6pt; background:#f7f7f7;'>"
+            f"{esc(clean)}</pre>")
+
+
 def build_html_report(*, records, yield_report, cycle_report,
                       cpk_reports, batch_summaries=None,
                       meta=None, title="量产测试成品报告") -> str:

@@ -180,6 +180,9 @@ class ConsoleCommand:
     action: str = ""                # sftp_put | sftp_get (transport=ssh rows)
     local: str = ""                 # sftp local path (Host PC)
     remote: str = ""                # sftp remote path (DUT)
+    parse_summary: bool = False     # capture row parses a fat.py-style
+                                    # Summary table into per-item report
+                                    # rows (one report row per test line)
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "name": self.name,
@@ -204,7 +207,8 @@ class ConsoleCommand:
                 "send_timeout": float(self.send_timeout),
                 "retries": int(self.retries),
                 "extract": self.extract, "action": self.action,
-                "local": self.local, "remote": self.remote}
+                "local": self.local, "remote": self.remote,
+                "parse_summary": bool(self.parse_summary)}
 
     @staticmethod
     def _from_dict_v2(c: dict) -> "ConsoleCommand":
@@ -248,7 +252,8 @@ class ConsoleCommand:
                 extract=str(c.get("extract", "")),
                 action=str(c.get("action", "")),
                 local=str(c.get("local", "")),
-                remote=str(c.get("remote", "")))
+                remote=str(c.get("remote", "")),
+                parse_summary=bool(c.get("parse_summary", False)))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -810,6 +815,7 @@ def build_fct_steps(cfg: FctTestConfig,
                 "expect_fail_re": neg_pat,
                 "expect_pass_is_regex": pass_regex,
                 "expect_fail_is_regex": neg_regex,
+                "parse_summary": bool(cmd.parse_summary),
             }
             if cmd.send_enabled and (cmd.send or cmd.kind == "send"):
                 params["send"] = cmd.send

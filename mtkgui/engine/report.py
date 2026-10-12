@@ -66,6 +66,9 @@ class DutReport:
         default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     overall_result: str = ""
     items: list = field(default_factory=list)      # list[ReportItem]
+    # full DUT console transcript (raw, ANSI codes included) — the PDF
+    # exporter strips the escapes before dumping it after the test table
+    console_log: str = ""
 
     # ------------------------------------------------------------- build
     @classmethod
@@ -172,11 +175,14 @@ class BatchSummary:
             if self.n_total else 0.0
 
     def failures_by_item(self) -> list:
-        """[(test_name, fail_count)] sorted by count desc."""
+        """[(test_name, fail_count)] sorted by count desc.  Only real
+        failures count (FAIL/TIMEOUT/ERROR) — fat.py Summary INFO/WARN/
+        SKIP rows carry their status but are not failures."""
         counts: dict = {}
         for report in self.reports:
             for item in report.items:
-                if "PASS" not in item.result.upper():
+                up = item.result.upper()
+                if any(k in up for k in ("FAIL", "TIMEOUT", "ERROR")):
                     counts[item.test_name] = \
                         counts.get(item.test_name, 0) + 1
         return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))

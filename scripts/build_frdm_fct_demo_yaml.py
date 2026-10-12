@@ -1,6 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Build FRDM-IMX93_FCT_Demo_v1.0.1.yaml (FCT-only, Linux DUT, v1.0.1).
+"""Build FRDM-IMX93_FCT_Demo_v1.0.2.yaml (FCT-only, Linux DUT, v1.0.2).
+
+v1.0.2 changes over v1.0.1 (console sequence TIMING DISCIPLINE — the
+sequence now runs strictly synchronously with the DUT console):
+
+  * WAIT means "the previous step finished": every Send row first
+    waits for a FRESH shell prompt (root@imx93frdm).  The runner's
+    wait stage only matches bytes received AFTER the previous send,
+    so a prompt that appeared earlier in the session can never let a
+    row run ahead of the still-running previous command.
+  * 'Console wake' first row: sends one newline to establish the
+    fresh window and elicit a brand-new prompt (login prompt and
+    shell prompt both re-print) — stale bytes from before the run
+    are discarded by the send-time buffer reset.
+  * fat.py interactive rows wait for the EXACT fat.py question
+    before the operator dialog / answer send (no premature y).
+  * Echo-safe capture anchors: an anchor must never be a substring
+    of the command line itself (the DUT echoes the command before
+    running it).  'ls -l' + line-anchored regex for the fat.py
+    assets row; quote-split echo markers (echo HDMI_"MONITOR_OK",
+    echo SSHD_"STARTED") so only the real output can match.
+  * fat.py summary row is capture-only and looks back through the
+    WHOLE session transcript (console start -> 'Overall result:'),
+    parse_summary expands the Summary table into per-item rows.
+  * Reverse validation: a silent DUT can never PASS — wait/capture
+    time out to FAIL ('no console output (DUT unresponsive?)').
+  * login wait widened to 60 s (true cold boot) with 1 retry.
 
 v1.0.1 changes over v1.0.0 (single yaml plan for EVERY DUT):
 
@@ -56,9 +82,14 @@ HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
 ROUTER_SSID = "TP-LINK_F68E_AP"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
-OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.1.yaml"
+OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.2.yaml"
 # headless SFTP landing file (the run script archives it per serial no.)
 SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat_result.json")
+
+
+#: the DUT shell prompt (regex) - a FRESH occurrence of it after the
+#: previous send is the "previous command finished" barrier
+SHELL_PROMPT = r"root@imx93frdm"
 
 
 def console_row(name, *, kind="send", transport="serial",
@@ -68,7 +99,7 @@ def console_row(name, *, kind="send", transport="serial",
                 end_line="", case_sensitive=True,
                 cap_timeout=6.0, wait_timeout=10.0, send_timeout=4.0,
                 retries=0, action="", local="", remote="",
-                confirm=False, confirm_msg=""):
+                confirm=False, confirm_msg="", parse_summary=False):
     """Build one v2.1 ConsoleCommand dict (explicit stage flags).
 
     confirm=True inserts an operator MessageYesNo stage between Wait
@@ -92,6 +123,7 @@ def console_row(name, *, kind="send", transport="serial",
         "send_timeout": float(send_timeout),
         "retries": int(retries),
         "action": action, "local": local, "remote": remote,
+        "parse_summary": bool(parse_summary),
     }
     return row
 
@@ -107,44 +139,65 @@ FCT_TEST_CONFIG = {
         "ssh_host": DUT_SSH_HOST,
         "ssh_username": "root",
         "test_commands": [
-            # 1) Login - tolerant of an already-open root shell
+            # 0) Console wake: one newline establishes the FRESH window
+            #    (the send-time buffer reset discards everything that
+            #    arrived before the run) and elicits a brand-new prompt
+            #    - getty re-prints 'login:', bash re-prints the prompt.
+            console_row(
+                "Console wake",
+                send="\n", wait_timeout=5, send_timeout=4),
+            # 1) Login - tolerant of an already-open root shell; the
+            #    fresh-window wait only matches a prompt printed AFTER
+            #    the wake newline (true cold boot gets 60 s + 1 retry)
             console_row(
                 "Console login",
                 wait=True, send_on=True,
-                wait_pat=r"(imx93frdm login:|root@imx93frdm|#)",
-                wait_regex=True, wait_timeout=10,
+                wait_pat=r"(imx93frdm login:|root@imx93frdm)",
+                wait_regex=True, wait_timeout=60, retries=1,
                 send="root", send_timeout=4),
             # ---- environment preflight (wait -> send -> capture) ----
+            # every Send row waits for a FRESH shell prompt first: the
+            # previous command's completion barrier
             # 2) Kernel up
             console_row(
                 "Preflight: kernel",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="uname -a",
                 cap_pat="Linux imx93frdm", cap_timeout=10),
-            # 3) fat.py assets present
+            # 3) fat.py assets present ('-rw' line-anchored regex: the
+            #    echoed command line contains 'fat.py' but never a
+            #    leading '-rw' - only the real ls output can match)
             console_row(
                 "Preflight: fat.py assets",
-                send_on=True, capture=True,
-                send="ls /root/frdm_imx93_board_test/fat.py",
-                cap_pat="fat.py", cap_timeout=10),
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
+                send="ls -l /root/frdm_imx93_board_test/fat.py",
+                cap_pat=r"-rw.*fat\.py", cap_regex=True, cap_timeout=10),
             # 4) ALSA sound card present (MQS playback needs it)
             console_row(
                 "Preflight: ALSA card",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="aplay -l",
                 cap_pat="card 0", cap_timeout=10),
             # 5) HDMI monitor electrically connected (grep -x rejects
-            #    'disconnected'); catches a powered-off monitor early
+            #    'disconnected'); catches a powered-off monitor early.
+            #    Quote-split marker: the echoed command contains
+            #    HDMI_"MONITOR_OK", only the real echo OUTPUT prints
+            #    the literal HDMI_MONITOR_OK
             console_row(
                 "Preflight: HDMI monitor",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="cat /sys/class/drm/card0-HDMI-A-1/status "
-                     "| grep -x connected && echo HDMI_MONITOR_OK",
+                     "| grep -x connected && echo HDMI_\"MONITOR_OK\"",
                 cap_pat="HDMI_MONITOR_OK", cap_timeout=10),
             # 6) Load Wi-Fi/BT RF drivers (BSP script, editable command)
             console_row(
                 "Load RF drivers",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="/root/load_rf_drivers.sh",
                 cap_pat="RF drivers loaded OK", cap_timeout=30,
                 retries=1),
@@ -152,7 +205,8 @@ FCT_TEST_CONFIG = {
             #    agent + discoverable + trust host)
             console_row(
                 "Prepare BT audio sink",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="/root/start_bt_audio.sh",
                 cap_pat="BT_AUDIO_READY", cap_timeout=40),
             # ---- interactive fat.py (Wait -> MessageYesNo -> Send) ----
@@ -160,8 +214,8 @@ FCT_TEST_CONFIG = {
             console_row(
                 "Start fat.py (interactive)",
                 wait=True, send_on=True, capture=True,
-                wait_pat=r"root@imx93frdm", wait_regex=True,
-                wait_timeout=15,
+                wait_pat=SHELL_PROMPT, wait_regex=True,
+                wait_timeout=30,
                 send="cd /root/frdm_imx93_board_test && "
                      "python3 fat.py --json /root/fat_result.json",
                 cap_pat="FRDM-i.MX93 DUT", cap_timeout=20),
@@ -222,27 +276,41 @@ FCT_TEST_CONFIG = {
                             "YELLOW/CYAN/MAGENTA/WHITE) look correct?",
                 send="y", cap_pat="Operator confirmed all RGB LED colors",
                 cap_timeout=30),
-            # 14) fat.py's own verdict (drift-tolerant window: the same
-            #     plan covers fast and slow boards; a fat FAIL times out
-            #     this capture and fails the unit)
+            # 14) fat.py Summary - CAPTURE-ONLY row: no send, so the
+            #     runner judges it against the WHOLE session transcript
+            #     (console start -> 'Overall result:'), which includes
+            #     everything printed while earlier rows were reading.
+            #     parse_summary expands the table into per-item rows
+            #     (one report row per fat.py test line); a Summary that
+            #     never arrives (DUT died mid-run) times out to FAIL.
             console_row(
-                "fat.py verdict",
+                "fat.py summary",
                 send_on=False, capture=True,
-                cap_pat="Overall result: PASS", cap_timeout=420),
-            # 15) Start sshd from the plan (no manual bring-up per
-            #     board); pidof makes the row idempotent
+                cap_pat="Overall result:", cap_timeout=420,
+                parse_summary=True),
+            # 15) Ensure an SSH server is reachable for the SFTP row.
+            #     The board's sshd runs as a SYSTEMD SOCKET-ACTIVATED
+            #     unit (sshd.socket holds :22 via init; no persistent
+            #     sshd daemon), so 'pidof sshd' is always empty - probe
+            #     the LISTENER instead (works for daemon AND socket
+            #     activation).  /usr/sbin/sshd is still attempted for
+            #     images without the socket unit.  Quote-split marker:
+            #     the echoed command never contains the literal
+            #     SSHD_STARTED - only the real echo OUTPUT does
             console_row(
                 "Start sshd",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="mkdir -p /var/run/sshd; /usr/sbin/sshd "
-                     "2>/dev/null; pidof sshd >/dev/null "
-                     "&& echo SSHD_STARTED",
+                     "2>/dev/null; netstat -tln 2>/dev/null "
+                     "| grep -q ':22 ' && echo SSHD_\"STARTED\"",
                 cap_pat="SSHD_STARTED", cap_timeout=10),
             # 16) Bring Wi-Fi up as a STATION joined to the factory
             #     router (Host and DUT then share one LAN)
             console_row(
                 "Wi-Fi connect to router",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="/root/connect_wifi.sh",
                 cap_pat="WIFI_CONNECTED_OK", cap_timeout=45.0,
                 retries=1),
@@ -250,7 +318,8 @@ FCT_TEST_CONFIG = {
             #     host from the live mlan0 address - no per-board IP)
             console_row(
                 "DUT Wi-Fi IP check",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="ip -4 addr show mlan0",
                 cap_pat="inet", cap_timeout=10),
             # 18) SFTP-get fat_result.json back to the Host over SSH
@@ -263,7 +332,8 @@ FCT_TEST_CONFIG = {
             # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
             console_row(
                 "Wi-Fi ping DUT to Host",
-                send_on=True, capture=True,
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send=f"ping -I mlan0 -c 20 {HOST_LAN_IP}",
                 cap_pat=r"[1-9][0-9]* received", cap_regex=True,
                 end_line="packet loss", cap_timeout=40.0),

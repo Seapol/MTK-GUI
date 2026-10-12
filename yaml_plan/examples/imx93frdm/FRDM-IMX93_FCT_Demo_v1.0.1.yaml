@@ -960,7 +960,7 @@ test_workflow:
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 30.0
-  - name: 'fat.py verdict: ''done'' (expected)'
+  - name: 'fat.py summary: ''done'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -972,7 +972,7 @@ test_workflow:
         depends: []
         expect_fail: []
         expect_pass: []
-        name: fat.py verdict
+        name: fat.py summary
         on_fail: abort
         params:
           capture_enabled: true
@@ -983,9 +983,10 @@ test_workflow:
           confirm_enabled: false
           confirm_message: ''
           expect_fail_is_regex: false
-          expect_fail_re: 'Overall result: FAIL'
+          expect_fail_re: ''
           expect_pass_is_regex: false
-          expect_pass_re: 'Overall result: PASS'
+          expect_pass_re: 'Overall result:'
+          parse_summary: true
           fct_console: true
           kind: send
           send_enabled: false
@@ -1580,12 +1581,12 @@ yaml_build_state:
           \ ''\n      capture_forbid: ''\n      confirm_enabled: true\n      confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE)\n\
           \        look correct?'\n      timeout: 30.0\n      wait_timeout: 300.0\n      send_timeout: 4.0\n      retries:\
           \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n    - kind: send\n      name: fat.py\
-          \ verdict\n      transport: serial\n      wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
-          \ true\n      send: ''\n      expect_pass: ''\n      expect_fail: 'Overall result: PASS'\n      expect_pass_is_regex:\
+          \ summary\n      transport: serial\n      wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
+          \ true\n      send: ''\n      expect_pass: ''\n      expect_fail: 'Overall result:'\n      expect_pass_is_regex:\
           \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: 'Overall result: FAIL'\n      confirm_enabled: false\n      confirm_message: ''\n      timeout: 180.0\n\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n      timeout: 180.0\n\
           \      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n    \
-          \  local: ''\n      remote: ''\n    - kind: send\n      name: Start sshd\n      transport: serial\n      wait_enabled:\
+          \  local: ''\n      remote: ''\n      parse_summary: true\n    - kind: send\n      name: Start sshd\n      transport: serial\n      wait_enabled:\
           \ false\n      send_enabled: true\n      capture_enabled: true\n      send: mkdir -p /var/run/sshd; /usr/sbin/sshd\
           \ 2>/dev/null; pidof sshd >/dev/null\n        && echo SSHD_STARTED\n      expect_pass: ''\n      expect_fail: SSHD_STARTED\n\
           \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\

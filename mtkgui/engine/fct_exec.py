@@ -145,6 +145,25 @@ def _capture_loop(channel, pass_kw: list, fail_kw: list,
             time.sleep(0.02)            # engines may poll real channels
 
 
+def _fat_summary_outcome(text: str) -> FctOutcome:
+    """parse_summary row (GUI work-flow parity): judge the captured
+    fat.py Summary table — FAIL when any item FAILs, else PASS; the
+    per-status counts land in the reason.  (Per-item row expansion in
+    the GUI FCT table is a follow-up; the batch harness report carries
+    the full per-item rows.)"""
+    from .fct_test_runner import parse_fat_summary
+    rows = parse_fat_summary(text)
+    if not rows:
+        return FctOutcome(VERDICT_FAIL, "no fat.py Summary found", [])
+    counts: dict = {}
+    for _idx, _name, status, _dur in rows:
+        counts[status] = counts.get(status, 0) + 1
+    detail = f"{len(rows)} items: " + ", ".join(
+        f"{k} {v}" for k, v in sorted(counts.items()))
+    verdict = VERDICT_FAIL if counts.get("FAIL") else VERDICT_PASS
+    return FctOutcome(verdict, detail, [])
+
+
 def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     """B5 console-command capture: REGEX judgement (spec §4.2) —
     ``expect_fail_re`` wins over ``expect_pass_re``, timeout = FAIL
@@ -196,6 +215,8 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                                       list(collected))
                 if is_expected and pass_re and _pattern_hit(
                         pass_re, pass_is_re, case, text):
+                    if p.get("parse_summary"):
+                        return _fat_summary_outcome(text)
                     return FctOutcome(VERDICT_PASS,
                                       f"matched '{pass_re}'",
                                       list(collected))

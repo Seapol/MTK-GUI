@@ -722,15 +722,17 @@ def test_pipeline_capture_pass_keeps_last_line_evidence():
 def test_console_step_result_carries_duration():
     """Every executed console row reports its wall time for the report
     'duration' column (a negative capture spans its whole timeout
-    window waiting for an unwanted line that never shows)."""
+    window).  Reverse validation (v1.0.2): a SILENT DUT can never PASS
+    a capture — 'survived the window clean' requires actual output."""
     s = FakeSerial({})                      # silent: unwanted line never comes
     cmd = _cmd(name="slow verdict", kind="capture",
                wait_enabled=False, send_enabled=False,
                capture_enabled=True,
                expect_fail="never arrives", capture_is_expected=False)
     r = _runner([cmd]).run_console(s)
-    assert r[0].verdict == "PASS"           # survived the window clean
-    assert r[0].duration >= 0.25            # ... and timed it
+    assert r[0].verdict == "FAIL"           # silence is no evidence
+    assert "no console output" in r[0].detail
+    assert r[0].duration >= 0.25            # ... and it timed the window
 
 
 def test_sftp_row_has_no_wait_or_capture():
