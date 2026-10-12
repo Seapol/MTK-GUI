@@ -1,6 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Build FRDM-IMX93_FCT_Demo_v1.0.0.yaml (FCT-only, Linux DUT).
+"""Build FRDM-IMX93_FCT_Demo_v1.0.1.yaml (FCT-only, Linux DUT, v1.0.1).
+
+v1.0.1 changes over v1.0.0 (single yaml plan for EVERY DUT):
+
+  * REAL interactive fat.py (not the headless yes-piped wrapper): the
+    console steps use the new Wait -> MessageYesNo -> Send pipeline -
+    every fat.py operator question (setup confirm, MQS earphone tone,
+    HDMI visibility, RGB LED colors) pops a GUI confirm dialog and the
+    operator's Yes sends the answer line.  No auto-yes anywhere.
+  * wait->send->capture ENVIRONMENT PREFLIGHT rows before anything runs
+    (kernel, fat.py assets, ALSA card, HDMI monitor connected).
+  * sshd is STARTED BY THE PLAN via a console SendTo row with a capture
+    check (SSHD_STARTED) - no manual sshd bring-up per board.
+  * fat.py's own verdict line ('Overall result: PASS') is captured as
+    the fat step's pass criterion, with a drift-tolerant 420 s window
+    (same yaml for fast and slow boards).
+  * DUT mlan0 IP evidence row (the harness resolves the SFTP host from
+    the live IP - no hard-coded per-board address in the flow).
 
 Headless equivalent of the GUI "Build FCT Test Work Flow" (Yaml Build
 block 07) -> Apply and Save path:
@@ -9,10 +26,11 @@ block 07) -> Apply and Save path:
   * ICT disabled (FCT only - the board is already powered, no rack
     instruments, no ATE fixture, no flashing);
   * DUT OS/Firmware = linux (FRDM-IMX93, Yocto, u-blox/NXP Wi-Fi+BT);
-  * Console (serial 115200): tolerant login -> kernel -> load RF drivers
-    -> prepare A2DP sink -> run fat.py unattended -> bring up the Wi-Fi
-    station (DUT joins the factory router AP) -> SFTP-get fat.log ->
-    DUT->Host ping;
+  * Console (serial 115200): tolerant login -> preflight -> load RF
+    drivers -> prepare A2DP sink -> run interactive fat.py (operator
+    confirms each physical check) -> fat verdict -> start sshd -> bring
+    up the Wi-Fi station -> DUT IP evidence -> SFTP-get fat_result.json
+    -> DUT->Host ping;
   * Wi-Fi: Scan/RSSI read on the DUT console (station mode) + iPerf3
     (Host is the server, DUT the client, same LAN through the router);
   * Bluetooth: RSSI discovery + Pair/Connect + L2CAP ping + A2DP tone
@@ -38,9 +56,9 @@ HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
 ROUTER_SSID = "TP-LINK_F68E_AP"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
-OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.0.yaml"
+OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.1.yaml"
 # headless SFTP landing file (the run script archives it per serial no.)
-SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat.log")
+SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat_result.json")
 
 
 def console_row(name, *, kind="send", transport="serial",
@@ -49,8 +67,13 @@ def console_row(name, *, kind="send", transport="serial",
                 cap_pat="", cap_regex=False, cap_expected=True,
                 end_line="", case_sensitive=True,
                 cap_timeout=6.0, wait_timeout=10.0, send_timeout=4.0,
-                retries=0, action="", local="", remote=""):
-    """Build one v2 ConsoleCommand dict (explicit stage flags)."""
+                retries=0, action="", local="", remote="",
+                confirm=False, confirm_msg=""):
+    """Build one v2.1 ConsoleCommand dict (explicit stage flags).
+
+    confirm=True inserts an operator MessageYesNo stage between Wait
+    and Send (interactive DUT prompts): the GUI pops the dialog, the
+    operator's Yes sends the answer line, No fails the unit."""
     row = {
         "kind": kind, "name": name, "transport": transport,
         "wait_enabled": wait, "send_enabled": send_on,
@@ -62,6 +85,8 @@ def console_row(name, *, kind="send", transport="serial",
         "case_sensitive": case_sensitive,
         "capture_is_expected": cap_expected,
         "capture_end_line": end_line, "capture_forbid": "",
+        "confirm_enabled": bool(confirm),
+        "confirm_message": str(confirm_msg or ""),
         "timeout": float(cap_timeout),
         "wait_timeout": float(wait_timeout),
         "send_timeout": float(send_timeout),
@@ -89,51 +114,153 @@ FCT_TEST_CONFIG = {
                 wait_pat=r"(imx93frdm login:|root@imx93frdm|#)",
                 wait_regex=True, wait_timeout=10,
                 send="root", send_timeout=4),
-            # 2) Kernel check
+            # ---- environment preflight (wait -> send -> capture) ----
+            # 2) Kernel up
             console_row(
-                "Kernel check",
+                "Preflight: kernel",
                 send_on=True, capture=True,
                 send="uname -a",
                 cap_pat="Linux imx93frdm", cap_timeout=10),
-            # 3) Load Wi-Fi/BT RF drivers (BSP script, editable command)
+            # 3) fat.py assets present
+            console_row(
+                "Preflight: fat.py assets",
+                send_on=True, capture=True,
+                send="ls /root/frdm_imx93_board_test/fat.py",
+                cap_pat="fat.py", cap_timeout=10),
+            # 4) ALSA sound card present (MQS playback needs it)
+            console_row(
+                "Preflight: ALSA card",
+                send_on=True, capture=True,
+                send="aplay -l",
+                cap_pat="card 0", cap_timeout=10),
+            # 5) HDMI monitor electrically connected (grep -x rejects
+            #    'disconnected'); catches a powered-off monitor early
+            console_row(
+                "Preflight: HDMI monitor",
+                send_on=True, capture=True,
+                send="cat /sys/class/drm/card0-HDMI-A-1/status "
+                     "| grep -x connected && echo HDMI_MONITOR_OK",
+                cap_pat="HDMI_MONITOR_OK", cap_timeout=10),
+            # 6) Load Wi-Fi/BT RF drivers (BSP script, editable command)
             console_row(
                 "Load RF drivers",
                 send_on=True, capture=True,
                 send="/root/load_rf_drivers.sh",
                 cap_pat="RF drivers loaded OK", cap_timeout=30,
                 retries=1),
-            # 4) Prepare the Linux A2DP sink (pipewire + NoInputNoOutput
+            # 7) Prepare the Linux A2DP sink (pipewire + NoInputNoOutput
             #    agent + discoverable + trust host)
             console_row(
                 "Prepare BT audio sink",
                 send_on=True, capture=True,
                 send="/root/start_bt_audio.sh",
                 cap_pat="BT_AUDIO_READY", cap_timeout=40),
-            # 5) Run fat.py fully unattended (prompts answered 'y');
-            #    pass/fail of fat itself is irrelevant - just capture the
-            #    completion marker and always pull the log.
+            # ---- interactive fat.py (Wait -> MessageYesNo -> Send) ----
+            # 8) Launch the REAL fat.py in the console foreground
             console_row(
-                "Run fat.py board test",
+                "Start fat.py (interactive)",
+                wait=True, send_on=True, capture=True,
+                wait_pat=r"root@imx93frdm", wait_regex=True,
+                wait_timeout=15,
+                send="cd /root/frdm_imx93_board_test && "
+                     "python3 fat.py --json /root/fat_result.json",
+                cap_pat="FRDM-i.MX93 DUT", cap_timeout=20),
+            # 9) fat.py setup confirm (earphone / HDMI / RGB visible)
+            console_row(
+                "fat.py: setup confirm",
+                wait=True, send_on=True, capture=True,
+                wait_pat="Confirm DUT setup is complete and start FAT",
+                wait_timeout=60,
+                confirm=True,
+                confirm_msg="fat.py setup check: earphone plugged in, "
+                            "HDMI monitor on, RGB LED visible - setup "
+                            "complete?",
+                send="y", cap_pat="Running as root", cap_timeout=30),
+            # 10) MQS earphone tone (aplay plays ~2 s, then asks)
+            console_row(
+                "fat.py: MQS earphone tone",
+                wait=True, send_on=True, capture=True,
+                wait_pat=r"Did you hear the \d+ Hz tone from the "
+                         r"3\.5 mm earphone\?",
+                wait_regex=True, wait_timeout=300,
+                confirm=True,
+                confirm_msg="MQS audio: listen to the 3.5 mm earphone - "
+                            "did you hear the 1000 Hz tone?",
+                send="y", cap_pat="operator confirmed tone heard",
+                cap_timeout=30),
+            # 11) HDMI visual output (connector check is automatic)
+            console_row(
+                "fat.py: HDMI visual",
+                wait=True, send_on=True, capture=True,
+                wait_pat="Is HDMI output visible on the monitor",
+                wait_timeout=300,
+                confirm=True,
+                confirm_msg="HDMI: look at the monitor - is the DUT "
+                            "output visible?",
+                send="y", cap_pat="Operator confirmed HDMI output",
+                cap_timeout=30),
+            # 12) RGB LED start gate (any key starts the color cycle)
+            console_row(
+                "fat.py: RGB LED start",
+                wait=True, send_on=True, capture=True,
+                wait_pat="Press any key to start the RGB LED test",
+                wait_timeout=300,
+                confirm=True,
+                confirm_msg="RGB LED: get ready to watch the on-board "
+                            "LED - press Yes to start the color cycle",
+                send="",                       # one newline = "any key"
+                cap_pat="[RGB LED] Display RED", cap_timeout=20),
+            # 13) RGB LED color confirmation (7 x 1 s cycle first)
+            console_row(
+                "fat.py: RGB LED colors",
+                wait=True, send_on=True, capture=True,
+                wait_pat="Did the RGB LED display RED/GREEN/BLUE/"
+                         "YELLOW/CYAN/MAGENTA/WHITE correctly",
+                wait_timeout=300,
+                confirm=True,
+                confirm_msg="RGB LED: did all 7 colors (RED/GREEN/BLUE/"
+                            "YELLOW/CYAN/MAGENTA/WHITE) look correct?",
+                send="y", cap_pat="Operator confirmed all RGB LED colors",
+                cap_timeout=30),
+            # 14) fat.py's own verdict (drift-tolerant window: the same
+            #     plan covers fast and slow boards; a fat FAIL times out
+            #     this capture and fails the unit)
+            console_row(
+                "fat.py verdict",
+                send_on=False, capture=True,
+                cap_pat="Overall result: PASS", cap_timeout=420),
+            # 15) Start sshd from the plan (no manual bring-up per
+            #     board); pidof makes the row idempotent
+            console_row(
+                "Start sshd",
                 send_on=True, capture=True,
-                send="/root/run_fat_headless.sh",
-                cap_pat=r"FATTEN=\d+", cap_regex=True,
-                cap_timeout=180.0, send_timeout=4.0),
-            # 6) Bring Wi-Fi up as a STATION joined to the factory router
-            #    (Host and DUT then share one LAN for ping/iperf/SFTP)
+                send="mkdir -p /var/run/sshd; /usr/sbin/sshd "
+                     "2>/dev/null; pidof sshd >/dev/null "
+                     "&& echo SSHD_STARTED",
+                cap_pat="SSHD_STARTED", cap_timeout=10),
+            # 16) Bring Wi-Fi up as a STATION joined to the factory
+            #     router (Host and DUT then share one LAN)
             console_row(
                 "Wi-Fi connect to router",
                 send_on=True, capture=True,
                 send="/root/connect_wifi.sh",
                 cap_pat="WIFI_CONNECTED_OK", cap_timeout=45.0,
                 retries=1),
-            # 7) SFTP-get fat.log back to the Host over SSH
+            # 17) DUT Wi-Fi IP evidence (the harness resolves the SFTP
+            #     host from the live mlan0 address - no per-board IP)
             console_row(
-                "Retrieve fat.log (SFTP)",
+                "DUT Wi-Fi IP check",
+                send_on=True, capture=True,
+                send="ip -4 addr show mlan0",
+                cap_pat="inet", cap_timeout=10),
+            # 18) SFTP-get fat_result.json back to the Host over SSH
+            console_row(
+                "Retrieve fat_result.json (SFTP)",
                 kind="sftp_get", transport="ssh",
                 send_on=False, action="sftp_get",
-                remote="/root/fat.log", local=SFTP_LANDING,
+                remote="/root/fat_result.json", local=SFTP_LANDING,
                 send_timeout=20.0),
-            # 8) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
+            # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
             console_row(
                 "Wi-Fi ping DUT to Host",
                 send_on=True, capture=True,

@@ -73,7 +73,8 @@ opens the per-channel settings:
 The full console widget lives in the pop-out window (below); its log
 area offers:
 
-- `Timestamp` - prefix every line with `[HH:MM:SS.mmm]` (default on).
+- `Timestamp` - prefix every line with `[HH:MM:SS.mmm]` (default
+  **off**; the raw stream is shown untagged, like Tera Term).
 - `HEX` - render incoming bytes as hex pairs instead of text.
 - `Auto scroll` - keep the view at the newest line (default on).
 - `Filter...` - only **incoming** lines containing this text
@@ -82,11 +83,15 @@ area offers:
 - `Clear` - wipe the log view.
 - `Save` - write the log to a `.txt` file; the suggested name is the
   channel default plus a timestamp, e.g. `ser1_log_20260110_120000.txt`.
-- Received data is parsed for ANSI color sequences; lines containing
+- Received data is parsed for ANSI color sequences and rendered with
+  the original colors restored (Tera Term style); lines containing
   `error` are highlighted red and bold, lines with `warn` /
   `warning` orange.
-- Lines are prefixed with the channel accent tag: `RX>>`, `TX>>` or
-  `SYS>>`.
+- Lines are **not** prefixed with any `RX>>` / `TX>>` / `SYS>>` tag -
+  the RX stream is shown exactly as the DUT sent it. A lone carriage
+  return inside the stream refreshes the last line in place, so DUT
+  progress bars (e.g. `... 42%`) animate on one line instead of
+  printing a new line per step; redundant blank lines are collapsed.
 
 ## Pop-out Console Window
 
@@ -129,8 +134,8 @@ channel:
 - `HEX` sends raw bytes instead of text; use a format such as
   `41 54 0D 0A` (spaces, commas, `0x` prefixes and newlines are
   ignored). Invalid hex input shows a warning and nothing is sent.
-- The transmitted line is echoed into the log as `TX>>` and pushed to
-  the send history.
+- The transmitted line is echoed into the log in **cyan** (no
+  `TX>>` tag) and pushed to the send history.
 - Sending on a disconnected channel logs
   `Channel not connected; data not sent.`
 

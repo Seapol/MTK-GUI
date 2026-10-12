@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Run FRDM-IMX93_FCT_Demo_v1.0.0.yaml on the REAL board, N units, headless.
+"""Run FRDM-IMX93_FCT_Demo_v1.0.1.yaml on the REAL board, N units.
 
 Loads the published project YAML (the file produced by Build FCT Test
 Work Flow -> Apply and Save) and executes its ``fct_test_config`` with the
@@ -8,16 +8,21 @@ SAME engine the GUI calls (mtkgui.engine.fct_test_runner.FctTestRunner):
 
   * serial console adapter (pyserial) bound to the DUT UART;
   * the SFTP get/put rows run over paramiko SSH (key auth, no password in
-    the YAML) to the DUT mlan0 address;
+    the YAML) to the DUT mlan0 address - resolved PER UNIT from the live
+    ``ip -4 addr show mlan0`` console answer (DHCP-safe), with the yaml
+    ssh_host as fallback;
   * HostCliRunner drives the host-side Wi-Fi/Bluetooth adapters (blueutil,
     SwitchAudioSource, afplay, system_profiler);
   * a host iperf3 server is started for the DUT-client throughput step;
-  * the A2DP GUI_CONFIRM is auto-accepted headless (the audio path was
-    confirmed by ear in the bring-up session).
+  * operator confirms are REAL MessageYesNo dialogs (the fat.py prompts:
+    setup / earphone tone / HDMI visible / RGB colors + the A2DP tone) -
+    the operator clicks Yes after the physical check.  Set
+    MTK_FCT_HEADLESS=1 to run offscreen with auto-Yes (CI/regression).
 
-Each unit gets a unique random 12-char serial number, its fat.log pulled
-back over SFTP, a DUT detail PDF + CSV; after N units a batch summary PDF
-(+CSV, yield, failures-by-item ranking) is written.
+Each unit gets a unique random 12-char serial number, its
+fat_result.json pulled back over SFTP, a DUT detail PDF + CSV; after N
+units a batch summary PDF (+CSV, yield, failures-by-item ranking) is
+written.
 
 Usage:  python scripts/run_frdm_fct_demo.py [n_units]
 """
@@ -34,7 +39,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.environ.get("MTK_FCT_HEADLESS") == "1":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
@@ -43,7 +49,8 @@ import serial  # pyserial
 import paramiko
 import yaml
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from mtkgui.engine.fct_test_config import FctTestConfig
 from mtkgui.engine.fct_test_runner import FctTestRunner
@@ -55,9 +62,10 @@ from mtkgui.gui.report_export import export_pdf
 from mtkgui.gui import identity
 
 YAML_PATH = (ROOT / "yaml_plan" / "examples" / "imx93frdm"
-             / "FRDM-IMX93_FCT_Demo_v1.0.0.yaml")
+             / "FRDM-IMX93_FCT_Demo_v1.0.1.yaml")
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
 IPERF3 = "/usr/local/bin/iperf3"
+HEADLESS = os.environ.get("MTK_FCT_HEADLESS") == "1"
 
 
 # ---------------------------------------------------------------------------
@@ -72,10 +80,55 @@ class SerialConsole:
         self.ser = serial.Serial(port, baud, timeout=0.1,
                                  bytesize=8, parity="N", stopbits=1)
         self.write_timeout = 4.0
-        self.ssh_host = ssh_host
+        # ssh_host is resolved LAZILY (first ssh/sftp use): probing the IP
+        # at the pre-test login prompt would type the probe as a username
+        # and leave getty at 'Password:', breaking the yaml's own login
+        # step.  By the first ssh/sftp row the yaml has logged in, run
+        # fat.py and started sshd, so the DUT sits at a root shell.
+        self._ssh_host_cfg = ssh_host
+        self._ssh_host_live = None
         self.ssh_user = ssh_user
         self.key = str(Path.home() / ".ssh" / "id_ed25519")
         self.prime()
+
+    @property
+    def ssh_host(self) -> str:
+        if self._ssh_host_live is None:
+            self._ssh_host_live = self._discover_ip()
+            if self._ssh_host_live:
+                print(f"[run] DUT mlan0 IP (lazy) = {self._ssh_host_live}")
+            else:
+                print(f"[run] DUT mlan0 IP probe failed, "
+                      f"fallback {self._ssh_host_cfg}")
+        return self._ssh_host_live or self._ssh_host_cfg
+
+    @ssh_host.setter
+    def ssh_host(self, v: str):
+        self._ssh_host_live = v
+
+    def reset_ssh_host(self):
+        """Forget the per-unit discovered IP (next ssh/sftp use re-probes)."""
+        self._ssh_host_live = None
+
+    def _discover_ip(self):
+        """Resolve the DUT mlan0 address from the live serial console
+        (DHCP-safe); returns None when the answer is silent."""
+        self.reset_input_buffer()
+        self.write("\x03\n")             # fresh prompt at a shell
+        time.sleep(0.4)
+        self.write("ip -4 addr show mlan0\n")
+        buf = b""
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            buf += self.ser.read(2048)
+            if b"inet " in buf:
+                time.sleep(0.3)          # let the answer settle
+                buf += self.ser.read(2048)
+                break
+            time.sleep(0.2)
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)",
+                      buf.decode("utf-8", "replace"))
+        return m.group(1) if m else None
 
     def prime(self):
         """Make the DUT reprint a fresh prompt so the first WaitFor has new
@@ -178,7 +231,7 @@ def dut_html(product: dict, rep: DutReport) -> str:
         "</table>")
     rows = "".join(
         f"<tr><td>{i.test_name}</td><td>{i.category}</td><td>{i.channel}</td>"
-        f"<td>{i.measured if i.measured else '-'}</td>"
+        f"<td align='center'>{i.duration if i.duration else '-'}</td>"
         f"<td align='center'><font color='"
         f"{'#1d7a3c' if 'PASS' in i.result else '#b02a2a'}'>"
         f"<b>{'PASS' if 'PASS' in i.result else i.result}</b></font></td></tr>"
@@ -186,13 +239,13 @@ def dut_html(product: dict, rep: DutReport) -> str:
     body = (
         "<table border='1' cellspacing='0' cellpadding='5' width='100%'>"
         "<colgroup>"
-        "<col width='190'><col width='70'><col width='85'>"
-        "<col width='330'><col width='70'></colgroup>"
+        "<col width='270'><col width='70'><col width='85'>"
+        "<col width='90'><col width='70'></colgroup>"
         "<tr>"
         "<th bgcolor='#e6ebf0'>Test Item</th>"
         "<th bgcolor='#e6ebf0'>Category</th>"
         "<th bgcolor='#e6ebf0'>Channel</th>"
-        "<th bgcolor='#e6ebf0'>Measured / Detail</th>"
+        "<th bgcolor='#e6ebf0'>Duration (s)</th>"
         "<th bgcolor='#e6ebf0'>Result</th></tr>"
         f"{rows}</table>")
     return (
@@ -244,6 +297,41 @@ def batch_html(product: dict, summary: BatchSummary) -> str:
         f"{rank}</table></body></html>")
 
 
+def gui_ask(question: str) -> bool:
+    """REAL operator confirm (MessageYesNo): a modal Yes/No dialog for
+    the fat.py interactive prompts (setup / earphone tone / HDMI visible
+    / RGB colors) and the A2DP tone - the operator clicks Yes only after
+    the physical check.  HEADLESS runs answer Yes automatically.
+
+    When the harness runs in an operator terminal (stdin is a TTY), the
+    confirm is a plain y/n prompt instead: a CLI-launched Qt process has
+    a Prohibited activation policy on macOS, where dialog clicks are
+    unreliable (invisible windows / swallowed Yes events)."""
+    if HEADLESS:
+        print(f"  [GUI_CONFIRM auto-Yes (headless)] {question}")
+        return True
+    if sys.stdin.isatty():
+        print(f"\n  [CONFIRM] {question}")
+        ans = ""
+        while ans not in ("y", "n"):
+            ans = input("  Type y (confirm) / n (fail): ").strip().lower()
+        return ans == "y"
+    app = QApplication.instance()
+    # No bundle / no TTY: dialog fallback - always-on-top + raise + beep.
+    # Mouse clicks on Yes/No work under Prohibited; only key focus is
+    # unavailable.
+    box = QMessageBox(QMessageBox.Question, "FCT operator confirm",
+                      question, QMessageBox.Yes | QMessageBox.No)
+    box.setDefaultButton(QMessageBox.No)
+    box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    box.show()
+    box.activateWindow()
+    box.raise_()
+    app.processEvents()
+    QApplication.beep()
+    return box.exec() == QMessageBox.Yes
+
+
 def main() -> int:
     n_units = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     app = QApplication.instance() or QApplication([])
@@ -254,7 +342,19 @@ def main() -> int:
         "core": data.get("product", {}).get("core", "94611"),
         "batch": data.get("product", {}).get("batch", "Demo FCT"),
     }
-    cfg = FctTestConfig.from_dict(data.get("fct_test_config", {}))
+    cfg_data = data.get("fct_test_config")
+    if cfg_data is None:
+        # published project yaml: the console config lives in the GUI
+        # build state's embedded fct_test_config_yaml string (a full
+        # yaml doc with a top-level fct_test_config key)
+        marks = data.get("yaml_build_state", {}).get("modules", {})
+        emb = (marks.get("fct_build", {}).get("params", {})
+               .get("fct_test_config_yaml", ""))
+        parsed = yaml.safe_load(emb) if emb else None
+        if isinstance(parsed, dict) and "fct_test_config" in parsed:
+            parsed = parsed["fct_test_config"]
+        cfg_data = parsed or {}
+    cfg = FctTestConfig.from_dict(cfg_data or {})
     errs = cfg.validate()
     if errs:
         print("[FAIL] yaml fct_test_config invalid:", errs)
@@ -285,12 +385,12 @@ def main() -> int:
             sn = random_sn()
             print(f"\n===== UNIT {u}/{n_units}  SN={sn} =====")
             con.prime()   # fresh prompt for this unit's first WaitFor
+            con.reset_ssh_host()   # re-probe IP lazily at first ssh/sftp use
             runner = FctTestRunner(
                 cfg, log_sink=lambda m: print("  [fct]", m),
                 station_id=station, user=user)
             t0 = time.time()
-            out = runner.run(con, host, human_confirm=lambda q: (
-                print("  [GUI_CONFIRM auto-PASS]", q), True)[1])
+            out = runner.run(con, host, human_confirm=gui_ask)
             dt = time.time() - t0
             print(f"[run] unit {sn} -> {out['overall']} in {dt:.0f}s")
 
@@ -300,19 +400,21 @@ def main() -> int:
                 cat, chan = category_for(r.name)
                 rep.items.append(ReportItem(
                     test_name=r.name, category=cat, channel=chan,
-                    measured=(r.detail or "")[:200], result=r.verdict))
+                    duration=(f"{r.duration:.1f}" if r.duration else ""),
+                    result=r.verdict))
             reports.append(rep)
 
             # per-unit artefacts
             udir = OUT_DIR / "reports" / sn
             udir.mkdir(parents=True, exist_ok=True)
-            landing = OUT_DIR / "_run_work" / "fat.log"
+            landing = OUT_DIR / "_run_work" / "fat_result.json"
             if landing.exists():
-                shutil.copy2(landing, udir / "fat.log")
+                shutil.copy2(landing, udir / "fat_result.json")
             pdf = udir / f"FRDM-IMX93_{sn}_FCT.pdf"
             export_pdf(dut_html(product, rep), pdf)
-            save_dut_csv(rep, OUT_DIR / "reports", batch=product["batch"])
+            csv_path = save_dut_csv(rep, udir, batch=product["batch"])
             print(f"[run]   PDF: {pdf}")
+            print(f"[run]   CSV: {csv_path}")
             print(f"[run]   items: "
                   f"{sum(1 for i in rep.items if i.result == 'PASS')}"
                   f"/{len(rep.items)} PASS")

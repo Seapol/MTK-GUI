@@ -68,6 +68,7 @@ class FakeSFTPClient:
 
     store: dict = {}                       # remote_path -> bytes
     calls: list = []                       # ("put"/"get", local, remote)
+    dirs: set = set()                      # created remote directories
 
     def put(self, local_path, remote_path):
         with open(local_path, "rb") as f:
@@ -78,6 +79,14 @@ class FakeSFTPClient:
         with open(local_path, "wb") as f:
             f.write(FakeSFTPClient.store.get(remote_path, b""))
         FakeSFTPClient.calls.append(("get", local_path, remote_path))
+
+    def stat(self, path):
+        if path in self.dirs or path in self.store:
+            return object()
+        raise IOError("no such file")
+
+    def mkdir(self, path):
+        self.dirs.add(path)
 
     def close(self):
         pass
@@ -293,3 +302,34 @@ def test_sftp_close_closes_sftp(local_file, fake_cred, monkeypatch):
     sftp = client.sftp
     ch.close()
     assert ch._sftp is None                       # dropped with the client
+
+
+def test_sftp_put_dir_recursive(tmp_path, fake_cred, monkeypatch):
+    """Whole asset folder is mirrored: subdirectories created and every
+    file uploaded under the remote target."""
+    FakeSFTPClient.dirs.clear()
+    root = tmp_path / "linux"
+    (root / "sub").mkdir(parents=True)
+    (root / "load_rf_drivers.sh").write_text("#!/bin/sh\necho ok\n")
+    (root / "connect_wifi.sh").write_text("#!/bin/sh\necho wifi\n")
+    (root / "sub" / "start_bt_audio.sh").write_text("#!/bin/sh\necho bt\n")
+    monkeypatch.setitem(sys.modules, "paramiko", make_fake_paramiko({}))
+    ch = SshFctChannel(host="h", username="u", credential_ref="ref")
+    uploaded = ch.put_dir(str(root), "/root")
+    remotes = {rp for _lp, rp, _n in uploaded}
+    assert remotes == {"/root/load_rf_drivers.sh",
+                       "/root/connect_wifi.sh",
+                       "/root/sub/start_bt_audio.sh"}
+    assert "/root" in FakeSFTPClient.dirs and "/root/sub" in \
+        FakeSFTPClient.dirs
+    event = "\n".join(ch.read_lines())
+    assert "put_dir" in event and "3 files" in event
+    ch.close()
+
+
+def test_sftp_put_dir_missing_raises(fake_cred, monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "paramiko", make_fake_paramiko({}))
+    ch = SshFctChannel(host="h", username="u", credential_ref="ref")
+    with pytest.raises(ChannelClosed):
+        ch.put_dir(str(tmp_path / "does_not_exist"), "/root")
+    ch.close()

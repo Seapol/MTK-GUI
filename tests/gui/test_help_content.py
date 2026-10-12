@@ -2,8 +2,9 @@
 """Module C help tests: the 12 User Guide chapters exist, the
 markdown-lite renderer produces HTML with screenshots, the FAQ covers
 the known-issues list, every main-window tab is documented somewhere
-(freshness guard), the Help menu mounts one chapter per item and opens
-it in the system browser, and the About body carries version + branch."""
+(freshness guard), the Help menu mounts a single User Guide entry that
+opens the all-in-one guide web page, and the About body carries
+version + branch."""
 from __future__ import annotations
 
 from mtkgui.gui.help_content import (
@@ -11,6 +12,8 @@ from mtkgui.gui.help_content import (
     HELP_ROOT,
     HELP_TOPICS,
     about_html,
+    guide_page_html,
+    guide_temp_path,
     load_topic_html,
     markdown_to_html,
     topic_page_html,
@@ -86,7 +89,7 @@ def test_every_main_window_tab_is_documented():
 
 
 # ------------------------------------------------------------- in-app UI
-def test_help_menu_mounts_chapters_and_opens_browser(qapp, monkeypatch):
+def test_help_menu_mounts_guide_and_opens_browser(qapp, monkeypatch):
     opened = []
 
     from PySide6.QtGui import QDesktopServices
@@ -96,21 +99,22 @@ def test_help_menu_mounts_chapters_and_opens_browser(qapp, monkeypatch):
 
     from mtkgui.main_window import MainWindow
     window = MainWindow()
-    texts = [a.text() for a in window.help_menu.actions()]
-    assert texts[0] == "1. Overview"          # first chapter
-    assert texts[-1] == "About"
-    assert "12. FAQ / Troubleshooting" in texts
-    # one menu action per chapter (plus separator + About)
-    assert len(texts) == len(CHAPTERS) + 2
-
-    # _open_help renders the chapter to a temp page and opens the browser
-    assert window._open_help("user_guide") is None
-    assert len(opened) == 1 and opened[0].toLocalFile() == \
-        str(topic_temp_path("user_guide"))
-    assert topic_temp_path("user_guide").is_file()
-    # unknown keys never open anything
-    window._open_help("ghost")
+    texts = [a.text() for a in window.help_menu.actions()
+             if not a.isSeparator()]
+    # ONE User Guide entry (not chapters flattened into the menu)
+    assert texts == ["User Guide", "About"]
+    # _open_help renders the all-in-one guide and opens the browser
+    window._open_help()
     assert len(opened) == 1
+    assert opened[0].toLocalFile() == str(guide_temp_path())
+    page = guide_temp_path()
+    assert page.is_file()
+    html = page.read_text(encoding="utf-8")
+    # every chapter is on the page with its sidebar anchor
+    for i, (_k, label, _f) in enumerate(CHAPTERS):
+        assert f'href="#chapter-{i + 1}">{label}</a>' in html
+        assert f'id="chapter-{i + 1}"' in html
+    assert '<img src="file://' in html          # screenshots embedded
     window.deleteLater()
 
 

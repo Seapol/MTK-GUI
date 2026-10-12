@@ -476,6 +476,10 @@ class MainWindow(QMainWindow):
         if getattr(self, "_manual_notice_pending", False):
             self._manual_notice_pending = False
             QTimer.singleShot(0, self, self._show_manual_notice)
+        # same one-shot pattern for the Virtual-mode notice
+        if getattr(self, "_virtual_notice_pending", False):
+            self._virtual_notice_pending = False
+            QTimer.singleShot(0, self, self._show_virtual_notice)
 
     def _remember_geometry(self):
         """Persist the user's manually chosen window geometry so the
@@ -885,13 +889,10 @@ class MainWindow(QMainWindow):
         self.report_menu.addAction("Statistics", self._open_statistics)
 
         # ------------------------------------------------ V4.0: Help menu
-        # Help stays the rightmost menu of the fixed final order; every
-        # User Guide chapter opens its own web page (chapter-based)
-        from .gui.help_content import CHAPTERS
+        # Help stays the rightmost menu of the fixed final order; the
+        # User Guide opens ONE web page containing every chapter
         self.help_menu = self.menuBar().addMenu("Help")
-        for _key, label, _filename in CHAPTERS:
-            self.help_menu.addAction(
-                label, lambda k=_key: self._open_help(k))
+        self.help_menu.addAction("User Guide", self._open_help)
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self._open_about)
 
@@ -998,18 +999,12 @@ class MainWindow(QMainWindow):
                 + "\n".join(lines))
 
     # ------------------------------------------------- V4.0 Help/Report
-    def _open_help(self, key):
-        """Help menu: render one User Guide chapter (Module C) from
-        docs/help/ into a styled HTML page and open it in the system
-        web browser (chapter-based guide with screenshots and prev /
-        next navigation).
-
-        Args:
-            key: a help_content.HELP_TOPICS identifier; unknown keys
-                are ignored (never a dead link).
-        """
-        from .gui.help_content import open_topic
-        open_topic(key)
+    def _open_help(self):
+        """Help > User Guide: render the all-in-one User Guide (Module
+        C, every docs/help/ chapter with a sidebar TOC) into a styled
+        HTML page and open it in the system web browser."""
+        from .gui.help_content import open_guide
+        open_guide()
 
     def _open_about(self):
         """Help > About: version, branch, build info (Module C)."""
@@ -1123,6 +1118,17 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_mode(self.mode)
         self.workflow_page.set_virtual_fault(self.fault_config)
         self.workflow_page.multi_console.set_virtual_mode(virtual)
+        # Virtual mode only simulates the ICT instruments - FCT always
+        # runs on real hardware: one fixed notice per login (same
+        # pattern as the Manual-fixture notice)
+        self._virtual_notice_pending = virtual
+        if virtual:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Mode: Virtual - only ICT "
+                "instrument measurements are simulated; FCT always "
+                "runs on real hardware")
+            if self.isVisible():
+                QTimer.singleShot(0, self, self._show_virtual_notice)
         self._apply_fixture_mode()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Logged in: {self.role}")
@@ -1148,6 +1154,19 @@ class MainWindow(QMainWindow):
         """One-shot Manual-fixture notice (fixed wording, closable)."""
         QMessageBox.information(
             self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
+
+    def _show_virtual_notice(self):
+        """One-shot Virtual-mode notice (fixed wording, closable)."""
+        import os
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            # headless runs (smoke / CI) have no user to acknowledge a
+            # modal dialog - the Event-Log entry carries the notice
+            self._append_event_log(
+                "[Virtual] only ICT instrument measurements are "
+                "simulated; FCT always runs on real hardware")
+            return
+        from .permissions import VIRTUAL_MODE_NOTICE
+        QMessageBox.information(self, "Virtual Mode", VIRTUAL_MODE_NOTICE)
 
     def _update_identity_status(self):
         """Status bar identity badges: Role + Mode with distinct

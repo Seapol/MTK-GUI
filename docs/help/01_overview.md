@@ -176,15 +176,22 @@ checkboxes in Overall Flow, but they are grayed out (not clickable).
 
 - **Real** - the default. Every action drives the physical station:
   instruments, fixture IO and the DUT.
-- **Virtual** - a supervisor-only simulation of the whole station,
-  including fault injection (`Settings > Virtual Fault Injection...`).
-  In Virtual mode the simulated instruments come up connected
-  shortly after the GUI starts, so the full flow can be rehearsed
-  without any hardware.
+- **Virtual** - a supervisor-only simulation of the **ICT instrument
+  measurements**, including fault injection
+  (`Settings > Virtual Fault Injection...`). In Virtual mode the
+  simulated instruments come up connected shortly after the GUI
+  starts, so the ICT flow can be rehearsed without any hardware.
 
 **Warning:** Virtual mode is unlocked only when the Account is
 Supervisor AND the correct password is entered; ordinary accounts are
 locked on Real mode forever.
+
+**Note:** even in Virtual mode, **FCT always runs on real hardware**
+(real DUT + Host PC Wi-Fi/Bluetooth + Wi-Fi router). ICT results show
+`Virtual PASS` / `Virtual FAIL` (yellow-green / orange-red); FCT
+results are always plain `PASS` / `FAIL` (green / red). The Overall
+verdict carries the Virtual prefix only when virtualised ICT results
+contributed; a notice pops up once per Virtual login.
 
 ## Fixture Types: ATE and Manual
 

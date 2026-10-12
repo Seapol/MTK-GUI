@@ -416,6 +416,41 @@ def test_wait_stage_hits_and_times_out():
     assert v2 == "TIMEOUT"
 
 
+def test_wait_stage_matches_session_history():
+    # row-8 scenario: the prompt was consumed by an earlier row's
+    # capture and no fresh bytes arrive - history must still match
+    # (GUI-equivalent accumulated-buffer semantics)
+    s = FakeSerial({})
+    v, text = wait_stage(s, "root@imx93frdm", False, True, 0.4,
+                         history="Linux imx93frdm\r\nroot@imx93frdm:~# ")
+    assert v == "PASS" and "root@imx93frdm" in text
+    # empty history on a silent line still times out
+    s2 = FakeSerial({})
+    v2, _ = wait_stage(s2, "root@imx93frdm", False, True, 0.3)
+    assert v2 == "TIMEOUT"
+
+
+def test_pipeline_wait_matches_prompt_consumed_by_earlier_capture():
+    # cmd1's capture consumes the trailing prompt; cmd2 waits for the
+    # same prompt before sending - it must pass via session history
+    s = FakeSerial({
+        "uname -a": "Linux imx93frdm 6.6.36\r\nroot@imx93frdm:~# ",
+        "cd /root && python3 fat.py": "FRDM-i.MX93 DUT\r\n",
+    })
+    cmds = [
+        _cmd(name="Preflight kernel", send="uname -a",
+             capture_enabled=True, expect_fail="Linux imx93frdm",
+             capture_is_expected=True),
+        _cmd(name="Start fat.py", send="cd /root && python3 fat.py",
+             wait_enabled=True, expect_pass="root@imx93frdm",
+             capture_enabled=True, expect_fail="FRDM-i.MX93 DUT",
+             capture_is_expected=True),
+    ]
+    res = _runner(cmds).run_console(s)
+    assert [r.verdict for r in res] == ["PASS", "PASS"], \
+        [(r.name, r.verdict, r.detail) for r in res]
+
+
 def test_send_stage_multiline_autonewline_and_empty():
     s = FakeSerial({"echo a": "a\r\n", "echo b": "b\r\n"})
     v, _ = send_stage(s, "echo a\necho b", 0.4)
@@ -473,6 +508,20 @@ def test_capture_forbid_negative_keyword_fails_expected_yes():
     v, _ = capture_stage(s, "READY", "", True, False, True, 0.4,
                          forbid="FAILED")
     assert v == "FAIL"
+
+
+def test_pipeline_forbid_hit_carries_evidence_detail():
+    # a forbid hit fails fast AND the report detail names the unwanted
+    # keyword (e.g. fat.py verdict row: 'Overall result: FAIL')
+    s = FakeSerial({"run": "READY\r\nOverall result: FAIL\r\n"})
+    cmd = _cmd(name="fat.py verdict", kind="send", send="run",
+               wait_enabled=False, send_enabled=True, capture_enabled=True,
+               expect_fail="Overall result: PASS",
+               capture_is_expected=True,
+               capture_forbid="Overall result: FAIL")
+    r = _runner([cmd]).run_console(s)
+    assert r[0].verdict == "FAIL"
+    assert r[0].detail == "matched unwanted 'Overall result: FAIL'"
 
 
 def test_pipeline_capture_only_no_send():
@@ -571,6 +620,117 @@ def test_legacy_yaml_migrates_to_three_stage():
     assert root.capture_is_expected
     assert root.expect_fail == "Password:"     # post-send success message
     assert drivers.capture_forbid == "FAILED"  # legacy expect_fail
+
+
+# ------------------------------------------------- Confirm stage (v2.1)
+def test_confirm_fields_roundtrip():
+    """confirm_enabled / confirm_message survive the yaml round-trip."""
+    cmd = _cmd(name="Earphone", kind="send", send="y",
+               wait_enabled=True, send_enabled=True, capture_enabled=True,
+               expect_pass="tone?", expect_fail="heard",
+               confirm_enabled=True, confirm_message="Did you hear it?")
+    cfg = frdm_config()
+    cfg.console.test_commands = [cmd]
+    restored = FctTestConfig.from_dict(cfg.to_dict())
+    c = restored.console.test_commands[0]
+    assert c.confirm_enabled is True
+    assert c.confirm_message == "Did you hear it?"
+    assert restored.to_dict() == cfg.to_dict()
+
+
+def test_confirm_defaults_off_and_survive_default_load():
+    cmd = _cmd(name="Kernel check", kind="send", send="uname -a")
+    assert cmd.confirm_enabled is False and cmd.confirm_message == ""
+    cfg = frdm_config()
+    cfg.console.test_commands = [cmd]
+    restored = FctTestConfig.from_dict(cfg.to_dict())
+    assert restored.to_dict() == cfg.to_dict()
+
+
+def test_build_steps_confirm_on_main_step_only():
+    """One dialog per interactive row: the (wait) pre-step never asks."""
+    cmd = _cmd(name="Earphone", kind="send", send="y",
+               wait_enabled=True, send_enabled=True, capture_enabled=True,
+               expect_pass="tone?", expect_fail="heard",
+               confirm_enabled=True, confirm_message="Did you hear it?")
+    cfg = frdm_config()
+    cfg.console.test_commands = [cmd]
+    steps = build_fct_steps(cfg)
+    wait_step = next(s for s in steps if s.name == "Earphone (wait)")
+    main = next(s for s in steps if s.name == "Earphone")
+    assert main.params["confirm_enabled"] is True
+    assert main.params["confirm_message"] == "Did you hear it?"
+    assert not wait_step.params.get("confirm_enabled")
+
+
+def test_pipeline_confirm_no_stops_before_send():
+    s = FakeSerial({})
+    cmd = _cmd(name="Earphone", kind="send", send="y",
+               wait_enabled=False, send_enabled=True,
+               capture_enabled=False,
+               confirm_enabled=True, confirm_message="Did you hear it?")
+    runner = _runner([cmd])
+    runner._human_confirm = lambda q: False
+    r = runner.run_console(s)
+    assert r[0].verdict == "FAIL"
+    assert r[0].detail == "operator answered No"
+    assert s.sent == []                      # nothing reached the DUT
+
+
+def test_pipeline_confirm_yes_sends_and_asks_message_text():
+    s = FakeSerial({"y": "heard\r\n"})
+    cmd = _cmd(name="Earphone", kind="send", send="y",
+               wait_enabled=False, send_enabled=True,
+               capture_enabled=True, expect_fail="heard",
+               capture_is_expected=True,
+               confirm_enabled=True, confirm_message="Did you hear it?")
+    runner = _runner([cmd])
+    questions = []
+    runner._human_confirm = lambda q: (questions.append(q), True)[1]
+    r = runner.run_console(s)
+    assert r[0].verdict == "PASS"
+    assert questions == ["Did you hear it?"]  # dialog shows the message
+    assert s.sent == ["y"]
+
+
+def test_pipeline_confirm_missing_hook_is_error():
+    s = FakeSerial({"y": "heard\r\n"})
+    cmd = _cmd(name="Earphone", kind="send", send="y",
+               wait_enabled=False, send_enabled=True,
+               capture_enabled=False, confirm_enabled=True)
+    r = _runner([cmd]).run_console(s)        # no _human_confirm bound
+    assert r[0].verdict == "ERROR"
+    assert r[0].detail == "no confirm hook bound"
+    assert s.sent == []
+
+
+def test_pipeline_capture_pass_keeps_last_line_evidence():
+    """The capture verdict row keeps its last output line as the step
+    detail (evidence, e.g. fat.py 'Overall result: PASS')."""
+    s = FakeSerial({})
+    s.buffer = b"noise line\r\nOverall result: PASS\r\n"
+    cmd = _cmd(name="fat verdict", kind="capture",
+               wait_enabled=False, send_enabled=False,
+               capture_enabled=True,
+               expect_fail="Overall result: PASS",
+               capture_is_expected=True)
+    r = _runner([cmd]).run_console(s)
+    assert r[0].verdict == "PASS"
+    assert r[0].detail.endswith("Overall result: PASS")
+
+
+def test_console_step_result_carries_duration():
+    """Every executed console row reports its wall time for the report
+    'duration' column (a negative capture spans its whole timeout
+    window waiting for an unwanted line that never shows)."""
+    s = FakeSerial({})                      # silent: unwanted line never comes
+    cmd = _cmd(name="slow verdict", kind="capture",
+               wait_enabled=False, send_enabled=False,
+               capture_enabled=True,
+               expect_fail="never arrives", capture_is_expected=False)
+    r = _runner([cmd]).run_console(s)
+    assert r[0].verdict == "PASS"           # survived the window clean
+    assert r[0].duration >= 0.25            # ... and timed it
 
 
 def test_sftp_row_has_no_wait_or_capture():

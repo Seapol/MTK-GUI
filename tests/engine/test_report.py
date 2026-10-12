@@ -28,12 +28,17 @@ def test_dut_report_csv_rows_header_and_items():
     report = _dut(items=[ReportItem(
         test_name="Static Impedance - 3V3", category="ICT",
         measured="1.8", low="1.5", high="2.1", unit="Ω",
-        result="PASS")])
+        result="PASS"),
+        ReportItem(test_name="fat verdict", category="FCT",
+                   duration="12.4", result="PASS")])
     rows = report.csv_rows()
     assert rows[0][0] == "serial_no" and rows[0][-1] == "result"
-    assert len(rows) == 2
+    assert rows[0][7] == "duration"
+    assert len(rows) == 3
     assert rows[1][4] == "Static Impedance - 3V3"
+    assert rows[1][7] == "1.8"        # ICT falls back to its measured value
     assert rows[1][11] == "PASS"
+    assert rows[2][7] == "12.4"       # FCT rows carry the step duration
 
 
 def test_csv_file_is_well_formed(tmp_path):

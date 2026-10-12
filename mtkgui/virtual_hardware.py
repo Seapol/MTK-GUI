@@ -634,7 +634,10 @@ class VirtualRack:
         fault = self.policy.roll(allow_fail=False)
         lines, failed = [], None
         for abbr in instruments or ["DAQM", "DAQ", "PSU"]:
-            if fault == "Error" and failed is None and self.rng.random() < 0.6:
+            if fault == "Error" and failed is None:
+                # deterministic: a 100 % equipment-error ratio must
+                # ALWAYS fail the first init (no probability gate - the
+                # acceptance tests rely on it)
                 lines.append(f"{abbr}: *RST; *IDN? -> no response "
                              f"({verb}) -> Error")
                 failed = abbr

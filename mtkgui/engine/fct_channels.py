@@ -437,6 +437,66 @@ class SshFctChannel:
         self._ensure_sftp().get(remote_path, local_path)
         return local_path
 
+    # -------------------------------------------- whole-directory deployment
+    def _sftp_mkdirs(self, sftp, remote_path: str) -> None:
+        """``mkdir -p`` over SFTP (the protocol has no recursive mkdir)."""
+        import os
+        remote_path = (remote_path or "").rstrip("/")
+        if not remote_path:
+            return
+        absolute = remote_path.startswith("/")
+        accum = "/" if absolute else ""
+        for part in [p for p in remote_path.split("/") if p]:
+            if accum in ("", "/"):
+                accum = ("/" + part) if absolute else part
+            else:
+                accum = accum.rstrip("/") + "/" + part
+            try:
+                sftp.stat(accum)
+            except IOError:
+                sftp.mkdir(accum)
+
+    def put_dir(self, local_dir: str, remote_dir: str = "") -> list:
+        """Recursively deploy a whole Host PC asset directory to the DUT.
+
+        Every new DUT is re-provisioned from the maintained local asset
+        folder (driver loader, Wi-Fi/BT setup scripts, ...). The local
+        tree is mirrored under ``remote_dir`` (default ``remote_dir``
+        from the constructor, then the login cwd). Returns a list of
+        ``(local, remote, size)`` and leaves one event line in the read
+        buffer so the FCT judge / EventLog records the deployment."""
+        import os
+        if not os.path.isdir(local_dir):
+            raise ChannelClosed(
+                f"sftp put_dir: local asset directory not found: "
+                f"{local_dir}")
+        base = (remote_dir or self._remote_dir or "").rstrip("/")
+        sftp = self._ensure_sftp()
+        if base:
+            self._sftp_mkdirs(sftp, base)
+        uploaded: list = []
+        for root, _dirs, files in os.walk(local_dir):
+            rel = os.path.relpath(root, local_dir)
+            rel = "" if rel == "." else rel.replace(os.sep, "/")
+            rdir = base if not rel else (f"{base}/{rel}" if base else rel)
+            if rdir:
+                self._sftp_mkdirs(sftp, rdir)
+            for fname in sorted(files):
+                lp = os.path.join(root, fname)
+                rp = f"{rdir}/{fname}" if rdir else fname
+                if os.path.realpath(lp) == os.path.realpath(rp):
+                    raise ChannelClosed(
+                        f"sftp put_dir: local and remote path collide "
+                        f"({rp}); choose a different remote_dir")
+                sftp.put(lp, rp)
+                uploaded.append((lp, rp, os.path.getsize(lp)))
+        target = base or "~"
+        self._pending = [f"[sftp] put_dir {local_dir} -> {target} "
+                         f"({len(uploaded)} files)"]
+        for _lp, rp, size in uploaded:
+            self._pending.append(f"[sftp]   {rp} ({size} bytes)")
+        return uploaded
+
     def close(self) -> None:
         if self._sftp is not None:
             try:

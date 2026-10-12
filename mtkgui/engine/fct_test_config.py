@@ -155,6 +155,10 @@ class ConsoleCommand:
     capture_end_line: str = ""          # end-of-range marker
     capture_forbid: str = ""            # optional negative keyword even when
                                         # expecting a positive (legacy migrate)
+    confirm_enabled: bool = False       # operator MessageYesNo stage between
+                                        # Wait and Send (interactive DUT
+                                        # prompts, e.g. fat.py questions)
+    confirm_message: str = ""           # dialog text ("" -> use step name)
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -179,6 +183,8 @@ class ConsoleCommand:
                 "capture_is_expected": self.capture_is_expected,
                 "capture_end_line": self.capture_end_line,
                 "capture_forbid": self.capture_forbid,
+                "confirm_enabled": self.confirm_enabled,
+                "confirm_message": self.confirm_message,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -217,6 +223,8 @@ class ConsoleCommand:
                 capture_is_expected=bool(c.get("capture_is_expected", False)),
                 capture_end_line=str(c.get("capture_end_line", "")),
                 capture_forbid=str(c.get("capture_forbid", "")),
+                confirm_enabled=bool(c.get("confirm_enabled", False)),
+                confirm_message=str(c.get("confirm_message", "")),
                 timeout=float(c.get("timeout", 6.0)),
                 wait_timeout=float(c.get("wait_timeout", 10.0)),
                 send_timeout=float(c.get("send_timeout", 4.0)),
@@ -280,6 +288,13 @@ class ConsoleCfg:
     ssh_host: str = ""              # DUT SSH endpoint for ssh/sftp rows
     ssh_username: str = "root"
     test_commands: list = field(default_factory=list)    # [ConsoleCommand]
+    # Linux DUT script-asset provisioning: as soon as SSH/SFTP is up the
+    # whole local asset folder is copied to the DUT (once per unit, so a
+    # board whose /root was wiped by a reboot is re-provisioned). Scripts
+    # stay GENERIC (no per-board MAC/BD/IP); they probe at runtime.
+    deploy_scripts: bool = False
+    scripts_local_dir: str = ""     # Host asset folder (rel to yaml/pkg)
+    scripts_remote_dir: str = "/root"   # DUT target directory
 
     def to_dict(self) -> dict:
         return {
@@ -288,6 +303,9 @@ class ConsoleCfg:
             "newline": self.newline,
             "inter_cmd_delay_ms": int(self.inter_cmd_delay_ms),
             "ssh_host": self.ssh_host, "ssh_username": self.ssh_username,
+            "deploy_scripts": bool(self.deploy_scripts),
+            "scripts_local_dir": self.scripts_local_dir,
+            "scripts_remote_dir": self.scripts_remote_dir,
             "test_commands": [c.to_dict() for c in self.test_commands],
         }
 
@@ -559,6 +577,11 @@ class FctTestConfig:
                 inter_cmd_delay_ms=int(console.get("inter_cmd_delay_ms", 100)),
                 ssh_host=str(console.get("ssh_host", "")),
                 ssh_username=str(console.get("ssh_username", "root")),
+                deploy_scripts=bool(console.get("deploy_scripts", False)),
+                scripts_local_dir=str(
+                    console.get("scripts_local_dir", "")),
+                scripts_remote_dir=str(
+                    console.get("scripts_remote_dir", "/root")),
                 test_commands=[
                     ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
@@ -585,6 +608,20 @@ class FctTestConfig:
                 # no OS -> no shell -> no SSH
                 errors.append("bare_metal DUT: ssh_host requires "
                               "a Linux shell - remove it")
+            if c.deploy_scripts:
+                if self.dut_type == "bare_metal":
+                    errors.append("bare_metal DUT: script deployment over "
+                                  "SFTP needs a Linux shell - disable it")
+                else:
+                    if not c.scripts_local_dir.strip():
+                        errors.append("console.deploy_scripts: "
+                                      "scripts_local_dir must not be empty")
+                    if not c.scripts_remote_dir.strip():
+                        errors.append("console.deploy_scripts: "
+                                      "scripts_remote_dir must not be empty")
+                    if not c.ssh_host.strip():
+                        errors.append("console.deploy_scripts: ssh_host is "
+                                      "required for SFTP deployment")
             if self.dut_type == "bare_metal":
                 # Bare metal/RTOS still interacts over SERIAL
                 # (Wait->Send->Capture, e.g. a Button/LED prompt answered
@@ -723,6 +760,8 @@ def build_fct_steps(cfg: FctTestConfig,
                 "capture_end_line": end_line,
                 "capture_is_expected": is_expected,
                 "case_sensitive": cmd.case_sensitive,
+                "confirm_enabled": bool(cmd.confirm_enabled),
+                "confirm_message": str(cmd.confirm_message or ""),
                 "expect_pass_re": pass_pat,
                 "expect_fail_re": neg_pat,
                 "expect_pass_is_regex": pass_regex,

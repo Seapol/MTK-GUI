@@ -491,13 +491,15 @@ cfg_rt = load_fault_config()
 assert abs(cfg_rt["test_fail_ratio"] - 0.01) < 1e-9, cfg_rt
 assert abs(cfg_rt["equipment_error_ratio"] - 99.99) < 1e-9, cfg_rt
 save_fault_config({"test_fail_ratio": 0, "equipment_error_ratio": 0})
-# 100% injected fail ratio -> every test row FAILs, "Virtual " prefix
+# 100% injected fail ratio -> every ICT row FAILs with the "Virtual "
+# prefix; FCT always runs real (no virtual prefix, no virtual faults)
 wf3.set_virtual_fault({"test_fail_ratio": 100, "equipment_error_ratio": 0})
 wf3.run_demo()
 assert wf3.ict.item(4, 7).text() == "Virtual FAIL"
-# 100 % injected fail ratio -> every test row FAILs (message tests
-# included), "Virtual " prefix; the Power Off DUT op row reports Done
-assert wf3.fct.item(0, 4).text() == "Virtual FAIL"
+# FCT rows are never virtualised: plain PASS/FAIL wording; the Power
+# Off DUT op row reports Done
+assert wf3.fct.item(0, 4).text() == "PASS"
+# Overall carries the Virtual prefix because virtualised ICT contributed
 assert wf3.result_label.text() == "Virtual FAIL"
 wf3.clear_results()
 wf3.set_virtual_fault({"test_fail_ratio": 0, "equipment_error_ratio": 0})
@@ -855,9 +857,11 @@ for _ in range(150):  # wait for the whole (virtual) run to finish
 click_timer.stop()
 assert wf3.run_state == "idle"
 assert mc3.channel_connected("ser1")  # opened automatically
-# the single "All Tests done." message row passes; the run ends PASS
-assert wf3.fct.item(0, 4).text() == "Virtual PASS"
-assert wf3.result_label.text() == "Virtual PASS"
+# the single "All Tests done." message row passes (FCT is never
+# virtualised -> plain PASS); this FCT-only run has no virtualised ICT
+# contribution, so the Overall is plain PASS too (user rule)
+assert wf3.fct.item(0, 4).text() == "PASS"
+assert wf3.result_label.text() == "PASS"
 mc3.close_channel("ser1")
 wf3.fct_connect_timeout = 10.0
 mc3._yaml_channel_keys = None

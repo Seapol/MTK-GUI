@@ -306,6 +306,21 @@ def _install_scripted_drivers(force: bool = True):
 
 
 # ------------------------------------------------------------ headless env
+class _ScriptedRFGateway:
+    """Deterministic RF back-end for the headless demo: FCT Wi-Fi/BT
+    rows always run the real gateway.rf_test() path (never virtualised),
+    so the demo - which has no real access points - simulates the RF
+    ENVIRONMENT with fixed PASS outcomes (the run itself is unchanged)."""
+
+    def rf_test(self, kind: str, name: str,
+                config: dict | None) -> "GatewayOutcome":
+        from .instruments import GatewayOutcome
+        summary = ("wifi associated (demo)" if kind == "WIFI"
+                   else "bluetooth connected (demo)")
+        return GatewayOutcome("PASS", value=summary, text=summary,
+                              lines=[f"{name}: {summary}"])
+
+
 class HeadlessEnv:
     """RunnerEnv bridge for headless runs: stdout log, in-memory result
     rows, scripted console / rails - the same interface the Qt workflow
@@ -372,6 +387,11 @@ class HeadlessEnv:
             # deterministic (P0 acceptance: zero flaky runs); fault
             # injection ratios are still set via set_fault_ratios()
             self.rack = VirtualRack(seed=42)
+            # FCT Wi-Fi/BT always run the real RF adapter path (never
+            # virtualised) - the headless demo has no real access
+            # points, so the demo ENVIRONMENT is simulated with a
+            # deterministic scripted RF gateway
+            self.gateway = _ScriptedRFGateway()
         else:
             from .instruments import RealGateway
 
