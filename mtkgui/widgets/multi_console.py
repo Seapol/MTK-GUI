@@ -15,6 +15,7 @@ Used on the Test Work Flow page, next to the FCT table:
   the current line can be saved as a new snippet (max 15)
 """
 
+import shiboken6
 from PySide6.QtCore import QSettings, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -52,6 +53,17 @@ DEFAULT_SERIAL_PARAMS = {
 DEFAULT_SSH_PARAMS = {
     "host": "", "port": 22, "username": "", "password": "",
 }
+
+
+def _console_alive(console) -> bool:
+    """True while the console's C++ object is still usable.
+
+    A queued worker signal (connection_changed / data_received /
+    error_occurred) can be delivered after the window tree was torn
+    down at app exit - touching the widget then raises
+    "Internal C++ object (_ConsoleOutput) already deleted"."""
+    return (console is not None and shiboken6.isValid(console)
+            and shiboken6.isValid(console.view))
 
 
 class SerialConfigDialog(QDialog):
@@ -1074,7 +1086,7 @@ class MultiConsoleWidget(QGroupBox):
 
     def _on_worker_error(self, key, msg):
         channel = self.channels.get(key)
-        if channel is not None:
+        if channel is not None and _console_alive(channel["console"]):
             channel["console"].append_message(
                 "SYS", msg, color=self.theme["err"])
 
@@ -1100,6 +1112,8 @@ class MultiConsoleWidget(QGroupBox):
         if channel is None:  # removed while a queued signal was in flight
             return
         channel["connected"] = bool(connected)
+        if not _console_alive(channel["console"]):
+            return  # widgets gone (app shutdown): state only, no UI
         if connected:
             p = channel["params"]
             if channel["kind"] == "serial":
@@ -1119,6 +1133,8 @@ class MultiConsoleWidget(QGroupBox):
         channel = self.channels.get(key)
         if channel is None:  # removed while a queued signal was in flight
             return
+        if not _console_alive(channel["console"]):
+            return  # widgets gone (app shutdown): drop the queued bytes
         channel["read_buffer"].extend(data)
         channel["stats"][1] += len(data)
         channel["row"].update_counts(channel["stats"][0],

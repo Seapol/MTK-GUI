@@ -11,9 +11,10 @@ Encoding rule: ``vX.Y.Z.xxxx``
 
 The CI pipeline writes ``resources/version.json`` into the app
 resource folder on each build; the GUI loads it at startup and
-renders ``full_version`` into the status bar label.  A missing or
-broken file falls back to the static ``v4.1.1.0000`` text plus a
-warning log line - the label is display-only either way.
+renders ``full_version`` into the status bar label.  A missing file
+(source checkout, no CI build yet) falls back silently; a broken
+file falls back to the static ``v4.1.1.0000`` text plus a warning
+log line - the label is display-only either way.
 """
 
 from __future__ import annotations
@@ -55,6 +56,10 @@ def load_gui_version(path: Path | None = None) -> tuple[str, str | None]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
+        if isinstance(exc, FileNotFoundError):
+            # expected in a source checkout: no CI build has run yet.
+            # Silent fallback - only a CORRUPT file deserves a warning.
+            return FALLBACK_VERSION, None
         warning = (f"version.json missing or unreadable ({exc}); "
                    f"using static fallback {FALLBACK_VERSION}")
         logger.warning(warning)

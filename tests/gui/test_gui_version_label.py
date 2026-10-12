@@ -41,13 +41,13 @@ def test_load_rebuilds_from_components(tmp_path):
     assert version == "v4.2.3.0042" and warning is None
 
 
-def test_missing_file_falls_back_with_warning(tmp_path, caplog):
+def test_missing_file_falls_back_silently(tmp_path, caplog):
     version, warning = load_gui_version(tmp_path / "none.json")
     assert version == FALLBACK_VERSION == "v4.1.1.0000"
-    assert warning and "missing or unreadable" in warning
-    warnings = [r for r in caplog.records
+    # absent file = source checkout, expected: no warning, silent fallback
+    assert warning is None
+    assert not [r for r in caplog.records
                 if r.levelno == logging.WARNING]
-    assert warnings
 
 
 def test_malformed_json_falls_back_with_warning(tmp_path, caplog):
