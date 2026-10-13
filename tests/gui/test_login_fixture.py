@@ -223,7 +223,7 @@ def test_ate_fixture_allows_fixture_blocks(qapp, monkeypatch):
     monkeypatch.setattr(QMessageBox, "information",
                         lambda *a, **k: popups.append(a) or 0)
     monkeypatch.setattr(equipment_page_module, "_form_dialog",
-                        lambda parent, title, fields:
+                        lambda parent, title, fields, note="", **k:
                         (opened.append(title),
                          types.SimpleNamespace(exec=lambda: None))[1])
     w = MainWindow(role=ROLE_SUPERVISOR, fixture=FIXTURE_ATE)

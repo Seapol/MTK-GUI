@@ -4,6 +4,7 @@
 Run with: python main.py
 """
 
+import faulthandler
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -15,6 +16,10 @@ from mtkgui.style import QSS
 
 
 def main():
+    # native crash reports lack Python frames; faulthandler prints the
+    # exact Python stack to stderr on SIGSEGV (macOS exit-crash forensics)
+    faulthandler.enable()
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setApplicationName(__app_name__)

@@ -186,24 +186,34 @@ def test_global_task_progress_state_machine(qapp):
     """MainWindow._on_task_progress: 0 starts with label, stages
     update, 100 completes and arms the auto-reset."""
     from mtkgui.main_window import MainWindow
-    from PySide6.QtCore import Qt
-    mw = MainWindow.__new__(MainWindow)   # headless: only the widgets
-    from PySide6.QtWidgets import QProgressBar
-    mw.status_progress = QProgressBar()
-    mw._progress_reset_pending = False
-    MainWindow._on_task_progress(mw, 0, "import: reading workbook")
-    assert mw.status_progress.maximum() == 100
-    assert mw.status_progress.value() == 0
-    assert "import" in mw.status_progress.format()
-    MainWindow._on_task_progress(mw, 40, "import: applying")
-    assert mw.status_progress.value() == 40
-    MainWindow._on_task_progress(mw, 100, "import: done")
-    assert mw.status_progress.value() == 100
-    assert mw._progress_reset_pending is True
-    MainWindow._on_task_progress(mw, 0, "next: task")
-    assert mw.status_progress.value() == 0
-    assert "next: task" in mw.status_progress.format()
-    mw.status_progress.deleteLater()
+    from PySide6.QtWidgets import QProgressBar, QWidget
+    # a VALID QWidget hosts the state machine: _on_task_progress arms a
+    # context-bound auto-reset singleShot(800ms), and an invalid
+    # (MainWindow.__new__-style) receiver made that timer a segfault at
+    # the next test-boundary event pump.  deleteLater on the host at
+    # the end cancels the still-pending timer safely.
+    host = QWidget()
+    host.status_progress = QProgressBar(host)
+    host._progress_reset_pending = False
+    # MainWindow methods the state machine calls at 100%: bind them to
+    # the lightweight host explicitly
+    host._finish_run_progress = (
+        lambda: MainWindow._finish_run_progress(host))
+    host._reset_run_progress = (
+        lambda: MainWindow._reset_run_progress(host))
+    MainWindow._on_task_progress(host, 0, "import: reading workbook")
+    assert host.status_progress.maximum() == 100
+    assert host.status_progress.value() == 0
+    assert "import" in host.status_progress.format()
+    MainWindow._on_task_progress(host, 40, "import: applying")
+    assert host.status_progress.value() == 40
+    MainWindow._on_task_progress(host, 100, "import: done")
+    assert host.status_progress.value() == 100
+    assert host._progress_reset_pending is True
+    MainWindow._on_task_progress(host, 0, "next: task")
+    assert host.status_progress.value() == 0
+    assert "next: task" in host.status_progress.format()
+    host.deleteLater()          # cancels the pending auto-reset timer
 
 
 # --------------------------------------------- design input parse bridge

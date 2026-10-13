@@ -46,9 +46,11 @@ def window(qapp):
 def _connect_dialog(page, key, monkeypatch, connected=True):
     """Open the instrument dialog; connect (virtual, immediate) or not."""
     page.virtual_mode = True
+    # singleShot(msec, context, functor) since the context-receiver
+    # hardening: run the functor synchronously, drop the context
     monkeypatch.setattr(
         "mtkgui.equipment_page.QTimer.singleShot",
-        lambda _ms, fn: fn() if connected else None)
+        lambda _ms, _ctx, fn: fn() if connected else None)
     # no exec loop: click Connect directly, then close
     captured = {}
 

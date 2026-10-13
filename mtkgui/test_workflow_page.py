@@ -103,6 +103,7 @@ from .engine import (
     write_csv,
 )
 from .engine.rails import DURATION_S
+from .qt_guard import qt_safe
 from .style import gui_theme_color, saved_theme, text_for_card
 from .virtual_hardware import VirtualRack
 from .widgets.console_widget import ERROR_COLOR
@@ -529,7 +530,8 @@ class TestWorkFlowPage(QWidget):
         mid.setStretchFactor(1, 1)   # Rails 50%
         mid.setSizes([500, 500])     # initial 1:1 ratio
         # first show re-splits by sizeHint -> enforce 1:1 afterwards
-        QTimer.singleShot(0, lambda: mid.setSizes([500, 500]))
+        QTimer.singleShot(
+            0, self, qt_safe(lambda: mid.setSizes([500, 500])))
         mid.setHandleWidth(10)
         # the Power Rails pane may occupy at most half of the row:
         # a Resize on the splitter re-clamps the rails max width
@@ -546,7 +548,8 @@ class TestWorkFlowPage(QWidget):
         fct_split.setStretchFactor(1, 1)   # Console 50%
         fct_split.setSizes([500, 500])     # initial 1:1 ratio
         # first show re-splits by sizeHint -> enforce 1:1 afterwards
-        QTimer.singleShot(0, lambda: fct_split.setSizes([500, 500]))
+        QTimer.singleShot(
+            0, self, qt_safe(lambda: fct_split.setSizes([500, 500])))
         fct_split.setHandleWidth(10)
         # keep the FCT table's 12-row viewport (and the console bars)
         # intact; the outer scroll area scrolls when the window is short
@@ -2393,7 +2396,7 @@ class TestWorkFlowPage(QWidget):
         # arm the fresh run on the next event-loop turn
         if self._restart_pending:
             self._restart_pending = False
-            QTimer.singleShot(0, self.start_run)
+            QTimer.singleShot(0, self, qt_safe(self.start_run))
 
     def clear_results(self):
         self._interrupted = False

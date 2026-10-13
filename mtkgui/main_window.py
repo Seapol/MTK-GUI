@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QSplitter,
     QTabWidget,
-    QGroupBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -56,6 +56,7 @@ from .permissions import (
     load_permissions,
     save_permissions,
 )
+from .qt_guard import qt_safe
 from .test_workflow_page import TestWorkFlowPage
 from .engine.steps import op_step
 from .version_info import get_version_info
@@ -180,6 +181,11 @@ class InstrumentStatusBar(QWidget):
 
         self.states = {abbr: "disconnected" for abbr, _ in instruments}
         self._refresh_tooltips()
+        # hard minimum: the QStatusBar squeeze must hit the stretch
+        # progress bar, never overlap the LEDs / captions (polish first
+        # so the hint uses the real stylesheet font metrics)
+        self.ensurePolished()
+        self.setMinimumWidth(self.sizeHint().width())
 
     def set_state(self, abbr, state):
         if self.states.get(abbr) == state:
@@ -226,6 +232,11 @@ class SerialStatusBar(QWidget):
             item = self._row.takeAt(self._row.count() - 1)
             w = item.widget()
             if w is not None:
+                # hide IMMEDIATELY: after takeAt the widget keeps its
+                # parent and renders at (0,0) - on top of the caption -
+                # until the deferred delete lands (user report: a ghost
+                # LED overlapped 'Console:' at startup)
+                w.hide()
                 w.deleteLater()
         self._leds = {}
         for key, ch in channels.items():
@@ -235,6 +246,13 @@ class SerialStatusBar(QWidget):
             state = "connected" if ch.get("connected") else "disconnected"
             led.set_state(state)
             self._leds[key] = (led, key)
+        # hard minimum: keeps the caption + LEDs from being squeezed into
+        # each other when the status bar runs out of width (user report:
+        # the LED overlapped the 'Console:' caption at 1920x1080).
+        # ensurePolished first - the hint measured before the stylesheet /
+        # fonts land is ~19px too small and the overlap returns.
+        self.ensurePolished()
+        self.setMinimumWidth(self.sizeHint().width())
 
 
 class DialogCenterer(QObject):
@@ -463,7 +481,7 @@ class MainWindow(QMainWindow):
         snapshot still sees pre-polish font metrics)."""
         if not self._vmin_locked:
             self._vmin_locked = True
-            QTimer.singleShot(0, self._lock_vertical_minimums)
+            QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
         super().paintEvent(event)
 
     def showEvent(self, event):
@@ -471,15 +489,15 @@ class MainWindow(QMainWindow):
         switches change fonts, so the floor must follow the current
         metrics, not a construction-time snapshot."""
         super().showEvent(event)
-        QTimer.singleShot(0, self._lock_vertical_minimums)
+        QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
         # the Manual-fixture notice pops once the project UI is visible
         if getattr(self, "_manual_notice_pending", False):
             self._manual_notice_pending = False
-            QTimer.singleShot(0, self, self._show_manual_notice)
+            QTimer.singleShot(0, self, qt_safe(self._show_manual_notice))
         # same one-shot pattern for the Virtual-mode notice
         if getattr(self, "_virtual_notice_pending", False):
             self._virtual_notice_pending = False
-            QTimer.singleShot(0, self, self._show_virtual_notice)
+            QTimer.singleShot(0, self, qt_safe(self._show_virtual_notice))
 
     def _remember_geometry(self):
         """Persist the user's manually chosen window geometry so the
@@ -514,18 +532,12 @@ class MainWindow(QMainWindow):
         self.yaml_build_page = YamlBuildPage()
         self.tabs.addTab(self.yaml_build_page, "Yaml Build")
 
-        # T10: Channel Allocation tab (dedicated Power / Clock / GPIO
-        # tables; data source = the Parse Nets result of the model)
-        from mtkgui.gui.yamlbuild.channel_allocation import \
-            ChannelAllocationPage
-        self.channel_alloc_page = ChannelAllocationPage()
-        self.tabs.addTab(self.channel_alloc_page, "Channel Allocation")
-        # model injected AFTER addTab (PySide shiboken GC bug
-        # workaround - see ChannelAllocationPage.__init__)
-        self.channel_alloc_page.set_model(self.yaml_build_page.model)
+        # NOTE: the dedicated Channel Allocation tab is GONE (user
+        # direction 2026-10-13: single-page vertical workflow) - the
+        # allocation tables are EMBEDDED in the Yaml Build page below
+        # the block cards (yaml_build_page.channel_alloc); its task
+        # log funnels through the page's own task_log signal below
         self.yaml_build_page.task_log.connect(
-            self.channel_alloc_page.task_log)
-        self.channel_alloc_page.task_log.connect(
             lambda level, msg:
                 self._append_event_log(f"[{level}] {msg}"))
 
@@ -533,6 +545,12 @@ class MainWindow(QMainWindow):
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         self.yaml_build_page.test_workflow_requested.connect(
             self._goto_test_workflow)
+        # the page-level "Close Yaml" / "Load current yaml" buttons
+        # run the SAME slots as the File menu actions
+        self.yaml_build_page.close_yaml_requested.connect(
+            self.close_yaml)
+        self.yaml_build_page.load_yaml_requested.connect(
+            self._load_current_yaml)
         # Power Rails config (Test Work Flow properties) -> Yaml Build
         # model: the configured rails land in the YAML preview / Apply
         self.workflow_page.rail_config_changed.connect(
@@ -542,10 +560,6 @@ class MainWindow(QMainWindow):
         self.workflow_page.net_catalog_provider = (
             lambda: self.yaml_build_page.model.imported.get(
                 "testable_nets") or {})
-        # Apply-to-YAML from the config pages: persist (done in the
-        # page) then switch to the Yaml Build tab
-        self.channel_alloc_page.apply_yaml_requested.connect(
-            self._goto_yaml_build)
         # block-04 sequence builder accepted: merge the standard
         # operations on the Test Work Flow page, then apply to yaml
         self.yaml_build_page.ict_sequence_ready.connect(
@@ -579,11 +593,29 @@ class MainWindow(QMainWindow):
         # The serial / SSH console lives on the Test Work Flow page,
         # beside the FCT table (self.workflow_page.multi_console).
 
-        # --- bottom: Event Log (6 rows, auto-scroll, date-time stamps) --
+        # --- bottom: Event Log (slim flat header, collapsible) --------
         # renamed from "Test Log"; moved out of the Test Work Flow page.
-        log_group = QGroupBox("Event Log")
+        # 2026-10-13 (user direction): the macOS QGroupBox chrome wasted
+        # vertical space - a flat one-row header (title + flat arrow
+        # toggle) replaces it, margins stay minimal
+        log_group = QWidget()
         log_layout = QVBoxLayout(log_group)
-        log_layout.setContentsMargins(8, 8, 8, 8)
+        log_layout.setContentsMargins(6, 2, 6, 2)
+        log_layout.setSpacing(2)
+        log_header = QHBoxLayout()
+        log_title = QLabel("Event Log")
+        log_title.setStyleSheet(
+            "font-weight: bold; font-size: 11px;")
+        log_header.addWidget(log_title)
+        log_header.addStretch(1)
+        self._log_toggle = QToolButton()
+        self._log_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self._log_toggle.setAutoRaise(True)     # flat, native look
+        self._log_toggle.setFixedSize(18, 16)
+        self._log_toggle.setToolTip("Collapse Event Log")
+        self._log_toggle.clicked.connect(self._toggle_event_log)
+        log_header.addWidget(self._log_toggle)
+        log_layout.addLayout(log_header)
         self.event_log = QPlainTextEdit()
         self.event_log.setReadOnly(True)
         # right-click menu: Copy / Clear / Save as
@@ -594,8 +626,10 @@ class MainWindow(QMainWindow):
         fm = QFontMetrics(self.event_log.font())
         six_rows = (fm.lineSpacing() * 6
                     + 2 * self.event_log.frameWidth() + 6)
-        # Event Log is 50% taller than the original 6-row design
-        self.event_log.setMinimumHeight(int(six_rows * 1.5))
+        # 2026-10-13 (user direction): the log pane shrank 30 % (1.5x
+        # of the original 6-row design -> 1.05x) and is collapsible
+        self._log_expanded_h = int(six_rows * 1.05)
+        self.event_log.setMinimumHeight(self._log_expanded_h)
         log_layout.addWidget(self.event_log)
 
         # one auto-saved session log file per GUI run (start -> exit)
@@ -709,10 +743,10 @@ class MainWindow(QMainWindow):
                 self._append_event_log(f"[{level}] {msg}"))
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
-            QTimer.singleShot(800, self._connect_virtual_instruments)
+            QTimer.singleShot(800, self, qt_safe(self._connect_virtual_instruments))
         # restore the power-rails capture from the persisted Yaml Build
         # model state (channel allocation / previous rail config)
-        QTimer.singleShot(0, self._sync_rails_to_workflow)
+        QTimer.singleShot(0, self, qt_safe(self._sync_rails_to_workflow))
 
         # --- assemble the splitter: top | middle (tabs) | bottom --------
         self.splitter.addWidget(top)
@@ -734,16 +768,18 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        # initial sizes: top = all rows, bottom = log (1.5x of the
-        # original 6 rows), middle = rest.  Enforced again after the
-        # first layout pass - construction-time sizeHints distort the
-        # distribution (same lesson as the P3 1:1 splitter fix).
+        # initial sizes: top = all rows, bottom = the shrunken log
+        # (1.05x of the original 6 rows), middle = rest.  Enforced
+        # again after the first layout pass - construction-time
+        # sizeHints distort the distribution (same lesson as the P3
+        # 1:1 splitter fix).
         top_h = max(top.sizeHint().height(), 180)
-        bottom_h = int(six_rows * 1.5) + 40
+        bottom_h = self._log_expanded_h + 40
         middle_h = max(300, self.height() - top_h - bottom_h)
         initial = [top_h, middle_h, bottom_h]
         self.splitter.setSizes(initial)
-        QTimer.singleShot(0, lambda: self.splitter.setSizes(initial))
+        QTimer.singleShot(
+            0, self, qt_safe(lambda: self.splitter.setSizes(initial)))
 
         self.setCentralWidget(central)
         # hard vertical threshold (B1 final rule 2): lock the window
@@ -753,7 +789,7 @@ class MainWindow(QMainWindow):
         # Event Log / status bar out of the visible area.  Width stays
         # flexible - horizontal squeeze is absorbed by internal
         # scrollbars.
-        QTimer.singleShot(0, self._lock_vertical_minimums)
+        QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
 
         # Apply the default background to every console channel.
         self.apply_background(self.bg_color)
@@ -1105,13 +1141,15 @@ class MainWindow(QMainWindow):
         if idx_yaml >= 0:
             self.tabs.setTabVisible(idx_yaml, can_yaml_build)
         self.yaml_build_page.set_edit_allowed(can_yaml_build)
-        # T10 Channel Allocation: operators view only (dropdown cells
-        # disabled; the tab itself stays visible for reporting)
-        self.channel_alloc_page.set_edit_allowed(can_yaml_build)
+        # T10 Channel Allocation (embedded in the Yaml Build page):
+        # operators view only (dropdown cells disabled)
+        self.yaml_build_page.channel_alloc.set_edit_allowed(
+            can_yaml_build)
         self.equipment_page.set_config_allowed(
             supervisor or perm.get("equipment_config", False))
-        # Virtual mode drives the instrument dialog's connect / test behavior
-        self.equipment_page.set_virtual_mode(self.mode == "Virtual")
+        # Real / Virtual mode drives the equipment dialogs' mode-aware
+        # notes and the instrument dialog's connect / test behavior
+        self.equipment_page.set_mode(self.mode)
         # Virtual mode (supervisor only): fault-injection menu + pages
         virtual = supervisor and self.mode == "Virtual"
         self.act_fault_inject.setEnabled(virtual)
@@ -1128,7 +1166,7 @@ class MainWindow(QMainWindow):
                 "instrument measurements are simulated; FCT always "
                 "runs on real hardware")
             if self.isVisible():
-                QTimer.singleShot(0, self, self._show_virtual_notice)
+                QTimer.singleShot(0, self, qt_safe(self._show_virtual_notice))
         self._apply_fixture_mode()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Logged in: {self.role}")
@@ -1148,7 +1186,7 @@ class MainWindow(QMainWindow):
                 f"[{datetime.now():%H:%M:%S}] Fixture: Manual mode - "
                 "fixture hardware / IO control disabled")
             if self.isVisible():
-                QTimer.singleShot(0, self, self._show_manual_notice)
+                QTimer.singleShot(0, self, qt_safe(self._show_manual_notice))
 
     def _show_manual_notice(self):
         """One-shot Manual-fixture notice (fixed wording, closable)."""
@@ -1337,6 +1375,9 @@ class MainWindow(QMainWindow):
         self.yaml_build_page.model.apply_state({})
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
+        # the preview pane must NOT keep showing the stale document
+        # (user direction: Close Yaml clears the Yaml Preview)
+        self.yaml_build_page.clear_preview()
         self._project_path = None
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Yaml closed - "
@@ -1361,11 +1402,10 @@ class MainWindow(QMainWindow):
     _ICT_OPS_AFTER_TEST = ("Power Off DUT", "Fixture Unlock",
                            "Fixture Release", "Reset Instruments")
 
-    def _on_ict_sequence_ready(self, tests):
-        """Block-04 sequence builder accepted: rebuild the ICT Test
-        Cases table - the adjusted tests in order WITH the standard
-        operations around them (impedance before power-on) - jump to
-        the Test Work Flow page and offer the YAML save (apply)."""
+    def _fill_ict_sequence(self, tests):
+        """Rebuild the ICT Test Cases table from the test rows - the
+        adjusted tests in order WITH the standard operations around
+        them (impedance before power-on)."""
         page = self.workflow_page
         by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
 
@@ -1385,6 +1425,13 @@ class MainWindow(QMainWindow):
         page._ict_edit_guard = True
         page._fill_ict(placeholder=True)
         page._ict_edit_guard = False
+
+    def _on_ict_sequence_ready(self, tests):
+        """Block-04 sequence builder accepted: rebuild the ICT Test
+        Cases table - the adjusted tests in order WITH the standard
+        operations around them (impedance before power-on) - jump to
+        the Test Work Flow page and offer the YAML save (apply)."""
+        self._fill_ict_sequence(tests)
         self._goto_test_workflow()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
@@ -1404,13 +1451,53 @@ class MainWindow(QMainWindow):
             f"{len(cases)} cases")
         self._on_yaml_apply_committed()
 
-    def _goto_yaml_build(self):
-        """Apply-to-YAML from the Channel Allocation / Power Tree
-        page: the page already persisted its config into the model -
-        switch to the Yaml Build tab and repaint the preview."""
-        self._sync_rails_to_workflow()
-        self.tabs.setCurrentWidget(self.yaml_build_page)
-        self.yaml_build_page.refresh_all()
+    def _load_current_yaml(self):
+        """Load current yaml (user direction 2026-10-13): derive the
+        ICT / FCT sequences from the CURRENT Yaml Build model and push
+        them into the Test Work Flow page, then jump there.
+
+        Readiness gate (blocks 01-04 / 01-05 / 05): ICT is usable when
+        parsed nets are fully channel-allocated and the rails / clocks
+        / gpios modules are enabled; FCT is usable when the fct_build
+        module carries a configured fct_test_config.  Without either a
+        warning is shown and NOTHING is executed."""
+        model = self.yaml_build_page.model
+        ict_ready = bool(model.allocated_testable()) and all(
+            model.is_enabled(k) for k in ("rails", "clocks", "gpios"))
+        fct_params = model.get_params("fct_build") or {}
+        fct_ready = model.is_enabled("fct_build") and bool(
+            str(fct_params.get("fct_test_config_yaml") or "").strip())
+        if not ict_ready and not fct_ready:
+            QMessageBox.warning(
+                self, "Load current yaml",
+                "No usable ICT / FCT configuration.\n\nComplete the "
+                "blocks 01-04 (ICT), 01-05 or 05 (FCT) first.")
+            return
+        loaded = []
+        if ict_ready:
+            from mtkgui.gui.yamlbuild.ict_sequence import (
+                auto_fill_limits,
+                generate_sequence,
+            )
+            rows = auto_fill_limits(generate_sequence(
+                model.allocated_testable()))
+            self._fill_ict_sequence(rows)
+            loaded.append(f"ICT {len(rows)} tests")
+        if fct_ready:
+            cases, errors = self.yaml_build_page._emit_fct_sequence(
+                fct_params)
+            if errors:
+                QMessageBox.warning(
+                    self, "Load current yaml",
+                    "The FCT configuration is invalid:\n"
+                    + "\n".join(errors[:10]))
+            else:
+                self.workflow_page.load_fct_cases(cases)
+                loaded.append(f"FCT {len(cases)} cases")
+        self._goto_test_workflow()
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Current yaml loaded - "
+            + "; ".join(loaded))
 
     def _sync_rails_to_workflow(self):
         """Feed the Test Work Flow page's power-rails capture from the
@@ -1575,7 +1662,7 @@ class MainWindow(QMainWindow):
         QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
         # theme fonts restyle every metric: re-prove the vertical
         # floor once the new stylesheet is polished
-        QTimer.singleShot(0, self._lock_vertical_minimums)
+        QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
 
     def choose_background(self):
         color = QColorDialog.getColor(
@@ -1669,7 +1756,7 @@ class MainWindow(QMainWindow):
         self.status_progress.setValue(100)
         self.status_progress.setFormat("Complete (100%)")
         self._progress_reset_pending = True
-        QTimer.singleShot(800, self._reset_run_progress)
+        QTimer.singleShot(800, self, qt_safe(self._reset_run_progress))
 
     def _reset_run_progress(self):
         """Auto-reset the progress bar to gray empty Idle (honours the
@@ -1742,13 +1829,43 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"Instrument {abbr}: equipment fault "
             f"(virtual fault injection, auto-recover).")
-        QTimer.singleShot(2500,
-                          lambda: self._recover_instrument(abbr))
+        QTimer.singleShot(2500, self,
+                          qt_safe(lambda: self._recover_instrument(abbr)))
 
     def _recover_instrument(self, abbr):
         if self.instr_status.states.get(abbr) == "error":
             self.instr_status.set_state(abbr, "connected")
             self._append_event_log(f"Instrument {abbr}: reconnected.")
+
+    def _toggle_event_log(self):
+        """Collapse / expand the Event Log pane (user direction
+        2026-10-13): collapsed shows only the pane title bar, the
+        freed height goes to the tabbed workspace."""
+        self._log_collapsed = not getattr(self, "_log_collapsed", False)
+        self.event_log.setVisible(not self._log_collapsed)
+        if self._log_collapsed:
+            self._log_toggle.setArrowType(Qt.ArrowType.UpArrow)
+            self._log_toggle.setToolTip("Expand Event Log")
+            # the pane floor drops to the title bar height, the freed
+            # space flows into the tabbed workspace
+            self._log_group.setMinimumHeight(0)
+            slim = max(34, self._log_group.minimumSizeHint().height())
+            sizes = self.splitter.sizes()
+            if len(sizes) == 3:
+                freed = sizes[2] - slim
+                self.splitter.setSizes(
+                    [sizes[0], sizes[1] + max(0, freed), slim])
+        else:
+            self._log_toggle.setArrowType(Qt.ArrowType.DownArrow)
+            self._log_toggle.setToolTip("Collapse Event Log")
+            self._log_group.setMinimumHeight(
+                max(self._log_group.minimumSizeHint().height(),
+                    self._log_expanded_h))
+            sizes = self.splitter.sizes()
+            if len(sizes) == 3:
+                self.splitter.setSizes(
+                    [sizes[0], max(300, sizes[1] - self._log_expanded_h),
+                     self._log_expanded_h + 40])
 
     def _event_log_menu(self, pos):
         """Right-click menu: Copy / Clear / Save as."""
@@ -1839,5 +1956,12 @@ class MainWindow(QMainWindow):
         # step 2 - destroy every child dialog instance explicitly
         for dialog in self.findChildren(QDialog):
             dialog.deleteLater()
-        # step 3 - flush pending Qt events
-        QApplication.processEvents()
+        # step 3 - flush ONLY the deferred deletes.  A full
+        # QApplication.processEvents() pump here activates pending
+        # timers whose context-less callbacks touch widgets destroyed
+        # in this same flush -> SIGSEGV on close (5/5 identical macOS
+        # crash stacks: Sbk_QCoreApplicationFunc_processEvents ->
+        # QTimerInfoList::activateTimers -> EXC_BAD_ACCESS @ NULL).
+        # sendPostedEvents(DeferredDelete) drains the deleteLater
+        # queue without running timers / input / queued signals.
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)

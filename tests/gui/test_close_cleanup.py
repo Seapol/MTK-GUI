@@ -78,20 +78,37 @@ def test_accept_called_last(window, monkeypatch):
     assert calls == ["cleanup", "accept"]
 
 
-def test_child_dialogs_destroyed_and_queue_flushed(window, monkeypatch):
-    """Steps 1-3: child dialogs get deleteLater, processEvents flushes
-    the queue, worker bindings are disconnected."""
+def test_child_dialogs_destroyed_and_deferred_delete_flushed(
+        window, monkeypatch):
+    """Steps 1-3: child dialogs get deleteLater, then ONLY the
+    DeferredDelete queue is flushed.
+
+    Regression guard (macOS SIGSEGV on close, 5/5 identical stacks:
+    processEvents -> QTimerInfoList::activateTimers -> EXC_BAD_ACCESS
+    @ NULL): the cleanup must NEVER pump the full event queue - a
+    context-less timer firing inside the pump touches widgets destroyed
+    in the same flush.  sendPostedEvents(None, DeferredDelete) drains
+    the deleteLater queue without activating timers."""
+    from PySide6.QtCore import QEvent
     child = QDialog(window)                  # a live child dialog
     child.show()
     deleted = []
     monkeypatch.setattr(QDialog, "deleteLater",
                         lambda self: deleted.append(self))
-    flushed = []
+    sent = []
+
+    def fake_send(events, etype):
+        sent.append(etype)
+
+    monkeypatch.setattr(QApplication, "sendPostedEvents",
+                        staticmethod(fake_send))
+    pumped = []
     monkeypatch.setattr(QApplication, "processEvents",
-                        staticmethod(lambda *a, **k: flushed.append(1)))
+                        staticmethod(lambda *a, **k: pumped.append(1)))
     window._cleanup_child_dialogs()
     assert child in deleted
-    assert flushed == [1]
+    assert sent == [QEvent.Type.DeferredDelete]
+    assert pumped == []          # full event-loop pump is forbidden
 
 
 def test_worker_bindings_disconnected(window):
