@@ -32,7 +32,10 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.sync import sync_model_to_yaml
 
-APPLY_LABEL = "Apply"
+#: user direction 2026-10-13: the label distinguishes the preview
+#: Apply from the Channel Allocation apply (whose own button moved
+#: onto the "Auto-Channel Allocation" workflow card)
+APPLY_LABEL = "Apply to Yaml"
 
 
 class YamlPreviewWidget(QWidget):

@@ -42,10 +42,12 @@ def test_yaml_buttons_removed(page):
 
 
 def test_top_row_order_excel_left_of_edit_apply(page):
-    """Import / Export sit on the LEFT of the Edit/Apply toggle in the
-    same unified row, which lives directly ABOVE the YAML Preview."""
+    """Import / Export sit on the LEFT of the Apply button; Close Yaml
+    and Load current yaml close the row (2026-10-13), all in the same
+    unified row directly ABOVE the YAML Preview."""
     row = [page.btn_import_excel, page.btn_export_excel,
-           page.yaml_preview.btn_apply]
+           page.yaml_preview.btn_apply,
+           page.btn_close_yaml, page.btn_load_yaml]
     assert tuple(page._action_buttons) == tuple(row)
     page.resize(1600, 900)
     page.show()

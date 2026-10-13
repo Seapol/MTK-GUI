@@ -55,15 +55,18 @@ def make_model(enabled=True) -> YamlBuildModel:
 
 
 def test_stage_count_and_order():
-    """Exactly the eleven fixed stages in the required order (item 23
-    redefinition: parse_ict moved to 02, instruments to 03, the FCT
-    parse block retired, validate/export close the flow, legacy
-    power_dut absorbed into rails)."""
+    """Exactly the seven fixed stages in the required order (2026-10-13
+    simplification: programmer / peripherals / validate_sequence /
+    preview_export retired - no runtime consumer, Equipment page owns
+    the hardware config; parse_ict stays at 02, legacy power_dut
+    absorbed into rails)."""
     assert [s.key for s in WORKFLOW_STAGES] == [
         "design_input", "parse_ict", "instruments", "rails", "clocks",
-        "gpios", "programmer", "peripherals", "fct_build",
-        "validate_sequence", "preview_export"]
+        "gpios", "fct_build"]
     assert "power_dut" not in STAGE_KEYS
+    for retired in ("programmer", "peripherals", "validate_sequence",
+                    "preview_export"):
+        assert retired not in STAGE_KEYS
 
 
 def test_power_rails_synced_into_yaml():
@@ -143,14 +146,14 @@ def test_effective_yaml_types_coerced():
         "on_delay_ms": "100", "off_delay_ms": "200",
         "off_protection": "true",
     })
-    model.set_params("peripherals", {"init_sequence": "step1\nstep2"})
+    model.set_params("gpios", {"groups": "P1_1:1:output:pullup"})
     data = yaml.safe_load(model.to_effective_yaml())
     rails = data["yaml_build"]["modules"]["rails"]
     assert rails["on_voltage_v"] == 5.0
     assert rails["off_delay_ms"] == 200
     assert rails["off_protection"] is True
-    periph = data["yaml_build"]["modules"]["peripherals"]
-    assert periph["init_sequence"] == ["step1", "step2"]
+    gpio = data["yaml_build"]["modules"]["gpios"]
+    assert gpio["groups"] == ["P1_1:1:output:pullup"]
 
 
 def test_validation_range_and_required():
@@ -165,8 +168,8 @@ def test_validation_range_and_required():
     errors = model.validate_module("rails")
     assert any("above maximum" in e for e in errors)
 
-    model.set_params("programmer", {"protocol": "USB"})   # bad choice
-    errors = model.validate_module("programmer")
+    model.set_params("fct_build", {"exception_branch": "maybe"})
+    errors = model.validate_module("fct_build")
     assert any("must be one of" in e for e in errors)
 
 

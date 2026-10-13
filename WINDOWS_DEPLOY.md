@@ -145,10 +145,15 @@ mtk\            <- 整个文件夹一起拷，缺一不可
 | USB 串口驱动 | 用 USB 转串口线连接 DUT | FTDI / CP210x 在 Win10/11 一般自动装；CH340 系列通常需手动装一次 |
 | WLAN 网卡 | host 侧 Wi-Fi 扫描/连接/吞吐测试 | 电脑本身需有可用的 WLAN 网卡 |
 
-**两个前提：**
+**两个前提 + 一条说明：**
 
 - 测试机建议装**英文版 Windows**：Wi-Fi/吞吐步骤按英文输出解析 `netsh`/`ping`，中文系统可能解析失败。
 - 用户自建的 YAML 计划文件放 `mtk\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
+- 随包内置的 FRDM-IMX93 FCT demo 计划在 `mtk\_internal\yaml_plan\examples\imx93frdm\`，当前最新为 `FRDM-IMX93_FCT_Demo_v1.0.2.yaml`（v1.0.0 / v1.0.1 仍保留在包内）。
+
+**版本号显示 v4.1.1.0000？**
+
+exe 由源码直接打包时未带 CI 生成的 `resources\version.json`，状态栏回退显示静态版本 `v4.1.1.0000`，功能无影响；CI 打包管线构建时会写入真实版本号。
 
 ---
 
@@ -168,7 +173,7 @@ spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库�
 虚拟环境没激活，先执行 `.venv\Scripts\activate`。
 
 **用户自己的 YAML 计划文件**
-`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。
+`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。内置 demo 计划（`yaml_plan/examples`）已随包打进 `_internal\yaml_plan\examples\`，无需手动放置。
 
 ---
 

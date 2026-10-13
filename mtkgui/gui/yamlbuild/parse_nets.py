@@ -716,6 +716,17 @@ class ParseNetsPanel(QWidget):
             if override is not None \
                     and override != CATEGORY_FILTERED:
                 rows.append((rec, override))
+        # drop the previous row widgets FIRST: setCellWidget does not
+        # delete the replaced widget in every Qt build - the old combos
+        # / DNT checkboxes stay parented to the viewport and stack as
+        # ghosts over row 0 (every re-parse / category change re-fills)
+        for r in range(self.table.rowCount()):
+            for c in range(self.table.columnCount()):
+                old = self.table.cellWidget(r, c)
+                if old is not None:
+                    self.table.removeCellWidget(r, c)
+                    old.hide()
+                    old.deleteLater()
         self.table.setRowCount(len(rows))
         for row, (rec, auto_cat) in enumerate(rows):
             category = self._category_overrides.get(rec.name, auto_cat)
@@ -787,6 +798,15 @@ class ParseNetsPanel(QWidget):
                         == CATEGORY_FILTERED:
                     rows.append(
                         (rec.name, "manually moved to Filtered"))
+        # same ghost-widget guard as _fill_preview (this table re-fills
+        # on every re-parse and category move as well)
+        for r in range(self.table_filtered.rowCount()):
+            for c in range(self.table_filtered.columnCount()):
+                old = self.table_filtered.cellWidget(r, c)
+                if old is not None:
+                    self.table_filtered.removeCellWidget(r, c)
+                    old.hide()
+                    old.deleteLater()
         self.table_filtered.setRowCount(len(rows))
         for row, (name, reason) in enumerate(rows):
             net_item = QTableWidgetItem(name)

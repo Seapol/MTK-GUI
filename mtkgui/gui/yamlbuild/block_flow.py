@@ -1,22 +1,25 @@
 # -*- coding: utf-8 -*-
 """Workflow block flow widget (left pane of the Yaml Build page).
 
-Renders the ten fixed stages as chained blocks on a self-implemented
-FlowLayout: wide windows lay the blocks out in multiple flowing rows,
-narrow windows fall back to a single vertical column - the switch is
-pure geometry, live on resize, no squeezed or overlapping blocks.
+Renders the five fixed stages as chained blocks in ONE horizontal row
+(user direction 2026-10-13): the cards share the row width evenly and
+shrink their fonts to stay compact - the Channel Allocation tables
+embedded below stay visible without scrolling.
 
 Interactions (V4.0 rules 5.2-1 / 5.2-2):
 
-* single click  -> opens the block's dedicated config dialog,
-* right click   -> Enable / Disable context menu; a disabled block
-                   renders grayed with an explicit Disabled badge,
-                   keeps its parameters and is skipped by the flow.
+* single click  -> opens the block's dedicated config dialog (the
+                   "Auto-Channel Allocation" card runs the automatic
+                   allocation instead),
+* right click   -> Enable / Disable context menu (nav cards have
+                   none); a disabled block renders grayed with an
+                   explicit Disabled badge, keeps its parameters and
+                   is skipped by the flow.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -31,121 +34,87 @@ from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
 from mtkgui.gui.yamlbuild.schema import module_title
 from mtkgui.gui.yamlbuild.stages import (
     DISPLAY_CARD_MODULES,
+    NAV_CARD_KEYS,
     WORKFLOW_DISPLAY_STAGES,
     Stage,
 )
 
 
-class FlowLayout(QWidget):
-    """Minimal flow layout: wrapping rows of fixed-size children.
-
-    Children are placed left-to-right; when the next child does not
-    fit into the current row width a new row is started.  With a
-    narrow viewport each row holds exactly one child, which is the
-    required single-column fallback.
-    """
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self._items: list[QWidget] = []
-        self._spacing = 12
-
-    def add_widget(self, widget: QWidget) -> None:
-        """Add one child widget.
-
-        Args:
-            widget: Child to manage.
-        """
-        widget.setParent(self)
-        self._items.append(widget)
-        self._relayout()
-
-    def resizeEvent(self, event) -> None:
-        """Re-place the children on width changes (live adaptive
-        layout)."""
-        self._relayout()
-        super().resizeEvent(event)
-
-    def _relayout(self) -> None:
-        """Place the children in wrapping rows."""
-        width = max(1, self.width())
-        x = y = 0
-        row_height = 0
-        for item in self._items:
-            hint = item.sizeHint()
-            w = max(hint.width(), item.minimumWidth())
-            h = max(hint.height(), item.minimumHeight())
-            if x > 0 and x + w > width:
-                x = 0
-                y += row_height + self._spacing
-                row_height = 0
-            item.setGeometry(QRect(x, y, w, h))
-            x += w + self._spacing
-            row_height = max(row_height, h)
-        self.setMinimumHeight(y + row_height + 2)
-
-
-#: standard tooltips of the twelve workflow modules (rule 6.2: every
-#: module describes its purpose AND its responsibility boundary;
-#: disabled blocks KEEP their tooltip)
+#: standard tooltips of the workflow modules (rule 6.2: every module
+#: describes its purpose AND its responsibility boundary; disabled
+#: blocks KEEP their tooltip).  GUI language = English (user rule);
+#: Chinese is reserved for message-box prompts only.
 MODULE_TOOLTIPS = {
     "design_input":
-        "导入原理图与网表，构建只读全局DesignModel数据源；"
-        "不含仪器配置与测试步骤生成",
+        "Import the schematic and netlist and build the read-only "
+        "global DesignModel data source; no instrument config, no "
+        "test step generation",
     "instruments":
-        "机架ATE仪器全局配置（Keysight PSU/DAQ/DMM、VISA地址、"
-        "通道分配、仪器自检）；全流程唯一仪器配置入口，"
-        "后续模块只读引用",
+        "Rack-ATE instrument global configuration (Keysight "
+        "PSU/DAQ/DMM, VISA addresses, channel allocation, self "
+        "test); configured on the Equipment page - referenced "
+        "read-only here",
     "parse_ict":
-        "从DesignModel提取ICT网络信息生成ICTNetModel；不生成测试序列",
+        "Extract the ICT net information from the DesignModel into "
+        "the ICTNetModel; no test sequence generation",
+    "channel_alloc":
+        "Auto-Channel Allocation: click to auto-assign the Power / "
+        "Clock tables top-down (best test point + sequential "
+        "instrument channels; Impedance and Voltage share the SAME "
+        "DAQM908A channel, Power rails come from the U2355A AI pool). "
+        "Rows beyond the pool capacity stay unset (no test); GPIO DIO "
+        "channels are NOT auto-assigned. Results appear in the "
+        "embedded tables below",
     "ict_workflow":
-        "合并的ICT测试工作流节点（原04/05/06）：双击打开Test Work Flow"
-        "页编辑ICT Test Cases（阻抗/电压/Power rails、时钟、GPIO测试"
-        "步骤）；复用block03已配置仪器资源",
+        "Merged ICT test work flow node: opens the Test Work Flow "
+        "page to edit the ICT Test Cases (impedance / voltage / "
+        "power rails, clock, GPIO test steps); reuses the "
+        "Equipment-page instrument resources",
     "rails":
-        "生成ICT阻抗/电压测量与DUT上下电序列；复用block03仪器资源，"
-        "不重复配置仪器",
-    "clocks": "构建时钟ICT测试步骤，复用block03已配置仪器资源",
-    "gpios": "构建GPIO ICT测试步骤，复用block03已配置仪器资源",
-    "programmer":
-        "JLink/烧录调试器固件与调试资源配置，与机架ATE仪器分离；"
-        "不生成测试步骤",
-    "peripherals":
-        "DUT板载外设（WiFi/BT/SD/USB）参数配置；不生成测试步骤",
+        "Generate the ICT impedance / voltage measurement and DUT "
+        "power up/down sequence; reuses the configured instruments, "
+        "no reconfiguration",
+    "clocks": "Build the clock ICT test steps, reusing the configured "
+              "instruments",
+    "gpios": "Build the GPIO ICT test steps, reusing the configured "
+             "instruments",
     "fct_build":
-        "生成FCT功能测试与固件烧录步骤；复用全部已定义资源模型，"
-        "不重新配置仪器",
-    "validate_sequence":
-        "跨节点全局校验：资源冲突、参数范围、依赖违规；"
-        "校验失败则禁用block12导出；不修改流程数据",
-    "preview_export":
-        "预览完整测试工作流并导出完整YAML至工程配置目录，"
-        "工作流终点",
+        "Generate the FCT functional test and firmware flash steps; "
+        "reuses all defined resource models, no instrument "
+        "reconfiguration",
 }
 
 #: context-menu tooltips (rule 6.3, fixed wording)
-TT_ENABLE_SINGLE = "单独开启/关闭当前模块流程能力"
-TT_DISABLE_SINGLE = "单独开启/关闭当前模块流程能力"
-TT_ENABLE_ALL = "一键启用全部流程模块，所有模块参与YAML生成与校验"
-TT_DISABLE_ALL = "一键禁用全部流程模块，所有模块暂不参与流程编译"
+TT_ENABLE_SINGLE = "Enable / disable this module flow participation"
+TT_DISABLE_SINGLE = "Enable / disable this module flow participation"
+TT_ENABLE_ALL = ("Enable every flow module - all join the YAML "
+                 "generation and validation")
+TT_DISABLE_ALL = ("Disable every flow module - none joins the flow "
+                  "compilation")
 
 #: original project status color (main_window LED "connected" green);
 #: used for the Enabled badge - NOT the theme link/text color
 STATUS_ENABLED_COLOR = "#22c55e"
 
 #: card marks (user direction): a configured module (OK saved) shows
-#: a star at the top-right; after the block-09 full validation PASSES
-#: the star becomes a check; failing validation keeps the star
+#: a star at the top-right; the mark persists with the project
 MARK_NONE = ""
 MARK_STAR = "star"
 MARK_CHECK = "check"
 _MARK_GLYPH = {MARK_STAR: "★", MARK_CHECK: "✓"}
 _MARK_COLOR = {MARK_STAR: "#f59e0b", MARK_CHECK: "#22c55e"}
 
+#: compact single-row card fonts (user direction 2026-10-13)
+_TITLE_CSS = "font-weight: bold; font-size: 11px;"
+_STATE_CSS = "font-weight: bold; font-size: 10px;"
+
 
 class BlockCard(QFrame):
     """One workflow block: click opens the config dialog, right click
-    opens the Enable / Disable menu."""
+    opens the Enable / Disable menu.  Navigation-only cards (nav) have
+    no enable / disable semantics - they always render enabled and
+    their click is routed by the page (e.g. the "Auto-Channel
+    Allocation" card runs the automatic allocation)."""
 
     configure_requested = Signal(str)
     enable_requested = Signal(str, bool)
@@ -162,38 +131,53 @@ class BlockCard(QFrame):
         """
         super().__init__(parent)
         self.stage = stage
+        self._nav = stage.key in NAV_CARD_KEYS
         self._enabled = False
         # module tooltip (rule 6.2): present in enabled AND disabled
         # state alike - disabling never hides the description
         self.setToolTip(MODULE_TOOLTIPS.get(stage.key, stage.title))
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setFixedWidth(280)
-        self.setMinimumHeight(64)
+        # compact single-row card (user direction 2026-10-13): the
+        # five cards share ONE row - width comes from the row layout
+        # (evenly divided), the fonts shrink accordingly
+        self.setMinimumWidth(96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(46)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._context_menu)
+        if not self._nav:
+            self.setContextMenuPolicy(
+                Qt.ContextMenuPolicy.CustomContextMenu)
+            self.customContextMenuRequested.connect(self._context_menu)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setContentsMargins(6, 3, 6, 3)
+        lay.setSpacing(1)
         self.title_label = QLabel(
             f"{index + 1:02d} · {stage.title}")
         self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet("font-weight: bold;")
-        # top-right mark: ★ = edited (OK saved), ✓ = validated
+        self.title_label.setStyleSheet(_TITLE_CSS)
+        # top-right mark: ★ = edited (OK saved)
         self.mark_label = QLabel("")
         self.mark_label.setStyleSheet("font-weight: bold;")
         header = QHBoxLayout()
         header.addWidget(self.title_label, 1)
         header.addWidget(self.mark_label)
-        self.state_label = QLabel("Disabled")
+        self.state_label = QLabel(
+            "Auto assign" if self._nav else "Disabled")
         self.state_label.setObjectName("muted")
+        self.state_label.setStyleSheet(_STATE_CSS)
         lay.addLayout(header)
         lay.addWidget(self.state_label)
+        if self._nav:
+            # nav cards have no module state - always render enabled
+            self._enabled = True
         self._apply_state_style()
 
     # ----------------------------------------------------------- state
     def set_mark(self, mark: str) -> None:
-        """Set the top-right mark: MARK_STAR (edited, not yet
-        validated) / MARK_CHECK (validated) / MARK_NONE.
+        """Set the top-right mark: MARK_STAR (edited) / MARK_CHECK
+        (validated) / MARK_NONE.  Nav cards (Auto-Channel Allocation)
+        carry the star too once their action ran (user direction).
 
         Args:
             mark: One of the MARK_* constants.
@@ -203,9 +187,8 @@ class BlockCard(QFrame):
             self.mark_label.setStyleSheet(
                 f"font-weight: bold; color: {_MARK_COLOR[mark]};")
             self.mark_label.setToolTip(
-                "已编辑，尚未通过 Validate Full Test Sequence 校验"
-                if mark == MARK_STAR else
-                "已通过 Validate Full Test Sequence 校验")
+                "Edited (OK saved)" if mark == MARK_STAR else
+                "Configured (OK saved)")
         else:
             self.mark_label.setStyleSheet("font-weight: bold;")
             self.mark_label.setToolTip("")
@@ -216,6 +199,8 @@ class BlockCard(QFrame):
         Args:
             enabled: New module state.
         """
+        if self._nav:
+            return      # nav cards have no module state - stay enabled
         self._enabled = enabled
         self.state_label.setText("Enabled" if enabled else "Disabled")
         self._apply_state_style()
@@ -238,16 +223,19 @@ class BlockCard(QFrame):
                 "border: 1px solid #2f6fb3; border-radius: 8px; }"
                 "BlockCard QLabel { color: #ffffff; }")
             self.title_label.setStyleSheet(
-                "font-weight: bold; color: #ffffff;")
+                f"{_TITLE_CSS} color: #ffffff;")
             self.state_label.setStyleSheet(
-                f"font-weight: bold; color: {STATUS_ENABLED_COLOR};")
+                f"font-weight: bold; font-size: 10px; "
+                f"color: {STATUS_ENABLED_COLOR};")
         else:
             self.setStyleSheet(
                 "BlockCard { background: rgba(128,128,128,0.15); "
                 "border: 1px dashed #9ca3af; border-radius: 8px; }"
                 "QLabel { color: #9ca3af; }")
             self.title_label.setStyleSheet(
-                "font-weight: bold; color: #9ca3af;")
+                f"{_TITLE_CSS} color: #9ca3af;")
+            self.state_label.setStyleSheet(
+                f"{_STATE_CSS} color: #9ca3af;")
 
     # ------------------------------------------------------- interactions
     def mousePressEvent(self, event) -> None:
@@ -306,7 +294,7 @@ class BlockCard(QFrame):
 
 
 class BlockFlowWidget(QWidget):
-    """Left pane: the ten fixed blocks chained in workflow order."""
+    """Left pane: the five fixed blocks chained in workflow order."""
 
     configure_requested = Signal(str)
     enable_requested = Signal(str, bool)
@@ -317,19 +305,18 @@ class BlockFlowWidget(QWidget):
         """Create the flow widget with all fixed blocks."""
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
-                           QSizePolicy.Policy.Expanding)
-        # never let the flow area shrink below one card width (rule
-        # 6.2: no card clipping at any resolution)
-        self.setMinimumWidth(300)
+                           QSizePolicy.Policy.Fixed)
         self._cards: dict[str, BlockCard] = {}
         # display card -> underlying YAML modules (the merged ICT
         # workflow card represents rails + clocks + gpios)
         self._card_modules: dict[str, tuple[str, ...]] = {}
         self._module_states: dict[str, bool] = {}
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        self.flow = FlowLayout(self)
-        layout.addWidget(self.flow)
+        # ONE horizontal row (user direction 2026-10-13): the five
+        # cards share the row width evenly (QHBoxLayout), so all steps
+        # stay visible without any vertical scrolling
+        self.flow = QHBoxLayout(self)
+        self.flow.setContentsMargins(2, 2, 2, 2)
+        self.flow.setSpacing(4)
         previous = None
         for index, stage in enumerate(WORKFLOW_DISPLAY_STAGES):
             card = BlockCard(stage, index)
@@ -341,12 +328,12 @@ class BlockFlowWidget(QWidget):
             self._cards[stage.key] = card
             self._card_modules[stage.key] = DISPLAY_CARD_MODULES.get(
                 stage.key, (stage.key,))
-            self.flow.add_widget(card)
+            self.flow.addWidget(card, 1)
             if previous is not None:
                 arrow = QLabel("→")
                 arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                arrow.setFixedWidth(24)
-                self.flow.add_widget(arrow)
+                arrow.setFixedWidth(12)
+                self.flow.addWidget(arrow, 0)
             previous = stage
         # sequence is fixed: the flow order equals
         # WORKFLOW_DISPLAY_STAGES and no user interaction can reorder
@@ -369,6 +356,8 @@ class BlockFlowWidget(QWidget):
             module_key: Stage key.
             enabled:    New state.
         """
+        if module_key in NAV_CARD_KEYS:
+            return      # nav cards have no module state
         self._module_states[module_key] = enabled
         for display_key, modules in self._card_modules.items():
             if module_key in modules:
@@ -379,7 +368,8 @@ class BlockFlowWidget(QWidget):
 
     def set_module_mark(self, module_key: str, mark: str) -> None:
         """Set the mark of one module's card (the merged ICT workflow
-        card carries the mark of its rails / clocks / gpios modules).
+        card carries the mark of its rails / clocks / gpios modules;
+        the Auto-Channel Allocation nav card carries its own).
 
         Args:
             module_key: Stage key of the underlying module.

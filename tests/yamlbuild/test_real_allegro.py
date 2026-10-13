@@ -88,6 +88,108 @@ def test_real_pdf_title_extraction():
     assert core_id_from_filename("SPF-96317_a.pdf") == "96317"
 
 
+# excerpt structure of the project 97122 Smart-PDF (2026-10-13):
+# the board name X-RING-OPTIC-ETH repeats on EVERY page footer while
+# the MOSFET part number BUK9M3R3-40HX appears only next to its
+# refdes instances (Q15..) - and the board name starts with a SINGLE
+# letter, which the old first-group>=2 pattern rejected
+PDF_97122_EXCERPT = """\x0c
+C C
+B B
+A A
+X-RING-OPTIC-ETH
+ALL SILK SHOWN IN THIS COLOR
+Date
+Intial Draft
+Page Title:
+Classification:
+SCH-97122 / PDF: SPF-97122 A
+X-RING-OPTIC-ETH
+C
+Tuesday, August 25, 2026
+01 - Title Page
+Page Title:
+SCH-97122 / PDF: SPF-97122 A
+X-RING-OPTIC-ETH
+C
+Tuesday, August 25, 2026
+02 - Block Diagram
+R996 0
+Q16
+BUK9M3R3-40HX
+5
+4
+1
+Q17
+BUK9M3R3-40HX
+5
+4
+1
+SCH-97122 / PDF: SPF-97122 A
+X-RING-OPTIC-ETH
+C
+Tuesday, August 25, 2026
+04 - S32K566 POWER
+"""
+
+
+def test_pdf_title_beats_component_part_number():
+    """Project 97122 (user report): the per-page title-block name
+    (X-RING-OPTIC-ETH, single-letter first group) must win over the
+    sparse component part number (BUK9M3R3-40HX) - frequency ranking
+    + relaxed first group."""
+    assert extract_drawing_board_name(PDF_97122_EXCERPT) == \
+        "X-RING-OPTIC-ETH"
+
+
+# excerpt structure of the OLD project 29420 drawing (non-standard):
+# no per-page footer board name - the title block INDEX lists several
+# boards as "Schematic SCH-<id> / Part No. <name>" pairs; THIS file
+# (core id 29420) pairs with MCIMX8QM-CPU.  The only STANDALONE
+# board-name-shaped lines are component values (the eMMC), which the
+# frequency ranking would wrongly pick without the SCH pairing layer.
+PDF_29420_EXCERPT = """\x0c
+D D
+C C
+MCIMX8QM-CPU MEK Platform
+Schematic capture done with Allegro Design Entry CIS 17.2.
+I2C TABLE Part Number: MCIMX8QM-CPU
+01 FRONT PAGE
+i.MX 8QM CPU Card
+Schematic SCH-29420
+Part No. MCIMX8QM-CPU
+i.MX 8QXP CPU Card
+Schematic SCH-29683
+Part No. MCIMX8QXP-CPU Common Base Board
+Schematic SCH-29918
+Part No. MCIMX8-8X-BB
+LVDS TO HDMI Daughter Card
+Schematic SCH-29680
+Part No. IMX-LVDS-HDMI
+MIPI TO HDMI Daughter Card
+LPDDR4
+eMMC
+MTFC32GAZAQHD-AIT
+PMIC2
+eMMC
+MTFC32GAZAQHD-AIT
+"""
+
+
+def test_labelled_part_no_paired_with_file_core_id():
+    """Project 29420 (user report): the old drawing carries no
+    standalone board name - the "Part No. <name>" entry whose SCH
+    number matches the FILE-NAME core id (29420) wins outright over
+    the standalone component values (frequency ranking would pick
+    the eMMC part number)."""
+    assert extract_drawing_board_name(PDF_29420_EXCERPT,
+                                      core_id="29420") == "MCIMX8QM-CPU"
+    # WITHOUT the core id the SCH pairing is off and the frequency
+    # ranking applies (documented fallback behavior)
+    assert extract_drawing_board_name(PDF_29420_EXCERPT) == \
+        "MTFC32GAZAQHD-AIT"
+
+
 def test_real_net_and_pdf_no_cross_deviation():
     """Dual-format guarantee: the parsed NET connectivity is the
     single source - re-parsing is deterministic (same result twice)."""

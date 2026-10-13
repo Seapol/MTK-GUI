@@ -47,25 +47,25 @@ def spec_tooltip(spec: FieldSpec) -> str:
     Returns:
         A concise, informative tooltip text.
     """
-    parts: list[str] = [f"用途：{spec.label}"]
+    parts: list[str] = [f"Purpose: {spec.label}"]
     if spec.minimum is not None and spec.maximum is not None:
-        parts.append(f"取值范围 {spec.minimum:g} – {spec.maximum:g}"
+        parts.append(f"Range {spec.minimum:g} - {spec.maximum:g}"
                      + (f" {spec.unit}" if spec.unit else ""))
     elif spec.minimum is not None:
-        parts.append(f"最小 {spec.minimum:g}"
+        parts.append(f"Min {spec.minimum:g}"
                      + (f" {spec.unit}" if spec.unit else ""))
     elif spec.maximum is not None:
-        parts.append(f"最大 {spec.maximum:g}"
+        parts.append(f"Max {spec.maximum:g}"
                      + (f" {spec.unit}" if spec.unit else ""))
     elif spec.unit:
-        parts.append(f"单位：{spec.unit}")
+        parts.append(f"Unit: {spec.unit}")
     if spec.choices:
-        parts.append("可选：" + " / ".join(spec.choices))
+        parts.append("Choices: " + " / ".join(spec.choices))
     if spec.required:
-        parts.append("必填项")
+        parts.append("Required")
     if spec.remarks:
         parts.append(spec.remarks)
-    return "；".join(parts)
+    return "; ".join(parts)
 
 
 class BlockConfigDialog(QDialog):

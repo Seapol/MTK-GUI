@@ -22,46 +22,42 @@ sequences, validate everything and export the plan YAML.
 - The splitter default is 7 : 3; drag the divider as needed.
 
 The page hint summarizes the rules: click a block to configure it;
-right-click to Enable / Disable. Block 03 (`Configure Instruments`)
-is the ONLY rack-ATE instrument editor - later blocks reference it
-read-only; the validate block checks the full sequence and gates the
-export block. Disabled blocks are grayed, skipped and kept out of
-the effective YAML (their parameters are retained).
+right-click to Enable / Disable. Instrument / programmer / peripheral
+hardware is configured on the **Equipment** page - the Yaml Build
+flow references it read-only. The full-sequence validation runs
+AUTOMATICALLY before every publish (Build Draft / Release Final);
+the YAML preview on the right is always visible and editable.
+Disabled blocks are grayed, skipped and kept out of the effective
+YAML (their parameters are retained).
 
 ## Working with Block Cards
 
 - **Left-click** (or double-click) a card to open its dedicated
   configuration dialog. Each dialog validates independently:
   invalid input keeps the dialog open with the error list, so a
-  module save is always all-or-nothing.
+  module save is always all-or-nothing. The `Channel Allocation`
+  card is navigation-only: it scrolls to the allocation tables
+  embedded right below the cards.
 - **Right-click** a card for `Enable` / `Disable` plus the batch
   actions `Enable All` / `Disable All`. Disabled cards render grayed
   with a dashed border and an explicit `Disabled` badge, keep their
   tooltip and parameters, and are skipped by the flow, the
   validation and the YAML generation.
 - **Marks** (top-right of a card): a star means edited (the dialog
-  was confirmed with OK); a check means the module passed the full
-  validation. A failed validation keeps the star ("edited but not
-  validated"). Marks persist with the project.
+  was confirmed with OK). Marks persist with the project.
 - Every field carries a hover tooltip with label, unit, range,
   choices, requirement and usage notes.
 
-The cards in workflow order (the on-page numbering follows the
-12-stage list: block 03 = `Configure Instruments`, the validate
-block = 11, the export block = 12):
+The cards in workflow order (single-page vertical flow, 2026-10-13;
+the Channel Allocation tables sit directly below the cards):
 
 ```
 01 Design Input
 02 Parse nets for ICT
-   Build ICT Test Work Flow Sequence   (merged card for the
-                                        rails / clocks / gpios
-                                        modules = blocks 04/05/06)
-03 Configure Instruments
-   Configure Programmer/Debugger       (block 07)
-   Configure Peripherals               (block 08)
-   Build FCT Test Work Flow Sequence
-11 Validate Full Test Sequence
-12 Preview & Export YAML
+03 Channel Allocation          (nav card -> embedded tables)
+04 Build ICT Test Work Flow Sequence (merged card for the
+                                      rails / clocks / gpios modules)
+05 Build FCT Test Work Flow Sequence
 ```
 
 ## Block 01 - Design Input
@@ -186,54 +182,38 @@ On `OK` the parse result becomes the single data source for the
 Channel Allocation tables; the Do-Not-Test flags, the classification
 rules and the risk thresholds persist with the project.
 
-## Channel Allocation (workflow step)
+## Channel Allocation (workflow step 03)
 
-Channel assignment happens on the dedicated **Channel Allocation**
-tab - see the Channel Allocation chapter of this guide. In the
-workflow it sits between the parse and the instrument configuration:
+Channel assignment happens in the tables **embedded in this page**
+right below the cards - see the Channel Allocation chapter of this
+guide. In the workflow it sits between the parse and the build steps:
 
 - Every parsed net lands in one of the three tables
   (Power / Clock / GPIO) and receives its instrument resources from
   dropdowns only.
+- The **03 · Auto-Channel Allocation** card fills the Power / Clock
+  tables automatically (best test point + sequential channels);
+  results appear in the tables below.
 - A net **without a fully allocated channel set is automatically
   Do-Not-Test**: only allocated nets reach the ICT Test Work Flow
   sequence builder.
 - The allocation is a first-class part of the project YAML - the
-  Yaml Build model carries it, and `Apply to YAML` switches back to
-  this page.
+  Yaml Build model carries it and it persists automatically.
 
-## Block 03 - Configure Instruments
+## Equipment-owned Instrument Configuration
 
-![Configure Instruments](images/08_yaml_instruments.png)
-
-The only rack-ATE instrument editor of the workflow - and it
-deliberately has **no** parameter fields: all instrument
-configuration lives on the Equipment page. The panel lists every
-rack instrument, always all of them regardless of configuration
-state:
-
-- `DAQ973A + 908A/907A`
-- `N5747A DC Power Supply`
-- `DMM (optional)`
-
-Each row shows the connection status (`Connected` in green /
-`Disconnected` in gray / `Error` in red) and one `Connect` /
-`Disconnect` button; `Connect All` / `Disconnect All` operate on the
-whole table. The buttons use the same connection kernel as
-`Tools > Set All instruments`; in Virtual mode they report the
-virtual result. Hovering a row shows the configured VISA address
-(or `not configured yet`).
-
-Steps: click the card, connect the instruments you need, `OK`. The
-connection state mirrors to the Equipment page and the status-bar
-LEDs.
+Instrument / programmer / peripheral hardware is configured on the
+**Equipment** page; the workflow references it read-only (the
+`instruments` YAML module carries the mirrored values, no card).
+Connection state mirrors between the Equipment page and the
+status-bar LEDs.
 
 ## Build ICT Test Work Flow Sequence (Rails / Clocks / GPIO)
 
 The merged card for the underlying `rails` / `clocks` / `gpios`
-modules (blocks 04 / 05 / 06). It reuses the block 03 instrument
-resources read-only and owns the ICT test case editing. Clicking the
-card opens the **Build ICT Test Work Flow Sequence** dialog:
+modules. It reuses the Equipment-page instrument resources read-only
+and owns the ICT test case editing. Clicking the card opens the
+**Build ICT Test Work Flow Sequence** dialog:
 
 - One ICT test per row, auto-generated in the canonical order
   **impedance -> power rails (voltage) -> clock** from the parse
@@ -297,16 +277,28 @@ The merged card shows `Enabled` when ANY of the three underlying
 modules is enabled; the right-click Enable / Disable applies to all
 of them.
 
-## Configure Programmer/Debugger and Configure Peripherals
+## Retired Blocks (2026-10-13)
 
-- **Programmer/Debugger**: `Protocol` (SWD / JTAG), `Speed` (kHz),
-  `Timeout` (ms), `Flash Address`, `Retries`, `Log Level`. A debug
-  resource, separate from the rack ATE instruments; it generates no
-  test steps.
-- **Peripherals**: DUT on-board peripherals - Wi-Fi SSID / password,
-  Bluetooth MAC, UART baud, I2C address, SPI speed, ADC reference
-  and the init sequence (one step per line). No test steps are
-  generated.
+`Configure Programmer/Debugger`, `Configure Peripherals`,
+`Validate Full Test Sequence` and `Preview & Export YAML` were
+removed from the workflow:
+
+- **Programmer/Debugger / Peripherals**: the hardware (flash probes,
+  DUT peripherals) is configured on the **Equipment** page; the test
+  level parameters (Wi-Fi / Bluetooth / console) live in the FCT
+  Test Config. The retired parameter groups had no runtime consumer.
+- **Validate Full Test Sequence**: the identical validation
+  (resource conflicts, parameter ranges, dependency violations) runs
+  AUTOMATICALLY before every `Build Draft YAML` / `Release Final
+  YAML` - a failed validation blocks the publish with the error
+  list.
+- **Preview & Export YAML**: the YAML preview is the always-visible
+  right pane of this page; publishing goes through the top
+  `Build Draft YAML` / `Release Final YAML` buttons (see
+  *Publishing* below).
+
+Old project files / YAML plans carrying the retired modules load
+cleanly - the entries are dropped silently.
 
 ## Build FCT Test Work Flow Sequence
 
@@ -326,30 +318,7 @@ cases.
 the error list (`FCT config parse failed: ...` or the validation
 errors, up to 15 shown) - fix the listed problems before applying.
 
-## Validate Full Test Sequence
-
-![Validate Full Test Sequence](images/09_yaml_validate.png)
-
-The cross-node global validation: resource conflicts, parameter
-ranges and dependency violations (three checkboxes, all default
-true). Confirming the block runs the validation over every enabled
-module:
-
-- Every module marked with a star that passes gets a **check**
-  mark.
-- A failure keeps the stars (edited but not validated), pops the
-  error list (first 15) and logs the count to the Event Log.
-
-**Warning:** validation must pass before the plan can be published -
-fix the listed errors and re-run the validate block.
-
-## Preview & Export YAML
-
-The workflow exit. The block owns the export options:
-
-- `Export Directory` (default `config/plans`) - project config
-  folder for the exported YAML.
-- `Include Disabled Modules` (default `false`).
+## YAML Preview (right pane)
 
 The right-pane **YAML Preview** shows the effective YAML of the
 enabled modules in the fixed workflow order. The editor is directly
@@ -382,15 +351,17 @@ and requires **all enabled modules to validate**. The file name is
 composed automatically from the Design Input - no manual input:
 
 ```
-Draft: Plan_[Core ID]_[Project Part#]_build_draft_v.1.0.0.yaml
-Final: Plan_[Core ID]_[Project Part#]_build_final_v.1.0.0.yaml
+Draft: [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft.yaml
+Final: [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Final.yaml
 
-Example: Plan_IMXRT700_MTK12345_build_draft_v.1.0.0.yaml
+Example: MTK12345_IMXRT700_MP-(Production)_rev_1.0.0_Draft.yaml
 ```
 
-- `Core ID` = Design Input `Product ID`; `Project Part #` = Design
-  Input `Project Part #`. Characters outside letters, digits, `.`,
-  `_` and `-` are replaced with `_`.
+- The three leading components come from the Design Input:
+  `Project Part #`, `Product ID` (= Core ID) and `Batch #` (empty
+  batch falls back to `freebatch`). Characters outside letters,
+  digits, `.`, `_` and `-` are replaced with `-` (spaces collapse),
+  matching the project Save-as naming rule.
 - The plan version defaults to `1.0.0`; the dynamic `built_with`
   build version is embedded in the YAML header (`plan` section) and
   in the archive copy names, keeping the canonical file names

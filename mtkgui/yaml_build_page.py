@@ -12,7 +12,8 @@ Full phase-B1 assembly (interface_spec.md section 31):
 * right: live YAML preview - two-way synced with the block diagram
   through the model, with syntax / sequence / parameter validation
   and red error-line markers,
-* Draft / Final publishing with the fixed Plan_ naming, version
+* Draft / Final publishing with the fixed Design Input naming
+  ([Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft|Final), version
   compare and archiving,
 * model state persistence per tenant project (restart-safe).
 
@@ -43,6 +44,7 @@ from mtkgui.gui.yamlbuild.block_flow import (
     MARK_STAR,
     BlockFlowWidget,
 )
+from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -81,6 +83,14 @@ class YamlBuildPage(QWidget):
     #: the main window offers the file save (overwrite current yaml /
     #: save to a new yaml file)
     yaml_apply_committed = Signal()
+    #: the "Close Yaml" button was clicked - the main window runs its
+    #: File > Close Yaml reset (which also clears this page's preview)
+    close_yaml_requested = Signal()
+    #: the "Load current yaml" button was clicked - the main window
+    #: pushes the model-derived ICT / FCT sequences into the Test Work
+    #: Flow page and jumps there (guarded; warns when nothing is
+    #: usable)
+    load_yaml_requested = Signal()
     #: the block-04 sequence dialog was accepted - carries the ICT
     #: test rows (step tuples, "test" kind only); the main window
     #: merges the standard operations on the Test Work Flow page and
@@ -114,24 +124,33 @@ class YamlBuildPage(QWidget):
         buttons.setSpacing(8)
         self.btn_import_excel = QPushButton("Import from Excel")
         self.btn_export_excel = QPushButton("Export to Excel")
+        self.btn_close_yaml = QPushButton("Close Yaml")
+        self.btn_load_yaml = QPushButton("Load current yaml")
         # the Apply button is created by the preview pane (its
         # validation + permission gate stay there) and is reparented
         self._action_buttons = (
             self.btn_import_excel, self.btn_export_excel,
-            self.yaml_preview.btn_apply)
+            self.yaml_preview.btn_apply,
+            self.btn_close_yaml, self.btn_load_yaml)
         for btn in self._action_buttons:
             btn.setFixedHeight(34)
             buttons.addWidget(btn, 0)   # uniform width, no stretching
         buttons.addStretch(1)
         self._sync_action_button_widths()
-        # standard tooltips (rule 6.1, fixed wording)
+        # standard tooltips (rule 6.1; GUI language = English)
         self.btn_import_excel.setToolTip(
-            "批量导入流程配置Excel文件，快速回填所有模块参数与状态")
+            "Bulk-import the flow configuration workbook and fill "
+            "back every module parameter and state")
         self.btn_export_excel.setToolTip(
-            "导出当前全流程模块配置为标准Excel归档文件")
+            "Export all flow module parameters to a standard Excel "
+            "archive file")
 
         self.btn_import_excel.clicked.connect(self._import_excel)
         self.btn_export_excel.clicked.connect(self._export_excel)
+        self.btn_close_yaml.clicked.connect(
+            self.close_yaml_requested.emit)
+        self.btn_load_yaml.clicked.connect(
+            self.load_yaml_requested.emit)
         # account permissions (defaults = supervisor until set_edit_allowed)
         self._edit_allowed = True
 
@@ -143,16 +162,28 @@ class YamlBuildPage(QWidget):
         self.block_flow.enable_requested.connect(self._set_enabled)
         self.block_flow.enable_all_requested.connect(self._enable_all)
         self.block_flow.disable_all_requested.connect(self._disable_all)
-        # the flow diagram lives inside a scroll area: its natural
-        # content height (ten cards stacked) must never push the
-        # window minimum above the screen - small windows scroll the
-        # diagram instead of overflowing it vertically
-        from PySide6.QtWidgets import QFrame, QScrollArea
-        flow_scroll = QScrollArea()
-        flow_scroll.setWidgetResizable(True)
-        flow_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        flow_scroll.setWidget(self.block_flow)
-        splitter.addWidget(flow_scroll)
+        # single-row card strip (user direction 2026-10-13): the five
+        # compact cards share ONE fixed-height row - no scroll area any
+        # more (nothing can overflow vertically), the strip takes only
+        # its natural height (BlockFlowWidget vertical policy = Fixed)
+        # single-page vertical flow (user direction 2026-10-13): the
+        # Channel Allocation tables are EMBEDDED below the block cards
+        # - one page, top-to-bottom, no missed steps; the dedicated
+        # Channel Allocation tab is gone
+        self.channel_alloc = ChannelAllocationPage()
+        left = QWidget()
+        left_lay = QVBoxLayout(left)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.setSpacing(6)
+        left_lay.addWidget(self.block_flow, 0)      # natural height only
+        left_lay.addWidget(self.channel_alloc, 1)   # tables take the rest
+        splitter.addWidget(left)
+        # model injected AFTER the widget is parented (PySide shiboken
+        # GC bug workaround - see ChannelAllocationPage.__init__)
+        self.channel_alloc.set_model(self.model)
+        # (level, message) Event-Log mirror: the page funnels the
+        # allocation table logs into its own task_log stream
+        self.channel_alloc.task_log.connect(self.task_log)
         self.yaml_preview.bind_model(self.model)
         # YAML -> diagram: a valid hand edit refreshes the block
         # cards (enable states) and persists; the preview text itself
@@ -175,16 +206,8 @@ class YamlBuildPage(QWidget):
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([700, 300])   # default 7 : 3 (user direction)
         root.addWidget(splitter, 1)
-        self.hint = QLabel(
-            "12-block workflow: click a block to configure it; "
-            "right-click to Enable/Disable. Block 03 is the ONLY "
-            "rack-ATE instrument editor (later blocks reference it "
-            "read-only); block 11 validates the full sequence and "
-            "gates block 12. Disabled blocks are grayed, skipped and "
-            "kept out of the effective YAML (parameters retained).")
-        self.hint.setObjectName("muted")
-        self.hint.setWordWrap(True)
-        root.addWidget(self.hint)
+        # NOTE: the page-level hint label was removed (user direction
+        # 2026-10-13) - the card tooltips carry the guidance instead.
 
         # restore the persisted state of the current project, then
         # paint both panes from the model
@@ -199,7 +222,26 @@ class YamlBuildPage(QWidget):
             self.block_flow.set_state(key, self.model.is_enabled(key))
             self.block_flow.set_module_mark(
                 key, self.model.marks.get(key, MARK_NONE))
+        # the Auto-Channel Allocation nav card carries its own mark
+        self.block_flow.set_module_mark(
+            "channel_alloc", self.model.marks.get(
+                "channel_alloc", MARK_NONE))
         self.yaml_preview.set_model_text(self.model)
+        # the embedded Channel Allocation tables mirror the model
+        # (parse result + saved configuration, kept configs preserved)
+        self.channel_alloc.refresh_from_model()
+
+    def _goto_channel_alloc(self) -> None:
+        """Nav card 03: bring the embedded Channel Allocation tables
+        into view (single-page vertical flow - no tab switch)."""
+        self.channel_alloc.setVisible(True)
+        self.channel_alloc.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def clear_preview(self) -> None:
+        """Blank the YAML preview pane (File > Close Yaml: the GUI
+        holds no yaml any more, the pane must not keep showing the
+        stale document)."""
+        self.yaml_preview.editor.setPlainText("")
 
     def _load_persisted(self) -> None:
         """Restore this project's persisted state (restart-safe)."""
@@ -268,6 +310,19 @@ class YamlBuildPage(QWidget):
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
         net = self.model.imported.get("net") or {}
+        if module_key == "channel_alloc":
+            # the "Auto-Channel Allocation" card (user direction
+            # 2026-10-13): clicking runs the automatic allocation
+            # (results appear in the embedded tables right below) and
+            # the card gets a star once the allocation ran
+            self.channel_alloc.auto_allocate()
+            self._set_mark("channel_alloc", MARK_STAR)
+            return
+        # quiet sync of the embedded Channel Allocation tables into
+        # the model BEFORE any dependent read (the ICT sequence
+        # pre-check reads allocated_testable; the tab-leave hideEvent
+        # save logs loudly, this one is silent)
+        self.model.set_channel_allocation(self.channel_alloc.collect())
         if module_key == "ict_workflow":
             # merged 04/05/06 node: open the ICT Test Work Flow
             # Sequence builder (user direction) - one test per row,
@@ -277,6 +332,38 @@ class YamlBuildPage(QWidget):
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 IctWorkFlowSequenceDialog,
             )
+            # guidance: only channel-allocated nets reach the
+            # sequence builder (auto Do-Not-Test rule) - explain
+            # BEFORE an empty dialog confuses the operator
+            testable = self.model.imported.get("testable_nets") or {}
+            if not testable:
+                QMessageBox.information(
+                    self, "Build ICT Test Work Flow Sequence",
+                    "No testable nets parsed yet - run Parse Nets "
+                    "(block 02) first.")
+                return
+            allocated = self.model.allocated_testable() or {}
+            if len(allocated) < len(testable):
+                box = QMessageBox(QMessageBox.Icon.Question,
+                                  "Channel Allocation incomplete",
+                                  f"{len(testable) - len(allocated)} of "
+                                  f"{len(testable)} testable nets have "
+                                  "no instrument channel assigned - "
+                                  "unallocated nets are auto "
+                                  "Do-Not-Test and will NOT appear in "
+                                  "the sequence.\n\nOpen Channel "
+                                  "Allocation now?",
+                                  QMessageBox.StandardButton.Yes
+                                  | QMessageBox.StandardButton.No,
+                                  self)
+                box.button(QMessageBox.StandardButton.Yes).setText(
+                    "Open Channel Allocation")
+                box.button(QMessageBox.StandardButton.No).setText(
+                    "Continue anyway")
+                if box.exec() == QMessageBox.StandardButton.Yes:
+                    # single-page flow: scroll to the embedded tables
+                    self._goto_channel_alloc()
+                    return
             dlg = IctWorkFlowSequenceDialog(
                 # user rule: nets WITHOUT an allocated instrument
                 # channel are auto Do-Not-Test - only allocated nets
@@ -328,28 +415,10 @@ class YamlBuildPage(QWidget):
                     + "\n".join(fct_errors[:15]))
                 return
             self.fct_sequence_ready.emit(cases)
-        if module_key == "validate_sequence":
-            # block 09: on OK run the FULL sequence validation - every
-            # marked module that passes gets a check; a failure keeps
-            # the stars (edited but not validated, user direction)
-            errors = self.model.validate_all()
-            if errors:
-                self._tlog("ERROR", f"Validate Full Test Sequence: "
-                                    f"{len(errors)} error(s)")
-                QMessageBox.warning(
-                    self, "Validate Full Test Sequence",
-                    "Validation FAILED - the stars are kept "
-                    "(edited but not validated):\n"
-                    + "\n".join(errors[:15]))
-            else:
-                for key in STAGE_KEYS:
-                    if self.model.marks.get(key) == MARK_STAR:
-                        self._set_mark(key, MARK_CHECK)
-                self._tlog("INFO", "Validate Full Test Sequence: "
-                                   "PASS - all edited modules checked")
-        else:
-            # configured (OK) -> star mark (user direction)
-            self._set_mark(module_key, MARK_STAR)
+        # configured (OK) -> star mark (user direction); the full
+        # sequence validation runs AUTOMATICALLY before every publish
+        # (the manual Validate card was retired 2026-10-13)
+        self._set_mark(module_key, MARK_STAR)
         if module_key == "design_input" and dialog is not None \
                 and dialog.panel is not None:
             # keep the loaded NET bytes for the Parse Nets module (T8)
@@ -459,6 +528,9 @@ class YamlBuildPage(QWidget):
         self._persist()
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
+        # a hand-edited channel_allocation section must re-mirror
+        # into the embedded tables (kept configurations preserved)
+        self.channel_alloc.refresh_from_model()
 
     # ------------------------------------------------- long-task helpers
     def _task(self, percent: int, label: str) -> None:
@@ -562,6 +634,13 @@ class YamlBuildPage(QWidget):
         written to the standard plans directory, archived under the
         project key, and the result dialog shows all paths.
         """
+        # the embedded Channel Allocation tables sync into the model
+        # FIRST (an in-page save is required because the tables live
+        # on THIS page now - the tab-leave hideEvent alone does not
+        # cover reads on the same page), then the automatic
+        # full-sequence validation gates the publish (the manual
+        # Validate card was retired 2026-10-13)
+        self.model.set_channel_allocation(self.channel_alloc.collect())
         errors = self.model.validate_all()
         if errors:
             for err in errors[:5]:

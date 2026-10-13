@@ -234,34 +234,10 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("exception_check", "Exception Check Rules", ftype=T_BOOL,
            default="true"),
     ),
-    "programmer": (
-        _f("protocol", "Protocol", ftype=T_CHOICE,
-           choices=("SWD", "JTAG"), default="SWD"),
-        _f("speed_khz", "Speed", ftype=T_INT, default="4000",
-           minimum=1, maximum=100000, unit="kHz"),
-        _f("timeout_ms", "Timeout", ftype=T_INT, default="30000",
-           minimum=100, maximum=600000, unit="ms"),
-        _f("flash_address", "Flash Address", default="0x0"),
-        _f("retries", "Retries", ftype=T_INT, default="1",
-           minimum=0, maximum=10),
-        _f("log_level", "Log Level", ftype=T_CHOICE,
-           choices=("debug", "info", "warning", "error"), default="info"),
-    ),
-    "peripherals": (
-        _f("wifi_ssid", "Wi-Fi SSID"),
-        _f("wifi_password", "Wi-Fi Password"),
-        _f("bt_mac", "Bluetooth MAC", pattern=r"^[0-9A-Fa-f]{2}"
-            r"(:[0-9A-Fa-f]{2}){5}$"),
-        _f("uart_baud", "UART Baud", ftype=T_INT, default="115200",
-           minimum=9600, maximum=921600),
-        _f("i2c_addr", "I2C Address"),
-        _f("spi_speed_hz", "SPI Speed", ftype=T_INT, minimum=1,
-           unit="Hz"),
-        _f("adc_ref_v", "ADC Reference", ftype=T_FLOAT, minimum=0.0,
-           maximum=10.0, unit="V"),
-        _f("init_sequence", "Init Sequence", ftype=T_TEXT,
-           remarks="one init step per line"),
-    ),
+    # NOTE: the retired programmer / peripherals / validate_sequence /
+    # preview_export modules (2026-10-13 simplification) have NO field
+    # schema here any more - old YAML files carrying them are dropped
+    # silently by the model migration (stages.REMOVED_MODULES).
     "fct_build": (
         # B5: the FCT Test Work Flow Sequence block is edited through
         # the FCTTestConfigPanel (Console / Wi-Fi / Bluetooth tabs);
@@ -276,20 +252,6 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("case_link", "Case Link", hidden=True),
         _f("fct_test_config_yaml", "FCT Test Config", ftype=T_TEXT,
            hidden=True, remarks="fct_test_config YAML node (P3-B5)"),
-    ),
-    "validate_sequence": (
-        _f("resource_conflict_check", "Resource Conflict Check",
-           ftype=T_BOOL, default="true"),
-        _f("param_range_check", "Parameter Range Check", ftype=T_BOOL,
-           default="true"),
-        _f("dependency_check", "Dependency Violation Check",
-           ftype=T_BOOL, default="true"),
-    ),
-    "preview_export": (
-        _f("export_dir", "Export Directory", default="config/plans",
-           remarks="project config folder for the exported YAML"),
-        _f("include_disabled", "Include Disabled Modules", ftype=T_BOOL,
-           default="false"),
     ),
 }
 

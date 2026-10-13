@@ -29,14 +29,14 @@ from mtkgui.gui.yamlbuild.schema import (
     T_TEXT,
 )
 from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
-    LEGACY_ORDER_SWAP, \
+    LEGACY_ORDER_SWAP, REMOVED_MODULES, \
     STAGE_BY_KEY, STAGE_KEYS
 
 _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
 
 
 def _migrate_legacy_modules(modules: dict) -> dict:
-    """Migrate pre-M0 module entries into the twelve-stage list.
+    """Migrate legacy module entries into the current workflow list.
 
     Legacy ``power_dut`` (absorbed into rails by the M0 redefinition)
     hands its parameters to its successor; the successor entry stays
@@ -64,9 +64,12 @@ def _migrate_legacy_modules(modules: dict) -> dict:
         if target not in out:
             merged["enabled"] = bool(legacy.get("enabled", True))
         out[target] = merged
-    # retired blocks (user direction: the FCT parse block was removed)
-    # drop out SILENTLY so old files keep loading without errors
-    for retired in ("fct_parse",):
+    # retired blocks drop out SILENTLY so old files keep loading
+    # without errors: the FCT parse block (earlier removal) and the
+    # programmer / peripherals / validate / preview_export modules
+    # (2026-10-13 simplification - no runtime consumer, the Equipment
+    # page owns the hardware config and every publish re-validates)
+    for retired in ("fct_parse", *REMOVED_MODULES):
         out.pop(retired, None)
     # item 23 legacy order: files saved before the 02/03 swap carry
     # instruments BEFORE parse_ict - normalize that exact pair onto

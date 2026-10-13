@@ -311,8 +311,11 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
             name = _kw_name(f"{s.name}: '{s.command}'", s.expect_pass)
         elif s.step_type == STEP_EXTERNAL_TOOL:
             family = str(s.params.get("tool_family", "")).lower()
-            kind = {"wifi": "WIFI", "bluetooth": "Bluetooth"}.get(
-                family, "MessageOK")
+            if s.params.get("fct_host_cmd") is not None:
+                kind = "SendtoCLI"          # host CLI row (test PC shell)
+            else:
+                kind = {"wifi": "WIFI", "bluetooth": "Bluetooth"}.get(
+                    family, "MessageOK")
         if s.params.get("op"):
             op_params = {"type": "op", "op": s.params["op"]}
         # B4: the full step travels with the case (op_params.fct_step)

@@ -140,6 +140,57 @@ def expected_from_name(method: str, name: str) -> str:
     return "—"
 
 
+def generate_sequence(testable: dict) -> list[tuple]:
+    """The automatic sequence rows (module level so the Load-current-
+    yaml flow reuses it without instantiating the dialog): per power
+    net one Static Impedance and one Power Voltage test, per clock net
+    one Clock Hz test - impedance -> power rails (voltage) -> clock.
+    The Expected / Min / Max cells stay unset ("\"—\""); combine with
+    :func:`auto_fill_limits` for the fully derived rows."""
+    testable = testable or {}
+    rows: list[tuple] = []
+    for method in METHOD_ORDER:
+        category = METHOD_NET_CATEGORY[method]
+        for net in sorted(n for n, info in testable.items()
+                          if (info or {}).get("category")
+                          == category):
+            label = {"Static Impedance": f"Static Impedance - {net}",
+                     "Power Voltage": f"Power Voltage - {net}",
+                     "Clock Hz": f"Clock Hz - {net}"}.get(
+                method, f"{method} - {net}")
+            rows.append(("test", label,
+                         METHOD_UNITS[method], "—", "—", "—"))
+    return rows
+
+
+def auto_fill_limits(rows: list[tuple]) -> list[tuple]:
+    """Fill Expected / Min / Max from the parsed nominal values (the
+    Auto semantics, table-free): Min = Expected * (1 - tolerance),
+    Max = Expected * (1 + tolerance); power voltage +/- 5 % (0.001 V
+    precision), clock +/- 50 ppm (0.1 Hz precision).  The nominal is
+    parsed from the net name (P3V3 -> 3.3 V, CLK_24M -> 24 MHz).
+    Rows without a parseable nominal stay untouched."""
+    out: list[tuple] = []
+    for step in rows:
+        kind, name, unit, _expected, _lo, _hi = step
+        method = (name.split(" - ")[0] if " - " in name else name)
+        net = name.split(" - ", 1)[1] if " - " in name else ""
+        nominal = tol = fmt = None
+        if method == "Power Voltage":
+            nominal, tol, fmt = (expected_voltage(net),
+                                 POWER_TOL, _fmt_power)
+        elif method == "Clock Hz":
+            nominal, tol, fmt = (expected_hz(net),
+                                 CLOCK_TOL_PPM * 1e-6, _fmt_clock)
+        if nominal is None or tol is None:
+            out.append(step)
+            continue
+        out.append((kind, name, unit, fmt(nominal),
+                    fmt(nominal * (1 - tol)),
+                    fmt(nominal * (1 + tol))))
+    return out
+
+
 class IctTestItemDialog(QDialog):
     """Add / edit ONE ICT test row: Test Method first, the Net combo
     follows the method, the Unit auto-fills, Expected / Min / Max are
@@ -303,7 +354,7 @@ class IctWorkFlowSequenceDialog(QDialog):
         self._net_provider = net_provider
         self._rows: list[tuple] = (
             list(initial_tests) if initial_tests
-            else self._generate(
+            else generate_sequence(
                 net_provider() if net_provider else {}))
         lay = QVBoxLayout(self)
         hint = QLabel(
@@ -354,26 +405,6 @@ class IctWorkFlowSequenceDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
         self._refresh()
-
-    # ------------------------------------------------- generation
-    def _generate(self, testable: dict) -> list[tuple]:
-        """The automatic sequence: per power net one Static Impedance
-        and one Power Voltage test, per clock net one Clock Hz test -
-        impedance -> power rails (voltage) -> clock."""
-        testable = testable or {}
-        rows: list[tuple] = []
-        for method in METHOD_ORDER:
-            category = METHOD_NET_CATEGORY[method]
-            for net in sorted(n for n, info in testable.items()
-                              if (info or {}).get("category")
-                              == category):
-                label = {"Static Impedance": f"Static Impedance - {net}",
-                         "Power Voltage": f"Power Voltage - {net}",
-                         "Clock Hz": f"Clock Hz - {net}"}.get(
-                    method, f"{method} - {net}")
-                rows.append(("test", label,
-                             METHOD_UNITS[method], "—", "—", "—"))
-        return rows
 
     # ------------------------------------------------- table plumbing
     def _refresh(self) -> None:

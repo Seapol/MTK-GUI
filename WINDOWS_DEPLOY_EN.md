@@ -145,10 +145,15 @@ mtk\            <- copy the entire folder, nothing can be missing
 | USB serial driver | When connecting the DUT via a USB-to-serial cable | FTDI / CP210x usually auto-install on Win10/11; CH340-family chips typically need a one-time manual install |
 | WLAN adapter | Host-side Wi-Fi scan / connect / throughput tests | The PC itself must have a working WLAN adapter |
 
-**Two prerequisites:**
+**Two prerequisites + one note:**
 
 - The test PC should run an **English Windows** locale: the Wi-Fi/throughput steps parse `netsh`/`ping` output expecting English text; other locales may fail to parse.
 - User-created YAML test plans go into `mtk\yaml_plan\` (next to the exe); add them anytime without rebuilding.
+- The bundled FRDM-IMX93 FCT demo plans live in `mtk\_internal\yaml_plan\examples\imx93frdm\`; the latest is `FRDM-IMX93_FCT_Demo_v1.0.2.yaml` (v1.0.0 / v1.0.1 remain in the package).
+
+**Status bar shows v4.1.1.0000?**
+
+When the exe is built straight from a source checkout there is no CI-generated `resources\version.json`; the status bar falls back to the static version `v4.1.1.0000` with no functional impact. The CI packaging pipeline writes the real version number at build time.
 
 ---
 
@@ -168,7 +173,7 @@ Make sure the build command is run from the repo root (the directory containing 
 The virtual environment is not activated — run `.venv\Scripts\activate` first.
 
 **User's own YAML plan files**
-User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe.
+User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The bundled demo plans (`yaml_plan/examples`) ship inside the package at `_internal\yaml_plan\examples\` — no manual placement needed.
 
 ---
 

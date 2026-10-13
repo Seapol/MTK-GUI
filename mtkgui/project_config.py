@@ -52,10 +52,15 @@ def build_config(workflow_page, equipment_page,
             instead of re-running the automatic analysis.
     """
     product = workflow_page.product_info()
+    # user direction 2026-10-13: the header revision follows the Yaml
+    # Build plan_version (1.x.x) when a Yaml Build state exists; the
+    # legacy REVISION constant stays the fallback (scripts / no state)
+    revision = str((yaml_build_state or {}).get("plan_version")
+                   or "").strip() or REVISION
     config = {
         "project": {
             "software": SOFTWARE,
-            "revision": REVISION,
+            "revision": revision,
             "created": datetime.now().isoformat(timespec="seconds"),
         },
         "product": {
@@ -220,13 +225,35 @@ def _clean(text, fallback):
     return text.strip("-.") or fallback
 
 
+def clean_component(text, fallback):
+    """Filesystem-safe filename component (the shared naming rule;
+    public API so every naming site - project save AND plan publish -
+    sanitizes identically)."""
+    return _clean(text, fallback)
+
+
 def default_filename(config):
-    """ProductPartNumber_CoreID_Batch_rev1.0.yaml"""
+    """[Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft.yaml
+
+    Project Part # / Core ID / Batch # come from the Design Input
+    module (user direction): the values live in the archived
+    yaml_build_state (modules.design_input.params); the legacy Test
+    Work Flow product fields stay as fallback.  The revision is the
+    Yaml Build plan_version (1.x.x).  Everything saved before a
+    release is an intermediate Draft (pending debug / adjustment)."""
     product = config.get("product", {})
-    part = _clean(product.get("part_number"), "PROJECT")
-    core = _clean(product.get("core_id"), "00000")
-    batch = _clean(product.get("batch"), "freebatch")
-    return f"{part}_{core}_{batch}_rev{REVISION}.yaml"
+    state = config.get("yaml_build_state") or {}
+    params = (((state.get("modules") or {})
+               .get("design_input") or {}).get("params")) or {}
+    part = clean_component(params.get("part_number")
+                           or product.get("part_number"), "PROJECT")
+    core = clean_component(params.get("product_id")
+                           or product.get("core_id"), "00000")
+    batch = clean_component(params.get("batch")
+                            or product.get("batch"), "freebatch")
+    version = clean_component(str(state.get("plan_version") or "1.0.0"),
+                              "1.0.0")
+    return f"{part}_{core}_{batch}_rev_{version}_Draft.yaml"
 
 
 # --------------------------------------------------------------------------

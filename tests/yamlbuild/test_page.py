@@ -41,8 +41,9 @@ def test_page_assembly(page):
     assert not hasattr(page, "btn_build_draft")
     assert not hasattr(page, "btn_release_final")
     assert page.yaml_preview.btn_apply in page._action_buttons
-    assert len(page.block_flow._cards) == 9
+    assert len(page.block_flow._cards) == 5
     assert "ict_workflow" in page.block_flow._cards
+    assert "channel_alloc" in page.block_flow._cards
     assert page.yaml_preview.editor.toPlainText().startswith(
         "yaml_build:")
 
@@ -121,7 +122,7 @@ def test_invalid_yaml_edit_rejected(page):
     page.yaml_preview.btn_apply.click()           # Apply -> FAIL
     assert not page.yaml_preview.error_bar.isHidden()
     assert "broken" in page.yaml_preview.editor.toPlainText()
-    assert page.yaml_preview.btn_apply.text() == "Apply"
+    assert page.yaml_preview.btn_apply.text() == "Apply to Yaml"
     assert semantic(page.model.to_dict()) == before
 
 
@@ -207,6 +208,10 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
         "clock": [{"net": "CLK_24M", "se_clock_hz": "DAQM907A TOT"}],
         "gpio": [],
     })
+    # the tables are EMBEDDED in the page now - a direct model
+    # mutation must re-mirror into them (the _open_block quiet sync
+    # pushes the TABLE state back into the model first)
+    page.channel_alloc.refresh_from_model()
     monkeypatch.setattr(
         ict_sequence.IctWorkFlowSequenceDialog, "exec",
         lambda self: self.DialogCode.Accepted)
@@ -227,13 +232,59 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
     assert nav == []
 
 
+def test_channel_alloc_card_runs_auto_allocation(page):
+    """The 'Auto-Channel Allocation' card executes the automatic
+    allocation on click (the former Auto button moved onto the
+    card - user direction 2026-10-13)."""
+    page.model.imported["testable_nets"] = {
+        "3V3": {"category": "Power", "members": ["U1.5"]},
+        "CLK_24M": {"category": "Clock", "members": ["U1.10"]},
+    }
+    page.channel_alloc.refresh_from_model()
+    page._open_block("channel_alloc")
+    power_row = page.channel_alloc.table_power.rows()[0]
+    clock_row = page.channel_alloc.table_clock.rows()[0]
+    assert power_row.impedance == power_row.voltage  # SAME channel
+    assert power_row.impedance.startswith("DAQM908A")
+    assert power_row.power_rails.startswith("U2355A")
+    assert clock_row.se_clock_hz.startswith("DAQM907A")
+    # the card gets a star once the allocation ran (user direction)
+    assert page.block_flow._cards["channel_alloc"] \
+        .mark_label.text() == "★"
+    assert page.model.marks.get("channel_alloc") == "star"
+
+
+def test_close_and_load_buttons_emit_requests(page):
+    """The top button row carries "Close Yaml" and "Load current
+    yaml" right of "Apply to Yaml"; clicking emits the request
+    signals the main window routes to its File-menu slots."""
+    assert page.btn_close_yaml.text() == "Close Yaml"
+    assert page.btn_load_yaml.text() == "Load current yaml"
+    closed, load_requested = [], []
+    page.close_yaml_requested.connect(lambda: closed.append(True))
+    page.load_yaml_requested.connect(lambda: load_requested.append(True))
+    page.btn_close_yaml.click()
+    page.btn_load_yaml.click()
+    assert closed == [True]
+    assert load_requested == [True]
+
+
+def test_clear_preview_blanks_pane(page):
+    """Close Yaml must clear the Yaml Preview (user direction)."""
+    page.yaml_preview.editor.setPlainText("yaml_build: plan_version: 1.0.0")
+    page.clear_preview()
+    assert page.yaml_preview.editor.toPlainText() == ""
+
+
 def test_standard_button_tooltips(page):
-    """The top toolbar buttons carry the fixed standard Chinese
-    tooltips (rule 6.1, exact wording)."""
+    """The top toolbar buttons carry the fixed English tooltips
+    (rule 6.1, exact wording; GUI language = English)."""
     assert page.btn_import_excel.toolTip() == \
-        "批量导入流程配置Excel文件，快速回填所有模块参数与状态"
+        ("Bulk-import the flow configuration workbook and fill "
+         "back every module parameter and state")
     assert page.btn_export_excel.toolTip() == \
-        "导出当前全流程模块配置为标准Excel归档文件"
+        ("Export all flow module parameters to a standard Excel "
+         "archive file")
 
 
 def test_module_cards_have_tooltips_even_disabled(page):
@@ -256,11 +307,13 @@ def test_context_menu_single_and_batch(page):
     menu = card._build_menu()
     actions = menu._actions_map
     assert actions["enable_all"].toolTip() == \
-        "一键启用全部流程模块，所有模块参与YAML生成与校验"
+        ("Enable every flow module - all join the YAML "
+         "generation and validation")
     assert actions["disable_all"].toolTip() == \
-        "一键禁用全部流程模块，所有模块暂不参与流程编译"
+        ("Disable every flow module - none joins the flow "
+         "compilation")
     assert actions["enable"].toolTip() == \
-        "单独开启/关闭当前模块流程能力"
+        "Enable / disable this module flow participation"
     assert actions["enable"].isEnabled()
     assert not actions["disable"].isEnabled()   # current state grayed
 
@@ -293,9 +346,17 @@ def test_dialog_fields_all_have_tooltips(page, qapp):
 
 
 def test_default_state_is_all_enabled(page):
-    """Fresh page default: every module enabled (rule 3.2)."""
-    from mtkgui.gui.yamlbuild.stages import WORKFLOW_DISPLAY_STAGES
+    """Fresh page default: every module enabled (rule 3.2).  Nav
+    cards (Auto-Channel Allocation) have no module state - they
+    render 'Auto assign' instead."""
+    from mtkgui.gui.yamlbuild.stages import (
+        NAV_CARD_KEYS,
+        WORKFLOW_DISPLAY_STAGES,
+    )
     assert all(page.model.is_enabled(k) for k in STAGE_KEYS)
     for stage in WORKFLOW_DISPLAY_STAGES:
-        assert page.block_flow._cards[stage.key].state_label.text() \
-            == "Enabled"
+        label = page.block_flow._cards[stage.key].state_label.text()
+        if stage.key in NAV_CARD_KEYS:
+            assert label == "Auto assign", stage.key
+        else:
+            assert label == "Enabled", stage.key

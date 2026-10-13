@@ -40,7 +40,7 @@ def test_editor_directly_editable_with_apply_label(preview):
     and the single button label is Apply."""
     w, _model = preview
     assert w.editor.isReadOnly() is False
-    assert w.btn_apply.text() == APPLY_LABEL == "Apply"
+    assert w.btn_apply.text() == APPLY_LABEL == "Apply to Yaml"
     assert w.btn_apply.isCheckable() is False  # no mixed toggle state
 
 

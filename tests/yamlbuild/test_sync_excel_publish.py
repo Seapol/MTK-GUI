@@ -205,16 +205,23 @@ def test_excel_import_missing_sheet(tmp_path):
 
 
 def test_plan_filename_rules():
-    """The fixed naming: Plan_[Core ID]_[Part#]_build_[kind]_v.<ver>."""
+    """The fixed naming (unified with the project Save-as name):
+    [Part#]_[Core ID]_[Batch#]_rev_<ver>_<Kind>."""
     model = make_model()
     name = plan_filename(model, "draft")
-    assert name == "Plan_IMXRT700_MTK12345_build_draft_v.1.0.0.yaml"
+    assert name == ("MTK12345_IMXRT700_MP-(Production)"
+                    "_rev_1.0.0_Draft.yaml")
     final = plan_filename(model, "final")
-    assert final == "Plan_IMXRT700_MTK12345_build_final_v.1.0.0.yaml"
+    assert final == ("MTK12345_IMXRT700_MP-(Production)"
+                     "_rev_1.0.0_Final.yaml")
     parsed = parse_plan_name(name)
-    assert parsed == {"core": "IMXRT700", "part": "MTK12345",
-                      "kind": "draft", "version": "1.0.0"}
+    assert parsed == {"part": "MTK12345", "core": "IMXRT700",
+                      "batch": "MP-(Production)", "version": "1.0.0",
+                      "kind": "Draft"}
     assert parse_plan_name("random.yaml") is None
+    # legacy Plan_..._build_... names no longer parse (best-effort)
+    assert parse_plan_name(
+        "Plan_IMXRT700_MTK12345_build_draft_v.1.0.0.yaml") is None
 
 
 def test_plan_filename_requires_design_input():
@@ -232,8 +239,8 @@ def test_publish_draft_and_final(tmp_path):
     model = make_model()
     draft = publish(model, "draft", tmp_path)
     final = publish(model, "final", tmp_path)
-    assert draft.name.endswith("build_draft_v.1.0.0.yaml")
-    assert final.name.endswith("build_final_v.1.0.0.yaml")
+    assert draft.name.endswith("_rev_1.0.0_Draft.yaml")
+    assert final.name.endswith("_rev_1.0.0_Final.yaml")
     doc = yaml.safe_load(final.read_text(encoding="utf-8"))
     assert doc["plan"]["kind"] == "final"
     assert doc["plan"]["locked"] is True

@@ -211,10 +211,12 @@ class DesignInputPanel(QWidget):
         title = ""
         if Path(path).suffix.lower() == ".pdf":
             # Smart-PDF drawing: the board Project Part# lives in the
-            # drawing title block (e.g. FRDM-IMXRT700)
+            # drawing title block (e.g. FRDM-IMXRT700); the Core ID
+            # enables the "Part No. <name> + SCH-<core id>" pairing
+            # (old drawings list several boards in the title block)
             from mtkgui.gui.yamlbuild.parser import \
                 extract_drawing_board_name
-            title = extract_drawing_board_name(text)
+            title = extract_drawing_board_name(text, core_id)
         if not title:
             title = extract_spf_project_name(text)
         if not core_id and not title:

@@ -359,6 +359,17 @@ class _NetTable(QWidget):
     def load_rows(self, rows: list[AllocatedRow]) -> None:
         """(Re)render the rows; config cells become dropdown-only
         combos wired to the auto status, Status stays read-only."""
+        # drop the previous row widgets FIRST: setCellWidget does not
+        # delete the replaced widget in every Qt build - the old combos
+        # stay parented to the viewport and stack as ghosts over row 0
+        # (user report: stray dropdowns covered the first data row)
+        for r in range(self.table.rowCount()):
+            for c in range(self.table.columnCount()):
+                old = self.table.cellWidget(r, c)
+                if old is not None:
+                    self.table.removeCellWidget(r, c)
+                    old.hide()
+                    old.deleteLater()
         self.table.setRowCount(len(rows))
         self._rows = rows
         for r, row in enumerate(rows):
@@ -486,13 +497,11 @@ class _NetTable(QWidget):
 
 
 class ChannelAllocationPage(QWidget):
-    """The dedicated Channel Allocation tab (three tables)."""
+    """The embedded Channel Allocation tables (three tabs) of the
+    Yaml Build page."""
 
     #: (level, message) Event-Log mirror (T6)
     task_log = Signal(str, str)
-    #: Apply to YAML clicked: the tables were persisted into the
-    #: model - the main window switches to the Yaml Build tab
-    apply_yaml_requested = Signal()
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         # NOTE: the model is NOT accepted in __init__ ON PURPOSE.
@@ -506,27 +515,12 @@ class ChannelAllocationPage(QWidget):
         self._edit_allowed = True
 
         lay = QVBoxLayout(self)
-        top = QHBoxLayout()
-        btn_auto = QPushButton("Auto")
-        btn_auto.setToolTip(
-            "Automatic allocation (Power / Clock tables only, "
-            "top-down): best test point (TP probe pin preferred, "
-            "else the first member pin), sequential instrument "
-            "channels - Impedance and Voltage share the SAME "
-            "DAQM908A channel, Power rails come from the U2355A AI "
-            "pool. Beyond the pool capacity a channel stays unset "
-            "(no test). The GPIO DIO channels are NOT auto-assigned "
-            "- configure them manually.")
-        btn_auto.clicked.connect(self._auto_allocate)
-        top.addWidget(btn_auto)
-        top.addStretch(1)
-        btn_apply = QPushButton("Apply to YAML")
-        btn_apply.setToolTip(
-            "Persist the channel allocation into the YAML config and "
-            "switch to the Yaml Build page")
-        btn_apply.clicked.connect(self._apply_to_yaml)
-        top.addWidget(btn_apply)
-        lay.addLayout(top)
+        # NOTE: the former "Auto" / "Apply to YAML" buttons are GONE
+        # (user direction 2026-10-13): the Auto allocation lives on
+        # the "Auto-Channel Allocation" workflow card (click -> :meth:
+        # `auto_allocate`) and the persistence happens automatically
+        # (card-open sync / publish sync / tab-leave hideEvent) - the
+        # YAML preview's "Apply to Yaml" button owns the apply.
         hint = QLabel(
             "Data source: the Parse Nets result (Parse Nets for ICT "
             "module). All configuration cells are dropdown-only.")
@@ -630,32 +624,6 @@ class ChannelAllocationPage(QWidget):
             except Exception:     # persistence must never break the GUI
                 pass
 
-    def _apply_to_yaml(self) -> None:
-        """Apply-to-YAML (user direction): persist the tables into
-        the model and jump to the Yaml Build page (operators cannot
-        modify the YAML config).  FOOL-PROOFING: a shared instrument
-        channel BLOCKS the apply until the conflict is resolved."""
-        if not self._edit_allowed:
-            QMessageBox.information(
-                self, "Permission",
-                "Operator account cannot modify the YAML configuration.")
-            return
-        conflicts = self._channel_conflicts()
-        if conflicts:
-            detail = "\n".join(
-                f"{pool}  {channel}  ->  {', '.join(nets)}"
-                for pool, channel, nets in conflicts[:10])
-            more = (f"\n... and {len(conflicts) - 10} more"
-                    if len(conflicts) > 10 else "")
-            QMessageBox.warning(
-                self, "Channel Conflict",
-                "The same instrument resource is used by more than "
-                "one net - resolve the conflicts first:\n\n"
-                + detail + more)
-            return
-        self.save_to_model()
-        self.apply_yaml_requested.emit()
-
     # ------------------------------------------------------------ auto
     def _channel_conflicts(self) -> list[tuple[str, str, list[str]]]:
         """Fool-proofing (user direction): one instrument channel used
@@ -700,15 +668,16 @@ class ChannelAllocationPage(QWidget):
                       if m.upper().startswith("TP")), None)
         return probe or members[0]
 
-    def _auto_allocate(self) -> None:
-        """Auto (user direction): assign the Power / Clock tables
-        top-down - the best test point, then sequential channel
-        resources.  The Impedance and Voltage cells share the SAME
-        DAQM908A channel; Power rails draw from the U2355A AI pool;
-        SE Clock from its pool.  Rows beyond the pool capacity stay
-        unset (cannot be tested) and are adjusted manually afterwards.
-        The GPIO DIO channels are NOT touched - the user configures
-        them manually."""
+    def auto_allocate(self) -> None:
+        """Auto allocation (user direction 2026-10-13: triggered by
+        the "Auto-Channel Allocation" workflow card): assign the
+        Power / Clock tables top-down - the best test point, then
+        sequential channel resources.  The Impedance and Voltage
+        cells share the SAME DAQM908A channel; Power rails draw from
+        the U2355A AI pool; SE Clock from its pool.  Rows beyond the
+        pool capacity stay unset (cannot be tested) and are adjusted
+        manually afterwards.  The GPIO DIO channels are NOT touched -
+        the user configures them manually."""
         for kind, table in (("power", self.table_power),
                             ("clock", self.table_clock)):
             sense = iter(DAQM908A_SENSE_CHANNELS)

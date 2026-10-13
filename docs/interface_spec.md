@@ -29,6 +29,9 @@ save_config(config: dict, path: str) -> None          # config dict -> YAML file
 load_config(path: str) -> dict                        # YAML file -> raw config dict
 apply_config(config: dict, workflow_page, equipment_page) -> None  # dict -> GUI state
 default_filename(config: dict) -> str
+    # suggested Save-as name: [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft.yaml
+    # (Project Part# / Core ID / Batch# from Design Input via yaml_build_state;
+    #  legacy Test Work Flow product fields as fallback; pre-release = Draft)
 ```
 
 - Callers must treat the returned dict as read-only; mutation is internal to
@@ -1092,34 +1095,42 @@ narrow screens fall back to a single column).  Top fixed buttons
 (uniform adaptive width = widest label; the Build Draft / Release
 Final YAML buttons were removed - redundant YAML entry).
 
-Fixed, irreversible workflow sequence (disabled blocks are skipped):
+Fixed, irreversible workflow sequence (2026-10-13 simplification -
+single-page vertical flow; disabled blocks are skipped):
 
 ```
-Design Input -> Configure Power On/Off DUT -> Parse nets for ICT
--> Build Impedance/Voltage/Power rails up sequence -> Build Clocks
--> Build GPIOs -> Configure Programmer/Debugger
--> Configure Peripherials -> Parse Func/Interface for FCT
--> Build Func/Interface for FCT
+Design Input -> Parse nets for ICT -> (Channel Allocation tables,
+embedded inline) -> Build Impedance/Voltage/Power rails up sequence
+-> Build Clocks -> Build GPIOs -> Build Func/Interface for FCT
 ```
 
 Per-block rules: single click opens the block's own config dialog
 (independent save + validation); right-click Enable / Disable
 (disabled block renders grayed, is skipped by the flow, is NOT
 written into the effective YAML, its parameters are silently kept).
+The Channel Allocation card is navigation-only (the tables are
+embedded below the cards; no enable / disable, no mark).
 Diagram <-> YAML two-way live sync with syntax / sequence / parameter
 validation and error markers.
 
-Ten module parameter groups (one per block above): design input
-(product id, part number, sw/hw versions), power on/off sequencing,
-ICT net parsing, impedance/voltage/rails-up capture, clocks, GPIOs,
-programmer/debugger, peripherals (Wi-Fi / Bluetooth / serial / I2C /
-SPI / ADC), FCT function/interface parsing, FCT flow build.
+Retired modules (2026-10-13, dropped silently from old files): the
+programmer/debugger and peripherals parameter groups (no runtime
+consumer - the Equipment page owns the hardware config) and the
+manual Validate / Preview & Export blocks (the full-sequence
+validation runs automatically before every publish; the YAML preview
+is the always-visible right pane).  The `instruments` module stays a
+YAML module but shows NO card (Equipment page holds the values).
 
-Dual-version publishing (FIXED naming):
+Module parameter groups: design input (product id, part number,
+sw/hw versions), ICT net parsing, impedance/voltage/rails-up
+capture, clocks, GPIOs, FCT flow build.
+
+Dual-version publishing (FIXED naming, unified with the project
+Save-as name - user direction 2026-10-13):
 
 ```
-Draft:  Plan_[Core ID]_[Project Part#]_build_draft_v.1.0.0.yaml
-Final:  Plan_[Core ID]_[Project Part#]_build_final_v.1.0.0.yaml
+Draft:  [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft.yaml
+Final:  [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Final.yaml
 ```
 
 Draft = machine-generated, for human review; Final = released,

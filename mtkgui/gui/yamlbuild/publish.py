@@ -2,10 +2,11 @@
 """Draft / Final YAML publishing with fixed naming, version compare
 and archiving (V4.0 rule 5.4).
 
-Fixed naming (100% compliant):
+Fixed naming (unified with the project Save-as name, user direction
+2026-10-13):
 
-    Draft: Plan_[Core ID]_[Project Part#]_build_draft_v.1.0.0.yaml
-    Final: Plan_[Core ID]_[Project Part#]_build_final_v.1.0.0.yaml
+    Draft: [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Draft.yaml
+    Final: [Project Part#]_[Core ID]_[Batch#]_rev_1.x.x_Final.yaml
 
 The dynamic build version (interface_spec.md section 33) is embedded
 in the YAML header (``built_with``) and in the archive copy file
@@ -23,25 +24,29 @@ from pathlib import Path
 import yaml
 
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
+from mtkgui.project_config import clean_component
 from mtkgui.version_info import get_version_info
 
 ARCHIVE_DIR = "archive/yamlbuild"
 
+_KIND_LABEL = {"draft": "Draft", "final": "Final"}
+
 _FILENAME_RE = re.compile(
-    r"^Plan_(?P<core>[^_]+)_(?P<part>.+)_build_"
-    r"(?P<kind>draft|final)_v\.(?P<version>\d+\.\d+\.\d+)\.yaml$")
+    r"^(?P<part>.+)_(?P<core>[^_]+)_(?P<batch>[^_]+)"
+    r"_rev_(?P<version>\d+\.\d+\.\d+)"
+    r"_(?P<kind>Draft|Final)\.yaml$")
 
 
 def plan_filename(model: YamlBuildModel, kind: str) -> str:
     """Build the compliant Draft/Final file name.
 
     Args:
-        model: The data model (Core ID / Part # come from the Design
-               Input module).
+        model: The data model (Core ID / Part # / Batch # come from
+               the Design Input module).
         kind:  ``"draft"`` or ``"final"``.
 
     Returns:
-        e.g. ``Plan_IMXRT700_MTK12345_build_draft_v.1.0.0.yaml``.
+        e.g. ``MTK12345_IMXRT700_MP-(Production)_rev_1.0.0_Draft.yaml``.
 
     Raises:
         ValueError: kind is invalid or Design Input is missing.
@@ -58,9 +63,11 @@ def plan_filename(model: YamlBuildModel, kind: str) -> str:
         raise ValueError(
             "Design Input must provide Core ID and Project Part # "
             "before building a plan file")
-    safe = lambda text: re.sub(r"[^A-Za-z0-9._-]", "_", text)  # noqa: E731
-    return (f"Plan_{safe(core)}_{safe(part)}_"
-            f"build_{kind}_v.{model.plan_version}.yaml")
+    batch = str(design.get("batch") or "").strip() or "freebatch"
+    return (f"{clean_component(part, 'PROJECT')}_"
+            f"{clean_component(core, '00000')}_"
+            f"{clean_component(batch, 'freebatch')}_"
+            f"rev_{model.plan_version}_{_KIND_LABEL[kind]}.yaml")
 
 
 def build_plan_document(model: YamlBuildModel, kind: str) -> dict:
@@ -172,8 +179,10 @@ def parse_plan_name(name: str) -> dict | None:
         name: File name (with or without directories).
 
     Returns:
-        Dict with core / part / kind / version keys, or ``None`` when
-        the name is not compliant.
+        Dict with part / core / batch / version / kind keys (kind is
+        ``"Draft"`` / ``"Final"``), or ``None`` when the name is not
+        compliant.  Legacy ``Plan_..._build_...`` names no longer
+        parse (best-effort by design).
     """
     match = _FILENAME_RE.match(Path(name).name)
     if match is None:

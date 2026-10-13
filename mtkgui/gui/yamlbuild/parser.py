@@ -149,39 +149,85 @@ def extract_project_name(pdf_text: str) -> str:
 
 
 _BOARD_NAME_RE = re.compile(
-    r"(?m)^\s*([A-Z]{2,}[0-9A-Z]*(?:-[0-9A-Z][0-9A-Z_]*)+)\s*$")
+    r"(?m)^\s*([A-Z][0-9A-Z]*(?:-[0-9A-Z][0-9A-Z_]*)+)\s*$")
+
+#: labelled title-block entries ("Part No. MCIMX8QM-CPU" /
+#: "Part Number: ..." / "Part # ...") - the label is case-insensitive,
+#: the captured value must still be ALL-CAPS board-name shaped
+_LABELLED_PART_RE = re.compile(
+    r"(?i)\bpart\s*(?:no\.?|number|#)\s*[:.]?\s*"
+    r"([A-Za-z0-9][A-Za-z0-9._-]*)")
+_SCH_NO_RE = re.compile(r"\bSCH[- ]?(\d{4,10})\b", re.IGNORECASE)
 
 
-def extract_drawing_board_name(pdf_text: str) -> str:
+def extract_drawing_board_name(pdf_text: str, core_id: str = "") -> str:
     """Extract the board Project Part# / drawing title from schematic
     PDF text (real Smart-PDF drawings, e.g. ``FRDM-IMXRT700``).
 
-    Heuristic (title-block scan): a standalone line in ALL-CAPS
-    board-name shape - at least two alnum groups joined by ``-``.
-    Prefers lines that also appear with a nearby revision marker
-    (``Rev.``), which is where the drawing title block sits.
+    Layer 1 - labelled title-block entries (project 29420 lesson,
+    2026-10-13): ``Part No. <NAME>`` lines; when a ``Schematic
+    SCH-<id>`` number within +-3 lines equals the file-name Core ID
+    the entry is THIS drawing's board part number and wins outright
+    (old drawings list several boards in the title block - the SCH
+    pairing disambiguates).
+
+    Layer 2 - standalone-line scan: a line in ALL-CAPS board-name
+    shape - at least two alnum groups joined by ``-`` (single-letter
+    first groups allowed: ``X-RING-OPTIC-ETH``).  Ranking (project
+    97122 lesson): the drawing title block repeats on EVERY page
+    footer while a component part number appears only next to its
+    refdes instances - the MOST FREQUENT candidate wins; ``Rev.``
+    proximity breaks ties, then the hyphen-group count (title names
+    are multi-group), then the earliest position.
 
     Args:
         pdf_text: Extracted PDF text (see :func:`extract_pdf_text`).
+        core_id:  Core ID from the file name (enables the layer-1
+                  SCH pairing; "" keeps the pure frequency ranking).
 
     Returns:
-        The board name (e.g. ``"FRDM-IMXRT700"``), or "" when no
-        plausible title-block name exists in the drawing.
+        The board name (e.g. ``"FRDM-IMXRT700"``, ``"MCIMX8QM-CPU"``),
+        or "" when no plausible title-block name exists in the
+        drawing.
     """
     text = pdf_text or ""
-    candidates: list[str] = []
     lines = [ln.strip() for ln in text.splitlines()]
+    # layer 1: labelled entries paired with THIS file's SCH number
+    if core_id:
+        core_digits = re.sub(r"\D", "", str(core_id))
+        if core_digits:
+            for i, line in enumerate(lines):
+                labelled = _LABELLED_PART_RE.search(line)
+                if not labelled:
+                    continue
+                value = labelled.group(1).strip()
+                if not _BOARD_NAME_RE.fullmatch(value):
+                    continue
+                window = " ".join(lines[max(0, i - 3):i + 3])
+                if any(sch == core_digits
+                       for sch in _SCH_NO_RE.findall(window)):
+                    return value
+    # layer 2: standalone candidates ranked by frequency
+    counts: dict[str, int] = {}
+    near_rev: dict[str, bool] = {}
+    first_at: dict[str, int] = {}
     for i, line in enumerate(lines):
         match = _BOARD_NAME_RE.match(line)
         if not match:
             continue
-        window = " ".join(lines[max(0, i - 2):i + 4])
-        near_rev = "REV" in window.upper()
-        candidates.append((0 if near_rev else 1, i, match.group(1)))
-    if not candidates:
+        name = match.group(1)
+        counts[name] = counts.get(name, 0) + 1
+        first_at.setdefault(name, i)
+        if not near_rev.get(name):
+            window = " ".join(lines[max(0, i - 2):i + 4])
+            near_rev[name] = "REV" in window.upper()
+    if not counts:
         return ""
-    candidates.sort()
-    return candidates[0][2]
+    best = sorted(
+        counts,
+        key=lambda n: (-counts[n], 0 if near_rev.get(n) else 1,
+                       -n.count("-"), first_at[n]))
+    return best[0]
 
 
 # --------------------------------------------------------------- netlist

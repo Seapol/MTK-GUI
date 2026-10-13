@@ -284,7 +284,7 @@ def test_auto_allocate_top_down(page):
     """Auto: top-down sequential assignment, Impedance == Voltage
     (same DAQM908A channel), rails from AI01..., TP auto-picked; the
     status reflects the fully configured rows."""
-    page._auto_allocate()
+    page.auto_allocate()
     power = page.table_power.rows()
     assert power[0].impedance == "DAQM908A #1 CH101"
     assert power[0].voltage == "DAQM908A #1 CH101"   # SAME channel
@@ -310,7 +310,7 @@ def test_auto_allocate_pool_exhausted(page, monkeypatch):
     monkeypatch.setattr(ca, "DAQM908A_SENSE_CHANNELS",
                         ("DAQM908A #1 CH101",))
     monkeypatch.setattr(ca, "U2355A_AI_CHANNELS", ("U2355A AI01",))
-    page._auto_allocate()
+    page.auto_allocate()
     power = page.table_power.rows()
     assert power[0].impedance == "DAQM908A #1 CH101"
     assert power[1].impedance == UNSET               # pool exhausted
@@ -355,61 +355,32 @@ def test_channel_conflict_detection(page):
     assert page._channel_conflicts() == []
 
 
-def test_conflict_blocks_apply_to_yaml(page, monkeypatch):
-    """Apply-to-YAML is BLOCKED while a channel conflict exists; the
-    warning box lists the offenders."""
-    shown = []
-    monkeypatch.setattr(
-        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.warning",
-        lambda *a, **k: shown.append(k[1] if len(k) > 1 else a[1]))
+def test_conflict_detection_lists_offenders(page):
+    """A channel used by MORE THAN ONE net is reported as a conflict
+    (pool / channel / offenders); resolving it clears the report."""
     table = page.table_power
     rows = table.rows()
     rows[0].impedance = rows[1].impedance = "DAQM908A #1 CH105"
     page._update_summary()
     assert "CONFLICT" in page.lbl_summary.text()
-    emitted = []
-    page.apply_yaml_requested.connect(lambda: emitted.append(True))
-    page._apply_to_yaml()
-    assert shown and emitted == []          # blocked, nothing emitted
-    # resolve -> apply passes
+    conflicts = page._channel_conflicts()
+    assert any("CH105" in channel
+               for _pool, channel, _nets in conflicts)
+    # resolve -> the conflict report clears
     rows[1].impedance = "DAQM908A #1 CH106"
     page._update_summary()
     assert "CONFLICT" not in page.lbl_summary.text()
-    page._apply_to_yaml()
-    assert emitted == [True]
+    assert page._channel_conflicts() == []
 
 
 # ------------------------------------------------------ persistence / compat
-def test_apply_to_yaml_persists_and_requests_navigation(page):
-    """The 'Apply to YAML' button persists the tables into the model
-    and emits apply_yaml_requested (the main window switches to the
-    Yaml Build tab)."""
-    emitted = []
-    page.apply_yaml_requested.connect(lambda: emitted.append(True))
+def test_save_persists_tables_into_model(page):
+    """The tables persist into the model via save_to_model (the
+    page-level sync points call it before every dependent read)."""
     page.table_power.table.cellWidget(0, 1).setCurrentText("U1.5")
-    page._apply_to_yaml()
-    assert emitted == [True]
+    page.save_to_model()
     assert page.model.channel_allocation["power"][0]["test_point"] == \
         "U1.5"
-
-
-def test_apply_to_yaml_blocked_for_operator(page, monkeypatch):
-    """Operator accounts cannot apply the YAML config (permission
-    box mocked - it must never block the test)."""
-    shown = []
-    monkeypatch.setattr(
-        "mtkgui.gui.yamlbuild.channel_allocation.QMessageBox.information",
-        lambda *a, **k: shown.append(True))
-    page.set_edit_allowed(False)
-    emitted = []
-    page.apply_yaml_requested.connect(lambda: emitted.append(True))
-    page._apply_to_yaml()
-    assert shown == [True]                # permission box, no navigation
-    assert emitted == []
-    # supervisor passes through
-    page.set_edit_allowed(True)
-    page._apply_to_yaml()
-    assert emitted == [True]
 
 
 # -------------------------------------------------- persistence / compat

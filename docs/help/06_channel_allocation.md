@@ -18,20 +18,24 @@ and shares its project model.
   the Yaml Build page. The tables are written into the model's
   `channel_allocation` section (persisted to the project YAML) and
   into the restart-safe project store.
-- **Refresh**: every entry into the tab re-syncs the tables with the
-  current parse result - the saved configuration of unchanged nets
-  is kept, new nets are appended, removed nets are dropped.
-- **Autosave**: leaving the tab persists the configuration
-  automatically; `Apply to YAML` additionally switches to the Yaml
-  Build tab.
+- **Refresh**: the tables re-sync with the current parse result on
+  every Yaml Build page entry and after every parse - the saved
+  configuration of unchanged nets is kept, new nets are appended,
+  removed nets are dropped.
+- **Autosave**: leaving the Yaml Build tab persists the configuration
+  automatically; opening the ICT sequence card or publishing syncs
+  the tables into the model silently first.
 
 **Note:** empty tables mean there is no parse result yet - run
 block 02 `Parse nets for ICT` on the Yaml Build page first.
 
-## Page Layout
+## Page Layout (embedded in the Yaml Build page)
 
-- Top row: the `Auto` button on the left and `Apply to YAML` on the
-  right.
+- The tables sit directly below the five workflow cards; the
+  `Auto` allocation is triggered by the **03 · Auto-Channel
+  Allocation** card (2026-10-13 - the standalone buttons are gone;
+  applying to the YAML is owned by the preview pane's
+  `Apply to Yaml` button).
 - The muted hint line naming the data source.
 - The tab widget with `Power Nets` / `Clock Nets` / `GPIO Nets`.
 - The summary line at the bottom, for example
@@ -143,30 +147,27 @@ every table is complete; otherwise it reads
 ## Channel Conflicts
 
 One instrument resource used by **more than one net** is a conflict
-and blocks `Apply to YAML`:
+and turns the summary line red:
 
 - The conflict check runs per resource pool: DAQM908A (the
   `Impedance` + `Voltage` pool), `U2355A AI` (the `Power rails`
   pool), `SE Clock` and `DAQM907A DIO`.
 - One net using the same channel for `Impedance` AND `Voltage` is
   the normal Auto behavior - NOT a conflict.
-- The `Channel Conflict` dialog lists the tuples
-  `pool  channel  ->  nets` (up to 10, plus the remaining count).
 - The summary line shows the conflicts in red as soon as they
-  exist, before you even try to apply.
+  exist, e.g. `- CONFLICT: DAQM908A CH101 -> VDD_3V3, VDD_1V8`.
 
-## Apply to YAML
+## Persistence (Apply to Yaml)
 
-1. Resolve all channel conflicts (see above).
-2. Click `Apply to YAML`.
-3. The tables persist into the model (project YAML
-   `channel_allocation` section plus the project store), an Event
-   Log line records the row counts (`power=N clock=N gpio=N`) and
-   the main window switches to the Yaml Build tab.
+1. The tables persist into the model automatically: on Yaml Build
+   tab leave, before the ICT sequence card opens and before every
+   publish (project YAML `channel_allocation` section plus the
+   project store, an Event Log line records the row counts).
+2. The right-pane preview's `Apply to Yaml` button commits the full
+   model into the YAML document (and offers the file save).
 
-**Warning:** Operator accounts cannot modify the YAML configuration -
-the apply is rejected with a permission message (view only; every
-dropdown stays disabled).
+**Warning:** Operator accounts cannot modify the YAML configuration
+- the allocation dropdowns stay disabled (view only).
 
 ## Table Behavior
 

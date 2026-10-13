@@ -235,11 +235,12 @@ be performed manually by the user.
 - **Chapter 8 - Security & Roles**: accounts, operator permissions,
   credentials and the OS keyring.
 - **Chapter 9 - Yaml Build**: the fixed block-flow sequence
-  (Design Input, Parse nets for ICT, Configure Instruments, the
-  ICT workflow builder, Programmer/Debugger, Peripherals, FCT
-  sequence, Validate, Preview & Export) and the live YAML preview.
+  (Design Input, Parse nets for ICT, Channel Allocation, the ICT
+  workflow builder, the FCT sequence) with the Channel Allocation
+  tables embedded on the same page, and the live YAML preview.
 - **Chapter 10 - Channel Allocation**: Power / Clock / GPIO channel
-  mapping tables and applying them back to the project YAML.
+  mapping tables (embedded in the Yaml Build page) and applying them
+  back to the project YAML.
 - **Chapter 11 - Virtual Mode & Fault Injection**: rehearsing the
   full flow without hardware and configuring random faults.
 - **Chapter 12 - Shortcuts & Tips**: the Visual Studio style run and
