@@ -27,6 +27,13 @@ sequence now runs strictly synchronously with the DUT console):
   * Reverse validation: a silent DUT can never PASS — wait/capture
     time out to FAIL ('no console output (DUT unresponsive?)').
   * login wait widened to 60 s (true cold boot) with 1 retry.
+  * HOST CLI rows (new 'host' kind): the iperf3 server on the test
+    PC is now managed BY THE PLAN — a host row starts 'iperf3 -s'
+    right before the RF section (macOS/Windows command variants) and
+    a post-RF teardown section shuts the DUT down ('shutdown now')
+    and then stops the host iperf3 server.  post_rf_commands run
+    AFTER the Wi-Fi/BT sections so the DUT stays up while any RF
+    sub-test can still run.
 
 v1.0.1 changes over v1.0.0 (single yaml plan for EVERY DUT):
 
@@ -128,6 +135,31 @@ def console_row(name, *, kind="send", transport="serial",
     return row
 
 
+def host_row(name, *, host_cmd, host_cmd_windows="", timeout=15.0,
+             retries=0):
+    """Build one 'host' ConsoleCommand dict: the command runs ON THE
+    HOST PC (macOS default / Windows override), PASS = exit code 0."""
+    return {
+        "kind": "host", "name": name, "transport": "serial",
+        "wait_enabled": False, "send_enabled": False,
+        "capture_enabled": False,
+        "send": "",
+        "expect_pass": "", "expect_pass_is_regex": False,
+        "expect_fail": "", "expect_fail_is_regex": False,
+        "case_sensitive": True,
+        "capture_is_expected": False,
+        "capture_end_line": "", "capture_forbid": "",
+        "confirm_enabled": False, "confirm_message": "",
+        "timeout": float(timeout),
+        "wait_timeout": 10.0, "send_timeout": 4.0,
+        "retries": int(retries),
+        "action": "", "local": "", "remote": "",
+        "parse_summary": False,
+        "host_cmd": host_cmd,
+        "host_cmd_windows": host_cmd_windows,
+    }
+
+
 FCT_TEST_CONFIG = {
     "dut_type": "linux",
     "console": {
@@ -193,22 +225,18 @@ FCT_TEST_CONFIG = {
                 send="cat /sys/class/drm/card0-HDMI-A-1/status "
                      "| grep -x connected && echo HDMI_\"MONITOR_OK\"",
                 cap_pat="HDMI_MONITOR_OK", cap_timeout=10),
-            # 6) Load Wi-Fi/BT RF drivers (BSP script, editable command)
+            # 6) Load Wi-Fi/BT RF drivers + prepare the A2DP sink
+            #    (pipewire + NoInputNoOutput agent + discoverable +
+            #    trust host - merged from the former start_bt_audio.sh;
+            #    the pipewire/wireplumber/agent sleeps total ~12 s, so
+            #    the capture window is 60 s)
             console_row(
                 "Load RF drivers",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="/root/load_rf_drivers.sh",
-                cap_pat="RF drivers loaded OK", cap_timeout=30,
+                cap_pat="RF drivers loaded OK", cap_timeout=60,
                 retries=1),
-            # 7) Prepare the Linux A2DP sink (pipewire + NoInputNoOutput
-            #    agent + discoverable + trust host)
-            console_row(
-                "Prepare BT audio sink",
-                wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="/root/start_bt_audio.sh",
-                cap_pat="BT_AUDIO_READY", cap_timeout=40),
             # ---- interactive fat.py (Wait -> MessageYesNo -> Send) ----
             # 8) Launch the REAL fat.py in the console foreground
             console_row(
@@ -337,6 +365,34 @@ FCT_TEST_CONFIG = {
                 send=f"ping -I mlan0 -c 20 {HOST_LAN_IP}",
                 cap_pat=r"[1-9][0-9]* received", cap_regex=True,
                 end_line="packet loss", cap_timeout=40.0),
+            # 20) HOST CLI: start the iperf3 server on the TEST PC right
+            #     before the RF section (the DUT-client iPerf3 sub-test
+            #     connects back to it).  macOS: daemon mode; Windows:
+            #     'start /B' returns immediately.  A missing iperf3
+            #     binary fails the row (rc != 0) BEFORE the throughput
+            #     test would time out.
+            host_row(
+                "Start iperf3 server (Host CLI)",
+                host_cmd="iperf3 -s -D",
+                host_cmd_windows="start /B iperf3 -s"),
+        ],
+        # Post-RF teardown: AFTER the Wi-Fi/BT sections (the DUT must
+        # stay up while any RF sub-test can still run)
+        "post_rf_commands": [
+            # T1) power the DUT off — the run ends with the board down.
+            #     Send-only (no capture): the console goes silent as the
+            #     board powers off; the wait proves the DUT was alive.
+            console_row(
+                "Shutdown DUT",
+                wait=True, send_on=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
+                send="shutdown now", send_timeout=4),
+            # T2) HOST CLI: stop the iperf3 server (rc forced to 0 on
+            #     Windows even when nothing matched; '|| true' on macOS)
+            host_row(
+                "Stop iperf3 server (Host CLI)",
+                host_cmd="pkill -x iperf3 || true",
+                host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul"),
         ],
     },
     "wifi": {
