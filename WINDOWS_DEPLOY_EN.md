@@ -149,7 +149,7 @@ mtk\            <- copy the entire folder, nothing can be missing
 
 - The test PC should run an **English Windows** locale: the Wi-Fi/throughput steps parse `netsh`/`ping` output expecting English text; other locales may fail to parse.
 - User-created YAML test plans go into `mtk\yaml_plan\` (next to the exe); add them anytime without rebuilding.
-- The bundled FRDM-IMX93 FCT demo plans live in `mtk\_internal\yaml_plan\examples\imx93frdm\`; the latest is `FRDM-IMX93_FCT_Demo_v1.0.2.yaml` (v1.0.0 / v1.0.1 remain in the package).
+- **No sample plans ship with the repo anymore** (removed 2026-10-13): the packaged `yaml_plan\examples\` now only carries the DUT script assets (`dut_scripts\`). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`), or simply copy your own plan file.
 
 **Status bar shows v4.1.1.0000?**
 
@@ -173,7 +173,7 @@ Make sure the build command is run from the repo root (the directory containing 
 The virtual environment is not activated — run `.venv\Scripts\activate` first.
 
 **User's own YAML plan files**
-User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The bundled demo plans (`yaml_plan/examples`) ship inside the package at `_internal\yaml_plan\examples\` — no manual placement needed.
+User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The packaged `yaml_plan/examples/` now only carries the DUT script assets (`dut_scripts/`, used by SFTP provisioning); demo plans are no longer bundled — regenerate with `scripts\build_frdm_fct_demo_yaml.py` when needed.
 
 ---
 

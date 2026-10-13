@@ -149,7 +149,7 @@ mtk\            <- 整个文件夹一起拷，缺一不可
 
 - 测试机建议装**英文版 Windows**：Wi-Fi/吞吐步骤按英文输出解析 `netsh`/`ping`，中文系统可能解析失败。
 - 用户自建的 YAML 计划文件放 `mtk\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
-- 随包内置的 FRDM-IMX93 FCT demo 计划在 `mtk\_internal\yaml_plan\examples\imx93frdm\`，当前最新为 `FRDM-IMX93_FCT_Demo_v1.0.2.yaml`（v1.0.0 / v1.0.1 仍保留在包内）。
+- **仓库不再内置示例计划**（2026-10-13 起移除）：包内的 `yaml_plan\examples\` 只含 DUT 脚本资产（`dut_scripts\`）。FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`），或直接拷贝手上的计划文件。
 
 **版本号显示 v4.1.1.0000？**
 
@@ -173,7 +173,7 @@ spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库�
 虚拟环境没激活，先执行 `.venv\Scripts\activate`。
 
 **用户自己的 YAML 计划文件**
-`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。内置 demo 计划（`yaml_plan/examples`）已随包打进 `_internal\yaml_plan\examples\`，无需手动放置。
+`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。包内 `yaml_plan/examples/` 现在只含 DUT 脚本资产（`dut_scripts/`，SFTP 部署用）；demo 计划不再内置，需要时用 `scripts\build_frdm_fct_demo_yaml.py` 重新生成。
 
 ---
 
