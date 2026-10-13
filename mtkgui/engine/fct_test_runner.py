@@ -916,39 +916,108 @@ class FctTestRunner:
         # the Bluetooth A2DP tone step (callable(question) -> bool)
         self._human_confirm = human_confirm
         results: list = []
-        # 0) provision generic Linux scripts over SFTP before anything runs
-        deploy = self.deploy_scripts(serial)
-        if deploy is not None:
-            results.append(deploy)
-            self.log(f"console '{deploy.name}' [sftp] -> "
-                     f"{deploy.verdict} {deploy.detail}")
-            if not deploy.passed:
-                overall = "FAIL"
-                return {"results": results, "overall": overall,
-                        "report": self.report(results, overall)}
-        results += self.run_console(serial)
-        # DUT-side driver load goes over the CONSOLE (spec 3.2) - only
-        # when not already a console test command (no double execute)
-        w = self.cfg.wifi
-        console_cmds = {c.send for c in self.cfg.console.test_commands}
-        if (w.enabled and w.driver_load_cmd and serial is not None
-                and w.driver_load_cmd not in console_cmds):
-            t0 = time.time()
-            verdict, text = console_send_and_expect(
-                serial, w.driver_load_cmd, r"RF drivers loaded OK",
-                r"FAILED", 15.0)
-            results.append(FctStepResult(
-                f"Load RF drivers ({w.driver_load_cmd})",
-                "PASS" if verdict == "PASS" else "FAIL",
-                text.strip().splitlines()[-1][:120] if text.strip()
-                else "", duration=time.time() - t0))
-        results += self.run_wifi(serial, host_runner)
-        results += self.run_bluetooth(serial, host_runner, human_confirm)
+        teardown_results: list = []
+        aborted_early = False
+        try:
+            # 0) provision generic Linux scripts over SFTP before anything runs
+            deploy = self.deploy_scripts(serial)
+            if deploy is not None:
+                results.append(deploy)
+                self.log(f"console '{deploy.name}' [sftp] -> "
+                         f"{deploy.verdict} {deploy.detail}")
+                if not deploy.passed:
+                    aborted_early = True
+            if not aborted_early:
+                results += self.run_console(serial)
+                # DUT-side driver load goes over the CONSOLE (spec 3.2)
+                # - only when not already a console test command (no
+                # double execute)
+                w = self.cfg.wifi
+                console_cmds = {c.send
+                                for c in self.cfg.console.test_commands}
+                if (w.enabled and w.driver_load_cmd
+                        and serial is not None
+                        and w.driver_load_cmd not in console_cmds):
+                    t0 = time.time()
+                    verdict, text = console_send_and_expect(
+                        serial, w.driver_load_cmd, r"RF drivers loaded OK",
+                        r"FAILED", 15.0)
+                    results.append(FctStepResult(
+                        f"Load RF drivers ({w.driver_load_cmd})",
+                        "PASS" if verdict == "PASS" else "FAIL",
+                        text.strip().splitlines()[-1][:120]
+                        if text.strip() else "",
+                        duration=time.time() - t0))
+                results += self.run_wifi(serial, host_runner)
+                results += self.run_bluetooth(serial, host_runner,
+                                              human_confirm)
+        finally:
+            # --- post-RF teardown: ALWAYS run, even on abort/exception ---
+            teardown_results = self._run_post_rf_commands(
+                serial, host_runner)
+        results += teardown_results
         overall = ("PASS" if results and all(r.passed for r in results)
                    else "FAIL")
         self.log(f"FCT cycle end -> {overall}")
         return {"results": results, "overall": overall,
                 "report": self.report(results, overall)}
+
+    # ------------------------------------------------ teardown guarantee
+    def _run_post_rf_commands(self, serial, host_runner) -> list:
+        """Execute cfg.console.post_rf_commands (serial + host CLI).
+
+        Runs AFTER every FCT cycle — even if the main sequence aborted
+        half-way through — so that DUT shutdown and host-side cleanup
+        (e.g. stopping a background iperf3 server) cannot be skipped.
+        Each row's FAILURE IS LOGGED BUT DOES NOT STOP the subsequent
+        teardown rows (best-effort cleanup); the teardown results are
+        appended to the main results list so the report reflects them."""
+        results: list = []
+        cmds = list(getattr(self.cfg.console, "post_rf_commands", []) or [])
+        for cmd in cmds:
+            t0 = time.time()
+            label = cmd.name or getattr(cmd, "send", None) \
+                or getattr(cmd, "host_cmd", None) or "teardown"
+            if cmd.kind == "host":
+                rc, detail = self._run_host_cli(cmd, host_runner)
+                verdict = "PASS" if rc == 0 else "FAIL"
+                results.append(FctStepResult(
+                    label, verdict, detail, duration=time.time() - t0))
+                self.log(f"host cli: {label} -> {verdict} {detail}")
+            else:
+                verdict, detail, stage, extras = \
+                    self._run_one_command(serial, cmd)
+                results.append(FctStepResult(
+                    label, verdict, detail, duration=time.time() - t0))
+                results.extend(extras)
+                self.log(f"console '{label}' [{stage}] -> {verdict} "
+                         f"{detail}")
+                for extra in extras:
+                    self.log(f"  summary row '{extra.name}' -> "
+                             f"{extra.verdict}")
+        return results
+
+    def _run_host_cli(self, cmd, host_runner) -> tuple[int, str]:
+        """Run one host-side CLI command via HostCliRunner.
+
+        Returns (returncode, detail).  Picks host_cmd_windows on Windows,
+        host_cmd on macOS/Linux.  Never raises (failures become rc≠0)."""
+        import sys as _sys
+        if host_runner is None:
+            return -1, "no host_runner available"
+        line = (getattr(cmd, "host_cmd_windows", "")
+                if _sys.platform == "win32"
+                else "") or getattr(cmd, "host_cmd", "")
+        if not line:
+            return -1, "empty host_cmd"
+        try:
+            outcome = host_runner.run(line)
+            rc = getattr(outcome, "exit_code", -1)
+            detail = (getattr(outcome, "reason", "")
+                      or "\n".join(getattr(outcome, "lines", [])[:3]))
+            return rc, str(detail).strip()[:200]
+        except Exception as exc:               # noqa: BLE001
+            return -1, f"host cli exception: {exc}"
 
     # ----------------------------------------------------------- report
     def report(self, results: list, overall: str) -> str:

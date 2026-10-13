@@ -32,7 +32,6 @@ import os
 import random
 import re
 import string
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -63,7 +62,6 @@ from mtkgui.gui import identity
 YAML_PATH = (ROOT / "yaml_plan" / "examples" / "imx93frdm"
              / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
-IPERF3 = "/usr/local/bin/iperf3"
 HEADLESS = os.environ.get("MTK_FCT_HEADLESS") == "1"
 
 
@@ -392,14 +390,9 @@ def main() -> int:
     host = HostCliRunner(log_sink=lambda m: print("  [host]", m),
                          station_id=station, user=user)
 
-    # host iperf3 server (persistent for all units)
-    srv = None
-    if cfg.wifi.iperf_enabled:
-        srv = subprocess.Popen([IPERF3, "-s", "-p", "5201"],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
-        time.sleep(1.5)
-        print("[run] host iperf3 server started on :5201")
+    # NOTE: the host iperf3 server is now managed BY THE PLAN (the
+    # 'Start/Stop iperf3 server (Host CLI)' rows in the v1.0.2 yaml) -
+    # starting one here too would collide on port 5201.
 
     reports: list = []
     try:
@@ -444,8 +437,6 @@ def main() -> int:
                     print(f"          FAIL: {r.name} - {r.detail}")
     finally:
         con.close()
-        if srv is not None:
-            srv.terminate()
 
     # batch summary
     summary = BatchSummary(reports=reports)

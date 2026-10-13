@@ -251,6 +251,47 @@ def _v102_test_commands():
     return (node or {}).get("console", {}).get("test_commands", [])
 
 
+def _v102_post_rf():
+    from pathlib import Path
+    yml = (Path(__file__).resolve().parents[2] / "yaml_plan" / "examples"
+           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
+    if not yml.exists():
+        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.2.yaml not generated yet")
+    data = yaml.safe_load(yml.read_text(encoding="utf-8"))
+    node = data.get("fct_test_config")
+    if not isinstance(node, dict) or "test_commands" not in (
+            node.get("console") or {}):
+        emb = (data.get("modules", {}).get("fct_build", {})
+               .get("params", {}).get("fct_test_config_yaml", ""))
+        parsed = yaml.safe_load(emb) if emb else None
+        if isinstance(parsed, dict) and "fct_test_config" in parsed:
+            parsed = parsed["fct_test_config"]
+        node = parsed
+    return (node or {}).get("console", {}).get("post_rf_commands", [])
+
+
+def test_v102_post_rf_shutdown_then_kill():
+    """Teardown order: the plan must shut the DUT down and THEN stop
+    the host iperf3 server; the shutdown row waits for a prompt first
+    (proves the DUT was still alive) and sends without capture (the
+    console goes silent as the board powers off)."""
+    rows = _v102_post_rf()
+    assert [r.get("name") for r in rows] == \
+        ["Shutdown DUT", "Stop iperf3 server (Host CLI)"]
+    shut, kill = rows
+    assert shut.get("send") == "shutdown now"
+    assert shut.get("wait_enabled") and shut.get("expect_pass")
+    assert not shut.get("capture_enabled")
+    assert kill.get("kind") == "host"
+    assert kill.get("host_cmd", "").strip()
+    # host start row sits at the END of test_commands, right before
+    # the RF section that contains the DUT-client iperf3 sub-test
+    starts = [r for r in _v102_test_commands() if r.get("kind") == "host"]
+    assert [r.get("name") for r in starts] == \
+        ["Start iperf3 server (Host CLI)"]
+    assert starts[0].get("host_cmd", "").strip()
+
+
 def test_v102_every_send_row_waits_first():
     """Timing discipline: every Send row (except the Console wake row
     and the SSH SFTP row) must wait for a prompt/question BEFORE it

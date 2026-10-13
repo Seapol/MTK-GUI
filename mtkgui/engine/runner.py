@@ -29,6 +29,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from ..qt_guard import qt_safe
 from .failures import FailureKind, classify_exception, failure_log_line
 from .policies import normalize_retry_count, policy_abort_reason, rollup
 from .rails import ai_wave_review
@@ -934,7 +935,7 @@ class TestRunner(QObject):
         self._fctconn_pending = still
         if (self._fctconn_pending
                 and time.monotonic() < self._fctconn_deadline):
-            QTimer.singleShot(300, self._poll_fct_connect)
+            QTimer.singleShot(300, self, qt_safe(self._poll_fct_connect))
             return
         self._fctconn_failed.extend(self._fctconn_pending)
         self._fctconn_pending = []
@@ -1115,7 +1116,7 @@ class TestRunner(QObject):
                 self._wait_done = True
                 env._log(f"Wait {wait} ms ...")
                 self._run_timer.stop()
-                QTimer.singleShot(wait, self._resume_step)
+                QTimer.singleShot(wait, self, qt_safe(self._resume_step))
                 return
         self._wait_done = False
         self._timeout_retried = False   # one reset+retry per step
@@ -1217,7 +1218,11 @@ class TestRunner(QObject):
         blanked and the product is counted FAIL — unlike the operator
         Stop button, which yields IGNORE.  error_rows are rendered as
         Error instead of being blanked (e.g. the first FCT row after a
-        console connect failure)."""
+        console connect failure).
+
+        TEARDOWN GUARANTEE: rows tagged params.teardown=True (e.g.
+        DUT shutdown, host iperf3 server stop) run SYNCHRONOUSLY even on
+        abort — cleanup must never be skipped."""
         self._run_timer.stop()
         self._lr_wait_timer.stop()
         self._fct_console_wait = None
@@ -1227,6 +1232,13 @@ class TestRunner(QObject):
         remaining = [
             s for s in self._run_steps[self._run_index:]
             if (s[0], s[1] if len(s) > 1 else -1) not in error_set]
+        # run teardown rows synchronously BEFORE transitioning to idle
+        executed = self._run_teardown_sync(remaining)
+        if executed:
+            done_set = {tuple(x) for x in executed}
+            remaining = [s for s in remaining
+                         if (s[0], s[1] if len(s) > 1 else -1)
+                         not in done_set]
         self._transition("idle", "auto")
         self._interrupted = False
         if reset_phase:
@@ -1255,16 +1267,118 @@ class TestRunner(QObject):
         self._fct_console_wait = None
         self._pause_requested = False
         self._interrupted = True
+        # TEARDOWN GUARANTEE: run params.teardown=True FCT rows
+        # synchronously before parking in 'aborted' — cleanup (DUT
+        # shutdown, host iperf3 stop) must never be skipped on the
+        # operator/system abort paths either.
+        remaining = list(self._run_steps[self._run_index:])
+        executed = self._run_teardown_sync(remaining)
+        if executed:
+            done_set = {tuple(x) for x in executed}
+            remaining = [s for s in remaining
+                         if (s[0], s[1] if len(s) > 1 else -1)
+                         not in done_set]
         self._transition("aborted", trigger)
         who = "operator" if trigger == "operator" else trigger
+        # verdict must be taken BEFORE the transition would change it;
+        # teardown rows may have written PASS/FAIL into the table just
+        # above, so read the current table state here.
         result = "FAIL" if self.verdict() == "FAIL" else "IGNORE"
         self.env._log(f"Run terminated ({who}) -> "
                       f"Overall Result: {result}")
         self.run_finished.emit(
             {"reason": "stop", "progress": False, "total": 0,
              "cycle_s": 0.0, "reset_phase": True,
-             "remaining": list(self._run_steps[self._run_index:]),
+             "remaining": remaining,
              "counted": False})
+
+    # ------------------------------------------------- teardown guarantee
+    def _run_teardown_sync(self, remaining: list) -> list:
+        """Execute params.teardown=True FCT rows SYNCHRONOUSLY.
+
+        Called from _abort_run (stop_if_failure tripped) and abort()
+        (operator Stop / system RESOURCE failure) so that cleanup rows
+        - DUT 'shutdown now', host iperf3 server stop, - still run even
+        though the rest of the sequence was aborted.  The rows are
+        taken from ``remaining`` (the run-steps that have NOT been
+        executed yet); non-teardown rows are left blank.
+
+        Each teardown row is logged as a regular FAIL/PASS result in
+        the fct_rows list so the report reflects the cleanup status.
+        Returns the (kind, row) tuples of the rows that were executed
+        so the caller can EXCLUDE them from the emitted ``remaining``
+        (the page blanks every remaining row - already-judged teardown
+        results must not be wiped)."""
+        from ..gui.yamlbuild.fct_build import FctStep
+        from .fct_exec import (
+            FctContext, execute_fct_step,
+            VERDICT_PASS, VERDICT_FAIL, VERDICT_ERROR,
+        )
+        env = self.env
+        teardown_indices: list[int] = []
+        for kind, *args in remaining:
+            if kind != "fct":
+                continue
+            r = args[0]
+            if r >= len(env.fct_op_params):
+                continue
+            marker = (env.fct_op_params[r] or {}).get("fct_step")
+            if not marker:
+                continue
+            step = FctStep.from_dict(marker)
+            if not step.params.get("teardown"):
+                continue
+            teardown_indices.append(r)
+        if not teardown_indices:
+            return []
+        # ---- build a FctContext (same shape as _exec_fct_b3) ----
+        try:
+            from ..gui import identity
+            station, user = (identity.get_station_id(),
+                             identity.get_user())
+        except Exception:                    # noqa: BLE001
+            station, user = "", ""
+        ctx = FctContext(station_id=station, user=user,
+                         log_sink=env._log,
+                         keyword_pass=list(getattr(
+                             env, "fct_keyword_pass", ()) or ()),
+                         keyword_fail=list(getattr(
+                             env, "fct_keyword_fail", ()) or ()))
+        # bind console channel (if any teardown needs it)
+        needs_console = any(
+            FctStep.from_dict(
+                (env.fct_op_params[r] or {}).get("fct_step") or {}
+            ).channel
+            for r in teardown_indices)
+        if needs_console:
+            from .fct_channels import ConsoleBufferChannel
+            mc = getattr(env, "multi_console", None)
+            if mc is not None:
+                try:
+                    from PySide6.QtWidgets import QApplication
+                    pump = QApplication.processEvents
+                except Exception:
+                    pump = None
+                for key, ch in mc.channels.items():
+                    if ch.get("kind") == "serial":
+                        ctx.channels[key] = ConsoleBufferChannel(
+                            mc, key, pump=pump)
+        # ---- execute each teardown row ----
+        for r in teardown_indices:
+            marker = (env.fct_op_params[r] or {}).get("fct_step") or {}
+            step = FctStep.from_dict(marker)
+            try:
+                outcome = execute_fct_step(step, ctx)
+                if outcome.verdict == VERDICT_PASS:
+                    self._put("fct", r, StepStatus.PASS, outcome.reason)
+                elif outcome.verdict == VERDICT_ERROR:
+                    self._put("fct", r, StepStatus.ERROR, outcome.reason)
+                else:
+                    self._put("fct", r, StepStatus.FAIL, outcome.reason)
+            except Exception as exc:        # noqa: BLE001 - never let
+                self._put("fct", r, StepStatus.ERROR,
+                          f"teardown exception: {exc}")
+        return [("fct", r) for r in teardown_indices]
 
     def run_demo(self) -> None:
         """Synchronous full pass (used by smoke test); honors the

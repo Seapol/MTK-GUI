@@ -133,8 +133,11 @@ KIND_SFTP_GET = "sftp_get"      # ssh file transfer DUT -> Host
 KIND_MESSAGE = "message"        # operator dialog (MessageOK/YesNo/GoStop);
                                 # no console interaction - the row joins
                                 # the ordered sequence where it is placed
+KIND_HOST = "host"              # run a command ON THE HOST PC (test
+                                # station CLI, e.g. start/stop a local
+                                # iperf3 server); PASS = exit code 0
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
-                 KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE)
+                 KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST)
 
 #: dialog styles of a message row (ConsoleCommand.dialog_style)
 DIALOG_OK = "ok"
@@ -183,6 +186,9 @@ class ConsoleCommand:
     parse_summary: bool = False     # capture row parses a fat.py-style
                                     # Summary table into per-item report
                                     # rows (one report row per test line)
+    host_cmd: str = ""              # kind == "host": command run ON THE
+                                    # HOST PC (test station shell)
+    host_cmd_windows: str = ""      # optional Windows (cmd.exe) override
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "name": self.name,
@@ -208,7 +214,9 @@ class ConsoleCommand:
                 "retries": int(self.retries),
                 "extract": self.extract, "action": self.action,
                 "local": self.local, "remote": self.remote,
-                "parse_summary": bool(self.parse_summary)}
+                "parse_summary": bool(self.parse_summary),
+                "host_cmd": self.host_cmd,
+                "host_cmd_windows": self.host_cmd_windows}
 
     @staticmethod
     def _from_dict_v2(c: dict) -> "ConsoleCommand":
@@ -253,7 +261,9 @@ class ConsoleCommand:
                 action=str(c.get("action", "")),
                 local=str(c.get("local", "")),
                 remote=str(c.get("remote", "")),
-                parse_summary=bool(c.get("parse_summary", False)))
+                parse_summary=bool(c.get("parse_summary", False)),
+                host_cmd=str(c.get("host_cmd", "")),
+                host_cmd_windows=str(c.get("host_cmd_windows", "")))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -322,6 +332,10 @@ class ConsoleCfg:
     ssh_host: str = ""              # DUT SSH endpoint for ssh/sftp rows
     ssh_username: str = "root"
     test_commands: list = field(default_factory=list)    # [ConsoleCommand]
+    # teardown rows run AFTER the Wi-Fi/BT RF sections (e.g. DUT
+    # 'shutdown now', stopping a host-side iperf3 server) - the DUT
+    # must stay up while any RF sub-test can still run
+    post_rf_commands: list = field(default_factory=list)  # [ConsoleCommand]
     # Linux DUT script-asset provisioning: as soon as SSH/SFTP is up the
     # whole local asset folder is copied to the DUT (once per unit, so a
     # board whose /root was wiped by a reboot is re-provisioned). Scripts
@@ -341,6 +355,8 @@ class ConsoleCfg:
             "scripts_local_dir": self.scripts_local_dir,
             "scripts_remote_dir": self.scripts_remote_dir,
             "test_commands": [c.to_dict() for c in self.test_commands],
+            "post_rf_commands": [c.to_dict()
+                                 for c in self.post_rf_commands],
         }
 
 
@@ -619,6 +635,9 @@ class FctTestConfig:
                 test_commands=[
                     ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
+                post_rf_commands=[
+                    ConsoleCommand._from_dict_v2(c)
+                    for c in (console.get("post_rf_commands") or [])],
             ),
             wifi=wifi_cfg,
             bluetooth=bt_cfg,
@@ -669,6 +688,13 @@ class FctTestConfig:
                         errors.append(
                             f"bare_metal DUT: command '{cmd.name}' uses "
                             f"{cmd.kind} - SFTP requires a Linux shell")
+            # host CLI rows (both command lists): the command is
+            # mandatory; it runs on the test PC, not on the DUT
+            for cmd in list(c.test_commands) + list(c.post_rf_commands):
+                if cmd.kind == KIND_HOST and not cmd.host_cmd.strip():
+                    errors.append(
+                        f"host CLI row '{cmd.name}': host_cmd must not "
+                        "be empty")
         if w.enabled:
             if not (w.scan_enabled or w.ping_enabled or w.iperf_enabled):
                 errors.append("wifi.enabled: enable at least one of "
@@ -726,6 +752,125 @@ class FctTestConfig:
 # ---------------------------------------------------------------------------
 # mapping to B4 FctStep markers (the runner executes THESE)
 # ---------------------------------------------------------------------------
+def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
+    """One ConsoleCommand row -> its ordered list[FctStep].
+
+    Shared by ``console.test_commands`` (run BEFORE the RF sections)
+    and ``console.post_rf_commands`` (run AFTER them).  Host CLI rows
+    become EXTERNAL_TOOL steps executed on the HOST PC (see the
+    ``fct_host_cmd`` branch in fct_exec).
+    """
+    steps: list = []
+    # Host CLI rows: the command runs on the TEST PC, not on the DUT
+    # (e.g. start/stop a local iperf3 server); PASS = exit code 0
+    if cmd.kind == KIND_HOST:
+        steps.append(FctStep(
+            name=cmd.name or "Host CLI",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(cmd.timeout or 30.0),
+            retries=int(cmd.retries),
+            params={"fct_host_cmd": {
+                "cmd": cmd.host_cmd,
+                "cmd_windows": cmd.host_cmd_windows}}))
+        return steps
+    # SFTP file-transfer rows
+    if cmd.kind in ("sftp_put", "sftp_get"):
+        steps.append(FctStep(
+            name=cmd.name or cmd.kind,
+            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+            timeout_s=float(cmd.send_timeout),
+            retries=int(cmd.retries),
+            params={"fct_console": True, "kind": cmd.kind,
+                    "action": cmd.kind,
+                    "local": cmd.local, "remote": cmd.remote}))
+        return steps
+    # Operator-dialog rows (MessageOK / MessageYesNo /
+    # MessageGoStop): no console interaction at all — the step
+    # is a GUI_CONFIRM without a channel, executed by the
+    # existing human_confirm hook. The row joins the ordered
+    # sequence exactly where it is placed.
+    if cmd.kind == KIND_MESSAGE:
+        steps.append(FctStep(
+            name=cmd.name or "Operator message",
+            step_type=STEP_GUI_CONFIRM,
+            timeout_s=float(cmd.timeout),
+            retries=int(cmd.retries),
+            params={"style": cmd.dialog_style or DIALOG_YESNO,
+                    "message": cmd.confirm_message
+                    or cmd.name or "Operator message"}))
+        return steps
+    # Map the three-stage model to the MESSAGE_CHECK executor.
+    #   WaitFor (wait-only row) -> positive pattern, found=PASS
+    #   Capture expected=yes  -> positive=want, negative=forbid
+    #   Capture expected=no   -> negative=bad msg, End Line bounds
+    is_wait_only = (cmd.wait_enabled and not cmd.send_enabled)
+    if is_wait_only:
+        pass_pat, neg_pat = cmd.expect_pass, ""
+        pass_regex = cmd.expect_pass_is_regex
+        neg_regex = False
+        is_expected = True
+        end_line = ""
+    else:
+        if cmd.capture_enabled and cmd.capture_is_expected:
+            pass_pat, neg_pat = cmd.expect_fail, cmd.capture_forbid
+        elif cmd.capture_enabled:
+            pass_pat, neg_pat = "", cmd.expect_fail
+        else:
+            pass_pat, neg_pat = "", ""
+        pass_regex = cmd.expect_fail_is_regex
+        neg_regex = cmd.expect_fail_is_regex
+        is_expected = (cmd.capture_is_expected
+                       if cmd.capture_enabled else False)
+        end_line = cmd.capture_end_line
+    params: dict = {
+        "fct_console": True,
+        "kind": "wait" if is_wait_only else "send",
+        "wait_enabled": cmd.wait_enabled,
+        "send_enabled": cmd.send_enabled,
+        "capture_enabled": cmd.capture_enabled,
+        "wait_pattern": cmd.expect_pass,
+        "wait_timeout": float(cmd.wait_timeout),
+        "send_timeout": float(cmd.send_timeout),
+        "capture_timeout": float(cmd.timeout),
+        "capture_end_line": end_line,
+        "capture_is_expected": is_expected,
+        "case_sensitive": cmd.case_sensitive,
+        "confirm_enabled": bool(cmd.confirm_enabled),
+        "confirm_message": str(cmd.confirm_message or ""),
+        "expect_pass_re": pass_pat,
+        "expect_fail_re": neg_pat,
+        "expect_pass_is_regex": pass_regex,
+        "expect_fail_is_regex": neg_regex,
+        "parse_summary": bool(cmd.parse_summary),
+    }
+    if cmd.send_enabled and (cmd.send or cmd.kind == "send"):
+        params["send"] = cmd.send
+    base_name = cmd.name or cmd.send or "Console step"
+    # a row that both waits and sends becomes two ordered steps:
+    # a pre-send WaitFor then the Send+Capture step
+    if (not is_wait_only and cmd.wait_enabled
+            and cmd.expect_pass):
+        steps.append(FctStep(
+            name=f"{base_name} (wait)",
+            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+            timeout_s=float(cmd.wait_timeout),
+            retries=int(cmd.retries),
+            params={"fct_console": True, "kind": "wait",
+                    "wait_enabled": True, "send_enabled": False,
+                    "capture_enabled": False,
+                    "expect_pass_re": cmd.expect_pass,
+                    "expect_pass_is_regex":
+                        cmd.expect_pass_is_regex,
+                    "capture_is_expected": True,
+                    "case_sensitive": cmd.case_sensitive}))
+    steps.append(FctStep(
+        name=base_name,
+        step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+        timeout_s=float(cmd.timeout), retries=int(cmd.retries),
+        params=params))
+    return steps
+
+
 def build_fct_steps(cfg: FctTestConfig,
                     channel_key: str = "ser1") -> list:
     """FctTestConfig -> ordered list[FctStep] for the work flow.
@@ -747,101 +892,7 @@ def build_fct_steps(cfg: FctTestConfig,
         # capture the result). The only console difference is that a
         # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
         for cmd in c.test_commands:
-            # SFTP file-transfer rows
-            if cmd.kind in ("sftp_put", "sftp_get"):
-                steps.append(FctStep(
-                    name=cmd.name or cmd.kind,
-                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                    timeout_s=float(cmd.send_timeout),
-                    retries=int(cmd.retries),
-                    params={"fct_console": True, "kind": cmd.kind,
-                            "action": cmd.kind,
-                            "local": cmd.local, "remote": cmd.remote}))
-                continue
-            # Operator-dialog rows (MessageOK / MessageYesNo /
-            # MessageGoStop): no console interaction at all — the step
-            # is a GUI_CONFIRM without a channel, executed by the
-            # existing human_confirm hook. The row joins the ordered
-            # sequence exactly where it is placed.
-            if cmd.kind == KIND_MESSAGE:
-                steps.append(FctStep(
-                    name=cmd.name or "Operator message",
-                    step_type=STEP_GUI_CONFIRM,
-                    timeout_s=float(cmd.timeout),
-                    retries=int(cmd.retries),
-                    params={"style": cmd.dialog_style or DIALOG_YESNO,
-                            "message": cmd.confirm_message
-                            or cmd.name or "Operator message"}))
-                continue
-            # Map the three-stage model to the MESSAGE_CHECK executor.
-            #   WaitFor (wait-only row) -> positive pattern, found=PASS
-            #   Capture expected=yes  -> positive=want, negative=forbid
-            #   Capture expected=no   -> negative=bad msg, End Line bounds
-            is_wait_only = (cmd.wait_enabled and not cmd.send_enabled)
-            if is_wait_only:
-                pass_pat, neg_pat = cmd.expect_pass, ""
-                pass_regex = cmd.expect_pass_is_regex
-                neg_regex = False
-                is_expected = True
-                end_line = ""
-            else:
-                if cmd.capture_enabled and cmd.capture_is_expected:
-                    pass_pat, neg_pat = cmd.expect_fail, cmd.capture_forbid
-                elif cmd.capture_enabled:
-                    pass_pat, neg_pat = "", cmd.expect_fail
-                else:
-                    pass_pat, neg_pat = "", ""
-                pass_regex = cmd.expect_fail_is_regex
-                neg_regex = cmd.expect_fail_is_regex
-                is_expected = (cmd.capture_is_expected
-                               if cmd.capture_enabled else False)
-                end_line = cmd.capture_end_line
-            params: dict = {
-                "fct_console": True,
-                "kind": "wait" if is_wait_only else "send",
-                "wait_enabled": cmd.wait_enabled,
-                "send_enabled": cmd.send_enabled,
-                "capture_enabled": cmd.capture_enabled,
-                "wait_pattern": cmd.expect_pass,
-                "wait_timeout": float(cmd.wait_timeout),
-                "send_timeout": float(cmd.send_timeout),
-                "capture_timeout": float(cmd.timeout),
-                "capture_end_line": end_line,
-                "capture_is_expected": is_expected,
-                "case_sensitive": cmd.case_sensitive,
-                "confirm_enabled": bool(cmd.confirm_enabled),
-                "confirm_message": str(cmd.confirm_message or ""),
-                "expect_pass_re": pass_pat,
-                "expect_fail_re": neg_pat,
-                "expect_pass_is_regex": pass_regex,
-                "expect_fail_is_regex": neg_regex,
-                "parse_summary": bool(cmd.parse_summary),
-            }
-            if cmd.send_enabled and (cmd.send or cmd.kind == "send"):
-                params["send"] = cmd.send
-            base_name = cmd.name or cmd.send or "Console step"
-            # a row that both waits and sends becomes two ordered steps:
-            # a pre-send WaitFor then the Send+Capture step
-            if (not is_wait_only and cmd.wait_enabled
-                    and cmd.expect_pass):
-                steps.append(FctStep(
-                    name=f"{base_name} (wait)",
-                    step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                    timeout_s=float(cmd.wait_timeout),
-                    retries=int(cmd.retries),
-                    params={"fct_console": True, "kind": "wait",
-                            "wait_enabled": True, "send_enabled": False,
-                            "capture_enabled": False,
-                            "expect_pass_re": cmd.expect_pass,
-                            "expect_pass_is_regex":
-                                cmd.expect_pass_is_regex,
-                            "capture_is_expected": True,
-                            "case_sensitive": cmd.case_sensitive}))
-            steps.append(FctStep(
-                name=base_name,
-                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                timeout_s=float(cmd.timeout), retries=int(cmd.retries),
-                params=params))
+            steps.extend(_console_row_steps(cmd, channel_key))
     # Linux DUT only: load the Wi-Fi/BT RF drivers once (editable BSP
     # command; the driver script itself is a BSP deliverable) before any
     # RF sub-test runs.
@@ -957,6 +1008,16 @@ def build_fct_steps(cfg: FctTestConfig,
                     "expected_name": b.expected_name,
                     "audio_confirm": bool(b.audio_confirm),
                     "rf_timeout_s": float(b.tone_timeout)}}))
+    # Post-RF teardown rows ('shutdown now', stopping the host-side
+    # iperf3 server, ...) - appended AFTER the Wi-Fi/BT sections so the
+    # DUT stays up while any RF sub-test can still run.  Each row is
+    # tagged params.teardown=True so the runner executes it EVEN on an
+    # abort (stop_if_failure) — teardown must never be skipped.
+    for cmd in c.post_rf_commands:
+        for step in _console_row_steps(cmd, channel_key):
+            step.params = dict(step.params or {})
+            step.params["teardown"] = True
+            steps.append(step)
     return steps
 
 

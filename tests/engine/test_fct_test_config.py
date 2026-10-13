@@ -290,6 +290,88 @@ def test_fct_runner_command_fail_flips_overall():
                for r in out["results"])
 
 
+# ------------------------------------------------------------ host CLI rows
+def test_host_row_roundtrip_and_steps():
+    """'host' rows run a command ON THE HOST PC; post_rf rows are
+    ordered AFTER every Wi-Fi/BT RF step."""
+    cfg = frdm_config()
+    cfg.console.test_commands.append(ConsoleCommand(
+        kind="host", name="Start server", host_cmd="iperf3 -s -D",
+        host_cmd_windows="start /B iperf3 -s", timeout=15))
+    cfg.console.post_rf_commands = [
+        ConsoleCommand(kind="send", name="Shutdown DUT",
+                       wait_enabled=True, expect_pass="root@imx93frdm",
+                       send="shutdown now"),
+        ConsoleCommand(kind="host", name="Stop server",
+                       host_cmd="pkill -x iperf3 || true"),
+    ]
+    restored = FctTestConfig.from_dict(cfg.to_dict())
+    assert restored.to_dict() == cfg.to_dict()
+    assert restored.validate() == []
+    steps = build_fct_steps(restored, channel_key="ser1")
+    host = [s for s in steps if s.params.get("fct_host_cmd")]
+    assert [s.name for s in host] == ["Start server", "Stop server"]
+    assert host[0].step_type == "EXTERNAL_TOOL" and host[0].channel == ""
+    assert host[0].params["fct_host_cmd"]["cmd"] == "iperf3 -s -D"
+    assert host[0].params["fct_host_cmd"]["cmd_windows"] == \
+        "start /B iperf3 -s"
+    # post-RF rows come AFTER every RF tool step (wifi/bluetooth)
+    last_rf = max(i for i, s in enumerate(steps)
+                  if s.params.get("tool_family"))
+    post = [i for i, s in enumerate(steps)
+            if s.name in ("Stop server", "Shutdown DUT",
+                          "Shutdown DUT (wait)")]
+    assert min(post) > last_rf
+
+
+def test_host_row_requires_command():
+    cfg = frdm_config()
+    cfg.console.test_commands.append(
+        ConsoleCommand(kind="host", name="empty"))
+    assert any("host_cmd" in e for e in cfg.validate())
+
+
+def test_fct_exec_host_cli_branch(monkeypatch):
+    """fct_exec runs a host row on the HOST PC and judges by exit code
+    (rc 0 = PASS, rc != 0 = FAIL); the macOS command is the default."""
+    from mtkgui.engine import fct_exec
+    from mtkgui.gui.yamlbuild.fct_build import FctStep, STEP_EXTERNAL_TOOL
+
+    seen = {}
+
+    class FakeRes:
+        def __init__(self, rc, lines):
+            self.exit_code, self.lines = rc, lines
+
+    class FakeRunner:
+        def __init__(self, rc, lines):
+            self.rc, self.lines = rc, lines
+
+        def run(self, cmd, timeout_s=30.0, **kw):
+            seen["cmd"], seen["timeout"] = cmd, timeout_s
+            return FakeRes(self.rc, self.lines)
+
+    monkeypatch.setattr(fct_exec, "runner_for",
+                        lambda ctx: FakeRunner(0, ["server started"]))
+    logs = []
+    ctx = fct_exec.FctContext(log_sink=logs.append)
+    step = FctStep(name="Start iperf3 server",
+                   step_type=STEP_EXTERNAL_TOOL, timeout_s=15.0,
+                   params={"fct_host_cmd": {
+                       "cmd": "iperf3 -s -D",
+                       "cmd_windows": "start /B iperf3 -s"}})
+    out = fct_exec.execute_fct_step(step, ctx)
+    assert out.verdict == "PASS"
+    assert out.reason.startswith("iperf3 -s -D -> rc=0")
+    assert seen["cmd"] == "iperf3 -s -D"        # non-Windows: host_cmd
+    assert seen["timeout"] == 15.0
+
+    monkeypatch.setattr(fct_exec, "runner_for",
+                        lambda ctx: FakeRunner(1, []))
+    out = fct_exec.execute_fct_step(step, ctx)
+    assert out.verdict == "FAIL"
+
+
 # ------------------------------------------------------------ bare metal DUT
 def bare_config() -> FctTestConfig:
     """Bare Metal/RTOS DUT: full Wait->Send->Capture over SERIAL (the

@@ -502,6 +502,28 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # B5 addendum: DUT-side connectivity / throughput / BT data-path
         # steps (run over the console via the dut_* primitives)
         channel = ctx.channels.get(step.channel)
+        # host CLI row: run a command ON THE HOST PC (test station
+        # shell, e.g. start/stop the local iperf3 server); PASS =
+        # exit code 0.  No DUT console involved.
+        if step.params.get("fct_host_cmd") is not None:
+            import sys
+            p = step.params["fct_host_cmd"]
+            cmd = str(p.get("cmd") or "")
+            if sys.platform == "win32" and str(p.get("cmd_windows") or ""):
+                cmd = str(p["cmd_windows"])
+            if not cmd.strip():
+                return FctOutcome(VERDICT_ERROR,
+                                  "host CLI row: no command configured")
+            res = runner_for(ctx).run(
+                cmd, timeout_s=float(step.timeout_s or 30.0))
+            verdict = VERDICT_PASS if res.exit_code == 0 else VERDICT_FAIL
+            tail = " | ".join(l.strip() for l in res.lines[-3:]
+                              if l.strip())
+            detail = f"{cmd} -> rc={res.exit_code}"
+            if tail:
+                detail += f" | {tail}"
+            ctx.log(f"host cli: {detail}")
+            return FctOutcome(verdict, detail)
         if step.params.get("fct_wifi_ping") and channel is not None:
             from .fct_test_runner import ConsoleSerialShim, dut_wifi_ping
             p = step.params["fct_wifi_ping"]
