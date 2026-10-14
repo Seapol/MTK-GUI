@@ -17,8 +17,15 @@
 #   WIFI_CONNECTED_OK <ip/prefix>
 #   WIFI_CONNECT_FAIL
 
-SSID="${WIFI_SSID:-${1:-TP-LINK_F68E_AP}}"
-PASS="${WIFI_PASSWORD:-${2:-seapol19850117}}"
+SSID="${WIFI_SSID:-${1:-}}"
+PASS="${WIFI_PASSWORD:-${2:-}}"
+
+# the SSID / password are per-site deployment values and come from the
+# yaml ({{ssid}} / {{password}}) - never hard-coded here
+if [ -z "$SSID" ] || [ -z "$PASS" ]; then
+    echo "WIFI_CONNECT_FAIL (SSID/password not provided)"
+    exit 1
+fi
 WIFI_IF="${WIFI_IF:-mlan0}"
 
 # make sure the RF driver is loaded
