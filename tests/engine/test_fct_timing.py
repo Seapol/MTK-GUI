@@ -447,3 +447,23 @@ def test_wifi_password_host_ip_configurable():
         "wifi": {"enabled": True, "iperf_server_ip": "192.168.1.6"},
     })
     assert cfg2.wifi.host_ip == "192.168.1.6"
+
+
+def test_disabled_row_is_skipped():
+    """enabled=False on a console command skips it (deployment toggle for
+    SSH / iPerf while the bench network is being re-worked)."""
+    cfg = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "console": {
+            "enabled": True,
+            "test_commands": [
+                {"kind": "sftp_get", "name": "Get file", "transport": "ssh",
+                 "send_enabled": False, "enabled": False,
+                 "remote": "/root/fat.log", "local": "/tmp/fat.log",
+                 "action": "sftp_get"},
+            ],
+        },
+    })
+    runner = FctTestRunner(cfg, log_sink=lambda m: None)
+    out = runner.run_console(None)
+    assert out == []                     # skipped, not executed

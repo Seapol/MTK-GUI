@@ -498,10 +498,14 @@ class ConsoleCommand:
     host_cmd: str = ""              # kind == "host": command run ON THE
                                     # HOST PC (test station shell)
     host_cmd_windows: str = ""      # optional Windows (cmd.exe) override
+    enabled: bool = True            # False = skip this row (deployment
+                                    # toggle: e.g. SSH/iPerf off while the
+                                    # bench network is being re-worked)
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "name": self.name,
                 "transport": self.transport,
+                "enabled": bool(self.enabled),
                 "wait_enabled": self.wait_enabled,
                 "send_enabled": self.send_enabled,
                 "capture_enabled": self.capture_enabled,
@@ -550,6 +554,7 @@ class ConsoleCommand:
             return ConsoleCommand(
                 kind=kind, name=str(c.get("name", "")),
                 transport=str(c.get("transport", "serial")),
+                enabled=bool(c.get("enabled", True)),
                 wait_enabled=bool(c.get("wait_enabled", False)),
                 send_enabled=bool(c.get("send_enabled", True)),
                 capture_enabled=bool(c.get("capture_enabled", False)),
@@ -1086,6 +1091,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
     ``fct_host_cmd`` branch in fct_exec).
     """
     steps: list = []
+    if not getattr(cmd, "enabled", True):
+        return steps                   # disabled row -> no steps
     # Host CLI rows: the command runs on the TEST PC, not on the DUT
     # (e.g. start/stop a local iperf3 server); PASS = exit code 0
     if cmd.kind == KIND_HOST:

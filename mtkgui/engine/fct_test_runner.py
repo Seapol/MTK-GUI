@@ -567,6 +567,9 @@ class FctTestRunner:
         if not c.enabled or serial is None:
             return results
         for cmd in c.test_commands:
+            if not getattr(cmd, "enabled", True):
+                self.log(f"console '{cmd.name}' [skip] -> SKIP (disabled)")
+                continue
             t0 = time.time()
             verdict, detail, stage, extras = \
                 self._run_one_command(serial, cmd)
@@ -1076,6 +1079,8 @@ class FctTestRunner:
         results: list = []
         cmds = list(getattr(self.cfg.console, "post_rf_commands", []) or [])
         for cmd in cmds:
+            if not getattr(cmd, "enabled", True):
+                continue
             t0 = time.time()
             label = cmd.name or getattr(cmd, "send", None) \
                 or getattr(cmd, "host_cmd", None) or "teardown"

@@ -116,7 +116,8 @@ def console_row(name, *, kind="send", transport="serial",
                 end_line="", case_sensitive=True,
                 cap_timeout=6.0, wait_timeout=10.0, send_timeout=4.0,
                 retries=0, action="", local="", remote="",
-                confirm=False, confirm_msg="", parse_summary=False):
+                confirm=False, confirm_msg="", parse_summary=False,
+                enabled=True):
     """Build one v2.1 ConsoleCommand dict (explicit stage flags).
 
     confirm=True inserts an operator MessageYesNo stage between Wait
@@ -124,6 +125,7 @@ def console_row(name, *, kind="send", transport="serial",
     operator's Yes sends the answer line, No fails the unit."""
     row = {
         "kind": kind, "name": name, "transport": transport,
+        "enabled": bool(enabled),
         "wait_enabled": wait, "send_enabled": send_on,
         "capture_enabled": capture,
         "send": send,
@@ -146,11 +148,12 @@ def console_row(name, *, kind="send", transport="serial",
 
 
 def host_row(name, *, host_cmd, host_cmd_windows="", timeout=15.0,
-             retries=0):
+             retries=0, enabled=True):
     """Build one 'host' ConsoleCommand dict: the command runs ON THE
     HOST PC (macOS default / Windows override), PASS = exit code 0."""
     return {
         "kind": "host", "name": name, "transport": "serial",
+        "enabled": bool(enabled),
         "wait_enabled": False, "send_enabled": False,
         "capture_enabled": False,
         "send": "",
@@ -170,13 +173,15 @@ def host_row(name, *, host_cmd, host_cmd_windows="", timeout=15.0,
     }
 
 
-def message_row(name, *, style, timeout=0.0, send_yes="y", send_no="n"):
+def message_row(name, *, style, timeout=0.0, send_yes="y", send_no="n",
+                enabled=True):
     """Build one 'message' ConsoleCommand dict: a standard operator
     dialog (MessageOK / MessageYesNo / MessageGoStop).  ``send`` is the
     y/n summary shown in the table; the payloads travel in send_yes /
     send_no (user direction 2026-10-14)."""
     return {
         "kind": "message", "name": name, "transport": "serial",
+        "enabled": bool(enabled),
         "wait_enabled": False, "send_enabled": style != "ok",
         "capture_enabled": False,
         "send": "" if style == "ok" else f"{send_yes} / {send_no}",
@@ -358,7 +363,7 @@ FCT_TEST_CONFIG = {
                 send="mkdir -p /var/run/sshd; /usr/sbin/sshd "
                      "2>/dev/null; netstat -tln 2>/dev/null "
                      "| grep -q ':22 ' && echo SSHD_\"STARTED\"",
-                cap_pat="SSHD_STARTED", cap_timeout=10),
+                cap_pat="SSHD_STARTED", cap_timeout=10, enabled=False),
             # 16) Bring Wi-Fi up as a STATION joined to the factory
             #     router (Host and DUT then share one LAN).  SSID and
             #     password come from the yaml {{ssid}} / {{password}} -
@@ -388,7 +393,8 @@ FCT_TEST_CONFIG = {
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="ping -I mlan0 -c 4 {{host_ip}}",
-                cap_pat="0% packet loss", cap_timeout=30, retries=1),
+                cap_pat="0% packet loss", cap_timeout=30, retries=1,
+                enabled=False),
             # 18) SFTP-get fat_result.json back to the Host over SSH
             #     (retry 1: the transfer is the thing that must succeed)
             console_row(
@@ -396,7 +402,7 @@ FCT_TEST_CONFIG = {
                 kind="sftp_get", transport="ssh",
                 send_on=False, action="sftp_get",
                 remote="/root/fat_result.json", local=SFTP_LANDING,
-                send_timeout=20.0, retries=1),
+                send_timeout=20.0, retries=1, enabled=False),
             # 18.5) SFTP-get the tee'd fat.py console log (full transcript)
             console_row(
                 "Retrieve fat.log (SFTP)",
@@ -404,7 +410,7 @@ FCT_TEST_CONFIG = {
                 send_on=False, action="sftp_get",
                 remote="/root/fat.log",
                 local=str(OUT_DIR / "_run_work" / "fat.log"),
-                send_timeout=30.0, retries=1),
+                send_timeout=30.0, retries=1, enabled=False),
             # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
             console_row(
                 "Wi-Fi ping DUT to Host",
@@ -422,7 +428,7 @@ FCT_TEST_CONFIG = {
             host_row(
                 "Start iperf3 server (Host CLI)",
                 host_cmd="iperf3 -s -D",
-                host_cmd_windows="start /B iperf3 -s"),
+                host_cmd_windows="start /B iperf3 -s", enabled=False),
         ],
         # Post-RF teardown: AFTER the Wi-Fi/BT sections (the DUT must
         # stay up while any RF sub-test can still run)
@@ -440,7 +446,8 @@ FCT_TEST_CONFIG = {
             host_row(
                 "Stop iperf3 server (Host CLI)",
                 host_cmd="pkill -x iperf3 || true",
-                host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul"),
+                host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul",
+                enabled=False),
             # T3) FCT done - operator notification (MessageOK): the LAST
             #     item of the whole run, shown after the DUT is shut down
             #     and the host is cleaned up.  Acknowledge to close.
@@ -471,7 +478,8 @@ FCT_TEST_CONFIG = {
         "ping_timeout": 15,
         # 3) iPerf3: Host server / DUT client (bench-calibrated floor;
         #    both ends are wireless on this bench -> ~2-5 Mbps)
-        "iperf_enabled": True,
+        #    iperf_enabled=False while the bench network is re-worked
+        "iperf_enabled": False,
         "iperf_tool": "iperf3",
         "iperf_min_mbps": 1.0,
         "iperf_server_ip": "",          # empty = auto-detect host IP
