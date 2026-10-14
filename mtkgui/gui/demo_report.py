@@ -89,14 +89,14 @@ def main() -> int:
     assert page.defect_chart._highlight == "PWR 3V3 Voltage"
     # pie: 1 product fail + RESOURCE + TIMEOUT classes
     shares = dict(page.pie_chart._items)
-    assert shares.get("产品不良") == 1.0, shares
+    assert shares.get("Product defect") == 1.0, shares
     assert shares.get("RESOURCE") == 1.0 and shares.get("TIMEOUT") == 1.0
     assert page.pie_chart.slice_count() == 3
     # batch comparison table: both batches with KPIs
     assert page.batch_table.rowCount() == 2
     header = [page.batch_table.horizontalHeaderItem(i).text()
               for i in range(4)]
-    assert header == ["批次", "良率", "平均工时s", "测试数"]
+    assert header == ["Batch", "Yield", "Mean cycle (s)", "Tests"]
     rows = {page.batch_table.item(r, 0).text():
             page.batch_table.item(r, 1).text()
             for r in range(page.batch_table.rowCount())}
@@ -123,10 +123,10 @@ def main() -> int:
     assert fired[-1] == 0, "no night rows in this dataset"
     page.shift_combo.setCurrentText("day")
 
-    # 4. reset restores 全部
+    # 4. reset restores the All baseline
     page.reset()
-    assert page.batch_combo.currentText() == "全部"
-    assert page.shift_combo.currentText() == "全部"
+    assert page.batch_combo.currentText() == "All"
+    assert page.shift_combo.currentText() == "All"
     assert fired[-1] == 11, "reset restores full dataset"
 
     # 5. detail view (headless: in-page text only)

@@ -90,13 +90,13 @@ def main() -> int:
     page.interactive = False
     assert page.refresh() == 2, "board shows two hosts"
     assert page.table.rowCount() == 2
-    assert "失衡度" in page.imbalance_label.text()
+    assert "Imbalance" in page.imbalance_label.text()
     page.task_edit.setText("T-manual")
     rec = page.on_record()
     assert rec and rec[0] == "T-manual", "manual migration recorded"
     assert page.migration_list.count() >= 2
     page.set_speedup(wall)
-    assert "加速比" in page.speed_label.text()
+    assert "Speedup" in page.speed_label.text()
 
     print("[P3-7 load balancer demo] cross-host balancing OK — "
           "per-host load observation, idle-first rank, busy-avoidance "

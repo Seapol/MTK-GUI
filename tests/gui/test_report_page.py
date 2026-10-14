@@ -87,7 +87,7 @@ def test_page_initial_refresh_and_signal(env):
     page, _eng = env
     assert page.report_refreshed is not None
     # fixture page refreshed once in __init__: 5 in-scope records
-    assert page.batch_combo.count() == 3  # 全部 + B1 + B2
+    assert page.batch_combo.count() == 3  # All + B1 + B2
 
 
 def test_page_yield_trend_buckets(env):
@@ -112,7 +112,7 @@ def test_page_defect_top_and_pie(env):
     page.refresh()
     assert page.defect_chart._items[0][0] == "B"
     shares = dict(page.pie_chart._items)
-    assert shares.get("产品不良") == 1.0
+    assert shares.get("Product defect") == 1.0
     assert shares.get("RESOURCE") == 1.0
 
 
@@ -146,7 +146,7 @@ def test_page_filters_and_reset(env):
     page.batch_combo.setCurrentText("B2")
     page.refresh()
     assert all(r.batch == "B2" for r in page._filtered())
-    page.batch_combo.setCurrentText("全部")
+    page.batch_combo.setCurrentText("All")
     page.shift_combo.setCurrentText("night")
     page.refresh()
     assert page._filtered() == [], "no night records"
@@ -156,8 +156,8 @@ def test_page_filters_and_reset(env):
     page.refresh()
     assert len(page._filtered()) == 1
     page.reset()
-    assert page.batch_combo.currentText() == "全部"
-    assert page.shift_combo.currentText() == "全部"
+    assert page.batch_combo.currentText() == "All"
+    assert page.shift_combo.currentText() == "All"
     assert len(page._filtered()) == 7
 
 
@@ -174,7 +174,7 @@ def test_page_auto_refresh_toggle(env):
     assert not page.timer.isActive()
     page.auto_btn.setChecked(True)
     assert page.timer.isActive()
-    assert "开" in page.auto_btn.text()
+    assert "on" in page.auto_btn.text()
     eng.add(rec("A", StepStatus.PASS, 1.0, batch="B9"))
     page.timer.timeout.emit()
     assert page.batch_table.rowCount() == 3, "B9 appears after tick"

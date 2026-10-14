@@ -60,10 +60,10 @@ def page(tmp_path):
 
 # ------------------------------------------------------- categorize
 def test_categorize_groups():
-    assert categorize({"name": "PWR X Voltage"}) == "电源网络"
-    assert categorize({"name": "CLK X Frequency"}) == "时钟网络"
-    assert categorize({"name": "SIG X Continuity"}) == "信号网络"
-    assert categorize({"name": "Fixture Lock", "kind": "op"}) == "操作流程"
+    assert categorize({"name": "PWR X Voltage"}) == "Power network"
+    assert categorize({"name": "CLK X Frequency"}) == "Clock network"
+    assert categorize({"name": "SIG X Continuity"}) == "Signal network"
+    assert categorize({"name": "Fixture Lock", "kind": "op"}) == "Procedure"
 
 
 # ------------------------------------------------------- coercion
@@ -193,16 +193,17 @@ def test_page_tree_grouping_and_select(page):
     page_, store, yaml_path = page
     cats = [page_.tree.topLevelItem(i).text(0)
             for i in range(page_.tree.topLevelItemCount())]
-    assert cats == ["电源网络", "时钟网络", "信号网络", "操作流程"]
-    pw = cats.index("电源网络")
+    assert cats == ["Power network", "Clock network", "Signal network",
+                    "Procedure"]
+    pw = cats.index("Power network")
     child_texts = [page_.tree.topLevelItem(pw).child(j).text(0)
                    for j in range(page_.tree.topLevelItem(pw)
                                   .childCount())]
     assert "PWR VDD_3V3 Voltage" in child_texts
     # priority + dimension + status badges present
     item = page_.tree.topLevelItem(pw).child(0)
-    assert item.text(2) in ("电压", "阻抗"), "dimension badge"
-    assert item.text(3) in ("启用", "停用", "🔒已锁定")
+    assert item.text(2) in ("Voltage", "Impedance"), "dimension badge"
+    assert item.text(3) in ("Enabled", "Disabled", "🔒 Locked")
 
 
 def test_page_visual_edit_save_and_signal(page):
@@ -281,4 +282,4 @@ def test_page_trace_shows_ai_provenance(page):
     text = page_.trace.toPlainText()
     assert "P1-16.1" in text, "AI version shown"
     assert "net.txt" in text, "AI sources shown"
-    assert "版本锁定" in text
+    assert "Version lock" in text

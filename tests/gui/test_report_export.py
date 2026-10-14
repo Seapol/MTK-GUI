@@ -44,8 +44,8 @@ def test_sparkline_svg_and_fallback():
     svg = sparkline([1, 3, 2, 5, 4])
     assert svg.startswith("<svg") and 'points="' in svg
     assert svg == sparkline([1, 3, 2, 5, 4]), "deterministic"
-    assert "暂无趋势数据" in sparkline([1])
-    assert "暂无趋势数据" in sparkline([])
+    assert "No trend data yet" in sparkline([1])
+    assert "No trend data yet" in sparkline([])
 
 
 def test_doc_hash_stable_and_sensitive():
@@ -57,9 +57,10 @@ def test_doc_hash_stable_and_sensitive():
 def test_html_sections_complete(env):
     eng, page = env
     html = page._html
-    for need in ("指标摘要", "真实良率", "异常统计", "不良 TOP",
-                 "良率趋势缩略图", "批次汇总对比", "测试明细",
-                 "溯源哈希"):
+    for need in ("KPI summary", "Real yield", "Anomaly statistics",
+                 "Defect TOP", "Yield trend thumbnail",
+                 "Batch summary comparison", "Test detail",
+                 "trace hash"):
         assert need in html, need
     assert "B" in html and "9.9" in html, "fail detail rendered"
 
@@ -100,7 +101,7 @@ def test_batch_summary_export_multi(env):
     assert any("B2_" in n for n in names)
     assert any("SUMMARY" in n for n in names)
     b1 = outs[0].read_text(encoding="utf-8")
-    assert "批次: <b>B1</b>" in b1, "per-batch scoping"
+    assert "Batch: <b>B1</b>" in b1, "per-batch scoping"
 
 
 def test_preview_zoom_find(env):

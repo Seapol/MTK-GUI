@@ -299,7 +299,7 @@ class MainWindow(QMainWindow):
             self.audit_log = AuditLog(self._default_audit_path())
             self.export_out_dir = self._default_export_dir()
             self.path_hub = PathHub()
-            label = "P2 单项目模式"
+            label = "P2 single-project mode"
         # rebind export route factory to the tenant export dir
         self._routes["export"] = (
             lambda: ExportPage(self.metrics_engine,

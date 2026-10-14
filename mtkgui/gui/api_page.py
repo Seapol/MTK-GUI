@@ -36,7 +36,7 @@ class ApiPage(QWidget):
         self.kid_edit.setPlaceholderText("KeyID")
         self.scope_combo = QComboBox(self)
         self.scope_combo.addItems(["read", "write", "admin"])
-        self.issue_btn = QPushButton("发放密钥", self)
+        self.issue_btn = QPushButton("Issue key", self)
         self.issue_btn.clicked.connect(self.on_issue)
         self.last_secret = QLabel("", self)
         for w in (self.kid_edit, self.scope_combo, self.issue_btn,
@@ -50,7 +50,7 @@ class ApiPage(QWidget):
         self.method_combo.addItems(["GET", "POST"])
         self.path_edit = QLineEdit(self)
         self.path_edit.setPlaceholderText("/api/v1/status")
-        self.send_btn = QPushButton("发送请求", self)
+        self.send_btn = QPushButton("Send request", self)
         self.send_btn.clicked.connect(self.on_send)
         self.code_label = QLabel("", self)
         for w in (self.method_combo, self.path_edit, self.send_btn,
@@ -61,8 +61,8 @@ class ApiPage(QWidget):
 
         bar3 = QHBoxLayout()
         self.order_edit = QLineEdit(self)
-        self.order_edit.setPlaceholderText("MES工单: WO-1,MT6897,3")
-        self.order_btn = QPushButton("接收工单", self)
+        self.order_edit.setPlaceholderText("MES order: WO-1,MT6897,3")
+        self.order_btn = QPushButton("Receive order", self)
         self.order_btn.clicked.connect(self.on_order)
         self.mes_label = QLabel("", self)
         for w in (self.order_edit, self.order_btn, self.mes_label):
@@ -71,7 +71,8 @@ class ApiPage(QWidget):
         root.addLayout(bar3)
 
         self.table = QTableWidget(0, 2, self)
-        self.table.setHorizontalHeaderLabels(["KeyID", "密钥(仅显一次)"])
+        self.table.setHorizontalHeaderLabels(
+            ["KeyID", "Secret (shown once)"])
         root.addWidget(self.table, 2)
 
     # ------------------------------------------------------------ view
@@ -92,7 +93,7 @@ class ApiPage(QWidget):
             kid, scopes=(scope,) if scope != "admin"
             else ("read", "write", "admin"))
         self._secrets.append((kid, secret))
-        self.last_secret.setText(f"新密钥: {secret[:12]}...")
+        self.last_secret.setText(f"New key: {secret[:12]}...")
         self.refresh()
         return (kid, secret)
 
@@ -107,14 +108,14 @@ class ApiPage(QWidget):
     def on_order(self):
         if self.mes is None:
             if self.interactive:
-                QMessageBox.information(self, "MES", "适配器未绑定")
+                QMessageBox.information(self, "MES", "Adapter not bound")
             return None
         parts = [p.strip() for p in
                  self.order_edit.text().split(",")]
         if len(parts) != 3:
             if self.interactive:
-                QMessageBox.warning(self, "MES工单",
-                                    "格式: WO-1,MT6897,3")
+                QMessageBox.warning(self, "MES order",
+                                    "Format: WO-1,MT6897,3")
             return None
         try:
             qty = int(parts[2])
@@ -124,6 +125,7 @@ class ApiPage(QWidget):
             {"order_id": parts[0], "part_no": parts[1],
              "quantity": qty})
         self.mes_label.setText(
-            f"工单 {parts[0]}: {'接受' if result.get('accepted') else '拒绝'}"
-            f" ({result.get('units', 0)} 单元)")
+            f"Order {parts[0]}: "
+            f"{'accepted' if result.get('accepted') else 'rejected'} "
+            f"({result.get('units', 0)} units)")
         return result

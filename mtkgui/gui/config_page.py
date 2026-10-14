@@ -46,11 +46,11 @@ class ConfigPage(QWidget):
         # top action bar ------------------------------------------------
         bar = QHBoxLayout()
         self.path_label = QLabel(yaml_path, self)
-        self.save_btn = QPushButton("Save (格式化+快照)", self)
+        self.save_btn = QPushButton("Save (format + snapshot)", self)
         self.rollback_combo = QComboBox(self)
-        self.rollback_btn = QPushButton("回滚", self)
-        self.diff_btn = QPushButton("差异对比", self)
-        self.validate_btn = QPushButton("全量校验", self)
+        self.rollback_btn = QPushButton("Rollback", self)
+        self.diff_btn = QPushButton("Diff", self)
+        self.validate_btn = QPushButton("Validate all", self)
         for w in (self.path_label, self.validate_btn, self.diff_btn,
                   self.rollback_combo, self.rollback_btn):
             bar.addWidget(w)
@@ -124,7 +124,7 @@ class ConfigPage(QWidget):
             return combo
         edit = QLineEdit(parent)
         if fs.ftype == "list_str":
-            edit.setPlaceholderText("一行一项")
+            edit.setPlaceholderText("One item per line")
         if fs.secret:
             edit.setEchoMode(QLineEdit.EchoMode.Password)
         if val is not None and fs.ftype != "list_str":
@@ -185,10 +185,10 @@ class ConfigPage(QWidget):
         issues = self.validate_form()
         if issues:
             self.summary.setText(
-                f"校验未通过 {len(issues)} 项:\n" +
+                f"Validation failed: {len(issues)} issue(s):\n" +
                 "\n".join(str(i) for i in issues))
         else:
-            self.summary.setText("校验通过 ✔")
+            self.summary.setText("Validation passed ✔")
         return issues
 
     # actions -------------------------------------------------------------
@@ -196,10 +196,11 @@ class ConfigPage(QWidget):
         issues = self.validate_form()
         if issues:
             if self.interactive:
-                QMessageBox.warning(self, "校验失败",
-                                    "存在非法参数，保存被拦截:\n" +
+                QMessageBox.warning(self, "Validation failed",
+                                    "Illegal parameters present; "
+                                    "save blocked:\n" +
                                     "\n".join(str(i) for i in issues))
-            self.summary.setText("校验失败，保存被拦截")
+            self.summary.setText("Validation failed; save blocked")
             return None
         new_cfg, changes = self.store.apply_and_save(
             self._cfg, self._collect_updates(), self.yaml_path,
@@ -207,29 +208,32 @@ class ConfigPage(QWidget):
         self._cfg = new_cfg
         for ch in changes:
             self.record.appendPlainText(f"{ch}")
-        self.config_applied.emit(new_cfg)   # 热生效（无需重启引擎）
-        self.summary.setText(f"已保存 {len(changes)} 项修改，已热生效 ✔")
+        self.config_applied.emit(new_cfg)   # hot-apply (no engine restart)
+        self.summary.setText(f"Saved {len(changes)} change(s), "
+                             "hot-applied ✔")
         return new_cfg, changes
 
     def on_rollback(self) -> None:
         snap_id = self.rollback_combo.currentData()
         if not snap_id:
             if self.interactive:
-                QMessageBox.information(self, "回滚", "无可用快照")
+                QMessageBox.information(self, "Rollback",
+                                        "No snapshot available")
             return
         restored, changes = self.store.rollback(self._cfg, snap_id)
-        self.store.save(restored, self.yaml_path)  # 一键回滚：同步落盘
+        self.store.save(restored, self.yaml_path)  # rollback persists now
         self._cfg = restored
         self.record.appendPlainText(f"rollback -> {snap_id} "
                                     f"({len(changes)} diffs)")
         self.config_applied.emit(restored)
-        self.summary.setText(f"已回滚至 {snap_id}（差异 {len(changes)} 项）")
+        self.summary.setText(f"Rolled back to {snap_id} "
+                             f"({len(changes)} diffs)")
 
     def on_diff(self) -> None:
         changes = self.store.diff(self._cfg,
                                   self._materialize(self._collect_updates()))
         text = "\n".join(str(c) for c in changes) or "(no differences)"
-        QMessageBox.information(self, "差异对比", text)
+        QMessageBox.information(self, "Diff", text)
 
     def _materialize(self, updates: dict) -> dict:
         from .config_spec import set_path

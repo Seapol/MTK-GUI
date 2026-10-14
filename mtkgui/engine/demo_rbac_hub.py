@@ -91,7 +91,7 @@ def main() -> int:
     page.user_edit.setText("viewer2")
     page.pwd_edit.setText("pw2")
     assert page.on_add() == ("viewer2", "VIEWER")
-    assert "五角色" in page.stats_label.text()
+    assert "Five-role RBAC" in page.stats_label.text()
 
     print("[P3-9 RBAC demo] five-role middle platform OK — "
           "role ladder, P2 compat, function/page/data three-plane "

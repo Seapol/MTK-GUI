@@ -31,10 +31,10 @@ class CompliancePage(QWidget):
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
         self.path_edit = QLineEdit(self)
-        self.path_edit.setPlaceholderText("报表输出路径 (无需后缀)")
-        self.export_btn = QPushButton("导出ISO合规报表", self)
+        self.path_edit.setPlaceholderText("Report output path (no suffix)")
+        self.export_btn = QPushButton("Export ISO compliance report", self)
         self.export_btn.clicked.connect(self.on_export)
-        self.refresh_btn = QPushButton("刷新", self)
+        self.refresh_btn = QPushButton("Refresh", self)
         self.refresh_btn.clicked.connect(self.refresh)
         self.stats_label = QLabel("", self)
         for w in (self.path_edit, self.export_btn, self.refresh_btn,
@@ -44,7 +44,7 @@ class CompliancePage(QWidget):
         root.addLayout(bar)
 
         self.table = QTableWidget(0, 2, self)
-        self.table.setHorizontalHeaderLabels(["审计类别", "条目数"])
+        self.table.setHorizontalHeaderLabels(["Audit category", "Entries"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
@@ -60,8 +60,8 @@ class CompliancePage(QWidget):
             self.table.setItem(r, 0, QTableWidgetItem(cat))
             self.table.setItem(r, 1, QTableWidgetItem(str(n)))
         self.stats_label.setText(
-            f"总条目 {st['total']} | 拒绝 {st['denied']} | "
-            f"变更 {st['changes']} | 完整性 "
+            f"Total entries {st['total']} | denied {st['denied']} | "
+            f"changes {st['changes']} | integrity "
             f"{'OK' if v['ok'] else 'BAD'}")
         return len(cats)
 
@@ -72,8 +72,8 @@ class CompliancePage(QWidget):
         self.refresh()
         if self.interactive:
             QMessageBox.information(
-                self, "ISO合规报表",
-                f"已导出 {summary['total_entries']} 条 "
-                f"(拒绝 {summary['denied_attempts']} / "
-                f"变更 {summary['change_records']})")
+                self, "ISO compliance report",
+                f"Exported {summary['total_entries']} entries "
+                f"(denied {summary['denied_attempts']} / "
+                f"changes {summary['change_records']})")
         return summary

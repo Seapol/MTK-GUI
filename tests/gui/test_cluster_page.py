@@ -42,7 +42,7 @@ def test_assign_updates_board_and_signal(page):
     assert page.task_table.item(0, 2).text() == "RUNNING"
     assert page.task_table.item(0, 3).text() in ("B1", "B2")
     assert fired and fired[-1] == 1, "one running task"
-    assert "运行中 1" in page.status_label.text()
+    assert "running 1" in page.status_label.text()
 
 
 def test_remove_selected_device_migrates(page):

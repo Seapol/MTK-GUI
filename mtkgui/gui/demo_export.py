@@ -59,10 +59,13 @@ def main() -> int:
 
     html = page._html
     # 1. standardized sections present
-    for need in ("量产测试成品报告", "FRDM-IMX93", "指标摘要", "真实良率",
-                 "异常统计", "不良 TOP", "良率趋势缩略图", "<svg",
-                 "CpK 趋势缩略图", "批次汇总对比", "测试明细",
-                 "溯源哈希", " Fixture Check", "PWR 3V3 Voltage"):
+    for need in ("Mass-production test report", "FRDM-IMX93",
+                 "KPI summary", "Real yield",
+                 "Anomaly statistics", "Defect TOP",
+                 "Yield trend thumbnail", "<svg",
+                 "CpK trend thumbnail", "Batch summary comparison",
+                 "Test detail",
+                 "trace hash", " Fixture Check", "PWR 3V3 Voltage"):
         assert need in html, need
     assert "ERROR" in html and "FAIL" in html, "statuses rendered"
     # 2. provenance hash embedded (header 16 chars == footer prefix)
@@ -85,13 +88,13 @@ def main() -> int:
     outs = page.export_batch_summary()
     assert outs and len(outs) == 3, outs
     b1 = outs[0].read_text(encoding="utf-8")
-    assert "B001" in b1 and "批次: <b>B001</b>" in b1, "batch scoped"
+    assert "B001" in b1 and "Batch: <b>B001</b>" in b1, "batch scoped"
     summary = outs[-1].read_text(encoding="utf-8")
-    assert "批次汇总对比" in summary and "B002" in summary
+    assert "Batch summary comparison" in summary and "B002" in summary
 
     # 5. sparkline: stable output, too-few points -> fallback text
     assert sparkline([1, 2, 3, 4]) == sparkline([1, 2, 3, 4])
-    assert "暂无趋势数据" in sparkline([5]), "insufficient samples"
+    assert "No trend data yet" in sparkline([5]), "insufficient samples"
 
     # 6. preview / zoom / find surface
     page.zoom(1); page.zoom(-1); page.zoom(0)

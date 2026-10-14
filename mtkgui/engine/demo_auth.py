@@ -66,14 +66,14 @@ def main() -> int:
     # 4. full-chain operation audit with before/after diff
     audit.log("admin", "edit_config", "project.yaml",
               before={"retry": 2}, after={"retry": 3},
-              detail="GUI 提交")
+              detail="submitted from GUI")
     audit.log("admin", "edit_case", "case PWR_3V3",
               before={"limit": "3.30"}, after={"limit": "3.33"},
-              detail="终审锁定解除后修改")
-    audit.log("op", "import", "cases.xlsx", detail="17列导入")
-    audit.log("op", "export", "report_B001.pdf", detail="成品导出")
+              detail="edited after review unlock")
+    audit.log("op", "import", "cases.xlsx", detail="17-column import")
+    audit.log("op", "export", "report_B001.pdf", detail="final export")
     audit.log("op", "upload", "report_B001.zip",
-              detail="SharePoint 归档")
+              detail="SharePoint archive")
     audit.log("admin", "report_delete", "report_old.pdf",
               before="exists", after="deleted")
     entries = audit.entries()
@@ -90,8 +90,8 @@ def main() -> int:
                for e in audit.query(action="export"))
     denies = audit.query(action="DENY")
     assert denies, "denied attempts traced"
-    assert all("锁定" in json.dumps(e, ensure_ascii=False)
-               for e in audit.query(text="锁定")), "text search"
+    assert all("unlock" in json.dumps(e, ensure_ascii=False)
+               for e in audit.query(text="unlock")), "text search"
     assert audit.query(user="nobody") == []
 
     # 6. export CSV + JSON (export itself is audited too)

@@ -48,13 +48,13 @@ class AuditPage(QWidget):
         # login bar ----------------------------------------------------
         bar = QHBoxLayout()
         self.user_edit = QLineEdit(self)
-        self.user_edit.setPlaceholderText("账号")
+        self.user_edit.setPlaceholderText("Account")
         self.pwd_edit = QLineEdit(self)
-        self.pwd_edit.setPlaceholderText("密码")
+        self.pwd_edit.setPlaceholderText("Password")
         self.pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.login_btn = QPushButton("登录", self)
+        self.login_btn = QPushButton("Sign in", self)
         self.login_btn.clicked.connect(self.on_login)
-        self.session_label = QLabel("未登录", self)
+        self.session_label = QLabel("Signed out", self)
         for w in (self.user_edit, self.pwd_edit, self.login_btn,
                   self.session_label):
             bar.addWidget(w)
@@ -63,22 +63,22 @@ class AuditPage(QWidget):
 
         # guard demo ----------------------------------------------------
         bar2 = QHBoxLayout()
-        self.guard_btn = QPushButton("修改配置(受权限管控)", self)
+        self.guard_btn = QPushButton("Edit config (permission-guarded)", self)
         self.guard_btn.clicked.connect(self.on_edit_config)
         self.filter_action = QComboBox(self)
-        self.filter_action.addItem("全部动作")
+        self.filter_action.addItem("All actions")
         for a in ("login", "edit_config", "edit_case", "import",
                   "export", "upload", "report_delete", "audit_export"):
             self.filter_action.addItem(a)
         self.filter_user = QLineEdit(self)
-        self.filter_user.setPlaceholderText("按操作员筛选")
+        self.filter_user.setPlaceholderText("Filter by operator")
         self.filter_text = QLineEdit(self)
-        self.filter_text.setPlaceholderText("内容搜索…")
-        self.query_btn = QPushButton("查询", self)
+        self.filter_text.setPlaceholderText("Search content…")
+        self.query_btn = QPushButton("Query", self)
         self.query_btn.clicked.connect(self.refresh)
-        self.csv_btn = QPushButton("导出 CSV", self)
+        self.csv_btn = QPushButton("Export CSV", self)
         self.csv_btn.clicked.connect(lambda: self.on_export("csv"))
-        self.json_btn = QPushButton("导出 JSON", self)
+        self.json_btn = QPushButton("Export JSON", self)
         self.json_btn.clicked.connect(lambda: self.on_export("json"))
         for w in (self.guard_btn, self.filter_action,
                   self.filter_user, self.filter_text, self.query_btn,
@@ -88,8 +88,8 @@ class AuditPage(QWidget):
 
         self.table = QTableWidget(0, 7, self)
         self.table.setHorizontalHeaderLabels(
-            ["时间", "操作员", "动作", "对象", "变更前", "变更后",
-             "备注"])
+            ["Time", "Operator", "Action", "Target", "Before", "After",
+             "Notes"])
         root.addWidget(self.table, 1)
 
         self.refresh()
@@ -100,14 +100,14 @@ class AuditPage(QWidget):
                                     self.pwd_edit.text())
         if session is None:
             if self.interactive:
-                QMessageBox.warning(self, "登录失败",
-                                    "账号或密码错误（已留痕）")
-            self.session_label.setText("未登录")
+                QMessageBox.warning(self, "Sign-in failed",
+                                    "Wrong account or password (audited)")
+            self.session_label.setText("Signed out")
             self.session = None
         else:
             self.session = session
-            badge = "管理员(全权限)" if session.role is Role.ADMIN \
-                else "操作员(受限权限)"
+            badge = "Admin (full)" if session.role is Role.ADMIN \
+                else "Operator (restricted)"
             self.session_label.setText(
                 f"{session.username} | {badge}")
             self.logged_in.emit(session.role.value)
@@ -121,14 +121,14 @@ class AuditPage(QWidget):
                                 "project.yaml")
         except PermissionError:
             self.session_label.setText(
-                (self.session.username if self.session else "未登录")
-                + " | 无权限（已留痕）")
+                (self.session.username if self.session else "Signed out")
+                + " | No permission (audited)")
             self.refresh()
             return                  # denial audited, nothing changed
         # admin path reaches here — record the change
         self.audit.log(self.session.username, "edit_config",
                        "project.yaml", before={"retry": 2},
-                       after={"retry": 3}, detail="GUI 提交")
+                       after={"retry": 3}, detail="submitted from GUI")
         self.refresh()
 
     # ------------------------------------------------------------- view
@@ -156,5 +156,5 @@ class AuditPage(QWidget):
         path = self.audit.path.parent / name
         path = self.audit.export(path, fmt=fmt)
         if self.interactive:
-            QMessageBox.information(self, "审计导出", str(path))
+            QMessageBox.information(self, "Audit export", str(path))
         return path

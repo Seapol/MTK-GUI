@@ -55,12 +55,12 @@ class ExportPage(QWidget):
 
         bar = QHBoxLayout()
         self.find_box = QLineEdit(self)
-        self.find_box.setPlaceholderText("查找内容…")
+        self.find_box.setPlaceholderText("Find…")
         self.find_box.returnPressed.connect(self.find_next)
         self.zoom_label = QLabel("100%", self)
-        zoom_out = QPushButton("缩小", self)
-        zoom_in = QPushButton("放大", self)
-        zoom_reset = QPushButton("复位缩放", self)
+        zoom_out = QPushButton("Zoom out", self)
+        zoom_in = QPushButton("Zoom in", self)
+        zoom_reset = QPushButton("Reset zoom", self)
         zoom_out.clicked.connect(lambda: self.zoom(-1))
         zoom_in.clicked.connect(lambda: self.zoom(1))
         zoom_reset.clicked.connect(lambda: self.zoom(0))
@@ -73,13 +73,13 @@ class ExportPage(QWidget):
         root.addWidget(self.preview, 1)
 
         bar2 = QHBoxLayout()
-        self.refresh_btn = QPushButton("刷新预览", self)
+        self.refresh_btn = QPushButton("Refresh preview", self)
         self.refresh_btn.clicked.connect(self.refresh)
-        self.html_btn = QPushButton("导出 HTML", self)
+        self.html_btn = QPushButton("Export HTML", self)
         self.html_btn.clicked.connect(self.export_html)
-        self.pdf_btn = QPushButton("导出 PDF", self)
+        self.pdf_btn = QPushButton("Export PDF", self)
         self.pdf_btn.clicked.connect(self.export_pdf_file)
-        self.batch_btn = QPushButton("批次汇总导出", self)
+        self.batch_btn = QPushButton("Batch summary export", self)
         self.batch_btn.clicked.connect(self.export_batch_summary)
         for w in (self.refresh_btn, self.html_btn, self.pdf_btn,
                   self.batch_btn):
@@ -153,7 +153,7 @@ class ExportPage(QWidget):
     def _pick(self, path: Path, filt: str) -> Path | None:
         if not self.interactive:
             return path
-        chosen, _ = QFileDialog.getSaveFileName(self, "导出报告",
+        chosen, _ = QFileDialog.getSaveFileName(self, "Export report",
                                                 str(path), filt)
         return Path(chosen) if chosen else None
 
@@ -197,5 +197,6 @@ class ExportPage(QWidget):
         self.report_exported.emit(str(written[-1]))
         if self.interactive:
             QMessageBox.information(
-                self, "批量导出", f"已导出 {len(written)} 份报告")
+                self, "Batch export",
+                f"Exported {len(written)} report(s)")
         return written

@@ -43,14 +43,14 @@ def page(app, tmp_path):
 
 def test_initial_status_and_empty_ledger(page):
     p, _ = page
-    assert "停用" in p.status_label.text()
+    assert "disabled" in p.status_label.text()
     assert p.ledger_table.rowCount() == 0
 
 
 def test_hot_config_apply(page):
     p, _ = page
     p.apply_config(CFG)
-    assert "启用" in p.status_label.text()
+    assert "enabled" in p.status_label.text()
     assert "/PRJ" in p.status_label.text(), "project dir shown"
     assert p.manager.config.retry_count == 1, "hot update"
 
@@ -72,7 +72,7 @@ def test_failed_upload_shows_fallback_note(page):
     p.apply_config(CFG)
     p.manager.transport.online = False
     p.on_upload()
-    assert "失败 1" in p.status_label.text(), "failure surfaced"
+    assert "1 failed" in p.status_label.text(), "failure surfaced"
     assert "outbox" in p.status_label.text(), "fallback note"
     assert (outbox / "a.zip").is_file(), "file kept locally"
 
@@ -81,10 +81,10 @@ def test_precheck_surface(page):
     p, _ = page
     p.manager.apply_config(CFG)
     p.on_precheck()
-    assert "预检通过" in p.status_label.text()
+    assert "Precheck passed" in p.status_label.text()
     p.manager.transport.deny_write = True
     p.on_precheck()
-    assert "预检异常" in p.status_label.text()
+    assert "Precheck failed" in p.status_label.text()
 
 
 def test_shell_registers_upload_route(app):

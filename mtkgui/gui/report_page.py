@@ -61,11 +61,12 @@ class ReportPage(QWidget):
 
         # chart grid ---------------------------------------------------------
         grid = QGridLayout()
-        self.yield_chart = LineChart("良率趋势 (真实产品良率)", self)
-        self.cycle_chart = BarChart("CycleTime 工时对比 (瓶颈高亮)", self)
-        self.cpk_chart = LineChart("CpK 制程能力趋势 (按批次)", self)
-        self.defect_chart = BarChart("不良项 TOP", self)
-        self.pie_chart = PieChart("失败分类占比", self)
+        self.yield_chart = LineChart("Yield trend (real product yield)", self)
+        self.cycle_chart = BarChart("Cycle time per case "
+                                    "(bottleneck highlighted)", self)
+        self.cpk_chart = LineChart("CpK trend (per batch)", self)
+        self.defect_chart = BarChart("Defect TOP", self)
+        self.pie_chart = PieChart("Failure classification share", self)
         grid.addWidget(self.yield_chart, 0, 0)
         grid.addWidget(self.cpk_chart, 0, 1)
         grid.addWidget(self.cycle_chart, 1, 0)
@@ -73,7 +74,7 @@ class ReportPage(QWidget):
         grid.addWidget(self.pie_chart, 2, 0)
         self.batch_table = QTableWidget(0, 4, self)
         self.batch_table.setHorizontalHeaderLabels(
-            ["批次", "良率", "平均工时s", "测试数"])
+            ["Batch", "Yield", "Mean cycle (s)", "Tests"])
         grid.addWidget(self.batch_table, 2, 1)
         root.addLayout(grid, 1)
 
@@ -84,7 +85,7 @@ class ReportPage(QWidget):
         root.addWidget(self.detail)
 
         # auto-refresh ---------------------------------------------------------
-        self.auto_btn = QPushButton("自动刷新: 关", self)
+        self.auto_btn = QPushButton("Auto refresh: off", self)
         self.auto_btn.setCheckable(True)
         self.auto_btn.toggled.connect(self._toggle_auto)
         bar_widget = root.itemAt(0).widget()
@@ -101,17 +102,17 @@ class ReportPage(QWidget):
         from PySide6.QtWidgets import QHBoxLayout
         lay = QHBoxLayout(host)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel("批次:", host))
+        lay.addWidget(QLabel("Batch:", host))
         self.batch_combo = QComboBox(host)
-        self.batch_combo.addItem("全部")
+        self.batch_combo.addItem("All")
         lay.addWidget(self.batch_combo)
-        lay.addWidget(QLabel("当班:", host))
+        lay.addWidget(QLabel("Shift:", host))
         self.shift_combo = QComboBox(host)
-        self.shift_combo.addItems(["全部", "day", "night"])
+        self.shift_combo.addItems(["All", "day", "night"])
         lay.addWidget(self.shift_combo)
-        self.refresh_btn = QPushButton("刷新", host)
-        self.reset_btn = QPushButton("重置", host)
-        self.detail_btn = QPushButton("数据明细", host)
+        self.refresh_btn = QPushButton("Refresh", host)
+        self.reset_btn = QPushButton("Reset", host)
+        self.detail_btn = QPushButton("Data detail", host)
         lay.addWidget(self.refresh_btn)
         lay.addWidget(self.reset_btn)
         lay.addWidget(self.detail_btn)
@@ -127,8 +128,8 @@ class ReportPage(QWidget):
         shift = self.shift_combo.currentText()
         return filter_records(
             self.engine.records,
-            **({} if batch == "全部" else {"batch": batch}),
-            **({} if shift == "全部" else {"shift": shift}))
+            **({} if batch == "All" else {"batch": batch}),
+            **({} if shift == "All" else {"shift": shift}))
 
     # refresh / reset --------------------------------------------------------
     def refresh(self) -> None:
@@ -137,7 +138,7 @@ class ReportPage(QWidget):
         cur = self.batch_combo.currentText()
         self.batch_combo.blockSignals(True)
         self.batch_combo.clear()
-        self.batch_combo.addItem("全部")
+        self.batch_combo.addItem("All")
         for b in batches:
             self.batch_combo.addItem(b)
         if cur in batches:
@@ -157,9 +158,9 @@ class ReportPage(QWidget):
         self.report_refreshed.emit(len(rows))
 
     def reset(self) -> None:
-        """Reset filters to 全部 and refresh."""
-        self.batch_combo.setCurrentText("全部")
-        self.shift_combo.setCurrentText("全部")
+        """Reset filters to All and refresh."""
+        self.batch_combo.setCurrentText("All")
+        self.shift_combo.setCurrentText("All")
         self.refresh()
 
     # chart renderers -----------------------------------------------------
@@ -221,7 +222,7 @@ class ReportPage(QWidget):
         fail_n = y.failed
         shares: list[tuple[str, float]] = []
         if fail_n:
-            shares.append(("产品不良", float(fail_n)))
+            shares.append(("Product defect", float(fail_n)))
         for kind, n in sorted(y.invalid_by_kind.items()):
             shares.append((str(kind), float(n)))
         self.pie_chart.set_data(shares)
@@ -250,11 +251,11 @@ class ReportPage(QWidget):
                  f"{r.name} {r.status.value} "
                  f"measured={r.measured} dur={r.duration_s}s"
                  for r in rows[:200]]
-        text = "\n".join(lines) or "(范围内无数据)"
+        text = "\n".join(lines) or "(no data in scope)"
         self.detail.setPlainText(text)
         if self.interactive:
             box = QDialog(self)
-            box.setWindowTitle(f"数据明细 ({len(rows)} 条)")
+            box.setWindowTitle(f"Data detail ({len(rows)})")
             v = QVBoxLayout(box)
             viewer = QPlainTextEdit(box)
             viewer.setReadOnly(True)
@@ -264,7 +265,7 @@ class ReportPage(QWidget):
             box.exec()
 
     def _toggle_auto(self, on: bool) -> None:
-        self.auto_btn.setText(f"自动刷新: {'开' if on else '关'}")
+        self.auto_btn.setText(f"Auto refresh: {'on' if on else 'off'}")
         if on:
             self.timer.start()
         else:

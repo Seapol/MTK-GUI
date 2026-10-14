@@ -1,30 +1,32 @@
 # -*- coding: utf-8 -*-
-"""MTK / 通用蜂窝模块常用 AT 命令快捷表。
+"""Common AT commands for MTK / generic cellular modules.
 
-第一项为按钮文字，第二项为实际发送的 AT 命令（不含行尾，行尾由
-"追加 CR+LF" 选项控制），第三项为说明提示。
-不同模组固件的命令支持略有差异，以模组 AT 命令手册为准。
+Item 1 is the button label, item 2 the actual AT command sent
+(without line ending; the ending is controlled by the
+"append CR+LF" option), item 3 the tooltip description.
+Command support varies slightly between module firmwares;
+refer to the module AT command manual.
 """
 
 AT_COMMANDS = [
-    ("AT", "AT", "AT 连通测试，应返回 OK"),
-    ("ATE0", "ATE0", "关闭回显"),
-    ("ATE1", "ATE1", "开启回显"),
-    ("AT+CGMI", "AT+CGMI", "查询厂商名称 (Manufacturer)"),
-    ("AT+CGMM", "AT+CGMM", "查询型号 (Model)"),
-    ("AT+CGMR", "AT+CGMR", "查询固件版本 (Revision)"),
-    ("AT+CGSN", "AT+CGSN", "查询序列号 / IMEI"),
-    ("AT+CIMI", "AT+CIMI", "查询 SIM 卡 IMSI"),
-    ("AT+CPIN?", "AT+CPIN?", "查询 SIM 卡 / PIN 状态"),
-    ("AT+CSQ", "AT+CSQ", "查询信号质量 (RSSI)"),
-    ("AT+CEREG?", "AT+CEREG?", "查询 LTE/5G 网络注册状态"),
-    ("AT+CREG?", "AT+CREG?", "查询 CS 网络注册状态"),
-    ("AT+COPS?", "AT+COPS?", "查询当前运营商"),
-    ("AT+CGACT?", "AT+CGACT?", "查询 PDP 激活状态"),
-    ("AT+CGCONTRDP", "AT+CGCONTRDP", "查询动态分配的 IP 等参数"),
-    ("AT+CFUN?", "AT+CFUN?", "查询电话功能模式"),
-    ("AT+CMGF?", "AT+CMGF?", "查询短信格式 (0=PDU,1=文本)"),
-    ("AT+IPR?", "AT+IPR?", "查询串口波特率"),
-    ("AT&V", "AT&V", "显示当前全部配置"),
-    ("AT+CFUN=1,1", "AT+CFUN=1,1", "重启模组 (注意会断连)"),
+    ("AT", "AT", "Connectivity check, expects OK"),
+    ("ATE0", "ATE0", "Disable echo"),
+    ("ATE1", "ATE1", "Enable echo"),
+    ("AT+CGMI", "AT+CGMI", "Query manufacturer name"),
+    ("AT+CGMM", "AT+CGMM", "Query model"),
+    ("AT+CGMR", "AT+CGMR", "Query firmware revision"),
+    ("AT+CGSN", "AT+CGSN", "Query serial number / IMEI"),
+    ("AT+CIMI", "AT+CIMI", "Query SIM IMSI"),
+    ("AT+CPIN?", "AT+CPIN?", "Query SIM / PIN state"),
+    ("AT+CSQ", "AT+CSQ", "Query signal quality (RSSI)"),
+    ("AT+CEREG?", "AT+CEREG?", "Query LTE/5G network registration"),
+    ("AT+CREG?", "AT+CREG?", "Query CS network registration"),
+    ("AT+COPS?", "AT+COPS?", "Query current operator"),
+    ("AT+CGACT?", "AT+CGACT?", "Query PDP activation state"),
+    ("AT+CGCONTRDP", "AT+CGCONTRDP", "Query assigned IP and PDP parameters"),
+    ("AT+CFUN?", "AT+CFUN?", "Query phone functionality mode"),
+    ("AT+CMGF?", "AT+CMGF?", "Query SMS format (0=PDU, 1=text)"),
+    ("AT+IPR?", "AT+IPR?", "Query serial baud rate"),
+    ("AT&V", "AT&V", "Show current full configuration"),
+    ("AT+CFUN=1,1", "AT+CFUN=1,1", "Reboot module (drops the connection)"),
 ]

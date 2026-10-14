@@ -23,7 +23,8 @@ from .case_store import (AUDIT_KEY, DIMENSIONS, DIM_CN, LockedCaseError,
                          CaseStore, categorize)
 from .theme import StyleSpec
 
-CATEGORIES = ("电源网络", "时钟网络", "信号网络", "操作流程")
+CATEGORIES = ("Power network", "Clock network", "Signal network",
+              "Procedure")
 INSTRUMENT_CHOICES = ("DAQM", "DAQ", "DMM", "SCOPE", "—")
 
 
@@ -49,15 +50,15 @@ class CaseEditorPage(QWidget):
         bar = QHBoxLayout()
         self.dim_boxes: dict[str, QCheckBox] = {}
         for dim in DIMENSIONS:
-            box = QCheckBox(f"{DIM_CN[dim]}测试", self)
+            box = QCheckBox(f"{DIM_CN[dim]} tests", self)
             box.toggled.connect(lambda on, d=dim:
                                 self.on_dimension_toggle(d, on))
             self.dim_boxes[dim] = box
             bar.addWidget(box)
         bar.addStretch(1)
         self.path_label = QLabel(yaml_path, self)
-        self.save_btn = QPushButton("保存修改 (快照+审计)", self)
-        self.lock_btn = QPushButton("锁定用例", self)
+        self.save_btn = QPushButton("Save changes (snapshot + audit)", self)
+        self.lock_btn = QPushButton("Lock case", self)
         bar.addWidget(self.path_label)
         bar.addWidget(self.lock_btn)
         bar.addWidget(self.save_btn)
@@ -66,7 +67,8 @@ class CaseEditorPage(QWidget):
         # splitter: case tree | detail form ------------------------------
         split = QSplitter(Qt.Orientation.Horizontal, self)
         self.tree = QTreeWidget(self)
-        self.tree.setHeaderLabels(["用例", "优先级", "维度", "状态"])
+        self.tree.setHeaderLabels(["Case", "Priority", "Dimension",
+                                   "State"])
         self.tree.currentItemChanged.connect(self.on_select)
         split.addWidget(self.tree)
         split.addWidget(self._build_detail_form())
@@ -93,12 +95,12 @@ class CaseEditorPage(QWidget):
         self.f_name.setReadOnly(True)
         self.f_kind = QLineEdit(host)
         self.f_kind.setReadOnly(True)
-        self.f_enable = QCheckBox("测试使能", host)
+        self.f_enable = QCheckBox("Enable", host)
         self.f_wait = QLineEdit(host)
         self.f_timeout = QLineEdit(host)
         self.f_retry = QLineEdit(host)
         self.f_skip = QLineEdit(host)
-        self.f_skip.setPlaceholderText("skip_if 条件表达式")
+        self.f_skip.setPlaceholderText("skip_if condition expression")
         self.f_unit = QLineEdit(host)
         self.f_unit.setReadOnly(True)
         self.f_lo = QLineEdit(host)
@@ -109,29 +111,29 @@ class CaseEditorPage(QWidget):
         self.f_instrument.addItems(list(INSTRUMENT_CHOICES))
         self.f_notes = QPlainTextEdit(host)
         self.f_notes.setFixedHeight(48)
-        rows = [("用例名称", self.f_name), ("类型", self.f_kind),
-                ("测试使能", self.f_enable), ("等待ms", self.f_wait),
-                ("超时ms", self.f_timeout), ("重试次数", self.f_retry),
-                ("跳过条件", self.f_skip), ("单位", self.f_unit),
-                ("阈值下限", self.f_lo), ("阈值上限", self.f_hi),
-                ("优先级(电源树层级)", self.f_prio),
-                ("所属电源域", self.f_domain),
-                ("仪器分配", self.f_instrument)]
+        rows = [("Case name", self.f_name), ("Type", self.f_kind),
+                ("Enable", self.f_enable), ("Wait (ms)", self.f_wait),
+                ("Timeout (ms)", self.f_timeout), ("Retries", self.f_retry),
+                ("Skip condition", self.f_skip), ("Unit", self.f_unit),
+                ("Limit min", self.f_lo), ("Limit max", self.f_hi),
+                ("Priority (power-tree level)", self.f_prio),
+                ("Power domain", self.f_domain),
+                ("Instrument", self.f_instrument)]
         for row, (label, w) in enumerate(rows):
             form.addWidget(QLabel(label, host), row, 0)
             form.addWidget(w, row, 1)
         lay.addLayout(form)
-        topo = QGroupBox("上下游拓扑", host)
+        topo = QGroupBox("Upstream/Downstream topology", host)
         topo_lay = QHBoxLayout(topo)
         self.f_upstream = QLabel("—", topo)
         self.f_downstream = QLabel("—", topo)
-        topo_lay.addWidget(QLabel("上游:", topo))
+        topo_lay.addWidget(QLabel("Upstream:", topo))
         topo_lay.addWidget(self.f_upstream)
-        topo_lay.addWidget(QLabel("下游:", topo))
+        topo_lay.addWidget(QLabel("Downstream:", topo))
         topo_lay.addWidget(self.f_downstream)
         topo_lay.addStretch(1)
         lay.addWidget(topo)
-        lay.addWidget(QLabel("备注", host))
+        lay.addWidget(QLabel("Notes", host))
         lay.addWidget(self.f_notes)
         lay.addStretch(1)
         return host
@@ -154,8 +156,8 @@ class CaseEditorPage(QWidget):
                  "" if case.get("priority", "") == "" else
                  str(case.get("priority")),
                  DIM_CN.get(dim, dim),
-                 "🔒已锁定" if locked else
-                 ("启用" if case.get("enable") else "停用")])
+                 "🔒 Locked" if locked else
+                 ("Enabled" if case.get("enable") else "Disabled")])
             item.setData(0, Qt.ItemDataRole.UserRole, case)
             groups[cat].addChild(item)
         for cat, node in groups.items():
@@ -209,7 +211,7 @@ class CaseEditorPage(QWidget):
                   self.f_skip, self.f_lo, self.f_hi, self.f_prio,
                   self.f_domain, self.f_instrument, self.f_notes):
             w.setEnabled(not locked)
-        self.lock_btn.setText("解锁用例" if locked else "锁定用例")
+        self.lock_btn.setText("Unlock case" if locked else "Lock case")
 
     def _collect_updates(self) -> dict:
         return {"enable": self.f_enable.isChecked(),
@@ -241,14 +243,14 @@ class CaseEditorPage(QWidget):
         self._refresh_dim_boxes()
         self._refresh_trace()
         self.cases_applied.emit(self._cfg)
-        self._info(f"{DIM_CN[dim]}测试已{'开启' if on else '关闭'} "
-                   f"({len(changes)} 条用例更新)")
+        self._info(f"{DIM_CN[dim]} tests {'enabled' if on else 'disabled'} "
+                   f"({len(changes)} case updates)")
 
     # actions ---------------------------------------------------------------
     def on_save(self) -> tuple[dict, list] | None:
         """Collect the form and persist the single-case edit."""
         if self._current is None:
-            self._info("未选中用例")
+            self._info("No case selected")
             return None
         name = str(self._current.get("name"))
         try:
@@ -256,24 +258,26 @@ class CaseEditorPage(QWidget):
                 self._cfg, name, self._collect_updates(), self.yaml_path)
         except LockedCaseError:
             if self.interactive:
-                QMessageBox.warning(self, "锁定", "用例已版本锁定，禁止修改")
-            self._info(f"保存被拦截: {name} 已锁定")
+                QMessageBox.warning(
+                    self, "Locked",
+                    "Case is version-locked; editing is not allowed")
+            self._info(f"Save blocked: {name} is locked")
             return None
         except ValueError as exc:
             if self.interactive:
-                QMessageBox.warning(self, "非法参数", str(exc))
-            self._info(f"保存被拦截: {exc}")
+                QMessageBox.warning(self, "Invalid value", str(exc))
+            self._info(f"Save blocked: {exc}")
             return None
         self._cfg = new_cfg
         self.refresh_tree()
         self._refresh_trace()
         self.cases_applied.emit(new_cfg)
-        self._info(f"已保存 {len(changes)} 项修改 ({name})")
+        self._info(f"Saved {len(changes)} change(s) ({name})")
         return new_cfg, changes
 
     def on_lock_toggle(self) -> None:
         if self._current is None:
-            self._info("未选中用例")
+            self._info("No case selected")
             return
         name = str(self._current.get("name"))
         locked = not self.store.is_locked(self._cfg, name)
@@ -283,7 +287,7 @@ class CaseEditorPage(QWidget):
         self.refresh_tree()
         self._select_case(name)  # keep context after tree rebuild
         self._refresh_trace()
-        self._info(f"{name} 已{'锁定' if locked else '解锁'}")
+        self._info(f"{name} {'locked' if locked else 'unlocked'}")
         self.cases_applied.emit(self._cfg)
 
     # reload (e.g. after external Excel sync in P2-4) --------------------
@@ -297,9 +301,9 @@ class CaseEditorPage(QWidget):
     def _refresh_trace(self) -> None:
         audit = self._cfg.get(AUDIT_KEY) or {}
         self.trace.setPlainText("")
-        ai = (f"AI生成: 版本 {audit.get('ai_version', '—')} "
-              f"时间 {audit.get('gen_time', '—')} "
-              f"来源 {(audit.get('sources') or ['—'])}")
+        ai = (f"AI generated: version {audit.get('ai_version', '—')} "
+              f"time {audit.get('gen_time', '—')} "
+              f"sources {(audit.get('sources') or ['—'])}")
         self.trace.appendPlainText(ai)
         for entry in reversed(list(audit.get("history") or [])[-30:]):
             changed = "; ".join(
@@ -310,7 +314,7 @@ class CaseEditorPage(QWidget):
                 f"[{entry.get('time')}] {entry.get('source')} / "
                 f"{entry.get('actor')}: {changed}")
         locks = list((audit.get("locks") or {}).keys())
-        self.trace.appendPlainText(f"版本锁定: {locks or '无'}")
+        self.trace.appendPlainText(f"Version lock: {locks or 'none'}")
 
     def _info(self, text: str) -> None:
         self.trace.appendPlainText(f">> {text}")

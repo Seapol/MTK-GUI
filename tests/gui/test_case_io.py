@@ -116,7 +116,7 @@ def test_import_added_removed_and_dirty_column(env):
     page, store, yaml_path, xlsx, _tmp = env
     wb = load_workbook(xlsx)
     ws = wb.worksheets[0]
-    ws.cell(row=1, column=len(COLUMNS) + 1, value="工程师批注")
+    ws.cell(row=1, column=len(COLUMNS) + 1, value="Engineer note")
     ws.cell(row=2, column=len(COLUMNS) + 1, value="keep")
     ws.cell(row=3, column=len(COLUMNS) + 1, value="keep")
     ws.cell(row=3, column=1, value="")  # blank name -> row dropped
@@ -124,7 +124,8 @@ def test_import_added_removed_and_dirty_column(env):
     page.import_edit.setText(xlsx)
     report = page.on_import()
     assert report is not None
-    assert "工程师批注" in report["ignored_columns"], "dirty col filtered"
+    assert "Engineer note" in report["ignored_columns"], \
+        "dirty col filtered"
     assert [r["name"] for r in report["removed"]] == \
         ["SIG GPIO1 Continuity"], "blank-name row = removed"
     updated = store.load(yaml_path)
@@ -137,7 +138,7 @@ def test_import_added_row(env):
     ws = wb.worksheets[0]
     ws.append(["SIG NEW Continuity", "test", True, 100, 5000, "Ω",
                1.5, "—", 3, "—", "—", "—", "DAQM", "impedance",
-               "新增", "P1-16.1", "2026-01-01T00:00:00Z"])
+               "added manually", "P1-16.1", "2026-01-01T00:00:00Z"])
     wb.save(xlsx)
     page.import_edit.setText(xlsx)
     report = page.on_import()
@@ -158,7 +159,7 @@ def test_import_dirty_workbook_intercepted(env):
     page, store, yaml_path, _xlsx, tmp_path = env
     bad = str(tmp_path / "bad.xlsx")
     wb = Workbook()
-    wb.active.append(["用例名称"])  # missing required 类型 column
+    wb.active.append(["Case name"])  # missing required Type column
     wb.active.append(["X"])
     wb.save(bad)
     before = store.load(yaml_path)

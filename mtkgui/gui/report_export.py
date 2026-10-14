@@ -67,7 +67,7 @@ def sparkline(points, width=220, height=44, color=ACCENT) -> str:
     """Inline SVG trend thumbnail (pure string, no chart deps)."""
     vals = [p for p in points if isinstance(p, (int, float))]
     if len(vals) < 2:
-        return "<i>暂无趋势数据</i>"
+        return "<i>No trend data yet</i>"
     lo, hi = min(vals), max(vals)
     span = (hi - lo) or 1.0
     step = width / (len(vals) - 1)
@@ -82,11 +82,11 @@ def sparkline(points, width=220, height=44, color=ACCENT) -> str:
 def _yield_kpi(y) -> str:
     pct = f"{y.real_yield * 100:.2f}%" if y.real_yield is not None \
         else "N/A"
-    return (f'<span class="kpi">总测 {y.total}</span>'
+    return (f'<span class="kpi">Total {y.total}</span>'
             f'<span class="kpi">PASS {y.passed}</span>'
             f'<span class="kpi">FAIL {y.failed}</span>'
-            f'<span class="kpi">无效 {y.invalid}</span>'
-            f'<span class="kpi">真实良率 <b>{pct}</b></span>')
+            f'<span class="kpi">Invalid {y.invalid}</span>'
+            f'<span class="kpi">Real yield <b>{pct}</b></span>')
 
 
 def _status_cell(status) -> str:
@@ -113,7 +113,7 @@ def console_log_html(text: str, max_chars: int = 400_000) -> str:
 
 def build_html_report(*, records, yield_report, cycle_report,
                       cpk_reports, batch_summaries=None,
-                      meta=None, title="量产测试成品报告") -> str:
+                      meta=None, title="Mass-production test report") -> str:
     """Standardized commercial HTML report from existing bases."""
     meta = dict(meta or {})
     records = list(records)
@@ -135,39 +135,40 @@ def build_html_report(*, records, yield_report, cycle_report,
              "<body>",
              f"<h1>{esc(title)}</h1>",
              "<table><tr>",
-             f"<td>产品料号: <b>{esc(meta.get('part_number', '-'))}"
+             f"<td>Part number: <b>{esc(meta.get('part_number', '-'))}"
              f"</b></td>",
-             f"<td>批次: <b>{esc(meta.get('batch', 'ALL'))}</b></td>",
-             f"<td>站点: {esc(meta.get('station', '-'))}</td>",
-             f"<td>软件版本: {esc(meta.get('version', '-'))}</td>",
-             f"<td>配置版本: {esc(meta.get('revision', '-'))}</td>",
-             f"<td>生成时间: {esc(ts)}</td>",
-             f"<td>溯源哈希: {digest[:16]}</td>",
+             f"<td>Batch: <b>{esc(meta.get('batch', 'ALL'))}</b></td>",
+             f"<td>Station: {esc(meta.get('station', '-'))}</td>",
+             f"<td>Software version: {esc(meta.get('version', '-'))}</td>",
+             f"<td>Config revision: {esc(meta.get('revision', '-'))}</td>",
+             f"<td>Generated at: {esc(ts)}</td>",
+             f"<td>Trace hash: {digest[:16]}</td>",
              "</tr></table>"]
 
     # --- KPI summary ---------------------------------------------------
     if yield_report:
-        parts += ["<h2>指标摘要</h2>", _yield_kpi(yield_report)]
+        parts += ["<h2>KPI summary</h2>", _yield_kpi(yield_report)]
     if cycle_report and cycle_report.mean_s is not None:
         bottleneck = (cycle_report.bottlenecks[0][0]
                       if cycle_report.bottlenecks else "-")
-        parts.append(f'<span class="kpi">平均工时 '
+        parts.append(f'<span class="kpi">Mean cycle time '
                      f'{cycle_report.mean_s:.2f}s</span>'
-                     f'<span class="kpi">波动 CV '
+                     f'<span class="kpi">Variation CV '
                      f'{(cycle_report.cv or 0) * 100:.1f}%</span>'
-                     f'<span class="kpi">瓶颈 '
+                     f'<span class="kpi">Bottleneck '
                      f'{esc(bottleneck)}</span>')
 
     # --- anomaly statistics --------------------------------------------
     if yield_report:
-        parts.append("<h2>异常统计</h2><table><tr><th>异常类别</th>"
-                     "<th>数量</th></tr>")
+        parts.append("<h2>Anomaly statistics</h2>"
+                     "<table><tr><th>Anomaly category</th>"
+                     "<th>Count</th></tr>")
         for kind, n in sorted(yield_report.invalid_by_kind.items()):
             parts.append(f"<tr><td>{esc(kind)}</td><td>{n}</td></tr>")
         parts.append("</table>")
         if yield_report.top_defects:
-            parts.append("<h2>不良 TOP</h2><table><tr><th>用例</th>"
-                         "<th>次数</th><th>占比</th></tr>")
+            parts.append("<h2>Defect TOP</h2><table><tr><th>Case</th>"
+                         "<th>Count</th><th>Share</th></tr>")
             for name, n, ratio in yield_report.top_defects:
                 parts.append(f"<tr><td>{esc(name)}</td><td>{n}</td>"
                              f"<td>{ratio * 100:.1f}%</td></tr>")
@@ -186,12 +187,13 @@ def build_html_report(*, records, yield_report, cycle_report,
                     and r.status.value == "FAIL")
             if p + f:
                 pts.append(p / (p + f) * 100)
-        parts.append("<h2>良率趋势缩略图</h2>")
+        parts.append("<h2>Yield trend thumbnail</h2>")
         parts.append(sparkline(pts) if len(pts) >= 2
-                     else "<i>趋势样本不足</i>")
+                     else "<i>Not enough trend samples</i>")
     if cpk_reports:
-        parts.append("<h2>CpK 趋势缩略图</h2><table><tr><th>参数</th>"
-                     "<th>Cp</th><th>CpK</th><th>等级</th><th>趋势</th>"
+        parts.append("<h2>CpK trend thumbnail</h2>"
+                     "<table><tr><th>Parameter</th>"
+                     "<th>Cp</th><th>CpK</th><th>Grade</th><th>Trend</th>"
                      "</tr>")
         for case, rep in cpk_reports.items():
             if rep is None:
@@ -207,8 +209,10 @@ def build_html_report(*, records, yield_report, cycle_report,
 
     # --- batch comparison -------------------------------------------------
     if batch_summaries:
-        parts.append("<h2>批次汇总对比</h2><table><tr><th>批次</th>"
-                     "<th>良率</th><th>平均工时s</th><th>测试数</th>"
+        parts.append("<h2>Batch summary comparison</h2>"
+                     "<table><tr><th>Batch</th>"
+                     "<th>Yield</th><th>Mean cycle (s)</th>"
+                     "<th>Tests</th>"
                      "</tr>")
         for batch, s in batch_summaries.items():
             y, c = s.get("yield", {}), s.get("cycle", {})
@@ -222,9 +226,10 @@ def build_html_report(*, records, yield_report, cycle_report,
         parts.append("</table>")
 
     # --- test detail ---------------------------------------------------
-    parts.append("<h2>测试明细</h2><table><tr><th>#</th><th>用例</th>"
-                 "<th>结果</th><th>实测</th><th>耗时s</th><th>时间</th>"
-                 "<th>批次</th></tr>")
+    parts.append("<h2>Test detail</h2><table><tr><th>#</th><th>Case</th>"
+                 "<th>Result</th><th>Measured</th><th>Duration (s)</th>"
+                 "<th>Time</th>"
+                 "<th>Batch</th></tr>")
     for i, r in enumerate(records, 1):
         parts.append(f"<tr><td>{i}</td><td>{esc(r.name)}</td>"
                      f"{_status_cell(r.status.value)}"
@@ -235,10 +240,11 @@ def build_html_report(*, records, yield_report, cycle_report,
     parts.append("</table>")
 
     # --- footer ----------------------------------------------------------
-    parts.append(f'<p class="foot">mtk-gui 量产成品报告 | 版本 '
-                 f'{esc(meta.get("version", "-"))} | 配置 '
-                 f'{esc(meta.get("revision", "-"))} | 生成 '
-                 f'{esc(ts)} | 溯源哈希 {digest}</p>'
+    parts.append(f'<p class="foot">mtk-gui mass-production report | '
+                 f'version '
+                 f'{esc(meta.get("version", "-"))} | config '
+                 f'{esc(meta.get("revision", "-"))} | generated '
+                 f'{esc(ts)} | trace hash {digest}</p>'
                  "</body></html>")
     return "".join(parts)
 

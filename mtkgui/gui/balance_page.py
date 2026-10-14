@@ -35,10 +35,10 @@ class BalancePage(QWidget):
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
         self.task_edit = QLineEdit(self)
-        self.task_edit.setPlaceholderText("任务ID")
-        self.migrate_btn = QPushButton("记录跨机迁移", self)
+        self.task_edit.setPlaceholderText("Task ID")
+        self.migrate_btn = QPushButton("Record cross-host migration", self)
         self.migrate_btn.clicked.connect(self.on_record)
-        self.refresh_btn = QPushButton("刷新", self)
+        self.refresh_btn = QPushButton("Refresh", self)
         self.refresh_btn.clicked.connect(self.refresh)
         self.imbalance_label = QLabel("", self)
         self.speed_label = QLabel("", self)
@@ -50,8 +50,8 @@ class BalancePage(QWidget):
 
         self.table = QTableWidget(0, 8, self)
         self.table.setHorizontalHeaderLabels(
-            ["主机", "设备数", "运行中", "已完成", "失败", "忙时(s)",
-             "离线", "利用率"])
+            ["Host", "Devices", "Running", "Done", "Failed", "Busy(s)",
+             "Offline", "Util"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
@@ -74,7 +74,7 @@ class BalancePage(QWidget):
                 self.table.setItem(r, c,
                                    QTableWidgetItem(str(row[key])))
         imb = self.balancer.imbalance()
-        self.imbalance_label.setText(f"失衡度 {imb:.2f}")
+        self.imbalance_label.setText(f"Imbalance {imb:.2f}")
         self.plan_list.clear()
         for mv in self.balancer.plan(self.hub, self.scheduler):
             self.plan_list.addItem(
@@ -92,14 +92,16 @@ class BalancePage(QWidget):
             return None
         st = self.balancer.accel_stats(self.scheduler, wall_s)
         self.speed_label.setText(
-            f"加速比 {st['speedup']:.2f}x / 效率 {st['efficiency']:.2f}")
+            f"Speedup {st['speedup']:.2f}x / efficiency "
+            f"{st['efficiency']:.2f}")
 
     # --------------------------------------------------------- record
     def on_record(self):
         tid = self.task_edit.text().strip()
         if not tid:
             if self.interactive:
-                QMessageBox.warning(self, "迁移记录", "请先输入任务ID")
+                QMessageBox.warning(self, "Migration record",
+                                    "Enter a task ID first")
             return None
         rows = self.balancer.hosts_view()
         if len(rows) < 2:
@@ -110,5 +112,5 @@ class BalancePage(QWidget):
         self.balancer.record_migration(tid, hot, cold, "manual")
         self.refresh()
         if self.interactive:
-            QMessageBox.information(self, "迁移记录", "成功")
+            QMessageBox.information(self, "Migration record", "Done")
         return (tid, hot, cold)

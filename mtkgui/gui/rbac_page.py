@@ -35,35 +35,35 @@ class RbacPage(QWidget):
 
         # ---- tab 1: function-plane matrix (roles x actions) ----
         self.matrix = QTableWidget(len(Role5), 2, self)
-        self.matrix.setHorizontalHeaderLabels(["角色", "授予权限"])
+        self.matrix.setHorizontalHeaderLabels(["Role", "Granted actions"])
         self.matrix.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
-        tabs.addTab(self.matrix, "功能权限矩阵")
+        tabs.addTab(self.matrix, "Function permission matrix")
 
         # ---- tab 2: page-plane minimum role ----
         self.pages = QTableWidget(0, 2, self)
-        self.pages.setHorizontalHeaderLabels(["页面路由", "最低角色"])
+        self.pages.setHorizontalHeaderLabels(["Page route", "Minimum role"])
         self.pages.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
-        tabs.addTab(self.pages, "页面权限")
+        tabs.addTab(self.pages, "Page permissions")
 
         # ---- tab 3: account admin ----
         acct = QWidget(self)
         form = QHBoxLayout(acct)
         self.user_edit = QLineEdit(acct)
-        self.user_edit.setPlaceholderText("用户名")
+        self.user_edit.setPlaceholderText("Username")
         self.pwd_edit = QLineEdit(acct)
-        self.pwd_edit.setPlaceholderText("密码")
+        self.pwd_edit.setPlaceholderText("Password")
         self.pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.role_combo = QComboBox(acct)
         self.role_combo.addItems([r.value for r in Role5])
-        self.add_btn = QPushButton("创建账号", acct)
+        self.add_btn = QPushButton("Create account", acct)
         self.add_btn.clicked.connect(self.on_add)
         for w in (self.user_edit, self.pwd_edit, self.role_combo,
                   self.add_btn):
             form.addWidget(w)
         form.addStretch(1)
-        tabs.addTab(acct, "账号管理")
+        tabs.addTab(acct, "Account management")
 
         self.stats_label = QLabel("", self)
         root.addWidget(self.stats_label)
@@ -87,7 +87,7 @@ class RbacPage(QWidget):
             self.pages.setItem(
                 r, 1, QTableWidgetItem(level_of.get(lvl, str(lvl))))
         self.stats_label.setText(
-            f"五角色 RBAC | 角色 {len(roles)} | 页面 {len(pages)}")
+            f"Five-role RBAC | roles {len(roles)} | pages {len(pages)}")
         return len(roles)
 
     # ----------------------------------------------------------- ops
@@ -96,8 +96,8 @@ class RbacPage(QWidget):
         pwd = self.pwd_edit.text()
         if not user or not pwd:
             if self.interactive:
-                QMessageBox.warning(self, "创建账号",
-                                    "请输入用户名与密码")
+                QMessageBox.warning(self, "Create account",
+                                    "Enter a username and password")
             return None
         role = Role5(self.role_combo.currentText())
         try:
@@ -105,9 +105,9 @@ class RbacPage(QWidget):
             self.hub.add_account(Role5.ADMIN, user, pwd, role)
         except PermissionError as exc:
             if self.interactive:
-                QMessageBox.warning(self, "越权拦截", str(exc))
+                QMessageBox.warning(self, "Escalation blocked", str(exc))
             return None
         self.refresh()
         if self.interactive:
-            QMessageBox.information(self, "创建账号", "成功")
+            QMessageBox.information(self, "Create account", "Done")
         return (user, role.value)

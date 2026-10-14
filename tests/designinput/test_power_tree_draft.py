@@ -105,4 +105,5 @@ def test_regulator_without_out_pin_warns():
 
 def test_fixed_tooltip_constant():
     assert DRAFT_MISSING_PARAM_TOOLTIP == (
-        "草稿拓扑，需要同步至Power-Tree Editor填写电压、容差、跳线信息")
+        "Draft topology: sync to the Power-Tree Editor and fill in "
+        "voltage, tolerance and jumper information")

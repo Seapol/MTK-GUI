@@ -24,7 +24,8 @@ from .components import CATEGORY_DCDC, CATEGORY_LDO, \
 from .netlist import NetCollection, NET_TYPE_POWER
 
 DRAFT_MISSING_PARAM_TOOLTIP = (
-    "草稿拓扑，需要同步至Power-Tree Editor填写电压、容差、跳线信息")
+    "Draft topology: sync to the Power-Tree Editor and fill in "
+    "voltage, tolerance and jumper information")
 
 # input-pin names treated as regulator supply inputs
 _VIN_PIN_RE = re.compile(r"^(VIN|IN|VCC|VDD)\d*$", re.IGNORECASE)

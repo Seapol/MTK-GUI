@@ -51,9 +51,9 @@ class CaseIOPage(QWidget):
         # export row -------------------------------------------------------
         bar = QHBoxLayout()
         self.export_edit = QLineEdit(self)
-        self.export_edit.setPlaceholderText("导出路径（留空自动命名）")
-        self.export_btn = QPushButton("一键导出复审 Excel (17列)", self)
-        bar.addWidget(QLabel("导出:", self))
+        self.export_edit.setPlaceholderText("Export path (blank = auto name)")
+        self.export_btn = QPushButton("Export review Excel (17-col)", self)
+        bar.addWidget(QLabel("Export:", self))
         bar.addWidget(self.export_edit, 1)
         bar.addWidget(self.export_btn)
         root.addLayout(bar)
@@ -61,9 +61,9 @@ class CaseIOPage(QWidget):
         # import row ---------------------------------------------------------
         bar2 = QHBoxLayout()
         self.import_edit = QLineEdit(self)
-        self.import_edit.setPlaceholderText("人工修订后的 Excel 路径")
-        self.import_btn = QPushButton("一键导入修订 Excel", self)
-        bar2.addWidget(QLabel("导入:", self))
+        self.import_edit.setPlaceholderText("Path to the revised Excel")
+        self.import_btn = QPushButton("Import revised Excel", self)
+        bar2.addWidget(QLabel("Import:", self))
         bar2.addWidget(self.import_edit, 1)
         bar2.addWidget(self.import_btn)
         root.addLayout(bar2)
@@ -84,7 +84,7 @@ class CaseIOPage(QWidget):
         cfg = self.store.load(self.yaml_path)
         cases = cfg.get("ict_test_cases") or []
         if not cases:
-            self._info("导出被拦截: 当前工程无 ict_test_cases 用例")
+            self._info("Export blocked: no ict_test_cases in this project")
             return None
         path = self.export_edit.text().strip()
         if not path:
@@ -94,11 +94,12 @@ class CaseIOPage(QWidget):
         try:
             count = export_review_excel(cfg, path)
         except Exception as exc:  # unreadable YAML / no write permission
-            self._info(f"导出被拦截: {exc}")
+            self._info(f"Export blocked: {exc}")
             return None
         self._audit("export", f"{count} case(s) -> {path}")
-        self.summary.setText(f"导出完成 ✔ {count} 条用例 (17列) -> {path}")
-        self._info(f"导出 {count} 条用例 -> {path}")
+        self.summary.setText(f"Export complete ✔ {count} case(s) "
+                             f"(17-col) -> {path}")
+        self._info(f"Exported {count} case(s) -> {path}")
         return path
 
     # ------------------------------------------------------------- import
@@ -106,10 +107,10 @@ class CaseIOPage(QWidget):
         """Import the edited workbook: snapshot -> diff -> apply -> save."""
         path = self.import_edit.text().strip()
         if not path:
-            self._info("导入被拦截: 请填写修订 Excel 路径")
+            self._info("Import blocked: enter the revised Excel path")
             return None
         if not os.path.exists(path):
-            self._info(f"导入被拦截: 文件不存在 {path}")
+            self._info(f"Import blocked: file not found {path}")
             return None
         cfg = self.store.load(self.yaml_path)
         # pre-flight: block the whole import when a version-locked case
@@ -120,12 +121,14 @@ class CaseIOPage(QWidget):
             pre = diff_rows(cfg.get("ict_test_cases") or [],
                             import_review_excel(path).rows)
         except ValueError as exc:
-            self._info(f"导入被拦截 (脏数据/空表): {exc}")
-            self._warn("导入失败", f"异常数据已拦截，YAML 未被修改:\n{exc}")
+            self._info(f"Import blocked (dirty data / empty sheet): {exc}")
+            self._warn("Import failed",
+                       f"Invalid data blocked; YAML not modified:\n{exc}")
             return None
         except Exception as exc:  # corrupt workbook / wrong format
-            self._info(f"导入被拦截 (文件损坏): {exc}")
-            self._warn("导入失败", f"文件无法解析，YAML 未被修改:\n{exc}")
+            self._info(f"Import blocked (corrupt file): {exc}")
+            self._warn("Import failed",
+                       f"File could not be parsed; YAML not modified:\n{exc}")
             return None
         locked_hits = sorted(
             {str(ch["name"]) for ch in pre["changed"]
@@ -133,17 +136,17 @@ class CaseIOPage(QWidget):
             | {str(row.get("name")) for row in pre["removed"]
                if self.store.is_locked(cfg, str(row.get("name")))})
         if locked_hits:
-            msg = ("以下用例已版本锁定，导入被整体拦截:\n"
-                   + "\n".join(locked_hits))
-            self._info(f"导入被拦截 (锁定冲突): {locked_hits}")
-            self._warn("锁定冲突", msg)
+            msg = ("Import blocked entirely; these cases are "
+                   "version-locked:\n" + "\n".join(locked_hits))
+            self._info(f"Import blocked (lock conflict): {locked_hits}")
+            self._warn("Lock conflict", msg)
             return None
         try:
             # P1-16 pipeline: import -> diff -> apply -> audit history
             report = sync_review_excel(cfg, path, source="gui-import",
                                        actor="operator")
         except Exception as exc:  # defensive: pre-flight already filtered
-            self._info(f"导入被拦截: {exc}")
+            self._info(f"Import blocked: {exc}")
             return None
 
         # auto version snapshot of the NEW state + formatted YAML write
@@ -151,44 +154,46 @@ class CaseIOPage(QWidget):
         self.store.save(cfg, self.yaml_path)
         self.last_report = report
         self.summary.setText(self._summarize(report))
-        self._info("导入比对明细:\n" + self._render_diff(report))
+        self._info("Import diff detail:\n" + self._render_diff(report))
         self._audit("import",
                     f"{os.path.basename(path)} +{len(report['added'])} "
                     f"-{len(report['removed'])} "
                     f"~{len(report['changed'])} changed, "
                     f"ignored_cols={report['ignored_columns']}")
         if self.interactive:
-            QMessageBox.information(self, "导入完成", self._summarize(report))
+            QMessageBox.information(self, "Import complete",
+                                    self._summarize(report))
         self.cases_applied.emit(cfg)
         return report
 
     # ------------------------------------------------------------ helpers
     @staticmethod
     def _summarize(report: dict) -> str:
-        return (f"导入完成 ✔ 新增 {len(report['added'])} | "
-                f"删除 {len(report['removed'])} | "
-                f"参数修改 {len(report['changed'])} | "
-                f"忽略列 {len(report['ignored_columns'])}")
+        return (f"Import complete ✔ added {len(report['added'])} | "
+                f"removed {len(report['removed'])} | "
+                f"changed {len(report['changed'])} | "
+                f"ignored columns {len(report['ignored_columns'])}")
 
     @staticmethod
     def _render_diff(report: dict) -> str:
         lines: list[str] = []
         for row in report["added"]:
-            lines.append(f"  [新增] {row.get('name')}")
+            lines.append(f"  [added] {row.get('name')}")
         for row in report["removed"]:
-            lines.append(f"  [删除] {row.get('name')}")
+            lines.append(f"  [removed] {row.get('name')}")
         for ch in report["changed"]:
             tag = ""
             if ch["field"] == "instrument":
-                tag = "仪器重分配"
+                tag = "instrument reassigned"
             elif ch["field"] == "priority":
-                tag = "优先级变动"
-            lines.append(f"  [参数修改{('·' + tag) if tag else ''}] "
+                tag = "priority moved"
+            lines.append(f"  [changed{(' · ' + tag) if tag else ''}] "
                          f"{ch['name']}.{ch['field']}: "
                          f"{ch['old']!r} -> {ch['new']!r}")
         if report["ignored_columns"]:
-            lines.append(f"  [脏列忽略] {report['ignored_columns']}")
-        return "\n".join(lines) or "  (无差异)"
+            lines.append(f"  [dirty columns ignored] "
+                         f"{report['ignored_columns']}")
+        return "\n".join(lines) or "  (no diff)"
 
     def _info(self, text: str) -> None:
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -197,7 +202,7 @@ class CaseIOPage(QWidget):
     def _audit(self, action: str, detail: str) -> None:
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[XLS] {stamp} {action}: {detail}")
-        self._info(f"操作留痕 [{action}] source=gui-{action} "
+        self._info(f"audit trail [{action}] source=gui-{action} "
                    f"actor=operator: {detail}")
 
     def _warn(self, title: str, text: str) -> None:

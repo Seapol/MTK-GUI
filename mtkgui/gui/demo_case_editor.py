@@ -56,11 +56,11 @@ def main() -> int:
     store = CaseStore(snapshot_dir=os.path.join(tmp, "snaps"))
 
     # 1. store layer: categorize + edit + history + lock
-    assert categorize({"name": "PWR 3V3 Voltage"}) == "电源网络"
-    assert categorize({"name": "CLK X Frequency"}) == "时钟网络"
-    assert categorize({"name": "SIG X Continuity"}) == "信号网络"
+    assert categorize({"name": "PWR 3V3 Voltage"}) == "Power network"
+    assert categorize({"name": "CLK X Frequency"}) == "Clock network"
+    assert categorize({"name": "SIG X Continuity"}) == "Signal network"
     assert categorize({"name": "Fixture Clamp Down", "kind": "op"}) == \
-        "操作流程"
+        "Procedure"
 
     changed = store.apply_case_edit(
         cfg, names[0], {"threshold_min": "0.9", "priority": "2",
@@ -102,8 +102,8 @@ def main() -> int:
 
     cats = {page.tree.topLevelItem(i).text(0)
             for i in range(page.tree.topLevelItemCount())}
-    assert cats == {"电源网络", "时钟网络", "信号网络",
-                    "操作流程"}, cats
+    assert cats == {"Power network", "Clock network", "Signal network",
+                    "Procedure"}, cats
 
     target_name = next(n for n in names if n.startswith("PWR 3V3"))
     item = None
@@ -115,14 +115,15 @@ def main() -> int:
     assert item is not None, "target case visible in grouped tree"
     page.tree.setCurrentItem(item)
     page.f_prio.setText("5")
-    page.f_notes.setPlainText("人工终审微调")
+    page.f_notes.setPlainText("final human review tweak")
     result = page.on_save()
     assert result is not None, "legal save passes"
     saved_cfg = CaseStore.load(yaml_path)
     saved_case = next(c for c in saved_cfg["ict_test_cases"]
                       if c["name"] == target_name)
     assert saved_case["priority"] == 5, "priority persisted"
-    assert saved_case["notes"] == "人工终审微调", "notes persisted"
+    assert saved_case["notes"] == "final human review tweak", \
+        "notes persisted"
     assert applied, "cases_applied signal fired"
 
     # lock via page button -> save intercepted
@@ -141,9 +142,9 @@ def main() -> int:
     # 4. traceability panel shows AI gen + manual edits
     page.reload()
     text = page.trace.toPlainText()
-    assert "AI生成" in text, "AI provenance shown"
+    assert "AI generated" in text, "AI provenance shown"
     assert "gui-editor" in text, "manual edit history shown"
-    assert "版本锁定" in text, "lock state shown"
+    assert "Version lock" in text, "lock state shown"
 
     print("[P2-3 case editor demo] visual case editor OK — grouped list, "
           "single-case visual edit, dimension toggles, version lock "

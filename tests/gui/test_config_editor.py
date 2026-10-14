@@ -188,7 +188,7 @@ def test_page_blocks_illegal_save(workspace, qapp):
     page._editors["test_workflow.retry"].setText("999")
     page._editors["product.batch"].setText("")  # required emptied
     assert page.on_save() is None  # intercepted
-    assert "拦截" in page.summary.text()  # user-visible status fired
+    assert "blocked" in page.summary.text()  # user-visible status fired
     # nothing written
     assert store.load(yaml_path)["test_workflow"]["retry"] == 0
 

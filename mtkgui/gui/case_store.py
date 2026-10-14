@@ -33,7 +33,8 @@ GUI_EDITABLE = EDITABLE + ("retry", "skip_if")
 
 # dimension toggle groups (spec P2-3 item 3)
 DIMENSIONS = ("impedance", "voltage", "timing")
-DIM_CN = {"impedance": "阻抗", "voltage": "电压", "timing": "上电时序"}
+DIM_CN = {"impedance": "Impedance", "voltage": "Voltage",
+          "timing": "Power-up timing"}
 
 
 class LockedCaseError(RuntimeError):
@@ -52,7 +53,7 @@ class FieldChange:
 
 
 def categorize(case: dict) -> str:
-    """Display category for the case list (电源/时钟/信号/操作).
+    """Display category for the case list (power/clock/signal/op).
 
     Note: clock rows carry test_dim="voltage" (frequency window), so
     the name-prefix checks must take precedence over the dimension.
@@ -60,13 +61,13 @@ def categorize(case: dict) -> str:
     name = str(case.get("name") or "")
     dim = str(case.get("test_dim") or "")
     if name.startswith("CLK"):
-        return "时钟网络"
+        return "Clock network"
     if name.startswith("SIG"):
-        return "信号网络"
+        return "Signal network"
     if name.startswith("PWR") or dim in ("voltage", "timing") \
             or name.startswith("Impedance"):
-        return "电源网络"
-    return "操作流程"
+        return "Power network"
+    return "Procedure"
 
 
 def coerce_field(field: str, raw):
@@ -76,7 +77,9 @@ def coerce_field(field: str, raw):
     if field == "enable":
         if isinstance(raw, bool):
             return raw
-        return str(raw).strip().lower() in ("1", "true", "yes", "是", "y")
+        # legacy CN truthy tokens (是/否) stay an engine-importer
+        # contract only; the GUI edits carry bools / English tokens
+        return str(raw).strip().lower() in ("1", "true", "yes", "y")
     if field == "retry":
         if raw is None or str(raw).strip() == "":
             return None  # absent key -> inherit global retry

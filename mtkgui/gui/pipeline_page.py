@@ -31,12 +31,12 @@ class PipelinePage(QWidget):
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
         self.batch_edit = QLineEdit(self)
-        self.batch_edit.setPlaceholderText("批次ID")
+        self.batch_edit.setPlaceholderText("Batch ID")
         self.units_edit = QLineEdit(self)
         self.units_edit.setPlaceholderText("SN1,SN2,SN3")
-        self.create_btn = QPushButton("批量初始化", self)
+        self.create_btn = QPushButton("Batch init", self)
         self.create_btn.clicked.connect(self.on_create)
-        self.monitor_btn = QPushButton("监控", self)
+        self.monitor_btn = QPushButton("Monitor", self)
         self.monitor_btn.clicked.connect(self.on_monitor)
         self.stats_label = QLabel("", self)
         for w in (self.batch_edit, self.units_edit, self.create_btn,
@@ -47,7 +47,7 @@ class PipelinePage(QWidget):
 
         self.table = QTableWidget(0, 4, self)
         self.table.setHorizontalHeaderLabels(
-            ["SN", "状态", "阶段", "错误"])
+            ["SN", "State", "Stage", "Error"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
@@ -66,8 +66,8 @@ class PipelinePage(QWidget):
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
         summ = self.pipeline.summarize(self._batch_id)
         self.stats_label.setText(
-            f"批次 {self._batch_id} | 单元 {summ['units']} | "
-            f"良率 {summ['yield']:.1%}")
+            f"Batch {self._batch_id} | units {summ['units']} | "
+            f"yield {summ['yield']:.1%}")
         return len(rows)
 
     # ----------------------------------------------------------- ops
@@ -77,8 +77,8 @@ class PipelinePage(QWidget):
                  self.units_edit.text().split(",") if u.strip()]
         if not bid or not units:
             if self.interactive:
-                QMessageBox.warning(self, "批量初始化",
-                                    "请输入批次ID与SN列表")
+                QMessageBox.warning(self, "Batch init",
+                                    "Enter a batch ID and SN list")
             return None
         self.pipeline.create_batch(bid, units)
         self._batch_id = bid
@@ -92,7 +92,7 @@ class PipelinePage(QWidget):
         self.refresh()
         if self.interactive:
             QMessageBox.information(
-                self, "流水线监控",
-                "健康" if mon["healthy"] else
-                f"异常: {len(mon['failed'])} 个单元失败")
+                self, "Pipeline monitor",
+                "Healthy" if mon["healthy"] else
+                f"Unhealthy: {len(mon['failed'])} unit(s) failed")
         return mon

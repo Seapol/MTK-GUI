@@ -59,17 +59,18 @@ COPYRIGHT_TEXT = "\u00a92026 NXP. All Rights Reserved."
 # Fixed wording of the Manual-fixture notice (spec item 5): shown once
 # after a Manual login and whenever a blocked fixture / IO entry is used.
 MANUAL_FIXTURE_NOTICE = (
-    "当前为Manual Fixture模式，无IO资源自动控制权限，"
-    "所有夹具动作、硬件操作需由用户手动自行操作")
+    "Manual Fixture mode: no automatic IO control. "
+    "Perform all fixture actions and hardware operations manually.")
 
 # Fixed wording of the Virtual-mode notice: Virtual mode only simulates
 # the ICT instrument measurements; FCT always runs against real
 # hardware (real DUT + Host PC Wi-Fi/Bluetooth + Wi-Fi router).
 VIRTUAL_MODE_NOTICE = (
-    "当前为Virtual模式：仅 ICT 仪器测量部分为虚拟仿真"
-    "（结果显示 Virtual PASS / Virtual FAIL，黄绿色 / 橙红色）；"
-    "FCT 测试始终在真实环境执行（真实 DUT + Host PC Wi-Fi/蓝牙 "
-    "+ Wi-Fi 路由器），结果显示 PASS / FAIL")
+    "Virtual mode: only the ICT instrument measurements are simulated "
+    "(results show Virtual PASS / Virtual FAIL in yellow-green / "
+    "orange-red). FCT always runs against real hardware "
+    "(real DUT + Host PC Wi-Fi/Bluetooth + Wi-Fi router) "
+    "and shows PASS / FAIL")
 
 # Default supervisor password (source-only by design; do not document it).
 SUPERVISOR_PASSWORD = "nxp"

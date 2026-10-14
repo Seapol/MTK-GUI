@@ -33,11 +33,11 @@ class ResourcePage(QWidget):
 
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
-        self.refresh_btn = QPushButton("刷新", self)
+        self.refresh_btn = QPushButton("Refresh", self)
         self.refresh_btn.clicked.connect(self.refresh)
-        self.sweep_btn = QPushButton("TTL 清理", self)
+        self.sweep_btn = QPushButton("TTL sweep", self)
         self.sweep_btn.clicked.connect(self.on_sweep)
-        self.release_btn = QPushButton("释放选中", self)
+        self.release_btn = QPushButton("Release selected", self)
         self.release_btn.clicked.connect(self.on_release)
         self.status_label = QLabel("", self)
         for w in (self.refresh_btn, self.sweep_btn,
@@ -48,13 +48,13 @@ class ResourcePage(QWidget):
 
         self.table = QTableWidget(0, 5, self)
         self.table.setHorizontalHeaderLabels(
-            ["类型", "资源", "持有者", "租户", "持有时长s"])
+            ["Type", "Resource", "Owner", "Tenant", "Held (s)"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
 
         self.tree = QTreeWidget(self)
-        self.tree.setHeaderLabels(["路径中台", "位置"])
+        self.tree.setHeaderLabels(["Path hub", "Location"])
         root.addWidget(self.tree, 1)
         self.refresh()
 
@@ -70,7 +70,7 @@ class ResourcePage(QWidget):
         self.tree.clear()
         for cat, loc in self.hub.snapshot().items():
             QTreeWidgetItem(self.tree, [cat, loc])
-        self.status_label.setText(f"持锁 {len(rows)} 项")
+        self.status_label.setText(f"Held locks: {len(rows)}")
         return len(rows)
 
     # ---------------------------------------------------------- action
@@ -78,15 +78,16 @@ class ResourcePage(QWidget):
         n = self.manager.sweep()
         self.refresh()
         if self.interactive:
-            QMessageBox.information(self, "TTL 清理",
-                                    f"自动释放 {n} 项过期锁")
+            QMessageBox.information(self, "TTL sweep",
+                                    f"Auto-released {n} expired lock(s)")
         return n
 
     def on_release(self):
         r = self.table.currentRow()
         if r < 0:
             if self.interactive:
-                QMessageBox.warning(self, "释放", "请先选择资源行")
+                QMessageBox.warning(self, "Release",
+                                    "Select a resource row first")
             return None
         rtype = self.table.item(r, 0).text()
         name = self.table.item(r, 1).text()
@@ -99,5 +100,6 @@ class ResourcePage(QWidget):
         self.refresh()
         if self.interactive:
             QMessageBox.information(
-                self, "释放", "已释放" if ok else "token 不匹配")
+                self, "Release",
+                "Released" if ok else "token mismatch")
         return ok

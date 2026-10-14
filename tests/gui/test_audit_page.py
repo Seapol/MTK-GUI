@@ -35,7 +35,7 @@ def test_login_admin_shows_badge(page):
     fired = []
     page.logged_in.connect(fired.append)
     page.on_login()
-    assert "管理员" in page.session_label.text()
+    assert "Admin" in page.session_label.text()
     assert fired == [Role.ADMIN.value]
     page.refresh()
     assert page.table.rowCount() >= 1, "login audited in board"
@@ -45,7 +45,7 @@ def test_login_operator_badge_and_denial(page):
     page.user_edit.setText("op")
     page.pwd_edit.setText("op123")
     page.on_login()
-    assert "操作员" in page.session_label.text()
+    assert "Operator" in page.session_label.text()
     page.on_edit_config()          # guarded -> denied, audited
     page.refresh()
     actions = [page.table.item(r, 2).text()
@@ -71,7 +71,7 @@ def test_bad_login_shows_unauthenticated(page):
     page.user_edit.setText("op")
     page.pwd_edit.setText("wrong")
     page.on_login()
-    assert page.session_label.text() == "未登录"
+    assert page.session_label.text() == "Signed out"
 
 
 def test_filters_and_export(page):

@@ -30,20 +30,20 @@ class QueuePage(QWidget):
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
         self.payload_edit = QLineEdit(self)
-        self.payload_edit.setPlaceholderText("任务负载（任意文本）")
+        self.payload_edit.setPlaceholderText("Task payload (any text)")
         self.prio_spin = QSpinBox(self)
         self.prio_spin.setRange(-9, 9)
         self.prio_spin.setValue(0)
         self.retry_spin = QSpinBox(self)
         self.retry_spin.setRange(0, 9)
         self.retry_spin.setValue(2)
-        self.submit_btn = QPushButton("入队", self)
+        self.submit_btn = QPushButton("Enqueue", self)
         self.submit_btn.clicked.connect(self.on_submit)
-        self.refresh_btn = QPushButton("刷新", self)
+        self.refresh_btn = QPushButton("Refresh", self)
         self.refresh_btn.clicked.connect(self.refresh)
         self.stats_label = QLabel("", self)
-        for w in (self.payload_edit, QLabel("优先级", self),
-                  self.prio_spin, QLabel("重试", self),
+        for w in (self.payload_edit, QLabel("Priority", self),
+                  self.prio_spin, QLabel("Retries", self),
                   self.retry_spin, self.submit_btn,
                   self.refresh_btn, self.stats_label):
             bar.addWidget(w)
@@ -52,7 +52,7 @@ class QueuePage(QWidget):
 
         self.table = QTableWidget(0, 5, self)
         self.table.setHorizontalHeaderLabels(
-            ["任务ID", "优先级", "状态", "尝试", "负载"])
+            ["Task ID", "Priority", "State", "Attempts", "Payload"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 1)
@@ -79,7 +79,7 @@ class QueuePage(QWidget):
                                    QTableWidgetItem(str(row[key])))
         stats = self.queue.stats()
         self.stats_label.setText(
-            f"总计 {stats['total']} | 待处理 {stats['PENDING']} | "
-            f"运行 {stats['RUNNING']} | 完成 {stats['DONE']} | "
-            f"失败 {stats['FAILED']}")
+            f"Total {stats['total']} | pending {stats['PENDING']} | "
+            f"running {stats['RUNNING']} | done {stats['DONE']} | "
+            f"failed {stats['FAILED']}")
         return stats

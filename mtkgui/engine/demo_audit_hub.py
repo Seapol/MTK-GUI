@@ -77,7 +77,7 @@ def main() -> int:
     page.path_edit.setText(str(tmp / "rep_gui"))
     summ = page.on_export()
     assert summ["total_entries"] >= 6
-    assert "完整性" in page.stats_label.text()
+    assert "integrity" in page.stats_label.text()
 
     print("[P3-10 audit hub demo] full-chain audit + compliance OK — "
           "categorized trail, before/after change diffs, stats, "

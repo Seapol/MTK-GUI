@@ -68,6 +68,38 @@ def test_unit_map_covers_all_methods(qapp):
         dlg.deleteLater()
 
 
+def test_remove_last_row_allowed(qapp):
+    """User direction 2026-10-14: zero test items are legal per stage
+    (ICT-only / FCT-only - only the BOTH-empty case warns elsewhere):
+    the Remove button stays enabled at one row and the dialog can OK
+    an EMPTY sequence."""
+    dlg = make_dialog(None)
+    try:
+        assert len(dlg._steps) == 2
+        dlg.list_widget.setCurrentRow(1)
+        assert dlg.btn_remove.isEnabled()
+        dlg.btn_remove.click()
+        assert len(dlg._steps) == 1
+        dlg.list_widget.setCurrentRow(0)
+        dlg.btn_remove.click()
+        assert dlg._steps == []
+        assert not dlg.btn_remove.isEnabled()
+        assert dlg.result_data()[0] == []
+    finally:
+        dlg.deleteLater()
+
+    fct = _SequenceEditorDialog(
+        "fct", ["MessageOK: All Done"], [True], [100], [5000],
+        kinds=["MessageOK"], op_params=[None])
+    try:
+        fct.list_widget.setCurrentRow(0)
+        fct.btn_remove.click()
+        assert fct._steps == []
+        assert fct.result_data() == ([], [], [], [], [], [])
+    finally:
+        fct.deleteLater()
+
+
 def test_edit_ict_step_round_trip(qapp, monkeypatch):
     """The dialog writes the chosen net, the auto unit and the numeric
     limits back into the step tuple (exec mocked to OK)."""

@@ -104,7 +104,7 @@ def main() -> int:
     page.order_edit.setText("WO-9,MT6891,2")
     result = page.on_order()
     assert result["accepted"] is True and result["units"] == 2
-    assert "接受" in page.mes_label.text()
+    assert "accepted" in page.mes_label.text()
 
     print("[P3-11 open API demo] RESTful + MES OK — key scopes, "
           "audited dispatch, device/task/report endpoints, MES "

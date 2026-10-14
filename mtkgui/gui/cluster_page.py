@@ -43,13 +43,13 @@ class ClusterPage(QWidget):
         root.addWidget(self.status_label)
 
         bar = QHBoxLayout()
-        self.assign_btn = QPushButton("派发下一任务", self)
+        self.assign_btn = QPushButton("Dispatch next task", self)
         self.assign_btn.clicked.connect(self.on_assign)
-        self.remove_btn = QPushButton("摘除选中设备", self)
+        self.remove_btn = QPushButton("Remove selected device", self)
         self.remove_btn.clicked.connect(self.on_remove)
-        self.restore_btn = QPushButton("恢复选中设备", self)
+        self.restore_btn = QPushButton("Restore selected device", self)
         self.restore_btn.clicked.connect(self.on_restore)
-        self.refresh_btn = QPushButton("刷新看板", self)
+        self.refresh_btn = QPushButton("Refresh board", self)
         self.refresh_btn.clicked.connect(self.refresh)
         for w in (self.assign_btn, self.remove_btn, self.restore_btn,
                   self.refresh_btn):
@@ -59,12 +59,13 @@ class ClusterPage(QWidget):
 
         self.device_table = QTableWidget(0, 7, self)
         self.device_table.setHorizontalHeaderLabels(
-            ["设备", "类型", "状态", "活跃", "完成", "失败", "负载"])
+            ["Device", "Type", "State", "Active", "Done", "Failed",
+             "Load"])
         root.addWidget(self.device_table, 1)
 
         self.task_table = QTableWidget(0, 4, self)
         self.task_table.setHorizontalHeaderLabels(
-            ["任务", "类型", "状态", "设备"])
+            ["Task", "Type", "State", "Device"])
         root.addWidget(self.task_table, 1)
 
         self.refresh()
@@ -90,8 +91,8 @@ class ClusterPage(QWidget):
                 self.task_table.setItem(r, c, QTableWidgetItem(v))
         n_run = len(snap["running"])
         self.status_label.setText(
-            f"集群设备 {len(devs)} 台 | 排队 {len(snap['queue'])} | "
-            f"运行中 {n_run}")
+            f"Cluster devices {len(devs)} | queued {len(snap['queue'])} | "
+            f"running {n_run}")
 
     def _selected_device(self) -> str | None:
         row = self.device_table.currentRow()
@@ -107,7 +108,7 @@ class ClusterPage(QWidget):
         self.dispatched.emit(len(self.scheduler.snapshot()["running"]))
         if nxt is not None and self.interactive:
             QMessageBox.information(
-                self, "已派发",
+                self, "Dispatched",
                 f"{nxt[0].task_id} -> {nxt[1]}")
 
     def on_remove(self) -> None:
@@ -118,8 +119,9 @@ class ClusterPage(QWidget):
         self.refresh()
         if self.interactive:
             QMessageBox.warning(
-                self, "设备已摘除",
-                f"{device} 故障摘除，迁移任务 {len(migrated)} 个")
+                self, "Device removed",
+                f"{device} removed as faulty; "
+                f"{len(migrated)} task(s) migrated")
 
     def on_restore(self) -> None:
         device = self._selected_device()

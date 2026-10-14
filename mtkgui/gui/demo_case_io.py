@@ -80,8 +80,8 @@ def main() -> int:
             row[0] = None                              # drop -> removed
     data.append(["SIG NEW_GPIO Continuity", "test", True, 100, 5000,
                  "Ω", 1.5, "—", 3, "—", "—", "—", "DAQM", "impedance",
-                 "人工新增", "P1-16.1", "2026-10-04T00:00:00Z"])
-    data[0].append("工程师批注")                       # unknown column
+                 "added manually", "P1-16.1", "2026-10-04T00:00:00Z"])
+    data[0].append("Engineer note")                    # unknown column
     for row in data[1:]:
         row.append("ok")
     wb2 = load_workbook(out)
@@ -89,7 +89,7 @@ def main() -> int:
     ws2.delete_rows(2, ws2.max_row)
     for row in data:
         ws2.append(row)
-    ws2.cell(row=1, column=len(COLUMNS) + 1, value="工程师批注")
+    ws2.cell(row=1, column=len(COLUMNS) + 1, value="Engineer note")
     wb2.save(out)
 
     # 3. one-click import: diff report + YAML update + snapshot
@@ -102,7 +102,8 @@ def main() -> int:
     assert (target, "threshold_max") in changed, "param change"
     assert (target, "instrument") in changed, "instrument re-assign"
     assert (target, "priority") in changed, "priority move"
-    assert "工程师批注" in report["ignored_columns"], "dirty column filtered"
+    assert "Engineer note" in report["ignored_columns"], \
+        "dirty column filtered"
     updated = store.load(yaml_path)
     names_after = {c["name"] for c in updated["ict_test_cases"]}
     assert "SIG NEW_GPIO Continuity" in names_after, "YAML updated"
@@ -121,7 +122,7 @@ def main() -> int:
     bad = os.path.join(tmp, "bad.xlsx")
     from openpyxl import Workbook
     wbb = Workbook()
-    wbb.active.append(["用例名称"])  # no 类型 column -> ValueError
+    wbb.active.append(["Case name"])  # no Type column -> ValueError
     wbb.active.append(["X"])
     wbb.save(bad)
     before = CaseStore.load(yaml_path)

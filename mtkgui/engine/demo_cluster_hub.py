@@ -91,7 +91,7 @@ def main() -> int:
     page.on_toggle(True)
     assert hub.node("BURNER-2").enabled is True, "GUI remote enable"
     assert page.table.rowCount() == 3
-    assert page.stats_label.text().startswith("节点 3")
+    assert page.stats_label.text().startswith("Nodes 3")
 
     print("[P3-6 cluster hub demo] fleet middle-platform OK — "
           "registration ledger, heartbeat recovery, stale OFFLINE "

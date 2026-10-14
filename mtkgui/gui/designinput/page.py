@@ -64,10 +64,11 @@ SMART_PDF_MARKER = "(Smart-PDF source, review component library!)"
 MANUAL_MARKER = "⚠ Manually entered"
 
 BOARD_LABELS = {
-    "FULL_SYSTEM_BOARD": "FULL_SYSTEM_BOARD 完整系统板",
-    "MAIN_CONTROLLER_BOARD": "MAIN_CONTROLLER_BOARD 主控板",
-    "NO_MCU_INTERFACE_SUB_BOARD": "NO_MCU_INTERFACE_SUB_BOARD 无主芯片接口基板",
-    "DAUGHTER_MODULE_CARD": "DAUGHTER_MODULE_CARD 子卡模组",
+    "FULL_SYSTEM_BOARD": "FULL_SYSTEM_BOARD full-system board",
+    "MAIN_CONTROLLER_BOARD": "MAIN_CONTROLLER_BOARD main-controller board",
+    "NO_MCU_INTERFACE_SUB_BOARD":
+        "NO_MCU_INTERFACE_SUB_BOARD interface sub-board (no MCU)",
+    "DAUGHTER_MODULE_CARD": "DAUGHTER_MODULE_CARD daughter module card",
 }
 
 

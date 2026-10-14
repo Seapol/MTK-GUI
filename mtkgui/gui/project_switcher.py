@@ -17,7 +17,7 @@ from mtkgui.engine.project_context import TenantError, TenantRegistry
 
 from .theme import StyleSpec
 
-LEGACY = "P2 单项目模式"
+LEGACY = "P2 single-project mode"
 
 
 class ProjectSwitcher(QWidget):

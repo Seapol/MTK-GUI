@@ -39,15 +39,15 @@ class FleetPage(QWidget):
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
         self.beat_edit = QLineEdit(self)
-        self.beat_edit.setPlaceholderText("设备ID")
-        self.beat_btn = QPushButton("心跳", self)
+        self.beat_edit.setPlaceholderText("Device ID")
+        self.beat_btn = QPushButton("Heartbeat", self)
         self.beat_btn.clicked.connect(self.on_heartbeat)
-        self.enable_btn = QPushButton("启用", self)
+        self.enable_btn = QPushButton("Enable", self)
         self.enable_btn.clicked.connect(lambda: self.on_toggle(True))
-        self.disable_btn = QPushButton("禁用", self)
+        self.disable_btn = QPushButton("Disable", self)
         self.disable_btn.clicked.connect(
             lambda: self.on_toggle(False))
-        self.refresh_btn = QPushButton("刷新", self)
+        self.refresh_btn = QPushButton("Refresh", self)
         self.refresh_btn.clicked.connect(self.refresh)
         self.stats_label = QLabel("", self)
         for w in (self.beat_edit, self.beat_btn, self.enable_btn,
@@ -59,7 +59,7 @@ class FleetPage(QWidget):
 
         self.table = QTableWidget(0, 6, self)
         self.table.setHorizontalHeaderLabels(
-            ["设备", "主机", "类型", "状态", "负载", "启用"])
+            ["Device", "Host", "Type", "State", "Load", "Enabled"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
@@ -82,7 +82,7 @@ class FleetPage(QWidget):
                 self.table.setItem(r, c,
                                    QTableWidgetItem(str(row[key])))
         online = sum(1 for x in rows if x["status"] == "ONLINE")
-        self.stats_label.setText(f"节点 {len(rows)} | 在线 {online}")
+        self.stats_label.setText(f"Nodes {len(rows)} | online {online}")
         return len(rows)
 
     def _on_alert(self, line: str) -> None:
@@ -102,13 +102,14 @@ class FleetPage(QWidget):
         did = self.beat_edit.text().strip()
         if not did:
             if self.interactive:
-                QMessageBox.warning(self, "远程管控", "请先输入设备ID")
+                QMessageBox.warning(self, "Remote control",
+                                    "Enter a device ID first")
             return None
         ok = self.hub.set_enabled(did, enabled,
                                   scheduler=self.scheduler)
         self.refresh()
         if self.interactive:
             QMessageBox.information(
-                self, "远程管控",
-                "成功" if ok else "未知设备")
+                self, "Remote control",
+                "Done" if ok else "Unknown device")
         return ok
