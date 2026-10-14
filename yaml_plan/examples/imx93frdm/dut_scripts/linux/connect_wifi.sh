@@ -54,6 +54,13 @@ sleep 1
 ip route | grep -q default || \
     udhcpc -i "$WIFI_IF" -n -t 8 >>/tmp/udhcpc.log 2>&1
 
+# re-apply power-save OFF AFTER the association: wpa_supplicant / the
+# IW612 driver can re-enable power management once associated, and the
+# link dozes + drops ~1 min later (this is what silently broke the
+# SFTP / iPerf steps which run long after the connect step)
+iw dev "$WIFI_IF" set power_save off 2>/dev/null || true
+sleep 1
+
 if ip -4 addr show "$WIFI_IF" | grep -q 'inet 192'; then
     echo "WIFI_CONNECTED_OK $(ip -4 addr show "$WIFI_IF" | awk '/inet/{print $2}')"
 else
