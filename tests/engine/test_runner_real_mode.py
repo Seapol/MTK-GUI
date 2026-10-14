@@ -149,3 +149,74 @@ class TestRealModeWithGateway:
         runner = step_run(env)
         assert runner.verdict() == "PASS"
         assert gw.ops and gw.measures and gw.captures == 1
+
+
+class TestRealModeGatewayInstrumentFaults:
+    """Gateway CONNECTED but the instrument unreachable: the row is an
+    Error AND the Event Log / row detail carry the reason."""
+
+    def test_measure_connect_failure_shows_reason(self, tmp_path):
+        env = real_bare_env(tmp_path)
+
+        class _Out:
+            verdict = "Error"
+            text = ""
+            lines = ["DAQ973A open failed: USB0::... not connected"]
+
+        class _Gw:
+            def measure_row(self, kind, name, unit, lo, hi, force=None):
+                return _Out()
+
+        env.gateway = _Gw()
+        runner = TestRunner(env)
+        env.runner = runner
+        volt_idx = next(i for i, s in enumerate(env.ict_steps)
+                        if s[0] == "Power Voltage")
+        runner._exec_ict_row(volt_idx)
+        # Result column = Error, detail carries the reason
+        assert env.rows.get(("ict", volt_idx)) == "Error"
+        assert "DAQ973A open failed" in env.measured[("ict", volt_idx)]
+        assert any("DAQ973A open failed" in line
+                   for line in env._log_lines())
+
+    def test_op_connect_failure_shows_reason(self, tmp_path):
+        env = real_bare_env(tmp_path)
+
+        class _Out:
+            verdict = "Error"
+            lines = ["N5747A open failed: TCPIP0 timeout"]
+
+        class _Gw:
+            def execute_op(self, name, params):
+                return _Out()
+
+        env.gateway = _Gw()
+        runner = TestRunner(env)
+        env.runner = runner
+        assert runner._run_op(
+            "ICT", "Connect Instruments",
+            {"type": "instruments", "instruments": ["PSU"]}) == "Error"
+        assert "N5747A open failed" in runner._last_op_error
+        assert any("N5747A open failed" in line
+                   for line in env._log_lines())
+
+    def test_rail_capture_failure_shows_reason(self, tmp_path):
+        env = real_bare_env(tmp_path)
+
+        class _Gw:
+            last_error = "U2355A open failed: device not connected"
+
+            def capture_rails(self, rails, start_s, end_s, rate_hz,
+                              force=None):
+                return None, None, "error"
+
+        env.gateway = _Gw()
+        runner = TestRunner(env)
+        env.runner = runner
+        daq_idx = next(i for i, s in enumerate(env.ict_steps)
+                       if s[0] == "DAQ AI")
+        runner._exec_rail_capture_row(daq_idx)
+        assert env.rows.get(("ict", daq_idx)) == "Error"
+        assert "U2355A open failed" in env.measured[("ict", daq_idx)]
+        assert any("U2355A open failed" in line
+                   for line in env._log_lines())

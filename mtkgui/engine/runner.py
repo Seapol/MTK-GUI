@@ -321,6 +321,7 @@ class TestRunner(QObject):
         gw = getattr(env, "gateway", None)
         virtual = getattr(env, "virtual_mode", False)
         is_flash = (params or {}).get("type") == "flash"
+        self._last_op_error = ""     # reason surfaced in the row detail
         if is_flash:
             if gw is not None and hasattr(gw, "execute_op"):
                 out = gw.execute_op(name, params)
@@ -328,8 +329,10 @@ class TestRunner(QObject):
                 out = None  # engine-side simulated flash (virtual)
             else:
                 env._instrument_error(op_instrument_abbr(params))
-                env._log(f"{tag} op {name}: no programmer gateway "
-                         f"connected (Real mode) -> Error")
+                self._last_op_error = \
+                    "no programmer gateway connected (Real mode)"
+                env._log(f"{tag} op {name}: {self._last_op_error} "
+                         f"-> Error")
                 return "Error"
         elif env.rack is not None:
             m = env.rack.execute_op(name, params)
@@ -346,6 +349,7 @@ class TestRunner(QObject):
             out = None
         else:
             env._instrument_error(op_instrument_abbr(params))
+            self._last_op_error = "instrument not connected (Real mode)"
             env._log(f"{tag} op {name}: no instrument gateway "
                      f"connected (Real mode) -> Error")
             return "Error"
@@ -356,6 +360,9 @@ class TestRunner(QObject):
                 env._log(f"{tag} op {name}: {line}")
             if getattr(out, "verdict", "Done") == "Error":
                 env._instrument_error(op_instrument_abbr(params))
+                # keep the gateway's reason for the row detail
+                self._last_op_error = " | ".join(
+                    out.lines) or "instrument error"
                 return "Error"
         env._log(f"{tag} op {name}: Done")
         return "Done"
@@ -389,7 +396,9 @@ class TestRunner(QObject):
             status = self._run_op("ICT", name, params)
             self._put("ict", r,
                       StepStatus.PASS if status == "Done"
-                      else StepStatus.ERROR)
+                      else StepStatus.ERROR,
+                      None if status == "Done"
+                      else getattr(self, "_last_op_error", None))
             return
 
         # ------------------------------------------------ measurement rows
@@ -413,7 +422,10 @@ class TestRunner(QObject):
             for line in out.lines:
                 env._log(f"ICT {name}: {line}")
             if out.verdict == "Error":
-                self._put("ict", r, StepStatus.ERROR, out.text)
+                # surface the instrument reason (not connected / open
+                # failure / config error) in the row detail too
+                detail = out.text or " | ".join(out.lines)
+                self._put("ict", r, StepStatus.ERROR, detail)
                 env._instrument_error(meas_instrument_abbr(kind, name))
             else:
                 self._put("ict", r, StepStatus.PASS
@@ -426,7 +438,8 @@ class TestRunner(QObject):
         # Overall Flow stop policies then apply).  The legacy dice-roll
         # placeholder below is reachable in Virtual mode only.
         if not getattr(env, "virtual_mode", False):
-            self._put("ict", r, StepStatus.ERROR)
+            self._put("ict", r, StepStatus.ERROR,
+                      "instrument not connected (Real mode)")
             env._instrument_error(meas_instrument_abbr(kind, name))
             env._log(f"ICT {name}: no instrument gateway connected "
                      f"(Real mode) -> Error")
@@ -485,19 +498,23 @@ class TestRunner(QObject):
             rail_samples, rail_volts = frac, volts
         elif getattr(env, "gateway", None) is not None:
             # Real mode: acquire through the connected U2355A (the
-            # gateway maps DriverUnavailable to "error")
+            # gateway maps DriverUnavailable to "error" and keeps the
+            # reason in last_error)
             frac, volts, anomaly = env.gateway.capture_rails(
                 env.rails, env.cap_start, env.cap_end, env.cap_rate,
                 force=force)
             if anomaly == "error":
-                self._put("ict", r, StepStatus.ERROR)
+                reason = (getattr(env.gateway, "last_error", "")
+                          or "acquisition failed")
+                self._put("ict", r, StepStatus.ERROR, reason)
                 env._instrument_error("DAQ")
                 env._log(f"ICT {name}: U2355A AI acquisition error "
-                         f"(Real mode) -> Error")
+                         f"(Real mode): {reason} -> Error")
                 return
             rail_samples, rail_volts = frac, volts
         elif not getattr(env, "virtual_mode", False):
-            self._put("ict", r, StepStatus.ERROR)
+            self._put("ict", r, StepStatus.ERROR,
+                      "instrument not connected (Real mode)")
             env._instrument_error("DAQ")
             env._log(f"ICT {name}: no instrument gateway connected "
                      f"(Real mode) -> Error")

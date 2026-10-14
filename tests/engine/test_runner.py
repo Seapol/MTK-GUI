@@ -362,8 +362,8 @@ class TestRealModeNeverSimulates:
         env.runner = runner
         runner._exec_ict_row(3)   # Power Voltage row
         assert env.rows[("ict", 3)] == "Error"
-        # the Measured cell stays empty (nothing was measured)
-        assert ("ict", 3) not in env.measured
+        # the detail cell carries the REASON (never a fabricated value)
+        assert "instrument not connected" in env.measured[("ict", 3)]
         assert any("no instrument gateway connected (Real mode)"
                    in line for line in env._log_lines())
 

@@ -103,6 +103,9 @@ class RealGateway:
         self._flash_config = config or {}
         self._drivers: dict[str, object] = {}
         self._module = None
+        # last instrument-fault reason (rail capture; surfaced in the
+        # runner's event log / row detail)
+        self.last_error = ""
         try:
             from .. import drivers as drivers_module
 
@@ -472,8 +475,11 @@ class RealGateway:
                 anomaly = rails[0][0]  # test hook: flag the first rail
             return frac, volts, anomaly
         except DriverUnavailable as exc:
+            # keep the reason for the runner's event-log / row detail
+            self.last_error = str(exc)
             return None, None, "error"
-        except mod.InstrumentError:
+        except mod.InstrumentError as exc:
+            self.last_error = f"rail capture: {exc}"
             return None, None, "error"
 
     # ---------------------------------------------------------- RF tests
