@@ -151,24 +151,124 @@ _CASE_MESSAGE_STYLES = {"MessageOK": DIALOG_OK,
                         "MessageGoStop": DIALOG_GOSTOP}
 
 
-def _quoted_payload(name: str) -> str:
-    """First quoted segment of a legacy FCT row name (the command /
-    keyword payload), or "" - the same convention the runner applies."""
-    first = name.split("'", 1)
-    if len(first) == 2:
-        return first[1].split("'", 1)[0]
-    return ""
+def _case_marker(case: dict) -> dict:
+    """The full FctStep marker travelling with a page case
+    (``op_params.fct_step``), or {} - it carries the COMPLETE step
+    (params, timeouts, payloads) and is the lossless sync source."""
+    return dict((((case or {}).get("op_params") or {})
+                 .get("fct_step")) or {})
+
+
+def _message_command_from_case(case: dict) -> dict:
+    """Page Message* case -> ConsoleCommand dict (the message rows ARE
+    fully synced: style, answer payloads, timeout)."""
+    kind = str((case or {}).get("kind", ""))
+    name = str((case or {}).get("name", ""))
+    marker = _case_marker(case)
+    params = dict(marker.get("params") or {})
+    style = str(params.get("style")
+                or _CASE_MESSAGE_STYLES.get(kind, DIALOG_GOSTOP))
+    # strip a leading "MessageOK: " style prefix, keep plain names
+    # intact ("fat.py: setup confirm" must not lose its prefix)
+    display = name
+    for prefix in ("MessageOK", "MessageYesNo", "MessageGoStop"):
+        if display.startswith(prefix + ":"):
+            display = display.split(":", 1)[-1].strip()
+            break
+    cmd = {
+        "kind": KIND_MESSAGE,
+        "name": display or name,
+        "transport": "serial",
+        "dialog_style": style,
+        "send_yes": str(params.get("send_yes") or "y"),
+        "send_no": str(params.get("send_no") or "n"),
+        # forward map stores `confirm_message or name` in params.message
+        # - a message equal to the row name means the dialog text was
+        # empty (round-trips back to "")
+        "confirm_message": ("" if str(params.get("message") or "")
+                            in (display, name)
+                            else str(params.get("message") or "")),
+        "wait_enabled": False,
+        "send_enabled": style != DIALOG_OK,
+        "capture_enabled": False,
+        "retries": int(marker.get("retries", 0) or 0),
+    }
+    if style == DIALOG_OK:
+        cmd["timeout"] = 0.0        # no judgement window
+    else:
+        cmd["timeout"] = float(params.get("message_timeout_s") or 4.0)
+        cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
+    return cmd
+
+
+def _console_command_from_marker(marker: dict) -> dict:
+    """One console MESSAGE_CHECK FctStep marker -> ConsoleCommand dict.
+
+    The exact inverse of the ConsoleCommand -> FctStep mapping in
+    :func:`build_fct_steps` - used ONLY when no matching existing
+    console command exists (the existing rows are always preferred so
+    the reverse sync can never overwrite the console parameters)."""
+    params = dict(marker.get("params") or {})
+    name = str(marker.get("name", ""))
+    base = name[:-len(" (wait)")] if name.endswith(" (wait)") else name
+    kind = str(params.get("kind", "send"))
+    cmd = {
+        "kind": kind if kind in (KIND_WAIT, KIND_SEND, KIND_CAPTURE)
+        else KIND_SEND,
+        "name": base,
+        "transport": "serial",
+        "wait_enabled": bool(params.get("wait_enabled", False)),
+        "send_enabled": bool(params.get("send_enabled", False)),
+        "capture_enabled": bool(params.get("capture_enabled", False)),
+        "send": str(params.get("send", "")),
+        "capture_is_expected": bool(params.get("capture_is_expected",
+                                               False)),
+        "capture_end_line": str(params.get("capture_end_line", "")),
+        "case_sensitive": bool(params.get("case_sensitive", True)),
+        "confirm_enabled": bool(params.get("confirm_enabled", False)),
+        "confirm_message": str(params.get("confirm_message", "")),
+        "parse_summary": bool(params.get("parse_summary", False)),
+        "wait_timeout": float(params.get("wait_timeout", 10.0) or 10.0),
+        "send_timeout": float(params.get("send_timeout", 4.0) or 4.0),
+        "timeout": float(params.get("capture_timeout", 6.0) or 6.0),
+        "retries": int(marker.get("retries", 0) or 0),
+    }
+    if cmd["capture_is_expected"]:
+        # forward: positive=expect_fail(field), negative=capture_forbid
+        cmd["expect_fail"] = str(params.get("expect_pass_re", ""))
+        cmd["expect_fail_is_regex"] = bool(
+            params.get("expect_pass_is_regex", False))
+        cmd["capture_forbid"] = str(params.get("expect_fail_re", ""))
+    else:
+        cmd["expect_fail"] = str(params.get("expect_fail_re", ""))
+        cmd["expect_fail_is_regex"] = bool(
+            params.get("expect_fail_is_regex", False))
+    if cmd["wait_enabled"]:
+        # the pre-send wait pattern (wait-only rows carry it twice)
+        cmd["expect_pass"] = str(params.get("wait_pattern")
+                                 or params.get("expect_pass_re") or "")
+        cmd["expect_pass_is_regex"] = bool(
+            params.get("expect_pass_is_regex", False))
+    return cmd
 
 
 def cases_to_console_commands(cases: list) -> list:
-    """Reverse sync (user direction 2026-10-14): the CURRENT FCT Test
-    Cases rows of the Test Work Flow page -> ConsoleCommand dicts for
-    the Build FCT dialog's ``console.test_commands``.
+    """Reverse sync (user direction 2026-10-14, refined 2026-10-14):
+    the CURRENT FCT Test Cases rows -> ConsoleCommand dicts.
 
-    Message rows round-trip losslessly (dialog style, answer payloads,
-    timeout); console rows map by their legacy kind with the payload
-    parsed from the quoted name segment; standard operations and RF
-    rows are dialog-side sections and are skipped here.
+    ONLY two things sync from the page:
+
+    * the step ORDER (each console row is identified by its marker
+      name; a Wait->Send pair arrives as ``X (wait)`` + ``X`` and is
+      merged back into one command);
+    * the message rows (MessageOK / MessageYesNo / MessageGoStop -
+      the syncable standard operator steps).
+
+    The console Wait / Send / Capture / SFTP / Host PARAMETERS are
+    NEVER rebuilt from the coarse page row - they come from the
+    existing commands (see :func:`overlay_console_commands`), or,
+    for a brand-new row with no existing counterpart, losslessly
+    from the full FctStep marker travelling in ``op_params``.
 
     Args:
         cases: the page's ``fct_test_cases`` list (op_params carried).
@@ -177,63 +277,121 @@ def cases_to_console_commands(cases: list) -> list:
         A list of plain command dicts (``ConsoleCommand``-shaped).
     """
     commands: list = []
+    pending_wait: tuple | None = None   # (base name, wait fields)
+
+    def flush_wait() -> None:
+        nonlocal pending_wait
+        if pending_wait is not None:
+            base, fields = pending_wait
+            cmd = {"kind": KIND_WAIT, "name": base, "transport": "serial",
+                   "wait_enabled": True, "send_enabled": False,
+                   "capture_enabled": False, "send": "",
+                   "capture_is_expected": True, "capture_end_line": "",
+                   "case_sensitive": fields.get("case_sensitive", True),
+                   "confirm_enabled": False, "confirm_message": "",
+                   "parse_summary": False,
+                   "wait_timeout": fields.get("timeout", 10.0),
+                   "send_timeout": 4.0, "timeout": 6.0, "retries": 0,
+                   "expect_pass": fields.get("expect_pass", ""),
+                   "expect_pass_is_regex":
+                       fields.get("expect_pass_is_regex", False)}
+            commands.append(cmd)
+            pending_wait = None
+
     for case in (cases or []):
         kind = str((case or {}).get("kind", ""))
-        name = str((case or {}).get("name", ""))
-        op = dict((case or {}).get("op_params") or {})
-        marker = dict(op.get("fct_step") or {})
-        params = dict(marker.get("params") or {})
+        marker = _case_marker(case)
         if kind in _CASE_MESSAGE_STYLES:
-            style = _CASE_MESSAGE_STYLES[kind]
-            cmd = {
-                "kind": KIND_MESSAGE,
-                "name": name.split(":", 1)[-1].strip() or name,
-                "transport": "serial",
-                "dialog_style": style,
-                "send_yes": str(params.get("send_yes")
-                                or op.get("send_yes") or "y"),
-                "send_no": str(params.get("send_no")
-                               or op.get("send_no") or "n"),
-                "wait_enabled": False, "send_enabled": style != DIALOG_OK,
-                "capture_enabled": False, "retries": 0,
-            }
-            if style == DIALOG_OK:
-                cmd["timeout"] = 0.0        # no judgement window
-            else:
-                cmd["timeout"] = float(params.get("message_timeout_s")
-                                       or op.get("message_timeout_s")
-                                       or 4.0)
-                cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
+            flush_wait()
+            commands.append(_message_command_from_case(case))
+            continue
+        if kind in ("WIFI", "Bluetooth"):
+            continue                    # dialog-side sections
+        params = dict(marker.get("params") or {})
+        if not marker:
+            continue                    # rows without markers
+        if params.get("fct_host_cmd") is not None:
+            # host CLI row (EXTERNAL_TOOL): the command runs on the
+            # TEST PC, not on the DUT
+            flush_wait()
+            host = dict(params["fct_host_cmd"])
+            commands.append({
+                "kind": KIND_HOST, "name": str(marker.get("name", "")),
+                "transport": "serial", "wait_enabled": False,
+                "send_enabled": True, "capture_enabled": False,
+                "send": "", "retries": int(marker.get("retries", 0) or 0),
+                "timeout": float(marker.get("timeout_s", 30.0) or 30.0),
+                "host_cmd": str(host.get("cmd", "")),
+                "host_cmd_windows": str(host.get("cmd_windows", ""))})
+            continue
+        if str(marker.get("step_type", "")) != "MESSAGE_CHECK":
+            continue                    # ops / other non-console rows
+        if params.get("action") in (KIND_SFTP_PUT, KIND_SFTP_GET):
+            flush_wait()
+            commands.append({
+                "kind": params["action"],
+                "name": str(marker.get("name", "")),
+                "transport": "ssh", "wait_enabled": False,
+                "send_enabled": False, "capture_enabled": False,
+                "send": "", "retries": int(marker.get("retries", 0) or 0),
+                "timeout": 6.0,
+                "send_timeout": float(marker.get("timeout_s", 20.0) or 20.0),
+                "local": str(params.get("local", "")),
+                "remote": str(params.get("remote", ""))})
+            continue
+        # console Wait / Send / Capture row
+        name = str(marker.get("name", ""))
+        base = name[:-len(" (wait)")] if name.endswith(" (wait)") else name
+        if (name.endswith(" (wait)")
+                and not bool(params.get("send_enabled", False))):
+            # pre-send WaitFor of a Wait->Send pair: stash it; merged
+            # into the main row when the very next console row is its
+            # base (the forward map always emits the pair adjacently)
+            flush_wait()
+            pending_wait = (base, {
+                "expect_pass": str(params.get("expect_pass_re", "")),
+                "expect_pass_is_regex": bool(
+                    params.get("expect_pass_is_regex", False)),
+                "case_sensitive": bool(params.get("case_sensitive", True)),
+                "timeout": float(params.get("wait_timeout",
+                                            marker.get("timeout_s", 10.0))
+                                 or 10.0)})
+            continue
+        if (pending_wait is not None and pending_wait[0] == base):
+            # main row of the pending Wait->Send pair: merge - the wait
+            # PATTERN comes from the pre-wait marker (the main marker's
+            # expect_pass_is_regex is the capture's regex flag)
+            fields = pending_wait[1]
+            pending_wait = None
+            cmd = _console_command_from_marker(marker)
+            if cmd.get("wait_enabled"):
+                cmd["expect_pass"] = fields["expect_pass"]
+                cmd["expect_pass_is_regex"] = fields[
+                    "expect_pass_is_regex"]
             commands.append(cmd)
             continue
-        if kind == "SendtoConsole" or kind == "SendtoCLI":
-            payload = _quoted_payload(name)
-            commands.append({
-                "kind": KIND_SEND, "name": name, "transport": "serial",
-                "wait_enabled": False, "send_enabled": True,
-                "capture_enabled": False, "send": payload,
-                "retries": 0, "timeout": 4.0})
-        elif kind in ("WaitforConsole", "WaitforCLI"):
-            commands.append({
-                "kind": KIND_WAIT, "name": name, "transport": "serial",
-                "wait_enabled": True, "send_enabled": False,
-                "capture_enabled": False, "expect_pass": _quoted_payload(name),
-                "retries": 0, "timeout": 6.0})
-        elif kind in ("CapturefromConsole", "CapturefromCLI"):
-            commands.append({
-                "kind": KIND_CAPTURE, "name": name, "transport": "serial",
-                "wait_enabled": False, "send_enabled": False,
-                "capture_enabled": True, "expect_fail": _quoted_payload(name),
-                "retries": 0, "timeout": 6.0})
+        flush_wait()
+        commands.append(_console_command_from_marker(marker))
+    flush_wait()
     return commands
 
 
 def overlay_console_commands(yaml_text: str, cases: list) -> str:
-    """Reverse sync, part 2: replace ``console.test_commands`` in the
-    fct_test_config YAML with the commands mapped from the live FCT
-    Test Cases rows (see :func:`cases_to_console_commands`).  Every
-    other section (Wi-Fi / Bluetooth / setup) stays as-is; with no
-    existing YAML text a minimal node is created.
+    """Reverse sync, part 2: rebuild ``console.test_commands`` from the
+    live FCT Test Cases rows WITHOUT touching the console parameters
+    (user direction 2026-10-14: the sync carries the step ORDER and the
+    message rows only).
+
+    * every page console row keeps the EXISTING command of the same
+      name verbatim (wait patterns, send payloads, capture windows,
+      SFTP paths - nothing is regenerated); a page console row with
+      no existing counterpart is section-generated (BT piscan from
+      `bluetooth`, teardown rows from `post_rf_commands`) and is
+      skipped - the section keeps owning it;
+    * message rows are fully synced (added / updated / removed);
+    * existing console commands the page does not show are kept at
+      the end (never silently dropped);
+    * every other section (Wi-Fi / Bluetooth / setup) stays as-is.
 
     Returns:
         The updated ``fct_test_config_yaml`` text.
@@ -247,7 +405,41 @@ def overlay_console_commands(yaml_text: str, cases: list) -> str:
             node = {}
     cfg = dict(node.get("fct_test_config") or {})
     console = dict(cfg.get("console") or {})
-    console["test_commands"] = cases_to_console_commands(cases)
+    existing = list(console.get("test_commands") or [])
+    mapped = cases_to_console_commands(cases)
+
+    # console/sftp/host commands keyed by name (first unused wins)
+    pool: dict = {}
+    for cmd in existing:
+        pool.setdefault(str(cmd.get("name", "")), []).append(cmd)
+    used: set = set()
+
+    def take(key: str) -> dict | None:
+        for cmd in pool.get(key, ()):    # noqa: B905 - identity order
+            cmd_id = id(cmd)
+            if cmd_id not in used:
+                used.add(cmd_id)
+                return cmd
+        return None
+
+    out: list = []
+    for cmd in mapped:
+        if str(cmd.get("kind", "")) == KIND_MESSAGE:
+            out.append(cmd)              # messages fully sync
+            continue
+        kept = take(str(cmd.get("name", "")))
+        if kept is not None:
+            out.append(dict(kept))
+        # a console row with NO existing counterpart is generated by a
+        # config section (BT piscan from `bluetooth`, the teardown rows
+        # from `post_rf_commands`) or is unknown - NEVER invent a row:
+        # the section keeps owning it (the old guessing-by-name rebuild
+        # is what flattened them into duplicated test_commands)
+    # console rows the page does not show survive at the end
+    for cmd in existing:
+        if str(cmd.get("kind", "")) != KIND_MESSAGE and id(cmd) not in used:
+            out.append(dict(cmd))
+    console["test_commands"] = out
     cfg["console"] = console
     node["fct_test_config"] = cfg
     return _yaml.safe_dump(node, sort_keys=False, allow_unicode=True)

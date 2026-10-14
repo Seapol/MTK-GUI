@@ -562,6 +562,32 @@ class FctTestRunner:
                 return results  # stop the whole sequence on failure
         return results
 
+    def _run_message_row(self, serial, cmd) -> tuple:
+        """Operator message row (kind == "message"): the dialog answer
+        drives the console.  Returns (verdict, detail)."""
+        ask = getattr(self, "_human_confirm", None)
+        if not callable(ask):
+            return "ERROR", "no confirm hook bound"
+        answer = ask(cmd.confirm_message or cmd.name or "Confirm?")
+        style = cmd.dialog_style or "ok"
+        if style == "ok":
+            return "PASS", "operator acknowledged (OK)"
+        if style == "yesno":
+            payload = cmd.send_yes if answer else cmd.send_no
+            if payload:
+                send_stage(serial, payload, cmd.send_timeout)
+            return "PASS", (f"operator answered "
+                            f"{'Yes' if answer else 'No'}, "
+                            f"sent '{payload}'")
+        # gostop
+        if not answer:
+            if cmd.send_no:
+                send_stage(serial, cmd.send_no, cmd.send_timeout)
+            return "FAIL", "operator pressed STOP - run stops"
+        if cmd.send_yes:
+            send_stage(serial, cmd.send_yes, cmd.send_timeout)
+        return "PASS", "operator pressed GO, run continues"
+
     def _run_one_command(self, serial, cmd) -> tuple:
         """Run one ConsoleCommand with retry. Returns (verdict, detail,
         stage, extras) — extras are additional FctStepResult rows (the
@@ -569,6 +595,15 @@ class FctTestRunner:
         attempts = cmd.retries + 1
         last = ("FAIL", "not run", "?", [])
         for attempt in range(attempts):
+            # Operator message rows (MessageOK / MessageYesNo /
+            # MessageGoStop, user direction 2026-10-14): the operator
+            # answer drives the console - OK only acks, YesNo sends
+            # send_yes / send_no (PASS either way), GoStop GO sends
+            # send_yes (PASS, run continues) and STOP sends send_no
+            # (FAIL, the sequence stops).
+            if cmd.kind == "message":
+                verdict, detail = self._run_message_row(serial, cmd)
+                return verdict, detail, "message", []
             # SFTP rows: file transfer over the SSH channel only
             if cmd.kind in ("sftp_put", "sftp_get"):
                 verdict, detail = self._run_sftp(serial, cmd)

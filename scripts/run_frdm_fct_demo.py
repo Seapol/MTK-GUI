@@ -59,8 +59,10 @@ from mtkgui.engine.report import (
 from mtkgui.gui.report_export import export_pdf, console_log_html
 from mtkgui.gui import identity
 
-YAML_PATH = (ROOT / "yaml_plan" / "examples" / "imx93frdm"
-             / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
+YAML_PATH = Path(os.environ.get(
+    "MTK_FCT_YAML",
+    str(ROOT / "yaml_plan" / "examples" / "imx93frdm"
+        / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")))
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
 HEADLESS = os.environ.get("MTK_FCT_HEADLESS") == "1"
 

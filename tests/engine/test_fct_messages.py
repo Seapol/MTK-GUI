@@ -53,42 +53,190 @@ def test_cases_to_console_commands_message_rows():
     assert yn["send"] == "y / n" and yn["send_enabled"] is True
 
 
-def test_cases_to_console_commands_skips_ops_and_maps_console():
-    """Standard ops are skipped; legacy console rows map by kind with
-    the payload parsed from the quoted name segment."""
+def test_cases_to_console_commands_skips_ops_and_coarse_rows():
+    """Only message rows and full-marker console rows map; coarse
+    parameter-less page rows (ops, legacy SendtoConsole names) are
+    skipped - guessing payloads from names is what destroyed the
+    v1.0.3 draft's console parameters."""
     cases = [
         {"kind": "op", "name": "Init Instruments", "op_params": {}},
-        {"kind": "SendtoConsole",
-         "name": "SendtoConsole: COM1, 'reboot'"},
-        {"kind": "WaitforConsole",
-         "name": "WaitforConsole: COM1, 'Pass'"},
+        {"kind": "SendtoConsole", "name": "SendtoConsole: COM1, 'reboot'"},
+        {"kind": "WIFI", "name": "Wi-Fi scan"},
+        {"kind": "MessageOK", "name": "FCT done.",
+         "op_params": {"fct_step": {"name": "FCT done.",
+                                    "step_type": "GUI_CONFIRM",
+                                    "params": {"style": "ok",
+                                               "message": "FCT done."}}}},
     ]
     cmds = cases_to_console_commands(cases)
-    assert [c["kind"] for c in cmds] == ["send", "wait"]
-    assert cmds[0]["send"] == "reboot"
-    assert cmds[1]["expect_pass"] == "Pass"
+    assert [c["kind"] for c in cmds] == ["message"]
+    assert cmds[0]["name"] == "FCT done."
+    assert cmds[0]["dialog_style"] == "ok"
+    assert cmds[0]["send_enabled"] is False
 
 
-def test_overlay_replaces_commands_keeps_other_sections():
-    """overlay_console_commands swaps console.test_commands from the
-    live page rows and preserves the Wi-Fi / setup sections."""
+def test_overlay_preserves_console_params_syncs_messages():
+    """Reverse sync (user direction 2026-10-14, refined): the sync
+    carries the step ORDER and the message rows only - the console
+    Wait / Send / Capture parameters of the existing rows are NEVER
+    rebuilt from the coarse page rows (the v1.0.3 draft lost every
+    send payload / wait pattern that way)."""
     base = ("fct_test_config:\n"
             "  dut_type: linux\n"
             "  console:\n"
             "    enabled: true\n"
             "    test_commands:\n"
             "    - kind: send\n"
-            "      name: old\n"
+            "      name: Console login\n"
+            "      send: root\n"
+            "      wait_enabled: true\n"
+            "      expect_pass: 'login:'\n"
+            "      expect_pass_is_regex: false\n"
+            "      timeout: 60.0\n"
+            "    - kind: message\n"
+            "      name: old message\n"
+            "      dialog_style: ok\n"
             "  wifi:\n"
             "    enabled: true\n")
-    cases = [{"kind": "MessageGoStop", "name": "MessageGoStop: Flash?",
-              "op_params": {"fct_step": {"params": {
-                  "style": "gostop", "send_yes": "y", "send_no": "n",
-                  "message_timeout_s": 4.0}}}}]
+    cases = [
+        {"kind": "MessageGoStop", "name": "Power on DUT",
+         "op_params": {"fct_step": {"name": "Power on DUT",
+                                    "step_type": "GUI_CONFIRM",
+                                    "params": {"style": "gostop",
+                                               "message": "Power on DUT",
+                                               "send_yes": "y",
+                                               "send_no": "n",
+                                               "message_timeout_s": 4.0}}}},
+        {"kind": "CapturefromConsole",
+         "name": "Console login: 'done' (expected)",
+         "op_params": {"fct_step": {
+             "name": "Console login", "step_type": "MESSAGE_CHECK",
+             "channel": "ser1",
+             "params": {"kind": "send", "fct_console": True,
+                        "wait_enabled": True, "send_enabled": True,
+                        "capture_enabled": False,
+                        "wait_pattern": "login:",
+                        "wait_timeout": 60.0, "send_timeout": 4.0,
+                        "capture_timeout": 60.0, "send": "root",
+                        "capture_is_expected": False,
+                        "case_sensitive": True}}}},
+    ]
+    import yaml as _yaml
     out = overlay_console_commands(base, cases)
-    assert "MessageGoStop: Flash?" in out or "Flash?" in out
-    assert "old" not in out
-    assert "enabled: true" in out          # wifi section preserved
+    node = _yaml.safe_load(out)["fct_test_config"]
+    cmds = node["console"]["test_commands"]
+    # message row synced, console row kept VERBATIM (params intact)
+    assert [c["name"] for c in cmds] == ["Power on DUT", "Console login"]
+    gostop, login = cmds
+    assert gostop["kind"] == "message" and gostop["dialog_style"] == "gostop"
+    assert gostop["timeout"] == 4.0 and gostop["send"] == "y / n"
+    assert login["kind"] == "send" and login["send"] == "root"
+    assert login["wait_enabled"] is True
+    assert login["expect_pass"] == "login:"
+    assert login["timeout"] == 60.0
+    assert node["wifi"]["enabled"] is True    # other sections preserved
+
+
+def test_overlay_drops_removed_message_keeps_unshown_console_rows():
+    """A message deleted on the page disappears (messages fully sync);
+    a console command the page does not show survives (never dropped)."""
+    base = ("fct_test_config:\n"
+            "  console:\n"
+            "    enabled: true\n"
+            "    test_commands:\n"
+            "    - kind: message\n"
+            "      name: gone\n"
+            "      dialog_style: ok\n"
+            "    - kind: capture\n"
+            "      name: fat.py summary\n"
+            "      capture_enabled: true\n"
+            "      expect_fail: 'Overall result:'\n"
+            "      timeout: 420.0\n")
+    import yaml as _yaml
+    out = overlay_console_commands(base, [])   # page shows nothing
+    cmds = _yaml.safe_load(out)["fct_test_config"]["console"]["test_commands"]
+    assert [c["name"] for c in cmds] == ["fat.py summary"]
+    assert cmds[0]["expect_fail"] == "Overall result:"
+    assert cmds[0]["timeout"] == 420.0
+
+
+def test_sync_round_trip_preserves_console_config():
+    """Full round-trip: config -> FctSteps -> page cases -> overlay
+    back onto the SAME config text -> every console command comes
+    back byte-identical (wait+send pairs merge, SFTP/Host rows map)."""
+    import yaml as _yaml
+    from mtkgui.engine.fct_test_config import build_fct_steps, FctTestConfig
+    from mtkgui.gui.yamlbuild.fct_build import FctSequence, \
+        to_project_fct_cases
+    base = ("fct_test_config:\n"
+            "  dut_type: linux\n"
+            "  console:\n"
+            "    enabled: true\n"
+            "    port: /dev/cu.usbmodemXXX\n"
+            "    baudrate: 115200\n"
+            "    ssh_host: 192.168.10.129\n"
+            "    ssh_username: root\n"
+            "    test_commands:\n"
+            "    - kind: send\n"
+            "      name: Console login\n"
+            "      transport: serial\n"
+            "      wait_enabled: true\n"
+            "      send_enabled: true\n"
+            "      capture_enabled: false\n"
+            "      send: root\n"
+            "      expect_pass: 'login:'\n"
+            "      expect_pass_is_regex: false\n"
+            "      timeout: 60.0\n"
+            "      wait_timeout: 60.0\n"
+            "      send_timeout: 4.0\n"
+            "      retries: 1\n"
+            "    - kind: capture\n"
+            "      name: fat.py summary\n"
+            "      transport: serial\n"
+            "      wait_enabled: false\n"
+            "      send_enabled: false\n"
+            "      capture_enabled: true\n"
+            "      expect_fail: 'Overall result:'\n"
+            "      capture_is_expected: false\n"
+            "      case_sensitive: true\n"
+            "      parse_summary: true\n"
+            "      timeout: 420.0\n"
+            "      wait_timeout: 10.0\n"
+            "      send_timeout: 4.0\n"
+            "      retries: 0\n"
+            "    - kind: sftp_get\n"
+            "      name: Retrieve fat.log (SFTP)\n"
+            "      transport: ssh\n"
+            "      send_enabled: false\n"
+            "      local: /tmp/fat.log\n"
+            "      remote: /root/fat.log\n"
+            "      timeout: 6.0\n"
+            "      send_timeout: 20.0\n"
+            "      retries: 0\n"
+            "    - kind: host\n"
+            "      name: Start iperf3 server (Host CLI)\n"
+            "      send_enabled: true\n"
+            "      host_cmd: iperf3 -s -D\n"
+            "      host_cmd_windows: start /B iperf3 -s\n"
+            "      timeout: 30.0\n"
+            "      retries: 0\n"
+            "  wifi:\n"
+            "    enabled: false\n"
+            "  bluetooth:\n"
+            "    enabled: false\n"
+            "  setup:\n"
+            "    power_mode: none\n")
+    cfg = FctTestConfig.from_dict(_yaml.safe_load(base)["fct_test_config"])
+    steps = build_fct_steps(cfg)
+    seq = FctSequence(name="FCT", steps=steps)
+    cases = to_project_fct_cases(seq)
+    out = overlay_console_commands(base, cases)
+    got = _yaml.safe_load(out)["fct_test_config"]["console"]["test_commands"]
+    want = _yaml.safe_load(base)["fct_test_config"]["console"]["test_commands"]
+    assert [c["name"] for c in got] == [c["name"] for c in want]
+    for g, w in zip(got, want):
+        for key, value in w.items():
+            assert g.get(key) == value, (key, g.get(key), value)
 
 
 # ------------------------------------------------- dialog (Qt, offscreen)
