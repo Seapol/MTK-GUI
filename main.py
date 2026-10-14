@@ -18,7 +18,8 @@ from mtkgui.style import QSS
 def main():
     # native crash reports lack Python frames; faulthandler prints the
     # exact Python stack to stderr on SIGSEGV (macOS exit-crash forensics)
-    faulthandler.enable()
+    if sys.stderr is not None:  # windowed PyInstaller builds have no stderr
+        faulthandler.enable()
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
