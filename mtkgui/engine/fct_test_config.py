@@ -301,6 +301,11 @@ def cases_to_console_commands(cases: list) -> list:
     for case in (cases or []):
         kind = str((case or {}).get("kind", ""))
         marker = _case_marker(case)
+        if dict(marker.get("params") or {}).get("teardown"):
+            continue            # post_rf teardown rows (Shutdown DUT,
+                                # Stop iperf3, FCT done): the section
+                                # keeps owning them - never re-sync into
+                                # test_commands
         if kind in _CASE_MESSAGE_STYLES:
             flush_wait()
             commands.append(_message_command_from_case(case))

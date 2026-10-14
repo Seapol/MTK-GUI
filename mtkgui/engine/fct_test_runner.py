@@ -268,7 +268,7 @@ def send_stage(serial, cmd: str, timeout: float) -> tuple:
     stuck serial / dead DUT blocking the write. Returns ('PASS','') on
     success, ('FAIL', detail) if the write cannot complete.
     """
-    lines = [ln for ln in cmd.splitlines() if ln.strip()]
+    lines = cmd.splitlines()
     if not lines:
         # empty command: send a single newline (e.g. blank password)
         lines = [""]

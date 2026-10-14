@@ -88,6 +88,11 @@ DUT_SSH_HOST = "192.168.10.129"      # DUT mlan0 on the factory router LAN
 HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
 ROUTER_SSID = "TP-LINK_F68E_AP"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
+#: expected kernel release (uname -r) of the DUT firmware.  On a DUT
+#: firmware upgrade only THIS value changes - the kernel check is a
+#: standalone console row in the yaml (NOT inside preflight.sh), so the
+#: shipped script never needs editing.
+DUT_KERNEL_VERSION = "6.6.36-lts-next"
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
 OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.2.yaml"
 # headless SFTP landing file (the run script archives it per serial no.)
@@ -160,6 +165,32 @@ def host_row(name, *, host_cmd, host_cmd_windows="", timeout=15.0,
     }
 
 
+def message_row(name, *, style, timeout=0.0, send_yes="y", send_no="n"):
+    """Build one 'message' ConsoleCommand dict: a standard operator
+    dialog (MessageOK / MessageYesNo / MessageGoStop).  ``send`` is the
+    y/n summary shown in the table; the payloads travel in send_yes /
+    send_no (user direction 2026-10-14)."""
+    return {
+        "kind": "message", "name": name, "transport": "serial",
+        "wait_enabled": False, "send_enabled": style != "ok",
+        "capture_enabled": False,
+        "send": "" if style == "ok" else f"{send_yes} / {send_no}",
+        "expect_pass": "", "expect_pass_is_regex": False,
+        "expect_fail": "", "expect_fail_is_regex": False,
+        "case_sensitive": True,
+        "capture_is_expected": False,
+        "capture_end_line": "", "capture_forbid": "",
+        "confirm_enabled": False, "confirm_message": "",
+        "dialog_style": style, "send_yes": send_yes, "send_no": send_no,
+        "timeout": float(timeout),
+        "wait_timeout": 10.0, "send_timeout": 4.0,
+        "retries": 0,
+        "action": "", "local": "", "remote": "",
+        "parse_summary": False,
+        "host_cmd": "", "host_cmd_windows": "",
+    }
+
+
 FCT_TEST_CONFIG = {
     "dut_type": "linux",
     "console": {
@@ -171,60 +202,45 @@ FCT_TEST_CONFIG = {
         "ssh_host": DUT_SSH_HOST,
         "ssh_username": "root",
         "test_commands": [
-            # 0) Console wake: one newline establishes the FRESH window
-            #    (the send-time buffer reset discards everything that
-            #    arrived before the run) and elicits a brand-new prompt
-            #    - getty re-prints 'login:', bash re-prints the prompt.
-            console_row(
-                "Console wake",
-                send="\n", wait_timeout=5, send_timeout=4),
-            # 1) Login - tolerant of an already-open root shell; the
-            #    fresh-window wait only matches a prompt printed AFTER
-            #    the wake newline (true cold boot gets 60 s + 1 retry)
+            # 0) Power on DUT (MessageGoStop): the operator confirms the
+            #    board is powered; GO sends y (PASS, continue), STOP
+            #    sends n (FAIL, run stops).
+            message_row("Power on DUT", style="gostop", timeout=4.0),
+            # 1) Login - the DUT always boots from power-off, so the
+            #    sequence starts by waiting for the getty login prompt
+            #    (no Console wake: there is nothing to wake after a cold
+            #    boot / past shutdown).  Send root then ONE extra newline
+            #    (the empty-password prompt), and CAPTURE the root shell
+            #    prompt as the login-success proof.
             console_row(
                 "Console login",
-                wait=True, send_on=True,
-                wait_pat=r"(imx93frdm login:|root@imx93frdm)",
-                wait_regex=True, wait_timeout=60, retries=1,
-                send="root", send_timeout=4),
-            # ---- environment preflight (wait -> send -> capture) ----
-            # every Send row waits for a FRESH shell prompt first: the
-            # previous command's completion barrier
-            # 2) Kernel up
-            console_row(
-                "Preflight: kernel",
                 wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="uname -a",
-                cap_pat="Linux imx93frdm", cap_timeout=10),
-            # 3) fat.py assets present ('-rw' line-anchored regex: the
-            #    echoed command line contains 'fat.py' but never a
-            #    leading '-rw' - only the real ls output can match)
+                wait_pat="imx93frdm login:", wait_regex=False,
+                wait_timeout=60, retries=1,
+                send="root\n\n", send_timeout=4,
+                cap_pat="root@imx93frdm", cap_timeout=15),
+            # 2) Kernel version - STANDALONE (NOT inside preflight.sh): the
+            #    expected release is editable here (DUT_KERNEL_VERSION) so
+            #    a DUT firmware upgrade only touches the yaml.  `uname -r`
+            #    prints the full kernel release; capture pins it.
             console_row(
-                "Preflight: fat.py assets",
+                "Preflight: kernel version",
                 wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="ls -l /root/frdm_imx93_board_test/fat.py",
-                cap_pat=r"-rw.*fat\.py", cap_regex=True, cap_timeout=10),
-            # 4) ALSA sound card present (MQS playback needs it)
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=10,
+                send="uname -r",
+                cap_pat=DUT_KERNEL_VERSION, cap_timeout=10),
+            # ---- environment preflight ----------------------------------
+            # ONE DUT-side script (/root/preflight.sh) merges fat.py
+            # assets / ALSA card / HDMI monitor; every item emits
+            # [n/3] PASS/FAIL and the script ends with PREFLIGHT_PASS
+            # (exit 0) or PREFLIGHT_FAIL (exit 1).  All OK -> PASS.
+            # Future firmware-independent preflight items append to it.
             console_row(
-                "Preflight: ALSA card",
+                "Preflight (fat.py / ALSA / HDMI)",
                 wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="aplay -l",
-                cap_pat="card 0", cap_timeout=10),
-            # 5) HDMI monitor electrically connected (grep -x rejects
-            #    'disconnected'); catches a powered-off monitor early.
-            #    Quote-split marker: the echoed command contains
-            #    HDMI_"MONITOR_OK", only the real echo OUTPUT prints
-            #    the literal HDMI_MONITOR_OK
-            console_row(
-                "Preflight: HDMI monitor",
-                wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="cat /sys/class/drm/card0-HDMI-A-1/status "
-                     "| grep -x connected && echo HDMI_\"MONITOR_OK\"",
-                cap_pat="HDMI_MONITOR_OK", cap_timeout=10),
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=10,
+                send="sh /root/preflight.sh",
+                cap_pat="PREFLIGHT_PASS", cap_timeout=15),
             # 6) Load Wi-Fi/BT RF drivers + prepare the A2DP sink
             #    (pipewire + NoInputNoOutput agent + discoverable +
             #    trust host - merged from the former start_bt_audio.sh;
@@ -238,15 +254,20 @@ FCT_TEST_CONFIG = {
                 cap_pat="RF drivers loaded OK", cap_timeout=60,
                 retries=1),
             # ---- interactive fat.py (Wait -> MessageYesNo -> Send) ----
-            # 8) Launch the REAL fat.py in the console foreground
+            # 8) Launch the REAL fat.py in the console foreground.  The wait
+            #    timeout is only the "previous command finished" barrier,
+            #    so 2 s is plenty; the capture 'FRDM-i.MX93 DUT' banner
+            #    appears almost immediately - 2 s proves fat.py did not
+            #    hang / the board did not die.  Output is tee'd to
+            #    /root/fat.log so the SFTP row can pull it back.
             console_row(
                 "Start fat.py (interactive)",
                 wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True,
-                wait_timeout=30,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=2,
                 send="cd /root/frdm_imx93_board_test && "
-                     "python3 fat.py --json /root/fat_result.json",
-                cap_pat="FRDM-i.MX93 DUT", cap_timeout=20),
+                     "python3 -u fat.py --json /root/fat_result.json "
+                     "2>&1 | tee /root/fat.log",
+                cap_pat="FRDM-i.MX93 DUT", cap_timeout=2),
             # 9) fat.py setup confirm (earphone / HDMI / RGB visible)
             console_row(
                 "fat.py: setup confirm",
@@ -368,6 +389,14 @@ FCT_TEST_CONFIG = {
                 send_on=False, action="sftp_get",
                 remote="/root/fat_result.json", local=SFTP_LANDING,
                 send_timeout=20.0, retries=1),
+            # 18.5) SFTP-get the tee'd fat.py console log (full transcript)
+            console_row(
+                "Retrieve fat.log (SFTP)",
+                kind="sftp_get", transport="ssh",
+                send_on=False, action="sftp_get",
+                remote="/root/fat.log",
+                local=str(OUT_DIR / "_run_work" / "fat.log"),
+                send_timeout=30.0, retries=1),
             # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
             console_row(
                 "Wi-Fi ping DUT to Host",
@@ -404,6 +433,10 @@ FCT_TEST_CONFIG = {
                 "Stop iperf3 server (Host CLI)",
                 host_cmd="pkill -x iperf3 || true",
                 host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul"),
+            # T3) FCT done - operator notification (MessageOK): the LAST
+            #     item of the whole run, shown after the DUT is shut down
+            #     and the host is cleaned up.  Acknowledge to close.
+            message_row("FCT done.", style="ok", timeout=0.0),
         ],
     },
     "wifi": {
@@ -494,8 +527,6 @@ def main() -> int:
             print("   -", e)
         return 1
     steps = build_fct_steps(cfg)
-    steps.append(FctStep(name="FCT done.", step_type=STEP_MESSAGE_CHECK,
-                         expect_pass=["done"], timeout_s=0.0))
     seq = FctSequence(name="FRDM-IMX93 FCT Demo", steps=steps)
     cases = to_project_fct_cases(seq)
     for case, step in zip(cases, steps):
