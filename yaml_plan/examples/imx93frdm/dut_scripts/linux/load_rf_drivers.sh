@@ -57,6 +57,10 @@ fi
 if [ -n "$HOST" ]; then
     bluetoothctl trust "$HOST" >/dev/null 2>&1
 fi
+# make the DUT discoverable AND pairable (modern bluez keeps these flags
+# separate; a fresh Host PC needs "pairable on" to bond for A2DP)
+bluetoothctl pairable on >/dev/null 2>&1
+bluetoothctl discoverable on >/dev/null 2>&1
 sleep 1
 echo "BT_AUDIO_READY"
 
