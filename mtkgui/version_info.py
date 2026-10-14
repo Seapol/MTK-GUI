@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -174,10 +175,13 @@ def resolve(runner=None) -> VersionInfo:
                                    dirty=False, source="file")
     except OSError:
         pass
-    # 3. live git metadata
-    info = _from_git(runner)
-    if info is not None:
-        return info
+    # 3. live git metadata (dev checkouts only; a frozen build has no
+    #    repo beside the exe and spawning git.exe flashes console
+    #    windows on Windows)
+    if not getattr(sys, "frozen", False):
+        info = _from_git(runner)
+        if info is not None:
+            return info
     # 4. static last resort
     return VersionInfo(tag=__version__, branch="", commit="",
                        dirty=False, source="static")
