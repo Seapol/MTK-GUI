@@ -87,6 +87,11 @@ DUT_PORT = "/dev/cu.usbmodem53930099631"
 DUT_SSH_HOST = "192.168.10.129"      # DUT mlan0 on the factory router LAN
 HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
 ROUTER_SSID = "TP-LINK_F68E_AP"
+# Wi-Fi password of the factory router the DUT joins (a DEPLOYMENT
+# variable: per production site it lives in the yaml `wifi.password`,
+# never hard-coded in the DUT script).  Empty here = the DUT script's
+# own fallback applies.
+ROUTER_PASSWORD = "seapol19850117"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: expected kernel release (uname -r) of the DUT firmware.  On a DUT
 #: firmware upgrade only THIS value changes - the kernel check is a
@@ -355,12 +360,15 @@ FCT_TEST_CONFIG = {
                      "| grep -q ':22 ' && echo SSHD_\"STARTED\"",
                 cap_pat="SSHD_STARTED", cap_timeout=10),
             # 16) Bring Wi-Fi up as a STATION joined to the factory
-            #     router (Host and DUT then share one LAN)
+            #     router (Host and DUT then share one LAN).  SSID and
+            #     password come from the yaml {{ssid}} / {{password}} -
+            #     per-site deployment variables.
             console_row(
                 "Wi-Fi connect to router",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="/root/connect_wifi.sh",
+                send="WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' "
+                     "sh /root/connect_wifi.sh",
                 cap_pat="WIFI_CONNECTED_OK", cap_timeout=45.0,
                 retries=1),
             # 17) DUT Wi-Fi IP evidence (the harness resolves the SFTP
@@ -379,7 +387,7 @@ FCT_TEST_CONFIG = {
                 "Ping Host (pre-SFTP)",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send=f"ping -I mlan0 -c 4 {HOST_LAN_IP}",
+                send="ping -I mlan0 -c 4 {{host_ip}}",
                 cap_pat="0% packet loss", cap_timeout=30, retries=1),
             # 18) SFTP-get fat_result.json back to the Host over SSH
             #     (retry 1: the transfer is the thing that must succeed)
@@ -402,7 +410,7 @@ FCT_TEST_CONFIG = {
                 "Wi-Fi ping DUT to Host",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send=f"ping -I mlan0 -c 20 {HOST_LAN_IP}",
+                send="ping -I mlan0 -c 20 {{host_ip}}",
                 cap_pat=r"[1-9][0-9]* received", cap_regex=True,
                 end_line="packet loss", cap_timeout=40.0),
             # 20) HOST CLI: start the iperf3 server on the TEST PC right
@@ -446,6 +454,12 @@ FCT_TEST_CONFIG = {
         # 1) Scan / RSSI - station mode, read on the DUT console
         "scan_enabled": True,
         "scan_ssid": ROUTER_SSID,
+        # station-mode DUT joins this AP; password is a deployment value
+        # (console row references it as {{password}})
+        "password": ROUTER_PASSWORD,
+        # Host PC IP for the ping gates / iPerf; empty = auto-detect at
+        # run time via host_lan_ip()
+        "host_ip": "",
         "scan_via": "dut_console",
         "rssi_min": -70,
         "scan_timeout": 15,
@@ -460,7 +474,7 @@ FCT_TEST_CONFIG = {
         "iperf_enabled": True,
         "iperf_tool": "iperf3",
         "iperf_min_mbps": 1.0,
-        "iperf_server_ip": HOST_LAN_IP,
+        "iperf_server_ip": "",          # empty = auto-detect host IP
         "iperf_duration": 10,
         "iperf_timeout": 45,
     },

@@ -398,3 +398,52 @@ def test_iperf_throughput_retries_once(monkeypatch):
     assert state["n"] == 2                       # first FAIL then retry
     result = next(r for r in out if "iPerf" in r.name)
     assert result.verdict == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# deployment {{token}} rendering (per-site Wi-Fi / Host / Bluetooth)
+# ---------------------------------------------------------------------------
+def test_render_substitutes_deployment_tokens():
+    """{{ssid}} / {{password}} / {{host_ip}} / {{bt_addr}} in console send
+    resolve from the yaml at run time (per production site)."""
+    cfg = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "wifi": {"enabled": True, "scan_ssid": "Line9-AP",
+                 "password": "s3cret", "host_ip": "10.0.0.9"},
+        "bluetooth": {"enabled": True, "expected_name": "DUT-01",
+                      "expected_addr": "aa:bb:cc:dd:ee:ff"},
+    })
+    runner = FctTestRunner(cfg, log_sink=lambda m: None)
+    runner._cmd_vars = {
+        "ssid": cfg.wifi.scan_ssid, "password": cfg.wifi.password,
+        "host_ip": cfg.wifi.host_ip, "bt_addr": cfg.bluetooth.expected_addr,
+        "bt_name": cfg.bluetooth.expected_name,
+    }
+    assert runner._render(
+        "WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' "
+        "sh /root/connect_wifi.sh") == \
+        "WIFI_SSID='Line9-AP' WIFI_PASSWORD='s3cret' sh /root/connect_wifi.sh"
+    assert runner._render("ping -I mlan0 -c 4 {{host_ip}}") == \
+        "ping -I mlan0 -c 4 10.0.0.9"
+    assert runner._render("l2ping -c 10 {{bt_addr}}") == \
+        "l2ping -c 10 aa:bb:cc:dd:ee:ff"
+    # no token -> unchanged
+    assert runner._render("uname -r") == "uname -r"
+
+
+def test_wifi_password_host_ip_configurable():
+    """wifi.password / wifi.host_ip survive the yaml round-trip (new
+    deployment-config fields)."""
+    cfg = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "wifi": {"enabled": True, "scan_ssid": "AP-X",
+                 "password": "pw", "host_ip": "192.168.1.5"},
+    })
+    assert cfg.wifi.password == "pw"
+    assert cfg.wifi.host_ip == "192.168.1.5"
+    # host_ip falls back to the legacy iperf_server_ip when unset
+    cfg2 = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "wifi": {"enabled": True, "iperf_server_ip": "192.168.1.6"},
+    })
+    assert cfg2.wifi.host_ip == "192.168.1.6"

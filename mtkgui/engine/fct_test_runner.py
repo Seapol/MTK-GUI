@@ -518,6 +518,9 @@ class FctTestRunner:
         # matches.  send_stage resets the OS input buffer at the send
         # moment; the window here restarts at the same point.
         self._cycle = ""
+        # {{token}} -> deployment value (set fresh in run(); empty here so
+        # _render is safe before a run starts)
+        self._cmd_vars: dict = {}
 
     def _note_fresh(self, text: str, history_len: int = 0) -> None:
         """Record freshly-received console bytes into the session
@@ -535,6 +538,17 @@ class FctTestRunner:
 
     def log(self, message: str) -> None:
         self._log(f"{self._identity()} {message}")
+
+    def _render(self, text: str) -> str:
+        """Substitute {{token}} placeholders in a console send / SFTP
+        path with the deployment values resolved at run start (Wi-Fi
+        SSID / password, Host PC IP, DUT Bluetooth address) - these vary
+        per production site and live in the yaml, never in code."""
+        if not text or "{{" not in text:
+            return text
+        for key, val in self._cmd_vars.items():
+            text = text.replace("{{" + key + "}}", str(val))
+        return text
 
     # ---------------------------------------------------------- console
     def run_console(self, serial) -> list:
@@ -597,6 +611,13 @@ class FctTestRunner:
         """Run one ConsoleCommand with retry. Returns (verdict, detail,
         stage, extras) — extras are additional FctStepResult rows (the
         fat.py Summary expansion) appended after the main row."""
+        # resolve {{token}} deployment placeholders (per-unit Wi-Fi
+        # SSID/password, Host IP, BT address) once at row entry
+        cmd.send = self._render(cmd.send)
+        cmd.remote = self._render(cmd.remote)
+        cmd.local = self._render(cmd.local)
+        cmd.send_yes = self._render(cmd.send_yes)
+        cmd.send_no = self._render(cmd.send_no)
         attempts = cmd.retries + 1
         last = ("FAIL", "not run", "?", [])
         for attempt in range(attempts):
@@ -849,7 +870,7 @@ class FctTestRunner:
         #    (a dead Wi-Fi link is what silently stuck the throughput
         #    run), then the throughput test itself retries once.
         if w.iperf_enabled and self.cfg.dut_type == "linux" and serial:
-            server_ip = w.iperf_server_ip or host_lan_ip()
+            server_ip = w.host_ip or w.iperf_server_ip or host_lan_ip()
             if not server_ip:
                 results.append(FctStepResult(
                     f"Wi-Fi iPerf ({w.iperf_tool})", "FAIL",
@@ -983,6 +1004,18 @@ class FctTestRunner:
         # operator confirm hook, shared by the console Confirm stage and
         # the Bluetooth A2DP tone step (callable(question) -> bool)
         self._human_confirm = human_confirm
+        # deployment values substituted into {{token}} placeholders in
+        # console send / SFTP paths (per-site Wi-Fi SSID/password, Host
+        # PC IP, DUT Bluetooth address) - resolved ONCE per cycle
+        w = self.cfg.wifi
+        b = self.cfg.bluetooth
+        self._cmd_vars = {
+            "ssid": w.scan_ssid,
+            "password": w.password,
+            "host_ip": w.host_ip or host_lan_ip(),
+            "bt_addr": b.expected_addr,
+            "bt_name": b.expected_name,
+        }
         results: list = []
         teardown_results: list = []
         aborted_early = False

@@ -700,6 +700,12 @@ class WifiCfg:
     # 1) scan / RSSI (both DUT kinds)
     scan_enabled: bool = True
     scan_ssid: str = ""
+    # station-mode DUT joins THIS AP (factory router): the Wi-Fi password
+    # is a deployment variable (never hard-coded in code / DUT scripts) -
+    # console rows reference it as {{password}}
+    password: str = ""
+    host_ip: str = ""               # Host PC IPv4 for ping/SFTP/iperf;
+                                    # empty = auto-detect at run time
     rssi_min: int = -70
     scan_timeout: float = 15.0
     scan_via: str = "host"          # host | dut_console (station-mode DUT)
@@ -723,6 +729,7 @@ class WifiCfg:
             "interface": self.interface,
             "driver_load_cmd": self.driver_load_cmd,
             "scan_enabled": self.scan_enabled, "scan_ssid": self.scan_ssid,
+            "password": self.password, "host_ip": self.host_ip,
             "rssi_min": int(self.rssi_min),
             "scan_timeout": float(self.scan_timeout),
             "scan_via": self.scan_via,
@@ -883,6 +890,9 @@ class FctTestConfig:
                 "scan_enabled",
                 wmode in (None, "rssi_only", "full_stack"))),
             scan_ssid=str(wifi.get("scan_ssid", legacy_ssid)),
+            password=str(wifi.get("password", "")),
+            host_ip=str(wifi.get("host_ip", "") or wifi.get(
+                "iperf_server_ip", "")),
             rssi_min=int(wifi.get("rssi_min", -70)),
             scan_timeout=float(wifi.get("scan_timeout",
                                        DEFAULT_RF_TIMEOUT)),
