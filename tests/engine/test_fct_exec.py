@@ -308,6 +308,7 @@ def test_runner_executes_fct_build_sequence_virtual(qapp):
     the message rows answer via the simulated human hook."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
+    page.set_mode("Virtual")     # the flash simulation is Virtual-only
     seq = build_fct_sequence("e2e-cli", flash_mode=FLASH_CLI,
                              channel="ser1",
                              cli_command="blhost flash-image fat.bin",
@@ -329,6 +330,7 @@ def test_runner_gui_flash_path_virtual(qapp):
     simulated human hook; the whole sequence PASSes."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
+    page.set_mode("Virtual")     # the flash simulation is Virtual-only
     seq = build_fct_sequence("e2e-gui", flash_mode=FLASH_GUI)
     _load_fct_sequence_into(page, seq)
     page.project_path = "virtual-dummy.yaml"

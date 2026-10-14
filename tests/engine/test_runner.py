@@ -350,24 +350,33 @@ class TestRealModeWithStubDrivers:
         assert env.rows[("fct", flash_idx)] == "Done"
 
 
-class TestLegacyPlaceholderPath:
-    def test_real_mode_without_gateway_keeps_placeholder(self, tmp_path):
+class TestRealModeNeverSimulates:
+    """Real mode without a connected instrument gateway is an honest
+    equipment Error - the legacy dice-roll placeholder (fake PASS with
+    an empty Measured cell, user report 2026-10-14) is gone."""
+
+    def test_real_mode_without_gateway_errors(self, tmp_path):
         env, _stages = make_env(mode="real", tmp_path=tmp_path)
         env.gateway = None
         runner = TestRunner(env)
         env.runner = runner
-        runner._exec_ict_row(3)   # Power Voltage row: healthy placeholder
-        assert env.rows[("ict", 3)] == "PASS"
+        runner._exec_ict_row(3)   # Power Voltage row
+        assert env.rows[("ict", 3)] == "Error"
+        # the Measured cell stays empty (nothing was measured)
+        assert ("ict", 3) not in env.measured
+        assert any("no instrument gateway connected (Real mode)"
+                   in line for line in env._log_lines())
 
-    def test_sim_fail_short_row_placeholder(self, tmp_path):
+    def test_sim_fail_hook_is_virtual_only(self, tmp_path):
+        # the ict_sim_fail context-menu hook belongs to Virtual mode;
+        # Real mode without a gateway errors regardless of the hook
         env, _stages = make_env(mode="real", tmp_path=tmp_path)
         env.gateway = None
         env.ict_sim_fail.add(1)
         runner = TestRunner(env)
         env.runner = runner
         runner._exec_ict_row(1)   # Static Impedance row
-        assert env.rows[("ict", 1)] == "FAIL"
-        assert env.measured[("ict", 1)] == "0.62"
+        assert env.rows[("ict", 1)] == "Error"
 
 
 class TestStepRetry:

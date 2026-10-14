@@ -149,6 +149,7 @@ mtk\            <- copy the entire folder, nothing can be missing
 
 - The test PC should run an **English Windows** locale: the Wi-Fi/throughput steps parse `netsh`/`ping` output expecting English text; other locales may fail to parse.
 - User-created YAML test plans go into `mtk\yaml_plan\` (next to the exe); add them anytime without rebuilding.
+- **Real mode requires the instruments to be connected before Run** (since 2026-10-14): establish the Instrument Gateway via Tools → Connect all first. Without it, ICT measurement rows / standard ops / the power-rails capture all report **Error** (equipment-fault stop policy) — a fake PASS with an empty Measured cell is no longer possible. Virtual mode is unaffected.
 - **No sample plans ship with the repo anymore** (removed 2026-10-13): the packaged `yaml_plan\examples\` now only carries the DUT script assets (`dut_scripts\`). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`), or simply copy your own plan file.
 
 **Status bar shows v4.1.1.0000?**

@@ -1012,6 +1012,13 @@ class MainWindow(QMainWindow):
         if self._tools_thread is not None:
             # keep the gateway session (opened drivers) for reuse
             self._tools_gateway = self._tools_thread.gateway
+        # the RUN path shares this gateway session: Real-mode ICT
+        # measurement rows / standard ops / rail capture go through it.
+        # Without a connected gateway they fail honestly (Real mode
+        # never simulates) - so hand it to the workflow page here and
+        # retract it on Disconnect all.
+        self.workflow_page.gateway = (
+            None if action == "Disconnect all" else self._tools_gateway)
         for line in lines:
             self._append_event_log(f"[Tools] {action}: {line}")
         # the status-bar LEDs follow the batch result (same truth as
@@ -1474,13 +1481,20 @@ class MainWindow(QMainWindow):
                 "blocks 01-04 (ICT), 01-05 or 05 (FCT) first.")
             return
         loaded = []
+        page = self.workflow_page
         if ict_ready:
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 auto_fill_limits,
                 generate_sequence,
+                merge_saved_limits,
             )
+            # user direction 2026-10-14: the regeneration only re-derives
+            # what Auto can - previously filled Expected / Min / Max
+            # cells (manual corrections) win over the fresh derivation
+            previous = list(page.ict_steps)
             rows = auto_fill_limits(generate_sequence(
                 model.allocated_testable()))
+            rows = merge_saved_limits(rows, previous)
             self._fill_ict_sequence(rows)
             loaded.append(f"ICT {len(rows)} tests")
         if fct_ready:
@@ -1494,10 +1508,46 @@ class MainWindow(QMainWindow):
             else:
                 self.workflow_page.load_fct_cases(cases)
                 loaded.append(f"FCT {len(cases)} cases")
+        if not fct_ready:
+            # ICT-only load (user direction 2026-10-13): clear the FCT
+            # placeholder row - with the Overall Flow FCT stage enabled
+            # a stale MessageOK step would stop the run on an operator
+            # dialog that has no place in an ICT-only project
+            self.workflow_page.load_fct_cases([])
+        # user direction 2026-10-14: carry the Design Input identity
+        # into the Product Information group (it previously stayed
+        # empty after a Load; the serial number stays manual)
+        design = model.get_params("design_input") or {}
+        page.part_edit.setText(str(design.get("part_number") or ""))
+        page.core_edit.setText(str(design.get("product_id") or ""))
+        batch = str(design.get("batch") or "")
+        page.batch_edit.setText("" if batch == "freebatch" else batch)
+        loaded.append("Product Info")
         self._goto_test_workflow()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Current yaml loaded - "
             + "; ".join(loaded))
+        # user direction 2026-10-14: a Load must leave the GUI runnable
+        # - without a project file the Run button blocks ("No YAML file
+        # is loaded"), so the fresh state is saved automatically
+        if not self._project_path:
+            self._auto_save_project()
+
+    def _auto_save_project(self):
+        """Dialog-free project save after Load current yaml: the
+        derived configuration lands under ./projects/ with the standard
+        name (Part#_CoreID_Batch_rev_<plan version>_Draft.yaml) so the
+        Run gate cannot hit right after a Load."""
+        out_dir = Path.cwd() / "projects"
+        path = out_dir / project_config.default_filename(
+            self._build_project_config())
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Auto-save skipped: {exc}")
+            return
+        self._save_yaml_to(str(path))
 
     def _sync_rails_to_workflow(self):
         """Feed the Test Work Flow page's power-rails capture from the

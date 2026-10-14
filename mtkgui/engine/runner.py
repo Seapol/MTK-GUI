@@ -314,16 +314,23 @@ class TestRunner(QObject):
 
         Virtual mode drives the simulated rack (flash steps run
         engine-side in every mode); Real mode goes through the
-        optional RealGateway; otherwise the legacy placeholder lines
-        are logged (no behavior change)."""
+        instrument gateway.  REAL MODE NEVER SIMULATES: without a
+        gateway an op is an equipment fault -> Error (the stop policies
+        then apply)."""
         env = self.env
         gw = getattr(env, "gateway", None)
+        virtual = getattr(env, "virtual_mode", False)
         is_flash = (params or {}).get("type") == "flash"
         if is_flash:
             if gw is not None and hasattr(gw, "execute_op"):
                 out = gw.execute_op(name, params)
-            else:  # engine-side simulated flash (virtual / legacy)
-                out = None
+            elif virtual:
+                out = None  # engine-side simulated flash (virtual)
+            else:
+                env._instrument_error(op_instrument_abbr(params))
+                env._log(f"{tag} op {name}: no programmer gateway "
+                         f"connected (Real mode) -> Error")
+                return "Error"
         elif env.rack is not None:
             m = env.rack.execute_op(name, params)
             for line in m.lines:
@@ -335,8 +342,13 @@ class TestRunner(QObject):
             return "Done"
         elif gw is not None:
             out = gw.execute_op(name, params)
-        else:
+        elif virtual:
             out = None
+        else:
+            env._instrument_error(op_instrument_abbr(params))
+            env._log(f"{tag} op {name}: no instrument gateway "
+                     f"connected (Real mode) -> Error")
+            return "Error"
         if is_flash and out is None:
             out = _SimulatedOutcome(op_status_lines(name, params))
         if out is not None:
@@ -357,9 +369,8 @@ class TestRunner(QObject):
         stochastic instrument readings judged against the YAML limits,
         and the DAQ AI row captures the power-rails up sequence.  Rows
         flagged through the context menu (ict_sim_fail) force a FAIL.
-        Real mode goes through the optional instrument gateway; without
-        a gateway the legacy placeholder verdict is kept until the
-        instrument bring-up is complete."""
+        Real mode goes through the instrument gateway; without one the
+        row is an honest equipment Error - Real mode never simulates."""
         env = self.env
         env._fill_ict_row(r, placeholder=False)
         env._highlight_step("ict", r)
@@ -410,7 +421,16 @@ class TestRunner(QObject):
                           out.text)
             return
 
-        # legacy placeholder path (Real mode, instrument drivers pending)
+        # Real mode with no instrument backend: NEVER simulate.  An
+        # unconnected instrument is an equipment fault -> Error (the
+        # Overall Flow stop policies then apply).  The legacy dice-roll
+        # placeholder below is reachable in Virtual mode only.
+        if not getattr(env, "virtual_mode", False):
+            self._put("ict", r, StepStatus.ERROR)
+            env._instrument_error(meas_instrument_abbr(kind, name))
+            env._log(f"ICT {name}: no instrument gateway connected "
+                     f"(Real mode) -> Error")
+            return
         if r in env.ict_sim_fail:
             if is_impedance_short(step):
                 self._put("ict", r, StepStatus.FAIL, "0.62")
@@ -463,6 +483,25 @@ class TestRunner(QObject):
                          f"(virtual) -> Error")
                 return
             rail_samples, rail_volts = frac, volts
+        elif getattr(env, "gateway", None) is not None:
+            # Real mode: acquire through the connected U2355A (the
+            # gateway maps DriverUnavailable to "error")
+            frac, volts, anomaly = env.gateway.capture_rails(
+                env.rails, env.cap_start, env.cap_end, env.cap_rate,
+                force=force)
+            if anomaly == "error":
+                self._put("ict", r, StepStatus.ERROR)
+                env._instrument_error("DAQ")
+                env._log(f"ICT {name}: U2355A AI acquisition error "
+                         f"(Real mode) -> Error")
+                return
+            rail_samples, rail_volts = frac, volts
+        elif not getattr(env, "virtual_mode", False):
+            self._put("ict", r, StepStatus.ERROR)
+            env._instrument_error("DAQ")
+            env._log(f"ICT {name}: no instrument gateway connected "
+                     f"(Real mode) -> Error")
+            return
         else:
             rail_samples, rail_volts = env._generate_rail_samples()
             anomaly = None

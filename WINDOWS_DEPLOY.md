@@ -149,6 +149,7 @@ mtk\            <- 整个文件夹一起拷，缺一不可
 
 - 测试机建议装**英文版 Windows**：Wi-Fi/吞吐步骤按英文输出解析 `netsh`/`ping`，中文系统可能解析失败。
 - 用户自建的 YAML 计划文件放 `mtk\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
+- **Real mode 运行前必须先连仪器**（2026-10-14 起）：Tools → Connect all 建立 Instrument Gateway 后才能 Run；未连接时 ICT 测量行 / 标准操作 / 电源时序采集一律报 **Error**（设备故障停机策略生效），不再出现无 Measured 值的假 PASS。Virtual mode 不受影响。
 - **仓库不再内置示例计划**（2026-10-13 起移除）：包内的 `yaml_plan\examples\` 只含 DUT 脚本资产（`dut_scripts\`）。FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`），或直接拷贝手上的计划文件。
 
 **版本号显示 v4.1.1.0000？**
