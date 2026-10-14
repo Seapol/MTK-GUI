@@ -349,6 +349,7 @@ class YamlBuildPage(QWidget):
             # operations and offers the YAML save
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 IctWorkFlowSequenceDialog,
+                daq_ai_rail_count,
             )
             # guidance: only channel-allocated nets reach the
             # sequence builder (auto Do-Not-Test rule) - explain
@@ -382,11 +383,22 @@ class YamlBuildPage(QWidget):
                     # single-page flow: scroll to the embedded tables
                     self._goto_channel_alloc()
                     return
+            # bidirectional sync: load the live ICT Test Cases rows
+            # first (page -> dialog), then let the user edit them
+            provider = getattr(self, "current_ict_cases_provider", None)
+            initial = provider() if callable(provider) else None
             dlg = IctWorkFlowSequenceDialog(
                 # user rule: nets WITHOUT an allocated instrument
                 # channel are auto Do-Not-Test - only allocated nets
                 # reach the Test Work Flow sequence builder
                 self.model.allocated_testable,
+                # bidirectional sync (user direction 2026-10-14): seed
+                # the dialog from the CURRENT ICT Test Cases rows (the
+                # Test Work Flow page is the source of truth), so the
+                # user edits the live sequence instead of a fresh one
+                initial_tests=initial,
+                rail_count=daq_ai_rail_count(
+                    self.model.channel_allocation),
                 parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.ict_sequence_ready.emit(dlg.result_tests())

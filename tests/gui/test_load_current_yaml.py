@@ -105,7 +105,9 @@ def test_load_pushes_ict_sequence_and_jumps(window):
     volt_idx = next(i for i, s in enumerate(ict_steps)
                     if s[1].startswith("Power Voltage"))
     assert on_idx < daq_idx < volt_idx
-    assert ict_steps[daq_idx][1] == "DAQ AI - Power rails"
+    # the DAQ AI Net cell is the read-only rail count (channel
+    # allocation here holds exactly one U2355A AI power rail)
+    assert ict_steps[daq_idx][1] == "1 Power rails assigned on DAQ channels"
 
 
 def test_load_current_yaml_button_wired(window, monkeypatch):

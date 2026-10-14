@@ -61,6 +61,35 @@ METHOD_NET_CATEGORY = {
 DAQ_AI_METHOD = "DAQ AI"
 DAQ_AI_NAME = "DAQ AI - Power rails"
 
+
+def daq_ai_rail_count(channel_allocation) -> int:
+    """Number of power rails assigned to DAQ AI channels (U2355A AI).
+
+    The DAQ AI test has no free net: its scope is every net already
+    allocated to a DAQ AI channel in Channel Allocation.
+    """
+    return sum(
+        1 for row in (channel_allocation or {}).get("power") or []
+        if "U2355A AI" in str(row.get("power_rails") or ""))
+
+
+def daq_ai_net_label(count: int) -> str:
+    """The read-only DAQ AI 'Net' label (count = assigned power rails)."""
+    return f"{int(count)} Power rails assigned on DAQ channels"
+
+
+def method_of(kind: str, name: str) -> str:
+    """Test-method label of one sequence row (DAQ AI rows carry the
+    method in the kind, measurement rows in the 'Method - net' name)."""
+    if kind == DAQ_AI_METHOD:
+        return DAQ_AI_METHOD
+    return name.split(" - ")[0] if " - " in name else name
+
+
+def is_daq_ai_row(row) -> bool:
+    """True for a DAQ AI sequence row (kind drives it, name-agnostic)."""
+    return bool(row) and row[0] == DAQ_AI_METHOD
+
 #: the canonical generation order (user direction): impedance ->
 #: power rails (voltage) -> clock
 METHOD_ORDER = ("Static Impedance", "Power Voltage", "Clock Hz")
@@ -226,11 +255,13 @@ class IctTestItemDialog(QDialog):
 
     def __init__(self, net_provider, method: str = "Static Impedance",
                  name: str = "", lo: str = "—", hi: str = "—",
+                 rail_count: int = 0,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("ICT Test Item")
         form = QFormLayout(self)
         self._net_provider = net_provider
+        self._rail_count = int(rail_count)
         self.combo_method = QComboBox()
         self.combo_method.addItems(ICT_TEST_METHODS)
         self.combo_method.setCurrentText(
@@ -319,8 +350,12 @@ class IctTestItemDialog(QDialog):
         self.edit_unit.setText(METHOD_UNITS.get(method, "—"))
         if method == DAQ_AI_METHOD:
             # the Power rails are allocated in Channel Allocation -
-            # a DAQ AI test needs NO net / limits here (user
-            # direction): add the test row directly
+            # a DAQ AI test has NO free net: the Net cell shows the
+            # count of assigned rails (read-only, user direction)
+            self.combo_net.blockSignals(True)
+            self.combo_net.clear()
+            self.combo_net.addItem(daq_ai_net_label(self._rail_count))
+            self.combo_net.blockSignals(False)
             self.combo_net.setEnabled(False)
             self.spin_expected.setEnabled(False)
             self.spin_lo.setEnabled(False)
@@ -352,8 +387,9 @@ class IctTestItemDialog(QDialog):
         """The step tuple of the edited row ("test" kind)."""
         method = self.combo_method.currentText()
         if method == DAQ_AI_METHOD:
-            return ("test", DAQ_AI_NAME, METHOD_UNITS[method],
-                    "—", "—", "—")
+            return (DAQ_AI_METHOD,
+                    daq_ai_net_label(self._rail_count),
+                    METHOD_UNITS[method], "—", "—", "—")
         if method == "Static Impedance":
             # no expected value, no Max - lower limit only
             return ("test", self.combo_net.currentText().strip(),
@@ -372,12 +408,13 @@ class IctWorkFlowSequenceDialog(QDialog):
 
     COLUMNS = ("Test Method", "Net", "Unit", "Expected", "Min", "Max")
 
-    def __init__(self, net_provider, initial_tests=None,
+    def __init__(self, net_provider, initial_tests=None, rail_count=0,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Build ICT Test Work Flow Sequence")
         self.setMinimumSize(640, 460)
         self._net_provider = net_provider
+        self._rail_count = int(rail_count)
         self._rows: list[tuple] = (
             list(initial_tests) if initial_tests
             else generate_sequence(
@@ -440,8 +477,7 @@ class IctWorkFlowSequenceDialog(QDialog):
             table.setRowCount(len(self._rows))
             for r, (_kind, name, unit, expected, lo, hi) in \
                     enumerate(self._rows):
-                method = (name.split(" - ")[0]
-                          if " - " in name else name)
+                method = method_of(_kind, name)
                 for c, text in enumerate(
                         (method, name, unit, expected, lo, hi)):
                     item = QTableWidgetItem(text)
@@ -487,7 +523,8 @@ class IctWorkFlowSequenceDialog(QDialog):
         self._swap_rows(r, r + 1)      # swap, select lower row
 
     def _add(self) -> None:
-        dlg = IctTestItemDialog(self._net_provider, parent=self)
+        dlg = IctTestItemDialog(self._net_provider,
+                                rail_count=self._rail_count, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._rows.append(dlg.values())
             self._refresh()
@@ -505,9 +542,10 @@ class IctWorkFlowSequenceDialog(QDialog):
         if r < 0 or r >= len(self._rows):
             return
         _kind, name, _unit, _measured, lo, hi = self._rows[r]
-        method = name.split(" - ")[0] if " - " in name else "test"
+        method = method_of(_kind, name)
         dlg = IctTestItemDialog(self._net_provider, method=method,
-                                name=name, lo=lo, hi=hi, parent=self)
+                                name=name, lo=lo, hi=hi,
+                                rail_count=self._rail_count, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._rows[r] = dlg.values()
             self._refresh()

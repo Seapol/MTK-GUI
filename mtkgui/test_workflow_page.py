@@ -354,6 +354,10 @@ class TestWorkFlowPage(QWidget):
         # testable_nets dict of the Yaml Build model - the step edit
         # dialog offers the nets PER TEST METHOD from it
         self.net_catalog_provider = None
+        # DAQ AI rail-count provider (set by the main window): returns
+        # the number of power rails assigned to DAQ AI channels in the
+        # Channel Allocation tables (the DAQ AI Net cell is read-only)
+        self.daq_ai_rail_count_provider = None
         self._runner = TestRunner(self)
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
@@ -1893,8 +1897,10 @@ class TestWorkFlowPage(QWidget):
             kind, steps, enables, waits, timeouts, self, kinds=kinds,
             op_params=op_params)
         # the step edit dialog offers the nets PER TEST METHOD from
-        # the page's net catalog (the Yaml Build parse result)
+        # the page's net catalog (the Yaml Build parse result); the
+        # DAQ AI rail count follows the same wiring (read-only Net)
         dlg.net_catalog_provider = self.net_catalog_provider
+        dlg.daq_ai_rail_count_provider = self.daq_ai_rail_count_provider
         dlg.setWindowTitle(title)
         if initial_row and initial_row < len(steps):
             dlg.select_row(initial_row)
@@ -1929,6 +1935,13 @@ class TestWorkFlowPage(QWidget):
 
 
     # ------------------------------------------------------------ demo data
+    def current_ict_case_tuples(self) -> list:
+        """The live ICT Test Cases as 6-tuple rows (kind / name / unit /
+        expected / min / max), excluding standard operations - the source
+        of truth for the Build ICT dialog's reverse sync (user direction
+        2026-10-14).  The builder re-adds the standard operations on OK."""
+        return [tuple(s[:6]) for s in self.ict_steps if s[0] != "op"]
+
     def current_fct_case_dicts(self) -> list:
         """The live FCT Test Cases as case dicts (kind / name /
         op_params) - the source of truth for the Build FCT dialog's
@@ -2783,9 +2796,17 @@ class _SequenceEditorDialog(QDialog):
     def _net_choices(self, method: str) -> list[str]:
         """The nets offered for one Test Method (user direction: the
         Net combo follows the method): Power nets for the impedance /
-        voltage / DAQ AI methods, Clock nets for Clock Hz, GPIO nets
-        for the generic test; without a parse result the list stays
-        empty (the current name is kept as the only entry)."""
+        voltage methods, Clock nets for Clock Hz, GPIO nets for the
+        generic test; the DAQ AI method has NO free net - a read-only
+        count of the DAQ AI rails assigned in Channel Allocation."""
+        if method == "DAQ AI":
+            from mtkgui.gui.yamlbuild.ict_sequence import daq_ai_net_label
+            # defensive getattr: this helper also runs on the
+            # _SequenceEditorDialog copy, where the provider is wired
+            # by the opener (_open_sequence_editor) - never assume
+            provider = getattr(self, "daq_ai_rail_count_provider", None)
+            count = provider() if callable(provider) else 0
+            return [daq_ai_net_label(count)]
         category = self.ICT_METHOD_NET_CATEGORY.get(method, "")
         catalog = (self.net_catalog_provider() if
                    self.net_catalog_provider else {}) or {}
@@ -2826,11 +2847,14 @@ class _SequenceEditorDialog(QDialog):
         # not in the category list stays selectable (prepended)
         net_combo = QComboBox()
         choices = self._net_choices(kind)
-        if name and name not in choices:
+        if name and name not in choices and kind != "DAQ AI":
             choices.insert(0, name)
         net_combo.addItems(choices)
         if name in choices:
             net_combo.setCurrentText(name)
+        # the DAQ AI Net cell is derived from Channel Allocation and
+        # read-only (no free net)
+        net_combo.setEnabled(kind != "DAQ AI")
 
         def _numeric(value: str) -> QDoubleSpinBox:
             spin = QDoubleSpinBox()
@@ -2865,7 +2889,7 @@ class _SequenceEditorDialog(QDialog):
             # name selectable when it drops out of the category)
             current = net_combo.currentText()
             fresh = self._net_choices(method)
-            if current and current not in fresh:
+            if current and current not in fresh and method != "DAQ AI":
                 fresh.insert(0, current)
             net_combo.blockSignals(True)
             net_combo.clear()
@@ -2873,6 +2897,8 @@ class _SequenceEditorDialog(QDialog):
             if current in fresh:
                 net_combo.setCurrentText(current)
             net_combo.blockSignals(False)
+            # DAQ AI Net is derived + read-only; other methods editable
+            net_combo.setEnabled(method != "DAQ AI")
 
         _sync_unit(kind)
         kind_combo.currentTextChanged.connect(_sync_unit)

@@ -412,6 +412,11 @@ and owns the ICT test case editing. Clicking the card opens the
   `Power Voltage` test, per clock net one `Clock Hz` test. No
   standard operations here - they are added on the Test Work Flow
   page on `OK`.
+- **Bidirectional sync** - the dialog opens pre-loaded with the
+  CURRENT ICT Test Cases rows of the Test Work Flow page (the page
+  is the source of truth): edit the live sequence, then `OK` writes
+  it back and offers the YAML save. Without any rows yet it falls
+  back to the fresh auto-generation.
 - Columns: `Test Method` / `Net` / `Unit` / `Expected` / `Min` /
   `Max`.
 - Buttons: `Auto` (regenerate the sequence), `Move Up` /
@@ -429,9 +434,13 @@ and owns the ICT test case editing. Clicking the card opens the
 - `OK` merges the standard operations on the Test Work Flow page
   and offers the YAML save; the card gets a star.
 
-**Note:** the `DAQ AI` method needs no net or limits here - the
-power rails are already allocated in Channel Allocation; adding the
-test row is enough.
+**Note:** the `DAQ AI` method has no free net - its scope is the
+power rails already allocated to the U2355A AI channels in Channel
+Allocation. The `Net` cell is READ-ONLY and shows
+`N Power rails assigned on DAQ channels` (N = assigned rails);
+adding the test row is enough. The row keeps the `DAQ AI` kind in
+the project YAML and re-inserts after `Power On DUT` even when the
+sequence is regenerated (`Load current yaml` / `Auto`).
 
 ### Underlying module parameters
 

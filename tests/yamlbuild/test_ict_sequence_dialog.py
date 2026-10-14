@@ -182,18 +182,22 @@ def test_voltage_expected_drives_limits(qapp):
 
 def test_daq_ai_needs_no_configuration(qapp):
     """DAQ AI (user direction): the Power rails are allocated in
-    Channel Allocation - the item editor disables Net / Min / Max and
-    returns the fixed power-rails test row directly."""
+    Channel Allocation - the item editor shows the read-only rail
+    count in the Net cell (no free net) and disables Net / Min / Max."""
     from mtkgui.gui.yamlbuild.ict_sequence import IctTestItemDialog
     dlg = IctTestItemDialog(lambda: dict(TESTABLE),
-                            method="DAQ AI")
+                            method="DAQ AI", rail_count=12)
     try:
         assert dlg.combo_method.currentText() == "DAQ AI"
         assert not dlg.combo_net.isEnabled()
         assert not dlg.spin_lo.isEnabled()
         assert not dlg.spin_hi.isEnabled()
         assert dlg.edit_unit.text() == "V"
-        assert dlg.values() == ("test", "DAQ AI - Power rails",
+        # the Net cell carries the DAQ AI rail count (read-only)
+        assert dlg.combo_net.currentText() == \
+            "12 Power rails assigned on DAQ channels"
+        assert dlg.values() == ("DAQ AI",
+                                "12 Power rails assigned on DAQ channels",
                                 "V", "—", "—", "—")
     finally:
         dlg.deleteLater()

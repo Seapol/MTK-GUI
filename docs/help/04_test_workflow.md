@@ -298,12 +298,17 @@ generic `test` row type.
 - **Configure** - capture start / end, sample rate (up to the
   250 kSa/s aggregate limit) and the rail set live in the project
   YAML and the waveform Properties dialog; the row needs no
-  Min / Max.
+  Min / Max. The `Net` cell is READ-ONLY and shows
+  `N Power rails assigned on DAQ channels` - the rail set comes
+  from the U2355A AI channels assigned in Channel Allocation (the
+  page rail set syncs from it automatically; a manual rail edit in
+  the Properties dialog still wins). It is never a single free net
+  - binding it to one net reports `no rails defined` at run time.
 - **Use when** - ramp shape, overshoot, sequencing and startup
   ripple matter, not just the final DC value.
-- **Example** - row `DAQ AI - Power rails` placed right after
-  `Power On DUT`; the waveform shows each rail's t=0 ramp and the
-  AI review flags anomalies.
+- **Example** - row `12 Power rails assigned on DAQ channels`
+  (kind `DAQ AI`) placed right after `Power On DUT`; the waveform
+  shows each rail's t=0 ramp and the AI review flags anomalies.
 
 #### test (generic)
 
@@ -470,10 +475,12 @@ Fields, in order:
 - `Test Method` - `op`, `test`, `Static Impedance`, `Power Voltage`,
   `Clock Hz`, `DAQ AI`. Changing it updates the fields below.
 - `Net` - the net name. The offered choices come **per test method**
-  from the Yaml Build parse result: Power nets for `Static Impedance`,
-  `Power Voltage` and `DAQ AI`, Clock nets for `Clock Hz`, GPIO nets
-  for the generic `test`. A legacy name outside the category stays
-  selectable (prepended to the list).
+  from the Yaml Build parse result: Power nets for `Static Impedance`
+  and `Power Voltage`, Clock nets for `Clock Hz`, GPIO nets for the
+  generic `test`. A legacy name outside the category stays
+  selectable (prepended to the list). For `DAQ AI` the field is
+  READ-ONLY and shows the rail count from Channel Allocation
+  (`N Power rails assigned on DAQ channels`) - no net can be picked.
 - `Enable`, `Wait` (0-99999 ms, pause before the step) and `Timeout`
   (0-999999 ms, maximum step time).
 - `Unit` - read-only, auto-filled by the method (`Ω` / `V` / `Hz`).

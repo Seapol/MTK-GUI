@@ -560,6 +560,16 @@ class MainWindow(QMainWindow):
         self.workflow_page.net_catalog_provider = (
             lambda: self.yaml_build_page.model.imported.get(
                 "testable_nets") or {})
+        # bidirectional sync (user direction 2026-10-14): the Build ICT
+        # dialog seeds from the CURRENT ICT Test Cases rows (page ->
+        # dialog); on OK the rows flow back through ict_sequence_ready
+        self.yaml_build_page.current_ict_cases_provider = \
+            self.workflow_page.current_ict_case_tuples
+        # the DAQ AI Net cell is read-only: its count comes from the
+        # Channel Allocation tables (U2355A AI power rails)
+        self.workflow_page.daq_ai_rail_count_provider = (
+            lambda: len(self._rails_from_allocation(
+                self.yaml_build_page.model.channel_allocation)))
         # block-04 sequence builder accepted: merge the standard
         # operations on the Test Work Flow page, then apply to yaml
         self.yaml_build_page.ict_sequence_ready.connect(
@@ -1464,22 +1474,40 @@ class MainWindow(QMainWindow):
         """Rebuild the ICT Test Cases table from the test rows - the
         adjusted tests in order WITH the standard operations around
         them (impedance before power-on)."""
-        from mtkgui.gui.yamlbuild.ict_sequence import DAQ_AI_NAME
+        from mtkgui.gui.yamlbuild.ict_sequence import (
+            daq_ai_net_label,
+            is_daq_ai_row,
+        )
         page = self.workflow_page
+        # the DAQ AI row and the rails capture share the same resource
+        # set: sync the page rails from the Yaml Build model (Channel
+        # Allocation) BEFORE placing the row - without this, a dialog
+        # OK on a fresh page (empty rail set) silently DROPPED the
+        # user-added DAQ AI test (root cause of the "not saved to
+        # yaml" report)
+        if not page.rails:
+            self._sync_rails_to_workflow()
         by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
 
         def op(name):
             return by_name.get(name) or op_step(name)
 
-        impedance = [t for t in tests if "Impedance" in t[1]]
-        rest = [t for t in tests if "Impedance" not in t[1]]
+        impedance = [t for t in tests
+                     if not is_daq_ai_row(t) and "Impedance" in t[1]]
+        daq_rows = [t for t in tests if is_daq_ai_row(t)]
+        rest = [t for t in tests
+                if not is_daq_ai_row(t) and "Impedance" not in t[1]]
         mid = [op(n) for n in self._ICT_OPS_MID]
-        if page.rails:
+        if daq_rows or page.rails:
             # user direction 2026-10-14: the DAQ AI power-rails capture
             # runs right AFTER Power On DUT and BEFORE the voltage /
-            # clock tests (the rails are already allocated in Channel
-            # Allocation - the row needs no net / limits)
-            mid.append(("DAQ AI", DAQ_AI_NAME, "V", "—", "—", "—"))
+            # clock tests. Its Net is the count of DAQ AI rails from
+            # Channel Allocation (read-only) - never a free net.  A
+            # user-added row is ALWAYS kept (its count label is
+            # refreshed to the current allocation; duplicates collapse
+            # into the single capture row).
+            mid.append(("DAQ AI", daq_ai_net_label(len(page.rails)),
+                        "V", "—", "—", "—"))
         seq = [op(n) for n in self._ICT_OPS_BEFORE_TEST] + impedance \
             + mid + rest \
             + [op(n) for n in self._ICT_OPS_AFTER_TEST]
@@ -1548,6 +1576,7 @@ class MainWindow(QMainWindow):
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 auto_fill_limits,
                 generate_sequence,
+                is_daq_ai_row,
                 merge_saved_limits,
             )
             # user direction 2026-10-14: the regeneration only re-derives
@@ -1557,6 +1586,13 @@ class MainWindow(QMainWindow):
             rows = auto_fill_limits(generate_sequence(
                 model.allocated_testable()))
             rows = merge_saved_limits(rows, previous)
+            # the DAQ AI row is NOT a generated row (its Net is derived
+            # from Channel Allocation) - carry it across the
+            # regeneration or a previously added row would be dropped;
+            # _fill_ict_sequence repositions it after Power On DUT and
+            # refreshes the rail-count label
+            rows += [tuple(s[:6]) for s in previous
+                     if len(s) >= 6 and is_daq_ai_row(s)]
             self._fill_ict_sequence(rows)
             loaded.append(f"ICT {len(rows)} tests")
         if fct_ready:
