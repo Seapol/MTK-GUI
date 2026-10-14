@@ -40,7 +40,7 @@ fct_test_config:
     enabled: true
     interface: mlan0
     scan_enabled: true
-    scan_ssid: FRDM-IMX93-DUT
+    ap_ssid: FRDM-IMX93-DUT
     scan_via: dut_console
     rssi_min: -70
     ping_enabled: false
@@ -75,8 +75,7 @@ def test_roundtrip_preserves_config(qapp):
                   if c.name == "Kernel check")
     assert kernel.capture_enabled and kernel.capture_is_expected
     assert kernel.expect_fail == "Linux imx93frdm"
-    assert cfg.wifi.scan_enabled and cfg.wifi.scan_ssid == \
-        "FRDM-IMX93-DUT"
+    assert cfg.wifi.scan_enabled and cfg.wifi.ap_ssid == "FRDM-IMX93-DUT"
     assert cfg.bluetooth.rssi_enabled
     assert cfg.bluetooth.expected_name == "FRDM-IMX93-DUT"
     assert cfg.bluetooth.expected_addr == "b8:f4:4f:59:51:a0"
@@ -89,9 +88,8 @@ def test_ui_edits_reach_values(qapp):
     panel.console_enabled.setChecked(True)
     panel.console_port.setCurrentText("/dev/cu.test")
     panel.wifi_enabled.setChecked(True)
-    panel.wifi_scan_ssid.setText("DUT-AP")
+    panel.wifi_ap_ssid.setText("DUT-AP")
     panel.wifi_ping_box.setChecked(True)
-    panel.wifi_ping_ssid.setText("DUT-AP")
     panel.bt_enabled.setChecked(True)
     panel.bt_name.setText("DUT-BT")
     panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
@@ -101,8 +99,8 @@ def test_ui_edits_reach_values(qapp):
     node = yaml.safe_load(out["fct_test_config_yaml"])
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
     assert cfg.console.port == "/dev/cu.test"
-    assert cfg.wifi.scan_enabled and cfg.wifi.scan_ssid == "DUT-AP"
-    assert cfg.wifi.ping_enabled and cfg.wifi.ping_ssid == "DUT-AP"
+    assert cfg.wifi.scan_enabled and cfg.wifi.ap_ssid == "DUT-AP"
+    assert cfg.wifi.ping_enabled
     assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.tone_enabled
     assert cfg.bluetooth.expected_addr == "aa:bb:cc:dd:ee:ff"
     assert cfg.bluetooth.scan_retries == 4

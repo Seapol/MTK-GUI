@@ -46,7 +46,7 @@ fct_test_config:
     interface: mlan0
     driver_load_cmd: ""
     scan_enabled: true
-    scan_ssid: FRDM-IMX93-DUT
+    ap_ssid: FRDM-IMX93-DUT
     scan_via: dut_console
     rssi_min: -70
     scan_timeout: 15
@@ -399,7 +399,7 @@ def bare_config() -> FctTestConfig:
                 ConsoleCommand(name="Boot log capture", kind="capture",
                                send_enabled=False, capture_enabled=True),
             ]),
-        wifi=WifiCfg(enabled=True, scan_enabled=True, scan_ssid="DUT-AP"),
+        wifi=WifiCfg(enabled=True, scan_enabled=True, ap_ssid="DUT-AP"),
         bluetooth=BluetoothCfg(enabled=True, rssi_enabled=True,
                                expected_name="DUT-BT",
                                pair_enabled=False, tone_enabled=False,
@@ -418,7 +418,7 @@ def test_bare_metal_validate_rejects_host_side_gaps():
     errors = cfg.validate()
     assert len(errors) == 3
     assert any("ssh_host" in e for e in errors)
-    assert any("connect & ping" in e for e in errors)
+    assert any("Wi-Fi ping" in e for e in errors)
     assert any("pair/connect" in e for e in errors)
 
 
@@ -923,8 +923,9 @@ def _linux_full_rf_config() -> FctTestConfig:
         wifi=WifiCfg(
             enabled=True, interface="mlan0",
             driver_load_cmd="/root/load_rf_drivers.sh",
-            scan_enabled=True, scan_ssid="DUT-AP", scan_via="host",
-            ping_enabled=True, ping_ssid="DUT-AP", ping_password="pw",
+            scan_enabled=True, ap_ssid="DUT-AP", ap_password="pw",
+            scan_via="host",
+            ping_enabled=True,
             ping_count=20,
             iperf_enabled=True, iperf_tool="iperf3", iperf_min_mbps=10,
             iperf_server_ip="", iperf_duration=10),
@@ -941,7 +942,7 @@ def test_linux_all_rf_subtests_build_distinct_steps():
     # driver load once, then the three Wi-Fi and three BT sub-tests
     assert names.count("Load RF drivers") == 1
     assert "Wi-Fi Scan / RSSI" in names
-    assert "Wi-Fi Connect & Ping" in names
+    assert any(s.startswith("Wi-Fi Ping") for s in names)
     assert "Wi-Fi iPerf Throughput (iperf3)" in names
     assert "BT discoverable (piscan)" in names
     assert "Bluetooth RSSI" in names
@@ -950,7 +951,7 @@ def test_linux_all_rf_subtests_build_distinct_steps():
     assert "Bluetooth Tone / Music (A2DP)" in names
     # Connect&Ping uses >=1-reply rule, iPerf auto-detects the server
     ping = next(s for s in build_fct_steps(cfg)
-                if s.name == "Wi-Fi Connect & Ping")
+                if s.name.startswith("Wi-Fi Ping"))
     assert ping.params["fct_rf"]["any_reply"] is True
     iperf = next(s for s in build_fct_steps(cfg)
                  if s.name.startswith("Wi-Fi iPerf"))
@@ -960,7 +961,7 @@ def test_linux_all_rf_subtests_build_distinct_steps():
 def test_bare_metal_rf_is_discovery_only():
     cfg = FctTestConfig(
         dut_type="bare_metal",
-        wifi=WifiCfg(enabled=True, scan_enabled=True, scan_ssid="DUT-AP"),
+        wifi=WifiCfg(enabled=True, scan_enabled=True, ap_ssid="DUT-AP"),
         bluetooth=BluetoothCfg(enabled=True, rssi_enabled=True,
                                expected_name="DUT-BT"))
     assert cfg.validate() == []
@@ -984,8 +985,8 @@ def test_legacy_mode_yaml_migrates_to_subtests():
     w, b = cfg.wifi, cfg.bluetooth
     assert (w.scan_enabled, w.ping_enabled, w.iperf_enabled) == \
         (True, True, True)
-    assert w.scan_ssid == "OLD" and w.ping_ssid == "OLD"
-    assert w.ping_password == "p" and w.ping_count == 30
+    assert w.ap_ssid == "OLD"
+    assert w.ap_password == "p" and w.ping_count == 30
     assert w.iperf_tool == "iperf2" and w.iperf_min_mbps == 25.0
     assert w.iperf_server_ip == "1.2.3.4"
     assert (b.rssi_enabled, b.pair_enabled, b.tone_enabled) == \
@@ -1000,19 +1001,18 @@ def test_legacy_mode_yaml_migrates_to_subtests():
 
 
 def test_rf_subtest_validation_rules():
-    # ping enabled but no SSID
+    # ping enabled with a valid ping count is clean (SSID/password are
+    # now shared as ap_ssid/ap_password, no per-ping fields)
     cfg = FctTestConfig(dut_type="linux", wifi=WifiCfg(
         enabled=True, scan_enabled=False, ping_enabled=True,
-        ping_ssid=" ", iperf_enabled=False))
-    errs = cfg.validate()
-    assert any("at least one" in e for e in errs) is False  # ping is on
-    assert any("ping_ssid" in e for e in errs)
+        ping_count=20, iperf_enabled=False))
+    assert cfg.validate() == []
     # bad iperf tool
     cfg.wifi = WifiCfg(enabled=True, scan_enabled=False, iperf_enabled=True)
     cfg.wifi.iperf_tool = "iperf9"
     assert any("iperf" in e and "tool" in e for e in cfg.validate())
     # zero/negative timeouts rejected
-    cfg.wifi = WifiCfg(enabled=True, scan_ssid="X", scan_timeout=0)
+    cfg.wifi = WifiCfg(enabled=True, ap_ssid="X", scan_timeout=0)
     assert any("timeout" in e for e in cfg.validate())
     # every sub-test off
     cfg.wifi = WifiCfg(enabled=True, scan_enabled=False)

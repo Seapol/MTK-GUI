@@ -394,6 +394,17 @@ def dut_wifi_ping(serial, gateway: str, count: int,
             f"loss {loss}% ({received}/{count}) vs max {loss_max}%")
 
 
+def dut_default_gateway(serial) -> str:
+    """DUT default gateway (= the hotspot AP) via ``ip route``."""
+    try:
+        _, text = _console_probe(serial, "ip route | grep default",
+                                 r"default via \S+", 8.0)
+        m = re.search(r"default via (\d+\.\d+\.\d+\.\d+)", text)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
 def dut_wifi_iperf(serial, tool: str, server_ip: str, min_mbps: float,
                    duration: int = 10) -> tuple:
     """DUT-side iperf (client -> host PC server): PASS when the
@@ -840,8 +851,8 @@ class FctTestRunner:
             elif host_runner is not None:
                 t0 = time.time()
                 out = _adapter(host_runner, {
-                    "mode": "rssi_only", "ssid": w.scan_ssid,
-                    "expected_ssid": w.scan_ssid,
+                    "mode": "rssi_only", "ssid": w.ap_ssid,
+                    "expected_ssid": w.ap_ssid,
                     "rssi_min": w.rssi_min}).run_test()
                 results.append(FctStepResult(
                     "Wi-Fi Scan / RSSI",
@@ -849,24 +860,50 @@ class FctTestRunner:
                     str(out["items"]), duration=time.time() - t0))
             else:
                 self.log("Wi-Fi scan skipped: no host runner bound")
-        # 2) connect & ping (Linux only; >=1 reply passes)
+        # 2) connect & ping (Linux only): 3 connectivity stages over the
+        #    shared hotspot AP - Host->AP (host CLI), DUT->AP (gateway),
+        #    DUT->Host (full path). Each stage is an independent verdict
+        #    so a dead segment is pin-pointed (not a vague timeout).
         if w.ping_enabled and self.cfg.dut_type == "linux":
+            host_ip = w.host_ip or host_lan_ip()
+            ap_ip = w.ap_ip or dut_default_gateway(serial) or ""
+            # stage 1 - Host PC -> AP (host CLI)
+            t0 = time.time()
             if host_runner is None:
-                self.log("Wi-Fi connect & ping skipped: no host runner")
-            else:
-                t0 = time.time()
-                out = _adapter(host_runner, {
-                    "mode": "full_stack", "ssid": w.ping_ssid,
-                    "expected_ssid": w.ping_ssid,
-                    "password": w.ping_password,
-                    "ssid_password": w.ping_password,
-                    "rssi_min": w.rssi_min, "ping_count": w.ping_count,
-                    "iperf3": False}).run_test()
-                loss = (out.get("items") or {}).get("loss_pct")
-                ok = loss is not None and float(loss) < 100.0
+                self.log("Wi-Fi ping Host->AP skipped: no host runner")
+            elif not ap_ip:
                 results.append(FctStepResult(
-                    "Wi-Fi Connect & Ping",
-                    "PASS" if ok else "FAIL", str(out.get("items")),
+                    "Wi-Fi Ping: Host -> AP", "FAIL",
+                    "cannot determine AP/gateway IP",
+                    duration=time.time() - t0))
+            else:
+                res = host_runner.run(
+                    "ping -c {count} {ip}",
+                    {"count": w.ping_count, "ip": ap_ip},
+                    regex_extracts={"loss_pct":
+                                    r"(\d+(?:\.\d+)?)% packet loss"},
+                    timeout_s=max(w.ping_count + 15, 30))
+                loss = float(res.items.get("loss_pct", "100"))
+                results.append(FctStepResult(
+                    "Wi-Fi Ping: Host -> AP",
+                    "PASS" if loss < 100.0 else "FAIL",
+                    f"loss {loss}% (host -> {ap_ip})",
+                    duration=time.time() - t0))
+            # stage 2 - DUT -> AP (gateway)
+            if serial is not None and ap_ip:
+                t0 = time.time()
+                v, d = dut_wifi_ping(serial, ap_ip, w.ping_count, 0.0,
+                                     interface=w.interface)
+                results.append(FctStepResult(
+                    "Wi-Fi Ping: DUT -> AP", v, d,
+                    duration=time.time() - t0))
+            # stage 3 - DUT -> AP -> Host PC (full path)
+            if serial is not None and host_ip:
+                t0 = time.time()
+                v, d = dut_wifi_ping(serial, host_ip, w.ping_count, 0.0,
+                                     interface=w.interface)
+                results.append(FctStepResult(
+                    "Wi-Fi Ping: DUT -> AP -> Host", v, d,
                     duration=time.time() - t0))
         # 3) iperf throughput (Linux only; host server / DUT client).
         #    A ping gate first proves the DUT <-> host path is alive
@@ -1013,8 +1050,8 @@ class FctTestRunner:
         w = self.cfg.wifi
         b = self.cfg.bluetooth
         self._cmd_vars = {
-            "ssid": w.scan_ssid,
-            "password": w.password,
+            "ssid": w.ap_ssid,
+            "password": w.ap_password,
             "host_ip": w.host_ip or host_lan_ip(),
             "bt_addr": b.expected_addr,
             "bt_name": b.expected_name,

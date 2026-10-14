@@ -32,15 +32,16 @@ YAML shape (product YAML `fct_test_config:` node):
         driver_load_cmd: ""        # optional DUT-side driver script
         # 1. Scan / RSSI  (both Linux and bare-metal/RTOS DUTs)
         scan_enabled: true
-        scan_ssid: "FRDM-AP"       # DUT Wi-Fi endpoint the Host scans
+        ap_ssid: "MyHotspot"       # hotspot AP the DUT joins ({{ssid}})
+        ap_password: ""            # hotspot password ({{password}})
+        ap_ip: ""                  # AP/gateway IP; empty = auto-detect
+        host_ip: ""                # Host PC IP; empty = auto-detect
         scan_via: "host"           # host | dut_console
         rssi_min: -70
         scan_timeout: 15
-        # 2. Connect & Ping  (Linux DUT only)
+        # 2. Ping  (Linux DUT only): Host->AP, DUT->AP, DUT->Host
         ping_enabled: false
-        ping_ssid: "FRDM-AP"
-        ping_password: ""
-        ping_count: 20             # PASS if >=1 reply (loss < 100%)
+        ping_count: 20
         ping_timeout: 15
         # 3. iPerf throughput: Host server -> DUT client (Linux only)
         iperf_enabled: false
@@ -704,20 +705,20 @@ class WifiCfg:
     driver_load_cmd: str = ""
     # 1) scan / RSSI (both DUT kinds)
     scan_enabled: bool = True
-    scan_ssid: str = ""
-    # station-mode DUT joins THIS AP (factory router): the Wi-Fi password
-    # is a deployment variable (never hard-coded in code / DUT scripts) -
-    # console rows reference it as {{password}}
-    password: str = ""
+    # Hotspot AP the station-mode DUT joins (factory router OR phone
+    # hotspot): {{ssid}} / {{password}} in console rows. Deployment
+    # variables - never hard-coded in code / DUT scripts.
+    ap_ssid: str = ""
+    ap_password: str = ""
+    ap_ip: str = ""                 # hotspot/AP gateway IP for the ping
+                                    # stages; empty = auto-detect
     host_ip: str = ""               # Host PC IPv4 for ping/SFTP/iperf;
                                     # empty = auto-detect at run time
     rssi_min: int = -70
     scan_timeout: float = 15.0
     scan_via: str = "host"          # host | dut_console (station-mode DUT)
-    # 2) connect & ping (Linux only)
+    # 2) connect & ping (Linux only): 3 stages - Host->AP, DUT->AP, DUT->Host
     ping_enabled: bool = False
-    ping_ssid: str = ""
-    ping_password: str = ""
     ping_count: int = 20
     ping_timeout: float = 15.0
     # 3) iperf throughput (Linux only; host server / DUT client)
@@ -733,13 +734,15 @@ class WifiCfg:
             "enabled": self.enabled,
             "interface": self.interface,
             "driver_load_cmd": self.driver_load_cmd,
-            "scan_enabled": self.scan_enabled, "scan_ssid": self.scan_ssid,
-            "password": self.password, "host_ip": self.host_ip,
+            "scan_enabled": self.scan_enabled,
+            "ap_ssid": self.ap_ssid,
+            "ap_password": self.ap_password,
+            "ap_ip": self.ap_ip,
+            "host_ip": self.host_ip,
             "rssi_min": int(self.rssi_min),
             "scan_timeout": float(self.scan_timeout),
             "scan_via": self.scan_via,
-            "ping_enabled": self.ping_enabled, "ping_ssid": self.ping_ssid,
-            "ping_password": self.ping_password,
+            "ping_enabled": self.ping_enabled,
             "ping_count": int(self.ping_count),
             "ping_timeout": float(self.ping_timeout),
             "iperf_enabled": self.iperf_enabled,
@@ -894,8 +897,11 @@ class FctTestConfig:
             scan_enabled=bool(wifi.get(
                 "scan_enabled",
                 wmode in (None, "rssi_only", "full_stack"))),
-            scan_ssid=str(wifi.get("scan_ssid", legacy_ssid)),
-            password=str(wifi.get("password", "")),
+            ap_ssid=str(wifi.get("ap_ssid",
+                                 wifi.get("scan_ssid", legacy_ssid))),
+            ap_password=str(wifi.get("ap_password",
+                                     wifi.get("password", ""))),
+            ap_ip=str(wifi.get("ap_ip", "")),
             host_ip=str(wifi.get("host_ip", "") or wifi.get(
                 "iperf_server_ip", "")),
             rssi_min=int(wifi.get("rssi_min", -70)),
@@ -904,9 +910,6 @@ class FctTestConfig:
             scan_via=str(wifi.get("scan_via", "host")),
             ping_enabled=bool(wifi.get(
                 "ping_enabled", wmode == "full_stack")),
-            ping_ssid=str(wifi.get("ping_ssid", legacy_ssid)),
-            ping_password=str(wifi.get("ping_password",
-                                      wifi.get("password", ""))),
             ping_count=int(wifi.get("ping_count", 20)),
             ping_timeout=float(wifi.get("ping_timeout",
                                        DEFAULT_RF_TIMEOUT)),
@@ -1032,18 +1035,16 @@ class FctTestConfig:
             if w.scan_via not in WIFI_SCAN_VIA:
                 errors.append(f"wifi.scan_via must be one of "
                               f"{WIFI_SCAN_VIA}")
-            if w.scan_enabled and not w.scan_ssid.strip():
-                errors.append("wifi scan: scan_ssid (DUT SSID) must not "
+            if w.scan_enabled and not w.ap_ssid.strip():
+                errors.append("wifi scan: ap_ssid (hotspot SSID) must not "
                               "be empty")
             if w.scan_timeout < 1 or w.ping_timeout < 1 \
                     or w.iperf_timeout < 1:
                 errors.append("wifi timeouts must be >= 1 s")
             if w.ping_enabled:
                 if self.dut_type == "bare_metal":
-                    errors.append("bare_metal DUT: Wi-Fi connect & ping "
-                                  "needs a Linux stack - disable it")
-                elif not w.ping_ssid.strip():
-                    errors.append("wifi ping: ping_ssid must not be empty")
+                    errors.append("bare_metal DUT: Wi-Fi ping needs a "
+                                  "Linux stack - disable it")
                 elif int(w.ping_count) < 1:
                     errors.append("wifi ping: ping_count must be >= 1")
             if w.iperf_enabled:
@@ -1245,8 +1246,8 @@ def build_fct_steps(cfg: FctTestConfig,
         #    only report its own RSSI over the console; the default host
         #    scan discovers the DUT-advertised AP/hotspot.
         if w.scan_enabled:
-            rf = {"mode": "rssi_only", "ssid": w.scan_ssid,
-                  "expected_ssid": w.scan_ssid,
+            rf = {"mode": "rssi_only", "ssid": w.ap_ssid,
+                  "expected_ssid": w.ap_ssid,
                   "rssi_min": int(w.rssi_min),
                   "interface": w.interface}
             if cfg.dut_type == "linux" and w.scan_via == "dut_console":
@@ -1262,18 +1263,19 @@ def build_fct_steps(cfg: FctTestConfig,
                     step_type=STEP_EXTERNAL_TOOL, channel="",
                     timeout_s=float(w.scan_timeout),
                     params={"tool_family": "wifi", "fct_rf": rf}))
-        # 2) connect & ping (Linux only): host associates to the DUT AP;
-        #    PASS as soon as >=1 ping reply is received.
+        # 2) ping (Linux only): 3 stages over the shared AP - the runner
+        #    executes Host->AP, DUT->AP, DUT->Host as independent verdicts
         if w.ping_enabled and cfg.dut_type == "linux":
             steps.append(FctStep(
-                name="Wi-Fi Connect & Ping",
+                name="Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host)",
                 step_type=STEP_EXTERNAL_TOOL, channel="",
                 timeout_s=float(w.ping_timeout),
                 params={"tool_family": "wifi", "fct_rf": {
-                    "mode": "full_stack", "ssid": w.ping_ssid,
-                    "expected_ssid": w.ping_ssid,
-                    "password": w.ping_password,
-                    "ssid_password": w.ping_password,
+                    "mode": "full_stack", "ssid": w.ap_ssid,
+                    "expected_ssid": w.ap_ssid,
+                    "password": w.ap_password,
+                    "ssid_password": w.ap_password,
+                    "ap_ip": w.ap_ip,
                     "rssi_min": int(w.rssi_min),
                     "ping_count": int(w.ping_count),
                     "iperf3": False, "any_reply": True,

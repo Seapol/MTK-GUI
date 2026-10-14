@@ -86,12 +86,12 @@ import yaml
 DUT_PORT = "/dev/cu.usbmodem53930099631"
 DUT_SSH_HOST = "192.168.10.129"      # DUT mlan0 on the factory router LAN
 HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
-ROUTER_SSID = "TP-LINK_F68E_AP"
+ROUTER_SSID = "ChinaNet-4zEc-5G"
 # Wi-Fi password of the factory router the DUT joins (a DEPLOYMENT
 # variable: per production site it lives in the yaml `wifi.password`,
 # never hard-coded in the DUT script).  Empty here = the DUT script's
 # own fallback applies.
-ROUTER_PASSWORD = "seapol19850117"
+ROUTER_PASSWORD = "dgu3vcgs"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: expected kernel release (uname -r) of the DUT firmware.  On a DUT
 #: firmware upgrade only THIS value changes - the kernel check is a
@@ -99,7 +99,7 @@ DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: shipped script never needs editing.
 DUT_KERNEL_VERSION = "6.6.36-lts-next"
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
-OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.2.yaml"
+OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.5.yaml"
 # headless SFTP landing file (the run script archives it per serial no.)
 SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat_result.json")
 
@@ -363,7 +363,7 @@ FCT_TEST_CONFIG = {
                 send="mkdir -p /var/run/sshd; /usr/sbin/sshd "
                      "2>/dev/null; netstat -tln 2>/dev/null "
                      "| grep -q ':22 ' && echo SSHD_\"STARTED\"",
-                cap_pat="SSHD_STARTED", cap_timeout=10, enabled=False),
+                cap_pat="SSHD_STARTED", cap_timeout=10),
             # 16) Bring Wi-Fi up as a STATION joined to the factory
             #     router (Host and DUT then share one LAN).  SSID and
             #     password come from the yaml {{ssid}} / {{password}} -
@@ -393,8 +393,7 @@ FCT_TEST_CONFIG = {
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="ping -I mlan0 -c 4 {{host_ip}}",
-                cap_pat="0% packet loss", cap_timeout=30, retries=1,
-                enabled=False),
+                cap_pat="0% packet loss", cap_timeout=30, retries=1),
             # 18) SFTP-get fat_result.json back to the Host over SSH
             #     (retry 1: the transfer is the thing that must succeed)
             console_row(
@@ -402,7 +401,7 @@ FCT_TEST_CONFIG = {
                 kind="sftp_get", transport="ssh",
                 send_on=False, action="sftp_get",
                 remote="/root/fat_result.json", local=SFTP_LANDING,
-                send_timeout=20.0, retries=1, enabled=False),
+                send_timeout=20.0, retries=1),
             # 18.5) SFTP-get the tee'd fat.py console log (full transcript)
             console_row(
                 "Retrieve fat.log (SFTP)",
@@ -410,15 +409,7 @@ FCT_TEST_CONFIG = {
                 send_on=False, action="sftp_get",
                 remote="/root/fat.log",
                 local=str(OUT_DIR / "_run_work" / "fat.log"),
-                send_timeout=30.0, retries=1, enabled=False),
-            # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
-            console_row(
-                "Wi-Fi ping DUT to Host",
-                wait=True, send_on=True, capture=True,
-                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="ping -I mlan0 -c 20 {{host_ip}}",
-                cap_pat=r"[1-9][0-9]* received", cap_regex=True,
-                end_line="packet loss", cap_timeout=40.0),
+                send_timeout=30.0, retries=1),
             # 20) HOST CLI: start the iperf3 server on the TEST PC right
             #     before the RF section (the DUT-client iPerf3 sub-test
             #     connects back to it).  macOS: daemon mode; Windows:
@@ -428,7 +419,7 @@ FCT_TEST_CONFIG = {
             host_row(
                 "Start iperf3 server (Host CLI)",
                 host_cmd="iperf3 -s -D",
-                host_cmd_windows="start /B iperf3 -s", enabled=False),
+                host_cmd_windows="start /B iperf3 -s"),
         ],
         # Post-RF teardown: AFTER the Wi-Fi/BT sections (the DUT must
         # stay up while any RF sub-test can still run)
@@ -446,8 +437,7 @@ FCT_TEST_CONFIG = {
             host_row(
                 "Stop iperf3 server (Host CLI)",
                 host_cmd="pkill -x iperf3 || true",
-                host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul",
-                enabled=False),
+                host_cmd_windows="taskkill /IM iperf3.exe /F & ver > nul"),
             # T3) FCT done - operator notification (MessageOK): the LAST
             #     item of the whole run, shown after the DUT is shut down
             #     and the host is cleaned up.  Acknowledge to close.
@@ -460,26 +450,24 @@ FCT_TEST_CONFIG = {
         "driver_load_cmd": "",          # loaded explicitly in console list
         # 1) Scan / RSSI - station mode, read on the DUT console
         "scan_enabled": True,
-        "scan_ssid": ROUTER_SSID,
-        # station-mode DUT joins this AP; password is a deployment value
-        # (console row references it as {{password}})
-        "password": ROUTER_PASSWORD,
+        # Hotspot AP (factory router / phone hotspot) the DUT joins;
+        # deployment values - never hard-coded in code / DUT scripts
+        "ap_ssid": ROUTER_SSID,
+        "ap_password": ROUTER_PASSWORD,
+        "ap_ip": "",                    # empty = auto-detect gateway
         # Host PC IP for the ping gates / iPerf; empty = auto-detect at
         # run time via host_lan_ip()
         "host_ip": "",
         "scan_via": "dut_console",
         "rssi_min": -70,
         "scan_timeout": 15,
-        # 2) Connect & Ping is expressed as a console command above
-        #    (DUT joins the router; the Host never associates to the DUT)
-        "ping_enabled": False,
-        "ping_ssid": ROUTER_SSID,
+        # 2) Ping - 3 stages over the shared AP: Host->AP, DUT->AP, DUT->Host
+        "ping_enabled": True,
         "ping_count": 20,
         "ping_timeout": 15,
         # 3) iPerf3: Host server / DUT client (bench-calibrated floor;
         #    both ends are wireless on this bench -> ~2-5 Mbps)
-        #    iperf_enabled=False while the bench network is re-worked
-        "iperf_enabled": False,
+        "iperf_enabled": True,
         "iperf_tool": "iperf3",
         "iperf_min_mbps": 1.0,
         "iperf_server_ip": "",          # empty = auto-detect host IP

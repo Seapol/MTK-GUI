@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""FCT console sequence TIMING DISCIPLINE (v1.0.2) - reverse-validation
+"""FCT console sequence TIMING DISCIPLINE (v1.0.5) - reverse-validation
 tests for the Wait -> Send -> Capture fresh-window semantics.
 
 The user-visible bugs these lock out:
@@ -229,13 +229,13 @@ def test_capture_only_empty_session_fails():
     assert res[0].verdict == "FAIL"
 
 
-# --------------------------------------------------------- yaml v1.0.2 guard
-def _v102_test_commands():
+# --------------------------------------------------------- yaml v1.0.5 guard
+def _v105_test_commands():
     from pathlib import Path
     yml = (Path(__file__).resolve().parents[2] / "yaml_plan" / "examples"
-           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
+           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.5.yaml")
     if not yml.exists():                     # generator not run yet
-        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.2.yaml not generated yet")
+        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.5.yaml not generated yet")
     data = yaml.safe_load(yml.read_text(encoding="utf-8"))
     node = data.get("fct_test_config")
     if not isinstance(node, dict) or "test_commands" not in (
@@ -251,12 +251,12 @@ def _v102_test_commands():
     return (node or {}).get("console", {}).get("test_commands", [])
 
 
-def _v102_post_rf():
+def _v105_post_rf():
     from pathlib import Path
     yml = (Path(__file__).resolve().parents[2] / "yaml_plan" / "examples"
-           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")
+           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.5.yaml")
     if not yml.exists():
-        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.2.yaml not generated yet")
+        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.5.yaml not generated yet")
     data = yaml.safe_load(yml.read_text(encoding="utf-8"))
     node = data.get("fct_test_config")
     if not isinstance(node, dict) or "test_commands" not in (
@@ -270,62 +270,62 @@ def _v102_post_rf():
     return (node or {}).get("console", {}).get("post_rf_commands", [])
 
 
-def test_v102_post_rf_shutdown_then_kill():
-    """Teardown order: the plan must shut the DUT down and THEN stop
-    the host iperf3 server; the shutdown row waits for a prompt first
-    (proves the DUT was still alive) and sends without capture (the
-    console goes silent as the board powers off)."""
-    rows = _v102_post_rf()
+def test_v105_post_rf_shutdown_then_kill():
+    """Teardown order: shut the DUT down, then stop the host iperf3
+    server, then the FCT-done operator ack (LAST). The shutdown row
+    waits for a prompt first (proves the DUT was still alive) and sends
+    without capture (the console goes silent as the board powers off)."""
+    rows = _v105_post_rf()
     assert [r.get("name") for r in rows] == \
-        ["Shutdown DUT", "Stop iperf3 server (Host CLI)"]
-    shut, kill = rows
+        ["Shutdown DUT", "Stop iperf3 server (Host CLI)", "FCT done."]
+    shut, kill, done = rows
     assert shut.get("send") == "shutdown now"
     assert shut.get("wait_enabled") and shut.get("expect_pass")
     assert not shut.get("capture_enabled")
     assert kill.get("kind") == "host"
     assert kill.get("host_cmd", "").strip()
+    assert done.get("kind") == "message"
     # host start row sits at the END of test_commands, right before
     # the RF section that contains the DUT-client iperf3 sub-test
-    starts = [r for r in _v102_test_commands() if r.get("kind") == "host"]
+    starts = [r for r in _v105_test_commands() if r.get("kind") == "host"]
     assert [r.get("name") for r in starts] == \
         ["Start iperf3 server (Host CLI)"]
     assert starts[0].get("host_cmd", "").strip()
 
 
-def test_v102_every_send_row_waits_first():
-    """Timing discipline: every Send row (except the Console wake row
+def test_v105_every_send_row_waits_first():
+    """Timing discipline: every Send row (except operator message rows
     and the SSH SFTP row) must wait for a prompt/question BEFORE it
     sends - no row may fire while the previous command is still
     running."""
-    rows = _v102_test_commands()
+    rows = _v105_test_commands()
     for row in rows:
-        if row.get("kind") in ("sftp_put", "sftp_get"):
+        if row.get("kind") in ("sftp_put", "sftp_get", "message"):
             continue
         if not row.get("send_enabled"):
             continue
-        is_wake = row.get("name") == "Console wake"
-        if not is_wake:
-            assert row.get("wait_enabled"), \
-                f"{row.get('name')!r}: send row without wait"
-            assert row.get("expect_pass"), \
-                f"{row.get('name')!r}: send row without a wait pattern"
+        assert row.get("wait_enabled"), \
+            f"{row.get('name')!r}: send row without wait"
+        assert row.get("expect_pass"), \
+            f"{row.get('name')!r}: send row without a wait pattern"
 
 
-def test_v102_first_row_is_wake_send():
-    rows = _v102_test_commands()
+def test_v105_first_row_is_wake_send():
+    rows = _v105_test_commands()
     first = rows[0]
-    assert first.get("name") == "Console wake"
-    assert first.get("send_enabled") and first.get("send", "").strip() == ""
+    assert first.get("name") == "Power on DUT"
+    assert first.get("kind") == "message"
+    assert first.get("dialog_style") == "gostop"
     assert not first.get("wait_enabled") and not first.get("capture_enabled")
 
 
-def test_v102_capture_anchor_never_in_echo():
+def test_v105_capture_anchor_never_in_echo():
     """Echo-safety: the capture anchor must not be a substring of the
     command line itself - the DUT echoes the command before running it,
     so an echo-contained anchor would PASS from the echo alone (even
     with the DUT hung).  Quote-split markers (echo SSHD_"STARTED")
     keep the literal out of the command text."""
-    rows = _v102_test_commands()
+    rows = _v105_test_commands()
     for row in rows:
         if row.get("kind") in ("sftp_put", "sftp_get"):
             continue
@@ -408,14 +408,14 @@ def test_render_substitutes_deployment_tokens():
     resolve from the yaml at run time (per production site)."""
     cfg = FctTestConfig.from_dict({
         "dut_type": "linux",
-        "wifi": {"enabled": True, "scan_ssid": "Line9-AP",
-                 "password": "s3cret", "host_ip": "10.0.0.9"},
+        "wifi": {"enabled": True, "ap_ssid": "Line9-AP",
+                 "ap_password": "s3cret", "host_ip": "10.0.0.9"},
         "bluetooth": {"enabled": True, "expected_name": "DUT-01",
                       "expected_addr": "aa:bb:cc:dd:ee:ff"},
     })
     runner = FctTestRunner(cfg, log_sink=lambda m: None)
     runner._cmd_vars = {
-        "ssid": cfg.wifi.scan_ssid, "password": cfg.wifi.password,
+        "ssid": cfg.wifi.ap_ssid, "password": cfg.wifi.ap_password,
         "host_ip": cfg.wifi.host_ip, "bt_addr": cfg.bluetooth.expected_addr,
         "bt_name": cfg.bluetooth.expected_name,
     }
@@ -432,14 +432,14 @@ def test_render_substitutes_deployment_tokens():
 
 
 def test_wifi_password_host_ip_configurable():
-    """wifi.password / wifi.host_ip survive the yaml round-trip (new
+    """wifi.ap_password / wifi.host_ip survive the yaml round-trip (new
     deployment-config fields)."""
     cfg = FctTestConfig.from_dict({
         "dut_type": "linux",
-        "wifi": {"enabled": True, "scan_ssid": "AP-X",
-                 "password": "pw", "host_ip": "192.168.1.5"},
+        "wifi": {"enabled": True, "ap_ssid": "AP-X",
+                 "ap_password": "pw", "host_ip": "192.168.1.5"},
     })
-    assert cfg.wifi.password == "pw"
+    assert cfg.wifi.ap_password == "pw"
     assert cfg.wifi.host_ip == "192.168.1.5"
     # host_ip falls back to the legacy iperf_server_ip when unset
     cfg2 = FctTestConfig.from_dict({

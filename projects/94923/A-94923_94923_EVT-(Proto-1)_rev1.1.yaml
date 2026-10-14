@@ -1,0 +1,7571 @@
+project:
+  software: mtk-gui v2.0.0
+  revision: '1.1'
+  created: '2026-10-08T02:38:30'
+product:
+  part_number: A-94923
+  core_id: '94923'
+  batch: EVT (Proto-1)
+equipment:
+  probes:
+    title: Flash / Debug Probes
+    table:
+    - item: J-Link
+      role: ARM flash / debug
+      status: USB
+    - item: PE Micro
+      role: NXP flash / debug
+      status: USB
+    - item: Lauterbach
+      role: TRACE32 debug / trace
+      status: USB
+    - item: CMSIS-DAP
+      role: CMSIS standard probe
+      status: USB HID
+    - item: MCU-LINK
+      role: NXP MCU probe
+      status: USB HID
+    - item: OpenSDA
+      role: NXP OpenSDA
+      status: USB
+  host:
+    title: HOST PC
+    fields:
+      Platform: Common Test Platform
+      Test SW: mtk-gui v2.0.0
+      OS: Windows 11 Pro x64
+      Functions: ICT / FCT / Flash / Reports / Cloud
+  peripherals:
+    title: Test Peripherals
+    table:
+    - item: PC Wi-Fi
+      role: RF connectivity
+      status: Not connected
+    - item: PC Bluetooth
+      role: RF connectivity
+      status: Not connected
+    - item: Ethernet Router
+      role: LAN / iperf throughput
+      status: Not connected
+    - item: Media Converter
+      role: T1 / T1S media
+      status: Not connected
+    - item: Display
+      role: DSI-MIPI check
+      status: Not connected
+    - item: Camera
+      role: CSI-MIPI check
+      status: Not connected
+    - item: Microphone / Earphone
+      role: Audio path check
+      status: Not connected
+    - item: Speaker
+      role: Audio output check
+      status: Not connected
+  daq973a:
+    title: DAQ973A Mainframe
+    fields:
+      Model: Keysight DAQ973A, 3 slots
+      Built-in DMM: 6.5-digit (22-bit), DCV 0.003%
+      Interfaces: GPIB + LAN (LXI) + USB
+      Scan speed: up to 450 ch/s
+      Frequency function: 3 Hz - 300 kHz
+      Status: Available (demo)
+  m908a_1:
+    title: 'DAQM908A #1'
+    fields:
+      Module: DAQM908A 40-ch SE multiplexer
+      Slot: Slot 1
+      Channels: CH101 - CH140
+      Test points: TP_P1 - TP_P40
+      Reuse: 2-wire Ω then DCV
+      Status: Available (demo)
+  m908a_2:
+    title: 'DAQM908A #2'
+    fields:
+      Module: DAQM908A 40-ch SE multiplexer
+      Slot: Slot 2
+      Channels: CH201 - CH240
+      Test points: TP_P41 - TP_P80
+      Reuse: 2-wire Ω then DCV
+      Status: Available (demo)
+  m907a:
+    title: DAQM907A
+    fields:
+      Module: DAQM907A multifunction
+      Slot: Slot 3
+      Totalizer: 26-bit, 0 - 100 kHz -> CLK1
+      Analog outputs: 2 x 16-bit, ±12 V, 15 mA/ch
+      DIO: 16-ch open-drain, 42 V / 400 mA
+      Status: Available (demo)
+  u2355a:
+    title: U2355A
+    fields:
+      Model: Keysight U2355A USB DAQ
+      Analog input: 16-bit, ±10 V, 250 kSa/s aggregate
+      Counters: 2 x 0.1 Hz - 6 MHz
+      Digital IO: 24 TTL channels
+      AO (backup): 2 x 12-bit ±10 V
+      Status: Available (demo)
+  u_ai:
+    title: U2355A - Analog Inputs
+    fields:
+      Resource: AI x16 (max)
+      Used: 12 critical rails
+      Rate: ≈20 kSa/s/ch -> CSV
+      Range: ±10 V, 16-bit
+      Tap: parallel at power net points
+  u_ctr:
+    title: U2355A - Counters + DIO
+    fields:
+      Counters: 'CTR0 / CTR1: 0.1 Hz - 6 MHz'
+      CLK2 / CLK3: 4 MHz / 6 MHz
+      Digital IO: 24 ch -> DUT GPIO
+      Level match: level shifter 1.8 / 3.3 / 5 V
+      AO backup: 2 ch ±10 V, 12-bit
+  psu:
+    title: N5747A DC Power Supply
+    fields:
+      Model: Keysight N5747A
+      Output: 60 V / 12.5 A / 750 W
+      Remote sense: 4-wire ±S at the load
+      Interfaces: LAN (LXI) + USB + GPIB
+      J1: analog program + RI/FLT inhibit
+      Status: Available (demo)
+  psu_detail:
+    title: N5747A - Output & Sense
+    fields:
+      Output: ±OUT -> VIN+ / VIN−
+      Remote sense: ±S -> 4-wire at the load
+      Readback: V/I readback ≈1% (trend only)
+      J1: analog program + RI/FLT hardware inhibit
+      Voltages: 5 / 12 / 24 / 48 V profiles
+  fixture:
+    title: Fixture Probe Board
+    fields:
+      Board: Probe board with star ground plane
+      Probe pins: 128 pinhole pins
+      Power net points: TP_P1 - TP_P80
+      Grounding: single-point star plane
+      IO board: ATE fixture control board
+  control_board:
+    title: ATE Fixture Control Board
+    fields:
+      Board: ATE fixture control board
+      Driven by: DAQM907A Port 1/2 open-drain
+      Pull-up: external; 42 V / 400 mA
+      Channels: 16 (4 used)
+  cell_press:
+    title: '[OUT] Press Cylinder'
+    fields:
+      Signal: digital output
+      High: press / clamp down
+      Low: release
+  cell_inpos:
+    title: '[IN] Cylinder In-Position'
+    fields:
+      Signal: digital input
+      High: locked
+      Low: unlocked
+  cell_presence:
+    title: '[IN] DUT Presence'
+    fields:
+      Signal: digital input, active-low
+      High: absence
+      Low: presence
+  cell_estop:
+    title: '[IN] E-Stop Healthy'
+    fields:
+      Signal: digital input, active-low
+      High: unhealthy / triggered
+      Low: healthy
+  dut:
+    title: DUT Board
+    fields:
+      DUT: DUT board via fixture probes
+      Probe pads: '>32 mils (typical 40 mils)'
+      Power nets: TP_P1 - TP_P80
+      GPIO nets: TP_GPIO0 - TP_GPIO23
+      Reference: stress / strain gauge
+  grp_power:
+    title: Power Nets TP_P1-P80
+    fields:
+      Group: Power nets TP_P1 - TP_P80
+      Subset: 12 critical rails for up-sequence
+      Tests: 2-wire Ω + DCV via DAQ973A
+      Up-sequence: 12 ch via U2355A -> CSV + waveform
+      Judgment: ±0.1% via DAQ973A
+      Ω threshold: R_min = V_rail / I_allow, 1.5 Ω tol
+  grp_clocks:
+    title: Clock Nets
+    fields:
+      CLK1: 32.768 kHz -> 907A totalizer
+      CLK2: 4 MHz -> U2355A CTR0
+      CLK3: 6 MHz -> U2355A CTR1
+  grp_adc:
+    title: ADC Input
+    fields:
+      Inputs: TP_ADC0 / TP_ADC1
+      Stimulus: 907A AO0 / AO1, ±12 V 16-bit
+      Test: DUT ADC readback
+  grp_vin:
+    title: Main Power Input
+    fields:
+      Inputs: VIN+ / VIN−
+      Voltages: 5 / 12 / 24 / 48 V
+      Sense: 4-wire remote at the load
+  grp_gnd:
+    title: GND Probes
+    fields:
+      Probes: GND x2
+      Connection: -> star ground plane
+  grp_gpio:
+    title: GPIO Nets
+    fields:
+      Nets: TP_GPIO0 - TP_GPIO23 (24 ch)
+      Driven by: U2355A DIO via level shifter
+      Tests: drive HI/LO, read back, toggle
+console: []
+test_workflow:
+  overall_flow:
+  - stage: ICT
+    description: 'In-Circuit Test: 80 power nets impedance -> voltage -> RTC/CLKOUT1/CLKOUT2 clocks'
+    enable: true
+  - stage: FCT
+    description: 'Functional Test: LED -> Serial Console (Linux) -> Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE'
+    enable: true
+  stop_if_failure: false
+  stop_if_any_short: true
+  auto_sn: false
+  retry: 0
+  ict_test_cases:
+  - name: Init Instruments
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: instruments
+      instruments:
+      - DAQM
+      - DAQ
+      - PSU
+  - name: Fixture Clamp Down
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture
+      signal: press
+      level: H
+  - name: Fixture Lock
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture
+      signal: inpos
+      level: H
+  - name: Fixture E-Stop Healthy
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture
+      signal: estop
+      level: L
+  - name: Static Impedance - SENSE_VREFH_ADC01_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VCC_3V3_MUX
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VCC_BJT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_0.8V_PD2_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_0.8V_PD2_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_1P8_LVDSQSPI
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_3.3V
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_HV_A_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_HV_A_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_HV_B_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_HV_B_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V08_SERDES_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V08_SERDES_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V08_SERDES_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_LVDS_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_LVDS_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_LVDS_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_SERDES_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_SERDES_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VDD_V18_SERDES_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VREFH_ADC01_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Static Impedance - VREFH_ADC01_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: Power On DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: power
+      voltage: 5.0
+      current: 1.0
+  - name: Power Voltage - SENSE_VREFH_ADC01_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VCC_3V3_MUX
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VCC_BJT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_0.8V_PD2_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_0.8V_PD2_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_1P8_LVDSQSPI
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_3.3V
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_HV_A_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_HV_A_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_HV_B_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_HV_B_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V08_SERDES_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V08_SERDES_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V08_SERDES_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_LVDS_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_LVDS_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_LVDS_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_SERDES_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_SERDES_DC_FIL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VDD_V18_SERDES_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VREFH_ADC01_DC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Power Voltage - VREFH_ADC01_DC_SOC
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - CLK_EXTAL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - CLK_XTAL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_CLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_CLK1_FPGA_AG25
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO111_SAI0_1_BCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO12_1588_CLKOUT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO13_TRACE_ETM_CLKOUT_MAC0_MII_COL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO168_CLKOUTLPRUN
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO170_CLKOUTSTBY
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO208_SINC_MCLK3
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO244_SINC_MCLK2
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO246_SINC_MCLK0
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO249_SINC_MCLK0_OUT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO253_SINC_MCLK1
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO256_SINC_MCLK1_OUT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO261_SINC_MCLK2_OUT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO348_TRACE_CLKOUT
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO34_LPSPI0_SCK_MAC1_RGMII_RXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO35_CLKOUT_RUN_MAC1_RGMII_RXCTL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO37_MAC1_RGMII_TXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO38_LPSPI1_SCK_MAC2_RGMII_RXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO40_CLKOUTRUN
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO40_XSPI_DAT3_CLKOUTRUN
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO56_USDHC_D4_MAC0_RGMII_RXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO59_USDHC_CLK_MAC0_RGMII_TXD2
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO64_USDHC_D2_MAC0_RGMII_TXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO67_MAC1_TC14_RX_QSPI_CLK_N
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO72_MAC1_TC14_TX_QSPI_CLK_P
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - DUT_GPIO7_MAC2_RGMII_TXCLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - I2C_CTRL_CLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - OSC32K_EXTAL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - OSC32K_XTAL
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - SDHC_CLK_SYNC_IN
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Clock Hz - USDHC_CLK
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: —
+    threshold_max: —
+  - name: Power Off DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: power
+  - name: Fixture Unlock
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture
+      signal: inpos
+      level: L
+  - name: Fixture Release
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture
+      signal: press
+      level: L
+  - name: Reset Instruments
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: reset
+      instruments:
+      - DAQM
+      - DAQ
+      - PSU
+  power_rails_up_sequence:
+    instrument: Keysight U2355A analog input
+    channels: 12
+    duration_s: 6.5
+    pre_trigger_s: -0.5
+    post_trigger_s: 6.0
+    sample_rate_hz: 200
+    judgment: record only - no pass/fail
+    rails:
+    - name: SENSE_VREFH_ADC01_DC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#ef4444'
+    - name: VCC_3V3_MUX
+      nominal_v: 3.3
+      ramp_offset_s: 0.0
+      color: '#22c55e'
+    - name: VCC_BJT
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#3b82f6'
+    - name: VDD_0.8V_PD2_DC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#f59e0b'
+    - name: VDD_0.8V_PD2_DC_SOC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#a855f7'
+    - name: VDD_1P8_LVDSQSPI
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#06b6d4'
+    - name: VDD_3.3V
+      nominal_v: 3.0
+      ramp_offset_s: 0.0
+      color: '#84cc16'
+    - name: VDD_HV_A_DC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#f97316'
+    - name: VDD_HV_A_DC_SOC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#ef4444'
+    - name: VDD_HV_B_DC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#22c55e'
+    - name: VDD_HV_B_DC_SOC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#3b82f6'
+    - name: VDD_V08_SERDES_DC
+      nominal_v: 0.0
+      ramp_offset_s: 0.0
+      color: '#f59e0b'
+  fct_test_cases:
+  - name: ''
+    kind: MessageOK
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+yaml_build_state:
+  plan_version: 1.0.0
+  saved_at: '2026-10-08T02:38:30'
+  imported:
+    net:
+      file: NET-94923_A.net
+      raw: 'Allegro Report
+
+        C:/00-saravana/94923-X-S32K5XX-437-DC/A080_7 April/FabOutput/LAY-94923_A.brd
+
+        Mon Apr  7 11:31:15 2025
+
+
+        Net Name,Net Pins
+
+        BRD_ID_01,J16.96 R164.2 R167.1
+
+        BRD_ID_02,J16.94 R163.2 R166.1
+
+        BRD_ID_03,J16.92 R162.2 R165.1
+
+        CLK_EXTAL,R139.1 R142.1 R171.1 U1.K1
+
+        CLK_XTAL,R135.2 R141.1 U1.L1
+
+        CPU_RESET_B,J14.97 R148.2 U11.2
+
+        CPU_RESET_HVB_B,R152.2 R155.2 U11.4
+
+        DUT_CLK,J14.45 R144.2
+
+        DUT_CLK1_FPGA_AG25,J14.42 R171.2
+
+        DUT_EXTWAKE1,J15.42 U1.J2
+
+        DUT_GPIO0_TRACE_ETM_D0_MAC2_MII_COL,J14.3 U1.V5
+
+        DUT_GPIO1_MAC2_MII_RXER,J14.8 U1.W7
+
+        DUT_GPIO2_MAC2_RGMII_RXD1,J14.17 U1.U9
+
+        DUT_GPIO3_MAC2_RGMII_RXD0,J14.10 U1.W8
+
+        DUT_GPIO4_I2C0_SCL_MAC2_MII_TXER,J14.14 U1.T8
+
+        DUT_GPIO5_MAC2_RGMII_TXD1,J14.6 U1.W6
+
+        DUT_GPIO6_MAC2_RGMII_TXD0,J14.5 U1.V6
+
+        DUT_GPIO7_MAC2_RGMII_TXCLK,J14.7 U1.T7
+
+        DUT_GPIO8_MAC2_RGMII_RXD3,J14.15 U1.R9
+
+        DUT_GPIO9_LPSPI1_SCK,J15.60 U8.5
+
+        DUT_GPIO9_XSPI_SCK#_LPSPI1_SCK,U1.P4 U8.11
+
+        DUT_GPIO10_LPSI1_SIN,J15.44 U6.6
+
+        DUT_GPIO10_XSPI_INTB_LPSI1_SIN,U1.L5 U6.10
+
+        DUT_GPIO11_LPSPI1_CS0B,J15.57 U2.6
+
+        DUT_GPIO11_XSPI_DAT7_LPSPI1_CS0B,U1.N6 U2.10
+
+        DUT_GPIO12_1588_CLKOUT,J15.77 U1.U4
+
+        DUT_GPIO13_TRACE_ETM_CLKOUT_MAC0_MII_COL,J15.83 U1.V3
+
+        DUT_GPIO14_TRACE_ETM_D1_MAC2_MII_CRS,J14.1 U1.U5
+
+        DUT_GPIO15_FPGA_A13,J15.63 U8.6
+
+        DUT_GPIO15_XSPI_SCK_FPGA_A13,U1.R3 U8.10
+
+        DUT_GPIO16_FPGA_J15,J15.49 U4.5
+
+        DUT_GPIO16_XSPI_PCSB_FPGA_J15,U1.M5 U4.11
+
+        DUT_GPIO17_LPSPI1_SOUT,J15.71 U6.5
+
+        DUT_GPIO17_XSPI_DQS_LPSPI1_SOUT,U1.T3 U6.11
+
+        DUT_GPIO18_LPSPI0_PCS0_MAC1_MII_TXER,J14.24 U1.V9
+
+        DUT_GPIO19_1722_TMR1_MAC1_MII_RXER,J14.37 U1.R12
+
+        DUT_GPIO20_TRACE_ETM_D2_MAC1_MII_COL,J14.22 U1.T5
+
+        DUT_GPIO21_LPSPI0_SOUT_MAC1_RGMII_RXD3,J14.41 R187.1
+
+        DUT_GPIO21_VDD_LVDSQSPI_LPSPI0_SOUT_MAC1_RGMII_RXD3,R186.2 R187.2 U1.T13
+
+        DUT_GPIO22_TRACE_FIO_D3_MAC1_MII_CRS,J14.21 U1.T6
+
+        DUT_GPIO23_I2C0_SDA_MAC2_RGMII_TXCTL,J14.9 U1.U7
+
+        DUT_GPIO24_FPGA_H14,J15.61 U3.6
+
+        DUT_GPIO24_XSPI_DAT1_FPGA_H14,U1.P6 U3.10
+
+        DUT_GPIO25_FPGA_D14,J15.73 U7.6
+
+        DUT_GPIO25_XSPI_DAT5_FPGA_D14,U1.T4 U7.10
+
+        DUT_GPIO26_NETC_MDC,J15.67 U1.R6
+
+        DUT_GPIO27_MAC1_RGMII_RXD1,J14.34 U1.V12
+
+        DUT_GPIO28_LPSPI0_SIN_MAC1_RGMII_RXD2,J14.36 U1.T12
+
+        DUT_GPIO29_MAC2_RGMII_RXCTL,J14.16 U1.V8
+
+        DUT_GPIO30_LPSPI1_SIN_MAC2_RGMII_RXD2,J14.18 U1.T9
+
+        DUT_GPIO31_FPGA_C11,J15.59 U5.5
+
+        DUT_GPIO31_XSPI_DAT2_FPGA_C11,U1.P3 U5.11
+
+        DUT_GPIO32_FPGA_E10,J15.75 U7.5
+
+        DUT_GPIO32_XSPI_DAT4_FPGA_E10,U1.U3 U7.11
+
+        DUT_GPIO33_NETC_MDIO,J15.52 U4.6
+
+        DUT_GPIO33_XSPI_PCS1B_NETC_MDIO,U1.N3 U4.10
+
+        DUT_GPIO34_LPSPI0_SCK_MAC1_RGMII_RXCLK,J14.32 U1.T11
+
+        DUT_GPIO35_CLKOUT_RUN_MAC1_RGMII_RXCTL,J14.26 U1.T10
+
+        DUT_GPIO36_MAC1_RGMII_RXD0,J14.35 U1.U12
+
+        DUT_GPIO37_MAC1_RGMII_TXCLK,J14.31 U1.U11
+
+        DUT_GPIO38_LPSPI1_SCK_MAC2_RGMII_RXCLK,J14.13 U1.U8
+
+        DUT_GPIO39_LPSPI0_SCK_MAC0_MII_CRS,J15.84 U1.W3
+
+        DUT_GPIO40_CLKOUTRUN,J15.53 U5.6
+
+        DUT_GPIO40_XSPI_DAT3_CLKOUTRUN,U1.N4 U5.10
+
+        DUT_GPIO41_FPGA_B11,J15.54 U3.5
+
+        DUT_GPIO41_XSPI_DAT0_FPGA_B11,U1.N5 U3.11
+
+        DUT_GPIO42_FPGA_J12,J15.64 U2.5
+
+        DUT_GPIO42_XSPI_DAT6_FPGA_J12,U1.R5 U2.11
+
+        DUT_GPIO43_LPSPI0_PCS3_MAC1_RGMII_TXD3,J14.23 U1.W9
+
+        DUT_GPIO44_LPSPI0_PCS2_MAC1_RGMII_TXD2,J14.25 U1.W10
+
+        DUT_GPIO45_MAC1_RGMII_TXD1,J14.30 U1.V11
+
+        DUT_GPIO46_MAC1_RGMII_TXD0,J14.29 U1.W11
+
+        DUT_GPIO47_CANXL0_TX_MAC1_RGMII_TXCTL,J14.33 U1.W12
+
+        DUT_GPIO48_MAC2_RGMII_TXD3,J14.2 U1.W4
+
+        DUT_GPIO49_MAC2_RGMII_TXD2,J14.4 U1.W5
+
+        DUT_GPIO51_USDHC_D0_MAC0_RGMII_RXD1,J15.86 U1.W2
+
+        DUT_GPIO52_USDHC_D3_MAC0_RGMII_RXD0,J15.91 U1.AA2
+
+        DUT_GPIO53_USDHC_RESET_B_MAC0_RGMII_RXD2,J15.85 U1.W1
+
+        DUT_GPIO54_MAC0_RMII_RXER,J15.81 U1.V1
+
+        DUT_GPIO55_MAC0_RGMII_RXD3,J15.82 U1.V2
+
+        DUT_GPIO56_USDHC_D4_MAC0_RGMII_RXCLK,J15.92 U1.AA3
+
+        DUT_GPIO57_USDHC_D5_MAC0_RGMII_RXCTL,J15.87 U1.Y3
+
+        DUT_GPIO58_USDHC_CMD_MAC0_MII_TXER,J15.97 U1.AA8
+
+        DUT_GPIO59_USDHC_CLK_MAC0_RGMII_TXD2,J15.96 U1.AA5
+
+        DUT_GPIO60_USDHC_D7_MAC0_RGMII_TXD3,J15.88 U1.Y4
+
+        DUT_GPIO61_USDHC_STROBE_MAC0_RGMII_TXD1,J15.93 U1.Y6
+
+        DUT_GPIO62_USDHC_D1_MAC0_RGMII_TXD0,J15.98 U1.AA6
+
+        DUT_GPIO63_USDHC_D6_MAC0_RGMII_TXCTL,J15.94 U1.Y7
+
+        DUT_GPIO64_USDHC_D2_MAC0_RGMII_TXCLK,J15.100 U1.AA7
+
+        DUT_GPIO65_MAC2_TC14_ED,J14.47 U1.U14
+
+        DUT_GPIO66_MAC3_TC14_ED,J14.53 U1.V15
+
+        DUT_GPIO67_MAC1_TC14_RX,J14.38 R176.1
+
+        DUT_GPIO67_MAC1_TC14_RX_QSPI_CLK_N,R175.2 R176.2 U1.W13
+
+        DUT_GPIO68_MAC3_TC14_RX,J14.57 U1.W16
+
+        DUT_GPIO69_MAC4_TC14_ED,J14.61 U1.U15
+
+        DUT_GPIO70_MAC2_TC14_TX,J14.49 U1.T15
+
+        DUT_GPIO71_MAC2_TC14_RX,J14.48 U1.T14
+
+        DUT_GPIO72_MAC1_TC14_TX,J14.43 R178.1
+
+        DUT_GPIO72_MAC1_TC14_TX_QSPI_CLK_P,R178.2 R179.2 U1.W14
+
+        DUT_GPIO73_MAC1_TC14_ED,J14.44 U1.V14
+
+        DUT_GPIO74_MAC4_TC14_TX,J14.63 U1.U16
+
+        DUT_GPIO75_MAC4_TC14_RX,J14.65 U1.T16
+
+        DUT_GPIO76_MAC3_TC14_TX,J14.55 U1.W15
+
+        DUT_GPIO77_LPUART0_RX,J14.100 U1.V17
+
+        DUT_GPIO78_LPUART0_TX,J14.99 U1.W17
+
+        DUT_GPIO80_LPSPI2_SOUT,J14.93 U1.R16
+
+        DUT_GPIO81_FCCU_EOUT2,J14.95 U1.R17
+
+        DUT_GPIO82_LPSPI2_PCS0_B,J16.95 U1.R18
+
+        DUT_GPIO83_WKPU25,J16.80 U1.R19
+
+        DUT_GPIO84_LPSPI2_SCK,J14.98 U1.T17
+
+        DUT_GPIO85_LPSPI2_SIN,J16.97 U1.T18
+
+        DUT_GPIO86_FPGA_H20,J16.99 U1.U18
+
+        DUT_GPIO87_FPGA_B23,J16.84 U1.U19
+
+        DUT_GPIO89_WKPU24,J16.82 U1.T19
+
+        DUT_GPIO90_WKPU26,J16.98 U1.V18
+
+        DUT_GPIO91_FPGA_B19,J16.83 U1.V19
+
+        DUT_GPIO93_FPGA_C19,J16.100 U1.W18
+
+        DUT_GPIO94_FPGA_C17,J14.82 U1.L17
+
+        DUT_GPIO95_FPGA_D18,J16.89 U1.L18
+
+        DUT_GPIO96_FPGA_J20,J16.70 U1.L19
+
+        DUT_GPIO97_WKPU23,J14.84 U1.M14
+
+        DUT_GPIO98_FPGA_H18,J14.86 U1.M15
+
+        DUT_GPIO99_FPGA_C18,J14.88 U1.M16
+
+        DUT_GPIO100_FPGA_H17,J14.90 U1.M17
+
+        DUT_GPIO101_FPGA_B18,J16.91 U1.M18
+
+        DUT_GPIO102_FPGA_E18,J16.72 U1.M19
+
+        DUT_GPIO103_FPGA_E17,J14.83 U1.N14
+
+        DUT_GPIO104_SAI0_1_D1,J14.85 U1.N15
+
+        DUT_GPIO105_SAI0_1_D0,J14.87 U1.N16
+
+        DUT_GPIO106_SAI0_1_SYNC,J14.89 U1.N17
+
+        DUT_GPIO107_FPGA_A19,J16.93 U1.N18
+
+        DUT_GPIO108_FPGA_J17,J16.74 U1.N19
+
+        DUT_GPIO109_FPGA_A18,J14.81 U1.P14
+
+        DUT_GPIO110_FPGA_J16,J14.94 U1.P16
+
+        DUT_GPIO111_SAI0_1_BCLK,J14.96 U1.P17
+
+        DUT_GPIO112_FPGA_H16,J16.78 U1.P19
+
+        DUT_GPIO116_FPGA_AE30,J16.85 U1.W19
+
+        DUT_GPIO126_FPGA_AC29,J16.68 U1.V20
+
+        DUT_GPIO127_FPGA_AA22,J16.66 U1.U20
+
+        DUT_GPIO128_FPGA_AB29,J16.64 U1.T20
+
+        DUT_GPIO129_FPGA_Y21,J16.60 U1.M20
+
+        DUT_GPIO130_FPGA_Y27,J16.65 U1.N21
+
+        DUT_GPIO131_FPGA_Y24,J16.67 U1.P21
+
+        DUT_GPIO132_FPGA_W27,J16.69 U1.R21
+
+        DUT_GPIO133_FPGA_Y25,J16.71 U1.T21
+
+        DUT_GPIO134_FPGA_AA28,J16.73 U1.U21
+
+        DUT_GPIO135_FPGA_Y23,J16.77 U1.V21
+
+        DUT_GPIO136_FPGA_AA29,J16.79 U1.W21
+
+        DUT_GPIO137_FPGA_W23,J16.81 U1.Y21
+
+        DUT_GPIO138_FPGA_AC30,J14.69 U1.AA20
+
+        DUT_GPIO160_CMP1OUT_CMP2IN1,J15.17 U1.G6
+
+        DUT_GPIO161_CMP2IN0,J15.22 U1.H5
+
+        DUT_GPIO162_CMP1OUT_CMP2IN3,J15.19 U1.H6
+
+        DUT_GPIO163_JTAG_TDO,J15.28 U1.J5
+
+        DUT_GPIO164_JTAG_TCK,J15.32 U1.K6
+
+        DUT_GPIO165_JTAG_TMS,J15.30 U1.K5
+
+        DUT_GPIO166_JTAG_TDI,J15.34 U1.L6
+
+        DUT_GPIO167_LPE_CMP0OUT_CMP1IN1,J15.9 U1.C4
+
+        DUT_GPIO168_CLKOUTLPRUN,J15.15 U1.C3
+
+        DUT_GPIO169_CMP1OUT_CMP0IN0,J11.6 U1.D5
+
+        DUT_GPIO170_CLKOUTSTBY,J15.14 U1.D3
+
+        DUT_GPIO171_FPGA_AK16,J15.46 U1.M2
+
+        DUT_GPIO172_FPGA_AD16,J15.68 U1.M1
+
+        DUT_GPIO173_CMP2IN6,J15.51 U1.N2
+
+        DUT_GPIO174_CMP2IN4,J15.70 U1.N1
+
+        DUT_GPIO175_CMP2IN5,J15.72 U1.P1
+
+        DUT_GPIO176_CMP2IN7,J15.58 U1.P2
+
+        DUT_GPIO177_CMP2RRT,J15.62 U1.R2
+
+        DUT_GPIO178_CMP2OUT,J15.74 U1.R1
+
+        DUT_GPIO179_CMP1RRT,J15.76 U1.T1
+
+        DUT_GPIO180_CMP1OUT,J15.69 U1.T2
+
+        DUT_GPIO181_LPE_CMP0OUT,J15.78 U1.U1
+
+        DUT_GPIO182_CMP0RRT,J15.27 U1.F2
+
+        DUT_GPIO183_LPE_LPSPI1_SOUT,J15.24 U1.G4
+
+        DUT_GPIO184_LPE_LPSPI1_PCS0_B,J15.31 U1.H3
+
+        DUT_GPIO185_FPGA_AJ16,J15.37 U1.J4
+
+        DUT_GPIO186_LPE_LPSPI1_SCK,J15.29 U1.G3
+
+        DUT_GPIO187_LPE_LPSPI1_SIN,J15.33 U1.H4
+
+        DUT_GPIO188_FPGA_AC18,J15.39 U1.K4
+
+        DUT_GPIO189_FPGA_AG18,J15.41 U1.K3
+
+        DUT_GPIO190_FPGA_AF18,J15.43 U1.L4
+
+        DUT_GPIO191_CMP0RRT,J15.45 U1.L3
+
+        DUT_GPIO192_LPE_CMP0OUT1,J15.21 U1.E4
+
+        DUT_GPIO193_CMP0IN3,J15.18 U1.F5
+
+        DUT_GPIO194_CMP0RRT_CMP1IN3_CMP2RRT,J15.23 U1.F4
+
+        DUT_GPIO195_CMP1RRT_CMP2IN2,J15.20 U1.G5
+
+        DUT_GPIO196_RESETB_FPGA_AB19,J15.16 U1.E3
+
+        DUT_GPIO197_EXTWAKE2,J15.38 U1.G2
+
+        DUT_GPIO198_CMP0IN7_CMP2OUT,J15.3 U1.C5
+
+        DUT_GPIO199_CMP0IN2,J11.4 U1.C6
+
+        DUT_GPIO200_CMP2RRT_CMP0IN6,J11.8 U1.D6
+
+        DUT_GPIO201_CMP01N4,J11.12 U1.E6
+
+        DUT_GPIO202_CMP0IN1,J11.14 U1.D7
+
+        DUT_GPIO203_CMP01N5,J11.25 U1.E7
+
+        DUT_GPIO204_CMP1IN7,J15.13 U1.B3
+
+        DUT_GPIO205_CMP1IN6,J15.7 U1.B4
+
+        DUT_GPIO206_CMP1IN4,J15.1 U1.B5
+
+        DUT_GPIO207_CMP1IN5,J11.2 U1.B6
+
+        DUT_GPIO208_SINC_MCLK3,J11.60 U1.C15
+
+        DUT_GPIO209_FPGA_AH20,J11.71 U1.D15
+
+        DUT_GPIO212_FPGA_R25,J11.37 U1.H9
+
+        DUT_GPIO213_LPSPI4_SCK,J11.16 U1.C8
+
+        DUT_GPIO214_FPGA_T22,J11.30 U1.C9
+
+        DUT_GPIO215_LPI2C2_SCL,J11.34 U1.C10
+
+        DUT_GPIO216_LPI2C2_SDA,J11.40 U1.C11
+
+        DUT_GPIO217_FPGA_AJ24,J11.46 U1.C12
+
+        DUT_GPIO218_SINC_MBIT0,J11.56 U1.C14
+
+        DUT_GPIO219_LPSPI4_PCS0_B,J11.50 U1.C13
+
+        DUT_GPIO222_FPGA_P25,J11.29 U1.D8
+
+        DUT_GPIO223_FPGA_N24,J11.41 U1.D9
+
+        DUT_GPIO224_FPGA_N30,J11.47 U1.D10
+
+        DUT_GPIO225_LPI2C1_SDA,J11.51 U1.D11
+
+        DUT_GPIO226_LPI2C1_SCL,J11.57 U1.D12
+
+        DUT_GPIO227_FPGA_G18,J11.63 U1.D13
+
+        DUT_GPIO228_FCCU_EOUT1_LPSPI4_SIN,J11.67 U1.D14
+
+        DUT_GPIO231_LPSPI3_SOUT,J11.33 U1.E8
+
+        DUT_GPIO232_LPSPI3_PCS0_B,J11.18 U1.E9
+
+        DUT_GPIO233_FPGA_AG22,J11.42 U1.E12
+
+        DUT_GPIO234_LPI2C2_SCLS,J11.48 U1.E13
+
+        DUT_GPIO235_LPI2C2_SDAS,J11.54 U1.E14
+
+        DUT_GPIO236_SINC_MBIT1,J11.58 U1.E15
+
+        DUT_GPIO237_LPSPI3_SIN,J11.22 U1.F7
+
+        DUT_GPIO238_FPGA_L22,J11.31 U1.F8
+
+        DUT_GPIO239_FPGA_P27,J11.26 U1.F9
+
+        DUT_GPIO240_FPGA_M23,J11.45 U1.F10
+
+        DUT_GPIO241_FPGA_M29,J11.38 U1.F11
+
+        DUT_GPIO242_FPGA_AF25,J11.55 U1.F12
+
+        DUT_GPIO243_IOEXP_IRQ,J11.59 U1.F13
+
+        DUT_GPIO244_SINC_MCLK2,J11.65 U1.F14
+
+        DUT_GPIO245_LPSPI3_SCK,J11.69 U1.F15
+
+        DUT_GPIO246_SINC_MCLK0,J11.49 U1.G11
+
+        DUT_GPIO247_FPGA_M24,J11.39 U1.G9
+
+        DUT_GPIO249_SINC_MCLK0_OUT,J11.21 U1.A5
+
+        DUT_GPIO251_FPGA_AC20,J11.17 U1.A4
+
+        DUT_GPIO253_SINC_MCLK1,J11.13 U1.A2
+
+        DUT_GPIO254_FPGA_AJ22,J11.15 U1.A3
+
+        DUT_GPIO256_SINC_MCLK1_OUT,J11.23 U1.A6
+
+        DUT_GPIO257_FPGA_AC22,J11.64 U1.A8
+
+        DUT_GPIO258_SINC_MBIT2,J11.24 U1.B8
+
+        DUT_GPIO259_FPGA_AF22,J11.66 U1.A9
+
+        DUT_GPIO260_SINC_MBIT3,J11.32 U1.B9
+
+        DUT_GPIO261_SINC_MCLK2_OUT,J11.68 U1.A10
+
+        DUT_GPIO262_FPGA_AH23,J11.70 U1.A11
+
+        DUT_GPIO263_LPSPI4_SOUT,J11.91 U1.A12
+
+        DUT_GPIO304_LPSPI5_PCS0_B,J16.48 U1.H16
+
+        DUT_GPIO305_FPGA_AG30,J16.31 U1.H17
+
+        DUT_GPIO306_FPGA_AC26,J16.32 U1.H18
+
+        DUT_GPIO307_FPGA_M28,J16.11 U1.C16
+
+        DUT_GPIO308_LPSPI5_SOUT,J16.36 U1.J16
+
+        DUT_GPIO309_LPSPI5_SCK,J16.9 U1.C18
+
+        DUT_GPIO310_LPSPI5_SIN,J16.10 U1.C19
+
+        DUT_GPIO311_FPGA_G29,J16.37 U1.J17
+
+        DUT_GPIO312_FPGA_AB27,J16.38 U1.J18
+
+        DUT_GPIO313_FPGA_AA25,J16.39 U1.J19
+
+        DUT_GPIO314_FPGA_N27,J16.12 U1.D16
+
+        DUT_GPIO315_LPI2C3_SDA,J16.13 U1.D17
+
+        DUT_GPIO316_LPI2C3_SCL,J16.15 U1.D19
+
+        DUT_GPIO317_FPGA_N28,J16.14 U1.D18
+
+        DUT_GPIO318_FPGA_AA26,J16.56 U1.K14
+
+        DUT_GPIO319_FPGA_AC28,J16.43 U1.K16
+
+        DUT_GPIO320_FPGA_L24,J16.16 U1.E16
+
+        DUT_GPIO321_FPGA_M27,J16.20 U1.F16
+
+        DUT_GPIO322_FPGA_AA23,J16.4 U1.E19
+
+        DUT_GPIO323_FPGA_AB28,J16.44 U1.K17
+
+        DUT_GPIO324_FPGA_AA24,J16.45 U1.K18
+
+        DUT_GPIO325_FPGA_W25,J16.46 R181.1
+
+        DUT_GPIO325_VPP0_FPGA_W25,R181.2 R182.2 U1.K19
+
+        DUT_GPIO326_FPGA_N26,J16.21 U1.F17
+
+        DUT_GPIO327_FPGA_AB30,J16.6 U1.F18
+
+        DUT_GPIO328_FPGA_L27,J16.22 U1.F19
+
+        DUT_GPIO329_FPGA_Y26,J16.30 U1.H14
+
+        DUT_GPIO330_FPGA_Y28,J16.24 U1.G16
+
+        DUT_GPIO331_FPGA_Y22,J16.27 U1.G17
+
+        DUT_GPIO332_LPI2C3_SDAS,J16.28 U1.G18
+
+        DUT_GPIO333_LPI2C3_SCLS,J16.29 U1.G19
+
+        DUT_GPIO334_FPGA_W22,J16.54 U1.J14
+
+        DUT_GPIO335_FPGA_AA30,J16.35 U1.J15
+
+        DUT_GPIO336_FPGA_U25,J11.72 U1.B14
+
+        DUT_GPIO337_FPGA_U29,J11.85 U1.B15
+
+        DUT_GPIO338_FPGA_U24,J11.83 U1.B13
+
+        DUT_GPIO339_FPGA_W30,J11.75 U1.A13
+
+        DUT_GPIO340_FPGA_T25,J11.77 U1.A14
+
+        DUT_GPIO341_FPGA_V30,J11.79 U1.A15
+
+        DUT_GPIO342_FPGA_R26,J11.76 U1.A17
+
+        DUT_GPIO343_FPGA_U30,J11.78 U1.A18
+
+        DUT_GPIO344_FPGA_V22,J11.80 U1.A19
+
+        DUT_GPIO345_FPGA_T30,J11.87 U1.B21
+
+        DUT_GPIO346_TRACE_D1,J16.2 U1.D20
+
+        DUT_GPIO347_TRACE_D8,J16.5 U1.D21
+
+        DUT_GPIO348_TRACE_CLKOUT,J16.1 U1.B17
+
+        DUT_GPIO349_TRACE_D0,J16.3 U1.B18
+
+        DUT_GPIO350_FPGA_R24,J11.89 U1.C21
+
+        DUT_GPIO351_TRACE_D3,J16.23 U1.F20
+
+        DUT_GPIO352_TRACE_D10,J16.51 U1.G21
+
+        DUT_GPIO353_TRACE_D2,J16.19 U1.E20
+
+        DUT_GPIO354_TRACE_D9,J16.7 U1.E21
+
+        DUT_GPIO355_TRACE_D4,J16.52 U1.H20
+
+        DUT_GPIO356_TRACE_D11,J16.53 U1.H21
+
+        DUT_GPIO357_TRACE_D5,J16.40 U1.J20
+
+        DUT_GPIO358_TRACE_D13,J16.57 U1.K21
+
+        DUT_GPIO359_TRACE_D6,J16.47 U1.K20
+
+        DUT_GPIO360_TRACE_D7,J16.58 U1.L20
+
+        DUT_GPIO361_TRACE_D14,J16.59 U1.L21
+
+        DUT_GPIO362_TRACE_D15,J16.63 U1.M21
+
+        DUT_GPIO363_TRACE_D12,J16.55 R185.1
+
+        DUT_GPIO363_VPP1_TRACE_D12,R184.2 R185.2 U1.J21
+
+        DUT_MSCCLK_N,J15.10 U1.E1
+
+        DUT_MSCCLK_P,J15.8 U1.D2
+
+        DUT_MSCSOUT_N,J15.4 U1.D1
+
+        DUT_MSCSOUT_P,J15.2 U1.C1
+
+        DUT_PGOOD,J15.40 U1.H2
+
+        GND,C1.2 C2.2 C3.2 C4.2 C5.2 C6.2 C7.2 C8.2 C9.2 C12.1 C13.2 C14.2 C15.2 C16.2 C17.2 C18.2 C19.2 C20.2 C21.2 C22.2
+        C23.2 C24.2 C25.2 C26.2 C27.2 C28.2 C29.2 C30.2 C31.2 C32.2 C33.2 C34.2 C35.2 C38.2 C39.2 C40.2 C41.2 C42.2 C43.2
+        C44.2 C45.2 C46.2 C47.2 C48.2 C49.2 C50.2 C51.2 C52.2 C53.2 C54.2 C55.2 C56.2 C57.2 C59.2 C61.2 C62.2 C63.2 C64.2
+        C65.2 C66.2 C67.2 C68.2 C69.2 C70.2 C71.2 C72.2 C73.2 C74.2 C75.2 C76.2 C77.2 C78.2 C79.2 C80.2 C81.2 C82.2 C83.2
+        C84.2 C85.2 C86.2 C87.2 C88.2 C89.2 C90.2 C91.2 C92.2 C93.2 C94.2 C95.2 C96.2 C97.2 C98.2 C99.2 C100.2 C101.2 C102.2
+        C103.2 C104.2 C105.2 C106.2 C109.2 C110.2 C153.2 C154.2 C155.2 C156.2 C157.2 C158.2 C159.2 C160.2 C161.2 C162.2 C163.2
+        C164.2 C165.2 C166.2 C167.2 C168.2 C169.2 C170.2 C171.2 C172.2 C173.2 C174.2 C175.2 C176.2 C177.2 C178.2 C179.2 C180.2
+        C181.2 C182.2 C183.2 C184.2 C185.2 C186.2 C187.2 C188.2 C189.2 C190.2 C191.2 C192.2 C193.2 C194.2 C195.2 J11.5 J11.9
+        J11.10 J11.19 J11.20 J11.27 J11.28 J11.35 J11.36 J11.43 J11.44 J11.53 J11.61 J11.62 J11.73 J11.74 J11.81 J11.82 J11.86
+        J11.90 J11.93 J11.96 J11.99 J12.2 J12.4 J13.2 J13.4 J14.11 J14.12 J14.19 J14.20 J14.27 J14.28 J14.39 J14.40 J14.50
+        J14.51 J14.56 J14.59 J14.62 J14.67 J14.68 J14.71 J14.74 J14.79 J14.80 J14.91 J14.92 J15.5 J15.6 J15.11 J15.12 J15.25
+        J15.26 J15.35 J15.36 J15.47 J15.48 J15.55 J15.56 J15.65 J15.66 J15.79 J15.80 J15.89 J15.90 J15.95 J15.99 J16.8 J16.17
+        J16.18 J16.25 J16.26 J16.33 J16.34 J16.41 J16.42 J16.49 J16.50 J16.61 J16.62 J16.75 J16.76 J16.87 J16.88 J26.A1 J26.A2
+        J26.A5 J26.A8 J26.A11 J26.A14 J26.A17 J26.A20 J26.B3 J26.B6 J26.B9 J26.B12 J26.B15 J26.B18 J26.C1 J26.C2 J26.C5 J26.C8
+        J26.C11 J26.C14 J26.C17 J26.C20 J26.D3 J26.D6 J26.D9 J26.D12 J26.D15 J26.D18 J26.E1 J26.E2 J26.E5 J26.E8 J26.E11 J26.E14
+        J26.E17 J26.E20 J26.F3 J26.F6 J26.F9 J26.F12 J26.F15 J26.F18 J26.G1 J26.G2 J26.G5 J26.G8 J26.G11 J26.G14 J26.G17 J26.G20
+        J26.H3 J26.H6 J26.H9 J26.H12 J26.H15 J26.H18 J43.2 J43.3 J43.4 J43.5 J44.3 J45.2 J45.3 J45.4 J45.5 J46.2 J46.3 J46.4
+        J46.5 R5.2 R13.1 R141.2 R145.2 R147.1 R161.2 R165.2 R166.2 R167.2 R172.2 R173.2 R177.2 R180.2 U1.A7 U1.A16 U1.AA9
+        U1.AA11 U1.AA13 U1.AA15 U1.B2 U1.B11 U1.B20 U1.C7 U1.C17 U1.D4 U1.E11 U1.E18 U1.F1 U1.F3 U1.F6 U1.F21 U1.G7 U1.G13
+        U1.G15 U1.H11 U1.H19 U1.J1 U1.J3 U1.J6 U1.J9 U1.J13 U1.K2 U1.L2 U1.L11 U1.L14 U1.L16 U1.M3 U1.M6 U1.M8 U1.N9 U1.N13
+        U1.P11 U1.P18 U1.P20 U1.R4 U1.R7 U1.R10 U1.R13 U1.R15 U1.U2 U1.V4 U1.V7 U1.V10 U1.V13 U1.V16 U1.Y2 U1.Y5 U1.Y8 U1.Y18
+        U1.Y20 U2.9 U3.9 U4.9 U5.9 U6.9 U7.9 U8.9 U9.B3 U9.C1 U9.E5 U10.A12 U10.A18 U10.B4 U10.B16 U10.B18 U11.3 Y4.3
+
+        I2C_CTRL_CLK,J11.11 J26.A7
+
+        I2C_CTRL_DATA,J11.52 J26.A6
+
+        MCU_VDD_V08,C13.1 C14.1 C15.1 C16.1 C17.1 C18.1 C19.1 C20.1 C21.1 C22.1 C23.1 C24.1 C25.1 C26.1 C27.1 C28.1 C29.1
+        C30.1 C31.1 C38.1 C39.1 C40.1 C41.1 C42.1 C43.1 C44.1 C45.1 C46.1 C47.1 C48.1 C49.1 C50.1 C51.1 C53.1 C54.1 J42.3
+        J42.4 U1.A20 U1.B7 U1.B10 U1.B16 U1.C20 U1.G20 U1.J10 U1.J11 U1.J12 U1.K9 U1.K10 U1.K11 U1.K12 U1.K13 U1.L9 U1.L10
+        U1.L12 U1.L13 U1.M9 U1.M10 U1.M11 U1.M12 U1.M13 U1.N10 U1.N11 U1.N12 U1.N20 U1.P9 U1.P10 U1.P12 U1.P13 U1.W20
+
+        MUXSEL_FS_QSPI_SEL0,J14.46 U2.1 U3.1 U4.1 U5.1 U6.1 U7.1 U8.1
+
+        MUXSEL_QSPI_SEL1,J14.76 U2.2 U3.2 U4.2 U5.2 U6.2 U7.2 U8.2
+
+        MUXSEL_QSPI_SEL2,J14.78 TP9.1
+
+        N38212,C169.1 R135.1 R138.1 Y1.1 Y2.1
+
+        N38224,C170.1 R138.2 R139.2 Y1.2 Y2.2
+
+        N38352,R142.2 R143.2
+
+        N38474,J43.1 R143.3 TP2.1
+
+        N38478,R143.1 R144.1 R145.1
+
+        N39152,C171.1 QZ1.1 R136.2 R140.1
+
+        N39160,C172.1 QZ1.2 R137.2 R140.2
+
+        N6511632,R15.1 U1.H10
+
+        N6511636,R16.1 U1.H12
+
+        N6549207,J2.3 Q1.1 R6.1
+
+        N6550656,C12.2 U1.L7
+
+        N6572941,C6.1 U1.K8
+
+        N6572946,C7.1 U1.L8
+
+        N6574963,C152.2 C153.1 U1.J8
+
+        N6965805,R153.2 U10.B1
+
+        N6966385,R156.1 TP4.1
+
+        N7907585,J2.1 R174.1
+
+        N7956480,R152.1 R188.2 U9.A4
+
+        OSC32K_EXTAL,R136.1 U1.G1
+
+        OSC32K_XTAL,R137.1 U1.H1
+
+        QSPI_CLK_R_N,J45.1 R175.1 R177.1
+
+        QSPI_CLK_R_P,J46.1 R179.1 R180.1
+
+        REFCLK_125M_N,R170.2 Y4.5
+
+        REFCLK_125M_P,R169.2 Y4.4
+
+        RSTO,R151.2 TP3.1 U9.A2
+
+        RST_EMMC_B,R154.2 R155.1 U10.A11
+
+        SDHC_CARD_ID0,TP6.1 U10.A5
+
+        SDHC_CARD_ID1,TP7.1 U10.A6
+
+        SDHC_CARD_ID2,TP8.1 U10.A7
+
+        SDHC_CD_B,R157.2 TP5.1 U10.A17
+
+        SDHC_CLK_SYNC_IN,R156.2 U10.B17
+
+        SDHC_VS,J44.2 U10.A1
+
+        SDHC_WP,R158.2 R160.2 R161.1 U10.A16
+
+        SENSEGND_VDD_0.8V_PD2_DC,C61.1 J11.94 R16.2
+
+        SENSEGND_VDD_V08_SERDES_DC,C56.1 J11.97 R13.2
+
+        SENSEV_VDD_0.8V_PD2_DC,C62.1 J11.92 R15.2
+
+        SENSEV_VDD_HV_A_DC,C4.1 J16.86 R7.1
+
+        SENSEV_VDD_HV_B_DC,C9.1 J16.90 R9.1
+
+        SENSEV_VDD_V08_SERDES_DC,C57.1 J11.95 R11.2
+
+        SENSEV_VDD_V18_LVDS_DC,C55.1 J11.7 R12.1
+
+        SENSEV_VDD_V18_SERDES_DC,C33.1 J14.73 R10.1
+
+        SENSE_VREFH_ADC01_DC,C59.1 J11.88 R14.1
+
+        SGMII_REFCLK_125M_N,R170.1 R173.1 U1.AA19
+
+        SGMII_REFCLK_125M_P,R169.1 R172.1 U1.AA18
+
+        SGMII_REXT,R5.1 U1.AA17
+
+        SGMII_RX0_N,J14.54 U1.Y10
+
+        SGMII_RX0_P,J14.52 U1.AA10
+
+        SGMII_RX1_N,J14.66 U1.Y14
+
+        SGMII_RX1_P,J14.64 U1.AA14
+
+        SGMII_TX0_N,J14.60 U1.Y12
+
+        SGMII_TX0_P,J14.58 U1.AA12
+
+        SGMII_TX1_N,J14.72 U1.Y16
+
+        SGMII_TX1_P,J14.70 U1.AA16
+
+        USDHC_CLK,U2.7 U10.A13
+
+        USDHC_CMD,R159.2 U2.8 U10.A14
+
+        USDHC_D0,U8.7 U10.B5
+
+        USDHC_D1,U6.7 U10.B6
+
+        USDHC_D2,U8.8 U10.B9
+
+        USDHC_D3,U6.8 U10.B10
+
+        USDHC_D4,U5.8 U10.B11
+
+        USDHC_D5,U5.7 U10.B12
+
+        USDHC_D6,U3.7 U10.B14
+
+        USDHC_D7,U7.7 U10.B15
+
+        USDHC_STROBE_WP,R153.1 R160.1 U7.8
+
+        V08_BALLAST,C3.1 J42.5 J42.6 Q1.2 R6.2
+
+        V18_INTRL_REG_OUT,C34.1 C35.1 C95.1 C96.1 C97.1 C98.1 C99.1 C100.1 C101.1 C102.1 C103.1 C104.1 C105.1 C106.1 U1.G12
+        U1.H8 U1.J7 U1.K15 U1.N7 U1.N8 U1.P8
+
+        VCC_3V3_MUX,C173.1 C174.1 C175.1 C176.1 C177.1 C178.1 C191.1 R146.2 U2.12 U3.12 U4.12 U5.12 U6.12 U7.12 U8.12
+
+        VCC_BJT,C1.1 C2.1 J1.3 J1.4 Q1.3
+
+        VDD_0.8V_PD2_DC,J13.1 R70.1 SJ1.1
+
+        VDD_0.8V_PD2_DC_SOC,J42.1 J42.2 R70.4 SJ1.2
+
+        VDD_0.8V_PD2_DC_SOC_N,J26.A3 R70.3
+
+        VDD_0.8V_PD2_DC_SOC_P,J26.A4 R70.2
+
+        VDD_1P8_LVDSQSPI,JP25.1 R186.1
+
+        VDD_3.3V,C187.1 C188.1 C195.1 J11.98 J11.100 L4.1 R148.1 R154.1 U10.A9 U10.A10 U10.B8 U11.5
+
+        VDD_HV_A_DC,C189.1 C190.1 J1.1 J1.2 J12.1 J26.H16 J26.H17 R75.1 R76.1 R78.2 R146.1 R162.1 R163.1 R164.1 R174.2
+
+        VDD_HV_A_DC_SOC,C5.1 C63.1 C64.1 C65.1 C66.1 C67.1 C68.1 C69.1 C70.1 C71.1 C72.1 C73.1 C74.1 C75.1 C76.1 C77.1 C78.1
+        C79.1 C80.1 C81.1 C152.1 R7.2 R75.2 R76.2 R77.2 U1.B12 U1.B19 U1.E2 U1.E5 U1.E10 U1.E17 U1.G8 U1.G10 U1.G14 U1.H7
+        U1.H15 U1.L15 U1.P7 U1.P15 U1.R20 U1.U17
+
+        VDD_HV_A_DC_SOC_N,J26.A12 R77.1
+
+        VDD_HV_A_DC_SOC_P,J26.A13 R78.1
+
+        VDD_HV_B_DC,C179.1 C180.1 C181.1 C182.1 C183.1 C184.1 C185.1 C186.1 J1.5 J1.6 J12.3 R71.1 R72.1 R73.2 R149.1 R150.1
+        R151.1 R157.1 R158.1 R159.1 R188.1 U9.B4 U9.D1 U9.E4 U10.A4 U10.A15 U10.B7 U10.B13
+
+        VDD_HV_B_DC_SOC,C8.1 C82.1 C83.1 C84.1 C85.1 C86.1 C87.1 C88.1 C89.1 C90.1 C91.1 C92.1 C93.1 C94.1 R9.2 R71.2 R72.2
+        R74.2 U1.AA4 U1.M4 U1.P5 U1.R8 U1.R11 U1.R14 U1.U6 U1.U10 U1.U13 U1.Y1
+
+        VDD_HV_B_DC_SOC_N,J26.A9 R74.1
+
+        VDD_HV_B_DC_SOC_P,J26.A10 R73.1
+
+        VDD_V08_LVDS_DC_SOC_N,J26.B7 R93.1
+
+        VDD_V08_LVDS_DC_SOC_P,J26.B8 R94.1
+
+        VDD_V08_SERDES_DC,J13.3 R87.1 R88.1 R90.2
+
+        VDD_V08_SERDES_DC_FIL,C52.1 C154.1 C155.1 C156.1 C157.1 C158.1 L1.2 R11.1 U1.Y11 U1.Y15 U1.Y19
+
+        VDD_V08_SERDES_DC_SOC,L1.1 R87.2 R88.2 R89.2
+
+        VDD_V08_SERDES_DC_SOC_N,J26.B4 R89.1
+
+        VDD_V08_SERDES_DC_SOC_P,J26.B5 R90.1
+
+        VDD_V18_LVDS_DC,J11.1 J11.3 R91.1 R92.1 R94.2
+
+        VDD_V18_LVDS_DC_FIL,C164.1 C165.1 C166.1 C167.1 C168.1 L3.2 R12.2 U1.B1 U1.C2
+
+        VDD_V18_LVDS_DC_SOC,L3.1 R91.2 R92.2 R93.2
+
+        VDD_V18_SERDES_DC,J14.75 J14.77 R83.1 R84.1 R86.2
+
+        VDD_V18_SERDES_DC_FIL,C32.1 C159.1 C160.1 C161.1 C162.1 C163.1 L2.2 R10.2 U1.Y9 U1.Y13 U1.Y17
+
+        VDD_V18_SERDES_DC_SOC,L2.1 R83.2 R84.2 R85.2
+
+        VDD_V18_SERDES_DC_SOC_N,J26.B1 R85.1
+
+        VDD_V18_SERDES_DC_SOC_P,J26.B2 R86.1
+
+        VPP0,JP23.1 R182.1
+
+        VPP1,JP24.1 R184.1
+
+        VRC_CTRL,J2.2 U1.K7
+
+        VREFH_ADC01_DC,C194.1 J11.84 R79.1 R80.1 R82.2
+
+        VREFH_ADC01_DC_SOC,C109.1 C110.1 R14.2 R79.2 R80.2 R81.2 U1.H13 U1.M7
+
+        VREFH_ADC01_DC_SOC_N,J26.A15 R81.1
+
+        VREFH_ADC01_DC_SOC_P,J26.A16 R82.1
+
+        XO_VDD_3.3V,C192.1 C193.1 L4.2 Y4.1 Y4.6
+
+        XSPI_CS1_B,R150.2 U4.4 U9.A3
+
+        XSPI_CS_B,R149.2 U4.3 U9.C2
+
+        XSPI_DATA0,U3.3 U9.D3
+
+        XSPI_DATA1,U3.4 U9.D2
+
+        XSPI_DATA2,U5.3 U9.C4
+
+        XSPI_DATA3,U5.4 U9.D4
+
+        XSPI_DATA4,U7.3 U9.D5
+
+        XSPI_DATA5,U7.4 U9.E3
+
+        XSPI_DATA6,U2.3 U9.E2
+
+        XSPI_DATA7,U2.4 U9.E1
+
+        XSPI_DQS,U6.3 U9.C3
+
+        XSPI_INT_B,U6.4 U9.A5
+
+        XSPI_SCK,U8.4 U9.B2
+
+        XSPI_SCK#,R147.2 U8.3 U9.B1
+
+        '
+    testable_nets:
+      SENSE_VREFH_ADC01_DC:
+        category: Power
+        members:
+        - C59.1
+        - J11.88
+        - R14.1
+      VCC_3V3_MUX:
+        category: Power
+        members:
+        - C173.1
+        - C174.1
+        - C175.1
+        - C176.1
+        - C177.1
+        - C178.1
+        - C191.1
+        - R146.2
+        - U2.12
+        - U3.12
+        - U4.12
+        - U5.12
+        - U6.12
+        - U7.12
+        - U8.12
+      VCC_BJT:
+        category: Power
+        members:
+        - C1.1
+        - C2.1
+        - J1.3
+        - J1.4
+        - Q1.3
+      VDD_0.8V_PD2_DC:
+        category: Power
+        members:
+        - J13.1
+        - R70.1
+        - SJ1.1
+      VDD_0.8V_PD2_DC_SOC:
+        category: Power
+        members:
+        - J42.1
+        - J42.2
+        - R70.4
+        - SJ1.2
+      VDD_1P8_LVDSQSPI:
+        category: Power
+        members:
+        - JP25.1
+        - R186.1
+      VDD_3.3V:
+        category: Power
+        members:
+        - C187.1
+        - C188.1
+        - C195.1
+        - J11.98
+        - J11.100
+        - L4.1
+        - R148.1
+        - R154.1
+        - U10.A9
+        - U10.A10
+        - U10.B8
+        - U11.5
+      VDD_HV_A_DC:
+        category: Power
+        members:
+        - C189.1
+        - C190.1
+        - J1.1
+        - J1.2
+        - J12.1
+        - J26.H16
+        - J26.H17
+        - R75.1
+        - R76.1
+        - R78.2
+        - R146.1
+        - R162.1
+        - R163.1
+        - R164.1
+        - R174.2
+      VDD_HV_A_DC_SOC:
+        category: Power
+        members:
+        - C5.1
+        - C63.1
+        - C64.1
+        - C65.1
+        - C66.1
+        - C67.1
+        - C68.1
+        - C69.1
+        - C70.1
+        - C71.1
+        - C72.1
+        - C73.1
+        - C74.1
+        - C75.1
+        - C76.1
+        - C77.1
+        - C78.1
+        - C79.1
+        - C80.1
+        - C81.1
+        - C152.1
+        - R7.2
+        - R75.2
+        - R76.2
+        - R77.2
+        - U1.B12
+        - U1.B19
+        - U1.E2
+        - U1.E5
+        - U1.E10
+        - U1.E17
+        - U1.G8
+        - U1.G10
+        - U1.G14
+        - U1.H7
+        - U1.H15
+        - U1.L15
+        - U1.P7
+        - U1.P15
+        - U1.R20
+        - U1.U17
+      VDD_HV_B_DC:
+        category: Power
+        members:
+        - C179.1
+        - C180.1
+        - C181.1
+        - C182.1
+        - C183.1
+        - C184.1
+        - C185.1
+        - C186.1
+        - J1.5
+        - J1.6
+        - J12.3
+        - R71.1
+        - R72.1
+        - R73.2
+        - R149.1
+        - R150.1
+        - R151.1
+        - R157.1
+        - R158.1
+        - R159.1
+        - R188.1
+        - U9.B4
+        - U9.D1
+        - U9.E4
+        - U10.A4
+        - U10.A15
+        - U10.B7
+        - U10.B13
+      VDD_HV_B_DC_SOC:
+        category: Power
+        members:
+        - C8.1
+        - C82.1
+        - C83.1
+        - C84.1
+        - C85.1
+        - C86.1
+        - C87.1
+        - C88.1
+        - C89.1
+        - C90.1
+        - C91.1
+        - C92.1
+        - C93.1
+        - C94.1
+        - R9.2
+        - R71.2
+        - R72.2
+        - R74.2
+        - U1.AA4
+        - U1.M4
+        - U1.P5
+        - U1.R8
+        - U1.R11
+        - U1.R14
+        - U1.U6
+        - U1.U10
+        - U1.U13
+        - U1.Y1
+      VDD_V08_SERDES_DC:
+        category: Power
+        members:
+        - J13.3
+        - R87.1
+        - R88.1
+        - R90.2
+      VDD_V08_SERDES_DC_FIL:
+        category: Power
+        members:
+        - C52.1
+        - C154.1
+        - C155.1
+        - C156.1
+        - C157.1
+        - C158.1
+        - L1.2
+        - R11.1
+        - U1.Y11
+        - U1.Y15
+        - U1.Y19
+      VDD_V08_SERDES_DC_SOC:
+        category: Power
+        members:
+        - L1.1
+        - R87.2
+        - R88.2
+        - R89.2
+      VDD_V18_LVDS_DC:
+        category: Power
+        members:
+        - J11.1
+        - J11.3
+        - R91.1
+        - R92.1
+        - R94.2
+      VDD_V18_LVDS_DC_FIL:
+        category: Power
+        members:
+        - C164.1
+        - C165.1
+        - C166.1
+        - C167.1
+        - C168.1
+        - L3.2
+        - R12.2
+        - U1.B1
+        - U1.C2
+      VDD_V18_LVDS_DC_SOC:
+        category: Power
+        members:
+        - L3.1
+        - R91.2
+        - R92.2
+        - R93.2
+      VDD_V18_SERDES_DC:
+        category: Power
+        members:
+        - J14.75
+        - J14.77
+        - R83.1
+        - R84.1
+        - R86.2
+      VDD_V18_SERDES_DC_FIL:
+        category: Power
+        members:
+        - C32.1
+        - C159.1
+        - C160.1
+        - C161.1
+        - C162.1
+        - C163.1
+        - L2.2
+        - R10.2
+        - U1.Y9
+        - U1.Y13
+        - U1.Y17
+      VDD_V18_SERDES_DC_SOC:
+        category: Power
+        members:
+        - L2.1
+        - R83.2
+        - R84.2
+        - R85.2
+      VREFH_ADC01_DC:
+        category: Power
+        members:
+        - C194.1
+        - J11.84
+        - R79.1
+        - R80.1
+        - R82.2
+      VREFH_ADC01_DC_SOC:
+        category: Power
+        members:
+        - C109.1
+        - C110.1
+        - R14.2
+        - R79.2
+        - R80.2
+        - R81.2
+        - U1.H13
+        - U1.M7
+      CLK_EXTAL:
+        category: Clock
+        members:
+        - R139.1
+        - R142.1
+        - R171.1
+        - U1.K1
+      CLK_XTAL:
+        category: Clock
+        members:
+        - R135.2
+        - R141.1
+        - U1.L1
+      DUT_CLK:
+        category: Clock
+        members:
+        - J14.45
+        - R144.2
+      DUT_CLK1_FPGA_AG25:
+        category: Clock
+        members:
+        - J14.42
+        - R171.2
+      DUT_GPIO7_MAC2_RGMII_TXCLK:
+        category: Clock
+        members:
+        - J14.7
+        - U1.T7
+      DUT_GPIO12_1588_CLKOUT:
+        category: Clock
+        members:
+        - J15.77
+        - U1.U4
+      DUT_GPIO13_TRACE_ETM_CLKOUT_MAC0_MII_COL:
+        category: Clock
+        members:
+        - J15.83
+        - U1.V3
+      DUT_GPIO34_LPSPI0_SCK_MAC1_RGMII_RXCLK:
+        category: Clock
+        members:
+        - J14.32
+        - U1.T11
+      DUT_GPIO35_CLKOUT_RUN_MAC1_RGMII_RXCTL:
+        category: Clock
+        members:
+        - J14.26
+        - U1.T10
+      DUT_GPIO37_MAC1_RGMII_TXCLK:
+        category: Clock
+        members:
+        - J14.31
+        - U1.U11
+      DUT_GPIO38_LPSPI1_SCK_MAC2_RGMII_RXCLK:
+        category: Clock
+        members:
+        - J14.13
+        - U1.U8
+      DUT_GPIO40_CLKOUTRUN:
+        category: Clock
+        members:
+        - J15.53
+        - U5.6
+      DUT_GPIO40_XSPI_DAT3_CLKOUTRUN:
+        category: Clock
+        members:
+        - U1.N4
+        - U5.10
+      DUT_GPIO56_USDHC_D4_MAC0_RGMII_RXCLK:
+        category: Clock
+        members:
+        - J15.92
+        - U1.AA3
+      DUT_GPIO59_USDHC_CLK_MAC0_RGMII_TXD2:
+        category: Clock
+        members:
+        - J15.96
+        - U1.AA5
+      DUT_GPIO64_USDHC_D2_MAC0_RGMII_TXCLK:
+        category: Clock
+        members:
+        - J15.100
+        - U1.AA7
+      DUT_GPIO67_MAC1_TC14_RX_QSPI_CLK_N:
+        category: Clock
+        members:
+        - R175.2
+        - R176.2
+        - U1.W13
+      DUT_GPIO72_MAC1_TC14_TX_QSPI_CLK_P:
+        category: Clock
+        members:
+        - R178.2
+        - R179.2
+        - U1.W14
+      DUT_GPIO111_SAI0_1_BCLK:
+        category: Clock
+        members:
+        - J14.96
+        - U1.P17
+      DUT_GPIO168_CLKOUTLPRUN:
+        category: Clock
+        members:
+        - J15.15
+        - U1.C3
+      DUT_GPIO170_CLKOUTSTBY:
+        category: Clock
+        members:
+        - J15.14
+        - U1.D3
+      DUT_GPIO208_SINC_MCLK3:
+        category: Clock
+        members:
+        - J11.60
+        - U1.C15
+      DUT_GPIO244_SINC_MCLK2:
+        category: Clock
+        members:
+        - J11.65
+        - U1.F14
+      DUT_GPIO246_SINC_MCLK0:
+        category: Clock
+        members:
+        - J11.49
+        - U1.G11
+      DUT_GPIO249_SINC_MCLK0_OUT:
+        category: Clock
+        members:
+        - J11.21
+        - U1.A5
+      DUT_GPIO253_SINC_MCLK1:
+        category: Clock
+        members:
+        - J11.13
+        - U1.A2
+      DUT_GPIO256_SINC_MCLK1_OUT:
+        category: Clock
+        members:
+        - J11.23
+        - U1.A6
+      DUT_GPIO261_SINC_MCLK2_OUT:
+        category: Clock
+        members:
+        - J11.68
+        - U1.A10
+      DUT_GPIO348_TRACE_CLKOUT:
+        category: Clock
+        members:
+        - J16.1
+        - U1.B17
+      I2C_CTRL_CLK:
+        category: Clock
+        members:
+        - J11.11
+        - J26.A7
+      OSC32K_EXTAL:
+        category: Clock
+        members:
+        - R136.1
+        - U1.G1
+      OSC32K_XTAL:
+        category: Clock
+        members:
+        - R137.1
+        - U1.H1
+      SDHC_CLK_SYNC_IN:
+        category: Clock
+        members:
+        - R156.2
+        - U10.B17
+      USDHC_CLK:
+        category: Clock
+        members:
+        - U2.7
+        - U10.A13
+      BRD_ID_01:
+        category: GPIO
+        members:
+        - J16.96
+        - R164.2
+        - R167.1
+      BRD_ID_02:
+        category: GPIO
+        members:
+        - J16.94
+        - R163.2
+        - R166.1
+      BRD_ID_03:
+        category: GPIO
+        members:
+        - J16.92
+        - R162.2
+        - R165.1
+      DUT_GPIO0_TRACE_ETM_D0_MAC2_MII_COL:
+        category: GPIO
+        members:
+        - J14.3
+        - U1.V5
+      DUT_GPIO1_MAC2_MII_RXER:
+        category: GPIO
+        members:
+        - J14.8
+        - U1.W7
+      DUT_GPIO2_MAC2_RGMII_RXD1:
+        category: GPIO
+        members:
+        - J14.17
+        - U1.U9
+      DUT_GPIO3_MAC2_RGMII_RXD0:
+        category: GPIO
+        members:
+        - J14.10
+        - U1.W8
+      DUT_GPIO5_MAC2_RGMII_TXD1:
+        category: GPIO
+        members:
+        - J14.6
+        - U1.W6
+      DUT_GPIO6_MAC2_RGMII_TXD0:
+        category: GPIO
+        members:
+        - J14.5
+        - U1.V6
+      DUT_GPIO8_MAC2_RGMII_RXD3:
+        category: GPIO
+        members:
+        - J14.15
+        - U1.R9
+      DUT_GPIO10_LPSI1_SIN:
+        category: GPIO
+        members:
+        - J15.44
+        - U6.6
+      DUT_GPIO14_TRACE_ETM_D1_MAC2_MII_CRS:
+        category: GPIO
+        members:
+        - J14.1
+        - U1.U5
+      DUT_GPIO15_FPGA_A13:
+        category: GPIO
+        members:
+        - J15.63
+        - U8.6
+      DUT_GPIO16_FPGA_J15:
+        category: GPIO
+        members:
+        - J15.49
+        - U4.5
+      DUT_GPIO19_1722_TMR1_MAC1_MII_RXER:
+        category: GPIO
+        members:
+        - J14.37
+        - U1.R12
+      DUT_GPIO20_TRACE_ETM_D2_MAC1_MII_COL:
+        category: GPIO
+        members:
+        - J14.22
+        - U1.T5
+      DUT_GPIO22_TRACE_FIO_D3_MAC1_MII_CRS:
+        category: GPIO
+        members:
+        - J14.21
+        - U1.T6
+      DUT_GPIO24_FPGA_H14:
+        category: GPIO
+        members:
+        - J15.61
+        - U3.6
+      DUT_GPIO25_FPGA_D14:
+        category: GPIO
+        members:
+        - J15.73
+        - U7.6
+      DUT_GPIO26_NETC_MDC:
+        category: GPIO
+        members:
+        - J15.67
+        - U1.R6
+      DUT_GPIO27_MAC1_RGMII_RXD1:
+        category: GPIO
+        members:
+        - J14.34
+        - U1.V12
+      DUT_GPIO29_MAC2_RGMII_RXCTL:
+        category: GPIO
+        members:
+        - J14.16
+        - U1.V8
+      DUT_GPIO31_FPGA_C11:
+        category: GPIO
+        members:
+        - J15.59
+        - U5.5
+      DUT_GPIO32_FPGA_E10:
+        category: GPIO
+        members:
+        - J15.75
+        - U7.5
+      DUT_GPIO33_NETC_MDIO:
+        category: GPIO
+        members:
+        - J15.52
+        - U4.6
+      DUT_GPIO36_MAC1_RGMII_RXD0:
+        category: GPIO
+        members:
+        - J14.35
+        - U1.U12
+      DUT_GPIO41_FPGA_B11:
+        category: GPIO
+        members:
+        - J15.54
+        - U3.5
+      DUT_GPIO42_FPGA_J12:
+        category: GPIO
+        members:
+        - J15.64
+        - U2.5
+      DUT_GPIO45_MAC1_RGMII_TXD1:
+        category: GPIO
+        members:
+        - J14.30
+        - U1.V11
+      DUT_GPIO46_MAC1_RGMII_TXD0:
+        category: GPIO
+        members:
+        - J14.29
+        - U1.W11
+      DUT_GPIO47_CANXL0_TX_MAC1_RGMII_TXCTL:
+        category: GPIO
+        members:
+        - J14.33
+        - U1.W12
+      DUT_GPIO48_MAC2_RGMII_TXD3:
+        category: GPIO
+        members:
+        - J14.2
+        - U1.W4
+      DUT_GPIO49_MAC2_RGMII_TXD2:
+        category: GPIO
+        members:
+        - J14.4
+        - U1.W5
+      DUT_GPIO51_USDHC_D0_MAC0_RGMII_RXD1:
+        category: GPIO
+        members:
+        - J15.86
+        - U1.W2
+      DUT_GPIO52_USDHC_D3_MAC0_RGMII_RXD0:
+        category: GPIO
+        members:
+        - J15.91
+        - U1.AA2
+      DUT_GPIO54_MAC0_RMII_RXER:
+        category: GPIO
+        members:
+        - J15.81
+        - U1.V1
+      DUT_GPIO55_MAC0_RGMII_RXD3:
+        category: GPIO
+        members:
+        - J15.82
+        - U1.V2
+      DUT_GPIO57_USDHC_D5_MAC0_RGMII_RXCTL:
+        category: GPIO
+        members:
+        - J15.87
+        - U1.Y3
+      DUT_GPIO58_USDHC_CMD_MAC0_MII_TXER:
+        category: GPIO
+        members:
+        - J15.97
+        - U1.AA8
+      DUT_GPIO60_USDHC_D7_MAC0_RGMII_TXD3:
+        category: GPIO
+        members:
+        - J15.88
+        - U1.Y4
+      DUT_GPIO61_USDHC_STROBE_MAC0_RGMII_TXD1:
+        category: GPIO
+        members:
+        - J15.93
+        - U1.Y6
+      DUT_GPIO62_USDHC_D1_MAC0_RGMII_TXD0:
+        category: GPIO
+        members:
+        - J15.98
+        - U1.AA6
+      DUT_GPIO63_USDHC_D6_MAC0_RGMII_TXCTL:
+        category: GPIO
+        members:
+        - J15.94
+        - U1.Y7
+      DUT_GPIO65_MAC2_TC14_ED:
+        category: GPIO
+        members:
+        - J14.47
+        - U1.U14
+      DUT_GPIO66_MAC3_TC14_ED:
+        category: GPIO
+        members:
+        - J14.53
+        - U1.V15
+      DUT_GPIO67_MAC1_TC14_RX:
+        category: GPIO
+        members:
+        - J14.38
+        - R176.1
+      DUT_GPIO68_MAC3_TC14_RX:
+        category: GPIO
+        members:
+        - J14.57
+        - U1.W16
+      DUT_GPIO69_MAC4_TC14_ED:
+        category: GPIO
+        members:
+        - J14.61
+        - U1.U15
+      DUT_GPIO70_MAC2_TC14_TX:
+        category: GPIO
+        members:
+        - J14.49
+        - U1.T15
+      DUT_GPIO71_MAC2_TC14_RX:
+        category: GPIO
+        members:
+        - J14.48
+        - U1.T14
+      DUT_GPIO72_MAC1_TC14_TX:
+        category: GPIO
+        members:
+        - J14.43
+        - R178.1
+      DUT_GPIO73_MAC1_TC14_ED:
+        category: GPIO
+        members:
+        - J14.44
+        - U1.V14
+      DUT_GPIO74_MAC4_TC14_TX:
+        category: GPIO
+        members:
+        - J14.63
+        - U1.U16
+      DUT_GPIO75_MAC4_TC14_RX:
+        category: GPIO
+        members:
+        - J14.65
+        - U1.T16
+      DUT_GPIO76_MAC3_TC14_TX:
+        category: GPIO
+        members:
+        - J14.55
+        - U1.W15
+      DUT_GPIO81_FCCU_EOUT2:
+        category: GPIO
+        members:
+        - J14.95
+        - U1.R17
+      DUT_GPIO83_WKPU25:
+        category: GPIO
+        members:
+        - J16.80
+        - U1.R19
+      DUT_GPIO86_FPGA_H20:
+        category: GPIO
+        members:
+        - J16.99
+        - U1.U18
+      DUT_GPIO87_FPGA_B23:
+        category: GPIO
+        members:
+        - J16.84
+        - U1.U19
+      DUT_GPIO89_WKPU24:
+        category: GPIO
+        members:
+        - J16.82
+        - U1.T19
+      DUT_GPIO90_WKPU26:
+        category: GPIO
+        members:
+        - J16.98
+        - U1.V18
+      DUT_GPIO91_FPGA_B19:
+        category: GPIO
+        members:
+        - J16.83
+        - U1.V19
+      DUT_GPIO93_FPGA_C19:
+        category: GPIO
+        members:
+        - J16.100
+        - U1.W18
+      DUT_GPIO94_FPGA_C17:
+        category: GPIO
+        members:
+        - J14.82
+        - U1.L17
+      DUT_GPIO95_FPGA_D18:
+        category: GPIO
+        members:
+        - J16.89
+        - U1.L18
+      DUT_GPIO96_FPGA_J20:
+        category: GPIO
+        members:
+        - J16.70
+        - U1.L19
+      DUT_GPIO97_WKPU23:
+        category: GPIO
+        members:
+        - J14.84
+        - U1.M14
+      DUT_GPIO98_FPGA_H18:
+        category: GPIO
+        members:
+        - J14.86
+        - U1.M15
+      DUT_GPIO99_FPGA_C18:
+        category: GPIO
+        members:
+        - J14.88
+        - U1.M16
+      DUT_GPIO100_FPGA_H17:
+        category: GPIO
+        members:
+        - J14.90
+        - U1.M17
+      DUT_GPIO101_FPGA_B18:
+        category: GPIO
+        members:
+        - J16.91
+        - U1.M18
+      DUT_GPIO102_FPGA_E18:
+        category: GPIO
+        members:
+        - J16.72
+        - U1.M19
+      DUT_GPIO103_FPGA_E17:
+        category: GPIO
+        members:
+        - J14.83
+        - U1.N14
+      DUT_GPIO104_SAI0_1_D1:
+        category: GPIO
+        members:
+        - J14.85
+        - U1.N15
+      DUT_GPIO105_SAI0_1_D0:
+        category: GPIO
+        members:
+        - J14.87
+        - U1.N16
+      DUT_GPIO106_SAI0_1_SYNC:
+        category: GPIO
+        members:
+        - J14.89
+        - U1.N17
+      DUT_GPIO107_FPGA_A19:
+        category: GPIO
+        members:
+        - J16.93
+        - U1.N18
+      DUT_GPIO108_FPGA_J17:
+        category: GPIO
+        members:
+        - J16.74
+        - U1.N19
+      DUT_GPIO109_FPGA_A18:
+        category: GPIO
+        members:
+        - J14.81
+        - U1.P14
+      DUT_GPIO110_FPGA_J16:
+        category: GPIO
+        members:
+        - J14.94
+        - U1.P16
+      DUT_GPIO112_FPGA_H16:
+        category: GPIO
+        members:
+        - J16.78
+        - U1.P19
+      DUT_GPIO116_FPGA_AE30:
+        category: GPIO
+        members:
+        - J16.85
+        - U1.W19
+      DUT_GPIO126_FPGA_AC29:
+        category: GPIO
+        members:
+        - J16.68
+        - U1.V20
+      DUT_GPIO127_FPGA_AA22:
+        category: GPIO
+        members:
+        - J16.66
+        - U1.U20
+      DUT_GPIO128_FPGA_AB29:
+        category: GPIO
+        members:
+        - J16.64
+        - U1.T20
+      DUT_GPIO129_FPGA_Y21:
+        category: GPIO
+        members:
+        - J16.60
+        - U1.M20
+      DUT_GPIO130_FPGA_Y27:
+        category: GPIO
+        members:
+        - J16.65
+        - U1.N21
+      DUT_GPIO131_FPGA_Y24:
+        category: GPIO
+        members:
+        - J16.67
+        - U1.P21
+      DUT_GPIO132_FPGA_W27:
+        category: GPIO
+        members:
+        - J16.69
+        - U1.R21
+      DUT_GPIO133_FPGA_Y25:
+        category: GPIO
+        members:
+        - J16.71
+        - U1.T21
+      DUT_GPIO134_FPGA_AA28:
+        category: GPIO
+        members:
+        - J16.73
+        - U1.U21
+      DUT_GPIO135_FPGA_Y23:
+        category: GPIO
+        members:
+        - J16.77
+        - U1.V21
+      DUT_GPIO136_FPGA_AA29:
+        category: GPIO
+        members:
+        - J16.79
+        - U1.W21
+      DUT_GPIO137_FPGA_W23:
+        category: GPIO
+        members:
+        - J16.81
+        - U1.Y21
+      DUT_GPIO138_FPGA_AC30:
+        category: GPIO
+        members:
+        - J14.69
+        - U1.AA20
+      DUT_GPIO160_CMP1OUT_CMP2IN1:
+        category: GPIO
+        members:
+        - J15.17
+        - U1.G6
+      DUT_GPIO161_CMP2IN0:
+        category: GPIO
+        members:
+        - J15.22
+        - U1.H5
+      DUT_GPIO162_CMP1OUT_CMP2IN3:
+        category: GPIO
+        members:
+        - J15.19
+        - U1.H6
+      DUT_GPIO167_LPE_CMP0OUT_CMP1IN1:
+        category: GPIO
+        members:
+        - J15.9
+        - U1.C4
+      DUT_GPIO169_CMP1OUT_CMP0IN0:
+        category: GPIO
+        members:
+        - J11.6
+        - U1.D5
+      DUT_GPIO171_FPGA_AK16:
+        category: GPIO
+        members:
+        - J15.46
+        - U1.M2
+      DUT_GPIO172_FPGA_AD16:
+        category: GPIO
+        members:
+        - J15.68
+        - U1.M1
+      DUT_GPIO173_CMP2IN6:
+        category: GPIO
+        members:
+        - J15.51
+        - U1.N2
+      DUT_GPIO174_CMP2IN4:
+        category: GPIO
+        members:
+        - J15.70
+        - U1.N1
+      DUT_GPIO175_CMP2IN5:
+        category: GPIO
+        members:
+        - J15.72
+        - U1.P1
+      DUT_GPIO176_CMP2IN7:
+        category: GPIO
+        members:
+        - J15.58
+        - U1.P2
+      DUT_GPIO177_CMP2RRT:
+        category: GPIO
+        members:
+        - J15.62
+        - U1.R2
+      DUT_GPIO178_CMP2OUT:
+        category: GPIO
+        members:
+        - J15.74
+        - U1.R1
+      DUT_GPIO179_CMP1RRT:
+        category: GPIO
+        members:
+        - J15.76
+        - U1.T1
+      DUT_GPIO180_CMP1OUT:
+        category: GPIO
+        members:
+        - J15.69
+        - U1.T2
+      DUT_GPIO181_LPE_CMP0OUT:
+        category: GPIO
+        members:
+        - J15.78
+        - U1.U1
+      DUT_GPIO182_CMP0RRT:
+        category: GPIO
+        members:
+        - J15.27
+        - U1.F2
+      DUT_GPIO185_FPGA_AJ16:
+        category: GPIO
+        members:
+        - J15.37
+        - U1.J4
+      DUT_GPIO188_FPGA_AC18:
+        category: GPIO
+        members:
+        - J15.39
+        - U1.K4
+      DUT_GPIO189_FPGA_AG18:
+        category: GPIO
+        members:
+        - J15.41
+        - U1.K3
+      DUT_GPIO190_FPGA_AF18:
+        category: GPIO
+        members:
+        - J15.43
+        - U1.L4
+      DUT_GPIO191_CMP0RRT:
+        category: GPIO
+        members:
+        - J15.45
+        - U1.L3
+      DUT_GPIO192_LPE_CMP0OUT1:
+        category: GPIO
+        members:
+        - J15.21
+        - U1.E4
+      DUT_GPIO193_CMP0IN3:
+        category: GPIO
+        members:
+        - J15.18
+        - U1.F5
+      DUT_GPIO194_CMP0RRT_CMP1IN3_CMP2RRT:
+        category: GPIO
+        members:
+        - J15.23
+        - U1.F4
+      DUT_GPIO195_CMP1RRT_CMP2IN2:
+        category: GPIO
+        members:
+        - J15.20
+        - U1.G5
+      DUT_GPIO198_CMP0IN7_CMP2OUT:
+        category: GPIO
+        members:
+        - J15.3
+        - U1.C5
+      DUT_GPIO199_CMP0IN2:
+        category: GPIO
+        members:
+        - J11.4
+        - U1.C6
+      DUT_GPIO200_CMP2RRT_CMP0IN6:
+        category: GPIO
+        members:
+        - J11.8
+        - U1.D6
+      DUT_GPIO201_CMP01N4:
+        category: GPIO
+        members:
+        - J11.12
+        - U1.E6
+      DUT_GPIO202_CMP0IN1:
+        category: GPIO
+        members:
+        - J11.14
+        - U1.D7
+      DUT_GPIO203_CMP01N5:
+        category: GPIO
+        members:
+        - J11.25
+        - U1.E7
+      DUT_GPIO204_CMP1IN7:
+        category: GPIO
+        members:
+        - J15.13
+        - U1.B3
+      DUT_GPIO205_CMP1IN6:
+        category: GPIO
+        members:
+        - J15.7
+        - U1.B4
+      DUT_GPIO206_CMP1IN4:
+        category: GPIO
+        members:
+        - J15.1
+        - U1.B5
+      DUT_GPIO207_CMP1IN5:
+        category: GPIO
+        members:
+        - J11.2
+        - U1.B6
+      DUT_GPIO209_FPGA_AH20:
+        category: GPIO
+        members:
+        - J11.71
+        - U1.D15
+      DUT_GPIO212_FPGA_R25:
+        category: GPIO
+        members:
+        - J11.37
+        - U1.H9
+      DUT_GPIO214_FPGA_T22:
+        category: GPIO
+        members:
+        - J11.30
+        - U1.C9
+      DUT_GPIO217_FPGA_AJ24:
+        category: GPIO
+        members:
+        - J11.46
+        - U1.C12
+      DUT_GPIO218_SINC_MBIT0:
+        category: GPIO
+        members:
+        - J11.56
+        - U1.C14
+      DUT_GPIO222_FPGA_P25:
+        category: GPIO
+        members:
+        - J11.29
+        - U1.D8
+      DUT_GPIO223_FPGA_N24:
+        category: GPIO
+        members:
+        - J11.41
+        - U1.D9
+      DUT_GPIO224_FPGA_N30:
+        category: GPIO
+        members:
+        - J11.47
+        - U1.D10
+      DUT_GPIO227_FPGA_G18:
+        category: GPIO
+        members:
+        - J11.63
+        - U1.D13
+      DUT_GPIO233_FPGA_AG22:
+        category: GPIO
+        members:
+        - J11.42
+        - U1.E12
+      DUT_GPIO236_SINC_MBIT1:
+        category: GPIO
+        members:
+        - J11.58
+        - U1.E15
+      DUT_GPIO238_FPGA_L22:
+        category: GPIO
+        members:
+        - J11.31
+        - U1.F8
+      DUT_GPIO239_FPGA_P27:
+        category: GPIO
+        members:
+        - J11.26
+        - U1.F9
+      DUT_GPIO240_FPGA_M23:
+        category: GPIO
+        members:
+        - J11.45
+        - U1.F10
+      DUT_GPIO241_FPGA_M29:
+        category: GPIO
+        members:
+        - J11.38
+        - U1.F11
+      DUT_GPIO242_FPGA_AF25:
+        category: GPIO
+        members:
+        - J11.55
+        - U1.F12
+      DUT_GPIO243_IOEXP_IRQ:
+        category: GPIO
+        members:
+        - J11.59
+        - U1.F13
+      DUT_GPIO247_FPGA_M24:
+        category: GPIO
+        members:
+        - J11.39
+        - U1.G9
+      DUT_GPIO251_FPGA_AC20:
+        category: GPIO
+        members:
+        - J11.17
+        - U1.A4
+      DUT_GPIO254_FPGA_AJ22:
+        category: GPIO
+        members:
+        - J11.15
+        - U1.A3
+      DUT_GPIO257_FPGA_AC22:
+        category: GPIO
+        members:
+        - J11.64
+        - U1.A8
+      DUT_GPIO258_SINC_MBIT2:
+        category: GPIO
+        members:
+        - J11.24
+        - U1.B8
+      DUT_GPIO259_FPGA_AF22:
+        category: GPIO
+        members:
+        - J11.66
+        - U1.A9
+      DUT_GPIO260_SINC_MBIT3:
+        category: GPIO
+        members:
+        - J11.32
+        - U1.B9
+      DUT_GPIO262_FPGA_AH23:
+        category: GPIO
+        members:
+        - J11.70
+        - U1.A11
+      DUT_GPIO305_FPGA_AG30:
+        category: GPIO
+        members:
+        - J16.31
+        - U1.H17
+      DUT_GPIO306_FPGA_AC26:
+        category: GPIO
+        members:
+        - J16.32
+        - U1.H18
+      DUT_GPIO307_FPGA_M28:
+        category: GPIO
+        members:
+        - J16.11
+        - U1.C16
+      DUT_GPIO311_FPGA_G29:
+        category: GPIO
+        members:
+        - J16.37
+        - U1.J17
+      DUT_GPIO312_FPGA_AB27:
+        category: GPIO
+        members:
+        - J16.38
+        - U1.J18
+      DUT_GPIO313_FPGA_AA25:
+        category: GPIO
+        members:
+        - J16.39
+        - U1.J19
+      DUT_GPIO314_FPGA_N27:
+        category: GPIO
+        members:
+        - J16.12
+        - U1.D16
+      DUT_GPIO317_FPGA_N28:
+        category: GPIO
+        members:
+        - J16.14
+        - U1.D18
+      DUT_GPIO318_FPGA_AA26:
+        category: GPIO
+        members:
+        - J16.56
+        - U1.K14
+      DUT_GPIO319_FPGA_AC28:
+        category: GPIO
+        members:
+        - J16.43
+        - U1.K16
+      DUT_GPIO320_FPGA_L24:
+        category: GPIO
+        members:
+        - J16.16
+        - U1.E16
+      DUT_GPIO321_FPGA_M27:
+        category: GPIO
+        members:
+        - J16.20
+        - U1.F16
+      DUT_GPIO322_FPGA_AA23:
+        category: GPIO
+        members:
+        - J16.4
+        - U1.E19
+      DUT_GPIO323_FPGA_AB28:
+        category: GPIO
+        members:
+        - J16.44
+        - U1.K17
+      DUT_GPIO324_FPGA_AA24:
+        category: GPIO
+        members:
+        - J16.45
+        - U1.K18
+      DUT_GPIO325_FPGA_W25:
+        category: GPIO
+        members:
+        - J16.46
+        - R181.1
+      DUT_GPIO325_VPP0_FPGA_W25:
+        category: GPIO
+        members:
+        - R181.2
+        - R182.2
+        - U1.K19
+      DUT_GPIO326_FPGA_N26:
+        category: GPIO
+        members:
+        - J16.21
+        - U1.F17
+      DUT_GPIO327_FPGA_AB30:
+        category: GPIO
+        members:
+        - J16.6
+        - U1.F18
+      DUT_GPIO328_FPGA_L27:
+        category: GPIO
+        members:
+        - J16.22
+        - U1.F19
+      DUT_GPIO329_FPGA_Y26:
+        category: GPIO
+        members:
+        - J16.30
+        - U1.H14
+      DUT_GPIO330_FPGA_Y28:
+        category: GPIO
+        members:
+        - J16.24
+        - U1.G16
+      DUT_GPIO331_FPGA_Y22:
+        category: GPIO
+        members:
+        - J16.27
+        - U1.G17
+      DUT_GPIO334_FPGA_W22:
+        category: GPIO
+        members:
+        - J16.54
+        - U1.J14
+      DUT_GPIO335_FPGA_AA30:
+        category: GPIO
+        members:
+        - J16.35
+        - U1.J15
+      DUT_GPIO336_FPGA_U25:
+        category: GPIO
+        members:
+        - J11.72
+        - U1.B14
+      DUT_GPIO337_FPGA_U29:
+        category: GPIO
+        members:
+        - J11.85
+        - U1.B15
+      DUT_GPIO338_FPGA_U24:
+        category: GPIO
+        members:
+        - J11.83
+        - U1.B13
+      DUT_GPIO339_FPGA_W30:
+        category: GPIO
+        members:
+        - J11.75
+        - U1.A13
+      DUT_GPIO340_FPGA_T25:
+        category: GPIO
+        members:
+        - J11.77
+        - U1.A14
+      DUT_GPIO341_FPGA_V30:
+        category: GPIO
+        members:
+        - J11.79
+        - U1.A15
+      DUT_GPIO342_FPGA_R26:
+        category: GPIO
+        members:
+        - J11.76
+        - U1.A17
+      DUT_GPIO343_FPGA_U30:
+        category: GPIO
+        members:
+        - J11.78
+        - U1.A18
+      DUT_GPIO344_FPGA_V22:
+        category: GPIO
+        members:
+        - J11.80
+        - U1.A19
+      DUT_GPIO345_FPGA_T30:
+        category: GPIO
+        members:
+        - J11.87
+        - U1.B21
+      DUT_GPIO346_TRACE_D1:
+        category: GPIO
+        members:
+        - J16.2
+        - U1.D20
+      DUT_GPIO347_TRACE_D8:
+        category: GPIO
+        members:
+        - J16.5
+        - U1.D21
+      DUT_GPIO349_TRACE_D0:
+        category: GPIO
+        members:
+        - J16.3
+        - U1.B18
+      DUT_GPIO350_FPGA_R24:
+        category: GPIO
+        members:
+        - J11.89
+        - U1.C21
+      DUT_GPIO351_TRACE_D3:
+        category: GPIO
+        members:
+        - J16.23
+        - U1.F20
+      DUT_GPIO352_TRACE_D10:
+        category: GPIO
+        members:
+        - J16.51
+        - U1.G21
+      DUT_GPIO353_TRACE_D2:
+        category: GPIO
+        members:
+        - J16.19
+        - U1.E20
+      DUT_GPIO354_TRACE_D9:
+        category: GPIO
+        members:
+        - J16.7
+        - U1.E21
+      DUT_GPIO355_TRACE_D4:
+        category: GPIO
+        members:
+        - J16.52
+        - U1.H20
+      DUT_GPIO356_TRACE_D11:
+        category: GPIO
+        members:
+        - J16.53
+        - U1.H21
+      DUT_GPIO357_TRACE_D5:
+        category: GPIO
+        members:
+        - J16.40
+        - U1.J20
+      DUT_GPIO358_TRACE_D13:
+        category: GPIO
+        members:
+        - J16.57
+        - U1.K21
+      DUT_GPIO359_TRACE_D6:
+        category: GPIO
+        members:
+        - J16.47
+        - U1.K20
+      DUT_GPIO360_TRACE_D7:
+        category: GPIO
+        members:
+        - J16.58
+        - U1.L20
+      DUT_GPIO361_TRACE_D14:
+        category: GPIO
+        members:
+        - J16.59
+        - U1.L21
+      DUT_GPIO362_TRACE_D15:
+        category: GPIO
+        members:
+        - J16.63
+        - U1.M21
+      DUT_GPIO363_TRACE_D12:
+        category: GPIO
+        members:
+        - J16.55
+        - R185.1
+      DUT_GPIO363_VPP1_TRACE_D12:
+        category: GPIO
+        members:
+        - R184.2
+        - R185.2
+        - U1.J21
+      DUT_PGOOD:
+        category: GPIO
+        members:
+        - J15.40
+        - U1.H2
+      MCU_VDD_V08:
+        category: GPIO
+        members:
+        - C13.1
+        - C14.1
+        - C15.1
+        - C16.1
+        - C17.1
+        - C18.1
+        - C19.1
+        - C20.1
+        - C21.1
+        - C22.1
+        - C23.1
+        - C24.1
+        - C25.1
+        - C26.1
+        - C27.1
+        - C28.1
+        - C29.1
+        - C30.1
+        - C31.1
+        - C38.1
+        - C39.1
+        - C40.1
+        - C41.1
+        - C42.1
+        - C43.1
+        - C44.1
+        - C45.1
+        - C46.1
+        - C47.1
+        - C48.1
+        - C49.1
+        - C50.1
+        - C51.1
+        - C53.1
+        - C54.1
+        - J42.3
+        - J42.4
+        - U1.A20
+        - U1.B7
+        - U1.B10
+        - U1.B16
+        - U1.C20
+        - U1.G20
+        - U1.J10
+        - U1.J11
+        - U1.J12
+        - U1.K9
+        - U1.K10
+        - U1.K11
+        - U1.K12
+        - U1.K13
+        - U1.L9
+        - U1.L10
+        - U1.L12
+        - U1.L13
+        - U1.M9
+        - U1.M10
+        - U1.M11
+        - U1.M12
+        - U1.M13
+        - U1.N10
+        - U1.N11
+        - U1.N12
+        - U1.N20
+        - U1.P9
+        - U1.P10
+        - U1.P12
+        - U1.P13
+        - U1.W20
+      RSTO:
+        category: GPIO
+        members:
+        - R151.2
+        - TP3.1
+        - U9.A2
+      RST_EMMC_B:
+        category: GPIO
+        members:
+        - R154.2
+        - R155.1
+        - U10.A11
+      SDHC_CARD_ID0:
+        category: GPIO
+        members:
+        - TP6.1
+        - U10.A5
+      SDHC_CARD_ID1:
+        category: GPIO
+        members:
+        - TP7.1
+        - U10.A6
+      SDHC_CARD_ID2:
+        category: GPIO
+        members:
+        - TP8.1
+        - U10.A7
+      SDHC_CD_B:
+        category: GPIO
+        members:
+        - R157.2
+        - TP5.1
+        - U10.A17
+      SDHC_VS:
+        category: GPIO
+        members:
+        - J44.2
+        - U10.A1
+      SDHC_WP:
+        category: GPIO
+        members:
+        - R158.2
+        - R160.2
+        - R161.1
+        - U10.A16
+      SENSEGND_VDD_0.8V_PD2_DC:
+        category: GPIO
+        members:
+        - C61.1
+        - J11.94
+        - R16.2
+      SENSEGND_VDD_V08_SERDES_DC:
+        category: GPIO
+        members:
+        - C56.1
+        - J11.97
+        - R13.2
+      SENSEV_VDD_0.8V_PD2_DC:
+        category: GPIO
+        members:
+        - C62.1
+        - J11.92
+        - R15.2
+      SENSEV_VDD_HV_A_DC:
+        category: GPIO
+        members:
+        - C4.1
+        - J16.86
+        - R7.1
+      SENSEV_VDD_HV_B_DC:
+        category: GPIO
+        members:
+        - C9.1
+        - J16.90
+        - R9.1
+      SENSEV_VDD_V08_SERDES_DC:
+        category: GPIO
+        members:
+        - C57.1
+        - J11.95
+        - R11.2
+      SENSEV_VDD_V18_LVDS_DC:
+        category: GPIO
+        members:
+        - C55.1
+        - J11.7
+        - R12.1
+      SENSEV_VDD_V18_SERDES_DC:
+        category: GPIO
+        members:
+        - C33.1
+        - J14.73
+        - R10.1
+      SGMII_REXT:
+        category: GPIO
+        members:
+        - R5.1
+        - U1.AA17
+      USDHC_CMD:
+        category: GPIO
+        members:
+        - R159.2
+        - U2.8
+        - U10.A14
+      USDHC_D0:
+        category: GPIO
+        members:
+        - U8.7
+        - U10.B5
+      USDHC_D1:
+        category: GPIO
+        members:
+        - U6.7
+        - U10.B6
+      USDHC_D2:
+        category: GPIO
+        members:
+        - U8.8
+        - U10.B9
+      USDHC_D3:
+        category: GPIO
+        members:
+        - U6.8
+        - U10.B10
+      USDHC_D4:
+        category: GPIO
+        members:
+        - U5.8
+        - U10.B11
+      USDHC_D5:
+        category: GPIO
+        members:
+        - U5.7
+        - U10.B12
+      USDHC_D6:
+        category: GPIO
+        members:
+        - U3.7
+        - U10.B14
+      USDHC_D7:
+        category: GPIO
+        members:
+        - U7.7
+        - U10.B15
+      USDHC_STROBE_WP:
+        category: GPIO
+        members:
+        - R153.1
+        - R160.1
+        - U7.8
+      V08_BALLAST:
+        category: GPIO
+        members:
+        - C3.1
+        - J42.5
+        - J42.6
+        - Q1.2
+        - R6.2
+      V18_INTRL_REG_OUT:
+        category: GPIO
+        members:
+        - C34.1
+        - C35.1
+        - C95.1
+        - C96.1
+        - C97.1
+        - C98.1
+        - C99.1
+        - C100.1
+        - C101.1
+        - C102.1
+        - C103.1
+        - C104.1
+        - C105.1
+        - C106.1
+        - U1.G12
+        - U1.H8
+        - U1.J7
+        - U1.K15
+        - U1.N7
+        - U1.N8
+        - U1.P8
+      VPP0:
+        category: GPIO
+        members:
+        - JP23.1
+        - R182.1
+      VPP1:
+        category: GPIO
+        members:
+        - JP24.1
+        - R184.1
+      VRC_CTRL:
+        category: GPIO
+        members:
+        - J2.2
+        - U1.K7
+      XO_VDD_3.3V:
+        category: GPIO
+        members:
+        - C192.1
+        - C193.1
+        - L4.2
+        - Y4.1
+        - Y4.6
+  channel_allocation:
+    power:
+    - net: SENSE_VREFH_ADC01_DC
+      test_point: C59.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH101'
+      power_rails: U2355A AI01
+      voltage: 'DAQM908A #1 CH101'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VCC_3V3_MUX
+      test_point: C173.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH102'
+      power_rails: U2355A AI02
+      voltage: 'DAQM908A #1 CH102'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VCC_BJT
+      test_point: C1.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH103'
+      power_rails: U2355A AI03
+      voltage: 'DAQM908A #1 CH103'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_0.8V_PD2_DC
+      test_point: J13.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH104'
+      power_rails: U2355A AI04
+      voltage: 'DAQM908A #1 CH104'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_0.8V_PD2_DC_SOC
+      test_point: J42.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH105'
+      power_rails: U2355A AI05
+      voltage: 'DAQM908A #1 CH105'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_1P8_LVDSQSPI
+      test_point: JP25.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH106'
+      power_rails: U2355A AI06
+      voltage: 'DAQM908A #1 CH106'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_3.3V
+      test_point: C187.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH107'
+      power_rails: U2355A AI07
+      voltage: 'DAQM908A #1 CH107'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_HV_A_DC
+      test_point: C189.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH108'
+      power_rails: U2355A AI08
+      voltage: 'DAQM908A #1 CH108'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_HV_A_DC_SOC
+      test_point: C5.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH109'
+      power_rails: U2355A AI09
+      voltage: 'DAQM908A #1 CH109'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_HV_B_DC
+      test_point: C179.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH110'
+      power_rails: U2355A AI10
+      voltage: 'DAQM908A #1 CH110'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_HV_B_DC_SOC
+      test_point: C8.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH111'
+      power_rails: U2355A AI11
+      voltage: 'DAQM908A #1 CH111'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V08_SERDES_DC
+      test_point: J13.3
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH112'
+      power_rails: U2355A AI12
+      voltage: 'DAQM908A #1 CH112'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V08_SERDES_DC_FIL
+      test_point: C52.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH113'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH113'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V08_SERDES_DC_SOC
+      test_point: L1.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH114'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH114'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_LVDS_DC
+      test_point: J11.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH115'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH115'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_LVDS_DC_FIL
+      test_point: C164.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH116'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH116'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_LVDS_DC_SOC
+      test_point: L3.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH117'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH117'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_SERDES_DC
+      test_point: J14.75
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH118'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH118'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_SERDES_DC_FIL
+      test_point: C32.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH119'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH119'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VDD_V18_SERDES_DC_SOC
+      test_point: L2.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH120'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH120'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VREFH_ADC01_DC
+      test_point: C194.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH121'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH121'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VREFH_ADC01_DC_SOC
+      test_point: C109.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH122'
+      power_rails: —
+      voltage: 'DAQM908A #1 CH122'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    clock:
+    - net: CLK_EXTAL
+      test_point: R139.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: DAQM907A TOT
+      band: 0 ~ 100 kHz
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: CLK_XTAL
+      test_point: R135.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: U2355A CTR0
+      band: 0.1 Hz ~ 6 MHz
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_CLK
+      test_point: J14.45
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: U2355A CTR1
+      band: 0.1 Hz ~ 6 MHz
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_CLK1_FPGA_AG25
+      test_point: J14.42
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO7_MAC2_RGMII_TXCLK
+      test_point: J14.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO12_1588_CLKOUT
+      test_point: J15.77
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO13_TRACE_ETM_CLKOUT_MAC0_MII_COL
+      test_point: J15.83
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO34_LPSPI0_SCK_MAC1_RGMII_RXCLK
+      test_point: J14.32
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO35_CLKOUT_RUN_MAC1_RGMII_RXCTL
+      test_point: J14.26
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO37_MAC1_RGMII_TXCLK
+      test_point: J14.31
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO38_LPSPI1_SCK_MAC2_RGMII_RXCLK
+      test_point: J14.13
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO40_CLKOUTRUN
+      test_point: J15.53
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO40_XSPI_DAT3_CLKOUTRUN
+      test_point: U1.N4
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO56_USDHC_D4_MAC0_RGMII_RXCLK
+      test_point: J15.92
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO59_USDHC_CLK_MAC0_RGMII_TXD2
+      test_point: J15.96
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO64_USDHC_D2_MAC0_RGMII_TXCLK
+      test_point: J15.100
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO67_MAC1_TC14_RX_QSPI_CLK_N
+      test_point: R175.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO72_MAC1_TC14_TX_QSPI_CLK_P
+      test_point: R178.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO111_SAI0_1_BCLK
+      test_point: J14.96
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO168_CLKOUTLPRUN
+      test_point: J15.15
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO170_CLKOUTSTBY
+      test_point: J15.14
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO208_SINC_MCLK3
+      test_point: J11.60
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO244_SINC_MCLK2
+      test_point: J11.65
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO246_SINC_MCLK0
+      test_point: J11.49
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO249_SINC_MCLK0_OUT
+      test_point: J11.21
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO253_SINC_MCLK1
+      test_point: J11.13
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO256_SINC_MCLK1_OUT
+      test_point: J11.23
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO261_SINC_MCLK2_OUT
+      test_point: J11.68
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO348_TRACE_CLKOUT
+      test_point: J16.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: I2C_CTRL_CLK
+      test_point: J11.11
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: OSC32K_EXTAL
+      test_point: R136.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: OSC32K_XTAL
+      test_point: R137.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_CLK_SYNC_IN
+      test_point: R156.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_CLK
+      test_point: U2.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    gpio:
+    - net: BRD_ID_01
+      test_point: J16.96
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: BRD_ID_02
+      test_point: J16.94
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: BRD_ID_03
+      test_point: J16.92
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO0_TRACE_ETM_D0_MAC2_MII_COL
+      test_point: J14.3
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO1_MAC2_MII_RXER
+      test_point: J14.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO2_MAC2_RGMII_RXD1
+      test_point: J14.17
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO3_MAC2_RGMII_RXD0
+      test_point: J14.10
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO5_MAC2_RGMII_TXD1
+      test_point: J14.6
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO6_MAC2_RGMII_TXD0
+      test_point: J14.5
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO8_MAC2_RGMII_RXD3
+      test_point: J14.15
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO10_LPSI1_SIN
+      test_point: J15.44
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO14_TRACE_ETM_D1_MAC2_MII_CRS
+      test_point: J14.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO15_FPGA_A13
+      test_point: J15.63
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO16_FPGA_J15
+      test_point: J15.49
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO19_1722_TMR1_MAC1_MII_RXER
+      test_point: J14.37
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO20_TRACE_ETM_D2_MAC1_MII_COL
+      test_point: J14.22
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO22_TRACE_FIO_D3_MAC1_MII_CRS
+      test_point: J14.21
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO24_FPGA_H14
+      test_point: J15.61
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO25_FPGA_D14
+      test_point: J15.73
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO26_NETC_MDC
+      test_point: J15.67
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO27_MAC1_RGMII_RXD1
+      test_point: J14.34
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO29_MAC2_RGMII_RXCTL
+      test_point: J14.16
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO31_FPGA_C11
+      test_point: J15.59
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO32_FPGA_E10
+      test_point: J15.75
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO33_NETC_MDIO
+      test_point: J15.52
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO36_MAC1_RGMII_RXD0
+      test_point: J14.35
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO41_FPGA_B11
+      test_point: J15.54
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO42_FPGA_J12
+      test_point: J15.64
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO45_MAC1_RGMII_TXD1
+      test_point: J14.30
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO46_MAC1_RGMII_TXD0
+      test_point: J14.29
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO47_CANXL0_TX_MAC1_RGMII_TXCTL
+      test_point: J14.33
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO48_MAC2_RGMII_TXD3
+      test_point: J14.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO49_MAC2_RGMII_TXD2
+      test_point: J14.4
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO51_USDHC_D0_MAC0_RGMII_RXD1
+      test_point: J15.86
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO52_USDHC_D3_MAC0_RGMII_RXD0
+      test_point: J15.91
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO54_MAC0_RMII_RXER
+      test_point: J15.81
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO55_MAC0_RGMII_RXD3
+      test_point: J15.82
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO57_USDHC_D5_MAC0_RGMII_RXCTL
+      test_point: J15.87
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO58_USDHC_CMD_MAC0_MII_TXER
+      test_point: J15.97
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO60_USDHC_D7_MAC0_RGMII_TXD3
+      test_point: J15.88
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO61_USDHC_STROBE_MAC0_RGMII_TXD1
+      test_point: J15.93
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO62_USDHC_D1_MAC0_RGMII_TXD0
+      test_point: J15.98
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO63_USDHC_D6_MAC0_RGMII_TXCTL
+      test_point: J15.94
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO65_MAC2_TC14_ED
+      test_point: J14.47
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO66_MAC3_TC14_ED
+      test_point: J14.53
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO67_MAC1_TC14_RX
+      test_point: J14.38
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO68_MAC3_TC14_RX
+      test_point: J14.57
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO69_MAC4_TC14_ED
+      test_point: J14.61
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO70_MAC2_TC14_TX
+      test_point: J14.49
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO71_MAC2_TC14_RX
+      test_point: J14.48
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO72_MAC1_TC14_TX
+      test_point: J14.43
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO73_MAC1_TC14_ED
+      test_point: J14.44
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO74_MAC4_TC14_TX
+      test_point: J14.63
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO75_MAC4_TC14_RX
+      test_point: J14.65
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO76_MAC3_TC14_TX
+      test_point: J14.55
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO81_FCCU_EOUT2
+      test_point: J14.95
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO83_WKPU25
+      test_point: J16.80
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO86_FPGA_H20
+      test_point: J16.99
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO87_FPGA_B23
+      test_point: J16.84
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO89_WKPU24
+      test_point: J16.82
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO90_WKPU26
+      test_point: J16.98
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO91_FPGA_B19
+      test_point: J16.83
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO93_FPGA_C19
+      test_point: J16.100
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO94_FPGA_C17
+      test_point: J14.82
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO95_FPGA_D18
+      test_point: J16.89
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO96_FPGA_J20
+      test_point: J16.70
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO97_WKPU23
+      test_point: J14.84
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO98_FPGA_H18
+      test_point: J14.86
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO99_FPGA_C18
+      test_point: J14.88
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO100_FPGA_H17
+      test_point: J14.90
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO101_FPGA_B18
+      test_point: J16.91
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO102_FPGA_E18
+      test_point: J16.72
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO103_FPGA_E17
+      test_point: J14.83
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO104_SAI0_1_D1
+      test_point: J14.85
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO105_SAI0_1_D0
+      test_point: J14.87
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO106_SAI0_1_SYNC
+      test_point: J14.89
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO107_FPGA_A19
+      test_point: J16.93
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO108_FPGA_J17
+      test_point: J16.74
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO109_FPGA_A18
+      test_point: J14.81
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO110_FPGA_J16
+      test_point: J14.94
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO112_FPGA_H16
+      test_point: J16.78
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO116_FPGA_AE30
+      test_point: J16.85
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO126_FPGA_AC29
+      test_point: J16.68
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO127_FPGA_AA22
+      test_point: J16.66
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO128_FPGA_AB29
+      test_point: J16.64
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO129_FPGA_Y21
+      test_point: J16.60
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO130_FPGA_Y27
+      test_point: J16.65
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO131_FPGA_Y24
+      test_point: J16.67
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO132_FPGA_W27
+      test_point: J16.69
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO133_FPGA_Y25
+      test_point: J16.71
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO134_FPGA_AA28
+      test_point: J16.73
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO135_FPGA_Y23
+      test_point: J16.77
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO136_FPGA_AA29
+      test_point: J16.79
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO137_FPGA_W23
+      test_point: J16.81
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO138_FPGA_AC30
+      test_point: J14.69
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO160_CMP1OUT_CMP2IN1
+      test_point: J15.17
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO161_CMP2IN0
+      test_point: J15.22
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO162_CMP1OUT_CMP2IN3
+      test_point: J15.19
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO167_LPE_CMP0OUT_CMP1IN1
+      test_point: J15.9
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO169_CMP1OUT_CMP0IN0
+      test_point: J11.6
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO171_FPGA_AK16
+      test_point: J15.46
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO172_FPGA_AD16
+      test_point: J15.68
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO173_CMP2IN6
+      test_point: J15.51
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO174_CMP2IN4
+      test_point: J15.70
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO175_CMP2IN5
+      test_point: J15.72
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO176_CMP2IN7
+      test_point: J15.58
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO177_CMP2RRT
+      test_point: J15.62
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO178_CMP2OUT
+      test_point: J15.74
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO179_CMP1RRT
+      test_point: J15.76
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO180_CMP1OUT
+      test_point: J15.69
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO181_LPE_CMP0OUT
+      test_point: J15.78
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO182_CMP0RRT
+      test_point: J15.27
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO185_FPGA_AJ16
+      test_point: J15.37
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO188_FPGA_AC18
+      test_point: J15.39
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO189_FPGA_AG18
+      test_point: J15.41
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO190_FPGA_AF18
+      test_point: J15.43
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO191_CMP0RRT
+      test_point: J15.45
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO192_LPE_CMP0OUT1
+      test_point: J15.21
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO193_CMP0IN3
+      test_point: J15.18
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO194_CMP0RRT_CMP1IN3_CMP2RRT
+      test_point: J15.23
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO195_CMP1RRT_CMP2IN2
+      test_point: J15.20
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO198_CMP0IN7_CMP2OUT
+      test_point: J15.3
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO199_CMP0IN2
+      test_point: J11.4
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO200_CMP2RRT_CMP0IN6
+      test_point: J11.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO201_CMP01N4
+      test_point: J11.12
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO202_CMP0IN1
+      test_point: J11.14
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO203_CMP01N5
+      test_point: J11.25
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO204_CMP1IN7
+      test_point: J15.13
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO205_CMP1IN6
+      test_point: J15.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO206_CMP1IN4
+      test_point: J15.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO207_CMP1IN5
+      test_point: J11.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO209_FPGA_AH20
+      test_point: J11.71
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO212_FPGA_R25
+      test_point: J11.37
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO214_FPGA_T22
+      test_point: J11.30
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO217_FPGA_AJ24
+      test_point: J11.46
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO218_SINC_MBIT0
+      test_point: J11.56
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO222_FPGA_P25
+      test_point: J11.29
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO223_FPGA_N24
+      test_point: J11.41
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO224_FPGA_N30
+      test_point: J11.47
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO227_FPGA_G18
+      test_point: J11.63
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO233_FPGA_AG22
+      test_point: J11.42
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO236_SINC_MBIT1
+      test_point: J11.58
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO238_FPGA_L22
+      test_point: J11.31
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO239_FPGA_P27
+      test_point: J11.26
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO240_FPGA_M23
+      test_point: J11.45
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO241_FPGA_M29
+      test_point: J11.38
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO242_FPGA_AF25
+      test_point: J11.55
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO243_IOEXP_IRQ
+      test_point: J11.59
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO247_FPGA_M24
+      test_point: J11.39
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO251_FPGA_AC20
+      test_point: J11.17
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO254_FPGA_AJ22
+      test_point: J11.15
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO257_FPGA_AC22
+      test_point: J11.64
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO258_SINC_MBIT2
+      test_point: J11.24
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO259_FPGA_AF22
+      test_point: J11.66
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO260_SINC_MBIT3
+      test_point: J11.32
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO262_FPGA_AH23
+      test_point: J11.70
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO305_FPGA_AG30
+      test_point: J16.31
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO306_FPGA_AC26
+      test_point: J16.32
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO307_FPGA_M28
+      test_point: J16.11
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO311_FPGA_G29
+      test_point: J16.37
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO312_FPGA_AB27
+      test_point: J16.38
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO313_FPGA_AA25
+      test_point: J16.39
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO314_FPGA_N27
+      test_point: J16.12
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO317_FPGA_N28
+      test_point: J16.14
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO318_FPGA_AA26
+      test_point: J16.56
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO319_FPGA_AC28
+      test_point: J16.43
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO320_FPGA_L24
+      test_point: J16.16
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO321_FPGA_M27
+      test_point: J16.20
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO322_FPGA_AA23
+      test_point: J16.4
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO323_FPGA_AB28
+      test_point: J16.44
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO324_FPGA_AA24
+      test_point: J16.45
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO325_FPGA_W25
+      test_point: J16.46
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO325_VPP0_FPGA_W25
+      test_point: R181.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO326_FPGA_N26
+      test_point: J16.21
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO327_FPGA_AB30
+      test_point: J16.6
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO328_FPGA_L27
+      test_point: J16.22
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO329_FPGA_Y26
+      test_point: J16.30
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO330_FPGA_Y28
+      test_point: J16.24
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO331_FPGA_Y22
+      test_point: J16.27
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO334_FPGA_W22
+      test_point: J16.54
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO335_FPGA_AA30
+      test_point: J16.35
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO336_FPGA_U25
+      test_point: J11.72
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO337_FPGA_U29
+      test_point: J11.85
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO338_FPGA_U24
+      test_point: J11.83
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO339_FPGA_W30
+      test_point: J11.75
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO340_FPGA_T25
+      test_point: J11.77
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO341_FPGA_V30
+      test_point: J11.79
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO342_FPGA_R26
+      test_point: J11.76
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO343_FPGA_U30
+      test_point: J11.78
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO344_FPGA_V22
+      test_point: J11.80
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO345_FPGA_T30
+      test_point: J11.87
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO346_TRACE_D1
+      test_point: J16.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO347_TRACE_D8
+      test_point: J16.5
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO349_TRACE_D0
+      test_point: J16.3
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO350_FPGA_R24
+      test_point: J11.89
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO351_TRACE_D3
+      test_point: J16.23
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO352_TRACE_D10
+      test_point: J16.51
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO353_TRACE_D2
+      test_point: J16.19
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO354_TRACE_D9
+      test_point: J16.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO355_TRACE_D4
+      test_point: J16.52
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO356_TRACE_D11
+      test_point: J16.53
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO357_TRACE_D5
+      test_point: J16.40
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO358_TRACE_D13
+      test_point: J16.57
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO359_TRACE_D6
+      test_point: J16.47
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO360_TRACE_D7
+      test_point: J16.58
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO361_TRACE_D14
+      test_point: J16.59
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO362_TRACE_D15
+      test_point: J16.63
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO363_TRACE_D12
+      test_point: J16.55
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_GPIO363_VPP1_TRACE_D12
+      test_point: R184.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: DUT_PGOOD
+      test_point: J15.40
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: MCU_VDD_V08
+      test_point: C13.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: RSTO
+      test_point: TP3.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: RST_EMMC_B
+      test_point: R154.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_CARD_ID0
+      test_point: TP6.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_CARD_ID1
+      test_point: TP7.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_CARD_ID2
+      test_point: TP8.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_CD_B
+      test_point: TP5.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_VS
+      test_point: J44.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SDHC_WP
+      test_point: R158.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEGND_VDD_0.8V_PD2_DC
+      test_point: C61.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEGND_VDD_V08_SERDES_DC
+      test_point: C56.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_0.8V_PD2_DC
+      test_point: C62.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_HV_A_DC
+      test_point: C4.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_HV_B_DC
+      test_point: C9.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_V08_SERDES_DC
+      test_point: C57.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_V18_LVDS_DC
+      test_point: C55.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SENSEV_VDD_V18_SERDES_DC
+      test_point: C33.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: SGMII_REXT
+      test_point: R5.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_CMD
+      test_point: R159.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D0
+      test_point: U8.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D1
+      test_point: U6.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D2
+      test_point: U8.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D3
+      test_point: U6.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D4
+      test_point: U5.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D5
+      test_point: U5.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D6
+      test_point: U3.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_D7
+      test_point: U7.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: USDHC_STROBE_WP
+      test_point: R153.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: V08_BALLAST
+      test_point: C3.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: V18_INTRL_REG_OUT
+      test_point: C34.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VPP0
+      test_point: JP23.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VPP1
+      test_point: JP24.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: VRC_CTRL
+      test_point: J2.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+    - net: XO_VDD_3.3V
+      test_point: C192.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+  power_rails_up_sequence: {}
+  net_classification_rules: {}
+  se_clock_allocation: []
+  gpio_allocation: []
+  path_risk: {}
+  marks: {}
+  modules:
+    design_input:
+      enabled: true
+      params:
+        product_id: '94923'
+        part_number: A-94923
+        sw_version: 1.0.0
+        hw_version: 1.0.0
+        batch: EVT (Proto-1)
+        spf_file: spf-94923_A.pdf
+        net_file: NET-94923_A.net
+    parse_ict:
+      enabled: true
+      params:
+        netlist_file: NET-94923_A.net
+        power_dont_test: ''
+    instruments:
+      enabled: true
+      params:
+        psu_visa: TCPIP0::192.168.1.20::inst0
+        daq_visa: GPIB0::9::INSTR
+        dmm_visa: ''
+        channel_alloc: ''
+        self_test: 'true'
+    rails:
+      enabled: true
+      params:
+        on_voltage_v: '5.0'
+        current_limit_a: '1.0'
+        on_delay_ms: '100'
+        off_delay_ms: '200'
+        off_protection: 'true'
+        sequence: 'SENSE_VREFH_ADC01_DC:0.0
+
+          VCC_3V3_MUX:0.1
+
+          VCC_BJT:0.2
+
+          VDD_0.8V_PD2_DC:0.3
+
+          VDD_0.8V_PD2_DC_SOC:0.4
+
+          VDD_1P8_LVDSQSPI:0.5
+
+          VDD_3.3V:0.6
+
+          VDD_HV_A_DC:0.7
+
+          VDD_HV_A_DC_SOC:0.8
+
+          VDD_HV_B_DC:0.9'
+        voltage_tolerance_pct: '0.1'
+        impedance_min_ohm: '1.5'
+        sample_rate_hz: '200'
+        pre_trigger_s: '-0.5'
+        post_trigger_s: '6.0'
+        anomaly_policy: stop
+    clocks:
+      enabled: true
+      params:
+        clocks: 'CLK_EXTAL:1000000:2
+
+          CLK_XTAL:1000000:2
+
+          DUT_CLK:1000000:2
+
+          DUT_CLK1_FPGA_AG25:1000000:2
+
+          DUT_GPIO7_MAC2_RGMII_TXCLK:1000000:2
+
+          DUT_GPIO12_1588_CLKOUT:1000000:2
+
+          DUT_GPIO13_TRACE_ETM_CLKOUT_MAC0_MII_COL:1000000:2
+
+          DUT_GPIO34_LPSPI0_SCK_MAC1_RGMII_RXCLK:1000000:2
+
+          DUT_GPIO35_CLKOUT_RUN_MAC1_RGMII_RXCTL:1000000:2
+
+          DUT_GPIO37_MAC1_RGMII_TXCLK:1000000:2
+
+          DUT_GPIO38_LPSPI1_SCK_MAC2_RGMII_RXCLK:1000000:2
+
+          DUT_GPIO40_CLKOUTRUN:1000000:2
+
+          DUT_GPIO40_XSPI_DAT3_CLKOUTRUN:1000000:2
+
+          DUT_GPIO56_USDHC_D4_MAC0_RGMII_RXCLK:1000000:2
+
+          DUT_GPIO59_USDHC_CLK_MAC0_RGMII_TXD2:1000000:2
+
+          DUT_GPIO64_USDHC_D2_MAC0_RGMII_TXCLK:1000000:2
+
+          DUT_GPIO67_MAC1_TC14_RX_QSPI_CLK_N:1000000:2
+
+          DUT_GPIO72_MAC1_TC14_TX_QSPI_CLK_P:1000000:2
+
+          DUT_GPIO111_SAI0_1_BCLK:1000000:2
+
+          DUT_GPIO168_CLKOUTLPRUN:1000000:2
+
+          DUT_GPIO170_CLKOUTSTBY:1000000:2
+
+          DUT_GPIO208_SINC_MCLK3:1000000:2
+
+          DUT_GPIO244_SINC_MCLK2:1000000:2
+
+          DUT_GPIO246_SINC_MCLK0:1000000:2
+
+          DUT_GPIO249_SINC_MCLK0_OUT:1000000:2
+
+          DUT_GPIO253_SINC_MCLK1:1000000:2
+
+          DUT_GPIO256_SINC_MCLK1_OUT:1000000:2
+
+          DUT_GPIO261_SINC_MCLK2_OUT:1000000:2
+
+          DUT_GPIO348_TRACE_CLKOUT:1000000:2
+
+          I2C_CTRL_CLK:1000000:2
+
+          OSC32K_EXTAL:1000000:2
+
+          OSC32K_XTAL:1000000:2
+
+          SDHC_CLK_SYNC_IN:1000000:2
+
+          USDHC_CLK:1000000:2'
+        stabilize_ms: '100'
+        drift_check: 'true'
+        multi_domain_check: 'false'
+    gpios:
+      enabled: true
+      params:
+        groups: 'BRD_ID_01:J16.96:in:none
+
+          BRD_ID_02:J16.94:in:none
+
+          BRD_ID_03:J16.92:in:none
+
+          DUT_GPIO0_TRACE_ETM_D0_MAC2_MII_COL:J14.3:in:none
+
+          DUT_GPIO1_MAC2_MII_RXER:J14.8:in:none
+
+          DUT_GPIO2_MAC2_RGMII_RXD1:J14.17:in:none
+
+          DUT_GPIO3_MAC2_RGMII_RXD0:J14.10:in:none
+
+          DUT_GPIO5_MAC2_RGMII_TXD1:J14.6:in:none
+
+          DUT_GPIO6_MAC2_RGMII_TXD0:J14.5:in:none
+
+          DUT_GPIO8_MAC2_RGMII_RXD3:J14.15:in:none
+
+          DUT_GPIO10_LPSI1_SIN:J15.44:in:none
+
+          DUT_GPIO14_TRACE_ETM_D1_MAC2_MII_CRS:J14.1:in:none
+
+          DUT_GPIO15_FPGA_A13:J15.63:in:none
+
+          DUT_GPIO16_FPGA_J15:J15.49:in:none
+
+          DUT_GPIO19_1722_TMR1_MAC1_MII_RXER:J14.37:in:none
+
+          DUT_GPIO20_TRACE_ETM_D2_MAC1_MII_COL:J14.22:in:none'
+        level_threshold_v: '1.5'
+        exception_check: 'true'
+    programmer:
+      enabled: true
+      params:
+        protocol: SWD
+        speed_khz: '4000'
+        timeout_ms: '30000'
+        flash_address: '0x0'
+        retries: '1'
+        log_level: info
+    peripherals:
+      enabled: true
+      params:
+        wifi_ssid: ''
+        wifi_password: ''
+        bt_mac: ''
+        uart_baud: '115200'
+        i2c_addr: ''
+        spi_speed_hz: ''
+        adc_ref_v: ''
+        init_sequence: ''
+    fct_build:
+      enabled: false
+      params:
+        flow_steps: ''
+        yield_threshold_pct: '98.0'
+        exception_branch: stop
+        case_link: ''
+    validate_sequence:
+      enabled: true
+      params:
+        resource_conflict_check: 'true'
+        param_range_check: 'true'
+        dependency_check: 'true'
+    preview_export:
+      enabled: true
+      params:
+        export_dir: config/plans
+        include_disabled: 'false'

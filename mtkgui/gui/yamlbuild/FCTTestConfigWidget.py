@@ -960,19 +960,48 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(self.wifi_enabled)
         self.wifi_enabled.toggled.connect(self._sync_wifi_groups)
 
-        # ---- base parameters ------------------------------------------------
-        self.wifi_base = QGroupBox("Base parameters")
+        # ---- DUT base ------------------------------------------------------
+        self.wifi_base = QGroupBox("DUT")
         base = QFormLayout(self.wifi_base)
         self.wifi_interface = QLineEdit("mlan0")
-        base.addRow("Interface (DUT):", self.wifi_interface)
+        base.addRow("Interface:", self.wifi_interface)
         self.wifi_driver_cmd = QLineEdit()
         self.wifi_driver_cmd.setPlaceholderText("/root/load_rf_drivers.sh")
         self.wifi_driver_cmd.setToolTip(
             "Linux DUT only. Editable command sent over the console to "
             "load the Wi-Fi/BT drivers; the driver script itself is a "
             "BSP deliverable.")
-        base.addRow("Driver load cmd (DUT):", self.wifi_driver_cmd)
+        base.addRow("Driver load cmd:", self.wifi_driver_cmd)
         lay.addWidget(self.wifi_base)
+
+        # ---- Hotspot AP (SSID/password the DUT joins) ----------------------
+        self.wifi_ap_box = QGroupBox("Hotspot AP  (router / phone hotspot)")
+        ap = QFormLayout(self.wifi_ap_box)
+        self.wifi_ap_ssid = QLineEdit()
+        self.wifi_ap_ssid.setPlaceholderText("SSID the DUT joins")
+        ap.addRow("AP SSID:", self.wifi_ap_ssid)
+        self.wifi_ap_password = QLineEdit()
+        self.wifi_ap_password.setEchoMode(QLineEdit.Password)
+        self.wifi_ap_password.setPlaceholderText("hotspot password")
+        ap.addRow("AP password:", self.wifi_ap_password)
+        self.wifi_ap_ip = QLineEdit()
+        self.wifi_ap_ip.setPlaceholderText("AP/gateway IP - empty = auto-detect")
+        self.wifi_ap_ip.setToolTip(
+            "Hotspot AP / gateway IPv4 used by the ping stages "
+            "(Host->AP, DUT->AP); empty = auto-detect at run time.")
+        ap.addRow("AP IP (gateway):", self.wifi_ap_ip)
+        lay.addWidget(self.wifi_ap_box)
+
+        # ---- Host PC ------------------------------------------------------
+        self.wifi_host_box = QGroupBox("Host PC")
+        hp = QFormLayout(self.wifi_host_box)
+        self.wifi_host_ip = QLineEdit()
+        self.wifi_host_ip.setPlaceholderText("auto-detect from Host LAN")
+        self.wifi_host_ip.setToolTip(
+            "Host PC IPv4 used as the ping/SFTP/iperf target ({{host_ip}}). "
+            "Empty = auto-detect at run time.")
+        hp.addRow("Host IP:", self.wifi_host_ip)
+        lay.addWidget(self.wifi_host_box)
 
         # ---- 1) scan / RSSI (both DUT kinds) --------------------------------
         self.wifi_scan_box = QGroupBox("1. Scan / RSSI test  (Linux + "
@@ -980,9 +1009,6 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_scan_box.setCheckable(True)
         self.wifi_scan_box.setChecked(True)
         sc = QFormLayout(self.wifi_scan_box)
-        self.wifi_scan_ssid = QLineEdit()
-        self.wifi_scan_ssid.setPlaceholderText("DUT Wi-Fi SSID to scan")
-        sc.addRow("DUT SSID:", self.wifi_scan_ssid)
         self.wifi_rssi_min = QSpinBox()
         self.wifi_rssi_min.setRange(-100, 0)
         self.wifi_rssi_min.setValue(-70)
@@ -999,16 +1025,11 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(self.wifi_scan_box)
 
         # ---- 2) connect & ping (Linux only) --------------------------------
-        self.wifi_ping_box = QGroupBox("2. Connect & Ping test  (Linux only; "
-                                      "PASS on >=1 reply)")
+        self.wifi_ping_box = QGroupBox("2. Ping test  (Linux only; "
+                                      "Host->AP, DUT->AP, DUT->Host)")
         self.wifi_ping_box.setCheckable(True)
         self.wifi_ping_box.setChecked(False)
         pg = QFormLayout(self.wifi_ping_box)
-        self.wifi_ping_ssid = QLineEdit()
-        pg.addRow("DUT AP SSID:", self.wifi_ping_ssid)
-        self.wifi_ping_password = QLineEdit()
-        self.wifi_ping_password.setEchoMode(QLineEdit.Password)
-        pg.addRow("Password:", self.wifi_ping_password)
         self.wifi_ping_count = QSpinBox()
         self.wifi_ping_count.setRange(1, 200)
         self.wifi_ping_count.setValue(20)
@@ -1055,6 +1076,8 @@ class FCTTestConfigPanel(QWidget):
         is_linux = self.dut_type.currentText() == "linux"
         on = self.wifi_enabled.isChecked()
         self.wifi_base.setEnabled(on)
+        self.wifi_ap_box.setEnabled(on)
+        self.wifi_host_box.setEnabled(on)
         self.wifi_driver_cmd.setEnabled(on and is_linux)
         self.wifi_scan_box.setEnabled(on)
         self.wifi_ping_box.setEnabled(on and is_linux)
@@ -1413,14 +1436,15 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_enabled.setChecked(w.enabled)
             self.wifi_interface.setText(w.interface)
             self.wifi_driver_cmd.setText(w.driver_load_cmd)
+            self.wifi_ap_ssid.setText(w.ap_ssid)
+            self.wifi_ap_password.setText(w.ap_password)
+            self.wifi_ap_ip.setText(w.ap_ip)
+            self.wifi_host_ip.setText(w.host_ip)
             self.wifi_scan_box.setChecked(w.scan_enabled)
-            self.wifi_scan_ssid.setText(w.scan_ssid)
             self.wifi_rssi_min.setValue(w.rssi_min)
             self.wifi_scan_via.setCurrentText(w.scan_via)
             self.wifi_scan_timeout.setValue(int(w.scan_timeout))
             self.wifi_ping_box.setChecked(w.ping_enabled)
-            self.wifi_ping_ssid.setText(w.ping_ssid)
-            self.wifi_ping_password.setText(w.ping_password)
             self.wifi_ping_count.setValue(w.ping_count)
             self.wifi_ping_timeout.setValue(int(w.ping_timeout))
             self.wifi_iperf_box.setChecked(w.iperf_enabled)
@@ -1488,14 +1512,15 @@ class FCTTestConfigPanel(QWidget):
             enabled=self.wifi_enabled.isChecked(),
             interface=self.wifi_interface.text().strip(),
             driver_load_cmd=self.wifi_driver_cmd.text().strip(),
+            ap_ssid=self.wifi_ap_ssid.text().strip(),
+            ap_password=self.wifi_ap_password.text(),
+            ap_ip=self.wifi_ap_ip.text().strip(),
+            host_ip=self.wifi_host_ip.text().strip(),
             scan_enabled=self.wifi_scan_box.isChecked(),
-            scan_ssid=self.wifi_scan_ssid.text().strip(),
             rssi_min=self.wifi_rssi_min.value(),
             scan_via=self.wifi_scan_via.currentText(),
             scan_timeout=float(self.wifi_scan_timeout.value()),
             ping_enabled=self.wifi_ping_box.isChecked(),
-            ping_ssid=self.wifi_ping_ssid.text().strip(),
-            ping_password=self.wifi_ping_password.text(),
             ping_count=self.wifi_ping_count.value(),
             ping_timeout=float(self.wifi_ping_timeout.value()),
             iperf_enabled=self.wifi_iperf_box.isChecked(),
