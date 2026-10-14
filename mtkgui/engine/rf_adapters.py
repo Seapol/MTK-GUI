@@ -270,7 +270,7 @@ class BluetoothAdapter:
         self.rssi_min = int(cfg.get("rssi_min", -70))
         self.scan_s = int(cfg.get("scan_s", 10))
         self.timeout_s = float(cfg.get("timeout_s", 30))
-        self.tone_path = cfg.get("test_tone", "resources/test_tone.wav")
+        self.tone_path = cfg.get("test_tone", "resources/retro_game_tone.wav")
         self.cmds = _backend_section(rf_cfg, "bluetooth")
         self._runner = runner
         self._confirm = human_confirm   # callable(question) -> bool

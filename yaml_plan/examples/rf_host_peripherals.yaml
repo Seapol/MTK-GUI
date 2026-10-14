@@ -47,7 +47,7 @@ rf:
     expected_name: "DUT-BT-XXXX"
     rssi_min: -70
     scan_s: 10
-    test_tone: "resources/test_tone.wav"
+    test_tone: "resources/retro_game_tone.wav"
     cmds:
       mac:
         scan_cmd: 'blueutil --inquiry {{seconds}}'
