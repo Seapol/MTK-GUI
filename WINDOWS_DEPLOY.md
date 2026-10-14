@@ -109,6 +109,11 @@ notepad MTK_GUI_windows.spec
 pyinstaller --noconfirm MTK_GUI_windows.spec
 ```
 
+> spec 固定 `upx=False`（2026-10-15）：UPX 压缩的 DLL 在 Windows Defender
+> 实时扫描下每次启动都要被全量解压扫描，曾导致登录后主界面出现 1 分钟
+> 以上的等待。请勿改回 `upx=True`；如打包机/工厂机仍启动缓慢，可为
+> `dist\` 文件夹添加 Defender 排除项。
+
 打包完成后产物位置：
 
 ```

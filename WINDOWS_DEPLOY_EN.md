@@ -109,6 +109,13 @@ Run from the repo root:
 pyinstaller --noconfirm MTK_GUI_windows.spec
 ```
 
+> The spec pins `upx=False` (2026-10-15): UPX-compressed DLLs are fully
+> decompressed and scanned by Windows Defender real-time protection on
+> every launch, which once caused a 1+ minute wait for the main window
+> after login. Do NOT switch back to `upx=True`; if the build/factory
+> PC still starts slowly, add a Defender exclusion for the `dist\`
+> folder.
+
 Output location after the build:
 
 ```
