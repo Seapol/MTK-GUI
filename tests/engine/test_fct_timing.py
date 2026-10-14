@@ -342,3 +342,59 @@ def test_v102_capture_anchor_never_in_echo():
         assert anchor not in cmd, \
             f"{row.get('name')!r}: anchor {anchor!r} appears in the " \
             f"command echo - capture would self-match"
+
+
+# ---------------------------------------------------------------------------
+# iPerf connectivity gate + retry (user direction 2026-10-14)
+# ---------------------------------------------------------------------------
+def _iperf_runner():
+    import mtkgui.engine.fct_test_runner as ftr
+    cfg = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "wifi": {"enabled": True, "scan_enabled": False,
+                 "ping_enabled": False, "iperf_enabled": True,
+                 "iperf_tool": "iperf3", "iperf_min_mbps": 1.0,
+                 "iperf_server_ip": "192.168.10.141",
+                 "iperf_duration": 10},
+    })
+    return ftr, FctTestRunner(cfg, log_sink=lambda m: None)
+
+
+def test_iperf_ping_gate_runs_before_throughput(monkeypatch):
+    """A dead Wi-Fi link must FAIL at the ping gate and never reach the
+    iperf run; the gate itself retries once."""
+    ftr, runner = _iperf_runner()
+    calls = {"ping": []}
+    monkeypatch.setattr(ftr, "dut_wifi_ping",
+                        lambda serial, gw, count, loss_max,
+                               interface="": calls["ping"].append(
+                                   (gw, count, loss_max, interface))
+                        or ("FAIL", "loss 100% (0/4)"))
+    monkeypatch.setattr(ftr, "dut_wifi_iperf",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("iperf must not run")))
+    out = runner.run_wifi(object(), None)
+    assert [c[3] for c in calls["ping"]] == ["mlan0", "mlan0"]  # retry 1
+    assert [c[2] for c in calls["ping"]] == [0.0, 0.0]          # 0% loss
+    result = next(r for r in out if "iPerf" in r.name)
+    assert result.verdict == "FAIL" and "ping gate" in result.detail
+
+
+def test_iperf_throughput_retries_once(monkeypatch):
+    """The throughput run retries once when the first attempt times out,
+    and the second attempt's verdict wins."""
+    ftr, runner = _iperf_runner()
+    monkeypatch.setattr(ftr, "dut_wifi_ping",
+                        lambda *a, **k: ("PASS", "0% loss (4/4)"))
+    state = {"n": 0}
+
+    def fake_iperf(serial, tool, ip, mbps, dur):
+        state["n"] += 1
+        return ("PASS", "5.0 Mbps") if state["n"] == 2 \
+            else ("FAIL", "TIMEOUT waiting for iperf summary")
+
+    monkeypatch.setattr(ftr, "dut_wifi_iperf", fake_iperf)
+    out = runner.run_wifi(object(), None)
+    assert state["n"] == 2                       # first FAIL then retry
+    result = next(r for r in out if "iPerf" in r.name)
+    assert result.verdict == "PASS"

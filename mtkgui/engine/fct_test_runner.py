@@ -374,12 +374,17 @@ def _console_probe(serial, cmd: str, expect: str, timeout: float):
 
 
 def dut_wifi_ping(serial, gateway: str, count: int,
-                  loss_max: float) -> tuple:
-    """DUT-side ping of the gateway: PASS when packet loss <= loss_max."""
+                  loss_max: float, interface: str = "") -> tuple:
+    """DUT-side ping of the gateway: PASS when packet loss <= loss_max.
+
+    ``interface`` (e.g. "mlan0") forces the source interface so the
+    ping provably traverses the Wi-Fi link the FCT steps depend on."""
+    iface = f"-I {interface} " if interface else ""
     verdict, text = _console_probe(
-        serial, f"ping -c {count} {gateway}",
-        r"\d+ received, [\d.]+% packet loss", count + 10.0)
-    m = re.search(r"(\d+) received, ([\d.]+)% packet loss", text)
+        serial, f"ping {iface}-c {count} {gateway}",
+        r"\d+ (?:packets )?received, [\d.]+% packet loss", count + 10.0)
+    m = re.search(r"(\d+) (?:packets )?received, ([\d.]+)% packet loss",
+                  text)
     if not m:
         return "FAIL", ("TIMEOUT waiting for ping summary"
                         if verdict == "TIMEOUT" else "no ping summary")
@@ -839,7 +844,10 @@ class FctTestRunner:
                     "Wi-Fi Connect & Ping",
                     "PASS" if ok else "FAIL", str(out.get("items")),
                     duration=time.time() - t0))
-        # 3) iperf throughput (Linux only; host server / DUT client)
+        # 3) iperf throughput (Linux only; host server / DUT client).
+        #    A ping gate first proves the DUT <-> host path is alive
+        #    (a dead Wi-Fi link is what silently stuck the throughput
+        #    run), then the throughput test itself retries once.
         if w.iperf_enabled and self.cfg.dut_type == "linux" and serial:
             server_ip = w.iperf_server_ip or host_lan_ip()
             if not server_ip:
@@ -847,12 +855,37 @@ class FctTestRunner:
                     f"Wi-Fi iPerf ({w.iperf_tool})", "FAIL",
                     "cannot determine host server IP"))
             else:
-                t0 = time.time()
-                v, d = dut_wifi_iperf(serial, w.iperf_tool, server_ip,
-                                      w.iperf_min_mbps, w.iperf_duration)
-                results.append(FctStepResult(
-                    f"Wi-Fi iPerf Throughput ({w.iperf_tool})", v, d,
-                    duration=time.time() - t0))
+                # connectivity gate: ping the host, 4 packets, 0% loss,
+                # forced over mlan0; retry the gate once on failure
+                gate = None
+                for attempt in range(2):
+                    gv, gd = dut_wifi_ping(
+                        serial, server_ip, 4, 0.0, interface="mlan0")
+                    self.log(f"iPerf ping gate "
+                             f"(attempt {attempt + 1}/2): {gv} {gd}")
+                    gate = (gv, gd)
+                    if gv == "PASS":
+                        break
+                if gate[0] != "PASS":
+                    results.append(FctStepResult(
+                        f"Wi-Fi iPerf Throughput ({w.iperf_tool})", "FAIL",
+                        f"pre-iperf ping gate failed: {gate[1]}"))
+                else:
+                    v = d = None
+                    duration = 0.0
+                    for attempt in range(2):
+                        t0 = time.time()
+                        v, d = dut_wifi_iperf(
+                            serial, w.iperf_tool, server_ip,
+                            w.iperf_min_mbps, w.iperf_duration)
+                        duration = time.time() - t0
+                        if v == "PASS":
+                            break
+                        if attempt == 0:
+                            self.log(f"iPerf retry ({attempt + 1}/1): {d}")
+                    results.append(FctStepResult(
+                        f"Wi-Fi iPerf Throughput ({w.iperf_tool})", v, d,
+                        duration=duration))
         return results
 
     def run_bluetooth(self, serial, host_runner, human_confirm=None) -> list:

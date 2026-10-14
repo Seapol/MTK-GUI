@@ -350,13 +350,24 @@ FCT_TEST_CONFIG = {
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
                 send="ip -4 addr show mlan0",
                 cap_pat="inet", cap_timeout=10),
+            # 17.5) Pre-SFTP connectivity gate: ping the Host, 4 packets,
+            #     0% loss, forced over mlan0 - a dead Wi-Fi link is what
+            #     silently stuck the SSH transfer (SFTP timeout) before.
+            #     Retry the gate once, then the SFTP rows below.
+            console_row(
+                "Ping Host (pre-SFTP)",
+                wait=True, send_on=True, capture=True,
+                wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
+                send=f"ping -I mlan0 -c 4 {HOST_LAN_IP}",
+                cap_pat="0% packet loss", cap_timeout=30, retries=1),
             # 18) SFTP-get fat_result.json back to the Host over SSH
+            #     (retry 1: the transfer is the thing that must succeed)
             console_row(
                 "Retrieve fat_result.json (SFTP)",
                 kind="sftp_get", transport="ssh",
                 send_on=False, action="sftp_get",
                 remote="/root/fat_result.json", local=SFTP_LANDING,
-                send_timeout=20.0),
+                send_timeout=20.0, retries=1),
             # 19) DUT -> Host ping over the shared LAN (>=1 reply = PASS)
             console_row(
                 "Wi-Fi ping DUT to Host",
