@@ -32,6 +32,10 @@ ip link set uap0 down 2>/dev/null
 ip addr flush dev uap0 2>/dev/null
 
 ip link set "$WIFI_IF" up
+# disable Wi-Fi power-save (the IW612 dozes and drops the association
+# after ~1 min idle; the SFTP / iPerf / RSSI steps run long after the
+# connect step and must keep the link alive)
+iw dev "$WIFI_IF" set power_save off 2>/dev/null || true
 wpa_passphrase "$SSID" "$PASS" > /tmp/wpa.conf
 killall -q wpa_supplicant 2>/dev/null
 sleep 1
