@@ -152,9 +152,9 @@ mtk\            <- copy the entire folder, nothing can be missing
 - **Real mode requires the instruments to be connected before Run** (since 2026-10-14): establish the Instrument Gateway via Tools → Connect all first. Without it, ICT measurement rows / standard ops / the power-rails capture all report **Error** (equipment-fault stop policy) — a fake PASS with an empty Measured cell is no longer possible. Virtual mode is unaffected.
 - **No sample plans ship with the repo anymore** (removed 2026-10-13): the packaged `yaml_plan\examples\` now only carries the DUT script assets (`dut_scripts\`). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`), or simply copy your own plan file.
 
-**Status bar shows v4.1.1.0000?**
+**Status bar shows v1.0.0.0?**
 
-When the exe is built straight from a source checkout there is no CI-generated `resources\version.json`; the status bar falls back to the static version `v4.1.1.0000` with no functional impact. The CI packaging pipeline writes the real version number at build time.
+That is correct (since 2026-10-14): the version number is unified to THE single release version `mtkgui.__version__` (currently `v1.0.0.0`), shown in the status bar, login box and About alike. The packaging machine **no longer needs** the CI-generated `resources\version.json` — building straight from a source checkout is fine. `develop` commits never change the version number; only a Release commit bumps it (and records it under Help → Version History). Build facts (branch / commit) are visible under Help → About.
 
 ---
 

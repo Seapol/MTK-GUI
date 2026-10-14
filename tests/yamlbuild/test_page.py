@@ -48,6 +48,20 @@ def test_page_assembly(page):
         "yaml_build:")
 
 
+def test_flow_arrows_between_cards(page):
+    """User report 2026-10-14: the 01 -> 02 arrow was missing because
+    each arrow was added AFTER its card (leaving the first pair
+    unlinked and a stray arrow after the last card).  The layout must
+    alternate card, arrow, card, ... with no trailing arrow."""
+    from PySide6.QtWidgets import QLabel
+
+    lay = page.block_flow.layout()
+    seq = "".join(
+        "A" if isinstance(lay.itemAt(i).widget(), QLabel) else "C"
+        for i in range(lay.count()))
+    assert seq == "C A C A C A C A C".replace(" ", ""), seq
+
+
 def test_enable_disable_syncs_both_panes(page):
     """Disable: the card grays out AND the module leaves the effective
     YAML preview; parameters are retained in the model.  The merged

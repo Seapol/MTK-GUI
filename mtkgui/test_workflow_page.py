@@ -672,10 +672,12 @@ class TestWorkFlowPage(QWidget):
         form.addRow("Product Part#:", self.part_edit)
 
         self.core_edit = QLineEdit()
-        self.core_edit.setMaxLength(6)
+        # 4..10 digits: the parser's Core ID domain (the historical
+        # 6-digit limit silently truncated longer project numbers)
+        self.core_edit.setMaxLength(10)
         self.core_edit.setReadOnly(True)
         self.core_edit.setValidator(QRegularExpressionValidator(
-            QRegularExpression(r"\d{0,6}"), self))
+            QRegularExpression(r"\d{0,10}"), self))
         form.addRow("Core ID:", self.core_edit)
 
         self.batch_edit = QLineEdit()
@@ -1036,9 +1038,13 @@ class TestWorkFlowPage(QWidget):
         policy_row.setContentsMargins(0, 0, 0, 0)
         policy_row.addWidget(QLabel("Stop policy:"))
         self.stop_if_fail_cb = QCheckBox("Stop if failure")
-        self.stop_if_fail_cb.setChecked(False)
+        # factory default 2026-10-14: BOTH stop policies ON - every
+        # loaded plan (the 8 demo plans included) runs with
+        # stop_if_failure + stop_if_any_short enabled unless the
+        # operator or a project YAML explicitly changes them
+        self.stop_if_fail_cb.setChecked(True)
         self.stop_if_fail_cb.setToolTip(
-            "Default OFF. When checked, any test/operation that reports "
+            "Default ON. When checked, any test/operation that reports "
             "FAIL aborts the whole run immediately.")
         policy_row.addWidget(self.stop_if_fail_cb)
         self.stop_if_short_cb = QCheckBox("Stop if any short")
@@ -1923,6 +1929,24 @@ class TestWorkFlowPage(QWidget):
 
 
     # ------------------------------------------------------------ demo data
+    def current_fct_case_dicts(self) -> list:
+        """The live FCT Test Cases as case dicts (kind / name /
+        op_params) - the source of truth for the Build FCT dialog's
+        reverse sync (user direction 2026-10-14).  Standard operations
+        are dialog-side sections and are not carried."""
+        out: list = []
+        for i, kind in enumerate(self.fct_kinds):
+            if kind == "op":
+                continue
+            out.append({
+                "kind": kind,
+                "name": (self.fct_rows[i]
+                         if i < len(self.fct_rows) else ""),
+                "op_params": (self.fct_op_params[i] or {})
+                if i < len(self.fct_op_params) else {},
+            })
+        return out
+
     def load_fct_cases(self, cases: list) -> None:
         """P3-B5: the Yaml Build block 07 FCT sequence was accepted -
         replace the FCT Test Cases table with the generated cases
@@ -2151,23 +2175,31 @@ class TestWorkFlowPage(QWidget):
         message, or None to continue."""
         return self._runner._policy_abort_reason(kind, args)
 
-    def _fct_message_dialog(self, kind, name):
+    def _fct_message_dialog(self, kind, name, timeout_s: float = 0.0):
         """Modal operator dialog for the FCT message test methods.
 
-        MessageOK     -> info box, OK      -> PASS
-        MessageYesNo  -> Yes -> PASS / No (or X-close) -> FAIL
-        MessageGoStop -> GO  -> PASS / STOP (or X-close) -> FAIL
+        Returns the operator ANSWER (user direction 2026-10-14):
+
+        MessageOK     -> ``"ok"``      (acknowledge, no console action)
+        MessageYesNo  -> ``"yes"`` / ``"no"``   (the runner sends y / n)
+        MessageGoStop -> ``"go"`` / ``"stop"``  (the runner sends y / n;
+                         STOP fails the step and stops the run)
+
+        ``timeout_s`` > 0 auto-closes the dialog after that many
+        seconds -> ``"timeout"`` (no send, the step fails).
 
         While the dialog is open the 100 ms run timer keeps ticking;
         the runner's _fct_dialog_open flag makes those ticks no-ops so
         the run does not re-enter.  The dialog is centered by the
         app-level event filter like every other dialog."""
+        from PySide6.QtCore import QTimer
         method, _, message = name.partition(":")
         message = message.strip() or name
         box = QMessageBox(self)
         box.setWindowTitle(f"FCT: {method.strip()}")
         box.setText(message)
         box.setModal(True)
+        go = None
         if kind == "MessageOK":
             box.setIcon(QMessageBox.Icon.Information)
             box.setStandardButtons(QMessageBox.StandardButton.Ok)
@@ -2182,24 +2214,22 @@ class TestWorkFlowPage(QWidget):
             go = box.addButton("GO", QMessageBox.ButtonRole.YesRole)
             box.addButton("STOP", QMessageBox.ButtonRole.NoRole)
             self._log(f"FCT {name}: waiting for operator GO / STOP ...")
+        if timeout_s and timeout_s > 0:
+            QTimer.singleShot(int(timeout_s * 1000), box, box.close)
         self._runner._fct_dialog_open = True
         try:
             box.exec()
         finally:
             self._runner._fct_dialog_open = False
         if kind == "MessageOK":
-            return "PASS"
+            return "ok"
         clicked = box.clickedButton()
+        if clicked is None:
+            return "timeout"
         if kind == "MessageYesNo":
-            ok = (clicked is not None
-                  and clicked.text().replace("&", "") == "Yes")
-            pressed = "Yes" if ok else "No"
-        else:
-            ok = clicked is go
-            pressed = "GO" if ok else "STOP"
-        self._log(f"FCT {name}: operator pressed {pressed} "
-                  f"-> {'PASS' if ok else 'FAIL'}")
-        return "PASS" if ok else "FAIL"
+            return "yes" if clicked.text().replace("&", "") == "Yes" \
+                else "no"
+        return "go" if clicked is go else "stop"
 
     def run_demo(self):
         """Synchronous full pass (used by smoke test); honors the
@@ -2279,6 +2309,22 @@ class TestWorkFlowPage(QWidget):
         (engine helper, mtkgui.engine.steps.steps_template)."""
         return steps_template(ict_count, fct_count, self._overall_en)
 
+    def test_item_counts(self) -> tuple[int, int]:
+        """(ICT, FCT) usable test item counts: rows that actually test
+        something (kind != "op" with a non-empty name).  Standard
+        operations and the fresh-page placeholder rows never count -
+        user direction 2026-10-14: each stage may legally run empty,
+        only the BOTH-empty case means "no usable test items"."""
+        ict = sum(1 for s in self.ict_steps
+                  if len(s) > 1 and s[0] != "op" and str(s[1]).strip())
+        fct = 0
+        for i, name in enumerate(self.fct_rows):
+            kind = (self.fct_kinds[i]
+                    if i < len(self.fct_kinds) else "")
+            if kind != "op" and str(name).strip():
+                fct += 1
+        return ict, fct
+
     def start_run(self, no_debug=False):
         """Run button: pre-test, then step through every test case.
         Long Run > 1 repeats the whole cycle with a pause in between.
@@ -2303,6 +2349,17 @@ class TestWorkFlowPage(QWidget):
                 "Enable at least one stage before running.")
             self._log("Run blocked: no available tests "
                       "(ICT and FCT both disabled)")
+            return
+        ict_n, fct_n = self.test_item_counts()
+        if not ict_n and not fct_n:
+            # user direction 2026-10-14: each stage may run empty, but
+            # a run with NO test items at all is never meaningful
+            QMessageBox.warning(
+                self, "No Test Items",
+                "No usable test items (ICT and FCT are both empty).\n"
+                "Add at least one test case before running.")
+            self._log("Run blocked: no test items "
+                      "(ICT and FCT both empty)")
             return
         self._next_serial()
         if not self._pretest():
@@ -2331,8 +2388,19 @@ class TestWorkFlowPage(QWidget):
 
     # --- RunnerEnv bridge: run-control state rendering -----------------
     def _on_cycle_reset(self):
-        """Engine begins a cycle -> blank defaults + clear Event Log."""
+        """Engine begins a cycle -> blank defaults + clear Event Log.
+
+        The engine clears every channel read buffer at this point (see
+        TestRunner._begin_cycle); mark the round boundary in each
+        console window so the operator can tell the rounds apart."""
         self.clear_results()
+        for channel in self.multi_console.channels.values():
+            console = channel.get("console")
+            if console is not None:
+                console.append_message(
+                    "SYS",
+                    "New run cycle - console RX buffer cleared",
+                    color=self.multi_console.theme["sys"])
 
     def _on_stage_skipped(self, r, text):
         """Engine marks a disabled Overall Flow stage as Skip."""
@@ -2398,7 +2466,10 @@ class TestWorkFlowPage(QWidget):
             self._restart_pending = False
             QTimer.singleShot(0, self, qt_safe(self.start_run))
 
-    def clear_results(self):
+    def clear_results(self, keep_log: bool = False):
+        """Blank the last run: statuses / durations / verdict / stats.
+        keep_log=True skips the Event-Log clear signal (Close Yaml
+        resets the run state but keeps the session log history)."""
         self._interrupted = False
         self._runner.reset_results()
         if self.rack is not None:
@@ -2419,7 +2490,8 @@ class TestWorkFlowPage(QWidget):
         for r in range(self.overall.rowCount()):
             self._set_status(self.overall, r, 3, "Pending")
             self.overall.item(r, 4).setText("--")
-        self.log_cleared.emit()
+        if not keep_log:
+            self.log_cleared.emit()
         self._update_result()
 
 
@@ -2592,7 +2664,11 @@ class _SequenceEditorDialog(QDialog):
         n = len(self._steps)
         self.btn_up.setEnabled(r > 0)
         self.btn_down.setEnabled(0 <= r < n - 1)
-        self.btn_remove.setEnabled(n > 1)
+        # user direction 2026-10-14: zero test items are legal per
+        # stage (ICT-only, FCT-only - a stage may run EMPTY); only the
+        # BOTH-empty case is warned about elsewhere, so the last row
+        # can be removed too
+        self.btn_remove.setEnabled(n > 0)
         self.btn_edit.setEnabled(0 <= r < n)
         self.btn_duplicate.setEnabled(0 <= r < n)
 
@@ -2650,7 +2726,7 @@ class _SequenceEditorDialog(QDialog):
 
     def _on_remove(self):
         r = self.list_widget.currentRow()
-        if r < 0 or len(self._steps) <= 1:
+        if r < 0:
             return
         for lst in self._lists():
             del lst[r]

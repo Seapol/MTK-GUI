@@ -268,6 +268,33 @@ class TestVirtualConsoleSteps:
         runner._poll_fct_console()
         assert env.rows[("fct", 1)] == "Error"
 
+    def test_new_cycle_ignores_previous_round_buffer(self, env):
+        # user report 2026-10-14: round 2's Waitfor/Capture matched the
+        # PREVIOUS round's console log (the read buffer was never
+        # cleared between runs) while the new round's output had not
+        # arrived yet -> cross-round misjudgement.  The buffer is
+        # cleared at every cycle start now.
+        self._connect(env)                  # boot log lands in the buffer
+        runner = TestRunner(env)
+        runner.state = "running"
+        env.runner = runner
+        env.fct_rows = ["WaitforConsole: VCOM0, 'Boot log OK'"]
+        env.fct_kinds = ["WaitforConsole"]
+        env.fct_enables = [True]
+        runner._exec_fct_row(0, interactive=True)      # round 1
+        runner._poll_fct_console()
+        assert env.rows[("fct", 0)] == "PASS"
+        # round 2: the stale round-1 log must not satisfy the wait
+        runner._begin_cycle()
+        assert env.multi_console.get_read_buffer("VCOM0") == b""
+        runner._exec_fct_row(0, interactive=True)
+        assert env.rows[("fct", 0)] == "RUNNING"       # no stale match
+        runner._poll_fct_console()
+        assert env.rows[("fct", 0)] == "RUNNING"
+        runner._fct_console_wait["deadline"] = 0.0     # no fresh reply
+        runner._poll_fct_console()
+        assert env.rows[("fct", 0)] == "Error"         # honest timeout
+
     def test_console_connect_failure_aborts(self, env):
         # real-mode console with no configured endpoint: the fctconn
         # step fails and aborts the run (first FCT row -> Error)
@@ -713,8 +740,15 @@ class TestFctMessageRows:
         env.fct_op_params = [marker]
         env.fct_enables = [True]
         dialogs = []
-        env._fct_message_dialog = lambda kind, text: (
-            dialogs.append((kind, text)), "PASS")[1]
+
+        # the answer API (user direction 2026-10-14): the dialog
+        # returns ok / yes / no / go / stop / timeout per dialog style
+        def _dialog(kind, text, timeout_s=0.0):
+            answer = {"MessageOK": "ok", "MessageYesNo": "yes",
+                      "MessageGoStop": "go"}.get(kind, "timeout")
+            return (dialogs.append((kind, text)), answer)[1]
+
+        env._fct_message_dialog = _dialog
         runner = TestRunner(env)
         env.runner = runner
         runner._exec_fct_row(0, interactive=True)

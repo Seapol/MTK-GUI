@@ -1465,15 +1465,11 @@ _BLOCK_EDITORS = {
 # per-device editors inside the TABLE dialogs (double-click a row);
 # devices NOT listed here are not integrated yet - double-clicking
 # shows the not-yet-available notice (persisted as
-# cfg["device_params"][device], keys match the driver options)
-_DEVICE_EDITORS = {
-    ("probes", "J-Link"): [
-        ("address", "Executable Path", "JLinkExe"),
-        ("device", "Target Device", ""),
-        ("interface", "Interface", "SWD"),
-        ("speed_khz", "Speed (kHz)", "4000"),
-    ],
-}
+# cfg["device_params"][device], keys match the driver options).
+# Currently EMPTY: even the J-Link probe stays "not developed" until
+# the real-device integration happens (user direction) - register its
+# fields here when that work starts
+_DEVICE_EDITORS: dict[tuple[str, str], list] = {}
 
 _NOT_YET = "Not yet available - under development."
 

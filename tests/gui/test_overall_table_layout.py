@@ -97,14 +97,14 @@ def test_headers_centered(page):
 # ------------------------------------------- item 20: stop policy YAML
 def test_stop_policy_yaml_round_trip(page, qapp, tmp_path):
     """'Stop if failure' / 'Stop if any short' persist into the
-    project YAML on save and are restored on load; defaults are
-    unchecked / checked; runtime behavior untouched."""
+    project YAML on save and are restored on load; factory defaults
+    (2026-10-14) are BOTH checked; runtime behavior untouched."""
     import yaml
 
     from mtkgui.project_config import apply_config, build_config
 
     # documented defaults
-    assert page.stop_if_fail_cb.isChecked() is False
+    assert page.stop_if_fail_cb.isChecked() is True
     assert page.stop_if_short_cb.isChecked() is True
 
     page.stop_if_fail_cb.setChecked(True)

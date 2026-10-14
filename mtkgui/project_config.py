@@ -32,7 +32,12 @@ from .test_workflow_page import (
 )
 
 REVISION = "1.1"
-SOFTWARE = "mtk-gui v2.0.0"
+# THE single release version (user directive 2026-10-14): never
+# hard-code a version string here - it comes from mtkgui.__version__
+# and only a Release commit bumps it.
+from mtkgui import __version__ as _RELEASE_VERSION  # noqa: E402
+
+SOFTWARE = f"mtk-gui {_RELEASE_VERSION}"
 
 
 # --------------------------------------------------------------------------
@@ -455,6 +460,38 @@ def apply_config(config, workflow_page, equipment_page,
     state = config.get("yaml_build_state")
     if yaml_build_model is not None and isinstance(state, dict):
         yaml_build_model.apply_state(state)
+    # user direction 2026-10-14: Product Information ALWAYS follows the
+    # Design Input identity after a load (older project files carry an
+    # empty product section but a full design_input state)
+    sync_product_identity(config, workflow_page, yaml_build_model)
+
+
+def sync_product_identity(config, workflow_page,
+                          yaml_build_model=None) -> None:
+    """Product Information <- Design Input identity (the single
+    part-number source, user direction 2026-10-14), with the legacy
+    ``product`` section as the fallback.  The serial number stays
+    untouched (per-unit manual input)."""
+    params = {}
+    if yaml_build_model is not None:
+        params = yaml_build_model.get_params("design_input") or {}
+    product = config.get("product", {}) if isinstance(config, dict) \
+        else {}
+
+    def pick(design_key: str, product_key: str) -> str:
+        value = str(params.get(design_key) or "").strip()
+        if value:
+            return value
+        legacy = product.get(product_key)
+        return "" if legacy is None else str(legacy)
+
+    part = pick("part_number", "part_number")
+    core = pick("product_id", "core_id")
+    batch = str(params.get("batch") or product.get("batch") or "")
+    workflow_page.part_edit.setText(part)
+    workflow_page.core_edit.setText(core)
+    workflow_page.batch_edit.setText("" if batch == "freebatch"
+                                     else batch)
 
 
 def _equipment_from_yaml(data):

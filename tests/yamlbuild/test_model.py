@@ -187,6 +187,52 @@ def test_disabled_modules_not_validated():
     assert model.validate_module("rails") == []
 
 
+def test_validate_all_skips_no_ui_modules():
+    """The retired rails/clocks/gpios dialogs left their legacy
+    required fields (Rail Sequence / Clock Definitions / Pin Groups)
+    with no fill path - the publish validation (validate_all) skips
+    the no-UI modules (user direction 2026-10-14).  The per-module
+    validate_module keeps reporting (Excel / state restore checks)."""
+    model = make_model()
+    for key, field in (("rails", "sequence"), ("clocks", "clocks"),
+                       ("gpios", "groups")):
+        model.set_params(key, {field: ""})
+        assert model.validate_module(key), \
+            f"{key}.{field} must still be reported per module"
+    assert model.validate_all() == []
+
+
+def test_apply_yaml_dict_loads_no_ui_modules_silently():
+    """Loading a published plan with the legacy rails/clocks/gpios
+    sections no longer raises 'value required' warnings (user
+    direction 2026-10-14): with validate_no_ui=False the no-UI modules
+    restore their params UNVALIDATED and the load is silent."""
+    model = YamlBuildModel()
+    data = {"yaml_build": {"modules": {
+        "rails": {"enabled": True, "sequence": "",
+                  "on_voltage_v": "99"},          # out of range: stored
+        "clocks": {"enabled": True, "clocks": ""},
+        "gpios": {"enabled": True, "groups": ""},
+    }}}
+    errors = model.apply_yaml_dict(data, validate_no_ui=False)
+    assert errors == []
+    rails = model.get_params("rails")
+    assert rails["sequence"] == ""                  # stored as-is
+    assert rails["on_voltage_v"] == "99"
+    assert model.get_params("clocks")["clocks"] == ""
+    # the DEFAULT stays strict: hand-edited preview text (the Apply
+    # gate) keeps validating the no-UI modules
+    model2 = YamlBuildModel()
+    assert any("on_voltage_v" in e or "Voltage" in e
+               for e in model2.apply_yaml_dict(data))
+    # UI-visible modules keep the strict validation either way
+    model3 = YamlBuildModel()
+    bad = {"yaml_build": {"modules": {
+        "design_input": {"part_number": "", "product_id": "1"}}}}
+    assert any("part_number" in e or "Project Part #" in e
+               for e in model3.apply_yaml_dict(bad))
+
+
 def test_default_all_enabled_and_legacy_import():
     """Global default (rule 3.2): a fresh model, a new project and a
     legacy YAML import all come up with every module ENABLED."""

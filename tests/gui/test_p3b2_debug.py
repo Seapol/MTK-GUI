@@ -33,7 +33,7 @@ def page(qapp):
     w._runner.fct_connect_timeout = 5.0
     # Message* FCT rows would open a modal operator dialog (blocks the
     # offscreen tests): simulate the operator answer instead
-    w._fct_message_dialog = lambda kind, name: "PASS"
+    w._fct_message_dialog = lambda kind, name, timeout_s=0.0: "PASS"
     # shorten the FCT console wait rows (no simulated DUT worker behind
     # the channel in this environment) so the runs stay fast
     w.fct_timeouts = [600] * len(w.fct_timeouts)

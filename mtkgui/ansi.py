@@ -23,6 +23,14 @@ silently stripped.
 
 ESC = 0x1B
 
+# An OSC sequence with no terminator (BEL / ESC \) is binary noise on
+# the wire - without a cap the decoder would buffer EVERY following
+# byte forever and the console view would freeze permanently while the
+# read buffer keeps growing (user report 2026-10-14: boot log stopped
+# at systemd start, DUT serial kept outputting).  A legitimate OSC
+# (window title) is far smaller than this.
+OSC_BODY_MAX = 4096
+
 # Classic xterm / VGA 16-color palette.
 ANSI_16 = [
     "#000000", "#cd0000", "#00cd00", "#cdcd00",
@@ -170,6 +178,12 @@ class AnsiDecoder:
                     return None
                 cand = k + 2
                 end = cand if end is None else min(end, cand)
+            if end is None and len(data) - (i + 2) > OSC_BODY_MAX:
+                # unterminated OSC (stray ESC ] in binary noise): give
+                # up after a bounded body - drop the 2-byte introducer
+                # and resume decoding as plain text instead of swallowing
+                # the rest of the stream forever (console freeze)
+                return i + 2
             return end
 
         # Other escapes: optional intermediate bytes then one final byte.

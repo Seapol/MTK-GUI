@@ -93,7 +93,7 @@ Every entry follows the same structure: **Symptom** → possible
 - **Fix:**
   1. Confirm the account exists (ask the Supervisor).
   2. Supervisor: re-create or reset the account in the RBAC page.
-  3. Re-login; failed attempts are audited (see `10_audit_security.md`).
+  3. Re-login; failed attempts are audited (see `12_audit_security.md`).
 
 ## Q9: Operator cannot export a report
 
@@ -180,8 +180,8 @@ Every entry follows the same structure: **Symptom** → possible
 
 ## Still stuck?
 
-- Check `08_reports_logs.md` for the exact log/CSV locations.
-- Check `10_audit_security.md` for role and credential questions.
+- Check `11_reports_logs.md` for the exact log/CSV locations.
+- Check `12_audit_security.md` for role and credential questions.
 - Collect the event log lines around the failure (filter by `ERROR`)
   and attach them — with the `reports/<date>/` CSV — to your support
   request.

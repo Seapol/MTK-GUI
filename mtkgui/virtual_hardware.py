@@ -396,7 +396,9 @@ class VirtualDAQ973A:
     # -- DAQM907A totalizer: CLK1 <= 100 kHz ------------------------------
     def measure_totalizer(self, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0
-        sigma = (hi - lo) * 0.2
+        sigma = (hi - lo) * 0.1      # 5-sigma inside the window: a
+        # healthy draw never trips the limit check below (the retired
+        # 0.2 factor left a ~1.2 % per-row FAIL tail at 0 % injection)
         if fault == "Error":
             return Measurement("Error", "—", [
                 "DAQM: DAQM907A totalizer: gate timeout -> Error"])
@@ -457,7 +459,8 @@ class VirtualU2355A:
 
     def measure_counter(self, counter, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0
-        sigma = (hi - lo) * 0.2  # ~20 ppm on a +/-100 ppm window
+        sigma = (hi - lo) * 0.1      # 5-sigma inside the window (same
+        # reasoning as the totalizer: a healthy draw never FAILs)
         if fault == "Error":
             return Measurement("Error", "—", [
                 f"DAQ: U2355A CTR{counter}: count gate timeout -> Error"])

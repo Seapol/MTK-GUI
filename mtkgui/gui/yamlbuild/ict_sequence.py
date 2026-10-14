@@ -191,6 +191,32 @@ def auto_fill_limits(rows: list[tuple]) -> list[tuple]:
     return out
 
 
+def _filled(text) -> str:
+    """A limit cell value that carries real content (not a dash
+    placeholder)."""
+    value = str(text).strip()
+    return "" if value in ("", "—", "--") else value
+
+
+def merge_saved_limits(rows: list[tuple],
+                       previous_steps: list[tuple]) -> list[tuple]:
+    """Keep previously filled Expected / Min / Max cells across a
+    sequence regeneration (user direction 2026-10-14): Auto re-derives
+    what it can, any manually edited value wins.  Rows are matched by
+    test name; empty / dash cells fall back to the fresh derivation."""
+    old = {s[1]: s for s in previous_steps
+           if s[0] != "op" and len(s) >= 6}
+    merged: list[tuple] = []
+    for kind, name, unit, exp, lo, hi in rows:
+        prev = old.get(name)
+        if prev is not None:
+            exp = _filled(prev[3]) or exp
+            lo = _filled(prev[4]) or lo
+            hi = _filled(prev[5]) or hi
+        merged.append((kind, name, unit, exp, lo, hi))
+    return merged
+
+
 class IctTestItemDialog(QDialog):
     """Add / edit ONE ICT test row: Test Method first, the Net combo
     follows the method, the Unit auto-fills, Expected / Min / Max are

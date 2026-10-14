@@ -324,7 +324,7 @@ Flag reference:
 - **Tag release:** push a `v*` tag and the zip is additionally attached to a GitHub Release:
 
   ```bash
-  git tag v2.0.0 && git push origin v2.0.0
+  git tag v1.0.0.0 && git push origin v1.0.0.0
   ```
 
 The workflow uses `MTK_GUI_windows.spec`, so the `config/` folder is bundled automatically.

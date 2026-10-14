@@ -134,7 +134,7 @@ The configuration page is a schema-driven visual YAML editor:
 - **Engine settings** — retry counts, timeouts, instrument profiles —
   validated against the schema before they can be saved.
 - **Credential references** — `credential_ref` names only; secrets
-  live in the OS keyring (see `10_audit_security.md`).
+  live in the OS keyring (see `12_audit_security.md`).
 
 ### Step-by-step: change a setting safely
 
@@ -186,6 +186,6 @@ options and re-load.
 
 ## Related pages
 
-- `08_reports_logs.md` — where the results of these cases end up.
-- `10_audit_security.md` — who may edit cases or config (roles).
-- `12_faq.md` — quick fixes for YAML load and validation problems.
+- `11_reports_logs.md` — where the results of these cases end up.
+- `12_audit_security.md` — who may edit cases or config (roles).
+- `14_faq.md` — quick fixes for YAML load and validation problems.

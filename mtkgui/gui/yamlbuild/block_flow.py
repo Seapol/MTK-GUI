@@ -173,6 +173,22 @@ class BlockCard(QFrame):
             self._enabled = True
         self._apply_state_style()
 
+    def resizeEvent(self, event) -> None:
+        """Keep the locked card height tall enough for the wrapped
+        title: a word-wrapped QLabel under-reports its required height
+        after a width change and the Fixed vertical policy keeps the
+        stale value - the title text would clip at the card top
+        (visible when the window is not maximized)."""
+        metrics = self.title_label.fontMetrics()
+        available = max(24, self.title_label.width())
+        line_h = max(1, metrics.height())
+        wrapped = metrics.boundingRect(
+            0, 0, available, 0,
+            Qt.TextFlag.TextWordWrap, self.title_label.text())
+        lines = max(1, (wrapped.height() + line_h - 1) // line_h)
+        self.setMinimumHeight(max(46, lines * line_h + 26))
+        super().resizeEvent(event)
+
     # ----------------------------------------------------------- state
     def set_mark(self, mark: str) -> None:
         """Set the top-right mark: MARK_STAR (edited) / MARK_CHECK
@@ -319,6 +335,14 @@ class BlockFlowWidget(QWidget):
         self.flow.setSpacing(4)
         previous = None
         for index, stage in enumerate(WORKFLOW_DISPLAY_STAGES):
+            if previous is not None:
+                # the arrow sits BETWEEN two cards: add it BEFORE the
+                # current card (adding it after left card 01 -> 02
+                # without an arrow and a stray arrow after card 05)
+                arrow = QLabel("\u2192")
+                arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                arrow.setFixedWidth(12)
+                self.flow.addWidget(arrow, 0)
             card = BlockCard(stage, index)
             card.configure_requested.connect(self.configure_requested)
             card.enable_requested.connect(self._on_enable_request)
@@ -329,11 +353,6 @@ class BlockFlowWidget(QWidget):
             self._card_modules[stage.key] = DISPLAY_CARD_MODULES.get(
                 stage.key, (stage.key,))
             self.flow.addWidget(card, 1)
-            if previous is not None:
-                arrow = QLabel("→")
-                arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                arrow.setFixedWidth(12)
-                self.flow.addWidget(arrow, 0)
             previous = stage
         # sequence is fixed: the flow order equals
         # WORKFLOW_DISPLAY_STAGES and no user interaction can reorder

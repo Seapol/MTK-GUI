@@ -30,6 +30,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,18 @@ from mtkgui.engine.archive import file_sha256  # reuse P2-7 hashing
 
 # executable / dangerous payloads never leave the station
 BLACKLIST_SUFFIXES = {".exe", ".bat", ".cmd", ".sh", ".dll", ".msi"}
+
+#: packaged-upload periods (user direction 2026-10-14): the local
+#: folder is zipped with a timestamp and uploaded once per period
+PERIODS: tuple[str, ...] = ("daily", "weekly", "biweekly", "monthly",
+                            "quarterly", "semiannual", "yearly")
+PERIOD_DAYS: dict[str, int] = {"daily": 1, "weekly": 7, "biweekly": 14,
+                               "monthly": 30, "quarterly": 91,
+                               "semiannual": 182, "yearly": 365}
+#: upload modes (user direction 2026-10-14): real-time folder sync or
+#: timestamped archives on a fixed period
+MODE_SYNC = "sync"
+MODE_PACKAGED = "packaged"
 
 
 class TransportError(Exception):
@@ -57,6 +70,10 @@ class UploadConfig:
     overwrite_policy: str = "keep_both"   # overwrite | keep_both | skip
     project_dir: str = ""
     whitelist: list[str] = field(default_factory=list)
+    # user direction 2026-10-14: upload mode + packaged period
+    mode: str = MODE_SYNC                 # sync | packaged
+    pack_period: str = "weekly"           # one of PERIODS
+    last_pack_ts: float = 0.0             # epoch of the last pack
 
     @classmethod
     def from_config(cls, cfg: dict) -> "UploadConfig":
@@ -74,7 +91,28 @@ class UploadConfig:
                                  or "keep_both"),
             project_dir=str(sp.get("project_dir") or ""),
             whitelist=list(sp.get("archive_whitelist") or []),
+            mode=str(sp.get("upload_mode") or MODE_SYNC),
+            pack_period=str(sp.get("pack_period") or "weekly"),
+            last_pack_ts=float(sp.get("last_pack_ts") or 0.0),
         )
+
+    def to_config(self) -> dict:
+        """The ``sharepoint.*`` section this config round-trips from."""
+        return {
+            "enabled": self.enabled,
+            "site_url": self.site_url,
+            "username": self.username,
+            "password": self.password,
+            "token": self.token,
+            "upload_retry_count": self.retry_count,
+            "resume_on_disconnect": self.resume_on_disconnect,
+            "overwrite_policy": self.overwrite_policy,
+            "project_dir": self.project_dir,
+            "archive_whitelist": list(self.whitelist),
+            "upload_mode": self.mode,
+            "pack_period": self.pack_period,
+            "last_pack_ts": self.last_pack_ts,
+        }
 
 
 # ============================================================ transports
@@ -357,6 +395,51 @@ class SharePointUploader:
                  else sorted(p for p in self.outbox.iterdir()
                              if p.is_file()))
         return [self.upload_file(p) for p in files]
+
+    # ------------------------------------------- modes (user 2026-10-14)
+    def sync_folder(self, source=None) -> list[UploadResult]:
+        """Real-time sync: mirror the local folder INTO the SharePoint
+        folder - every allowed file is uploaded once (the hash dedup
+        skips copies already on the cloud), failures stay queued in the
+        outbox for the next sweep."""
+        src = Path(source) if source else self.outbox
+        files = sorted(p for p in src.rglob("*") if p.is_file())
+        return self.upload_pending(source=files)
+
+    def pack_and_upload(self, source=None,
+                        ) -> tuple[UploadResult | None, Path | None]:
+        """Packaged upload: zip every file of the local folder into a
+        timestamped archive (``<folder>_<YYYYMMDD_HHMMSS>.zip``) and
+        upload it through the normal gate chain (dedup / retry /
+        policy).  Marks the period as packed."""
+        src = Path(source) if source else self.outbox
+        files = sorted(p for p in src.rglob("*") if p.is_file())
+        if not files:
+            self._log("pack", f"{src}: nothing to pack")
+            self.mark_packed()
+            return None, None
+        stamp = self.now().strftime("%Y%m%d_%H%M%S")
+        zpath = self.state_dir / f"{src.name or 'upload'}_{stamp}.zip"
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in files:
+                zf.write(p, arcname=str(p.relative_to(src)))
+        self._log("pack", f"{len(files)} files -> {zpath.name}")
+        result = self.upload_file(zpath)
+        self.mark_packed()
+        return result, zpath
+
+    def pack_due(self, now: float | None = None) -> bool:
+        """True when a new packaged upload is due (never packed yet, or
+        the configured period elapsed since the last pack)."""
+        if not self.config.last_pack_ts:
+            return True
+        period_s = PERIOD_DAYS.get(self.config.pack_period, 7) * 86400
+        return (now if now is not None else time.time()) \
+            - self.config.last_pack_ts >= period_s
+
+    def mark_packed(self) -> None:
+        """Record the pack moment for the period scheduler."""
+        self.config.last_pack_ts = time.time()
 
     # ---------------------------------------------------------- query
     def records(self) -> list[dict]:

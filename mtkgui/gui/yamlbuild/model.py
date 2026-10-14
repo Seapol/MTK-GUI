@@ -29,7 +29,7 @@ from mtkgui.gui.yamlbuild.schema import (
     T_TEXT,
 )
 from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
-    LEGACY_ORDER_SWAP, REMOVED_MODULES, \
+    LEGACY_ORDER_SWAP, NO_UI_MODULE_KEYS, REMOVED_MODULES, \
     STAGE_BY_KEY, STAGE_KEYS
 
 _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
@@ -376,7 +376,8 @@ class YamlBuildModel:
             self.to_effective_dict(), sort_keys=False, allow_unicode=True)
 
     # ----------------------------------------------------- YAML import
-    def apply_yaml_dict(self, data: dict) -> list[str]:
+    def apply_yaml_dict(self, data: dict, validate_no_ui: bool = True,
+                        ) -> list[str]:
         """Apply a parsed YAML document into the model.
 
         Only ``yaml_build`` documents are accepted.  Missing modules
@@ -387,6 +388,12 @@ class YamlBuildModel:
 
         Args:
             data: Parsed YAML dict.
+            validate_no_ui: Keep the schema validation for the no-UI
+                legacy modules (rails/clocks/gpios).  Machine-generated
+                files (the published plans) load with ``False`` - their
+                empty legacy fields must not raise "Load Warnings"
+                (user direction 2026-10-14); hand-edited preview text
+                keeps the strict default.
 
         Returns:
             List of validation error strings (empty when the document
@@ -425,6 +432,7 @@ class YamlBuildModel:
                 errors.append(f"module {key}: mapping expected")
                 continue
             params = self._params[key]
+            no_ui = (key in NO_UI_MODULE_KEYS) and not validate_no_ui
             for spec in MODULE_FIELDS.get(key, ()):
                 if spec.name not in value:
                     continue
@@ -436,6 +444,14 @@ class YamlBuildModel:
                     text = "" if raw is None else str(raw)
                 error = spec.validate(text)
                 if error:
+                    if no_ui:
+                        # user direction 2026-10-14: the no-UI legacy
+                        # modules (rails/clocks/gpios) load SILENTLY -
+                        # their values are owned by the Test Work Flow
+                        # page, warning about them on a plan load is
+                        # noise (the params still restore as-is)
+                        params[spec.name] = text
+                        continue
                     errors.append(f"module {key}: {error}")
                     continue
                 params[spec.name] = text
@@ -520,10 +536,16 @@ class YamlBuildModel:
         """Validate every ENABLED module in workflow order.
 
         Returns:
-            Aggregated error list (disabled modules are skipped).
+            Aggregated error list (disabled modules are skipped; the
+            no-UI legacy modules rails/clocks/gpios are skipped too -
+            their required fields have no fill path since their config
+            dialogs were retired, the Test Work Flow page owns the
+            content).
         """
         errors: list[str] = []
         for key in STAGE_KEYS:
+            if key in NO_UI_MODULE_KEYS:
+                continue
             errors.extend(self.validate_module(key))
         return errors
 

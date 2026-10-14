@@ -82,6 +82,16 @@ REMOVED_MODULES: tuple[str, ...] = (
 #: Test Work Flow page owns the ICT test cases editing).
 DISPLAY_ICT_WORKFLOW = "ict_workflow"
 
+#: modules whose parameters have NO configuration dialog since the
+#: 2026-10-13 simplification: the Build ICT card opens the Test Work
+#: Flow page which owns the ICT test cases editing, so their legacy
+#: required fields (Rail Sequence / Clock Definitions / Pin Groups)
+#: cannot be filled by hand anywhere.  The publish validation skips
+#: them (user direction 2026-10-14: skip no-UI module validation) -
+#: their values are owned by the Test Work Flow page / channel
+#: allocation, not by a dialog.
+NO_UI_MODULE_KEYS: tuple[str, ...] = ("rails", "clocks", "gpios")
+
 #: navigation-only display card: the Channel Allocation tables are
 #: EMBEDDED below the cards on the same page (user direction: one
 #: page, top-to-bottom, no missed steps); the card scrolls there and

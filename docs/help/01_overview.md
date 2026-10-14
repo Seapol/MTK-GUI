@@ -15,7 +15,7 @@ tool covering the complete production flow:
 - **Flash OOBE**: out-of-box-experience firmware, same dual path.
 
 The Test Work Flow page renders the whole flow as one table; the
-Yaml Build page (12-stage block flow) authors the project.
+Yaml Build page (five-card block flow) authors the project.
 
 ## Main Window Layout
 

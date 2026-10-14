@@ -180,6 +180,35 @@ def test_tx_after_rx_newline_has_no_blank_line(qapp):
         c.deleteLater()
 
 
+def test_unterminated_osc_does_not_freeze_the_stream(qapp):
+    # a stray ESC ] (binary noise on the wire) used to swallow EVERY
+    # following byte forever: the console view froze mid-boot while the
+    # DUT serial kept outputting (user report 2026-10-14). The decoder
+    # gives up after a bounded OSC body and resumes as plain text.
+    c = ConsoleWidget("k", "T", "f")
+    try:
+        c.append_rx("RX", b"Starting User Database Manager\r\n\x1b]0;")
+        noise = b"systemd journal line padding padding padding\r\n"
+        for _ in range(120):            # > OSC_BODY_MAX (4096 bytes)
+            c.append_rx("RX", noise)
+        text = c.view.toPlainText()
+        assert "Starting User Database Manager" in text
+        assert "systemd journal line" in text
+    finally:
+        c.deleteLater()
+
+
+def test_terminated_osc_still_stripped(qapp):
+    # a legitimate OSC (window title) is stripped in full - the
+    # unterminated-OSC cap must not leak it into the visible text
+    c = ConsoleWidget("k", "T", "f")
+    try:
+        c.append_rx("RX", b"ok\x1b]0;window title\x07tail\n")
+        assert _block_texts(c) == ["oktail"]
+    finally:
+        c.deleteLater()
+
+
 def test_clear_resets_stream_state(qapp):
     c = ConsoleWidget("k", "T", "f")
     try:

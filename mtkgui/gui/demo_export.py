@@ -51,7 +51,8 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="p2_9_demo_"))
     page = ExportPage(eng, out_dir=tmp)
     page.interactive = False
-    page.meta = {"part_number": "FRDM-IMX93", "version": "v2.0.0",
+    from mtkgui import __version__   # the single release version
+    page.meta = {"part_number": "FRDM-IMX93", "version": __version__,
                  "revision": "1.0"}
     page.cpk_case, page.cpk_lsl, page.cpk_usl = \
         "PWR 3V3 Voltage", 3.267, 3.333

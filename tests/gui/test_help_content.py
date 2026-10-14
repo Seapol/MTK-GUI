@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Module C help tests: the 12 User Guide chapters exist, the
+"""Module C help tests: the 14 User Guide chapters exist, the
 markdown-lite renderer produces HTML with screenshots, the FAQ covers
 the known-issues list, every main-window tab is documented somewhere
 (freshness guard), the Help menu mounts a single User Guide entry that
@@ -20,15 +20,17 @@ from mtkgui.gui.help_content import (
     topic_temp_path,
 )
 
-#: the 12 chapter files (one per Help menu entry)
+#: the 14 chapter files (one per Help menu entry)
 EXPECTED_FILES = tuple(f for _k, _l, f in CHAPTERS)
 
 
 def test_all_chapters_exist():
     for name in EXPECTED_FILES:
         assert (HELP_ROOT / name).is_file(), name
-    assert len(HELP_TOPICS) == 12
-    assert len(CHAPTERS) == 12
+    # 2026-10-14: Channel Allocation merged into the Yaml Build
+    # chapter, Cluster removed, Instruments + Station Equipment added
+    assert len(HELP_TOPICS) == 14
+    assert len(CHAPTERS) == 14
 
 
 def test_markdown_lite_renders_structures():
@@ -49,13 +51,15 @@ def test_markdown_lite_renders_images_with_absolute_uri():
 
 def test_load_topic_html_and_unknown_key():
     html = load_topic_html("faq")
+    # the body heading carries the chapter number (matches the sidebar)
+    assert html.startswith("<h2>14. ")
     assert "<h" in html
     # unknown keys degrade to a clear placeholder (never a dead link)
     assert "Unknown help topic" in load_topic_html("ghost")
 
 
 def test_faq_covers_known_issues():
-    faq = (HELP_ROOT / "12_faq.md").read_text(encoding="utf-8")
+    faq = (HELP_ROOT / "14_faq.md").read_text(encoding="utf-8")
     for issue in ("no nets found", "Address", "CSV log",
                   "keyring", "Run blocked"):
         assert issue in faq, issue
@@ -67,9 +71,42 @@ def test_topic_page_html_navigation():
     assert 'href="mtkgui-help://02_getting_started.html"' in page  # next
     assert "images/" not in page or "file://" in page  # absolute img URIs
     last = topic_page_html("faq")
-    assert 'href="mtkgui-help://11_case_editor_config.html"' in last  # prev
+    assert 'href="mtkgui-help://13_case_editor_config.html"' in last  # prev
     # unknown key -> clear placeholder, never a crash
     assert "Unknown help topic" in topic_page_html("ghost")
+
+
+# ------------------------------------------------------- version history
+def test_version_history_page_renders_release_log():
+    """Help > Version History renders the standalone release log with
+    the versioning rule and the v1.0.0.0 baseline entry (releases
+    only - develop commits are never recorded)."""
+    from mtkgui import __version__
+    from mtkgui.gui.help_content import version_history_page_html
+    page = version_history_page_html()
+    assert "MTK GUI &mdash; Version History" in page
+    assert "Versioning rule" in page or "Versioning rule" in page.lower()
+    assert f"{__version__} - 2026-10-14" in page
+    assert "develop</code> commits are NOT recorded" in page
+
+
+def test_version_history_menu_opens_browser(qapp, monkeypatch):
+    """Help > Version History writes the temp page and opens it."""
+    opened = []
+
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(
+        QDesktopServices, "openUrl",
+        staticmethod(lambda url: opened.append(url) or True))
+
+    from mtkgui.main_window import MainWindow
+    window = MainWindow()
+    window._open_version_history()
+    assert len(opened) == 1
+    page = opened[0].toLocalFile()
+    assert page.endswith("Version_History.html")
+    assert "v1.0.0.0" in open(page, encoding="utf-8").read()
+    window.deleteLater()
 
 
 # ------------------------------------------------------- freshness guard
@@ -101,8 +138,8 @@ def test_help_menu_mounts_guide_and_opens_browser(qapp, monkeypatch):
     window = MainWindow()
     texts = [a.text() for a in window.help_menu.actions()
              if not a.isSeparator()]
-    # ONE User Guide entry (not chapters flattened into the menu)
-    assert texts == ["User Guide", "About"]
+    # ONE User Guide entry + the standalone Version History release log
+    assert texts == ["User Guide", "Version History", "About"]
     # _open_help renders the all-in-one guide and opens the browser
     window._open_help()
     assert len(opened) == 1

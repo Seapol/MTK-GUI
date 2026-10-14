@@ -628,7 +628,17 @@ class TestRunner(QObject):
             return
         elif interactive and kind in ("MessageOK", "MessageYesNo",
                                       "MessageGoStop"):
-            verdict = env._fct_message_dialog(kind, name)
+            # user direction 2026-10-14 - the operator answer drives the
+            # console: YesNo sends y / n (step PASSes either way),
+            # GoStop sends y (PASS, continue) or n (FAIL + the run
+            # stops), MessageOK does nothing but acknowledge.  The
+            # payloads travel in op_params (send_yes / send_no).
+            cfg = (env.fct_op_params[r]
+                   if r < len(env.fct_op_params) else None) or {}
+            answer = env._fct_message_dialog(
+                kind, name,
+                timeout_s=float(cfg.get("message_timeout_s") or 0.0))
+            verdict = self._fct_message_action(kind, name, answer, cfg)
         if verdict is None:
             # FCT is always real: no virtual fault roll here
             verdict = "PASS"
@@ -641,6 +651,65 @@ class TestRunner(QObject):
                   else StepStatus.FAIL if verdict == "FAIL"
                   else StepStatus.ERROR,
                   None, time.monotonic() - t0)
+
+    def _fct_message_send(self, payload: str, name: str) -> None:
+        """Send one operator-answer payload to the bound DUT console
+        (the first connected serial channel - the same binding the
+        console FCT methods use).  No channel connected: the payload
+        is dropped with an honest log line."""
+        mc = getattr(self.env, "multi_console", None)
+        key = self._pick_serial_channel() if mc is not None else None
+        if mc is None or key is None or not payload:
+            self.env._log(f"FCT {name}: no connected serial console - "
+                          f"payload {payload!r} NOT sent")
+            return
+        mc.write_to_channel(key, (payload + "\r\n").encode("utf-8"))
+        self.env._log(f"FCT {name}: sent {payload!r} to the DUT console")
+
+    def _fct_message_action(self, kind: str, name: str, answer: str,
+                            cfg: dict) -> str:
+        """User-direction 2026-10-14 semantics for the three operator
+        message kinds:
+
+        - MessageOK: acknowledge only - no console action, PASS.
+        - MessageYesNo: Yes sends ``send_yes`` (default y), No sends
+          ``send_no`` (default n); the step PASSes either way; a
+          timeout sends nothing and FAILs.
+        - MessageGoStop: GO sends ``send_yes`` (y) -> PASS and the run
+          continues; STOP sends ``send_no`` (n) -> the step FAILs and
+          the run STOPS (operator-style abort, teardown rows run).
+
+        Returns the row verdict ("PASS" / "FAIL")."""
+        env = self.env
+        send_yes = str(cfg.get("send_yes") or "y")
+        send_no = str(cfg.get("send_no") or "n")
+        if kind == "MessageOK":
+            env._log(f"FCT {name}: operator OK -> PASS "
+                     f"(no console action)")
+            return "PASS"
+        if kind == "MessageYesNo":
+            if answer == "timeout":
+                env._log(f"FCT {name}: operator timeout -> FAIL")
+                return "FAIL"
+            payload = send_yes if answer == "yes" else send_no
+            self._fct_message_send(payload, name)
+            env._log(f"FCT {name}: operator {answer.capitalize()} "
+                     f"-> PASS")
+            return "PASS"
+        # MessageGoStop
+        if answer == "timeout":
+            env._log(f"FCT {name}: operator timeout -> FAIL")
+            return "FAIL"
+        if answer == "go":
+            self._fct_message_send(send_yes, name)
+            env._log(f"FCT {name}: operator GO -> PASS")
+            return "PASS"
+        self._fct_message_send(send_no, name)
+        env._log(f"FCT {name}: operator STOP -> FAIL (run stops)")
+        # the run STOPS: operator-style abort - flagged teardown rows
+        # still execute before the run ends
+        self.abort(trigger="operator")
+        return "FAIL"
 
     def _exec_fct_b3(self, r: int, name: str, marker: dict,
                      t0: float, interactive: bool) -> None:
@@ -659,6 +728,7 @@ class TestRunner(QObject):
             execute_fct_step,
         )
         env = self.env
+        _stop_flag = {"stop": False}   # GoStop STOP -> the run stops
         step = FctStep.from_dict(marker)
         station, user = "", ""
         try:
@@ -722,9 +792,39 @@ class TestRunner(QObject):
                     str(step.params.get("style") or ""), "MessageGoStop")
                 _text = str(step.params.get("message")
                             or f"Confirm: {step.name}")
+                _send_yes = str(step.params.get("send_yes") or "y")
+                _send_no = str(step.params.get("send_no") or "n")
+                _tmo = float(step.params.get("message_timeout_s") or 0.0)
 
                 def _ask(_s, _k=_kind, _t=_text):
-                    return env._fct_message_dialog(_k, _t) == "PASS"
+                    # user direction 2026-10-14: the answer drives the
+                    # console - YesNo sends y / n (PASS either way),
+                    # GoStop sends y (PASS) or n (FAIL + the run
+                    # stops); MessageOK does nothing but acknowledge;
+                    # a timeout sends nothing and FAILs the step
+                    answer = env._fct_message_dialog(
+                        _k, _t, timeout_s=_tmo)
+                    if _k == "MessageOK":
+                        return answer == "ok"
+                    if _k == "MessageYesNo":
+                        if answer in ("yes", "no"):
+                            self._fct_message_send(
+                                _send_yes if answer == "yes"
+                                else _send_no, _t)
+                            return True
+                        env._log(f"FCT {_t}: operator timeout -> FAIL")
+                        return False
+                    if answer == "go":
+                        self._fct_message_send(_send_yes, _t)
+                        return True
+                    if answer == "stop":
+                        self._fct_message_send(_send_no, _t)
+                        _stop_flag["stop"] = True
+                        env._log(f"FCT {_t}: operator STOP -> FAIL "
+                                 f"(run stops)")
+                        return False
+                    env._log(f"FCT {_t}: operator timeout -> FAIL")
+                    return False
             else:                            # run_demo: simulated GO
                 def _ask(s):
                     env._log("human answer GO (simulated)")
@@ -734,7 +834,7 @@ class TestRunner(QObject):
             if interactive:
                 def _ask(s):
                     return env._fct_message_dialog(
-                        "MessageOK", s.name) == "PASS"
+                        "MessageOK", s.name) == "ok"
             else:
                 def _ask(s):
                     env._log("human answer OK (simulated)")
@@ -751,7 +851,7 @@ class TestRunner(QObject):
 
                 def _ask(_s, _m=_msg):
                     return env._fct_message_dialog(
-                        "MessageYesNo", _m) == "PASS"
+                        "MessageYesNo", _m) == "yes"
             else:                            # run_demo: simulated GO
                 def _ask(_s):
                     env._log("human answer GO (simulated)")
@@ -764,6 +864,10 @@ class TestRunner(QObject):
                   VERDICT_SKIP: StepStatus.IGNORED}.get(
             outcome.verdict, StepStatus.ERROR)
         self._put("fct", r, status, None, time.monotonic() - t0)
+        if _stop_flag["stop"]:
+            # GoStop STOP: the step FAILED and the run stops
+            # (operator-style abort - flagged teardown rows still run)
+            self.abort(trigger="operator")
 
     # ------------------------------------------------ FCT console (virtual)
     def _pick_serial_channel(self):
@@ -1081,6 +1185,15 @@ class TestRunner(QObject):
     def _begin_cycle(self) -> None:
         env = self.env
         self.reset_results()
+        # new cycle: the console read buffer must hold THIS cycle's DUT
+        # output only.  A buffer carried over from the previous round
+        # makes Waitfor/Capture match the previous round's log while the
+        # new round's output has not arrived yet (cross-round
+        # misjudgement, user report 2026-10-14).
+        mc = getattr(env, "multi_console", None)
+        if mc is not None:
+            for key in list(getattr(mc, "channels", {})):
+                mc.clear_read_buffer(key)
         self.cycle_reset.emit()
         env._set_phase("Init...")
         self._interrupted = False

@@ -27,6 +27,7 @@ def main() -> int:
         HELP_ROOT,
         guide_page_html,
         topic_page_html,
+        version_history_page_html,
     )
 
     if OUT.exists():                          # regen from scratch
@@ -51,6 +52,10 @@ def main() -> int:
         (OUT / filename.replace(".md", ".html")).write_text(
             relativize(topic_page_html(key)), encoding="utf-8")
         print(f"built {filename.replace('.md', '.html')}")
+
+    (OUT / "Version_History.html").write_text(
+        relativize(version_history_page_html()), encoding="utf-8")
+    print("built Version_History.html")
 
     print(f"\nDone -> {OUT}")
     return 0

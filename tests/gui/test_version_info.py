@@ -52,10 +52,11 @@ def git_replies(commit="1a2b3c4", branch="develop", tag="v3.0.0",
 
 
 def test_resolve_from_git_full():
-    """Tag + branch + commit + clean tree resolve from git."""
+    """Branch + commit + clean tree resolve from git; the version
+    NUMBER is the release version (git tags no longer influence it)."""
     info = resolve(runner=fake_runner(git_replies()))
     assert info == VersionInfo(
-        tag="v3.0.0", branch="develop", commit="1a2b3c4",
+        tag=__version__, branch="develop", commit="1a2b3c4",
         dirty=False, source="git")
 
 
@@ -67,13 +68,13 @@ def test_resolve_git_dirty_tree():
 
 
 def test_resolve_git_without_tags():
-    """A tree without tags yields an empty tag; display falls back to
-    branch @ commit."""
-    replies = git_replies()
-    runner = fake_runner(replies, fail={"describe --tags --abbrev=0"})
-    info = resolve(runner=runner)
-    assert info.tag == ""
-    assert info.display() == "develop @ 1a2b3c4"
+    """Git tags are irrelevant: the version stays the release version
+    (single-version rule, user directive 2026-10-14); git only adds
+    branch @ commit build facts."""
+    replies = git_replies(tag="v3.0-p3-platform")   # stale tag ignored
+    info = resolve(runner=fake_runner(replies))
+    assert info.tag == __version__
+    assert info.display() == f"{__version__} (develop @ 1a2b3c4)"
 
 
 def test_resolve_git_failure_falls_back_to_static():

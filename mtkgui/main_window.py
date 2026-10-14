@@ -568,6 +568,12 @@ class MainWindow(QMainWindow):
         # Cases table with the generated sequence, then apply to yaml
         self.yaml_build_page.fct_sequence_ready.connect(
             self._on_fct_sequence_ready)
+        # reverse sync (user direction 2026-10-14): the Build FCT
+        # dialog seeds its console commands from the CURRENT FCT Test
+        # Cases rows whenever it opens (page -> dialog; on OK the
+        # generated cases flow back through fct_sequence_ready)
+        self.yaml_build_page.current_fct_cases_provider = \
+            self.workflow_page.current_fct_case_dicts
         # valid Apply on the Yaml Build page -> offer the file save
         self.yaml_build_page.yaml_apply_committed.connect(
             self._on_yaml_apply_committed)
@@ -645,9 +651,10 @@ class MainWindow(QMainWindow):
         # | Instruments | Consoles (LED-only) | Date
         sb = self.statusBar()
 
-        # V4.0 / M0: dynamic GUI version label (vX.Y.Z.xxxx from
-        # resources/version.json, written by the CI build pipeline);
-        # missing/broken file -> static fallback + warning log
+        # THE single GUI version (user directive 2026-10-14): every
+        # label renders the release version mtkgui.__version__
+        # (starting v1.0.0.0) - develop commits never change it; the
+        # build facts (branch / commit) come from version_info.
         self.version_info = get_version_info()
         from .gui_version import load_gui_version
         self.gui_version, self.gui_version_warning = load_gui_version()
@@ -923,12 +930,17 @@ class MainWindow(QMainWindow):
                                    self._open_dut_report)
         self.report_menu.addAction("Event Log", self._open_report_event_log)
         self.report_menu.addAction("Statistics", self._open_statistics)
+        self.report_menu.addAction("SharePoint Upload…",
+                                   self._open_sharepoint_upload)
 
         # ------------------------------------------------ V4.0: Help menu
         # Help stays the rightmost menu of the fixed final order; the
-        # User Guide opens ONE web page containing every chapter
+        # User Guide opens ONE web page containing every chapter and
+        # Version History opens the release log (releases only).
         self.help_menu = self.menuBar().addMenu("Help")
         self.help_menu.addAction("User Guide", self._open_help)
+        self.help_menu.addAction("Version History",
+                                 self._open_version_history)
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self._open_about)
 
@@ -1049,6 +1061,13 @@ class MainWindow(QMainWindow):
         from .gui.help_content import open_guide
         open_guide()
 
+    def _open_version_history(self):
+        """Help > Version History: render the release log (one entry
+        per Release; develop commits are not recorded) into a styled
+        HTML page and open it in the system web browser."""
+        from .gui.help_content import open_version_history
+        open_version_history()
+
     def _open_about(self):
         """Help > About: version, branch, build info (Module C)."""
         from .gui.help_content import about_html
@@ -1118,6 +1137,20 @@ class MainWindow(QMainWindow):
             "Full-lifecycle event log viewer and TXT export ship with "
             "V4.0 phase B3 (feature/report-backend). The live session "
             "log stays available in the Event Log panel below.")
+
+    def _open_sharepoint_upload(self):
+        """Report > SharePoint Upload…: site link + connectivity test +
+        local folder + upload mode (real-time sync / packaged upload
+        with a period).  Virtual mode drives the FakeSharePoint
+        transport (demo), Real mode talks HTTP to the configured site.
+        The 30 s auto-drive runs while the dialog is open."""
+        from .gui.sharepoint_upload_dialog import SharePointUploadDialog
+        dlg = SharePointUploadDialog(
+            self, virtual=self.workflow_page.virtual_mode)
+        dlg.action_logged.connect(
+            lambda msg: self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] {msg}"))
+        dlg.exec()
 
     def _open_statistics(self):
         """Report > Statistics: quality-statistics dialog placeholder
@@ -1325,9 +1358,19 @@ class MainWindow(QMainWindow):
                 ("yaml_build" in config or "plan" in config):
             # published plan file (plan + yaml_build sections, the
             # Yaml Build page output) -> restore into the build model
-            errors = self.yaml_build_page.model.apply_yaml_dict(config)
+            # user direction 2026-10-14: the plan's Design Input
+            # identity lands in Product Information too; the machine
+            # generated plan loads SILENTLY (the no-UI legacy modules
+            # rails/clocks/gpios are not validated - their empty
+            # required fields must not raise "Load Warnings")
+            errors = self.yaml_build_page.model.apply_yaml_dict(
+                config, validate_no_ui=False)
             self._sync_rails_to_workflow()
             self.yaml_build_page.refresh_all()
+            # the plan's Design Input identity lands in Product
+            # Information too (single part-number source)
+            project_config.sync_product_identity(
+                config, self.workflow_page, self.yaml_build_page.model)
             if errors:
                 QMessageBox.warning(self, "Load Warnings",
                                     "\n".join(errors))
@@ -1368,7 +1411,15 @@ class MainWindow(QMainWindow):
         page.stop_if_short_cb.setChecked(True)
         page.auto_sn.setChecked(False)
         page._runner.set_retry(0, source="factory")
-        page._runner.reset_results()
+        # user direction 2026-10-14: Close Yaml also clears the last
+        # RUN state - Overall Flow statuses / durations, the Overall
+        # Result verdict and the per-product statistics (the screenshot
+        # showed a stale "Virtual PASS" panel next to Project File:
+        # (none))
+        page.products_passed = 0
+        page.products_failed = 0
+        page.cycle_times = []
+        page.clear_results(keep_log=True)   # keep the session log
         # overall flow EN + tables / rails / consoles -> no-yaml state
         page.set_overall_en([True, True])
         page.clear_tables()
@@ -1413,6 +1464,7 @@ class MainWindow(QMainWindow):
         """Rebuild the ICT Test Cases table from the test rows - the
         adjusted tests in order WITH the standard operations around
         them (impedance before power-on)."""
+        from mtkgui.gui.yamlbuild.ict_sequence import DAQ_AI_NAME
         page = self.workflow_page
         by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
 
@@ -1421,8 +1473,15 @@ class MainWindow(QMainWindow):
 
         impedance = [t for t in tests if "Impedance" in t[1]]
         rest = [t for t in tests if "Impedance" not in t[1]]
+        mid = [op(n) for n in self._ICT_OPS_MID]
+        if page.rails:
+            # user direction 2026-10-14: the DAQ AI power-rails capture
+            # runs right AFTER Power On DUT and BEFORE the voltage /
+            # clock tests (the rails are already allocated in Channel
+            # Allocation - the row needs no net / limits)
+            mid.append(("DAQ AI", DAQ_AI_NAME, "V", "—", "—", "—"))
         seq = [op(n) for n in self._ICT_OPS_BEFORE_TEST] + impedance \
-            + [op(n) for n in self._ICT_OPS_MID] + rest \
+            + mid + rest \
             + [op(n) for n in self._ICT_OPS_AFTER_TEST]
         page.ict_steps = seq
         page.ict_enables = [True] * len(seq)
@@ -1482,6 +1541,9 @@ class MainWindow(QMainWindow):
             return
         loaded = []
         page = self.workflow_page
+        # the power-rails capture set feeds the DAQ AI test row inserted
+        # by _fill_ict_sequence - sync it model -> page BEFORE building
+        self._sync_rails_to_workflow()
         if ict_ready:
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 auto_fill_limits,
@@ -1517,11 +1579,7 @@ class MainWindow(QMainWindow):
         # user direction 2026-10-14: carry the Design Input identity
         # into the Product Information group (it previously stayed
         # empty after a Load; the serial number stays manual)
-        design = model.get_params("design_input") or {}
-        page.part_edit.setText(str(design.get("part_number") or ""))
-        page.core_edit.setText(str(design.get("product_id") or ""))
-        batch = str(design.get("batch") or "")
-        page.batch_edit.setText("" if batch == "freebatch" else batch)
+        project_config.sync_product_identity({}, page, model)
         loaded.append("Product Info")
         self._goto_test_workflow()
         self._append_event_log(
@@ -1683,6 +1741,21 @@ class MainWindow(QMainWindow):
         self._save_yaml_to(path)
 
     def _save_yaml_to(self, path):
+        # user direction 2026-10-14: each stage may legally be empty,
+        # but a YAML with NO test items at all (ICT and FCT both
+        # empty) is warned about at save time (working files may still
+        # be checkpointed on purpose)
+        ict_n, fct_n = self.workflow_page.test_item_counts()
+        if not ict_n and not fct_n:
+            answer = QMessageBox.question(
+                self, "No Test Items",
+                "The YAML contains no usable test items (ICT and FCT "
+                "are both empty).\n\nSave anyway?")
+            if answer != QMessageBox.StandardButton.Yes:
+                self._append_event_log(
+                    f"[{datetime.now():%H:%M:%S}] Yaml save cancelled: "
+                    "no test items")
+                return
         config = self._build_project_config()
         try:
             project_config.save_config(config, path)

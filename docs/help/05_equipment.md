@@ -145,6 +145,11 @@ connect and use the values from `Parameter Configuration`:
 **Manual Fixture mode** - the operator performs every hardware
 action by hand.
 
+The five rack instruments themselves - selection rationale, full
+specifications, hardware photos, fixture wiring and how the ICT
+test methods use them - have their own chapter:
+`06_instruments.md` (Instruments).
+
 ## Read-Only Blocks
 
 Non-instrument blocks open lighter windows - they document the rack
@@ -157,7 +162,9 @@ instead of configuring it:
   block's specifications.
 
 These windows carry the note `Demo mode - no hardware connected.`
-and a `Close` button.
+and a `Close` button. What each block is FOR and its integration
+status (including the not-yet-developed placeholders) is covered in
+chapter `07_station_equipment.md` (Station Equipment).
 
 ## Connection Status Indicators
 
@@ -188,20 +195,21 @@ Equipment page - never hard-coded in test steps.
 
 ## Relation to Yaml Build and Tools
 
-- **Yaml Build block 03 `Configure Instruments`** does not duplicate
-  this page. All instrument parameters stay on the Equipment page;
-  block 03 lists every rack instrument with its connection status
-  and one `Connect` / `Disconnect` button per row (plus
-  `Connect All` / `Disconnect All`) - using the same connection
-  kernel as the Equipment page and the Tools menu. The connect /
-  test results mirror back to the shared status hub and the
-  status-bar LEDs.
+- **Yaml Build has NO instrument configuration card any more** (the
+  old `Configure Instruments` block is retired). All instrument
+  parameters live on this page; the project YAML `instruments`
+  module carries the mirrored values and every later workflow step
+  references them read-only. Connection / test results mirror back
+  to the shared status hub and the status-bar LEDs.
 - **`Tools > Set All instruments`** runs batch operations
   (`Connect all`, `Disconnect all`, `Reset all`,
   `Test all connections`) over every instrument configured in the
   project YAML. The batch runs on a worker thread (the UI never
   freezes), every result line lands in the Event Log and the
-  status-bar LEDs follow the batch result.
+  status-bar LEDs follow the batch result. Every batch action except
+  `Disconnect all` also hands the live instrument session to the
+  Test Work Flow page - a Real-mode run then measures through the
+  connected rack; `Disconnect all` detaches it again.
 
 ## Permissions and Modes
 
@@ -235,6 +243,10 @@ Equipment page - never hard-coded in test steps.
   `Tools > Set All instruments` - go to the Equipment page first and
   check the instrument configuration, ports and connection
   parameters.
+- ICT steps report `Error` and the Event Log says
+  `no instrument gateway connected (Real mode)` - the run started
+  without a rack session; run `Tools > Set All instruments >
+  Connect all` (or connect from this page) and start the run again.
 - Configuration windows refuse to open - your account is an
   Operator; ask the supervisor to grant the equipment configuration
   permission.

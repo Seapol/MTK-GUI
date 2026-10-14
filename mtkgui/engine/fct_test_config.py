@@ -145,6 +145,113 @@ DIALOG_YESNO = "yesno"
 DIALOG_GOSTOP = "gostop"
 DIALOG_STYLES = (DIALOG_OK, DIALOG_YESNO, DIALOG_GOSTOP)
 
+#: project fct_test_cases kind -> message dialog style
+_CASE_MESSAGE_STYLES = {"MessageOK": DIALOG_OK,
+                        "MessageYesNo": DIALOG_YESNO,
+                        "MessageGoStop": DIALOG_GOSTOP}
+
+
+def _quoted_payload(name: str) -> str:
+    """First quoted segment of a legacy FCT row name (the command /
+    keyword payload), or "" - the same convention the runner applies."""
+    first = name.split("'", 1)
+    if len(first) == 2:
+        return first[1].split("'", 1)[0]
+    return ""
+
+
+def cases_to_console_commands(cases: list) -> list:
+    """Reverse sync (user direction 2026-10-14): the CURRENT FCT Test
+    Cases rows of the Test Work Flow page -> ConsoleCommand dicts for
+    the Build FCT dialog's ``console.test_commands``.
+
+    Message rows round-trip losslessly (dialog style, answer payloads,
+    timeout); console rows map by their legacy kind with the payload
+    parsed from the quoted name segment; standard operations and RF
+    rows are dialog-side sections and are skipped here.
+
+    Args:
+        cases: the page's ``fct_test_cases`` list (op_params carried).
+
+    Returns:
+        A list of plain command dicts (``ConsoleCommand``-shaped).
+    """
+    commands: list = []
+    for case in (cases or []):
+        kind = str((case or {}).get("kind", ""))
+        name = str((case or {}).get("name", ""))
+        op = dict((case or {}).get("op_params") or {})
+        marker = dict(op.get("fct_step") or {})
+        params = dict(marker.get("params") or {})
+        if kind in _CASE_MESSAGE_STYLES:
+            style = _CASE_MESSAGE_STYLES[kind]
+            cmd = {
+                "kind": KIND_MESSAGE,
+                "name": name.split(":", 1)[-1].strip() or name,
+                "transport": "serial",
+                "dialog_style": style,
+                "send_yes": str(params.get("send_yes")
+                                or op.get("send_yes") or "y"),
+                "send_no": str(params.get("send_no")
+                               or op.get("send_no") or "n"),
+                "wait_enabled": False, "send_enabled": style != DIALOG_OK,
+                "capture_enabled": False, "retries": 0,
+            }
+            if style == DIALOG_OK:
+                cmd["timeout"] = 0.0        # no judgement window
+            else:
+                cmd["timeout"] = float(params.get("message_timeout_s")
+                                       or op.get("message_timeout_s")
+                                       or 4.0)
+                cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
+            commands.append(cmd)
+            continue
+        if kind == "SendtoConsole" or kind == "SendtoCLI":
+            payload = _quoted_payload(name)
+            commands.append({
+                "kind": KIND_SEND, "name": name, "transport": "serial",
+                "wait_enabled": False, "send_enabled": True,
+                "capture_enabled": False, "send": payload,
+                "retries": 0, "timeout": 4.0})
+        elif kind in ("WaitforConsole", "WaitforCLI"):
+            commands.append({
+                "kind": KIND_WAIT, "name": name, "transport": "serial",
+                "wait_enabled": True, "send_enabled": False,
+                "capture_enabled": False, "expect_pass": _quoted_payload(name),
+                "retries": 0, "timeout": 6.0})
+        elif kind in ("CapturefromConsole", "CapturefromCLI"):
+            commands.append({
+                "kind": KIND_CAPTURE, "name": name, "transport": "serial",
+                "wait_enabled": False, "send_enabled": False,
+                "capture_enabled": True, "expect_fail": _quoted_payload(name),
+                "retries": 0, "timeout": 6.0})
+    return commands
+
+
+def overlay_console_commands(yaml_text: str, cases: list) -> str:
+    """Reverse sync, part 2: replace ``console.test_commands`` in the
+    fct_test_config YAML with the commands mapped from the live FCT
+    Test Cases rows (see :func:`cases_to_console_commands`).  Every
+    other section (Wi-Fi / Bluetooth / setup) stays as-is; with no
+    existing YAML text a minimal node is created.
+
+    Returns:
+        The updated ``fct_test_config_yaml`` text.
+    """
+    import yaml as _yaml
+    node: dict = {}
+    if str(yaml_text or "").strip():
+        try:
+            node = _yaml.safe_load(yaml_text) or {}
+        except _yaml.YAMLError:
+            node = {}
+    cfg = dict(node.get("fct_test_config") or {})
+    console = dict(cfg.get("console") or {})
+    console["test_commands"] = cases_to_console_commands(cases)
+    cfg["console"] = console
+    node["fct_test_config"] = cfg
+    return _yaml.safe_dump(node, sort_keys=False, allow_unicode=True)
+
 
 @dataclass
 class ConsoleCommand:
@@ -175,6 +282,11 @@ class ConsoleCommand:
     dialog_style: str = DIALOG_YESNO    # kind == "message": ok | yesno |
                                         # gostop - which operator dialog
                                         # the row pops (MessageOK/YesNo/GoStop)
+    send_yes: str = "y"             # kind == "message" (yesno / gostop):
+                                    # payload sent to the DUT console when
+                                    # the operator answers Yes / GO
+                                    # (user direction 2026-10-14)
+    send_no: str = "n"              # payload sent on No / STOP
     timeout: float = 6.0            # capture timeout (overall judgement window)
     wait_timeout: float = 10.0      # wait-for-message timeout
     send_timeout: float = 4.0       # send command timeout
@@ -208,6 +320,8 @@ class ConsoleCommand:
                 "confirm_enabled": self.confirm_enabled,
                 "confirm_message": self.confirm_message,
                 "dialog_style": self.dialog_style,
+                "send_yes": self.send_yes,
+                "send_no": self.send_no,
                 "timeout": float(self.timeout),
                 "wait_timeout": float(self.wait_timeout),
                 "send_timeout": float(self.send_timeout),
@@ -253,6 +367,8 @@ class ConsoleCommand:
                 confirm_message=str(c.get("confirm_message", "")),
                 dialog_style=str(c.get("dialog_style",
                                        DIALOG_YESNO) or DIALOG_YESNO),
+                send_yes=str(c.get("send_yes", "y")),
+                send_no=str(c.get("send_no", "n")),
                 timeout=float(c.get("timeout", 6.0)),
                 wait_timeout=float(c.get("wait_timeout", 10.0)),
                 send_timeout=float(c.get("send_timeout", 4.0)),
@@ -277,6 +393,8 @@ class ConsoleCommand:
                 confirm_message=str(c.get("confirm_message", "")),
                 dialog_style=str(c.get("dialog_style",
                                        DIALOG_YESNO) or DIALOG_YESNO),
+                send_yes=str(c.get("send_yes", "y")),
+                send_no=str(c.get("send_no", "n")),
                 timeout=float(c.get("timeout", 6.0)),
                 retries=int(c.get("retries", 0) or 0))
         if kind == "wait":
@@ -785,10 +903,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
                     "local": cmd.local, "remote": cmd.remote}))
         return steps
     # Operator-dialog rows (MessageOK / MessageYesNo /
-    # MessageGoStop): no console interaction at all — the step
-    # is a GUI_CONFIRM without a channel, executed by the
-    # existing human_confirm hook. The row joins the ordered
-    # sequence exactly where it is placed.
+    # MessageGoStop): no console interaction except the answer
+    # payloads - YesNo / GoStop send send_yes / send_no to the bound
+    # DUT console (user direction 2026-10-14); the row joins the
+    # ordered sequence exactly where it is placed.
     if cmd.kind == KIND_MESSAGE:
         steps.append(FctStep(
             name=cmd.name or "Operator message",
@@ -797,7 +915,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
             retries=int(cmd.retries),
             params={"style": cmd.dialog_style or DIALOG_YESNO,
                     "message": cmd.confirm_message
-                    or cmd.name or "Operator message"}))
+                    or cmd.name or "Operator message",
+                    "send_yes": cmd.send_yes or "y",
+                    "send_no": cmd.send_no or "n",
+                    "message_timeout_s": float(cmd.timeout or 0.0)}))
         return steps
     # Map the three-stage model to the MESSAGE_CHECK executor.
     #   WaitFor (wait-only row) -> positive pattern, found=PASS

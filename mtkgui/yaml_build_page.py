@@ -306,6 +306,24 @@ class YamlBuildPage(QWidget):
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
 
+    def _fct_build_params_with_live_cases(self, module_key: str) -> dict:
+        """Reverse sync (user direction 2026-10-14): seed the Build FCT
+        dialog params from the CURRENT FCT Test Cases rows of the Test
+        Work Flow page - the page is the source of truth when the
+        dialog opens; on OK the generated cases flow back through
+        ``fct_sequence_ready`` (bidirectional sync).  Without a
+        provider (page not wired) the stored params open unchanged."""
+        current = dict(self.model.get_params(module_key) or {})
+        provider = getattr(self, "current_fct_cases_provider", None)
+        cases = (provider() or []) if callable(provider) else []
+        if cases:
+            from mtkgui.engine.fct_test_config import (
+                overlay_console_commands,
+            )
+            current["fct_test_config_yaml"] = overlay_console_commands(
+                current.get("fct_test_config_yaml"), cases)
+        return current
+
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
@@ -376,7 +394,11 @@ class YamlBuildPage(QWidget):
                 self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
             return
         params, dialog = self.block_flow.open_dialog(
-            module_key, self.model.get_params(module_key), self,
+            module_key,
+            self._fct_build_params_with_live_cases(module_key)
+            if module_key == "fct_build"
+            else self.model.get_params(module_key),
+            self,
             log_sink=self.task_log.emit,
             progress_sink=self.task_progress.emit,
             net_source=(net.get("raw", ""),

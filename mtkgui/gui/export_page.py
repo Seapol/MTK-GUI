@@ -97,8 +97,9 @@ class ExportPage(QWidget):
         return {b: self.engine.batch_summary(b) for b in batches}
 
     def _meta(self, batch: str | None = None) -> dict:
+        from mtkgui import __version__   # the single release version
         meta = dict(self.meta)
-        meta.setdefault("version", "v2.0.0")
+        meta.setdefault("version", __version__)
         meta.setdefault("revision", "1.0")
         if batch:
             meta["batch"] = batch

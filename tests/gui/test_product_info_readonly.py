@@ -120,6 +120,70 @@ def test_freebatch_and_switch_clears_previous_values(page):
     assert page.batch_edit.text() == ""
 
 
+# ---------------------------------------------- Design Input identity sync
+def _model_with_design_input(part, core, batch):
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+    model = YamlBuildModel()
+    model.set_params("design_input", {
+        "part_number": part, "product_id": core, "batch": batch})
+    return model
+
+
+def test_apply_config_syncs_identity_from_design_input_state(page):
+    """User direction 2026-10-14: a project file with an EMPTY product
+    section but a full yaml_build_state design_input still fills
+    Product Information (older demo / project files load complete)."""
+    config = {
+        "product": {},
+        "yaml_build_state": {
+            "modules": {"design_input": {
+                "enabled": True,
+                "params": {"part_number": "MTK12345",
+                           "product_id": "29420",
+                           "batch": "EVT (Proto-1)"}}},
+        },
+    }
+    apply_config(config, page, object(),
+                 _model_with_design_input("", "", ""))
+    assert page.part_edit.text() == "MTK12345"
+    assert page.core_edit.text() == "29420"
+    assert page.batch_edit.text() == "EVT (Proto-1)"
+
+
+def test_design_input_identity_wins_over_product_section(page):
+    """Design Input is the single part-number source: its values beat
+    the legacy product section on a load."""
+    config = {
+        "product": {"part_number": "OLD-PART", "core_id": "1",
+                    "batch": "old"},
+        "yaml_build_state": {
+            "modules": {"design_input": {
+                "enabled": True,
+                "params": {"part_number": "MTK12345",
+                           "product_id": "29420",
+                           "batch": "EVT (Proto-1)"}}},
+        },
+    }
+    apply_config(config, page, object(),
+                 _model_with_design_input("MTK12345", "29420",
+                                          "EVT (Proto-1)"))
+    assert page.part_edit.text() == "MTK12345"
+    assert page.core_edit.text() == "29420"
+    assert page.batch_edit.text() == "EVT (Proto-1)"
+
+
+def test_product_section_fills_without_design_input(page):
+    """No design_input params (old files, no model): the legacy
+    product section still populates Product Information."""
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+    apply_config({"product": {"part_number": "P9", "core_id": "9",
+                              "batch": "proto"}}, page, object(),
+                 YamlBuildModel())
+    assert page.part_edit.text() == "P9"
+    assert page.core_edit.text() == "9"
+    assert page.batch_edit.text() == "proto"
+
+
 # -------------------------------------------------------- GUI layer guard
 def test_programmatic_fill_still_possible_virtual_autosn(page):
     """Only upper-GUI programmatic fills (e.g. Auto-SN virtual values)

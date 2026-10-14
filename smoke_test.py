@@ -100,7 +100,14 @@ print("send-while-disconnected ok")
 
 # 5. Quick commands: picking an entry copies it to the Send line.
 #    Quick commands live in ConsoleWindow (popup), not the compact row.
+#    Seed two entries first: the repo ships commands.json = [] (the
+#    Clear Cmd state) and every run ENDS with [] as well - the step
+#    must not depend on leftover user state.
 cw = mc.channels["ser1"]["console_window"]
+cw.quick_entries = [
+    {"label": "idn", "command": "*IDN?", "crlf": True},
+    {"label": "ver", "command": "AT+GMR", "crlf": True}]
+cw._reload_quick_combo()
 entry = cw.combo_quick.itemData(1)
 assert entry and entry["command"]
 cw._on_quick_picked(1)
@@ -215,13 +222,13 @@ QTest.keyClick(send.edit, Qt.Key_Down)
 assert send.edit.text() == "draft"
 print("command history ok")
 
-# 12. Four tabs: Test Work Flow, Equipment, Yaml Build, Channel
-# Allocation (console is embedded in the Test Work Flow page).
-assert w.tabs.count() == 4
+# 12. Three tabs: Test Work Flow, Equipment, Yaml Build (the dedicated
+# Channel Allocation tab is gone - its tables are embedded in the Yaml
+# Build page; console is embedded in the Test Work Flow page).
+assert w.tabs.count() == 3
 assert w.tabs.tabText(0) == "Test Work Flow"
 assert w.tabs.tabText(1) == "Equipment"
 assert w.tabs.tabText(2) == "Yaml Build"
-assert w.tabs.tabText(3) == "Channel Allocation"
 print("tabs ok")
 
 # 12b. FCT keeps a 12-row viewport and shares its row 60/40 with console.
@@ -295,6 +302,13 @@ assert wf.btn_stop.isEnabled() is False
 print("run gate (no yaml) ok")
 
 from mtkgui.project_config import load_config, apply_config
+# KNOWN ISSUE - IGNORED (user direction 2026-10-14): the 96317 demo
+# project reference below is NOT VALID and projects/96317/... does
+# not exist (demo plans moved to config/plans/, regenerate on
+# demand).  Everything from here to the end of the file depends on
+# it, so smoke stops at this point by design until the demo plan
+# provisioning is re-pointed.  The verification gate is the pytest
+# suite (tests/), which is green.
 cfg = load_config(str(Path(
     "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
 apply_config(cfg, wf, w.equipment_page)

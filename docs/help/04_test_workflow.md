@@ -4,7 +4,7 @@ The **Test Work Flow** page is the operator's main workspace. It
 combines run control, the Overall Flow stage overview, product
 information, the per-step ICT / FCT test tables, the Power Rails Up
 Sequence waveform and the multi-channel Console (see chapter
-`07_console.md`). A run executes the enabled stages strictly in order:
+`10_console.md`). A run executes the enabled stages strictly in order:
 **ICT first, then FCT**.
 
 ![Test Work Flow page](images/02_test_workflow.png)
@@ -22,9 +22,42 @@ Sequence waveform and the multi-channel Console (see chapter
 - Page-wide log lines are routed to the central **Event Log** at the
   bottom of the main window (not shown on this page anymore).
 
+## How a Run Executes
+
+A run is a strictly sequential walk over the enabled stages - every
+cycle repeats the same deterministic path, which is what makes
+results comparable across operators, boards and shifts:
+
+1. **Run gates** - a project YAML must be loaded, at least one stage
+   must be enabled and the Auto-SN / serial format pre-check must
+   pass (see `Run Gates and Pre-Test`).
+2. **ICT stage** - the ICT table executes strictly top -> bottom:
+   fixture close -> impedance shorts (board still unpowered) ->
+   `Power On DUT` -> electrical measurements -> `Power Off DUT` ->
+   fixture open. Every measurement is judged against its per-row
+   `Min` / `Max` limits; a short or a `Stop if failure` event ends
+   the stage immediately.
+3. **FCT stage** - the console channels auto-connect (a failure
+   opens the `Console Connect Failed` popup and stops the run), then
+   the FCT table executes top -> bottom: operator dialogs, console /
+   CLI keyword tests, RF connectivity and flash confirmations.
+4. **Rollup** - the per-stage verdicts roll up into the Overall
+   Result: every enabled item must report PASS for `PASS`; `FAIL`
+   beats `IGNORE`, and `Error` marks an equipment problem rather
+   than a bad board.
+
+Between cycles (`Long Run > 1`) the engine resets the per-cycle
+state, keeps the product information and waits `Interval (s)` before
+the next pass. An abort at any point still executes the flagged
+teardown rows (`Power Off DUT`, `Fixture Unlock`, `Fixture Release`,
+`Reset Instruments`), so the DUT and the station always end in a
+safe state.
+
 ## Run Control
 
-![Overall Flow and Run Control](images/10_overall_flow.png)
+The Run Control group carries the **Run** / **Stop** buttons and the
+`Long Run` / `Interval (s)` fields (visible in the page screenshot
+above).
 
 ### Run and Stop
 
@@ -116,8 +149,10 @@ Yield: 92.3 % | Cycle Time (avg): 41.20 s
 
 ## Overall Flow
 
-The Overall Flow group shows the currently loaded project file and the
-two test stages.
+![Overall Flow - project file and stop policies](images/10_overall_flow.png)
+
+The Overall Flow group shows the currently loaded project file and
+the two test stages.
 
 - `Project File:` name of the loaded YAML (the full path is shown as a
   tooltip and the label is mouse-selectable). `(none)` when no project
@@ -136,9 +171,12 @@ two test stages.
 
 ### Stop Policy
 
-Two checkboxes control when a failing run aborts early:
+Two checkboxes control when a failing run aborts early. Both ship
+**enabled** (factory default 2026-10-14): every loaded plan - the
+bundled demo plans included - runs with both protections until the
+operator unticks a box or a project YAML overrides it.
 
-- `Stop if failure` (default **OFF**): any test / operation that
+- `Stop if failure` (default **ON**): any test / operation that
   reports FAIL aborts the whole run immediately when checked.
 - `Stop if any short` (default **ON**): applies to every Impedance
   Shorts test. A short under power can damage the board, so the run
@@ -193,10 +231,87 @@ The ICT table executes strictly top -> bottom. Columns:
 The factory sequence (17 steps): `Init Instruments`, `Fixture Clamp
 Down`, `Fixture Lock`, `Fixture E-Stop Healthy`, `Impedance Shorts
 (80 pts)` (Min 1.5 Ω), `Power On DUT`, `Power Voltage (80 pts)`
-(3.201-3.399 V), `RTC - 32.768 kHz`, `CLKOUT1 - 4 MHz`,
-`CLKOUT2 - 6 MHz`, `ADC Stimulus AO0/AO1 -> TP_ADC` (±12 V), `Fixture
-DIO (16 ch, 4 used)`, `DUT GPIO (24 ch)`, `Power Off DUT`, `Fixture
-Unlock`, `Fixture Release`, `Reset Instruments`.
+(3.201-3.399 V), `RTC - 32.768 kHz (907A TOT)`, `CLKOUT1 - 4 MHz
+(U2355A CTR0)`, `CLKOUT2 - 6 MHz (U2355A CTR1)`, `ADC Stimulus
+AO0/AO1 -> TP_ADC` (±12 V), `Fixture DIO (16 ch, 4 used)`,
+`DUT GPIO (24 ch)`, `Power Off DUT`, `Fixture Unlock`,
+`Fixture Release`, `Reset Instruments`.
+
+### ICT Test Methods
+
+The `Test Method` field of a measurement row decides how the row is
+executed and judged. Four measurement methods exist, plus the
+generic `test` row type.
+
+#### Static Impedance
+
+- **What it does** - closes the DAQM908A crosspoint of the net under
+  test and reads the 2-wire resistance through the DAQ973A built-in
+  DMM. This is the Impedance Shorts screen: every power net is
+  measured against a minimum threshold while the board is still
+  unpowered.
+- **Configure** - `Test Method` = `Static Impedance`, `Net` = a
+  power net from the Yaml Build parse, `Min` = lower resistance
+  limit, `Max` blank, `Unit` fixed to `Ω`.
+- **Use when** - the net must be proven not shorted to ground or a
+  neighbouring net **before** power is applied. Keep these rows in
+  the pre-power segment of the sequence.
+- **Example** - row `Impedance Shorts (80 pts)`, Min `1.5`: a
+  reading of `0.62` trips `Stop if any short` and aborts the run
+  right there, before `Power On DUT`.
+
+#### Power Voltage
+
+- **What it does** - re-closes the same multiplexer channels while
+  the PSU drives the board and reads DC voltage through the DAQ973A
+  DCV function, judged against a window.
+- **Configure** - `Test Method` = `Power Voltage`, `Net` = power
+  net, `Min` / `Max` in volts, `Unit` fixed to `V`.
+- **Use when** - every rail must sit inside its regulation window
+  after `Power On DUT` (load regulation, LDO dropout, missing
+  components).
+- **Example** - row `Power Voltage (80 pts)`, window 3.201-3.399 V
+  for a 3.3 V rail: one rail reading 3.12 V reports FAIL and, with
+  `Stop if failure` on, ends the run.
+
+#### Clock Hz
+
+- **What it does** - routes a clock net to a frequency counter and
+  compares the measured frequency with the expected value. Slow
+  clocks (RTC crystals) use the DAQ973A frequency function
+  (3 Hz - 300 kHz); faster clocks go through the U2355A counters
+  (0.1 Hz - 6 MHz), per the channel map built in Yaml Build.
+- **Configure** - `Test Method` = `Clock Hz`, `Net` = a clock net,
+  `Expected` plus `Min` / `Max` in Hz, `Unit` fixed to `Hz`.
+- **Use when** - crystals, PLL outputs or clock buffers must be
+  proven alive and within tolerance.
+- **Example** - rows `RTC - 32.768 kHz (907A TOT)` (window
+  32752-32784), `CLKOUT1 - 4 MHz (U2355A CTR0)`,
+  `CLKOUT2 - 6 MHz (U2355A CTR1)`.
+
+#### DAQ AI
+
+- **What it does** - the U2355A analog inputs acquire every critical
+  rail while the board powers up (the Power Rails Up Sequence),
+  writes the CSV log under `logs/` and runs the rule-based AI wave
+  review. The row verdict comes from the acquisition itself.
+- **Configure** - capture start / end, sample rate (up to the
+  250 kSa/s aggregate limit) and the rail set live in the project
+  YAML and the waveform Properties dialog; the row needs no
+  Min / Max.
+- **Use when** - ramp shape, overshoot, sequencing and startup
+  ripple matter, not just the final DC value.
+- **Example** - row `DAQ AI - Power rails` placed right after
+  `Power On DUT`; the waveform shows each rail's t=0 ramp and the
+  AI review flags anomalies.
+
+#### test (generic)
+
+- **What it does** - measurement row for nets outside the power /
+  clock categories (typically DUT GPIO level checks through the
+  fixture DIO); judged against its limits like any measurement.
+- **Configure** - `Test Method` = `test`, `Net` = a GPIO net from
+  the parse, limits optional (`—` = no value).
 
 ### During the Run
 
@@ -206,6 +321,25 @@ Unlock`, `Fixture Release`, `Reset Instruments`.
 - In Virtual mode the **ICT** result texts carry the `Virtual` prefix
   (FCT results are always plain - FCT runs on real hardware).
 
+### Real Mode and Instrument Availability
+
+In Real mode ICT steps are never simulated. Every instrument-touching
+step needs a connected rack session - connect from the Equipment page
+or with `Tools > Set All instruments > Connect all` (see
+`05_equipment.md`).
+
+- Without a connection, `Static Impedance`, `Power Voltage`,
+  `Clock Hz`, the `DAQ AI` rails capture and the instrument /
+  fixture / power operations report `Error` - never a PASS. The
+  `Measured` cell stays empty and the Event Log prints the reason
+  (e.g. `no instrument gateway connected (Real mode)`).
+- With the rack connected but an instrument call failing, the step
+  also reports `Error`; the instrument's failure reason shows in the
+  row detail and the Event Log.
+- The first instrument fault stops the run (equipment RESOURCE stop
+  policy); flagged cleanup rows (`Power Off DUT`, fixture release,
+  ...) still execute before the run ends.
+
 ### Context Menu (right-click a row)
 
 - `Breakpoint` - pause the run after this node completes.
@@ -214,6 +348,34 @@ Unlock`, `Fixture Release`, `Reset Instruments`.
 - `Edit comment...` - free-text note per node, shown as the row
   tooltip and archived to the project YAML (follows the ICT edit
   permission).
+
+## Standard Operations
+
+Operations (`op` rows) are the scaffolding around the measurements:
+they move the fixture, control the power and prepare the
+instruments. They report `Done` / `Error` instead of PASS / FAIL and
+most of them open a dedicated parameter dialog in the sequence
+editor.
+
+| Operation | Purpose | Parameters |
+|---|---|---|
+| `Init Instruments` | opens the rack session, loads the plan limits and brings every instrument into a known state | instruments checklist (DAQM / DAQ / PSU) |
+| `Fixture Clamp Down` | clamps the board onto the pogo pins | `Signal` = `press`, `Level` `H`/`L` |
+| `Fixture Lock` | locks the clamps; the in-position feedback must confirm | `Signal` = `inpos`, `Level` |
+| `Fixture E-Stop Healthy` | verifies the emergency-stop chain is closed **before** any power is applied | `Signal` = `estop`, `Level` |
+| `Power On DUT` | switches the N5747A output on with the row setpoints | `Voltage` 0-60 V, `Current limit` 0-12.5 A |
+| `Power Off DUT` | switches the output off (teardown) | none |
+| `Fixture Unlock` / `Fixture Release` | releases the board after the tests (teardown) | `Signal` / `Level` |
+| `Reset Instruments` | returns every instrument to a safe standby (teardown) | instruments checklist |
+| `Operation: Custom` | free-form operation row for site-specific control | per dialog |
+
+- **Use when** - keep the factory order: impedance before power
+  (shorts must never be probed on a live board), E-Stop check before
+  `Power On DUT`, and never remove a teardown row - an aborted run
+  would leave the DUT powered or the fixture closed.
+- **Scenario** - a custom op can park a robot arm, switch an
+  external relay box or warm up a burner between the standard steps;
+  it executes like any op and logs its sub-actions to the Event Log.
 
 ## FCT Test Cases
 
@@ -230,19 +392,52 @@ Firmware`.
 
 ### FCT Test Methods
 
-- `MessageOK` / `MessageYesNo` / `MessageGoStop` - operator dialogs
-  (OK / Yes-No / GO-STOP). Closing the dialog counts as No / STOP and
-  fails the step.
-- `SendtoConsole` / `WaitforConsole` / `CapturefromConsole` -
-  serial-console keyword judgement (see `07_console.md`).
-- `SendtoCLI` / `WaitforCLI` / `CapturefromCLI` - host CLI variants
-  with the same message parsing.
-- `Delay` - plain wait (ms).
-- `WIFI` / `Bluetooth` - RF connectivity via CLI or vendor tool
-  (`iperf3`, `wifi_test`, `bt_test`).
-- Keyword judgement follows the **negative-wins** rule: any
-  `Fail` / `Error` keyword beats a later `Pass` in the same captured
-  batch.
+The FCT `Test Method` dropdown carries twelve methods in three
+families. All keyword judgements share the **negative-wins** rule:
+any `Fail` / `Error` keyword in the captured batch beats a later
+`Pass`.
+
+#### Operator dialogs
+
+- **MessageOK** - information dialog with an OK button; acknowledging
+  it passes the step. *Use for*: instructions the operator must
+  confirm, e.g. `Attach the antenna before the Wi-Fi test`.
+- **MessageYesNo** - Yes / No question; answering No - or just
+  closing the dialog - fails the step. *Use for*: subjective checks
+  only a human can make, e.g. `LED Test - all four LEDs lit?`.
+- **MessageGoStop** - a GO / STOP gate used before long or
+  intrusive actions such as firmware flashing; STOP (or closing)
+  fails the step, GO continues. *Example*: `Flash FAT Firmware`.
+
+#### Console and CLI keyword tests
+
+- **SendtoConsole** / **WaitforConsole** / **CapturefromConsole** -
+  write to, wait for, or capture a keyword from a serial / SSH
+  console channel (channel behaviour in `10_console.md`).
+  *Use for*: boot banners, kernel messages, interactive Linux
+  prompts, e.g. `WaitforConsole: COM1, 'Pass' or 'OK'`.
+- **SendtoCLI** / **WaitforCLI** / **CapturefromCLI** - the same
+  trio against the Host PC command line: station-side processes and
+  RF tool outputs, e.g. `SendtoCLI: "wifi_test --scan"`.
+- **Delay** - plain wait in milliseconds. *Use for*: settling time
+  between actions, e.g. 2000 ms before reading a sensor that just
+  powered up.
+
+#### RF connectivity
+
+- **WIFI** - Wi-Fi connectivity exercised through the CLI tools
+  (`wifi_test`, `iperf3` throughput runs) or the vendor utility.
+  *Use when* the DUT's WLAN must associate with the test AP and pass
+  traffic; the scan listing the reference SSID is a typical
+  criterion.
+- **Bluetooth** - BT connectivity via `bt_test` / the vendor tool.
+  *Use when* the DUT must discover or pair with the reference
+  device, e.g. an inquiry must list the reference headset.
+
+The quoted segments of the step name are the command / keyword
+payload the method uses at run time - edit them in the FCT Step
+dialog, and keep the expected keywords aligned with the negative-wins
+rule (put the failure keywords first when order matters).
 
 ## Editing Steps (Sequence Editor)
 
@@ -378,7 +573,7 @@ Everything else follows the supervisor-granted permission keys:
 - `edit_run_control` - the `Long Run` / `Interval` fields.
 - Product `Part#` / `Core ID` / `Batch#` are read-only for every role
   (YAML is the only editing entrance).
-- Console-specific keys are described in `07_console.md`.
+- Console-specific keys are described in `10_console.md`.
 
 ## Common Errors and Recovery
 
@@ -388,9 +583,13 @@ Everything else follows the supervisor-granted permission keys:
 - **Pre-test Failed (serial format)** - correct the Serial Number or
   adjust the format rule in the Settings menu; both fields empty means
   no check.
+- **ICT steps show Error in Real mode** - no instrument rack is
+  connected (or an instrument call failed). Connect the instruments
+  (Equipment page or `Tools > Set All instruments > Connect all`);
+  the Event Log carries the exact reason for each step.
 - **Console Connect Failed popup** - the pre-FCT auto-connect could
   not open every console channel; the run stops. Check the console
-  parameters and connections (see `07_console.md`), then run again.
+  parameters and connections (see `10_console.md`), then run again.
 - **A stage shows Skip** - its `EN` checkbox is unticked; a supervisor
   (or an operator with `toggle_stages`) can re-enable it.
 - **Overall Result IGNORE after Stop** - expected for a manual stop

@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 """Dynamic build versioning (interface_spec.md section 33).
 
-Resolves the real build version ONCE per process from, in order:
+THE VERSION NUMBER is the release version ``mtkgui.__version__``
+(starting ``v1.0.0.0``, user directive 2026-10-14): the GUI carries
+exactly ONE version at any time.  ``develop`` commits never change
+it - only a Release commit bumps the constant (and records the
+release in the Version History).  Build facts resolve ONCE per
+process from, in order:
 
 1. the ``MTKGUI_VERSION`` environment variable (packaged builds),
 2. a ``_build_version.txt`` file beside the app root (frozen builds),
-3. live git metadata of the working tree (nearest tag, branch, short
-   commit, dirty flag),
-4. the static ``mtkgui.__version__`` constant (last resort).
+3. live git metadata of the working tree (branch, short commit,
+   dirty flag) combined with the release version,
+4. the bare release version (last resort).
 
 The resolution never raises into the UI: every failure falls back
 silently to the next source and the returned :class:`VersionInfo`
@@ -118,6 +123,10 @@ def _default_runner(args: list[str]) -> tuple[int, str]:
 def _from_git(runner) -> VersionInfo | None:
     """Collect the version facts from live git metadata.
 
+    The version NUMBER itself is the release version
+    (``mtkgui.__version__`` - git tags no longer influence it);
+    git only contributes the branch / commit / dirty build facts.
+
     Args:
         runner: Callable executing one git command.
 
@@ -125,14 +134,14 @@ def _from_git(runner) -> VersionInfo | None:
         :class:`VersionInfo` with ``source="git"``, or ``None`` when
         git is unavailable / the tree has no commit.
     """
+    from mtkgui import __version__
     rc, commit = runner(["rev-parse", "--short", "HEAD"])
     if rc != 0 or not commit:
         return None
     rc, branch = runner(["rev-parse", "--abbrev-ref", "HEAD"])
-    rc, tag = runner(["describe", "--tags", "--abbrev=0"])
     rc, status = runner(["status", "--porcelain"])
     return VersionInfo(
-        tag=tag, branch=branch, commit=commit, dirty=bool(status),
+        tag=__version__, branch=branch, commit=commit, dirty=bool(status),
         source="git")
 
 

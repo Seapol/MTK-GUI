@@ -152,8 +152,8 @@ downgrades to kick in mid-run.
 
 ## Related pages
 
-- `08_reports_logs.md` — how audit-exported CSVs relate to the report
+- `11_reports_logs.md` — how audit-exported CSVs relate to the report
   exports under `reports/<date>/`.
-- `11_case_editor_config.md` — the config-edit permission that the
+- `13_case_editor_config.md` — the config-edit permission that the
   guarded demo action mirrors.
-- `12_faq.md` — the keyring and Run blocked quick fixes.
+- `14_faq.md` — the keyring and Run blocked quick fixes.

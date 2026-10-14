@@ -172,8 +172,8 @@ engine, so there is zero coupling with the core links.
 
 ## Related pages
 
-- `10_audit_security.md` — who may export, and where the audit trail
+- `12_audit_security.md` — who may export, and where the audit trail
   of every export lives.
-- `11_case_editor_config.md` — configuration parameters that feed the
+- `13_case_editor_config.md` — configuration parameters that feed the
   KPI computations (limits, shifts, station id).
-- `12_faq.md` — quick fixes for CSV log and Run blocked problems.
+- `14_faq.md` — quick fixes for CSV log and Run blocked problems.

@@ -121,11 +121,14 @@ class ArchiveManager:
     """
 
     def __init__(self, root, *, station: str = "S1",
-                 version: str = "v2.0.0", retain_days: int = 90,
+                 version: str = "", retain_days: int = 90,
                  max_capacity_mb: int = 1024, now=None):
+        # empty version -> the single release version
+        # (mtkgui.__version__, user directive 2026-10-14)
+        from mtkgui import __version__
         self.root = Path(root)
         self.station = station
-        self.version = version
+        self.version = version or __version__
         self.retain_days = retain_days
         self.max_capacity_mb = max_capacity_mb
         self._now = now or datetime.now

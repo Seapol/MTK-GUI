@@ -22,16 +22,17 @@ from mtkgui.gui.config_spec import (get_path, set_path,  # noqa: E402
                                     validate_config, validate_value,
                                     FIELDS_BY_PATH)
 from mtkgui.gui.config_store import ConfigStore  # noqa: E402
+from mtkgui import __version__  # noqa: E402  the single release version
 
 BASE_CFG = {
-    "project": {"software": "mtk-gui v2.0.0", "revision": "1.0",
+    "project": {"software": f"mtk-gui {__version__}", "revision": "1.0",
                 "created": "2026-10-04"},
     "product": {"part_number": "FRDM-IMX93", "core_id": "12345",
                 "batch": "Dev"},
     "test_workflow": {"stop_if_failure": False, "stop_if_any_short": True,
                       "retry": 0},
     "equipment": {"host": {"fields": {"OS": "Windows 11 Pro x64",
-                                      "Test SW": "mtk-gui v2.0.0"}}},
+                                      "Test SW": f"mtk-gui {__version__}"}}},
 }
 
 

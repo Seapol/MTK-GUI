@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -273,38 +274,85 @@ class FCTTestConfigPanel(QWidget):
         lay.addLayout(self._cmd_row_buttons())
         return w
 
+    def _insert_row(self, cmd: ConsoleCommand) -> None:
+        """Append one row and render the given command on it (the
+        shared scaffolding behind every Add entry)."""
+        r = self.cmd_table.rowCount()
+        self.cmd_table.insertRow(r)
+        # text columns: Name / WaitFor / SendTo / Capture
+        for col in (0, 2, 3, 4):
+            self.cmd_table.setItem(r, col, QTableWidgetItem(""))
+        # Timeout column = read-only
+        from PySide6.QtCore import Qt as _Qt
+        timeout_item = QTableWidgetItem("-")
+        timeout_item.setFlags(timeout_item.flags() & ~_Qt.ItemIsEditable)
+        self.cmd_table.setItem(r, 5, timeout_item)
+        # Console column = dropdown (serial/ssh rows or "(message)"
+        # operator-dialog rows)
+        cb = QComboBox()
+        cb.addItems(["serial", "ssh", MESSAGE_CHOICE])
+        self.cmd_table.setCellWidget(r, 1, cb)
+        cb.currentTextChanged.connect(
+            lambda _t, row=r: self._on_console_changed(row))
+        # Retry column = dropdown
+        rb = QComboBox()
+        rb.addItems(["no", "yes"])
+        self.cmd_table.setCellWidget(r, 6, rb)
+        self._save_row_cmd(r, cmd)
+        # bare-metal DUT: the new row's Console combo is serial only
+        self._refresh_console_transport_options()
+
+    def _add_console_row(self) -> None:
+        """Default row: Send enabled, Wait / Capture off."""
+        self._insert_row(ConsoleCommand(
+            kind="send", wait_enabled=False, send_enabled=True,
+            capture_enabled=False))
+
+    def _add_message_row(self, style: str) -> None:
+        """The three operator-message presets (user direction
+        2026-10-14):
+
+        - MessageOK: no console action at all - wait / send / capture
+          OFF, timeout OFF, retry OFF; OK continues the sequence.
+        - MessageYesNo: Yes sends y, No sends n (payloads editable in
+          the row editor); timeout 4 s; wait / capture / retry OFF.
+        - MessageGoStop: GO sends y -> the step PASSes and the run
+          continues; STOP sends n -> the step FAILs and the run
+          stops; timeout 4 s; the rest OFF."""
+        cmd = ConsoleCommand(
+            kind=KIND_MESSAGE, dialog_style=style,
+            wait_enabled=False, capture_enabled=False,
+            confirm_enabled=False, retries=0,
+            timeout=4.0 if style in (DIALOG_YESNO, DIALOG_GOSTOP)
+            else 0.0)
+        cmd.send_enabled = style != DIALOG_OK
+        if cmd.send_enabled:
+            cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
+        cmd.name = {"ok": "MessageOK", "yesno": "MessageYesNo",
+                    "gostop": "MessageGoStop"}[style]
+        self._insert_row(cmd)
+
     def _cmd_row_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()
         add = QPushButton("Add row")
+        # user direction 2026-10-14: the three operator-message presets
+        # are first-class Add entries with their console/timeout states
+        # preconfigured (MessageOK all off; MessageYesNo / MessageGoStop
+        # send y / n with a 4 s timeout)
+        add_menu = QMenu(add)
+        add_menu.addAction("Add console row",
+                           lambda: self._add_console_row())
+        add_menu.addSeparator()
+        add_menu.addAction("Add MessageOK",
+                           lambda: self._add_message_row(DIALOG_OK))
+        add_menu.addAction("Add MessageYesNo",
+                           lambda: self._add_message_row(DIALOG_YESNO))
+        add_menu.addAction("Add MessageGoStop",
+                           lambda: self._add_message_row(DIALOG_GOSTOP))
+        add.setMenu(add_menu)
 
         def _add():
-            r = self.cmd_table.rowCount()
-            self.cmd_table.insertRow(r)
-            # text columns: Name / WaitFor / SendTo / Capture
-            for col in (0, 2, 3, 4):
-                self.cmd_table.setItem(r, col, QTableWidgetItem(""))
-            # Timeout column = read-only
-            from PySide6.QtCore import Qt as _Qt
-            timeout_item = QTableWidgetItem("W:10s S:4s C:6s")
-            timeout_item.setFlags(timeout_item.flags() & ~_Qt.ItemIsEditable)
-            self.cmd_table.setItem(r, 5, timeout_item)
-            # Console column = dropdown (serial/ssh rows or "(message)"
-            # operator-dialog rows)
-            cb = QComboBox()
-            cb.addItems(["serial", "ssh", MESSAGE_CHOICE])
-            self.cmd_table.setCellWidget(r, 1, cb)
-            cb.currentTextChanged.connect(
-                lambda _t, row=r: self._on_console_changed(row))
-            # Retry column = dropdown
-            rb = QComboBox()
-            rb.addItems(["no", "yes"])
-            self.cmd_table.setCellWidget(r, 6, rb)
-            # default command: Send enabled, Wait/Capture off
-            self._save_row_cmd(r, ConsoleCommand(
-                kind="send", wait_enabled=False, send_enabled=True,
-                capture_enabled=False))
-            # bare-metal DUT: the new row's Console combo is serial only
-            self._refresh_console_transport_options()
+            self._add_console_row()
 
         add.clicked.connect(_add)
         remove = QPushButton("Remove selected")
@@ -481,11 +529,19 @@ class FCTTestConfigPanel(QWidget):
         msg.setPlaceholderText("Text shown to the operator "
                                "(empty = row name)")
         form.addRow("Message text:", msg)
+        # user direction 2026-10-14: the answer payloads (YesNo /
+        # GoStop rows only) - Yes / GO sends send_yes, No / STOP sends
+        # send_no; MessageOK sends nothing
+        send_yes = QLineEdit(cmd.send_yes or "y")
+        send_no = QLineEdit(cmd.send_no or "n")
+        form.addRow("Send on Yes / GO:", send_yes)
+        form.addRow("Send on No / STOP:", send_no)
         timeout = QDoubleSpinBox()
-        timeout.setRange(1.0, 3600.0)
+        timeout.setRange(0.0, 3600.0)
         timeout.setDecimals(0)
         timeout.setSuffix(" s")
-        timeout.setValue(float(max(cmd.timeout, 1.0)))
+        timeout.setSpecialValueText("off (wait forever)")
+        timeout.setValue(float(max(cmd.timeout, 0.0)))
         form.addRow("Timeout:", timeout)
         lay.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
@@ -496,6 +552,8 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             cmd.dialog_style = _DIALOG_ORDER[style.currentIndex()]
             cmd.confirm_message = msg.text().strip()
+            cmd.send_yes = send_yes.text().strip() or "y"
+            cmd.send_no = send_no.text().strip() or "n"
             cmd.timeout = float(timeout.value())
             self._save_row_cmd(row, cmd)
 
@@ -1117,14 +1175,23 @@ class FCTTestConfigPanel(QWidget):
         """Refresh the visible summary cells/dropdowns from cmd."""
         self._set_cell(r, 0, cmd.name)
         if cmd.kind == KIND_MESSAGE:
-            # operator-dialog row: no console stages; the dialog style
-            # shows in the Capture column and one timeout covers the row
-            self._set_cell(r, 2, "(message)", editable=False)
-            self._set_cell(r, 3, "(message)", editable=False)
+            # operator-dialog row (user direction 2026-10-14): the
+            # dialog style shows in the Capture column; SendTo shows
+            # the answer payloads (YesNo / GoStop) or (off) for
+            # MessageOK; MessageOK has NO timeout (wait forever), the
+            # other two carry their judgement window
+            self._set_cell(r, 2, "(off)", editable=False)
+            if cmd.dialog_style == DIALOG_OK:
+                self._set_cell(r, 3, "(off)", editable=False)
+                self._set_cell(r, 5, "-", editable=False)
+            else:
+                self._set_cell(r, 3, f"{cmd.send_yes} / {cmd.send_no}",
+                               editable=False)
+                self._set_cell(r, 5, f"S:{int(cmd.timeout)}s",
+                               editable=False)
             self._set_cell(r, 4, _DIALOG_LABELS.get(
                 cmd.dialog_style, _DIALOG_LABELS[DIALOG_YESNO]),
                 editable=False)
-            self._set_cell(r, 5, f"T:{int(cmd.timeout)}s", editable=False)
         else:
             self._set_cell(r, 2, cmd.expect_pass if cmd.wait_enabled
                            else "(off)")

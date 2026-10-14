@@ -15,21 +15,28 @@ HELP_ROOT = Path(__file__).resolve().parents[2] / "docs" / "help"
 
 #: ordered chapter list (key, menu label, section file). The Help menu
 #: mounts one action per chapter so a click opens that web page.
+#: 2026-10-14: chapter 6 (Channel Allocation) merged into the Yaml
+#: Build chapter; the Cluster chapter was removed (not user-facing);
+#: chapters 3 (Menus Reference), 6 (Instruments), 7 (Station
+#: Equipment) and 8 (Hardware BoM) were added - fourteen chapters in
+#: total.
 CHAPTERS = [
     ("user_guide", "1. Overview", "01_overview.md"),
     ("getting_started", "2. Getting Started", "02_getting_started.md"),
-    ("test_workflow", "3. Test Work Flow Page", "03_test_workflow.md"),
-    ("equipment", "4. Equipment Page", "04_equipment.md"),
-    ("yaml_build", "5. Yaml Build Page", "05_yaml_build.md"),
-    ("channel_allocation", "6. Channel Allocation Page",
-     "06_channel_allocation.md"),
-    ("console", "7. Console", "07_console.md"),
-    ("reports_logs", "8. Reports & Logs", "08_reports_logs.md"),
-    ("cluster", "9. Cluster", "09_cluster.md"),
-    ("audit_security", "10. Audit & Security", "10_audit_security.md"),
-    ("case_editor_config", "11. Case Editor & Config",
-     "11_case_editor_config.md"),
-    ("faq", "12. FAQ / Troubleshooting", "12_faq.md"),
+    ("menus", "3. Menus Reference", "03_menus.md"),
+    ("test_workflow", "4. Test Work Flow Page", "04_test_workflow.md"),
+    ("equipment", "5. Equipment Page", "05_equipment.md"),
+    ("instruments", "6. Instruments", "06_instruments.md"),
+    ("station_equipment", "7. Station Equipment",
+     "07_station_equipment.md"),
+    ("hardware_bom", "8. Hardware BoM", "08_hardware_bom.md"),
+    ("yaml_build", "9. Yaml Build Page", "09_yaml_build.md"),
+    ("console", "10. Console", "10_console.md"),
+    ("reports_logs", "11. Reports & Logs", "11_reports_logs.md"),
+    ("audit_security", "12. Audit & Security", "12_audit_security.md"),
+    ("case_editor_config", "13. Case Editor & Config",
+     "13_case_editor_config.md"),
+    ("faq", "14. FAQ / Troubleshooting", "14_faq.md"),
 ]
 
 #: menu key -> section file (kept for direct lookups by key)
@@ -37,48 +44,94 @@ HELP_TOPICS = {key: filename for key, _label, filename in CHAPTERS}
 
 
 def _inline(text: str) -> str:
-    """Bold + inline code within one line."""
+    """Links + bold + inline code within one line."""
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+                  r'<a href="\2" target="_blank">\1</a>', text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     return text
 
 
 def markdown_to_html(text: str) -> str:
-    """Tiny markdown-lite -> HTML (headings, bullets, fenced code,
-    bold, inline code; everything else as paragraphs)."""
+    """Markdown-lite -> HTML with markdown block semantics: consecutive
+    text lines merge into ONE paragraph (soft wrap), '- / *' bullets
+    become <ul> and '1.' items become <ol> with indented continuation
+    lines joining their item, plus pipe tables, headings, images and
+    fenced code.  The source files are hard-wrapped at ~72 columns, so
+    line merging is what lets the text fill the full content width."""
     out: list = []
+    para: list = []                       # pending paragraph lines
+    list_items: tuple | None = None       # ("ul"|"ol", [item html...])
+    table: list = []
     in_code = False
-    in_list = False
+
+    def flush_para() -> None:
+        if para:
+            out.append("<p>" + _inline(" ".join(para)) + "</p>")
+            para.clear()
+
+    def flush_list() -> None:
+        nonlocal list_items
+        if list_items:
+            kind, items = list_items
+            tag = "ol" if kind == "ol" else "ul"
+            out.append(f"<{tag}>" + "".join(
+                f"<li>{_inline(t)}</li>" for t in items) + f"</{tag}>")
+            list_items = None
+
+    def flush_table() -> None:
+        """Emit the collected | pipe rows as an HTML table."""
+        if not table:
+            return
+        rows = []
+        for raw in table:
+            cells = [c.strip() for c in raw.strip().strip("|").split("|")]
+            if cells and all(
+                    re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+                continue                      # alignment separator row
+            rows.append(cells)
+        if rows:
+            out.append("<table>")
+            out.append("<tr>" + "".join(
+                f"<th>{_inline(c)}</th>" for c in rows[0]) + "</tr>")
+            for r in rows[1:]:
+                out.append("<tr>" + "".join(
+                    f"<td>{_inline(c)}</td>" for c in r) + "</tr>")
+            out.append("</table>")
+        table.clear()
+
+    def flush_blocks() -> None:
+        flush_para()
+        flush_list()
+        flush_table()
+
     for line in (text or "").splitlines():
-        if line.strip().startswith("```"):
-            if in_list:
-                out.append("</ul>")
-                in_list = False
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            flush_blocks()
             out.append("<pre>" if not in_code else "</pre>")
             in_code = not in_code
             continue
         if in_code:
             out.append(line)
             continue
-        stripped = line.strip()
         if not stripped:
-            if in_list:
-                out.append("</ul>")
-                in_list = False
+            flush_blocks()
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            flush_para()
+            flush_list()
+            table.append(stripped)
             continue
         heading = re.match(r"^(#{1,4})\s+(.*)$", stripped)
         if heading:
-            if in_list:
-                out.append("</ul>")
-                in_list = False
+            flush_blocks()
             level = min(len(heading.group(1)) + 1, 5)
             out.append(f"<h{level}>{_inline(heading.group(2))}</h{level}>")
             continue
         image = re.match(r"^!\[([^\]]*)\]\(([^)\s]+)\)$", stripped)
         if image:
-            if in_list:
-                out.append("</ul>")
-                in_list = False
+            flush_blocks()
             alt, src = image.group(1), image.group(2)
             path = Path(src)
             if not path.is_absolute():
@@ -87,17 +140,30 @@ def markdown_to_html(text: str) -> str:
             continue
         bullet = re.match(r"^[-*]\s+(.*)$", stripped)
         if bullet:
-            if not in_list:
-                out.append("<ul>")
-                in_list = True
-            out.append(f"<li>{_inline(bullet.group(1))}</li>")
+            flush_para()
+            flush_table()
+            if list_items is None or list_items[0] != "ul":
+                flush_list()
+                list_items = ("ul", [])
+            list_items[1].append(bullet.group(1))
             continue
-        if in_list:
-            out.append("</ul>")
-            in_list = False
-        out.append(f"<p>{_inline(stripped)}</p>")
-    if in_list:
-        out.append("</ul>")
+        ordered = re.match(r"^\d+[.)]\s+(.*)$", stripped)
+        if ordered:
+            flush_para()
+            flush_table()
+            if list_items is None or list_items[0] != "ol":
+                flush_list()
+                list_items = ("ol", [])
+            list_items[1].append(ordered.group(1))
+            continue
+        # plain text: a continuation of the pending list item, or part
+        # of the pending paragraph (the source hard-wraps at ~72 cols)
+        flush_table()
+        if list_items is not None:
+            list_items[1][-1] += " " + stripped
+        else:
+            para.append(stripped)
+    flush_blocks()
     if in_code:
         out.append("</pre>")
     return "\n".join(out)
@@ -105,7 +171,12 @@ def markdown_to_html(text: str) -> str:
 
 def load_topic_html(key: str) -> str:
     """One topic rendered as HTML; a missing file degrades to a clear
-    placeholder (no dead links in the UI)."""
+    placeholder (no dead links in the UI).
+
+    The chapter heading is prefixed with the chapter number (from the
+    CHAPTERS order) so the body headings match the sidebar / pager
+    numbering - the number lives in ONE place and survives chapter
+    re-ordering without editing the markdown files."""
     filename = HELP_TOPICS.get(key)
     if filename is None:
         return f"<p>Unknown help topic {key!r}.</p>"
@@ -113,7 +184,12 @@ def load_topic_html(key: str) -> str:
     if not path.is_file():
         return (f"<p>Help content file <code>{filename}</code> is not "
                 "available in this installation.</p>")
-    return markdown_to_html(path.read_text(encoding="utf-8"))
+    html = markdown_to_html(path.read_text(encoding="utf-8"))
+    index = next((i for i, (_k, _l, f) in enumerate(CHAPTERS)
+                  if f == filename), None)
+    if index is not None and html.startswith("<h2>"):
+        html = f"<h2>{index + 1}. " + html[len("<h2>"):]
+    return html
 
 
 _PAGE_CSS = """
@@ -123,7 +199,12 @@ header { background: #14375a; color: #fff; padding: 14px 28px; }
 header h1 { margin: 0; font-size: 19px; font-weight: 600; }
 nav.top { background: #eef3f8; padding: 8px 28px; font-size: 13px; }
 nav.top a { color: #1a5c9e; text-decoration: none; margin-right: 14px; }
-main { max-width: 980px; margin: 0 auto; padding: 20px 28px 40px; }
+main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 44px; }
+body { line-height: 1.55; }
+p { margin: 10px 0; }
+ul, ol { margin: 10px 0; padding-left: 30px; }
+li { margin: 4px 0; }
+h1, h2, h3, h4, h5 { line-height: 1.3; }
 h1, h2, h3 { color: #14375a; }
 img { max-width: 100%; border: 1px solid #c9d4de; border-radius: 4px;
       margin: 10px 0; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
@@ -131,6 +212,12 @@ pre { background: #f4f6f8; border: 1px solid #d7dee5; padding: 10px;
       border-radius: 4px; overflow-x: auto; }
 code { background: #f0f2f4; padding: 1px 5px; border-radius: 3px; }
 pre code { background: none; padding: 0; }
+table { border-collapse: collapse; margin: 12px 0; font-size: 14.5px; }
+th, td { border: 1px solid #d7dee5; padding: 7px 14px;
+         text-align: left; vertical-align: top; }
+th { background: #eef3f8; color: #14375a; }
+a { color: #1a5c9e; text-decoration: none; }
+a:hover { text-decoration: underline; }
 nav.pager { display: flex; justify-content: space-between;
             margin-top: 36px; padding-top: 14px;
             border-top: 1px solid #d7dee5; }
@@ -220,7 +307,7 @@ aside a { display: block; color: #cfe0f1; text-decoration: none;
           margin: 2px 0; }
 aside a:hover { background: #25527e; color: #fff; }
 div.guide { margin-left: 250px; }
-div.guide > main { max-width: 920px; }
+div.guide > main { max-width: 1340px; }
 section.chapter { border-top: 1px solid #d7dee5;
                   padding-top: 8px; margin-top: 26px; }
 section.chapter:first-of-type { border-top: none; }
@@ -231,7 +318,7 @@ section.chapter:first-of-type { border-top: none; }
 
 def guide_page_html() -> str:
     """The all-in-one User Guide home page: a fixed sidebar with the
-    chapter table of contents and all twelve chapters rendered on one
+    chapter table of contents and all fourteen chapters rendered on one
     page (anchor links, screenshots included)."""
     toc = "".join(
         f'<a href="#chapter-{i + 1}">{label}</a>'
@@ -272,6 +359,41 @@ def open_guide() -> None:
     path = guide_temp_path()
     path.write_text(page, encoding="utf-8")
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
+#: standalone release log (Help > Version History) - NOT a guide
+#: chapter; it is rendered by its own menu action.  Releases are
+#: recorded here (develop commits are not, user directive 2026-10-14).
+VERSION_HISTORY_FILE = "version_history.md"
+
+
+def version_history_page_html() -> str:
+    """Standalone Version History page (same page chrome as a chapter
+    page, without the chapter navigation)."""
+    path = HELP_ROOT / VERSION_HISTORY_FILE
+    if path.is_file():
+        body = markdown_to_html(path.read_text(encoding="utf-8"))
+    else:
+        body = "<p>Version History file is not available.</p>"
+    return (f"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            f"<title>MTK GUI - Version History</title>"
+            f"<style>{_PAGE_CSS}</style></head><body>"
+            f"<header><h1>MTK GUI &mdash; Version History</h1></header>"
+            f"<main>{body}</main></body></html>")
+
+
+def open_version_history() -> bool:
+    """Render the Version History and open it in the system web
+    browser (Help > Version History)."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    import tempfile
+    out_dir = Path(tempfile.gettempdir()) / "mtk_gui_help"
+    out_dir.mkdir(exist_ok=True)
+    path = out_dir / "Version_History.html"
+    path.write_text(version_history_page_html(), encoding="utf-8")
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+    return True
 
 
 def about_html() -> str:

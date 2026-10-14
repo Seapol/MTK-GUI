@@ -152,9 +152,9 @@ mtk\            <- 整个文件夹一起拷，缺一不可
 - **Real mode 运行前必须先连仪器**（2026-10-14 起）：Tools → Connect all 建立 Instrument Gateway 后才能 Run；未连接时 ICT 测量行 / 标准操作 / 电源时序采集一律报 **Error**（设备故障停机策略生效），不再出现无 Measured 值的假 PASS。Virtual mode 不受影响。
 - **仓库不再内置示例计划**（2026-10-13 起移除）：包内的 `yaml_plan\examples\` 只含 DUT 脚本资产（`dut_scripts\`）。FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.2.yaml`），或直接拷贝手上的计划文件。
 
-**版本号显示 v4.1.1.0000？**
+**版本号显示 v1.0.0.0？**
 
-exe 由源码直接打包时未带 CI 生成的 `resources\version.json`，状态栏回退显示静态版本 `v4.1.1.0000`，功能无影响；CI 打包管线构建时会写入真实版本号。
+这是正确的（2026-10-14 起）：版本号已统一为唯一发布版本 `mtkgui.__version__`（当前 `v1.0.0.0`），状态栏 / 登录框 / About 全部显示它。打包机**不再需要** CI 生成的 `resources\version.json`，直接从源码打包即可。开发（develop）提交不改变版本号，仅 Release 提交升级并在 Help → Version History 记录；构建信息（分支 / commit）在 Help → About 查看。
 
 ---
 
