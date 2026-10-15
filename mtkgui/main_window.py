@@ -57,6 +57,7 @@ from .permissions import (
     save_permissions,
 )
 from .qt_guard import qt_safe
+from .startup_timing import mark as _startup_mark
 from .test_workflow_page import TestWorkFlowPage
 from .engine.steps import op_step
 from .version_info import get_version_info
@@ -415,10 +416,14 @@ class MainWindow(QMainWindow):
         self._last_batch = None
 
         self._build_ui()
+        _startup_mark("ui: _build_ui done")
         self._build_menus()
+        _startup_mark("ui: _build_menus done")
         # restore the GUI colour theme chosen in a previous session
         self.apply_gui_theme(saved_theme())
+        _startup_mark("ui: theme applied")
         self.apply_permissions()
+        _startup_mark("ui: permissions applied")
 
     # ---------------------------------------------------------------- size
     def _init_size(self):
@@ -523,13 +528,16 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
 
         self.workflow_page = TestWorkFlowPage()
+        _startup_mark("ui: TestWorkFlowPage built")
         self.tabs.addTab(self.workflow_page, "Test Work Flow")
 
         self.equipment_page = EquipmentPage()
+        _startup_mark("ui: EquipmentPage built")
         self.tabs.addTab(self.equipment_page, "Equipment")
 
         # V4.0: Yaml Build tab, fixed at the rightmost position
         self.yaml_build_page = YamlBuildPage()
+        _startup_mark("ui: YamlBuildPage built")
         self.tabs.addTab(self.yaml_build_page, "Yaml Build")
 
         # NOTE: the dedicated Channel Allocation tab is GONE (user

@@ -104,6 +104,7 @@ from .engine import (
 )
 from .engine.rails import DURATION_S
 from .qt_guard import qt_safe
+from .startup_timing import mark as _startup_mark
 from .style import gui_theme_color, saved_theme, text_for_card
 from .virtual_hardware import VirtualRack
 from .widgets.console_widget import ERROR_COLOR
@@ -319,6 +320,7 @@ class TestWorkFlowPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        _startup_mark("twf: init start")
         self.rail_samples = None
         self.rail_volts = None
         self.rail_csv_path = None
@@ -511,6 +513,7 @@ class TestWorkFlowPage(QWidget):
         self.run_control_group = self._build_run_control()
         self.overall_group = self._build_overall()
         self.result_group = self._build_result()
+        _startup_mark("twf: header groups built")
 
         root = QVBoxLayout(self)
 
@@ -548,6 +551,7 @@ class TestWorkFlowPage(QWidget):
         fct_split.addWidget(self._build_fct())
         self.multi_console = MultiConsoleWidget()
         fct_split.addWidget(self.multi_console)
+        _startup_mark("twf: fct + console built")
         fct_split.setStretchFactor(0, 1)   # FCT 50%
         fct_split.setStretchFactor(1, 1)   # Console 50%
         fct_split.setSizes([500, 500])     # initial 1:1 ratio
@@ -570,6 +574,7 @@ class TestWorkFlowPage(QWidget):
 
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
+        _startup_mark("twf: page layout done")
 
     # ------------------------------------------------------- permissions
     def apply_permissions(self, perm, supervisor):

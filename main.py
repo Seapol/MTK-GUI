@@ -4,18 +4,24 @@
 Run with: python main.py
 """
 
-import faulthandler
 import sys
 
-from PySide6.QtWidgets import QApplication
+import mtkgui.startup_timing as _timing
 
-from mtkgui import __app_name__
-from mtkgui.main_window import MainWindow
-from mtkgui.permissions import LoginDialog
-from mtkgui.style import QSS
+_timing.mark("entry (pyinstaller bootloader done)")
 
 
 def main():
+    import faulthandler
+
+    from PySide6.QtWidgets import QApplication
+
+    from mtkgui import __app_name__
+    from mtkgui.main_window import MainWindow
+    from mtkgui.permissions import LoginDialog
+    from mtkgui.style import QSS
+
+    _timing.mark("imports done")
     # native crash reports lack Python frames; faulthandler prints the
     # exact Python stack to stderr on SIGSEGV (macOS exit-crash forensics)
     if sys.stderr is not None:  # windowed PyInstaller builds have no stderr
@@ -27,6 +33,7 @@ def main():
     app.setApplicationDisplayName(__app_name__)
     app.setOrganizationName("Manufacturing Test Kit")
     app.setStyleSheet(QSS)
+    _timing.mark("QApplication ready")
 
     # startup login: Supervisor (password) or Operator; must pick one.
     # Returns (role, mode, fixture_type); Virtual mode is supervisor-
@@ -35,9 +42,12 @@ def main():
     if result is None:
         sys.exit(0)
     role, mode, fixture = result
+    _timing.mark(f"login done (role={role}, mode={mode}, fixture={fixture})")
 
     window = MainWindow(role, mode, fixture)
+    _timing.mark("MainWindow constructed")
     window.show()
+    _timing.mark("window shown")
     sys.exit(app.exec())
 
 
