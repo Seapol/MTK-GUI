@@ -585,8 +585,8 @@ Everything else follows the supervisor-granted permission keys:
 ## Common Errors and Recovery
 
 - **Run blocked: no YAML file loaded** - load a project with
-  `File > Load Yaml` first; the page starts empty by design (one
-  placeholder row per table, no rails, no consoles).
+  `File > Load Yaml` first; the page starts empty by design (zero
+  table rows, no rails, no consoles).
 - **Pre-test Failed (serial format)** - correct the Serial Number or
   adjust the format rule in the Settings menu; both fields empty means
   no check.

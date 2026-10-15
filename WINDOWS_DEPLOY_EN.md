@@ -98,6 +98,15 @@ dist\MTK_GUI\_internal\       <- dependencies (must stay next to MTK_GUI.exe)
 
 Double-click `dist\MTK_GUI\MTK_GUI.exe` (GUI app, no console window).
 
+> Every launch writes `_startup_timing.log` next to the exe (the
+> startup timing probe, kept for on-site diagnostics 2026-10-15;
+> plain text, negligible overhead - may be kept or deleted). Large
+> ICT plans (e.g. 96624, 517 KB) load through a staged chain: the
+> status-bar progress bar tracks the stages, Run Control and the
+> double-click table editing are disabled during the load and
+> restored automatically; switching projects auto-closes the
+> previous one first.
+
 If copying to another machine, **always copy the whole `dist\MTK_GUI` folder** — never just MTK_GUI.exe.
 
 ## 7. Copy to Factory PCs (runtime deployment)

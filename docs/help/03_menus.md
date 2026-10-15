@@ -17,8 +17,13 @@ Project file and account handling.
 - **Load Yaml…** - opens the platform file-open dialog and loads a
   project YAML into the whole application (test tables, rails,
   consoles, instrument parameters, channel allocation). The run
-  gate blocks any run until a project is loaded. *Dialog: file
-  open dialog.*
+  gate blocks any run until a project is loaded. Large plans load
+  through a staged chain: the status-bar progress bar tracks the
+  stages, Run Control and the double-click table editing are
+  disabled until the load completes, and a project already loaded
+  is closed automatically FIRST (switching projects never blends
+  two test projects). A run still active blocks the load with a
+  hint - stop it first. *Dialog: file open dialog.*
 - **Apply and Save Yaml** - commits the current page state into the
   project YAML model and saves it to the loaded file. Saving a
   project without usable test items asks for confirmation first.
@@ -27,9 +32,11 @@ Project file and account handling.
   entry disabled.
 - **Save as Yaml…** - same commit, but writes to a chosen file.
   *Dialog: file save dialog.* Permission-gated like the save above.
-- **Close Yaml** - unloads the current project: test tables reset
-  to the placeholder rows, rails and the Overall Flow clear, the
-  Overall Result resets (the Event Log history is kept). No dialog.
+- **Close Yaml** - unloads the current project: the ICT / FCT test
+  tables clear COMPLETELY (zero rows - no placeholder rows since
+  2026-10-15), rails and the Overall Flow clear, the Overall Result
+  resets (the Event Log history is kept). *Dialog: confirmation
+  box.*
 - **Switch Account…** - opens the login dialog again for an account
   change; switching to Supervisor requires the password
   re-authentication. *Dialog: login window.*
