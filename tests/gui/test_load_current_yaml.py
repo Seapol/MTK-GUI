@@ -268,7 +268,14 @@ def test_close_clears_run_state(window, monkeypatch):
     assert "Yaml closed" in logged
 
 
-def test_yaml_load_updates_product_information(window, monkeypatch):
+def _wait_load_done(window, qapp):
+    """The staged yaml load (2026-10-15) defers its work via zero-time
+    QTimer stages - pump the event loop until the chain completes."""
+    while getattr(window, "_yaml_loading", False):
+        qapp.processEvents()
+
+
+def test_yaml_load_updates_product_information(window, monkeypatch, qapp):
     """File > Load Yaml fills Product Information from the loaded
     file's product section (round trip: Load current yaml auto-save ->
     Close -> Load)."""
@@ -288,6 +295,7 @@ def test_yaml_load_updates_product_information(window, monkeypatch):
         "mtkgui.main_window.QFileDialog.getOpenFileName",
         lambda *a, **k: (saved, ""))
     window.load_yaml()
+    _wait_load_done(window, qapp)
     page = window.workflow_page
     assert page.part_edit.text() == "MTK12345"
     assert page.core_edit.text() == "29420"
@@ -295,9 +303,8 @@ def test_yaml_load_updates_product_information(window, monkeypatch):
     assert page.project_path == saved
 
 
-def test_plan_yaml_load_updates_product_information(window,
-                                                    monkeypatch,
-                                                    tmp_path):
+def test_plan_yaml_load_updates_product_information(window, monkeypatch,
+                                                    qapp, tmp_path):
     """File > Load Yaml of a published PLAN file fills Product
     Information from the plan's design_input section (user direction
     2026-10-14: the plan branch previously left the group empty)."""
@@ -317,6 +324,7 @@ def test_plan_yaml_load_updates_product_information(window,
         "mtkgui.main_window.QFileDialog.getOpenFileName",
         lambda *a, **k: (str(path), ""))
     window.load_yaml()
+    _wait_load_done(window, qapp)
     page = window.workflow_page
     assert page.part_edit.text() == "MTK12345"
     assert page.core_edit.text() == "29420"

@@ -1119,28 +1119,27 @@ class TestWorkFlowPage(QWidget):
             self.project_file_lbl.setToolTip("Path of the loaded YAML file")
 
     def clear_tables(self):
-        """When no YAML is loaded, clear ICT/FCT to a single empty row,
-        clear the Power Rails Up Sequence waveform and remove every
-        Console channel."""
-        self.ict_steps = [("op", "", "—", "—", "—", "—")]
-        self.ict_enables = [True]
-        self.ict_waits = [100]
-        self.ict_timeouts = [5000]
-        self.ict.setRowCount(1)
-        self._ict_edit_guard = True
-        self._fill_ict(placeholder=True)
-        self._ict_edit_guard = False
+        """When no YAML is loaded, clear ICT/FCT COMPLETELY (zero rows,
+        user direction 2026-10-15: the former single empty placeholder
+        row - an empty op / MessageOK entry - is gone), clear the Power
+        Rails Up Sequence waveform and remove every Console channel."""
+        self.ict_steps = []
+        self.ict_enables = []
+        self.ict_waits = []
+        self.ict_timeouts = []
+        self.ict_comments = []
+        self.ict_breakpoints = set()
+        self.ict.setRowCount(0)
 
-        self.fct_rows = [""]
-        self.fct_enables = [True]
-        self.fct_waits = [100]
-        self.fct_timeouts = [5000]
-        self.fct_kinds = ["MessageOK"]
-        self.fct_op_params = [None]
-        self.fct.setRowCount(1)
-        self._fct_edit_guard = True
-        self._fill_fct_all()
-        self._fct_edit_guard = False
+        self.fct_rows = []
+        self.fct_enables = []
+        self.fct_waits = []
+        self.fct_timeouts = []
+        self.fct_kinds = []
+        self.fct_op_params = []
+        self.fct_comments = []
+        self.fct_breakpoints = set()
+        self.fct.setRowCount(0)
 
         # Power Rails Up Sequence: fully YAML-defined — no rails, no
         # checkboxes and nothing captured before a project is loaded
@@ -1861,6 +1860,8 @@ class TestWorkFlowPage(QWidget):
     # ---- sequence editor dialog (double-click ICT / FCT) ----
     def _edit_ict_item(self, row, _col):
         """Double-click ICT -> open sequence editor."""
+        if getattr(self, "_yaml_loading", False):
+            return                  # staged yaml load in progress
         if not self._can_edit_ict:
             self._deny_edit("ICT test cases")
             return
@@ -1868,6 +1869,8 @@ class TestWorkFlowPage(QWidget):
 
     def _edit_fct_item(self, row, _col):
         """Double-click FCT -> open sequence editor."""
+        if getattr(self, "_yaml_loading", False):
+            return                  # staged yaml load in progress
         if not self._can_edit_fct:
             self._deny_edit("FCT test cases")
             return

@@ -1362,55 +1362,144 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ File menu
     def load_yaml(self):
-        """File > Load Yaml: pick a project YAML file and apply it."""
+        """File > Load Yaml: pick a project YAML file and apply it.
+
+        The load runs as a QTimer-driven stage chain with the status
+        bar progress bar (the big ICT plans froze the GUI for ~15 s in
+        the old synchronous path) - see _begin_yaml_load."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Yaml", "", "YAML files (*.yaml *.yml)")
         if not path:
             return
+        if self.workflow_page._runner.state != "idle":
+            QMessageBox.information(
+                self, "Run Active",
+                "A test run is active - stop it before loading "
+                "another project.")
+            return
+        self._begin_yaml_load(path)
+
+    # ------------------------------------------------- staged yaml load
+    def _begin_yaml_load(self, path: str) -> None:
+        """Non-blocking YAML load (user direction 2026-10-15):
+
+        1. a previously loaded project is closed FIRST - two test
+           projects must never blend in the tables (silent auto-close,
+           the manual File > Close Yaml keeps its confirm dialog);
+        2. Run Control (Run/Stop, Long Run, Interval) and the
+           double-click table editing are disabled while loading;
+        3. the status-bar progress bar tracks the stages;
+        4. every control is restored once the load completes."""
+        if getattr(self, "_yaml_loading", False):
+            return
+        self._yaml_loading = True
+        self._yaml_config = None
+        self._yaml_plan_errors = None
+        self._yaml_load_queue = [
+            ("Close previous project", 5,
+             lambda: self._reset_to_factory(auto=True)
+             if self._project_path else None),
+            ("Reading file", 25, lambda: self._yaml_parse(path)),
+            ("Applying project", 45, lambda: self._yaml_apply(path)),
+            ("Yaml Build refresh", 95, lambda: self._yaml_finish(path)),
+            ("Done", 100, lambda: self._yaml_done()),
+        ]
+        self._yaml_loading_ui(True)
+        self._yaml_load_next()
+
+    def _yaml_load_next(self) -> None:
+        """Run one load stage, then hand control back to the event
+        loop before the next one (the GUI stays alive throughout)."""
+        if not getattr(self, "_yaml_load_queue", None):
+            return
+        label, weight, fn = self._yaml_load_queue.pop(0)
+        self._yaml_progress(weight, label)
         try:
-            config = project_config.load_config(path)
-        except (OSError, project_config.yaml.YAMLError) as exc:
+            fn()
+        except Exception as exc:      # noqa: BLE001 - a failed load
+            # must never wedge the GUI in the loading state
+            self._yaml_load_queue = []
+            self._yaml_done()
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Yaml load FAILED: {exc}")
             QMessageBox.critical(self, "Load Failed", str(exc))
             return
+        if self._yaml_load_queue:
+            QTimer.singleShot(0, self, qt_safe(self._yaml_load_next))
+
+    def _yaml_progress(self, value: int, label: str) -> None:
+        self.status_progress.setRange(0, 100)
+        self.status_progress.setValue(value)
+        self.status_progress.setFormat(f"Loading project: {label}")
+
+    def _yaml_loading_ui(self, loading: bool) -> None:
+        """Disable / restore Run Control + table editing during the
+        staged load (the double-click handlers check the flag too)."""
+        page = self.workflow_page
+        page._yaml_loading = loading
+        page.btn_run.setEnabled(not loading)
+        page.btn_stop.setEnabled(not loading)
+        page.longrun_spin.setEnabled(not loading)
+        page.interval_spin.setEnabled(not loading)
+
+    def _yaml_parse(self, path: str) -> None:
+        self._yaml_config = project_config.load_config(path)
+
+    def _yaml_apply(self, path: str) -> None:
+        config = self._yaml_config
         if isinstance(config, dict) and \
                 ("yaml_build" in config or "plan" in config):
             # published plan file (plan + yaml_build sections, the
-            # Yaml Build page output) -> restore into the build model
-            # user direction 2026-10-14: the plan's Design Input
-            # identity lands in Product Information too; the machine
-            # generated plan loads SILENTLY (the no-UI legacy modules
-            # rails/clocks/gpios are not validated - their empty
-            # required fields must not raise "Load Warnings")
-            errors = self.yaml_build_page.model.apply_yaml_dict(
-                config, validate_no_ui=False)
-            self._sync_rails_to_workflow()
-            self.yaml_build_page.refresh_all()
-            # the plan's Design Input identity lands in Product
-            # Information too (single part-number source)
-            project_config.sync_product_identity(
-                config, self.workflow_page, self.yaml_build_page.model)
-            if errors:
-                QMessageBox.warning(self, "Load Warnings",
-                                    "\n".join(errors))
-            self._project_path = path
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] Plan yaml loaded: {path}")
-            return
-        project_config.apply_config(
-            config, self.workflow_page, self.equipment_page,
-            self.yaml_build_page.model)
+            # Yaml Build page output) -> restore into the build model;
+            # machine-generated plans load silently (the no-UI legacy
+            # modules rails/clocks/gpios are not validated)
+            self._yaml_plan_errors = self.yaml_build_page.model.\
+                apply_yaml_dict(config, validate_no_ui=False)
+        else:
+            self._yaml_plan_errors = None
+            project_config.apply_config(
+                config, self.workflow_page, self.equipment_page,
+                self.yaml_build_page.model)
+
+    def _yaml_finish(self, path: str) -> None:
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
         self._project_path = path
-        self.workflow_page.set_project_file(path)
-        self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
+        if self._yaml_plan_errors is not None:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Plan yaml loaded: {path}")
+        else:
+            self.workflow_page.set_project_file(path)
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
+
+    def _yaml_done(self) -> None:
+        self._yaml_loading = False
+        self._yaml_loading_ui(False)
+        # the plan-branch identity sync + warnings happen here, after
+        # the UI is restored (a modal warning box must not sit inside
+        # the stage chain)
+        if self._yaml_plan_errors is not None:
+            # user direction 2026-10-14: the plan's Design Input
+            # identity lands in Product Information too
+            project_config.sync_product_identity(
+                self._yaml_config, self.workflow_page,
+                self.yaml_build_page.model)
+            if self._yaml_plan_errors:
+                QMessageBox.warning(self, "Load Warnings",
+                                    "\n".join(self._yaml_plan_errors))
+        self.status_progress.setRange(0, 1)
+        self.status_progress.setValue(0)
+        self.status_progress.setFormat("Idle")
+        self._yaml_config = None
+        self._yaml_plan_errors = None
 
     def close_yaml(self):
         """File > Close Yaml: drop the current project and reset the
         GUI to the factory no-yaml state (blank product info, default
-        stop policies, empty ICT/FCT tables, no rails / consoles,
-        equipment defaults, fresh Yaml Build model)."""
+        stop policies, EMPTY ICT/FCT tables - zero rows since the
+        2026-10-15 direction - no rails / consoles, equipment
+        defaults, fresh Yaml Build model)."""
         if self._project_path:
             answer = QMessageBox.question(
                 self, "Close Yaml",
@@ -1419,6 +1508,11 @@ class MainWindow(QMainWindow):
                 "you saved before.")
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        self._reset_to_factory()
+
+    def _reset_to_factory(self, auto: bool = False) -> None:
+        """Factory reset shared by Close Yaml (confirmed) and the
+        auto-close before loading a different project (silent)."""
         page = self.workflow_page
         # product info + stop policies back to the factory defaults
         page.part_edit.setText("")
@@ -1456,8 +1550,10 @@ class MainWindow(QMainWindow):
         self.yaml_build_page.clear_preview()
         self._project_path = None
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Yaml closed - "
-            "GUI reset to the factory state")
+            f"[{datetime.now():%H:%M:%S}] "
+            + ("Previous project auto-closed (project switch)"
+               if auto else
+               "Yaml closed - GUI reset to the factory state"))
 
     def _goto_test_workflow(self):
         """Merged 'Build ICT Test Work Flow Sequence' card: switch to

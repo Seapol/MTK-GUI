@@ -66,6 +66,10 @@ GPIO_DO = "No Output"
 #: keys rendered as READ-ONLY auto-filled items (not user dropdowns)
 AUTO_KEYS = frozenset({"band"})
 
+#: viewport-lazy rendering: dropdown widgets render for the visible
+#: rows plus this margin above/below; scrolling tops the rest up
+LAZY_MARGIN_ROWS = 30
+
 #: column layout per table kind: (key, label, choices or None).
 #: Power tab (user direction): NO Instrument / Channel / Status
 #: columns - Impedance and Voltage pick a real DAQM908A sense
@@ -281,6 +285,15 @@ class _NetTable(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         lay.addWidget(self.table)
+        # viewport-lazy dropdown rendering (2026-10-15): a 652-net GPIO
+        # table means 4000+ QComboBox objects and ~12 s of QSS polish at
+        # every project load - the row DATA is always complete (the
+        # _rows objects are the single source of truth, collect() reads
+        # them), only the dropdown WIDGETS render for the visible
+        # window (+ margin) and top up while scrolling.
+        self._rendered: set[int] = set()
+        self.table.verticalScrollBar().valueChanged.connect(
+            lambda _v: self._render_window())
         keys = [k for k, _l, *_rest in columns]
         # tables WITHOUT a Status column (Power) keep it as None
         self.status_col = (keys.index("status")
@@ -296,10 +309,12 @@ class _NetTable(QWidget):
     # ------------------------------------------------- adaptive layout
     def eventFilter(self, obj, event) -> bool:
         """Viewport resize -> re-distribute the column widths (the
-        table layout reflows automatically on window resize)."""
+        table layout reflows automatically on window resize) and top
+        up the lazy-rendered dropdown window."""
         if obj is self.table.viewport() \
                 and event.type() == QEvent.Type.Resize:
             self.reflow()
+            self._render_window()
         return super().eventFilter(obj, event)
 
     def reflow(self, viewport_width: int | None = None) -> None:
@@ -357,8 +372,14 @@ class _NetTable(QWidget):
 
     # ---------------------------------------------------------- population
     def load_rows(self, rows: list[AllocatedRow]) -> None:
-        """(Re)render the rows; config cells become dropdown-only
-        combos wired to the auto status, Status stays read-only."""
+        """(Re)load the row DATA and render the visible window.
+
+        The row objects are the single source of truth: they are fully
+        normalized here (single-choice columns auto-show their only
+        option, legacy values reset), while the dropdown WIDGETS are
+        rendered lazily for the visible rows only (see
+        :meth:`_render_window`) - a full render of a 652-row GPIO table
+        costs ~12 s of widget polish."""
         # drop the previous row widgets FIRST: setCellWidget does not
         # delete the replaced widget in every Qt build - the old combos
         # stay parented to the viewport and stack as ghosts over row 0
@@ -396,38 +417,77 @@ class _NetTable(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table.setItem(r, c, item)
                 else:
+                    # data-level normalization (the widget mirror is
+                    # deferred to the render window): single-choice
+                    # columns auto-show their only option - the row
+                    # state must mirror what would be displayed, never
+                    # a hidden UNSET; a legacy value no longer offered
+                    # by the pool (e.g. the pre-pool Power Yes/No
+                    # cells) resets to a clean unconfigured state
                     choices = {
                         "test_point": test_point_choices(members),
                     }.get(key)
                     if choices is None:
                         choices = {k: ch for k, _l, ch in
                                    self.columns if ch}[key]
-                    combo = QComboBox()
-                    # fixed single-attribute columns (GPIO DI / DO)
-                    # carry no UNSET placeholder
-                    items = ([*choices] if len(choices) == 1
-                             else [UNSET, *choices])
-                    combo.addItems(items)
                     current = getattr(row, key)
-                    if current and current != UNSET \
-                            and combo.findText(current) >= 0:
-                        combo.setCurrentText(current)
-                    elif current and current != UNSET:
-                        # legacy value no longer offered by the pool
-                        # (e.g. the pre-pool Power Yes/No cells) -> a
-                        # clean unconfigured state, never a hidden one
+                    if current in ("", UNSET):
+                        if len(choices) == 1:
+                            setattr(row, key, next(iter(choices)))
+                    elif current not in choices:
                         setattr(row, key, UNSET)
-                    combo.currentTextChanged.connect(
-                        lambda value, rr=r, kk=key:
-                            self._cell_changed(rr, kk, value))
-                    self.table.setCellWidget(r, c, combo)
-                    # single-choice combos auto-show their only option
-                    # (e.g. one member pin) - the row state must mirror
-                    # what is displayed, never a hidden UNSET
-                    if getattr(row, key) in ("", UNSET) \
-                            and combo.currentText() != UNSET:
-                        setattr(row, key, combo.currentText())
+        self._rendered = set()
+        self._render_window()
         self.reflow()     # keep the adaptive layout after (re)fill
+
+    # --------------------------------------------- lazy combo rendering
+    def _render_window(self) -> None:
+        """Render the dropdown widgets for the rows around the visible
+        viewport (the data in ``_rows`` is always complete; combos only
+        mirror it).  A hidden tab has a zero-height viewport - its rows
+        render when the tab is shown (currentChanged hook)."""
+        n = self.table.rowCount()
+        if not n:
+            return
+        viewport_h = self.table.viewport().height()
+        if viewport_h <= 0:
+            return
+        row_h = max(self.table.rowHeight(0), 1)
+        first = max(0, self.table.verticalScrollBar().value()
+                    // row_h - LAZY_MARGIN_ROWS)
+        last = min(n, first + viewport_h // row_h
+                   + 2 * LAZY_MARGIN_ROWS)
+        for r in range(first, last):
+            if r not in self._rendered:
+                self._rendered.add(r)
+                self._render_row(r)
+
+    def _render_row(self, r: int) -> None:
+        """Create the dropdown widgets of ONE row (mirror of the row
+        object state; every change writes back via _cell_changed)."""
+        row = self._rows[r]
+        members = self._members_of(row.net)
+        for c, (key, _label, *_rest) in enumerate(self.columns):
+            if key in ("net", "status") or key in AUTO_KEYS:
+                continue               # items exist for every row
+            choices = {
+                "test_point": test_point_choices(members),
+            }.get(key)
+            if choices is None:
+                choices = {k: ch for k, _l, ch in
+                           self.columns if ch}[key]
+            combo = QComboBox()
+            # fixed single-attribute columns (GPIO DI / DO) carry no
+            # UNSET placeholder
+            combo.addItems([*choices] if len(choices) == 1
+                           else [UNSET, *choices])
+            current = getattr(row, key)
+            if current and current != UNSET:
+                combo.setCurrentText(current)
+            combo.currentTextChanged.connect(
+                lambda value, rr=r, kk=key:
+                    self._cell_changed(rr, kk, value))
+            self.table.setCellWidget(r, c, combo)
 
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
         """A dropdown changed: store the value + recompute Status.
@@ -539,6 +599,10 @@ class ChannelAllocationPage(QWidget):
         self.tabs.addTab(self.table_power, "Power Nets")
         self.tabs.addTab(self.table_clock, "Clock Nets")
         self.tabs.addTab(self.table_gpio, "GPIO Nets")
+        # a hidden tab has a zero-height viewport - its dropdown window
+        # renders the moment the tab is shown (lazy render, 2026-10-15)
+        self.tabs.currentChanged.connect(
+            lambda _i: self.tabs.currentWidget()._render_window())
         lay.addWidget(self.tabs, 1)
 
         self.lbl_summary = QLabel("")
