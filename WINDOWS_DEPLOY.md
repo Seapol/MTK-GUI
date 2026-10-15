@@ -1,6 +1,6 @@
-# MTK GUI Windows 部署打包指南（exe 命名为 mtk.exe）
+# MTK GUI Windows 部署打包指南（exe 命名为 MTK_GUI.exe）
 
-在 Windows 电脑上从零拉代码、打包出 `mtk.exe` 的完整步骤。
+在 Windows 电脑上从零拉代码、打包出 `MTK_GUI.exe` 的完整步骤。
 在 CMD 或 PowerShell 中执行。
 
 ---
@@ -10,8 +10,8 @@
 | 机器 | 角色 | 需要什么 |
 |---|---|---|
 | Mac | 开发机 | SSH key（已就绪），`git push` / `git pull` 代码 |
-| Windows 机 | 打包机 | 本指南：HTTPS clone + venv + pyinstaller，产出 `dist\mtk\` |
-| 工厂电脑 | 运行 | 什么都不用装（不用 git、不用 Python），只拷 `dist\mtk\` 文件夹 |
+| Windows 机 | 打包机 | 本指南：HTTPS clone + venv + pyinstaller，产出 `dist\MTK_GUI\` |
+| 工厂电脑 | 运行 | 什么都不用装（不用 git、不用 Python），只拷 `dist\MTK_GUI\` 文件夹 |
 
 ---
 
@@ -60,46 +60,16 @@ pip install -r requirements.txt
 
 > 每次新开终端执行命令前，先执行 `.venv\Scripts\activate` 激活环境。
 
-## 4. 修改 spec，把 exe 改名为 mtk.exe
+## 4. 确认 spec（无需修改）
 
-exe 的名字由 spec 文件里的 `name=` 决定，需要改两处。
-
-用记事本打开仓库根目录下的 `MTK_GUI_windows.spec`：
-
-```bat
-notepad MTK_GUI_windows.spec
-```
-
-找到 `EXE(...)` 里的：
-
-```python
-    name='MTK_GUI',
-```
-
-改成：
-
-```python
-    name='mtk',
-```
-
-再找到 `COLLECT(...)` 里的：
-
-```python
-    name='MTK_GUI',
-```
-
-也改成：
-
-```python
-    name='mtk',
-```
-
-改完保存关闭。
+exe 的名字由 spec 文件里的 `name=` 决定，仓库自带的
+`MTK_GUI_windows.spec` 已配置为 `MTK_GUI`：
 
 > 说明：
-> - `EXE(name=...)` 决定最终 exe 文件名 → `mtk.exe`
-> - `COLLECT(name=...)` 决定输出文件夹名 → `dist\mtk\`
-> - 两处都改，最终产物为 `dist\mtk\mtk.exe`
+> - `EXE(name='MTK_GUI')` 决定最终 exe 文件名 → `MTK_GUI.exe`
+> - `COLLECT(name='MTK_GUI')` 决定输出文件夹名 → `dist\MTK_GUI\`
+> - **无需任何手工修改**，直接打包即可（2026-10-15 修正：旧版文档
+>   曾教手工把 name 改成 `mtk`，与实际产物不一致，已废弃）。
 
 ## 5. PyInstaller 打包
 
@@ -117,24 +87,24 @@ pyinstaller --noconfirm MTK_GUI_windows.spec
 打包完成后产物位置：
 
 ```
-dist\mtk\mtk.exe          <- 主程序
-dist\mtk\_internal\       <- 依赖文件（必须和 mtk.exe 在一起）
+dist\MTK_GUI\MTK_GUI.exe          <- 主程序
+dist\MTK_GUI\_internal\       <- 依赖文件（必须和 MTK_GUI.exe 在一起）
 ```
 
 ## 6. 验证
 
-双击运行 `dist\mtk\mtk.exe`（GUI 程序，无控制台窗口）。
+双击运行 `dist\MTK_GUI\MTK_GUI.exe`（GUI 程序，无控制台窗口）。
 
-如需拷贝到其他机器，**必须整个 `dist\mtk` 文件夹一起拷贝**，不能只拷 mtk.exe。
+如需拷贝到其他机器，**必须整个 `dist\MTK_GUI` 文件夹一起拷贝**，不能只拷 MTK_GUI.exe。
 
 ## 7. 拷贝到工厂电脑（运行部署）
 
-工厂电脑**不需要 git、不需要 Python**，只把打包机上的整个 `dist\mtk\` 文件夹用 U 盘或网络共享拷过去：
+工厂电脑**不需要 git、不需要 Python**，只把打包机上的整个 `dist\MTK_GUI\` 文件夹用 U 盘或网络共享拷过去：
 
 ```
-mtk\            <- 整个文件夹一起拷，缺一不可
-├── mtk.exe     <- 双击运行
-└── _internal\  <- 依赖全在这，不能和 mtk.exe 分开
+MTK_GUI\         <- 整个文件夹一起拷，缺一不可
+├── MTK_GUI.exe  <- 双击运行
+└── _internal\   <- 依赖全在这，不能和 MTK_GUI.exe 分开
 ```
 
 ### 安装清单
@@ -145,15 +115,15 @@ mtk\            <- 整个文件夹一起拷，缺一不可
 
 | 组件 | 什么时候需要 | 怎么装 |
 |---|---|---|
-| [VC++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe) | 仅当双击 mtk.exe 报缺 DLL（少数精简系统） | 下载 x64 版安装一次 |
-| iperf3 | 测试计划启用了 Wi-Fi 吞吐量步骤（host 侧 `iperf3 -c` 测速或 `iperf3 -s` 当 server） | 下载 Windows 版 iperf3.exe，放进 `mtk\` 文件夹（和 mtk.exe 同目录）或 `C:\Windows\`；计划未启用吞吐步骤则不用装 |
+| [VC++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe) | 仅当双击 MTK_GUI.exe 报缺 DLL（少数精简系统） | 下载 x64 版安装一次 |
+| iperf3 | 测试计划启用了 Wi-Fi 吞吐量步骤（host 侧 `iperf3 -c` 测速或 `iperf3 -s` 当 server） | 下载 Windows 版 iperf3.exe，放进 `MTK_GUI\` 文件夹（和 MTK_GUI.exe 同目录）或 `C:\Windows\`；计划未启用吞吐步骤则不用装 |
 | USB 串口驱动 | 用 USB 转串口线连接 DUT | FTDI / CP210x 在 Win10/11 一般自动装；CH340 系列通常需手动装一次 |
 | WLAN 网卡 | host 侧 Wi-Fi 扫描/连接/吞吐测试 | 电脑本身需有可用的 WLAN 网卡 |
 
 **两个前提 + 一条说明：**
 
 - 测试机建议装**英文版 Windows**：Wi-Fi/吞吐步骤按英文输出解析 `netsh`/`ping`，中文系统可能解析失败。
-- 用户自建的 YAML 计划文件放 `mtk\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
+- 用户自建的 YAML 计划文件放 `MTK_GUI\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
 - **Real mode 运行前必须先连仪器**（2026-10-14 起）：Tools → Connect all 建立 Instrument Gateway 后才能 Run；未连接时 ICT 测量行 / 标准操作 / 电源时序采集一律报 **Error**（设备故障停机策略生效），不再出现无 Measured 值的假 PASS。Virtual mode 不受影响。
 - **仓库不再内置示例计划 / `yaml_plan\`（2026-10-14 起整体移出版本库）**：FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`），或直接拷贝手上的计划文件；真实产品计划放在 `projects\` 目录（已纳入版本库）。
 

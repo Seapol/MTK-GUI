@@ -1,6 +1,6 @@
-# MTK GUI Windows Deployment & Packaging Guide (exe named mtk.exe)
+# MTK GUI Windows Deployment & Packaging Guide (exe named MTK_GUI.exe)
 
-Complete steps to pull the code and build `mtk.exe` from scratch on a Windows PC.
+Complete steps to pull the code and build `MTK_GUI.exe` from scratch on a Windows PC.
 Run all commands in CMD or PowerShell.
 
 ---
@@ -10,8 +10,8 @@ Run all commands in CMD or PowerShell.
 | Machine | Role | What it needs |
 |---|---|---|
 | Mac | Dev machine | SSH key (already set up), `git push` / `git pull` |
-| Windows PC | Build machine | This guide: HTTPS clone + venv + pyinstaller, produces `dist\mtk\` |
-| Factory PC | Run | Nothing to install (no git, no Python), just copy the `dist\mtk\` folder |
+| Windows PC | Build machine | This guide: HTTPS clone + venv + pyinstaller, produces `dist\MTK_GUI\` |
+| Factory PC | Run | Nothing to install (no git, no Python), just copy the `dist\MTK_GUI\` folder |
 
 ---
 
@@ -60,46 +60,17 @@ pip install -r requirements.txt
 
 > Every time you open a new terminal, run `.venv\Scripts\activate` first to activate the environment.
 
-## 4. Edit the Spec to Rename the exe to mtk.exe
+## 4. Check the Spec (no edit needed)
 
-The exe name is controlled by `name=` in the spec file — two places to change.
-
-Open `MTK_GUI_windows.spec` in the repo root with Notepad:
-
-```bat
-notepad MTK_GUI_windows.spec
-```
-
-Find in `EXE(...)`:
-
-```python
-    name='MTK_GUI',
-```
-
-Change it to:
-
-```python
-    name='mtk',
-```
-
-Then find in `COLLECT(...)`:
-
-```python
-    name='MTK_GUI',
-```
-
-Change it too:
-
-```python
-    name='mtk',
-```
-
-Save and close.
+The exe name is controlled by `name=` in the spec file. The shipped
+`MTK_GUI_windows.spec` is already configured as `MTK_GUI`:
 
 > Notes:
-> - `EXE(name=...)` determines the final exe file name → `mtk.exe`
-> - `COLLECT(name=...)` determines the output folder name → `dist\mtk\`
-> - Change both; the final product is `dist\mtk\mtk.exe`
+> - `EXE(name='MTK_GUI')` determines the final exe file name → `MTK_GUI.exe`
+> - `COLLECT(name='MTK_GUI')` determines the output folder name → `dist\MTK_GUI\`
+> - **No manual edit is needed** — build directly (2026-10-15 correction:
+>   an earlier revision of this guide told builders to rename `name` to
+>   `mtk`, which never matched the actual product; that section is retired).
 
 ## 5. Build with PyInstaller
 
@@ -119,24 +90,24 @@ pyinstaller --noconfirm MTK_GUI_windows.spec
 Output location after the build:
 
 ```
-dist\mtk\mtk.exe          <- main program
-dist\mtk\_internal\       <- dependencies (must stay next to mtk.exe)
+dist\MTK_GUI\MTK_GUI.exe          <- main program
+dist\MTK_GUI\_internal\       <- dependencies (must stay next to MTK_GUI.exe)
 ```
 
 ## 6. Verify
 
-Double-click `dist\mtk\mtk.exe` (GUI app, no console window).
+Double-click `dist\MTK_GUI\MTK_GUI.exe` (GUI app, no console window).
 
-If copying to another machine, **always copy the whole `dist\mtk` folder** — never just mtk.exe.
+If copying to another machine, **always copy the whole `dist\MTK_GUI` folder** — never just MTK_GUI.exe.
 
 ## 7. Copy to Factory PCs (runtime deployment)
 
-Factory PCs need **neither git nor Python**. Just copy the whole `dist\mtk\` folder from the build machine via USB drive or network share:
+Factory PCs need **neither git nor Python**. Just copy the whole `dist\MTK_GUI\` folder from the build machine via USB drive or network share:
 
 ```
-mtk\            <- copy the entire folder, nothing can be missing
-├── mtk.exe     <- double-click to run
-└── _internal\  <- all dependencies live here, never separate from mtk.exe
+MTK_GUI\         <- copy the whole folder, nothing may be missing
+├── MTK_GUI.exe  <- double-click to run
+└── _internal\   <- all dependencies live here, never separate from MTK_GUI.exe
 ```
 
 ### Installation Checklist
@@ -147,15 +118,15 @@ mtk\            <- copy the entire folder, nothing can be missing
 
 | Component | When needed | How |
 |---|---|---|
-| [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Only if double-clicking mtk.exe reports a missing DLL (few stripped-down systems) | Download the x64 version, install once |
-| iperf3 | The test plan enables a Wi-Fi throughput step (host-side `iperf3 -c` measurement or `iperf3 -s` as server) | Download the Windows iperf3.exe and drop it into the `mtk\` folder (next to mtk.exe) or `C:\Windows\`; not needed if no throughput step |
+| [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Only if double-clicking MTK_GUI.exe reports a missing DLL (few stripped-down systems) | Download the x64 version, install once |
+| iperf3 | The test plan enables a Wi-Fi throughput step (host-side `iperf3 -c` measurement or `iperf3 -s` as server) | Download the Windows iperf3.exe and drop it into the `MTK_GUI\` folder (next to MTK_GUI.exe) or `C:\Windows\`; not needed if no throughput step |
 | USB serial driver | When connecting the DUT via a USB-to-serial cable | FTDI / CP210x usually auto-install on Win10/11; CH340-family chips typically need a one-time manual install |
 | WLAN adapter | Host-side Wi-Fi scan / connect / throughput tests | The PC itself must have a working WLAN adapter |
 
 **Two prerequisites + one note:**
 
 - The test PC should run an **English Windows** locale: the Wi-Fi/throughput steps parse `netsh`/`ping` output expecting English text; other locales may fail to parse.
-- User-created YAML test plans go into `mtk\yaml_plan\` (next to the exe); add them anytime without rebuilding.
+- User-created YAML test plans go into `MTK_GUI\yaml_plan\` (next to the exe); add them anytime without rebuilding.
 - **Real mode requires the instruments to be connected before Run** (since 2026-10-14): establish the Instrument Gateway via Tools → Connect all first. Without it, ICT measurement rows / standard ops / the power-rails capture all report **Error** (equipment-fault stop policy) — a fake PASS with an empty Measured cell is no longer possible. Virtual mode is unaffected.
 - **No sample plans / `yaml_plan\` ship with the repo anymore** (2026-10-14: `yaml_plan\` is now fully excluded from version control). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`), or simply copy your own plan file; real product plans live under `projects\` (now versioned).
 
