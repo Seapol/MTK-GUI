@@ -2232,13 +2232,27 @@ class TestWorkFlowPage(QWidget):
             go = box.addButton("GO", QMessageBox.ButtonRole.YesRole)
             box.addButton("STOP", QMessageBox.ButtonRole.NoRole)
             self._log(f"FCT {name}: waiting for operator GO / STOP ...")
+        expired = {"flag": False}
         if timeout_s and timeout_s > 0:
-            QTimer.singleShot(int(timeout_s * 1000), box, box.close)
+
+            def _auto_close():
+                # Qt auto-detects the NoRole button as the escape button
+                # and reports it via clickedButton() after close() - mark
+                # the expiry explicitly so a dialog timeout is never
+                # mistaken for an operator STOP (bug report 2026-10-15:
+                # the Power on DUT GoStop auto-close sent 'n' to the DUT
+                # and failed the run with nobody touching the dialog)
+                expired["flag"] = True
+                box.close()
+
+            QTimer.singleShot(int(timeout_s * 1000), _auto_close)
         self._runner._fct_dialog_open = True
         try:
             box.exec()
         finally:
             self._runner._fct_dialog_open = False
+        if expired["flag"]:
+            return "timeout"
         if kind == "MessageOK":
             return "ok"
         clicked = box.clickedButton()
