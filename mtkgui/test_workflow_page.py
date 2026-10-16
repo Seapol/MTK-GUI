@@ -1453,7 +1453,7 @@ class TestWorkFlowPage(QWidget):
             return
         row = item.row()
         col = item.column()
-        if col == 2:  # Enable checkbox
+        if col == 2 and 0 <= row < len(self.ict_enables):  # Enable checkbox
             self.ict_enables[row] = item.checkState() == Qt.CheckState.Checked
 
     def _fill_ict(self, placeholder=False):
@@ -1804,7 +1804,7 @@ class TestWorkFlowPage(QWidget):
             return
         row = item.row()
         col = item.column()
-        if col == 2:  # Enable checkbox
+        if col == 2 and 0 <= row < len(self.fct_enables):  # Enable checkbox
             self.fct_enables[row] = item.checkState() == Qt.CheckState.Checked
 
     # --------------------------------------------- debug (P3-B2, GUI only)
