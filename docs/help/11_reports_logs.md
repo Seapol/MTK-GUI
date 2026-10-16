@@ -3,10 +3,14 @@
 - **Event Log** (bottom panel): every step start / verdict / operator
   answer, each line stamped with Station ID + User; PASS/FAIL/Error
   colored.
-- **Report > Generate Report...**: DUT detail report (all judged
-  items) + batch summary (counts, yield %, failed-item ranking); CSV
-  export (MES-importable) under `reports/<date>/`; Supervisor exports,
-  Operator sees a read-only preview of the current session.
+- **Report > Generate Report...**: certificate-style DUT report
+  (Style A: double-ring frame, big PASS / FAIL seal, "Authorized by
+  MTK" sign-off row) + batch summary (counts, yield %, failed-item
+  ranking); the full console transcript is attached as an appendix.
+  CSV export (MES-importable) and the fixed-name PDF
+  (`DUT_[PASS/FAIL]_[Serial#]_[Core ID]_[Project Part#]_[Batch#]_
+  [Date]_[Time].pdf`) land under `reports/<date>/`; Supervisor
+  exports, Operator sees a read-only preview of the current session.
 - Automatic trigger: every counted product appends to the session
   batch; `audit_log` / `archive` keep the publish history.
 
@@ -55,9 +59,11 @@ appear; `重置` returns both filters to `全部`.
 - Every counted product appends to the **session batch**; the batch
   summary carries counts, yield % and the failed-item ranking.
 - **Report > Generate Report...** produces:
-  - the DUT detail report (all judged items),
+  - the certificate-style DUT report (all judged items + the
+    PASS / FAIL seal bound to the data by a sha256 trace hash),
   - the batch summary,
-  - CSV export (MES-importable).
+  - CSV export (MES-importable) + the fixed-name DUT PDF
+    (`dut_pdf.py` renders the same markup to A4 via QPrinter).
 - **Supervisor** exports; **Operator** gets a read-only preview of the
   current session only.
 - The P2-9 exporter renders the commercial deliverable:
@@ -91,6 +97,8 @@ reports/
   2026-10-10/
     summary_<batch>.csv      # batch summary: counts, yield, ranking
     <dut_id>.csv             # per-DUT detail: all judged items
+    DUT_PASS_<SN>_<core>_<part#>_<batch#>_<date>_<time>.pdf
+                             # certificate report (FAIL named alike)
     report_<batch>.html      # commercial HTML deliverable
     report_<batch>.pdf       # A4 print/archive copy
 ```

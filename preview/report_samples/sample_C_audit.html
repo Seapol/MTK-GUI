@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>DUT Report — Style C (Audit / Certification)</title>
+<style>
+ body{background:#4a4e54;margin:0;padding:28px;font-family:'Helvetica Neue',Arial,sans-serif}
+ .page{width:794px;min-height:1123px;background:#fdfdfb;margin:0 auto;box-shadow:0 6px 22px rgba(0,0,0,.45);box-sizing:border-box;position:relative;padding:40px 48px;overflow:hidden}
+ /* diagonal watermark seal across the page */
+ .wm{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);z-index:0;opacity:.08;pointer-events:none}
+ .z{position:relative;z-index:1}
+ .top{display:flex;justify-content:space-between;border-bottom:3px solid #2b2b2b;padding-bottom:10px}
+ .top .l{font-size:10px;letter-spacing:1px;color:#555;line-height:1.8}
+ .top .l b{font-size:15px;color:#111;letter-spacing:2px}
+ .docid{text-align:right;font-size:9px;color:#666;line-height:1.9}
+ .docid .id{font-family:Menlo,Consolas,monospace;font-size:10.5px;color:#111}
+ h2{font-size:11px;letter-spacing:2px;color:#111;margin:22px 0 8px;border-bottom:1px solid #bbb;padding-bottom:4px;text-transform:uppercase}
+ h2 .no{display:inline-block;background:#2b2b2b;color:#fff;padding:2px 8px;margin-right:8px;font-size:10px}
+ table{width:100%;border-collapse:collapse;font-size:10.5px}
+ td,th{border:1px solid #999;padding:5px 8px}
+ th{background:#e8e8e4;color:#222;text-align:left;font-size:9.5px;letter-spacing:1px;text-transform:uppercase}
+ td.k{background:#f2f2ee;width:15%;font-weight:600;color:#333}
+ .pass{color:#1d7a3c;font-weight:800}
+ /* rubber stamp rides BESIDE the verdict box (in-flow, slight rise) */
+ .verdict{display:flex;gap:0;margin-top:14px;align-items:center}
+ .stampwrap{flex:0 0 auto;width:168px;margin:-6px -2px 0 -34px;transform:rotate(14deg);opacity:.92;position:relative;z-index:2}
+ .vbox{flex:1;border:2px solid #1d7a3c;background:#f0f7f2;padding:14px 18px;display:flex;align-items:center;gap:16px;min-height:150px}
+ .vbox .big{font-size:34px;font-weight:900;color:#1d7a3c;letter-spacing:3px}
+ .vbox .sub{font-size:10px;color:#33513e;line-height:1.8}
+ .auth{border:1.5px solid #555;margin-top:20px}
+ .auth .head{background:#e8e8e4;padding:6px 12px;font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:#222}
+ .auth .bodya{padding:14px 16px;font-size:10px;color:#333;line-height:1.9}
+ .sigline{display:flex;gap:26px;margin-top:16px}
+ .s{flex:1}
+ .s .ink{border-bottom:1px solid #333;height:40px;font-family:'Snell Roundhand','Brush Script MT','Segoe Script',cursive;font-size:24px;color:#1c2e6e;display:flex;align-items:flex-end;padding:0 6px 2px}
+ .s .cap{font-size:8.5px;color:#666;margin-top:5px;letter-spacing:1px;text-transform:uppercase}
+ .s .dt{font-size:9px;color:#333;margin-top:12px;border-bottom:1px solid #999;padding-bottom:2px}
+ .foot{position:absolute;left:48px;right:48px;bottom:14px;display:flex;justify-content:space-between;font-size:8px;color:#888;font-family:Menlo,Consolas,monospace;border-top:1px solid #bbb;padding-top:6px}
+</style></head>
+<body>
+<div class="page">
+
+  <div class="wm">
+    <svg viewBox="0 0 300 300" width="430" height="430">
+      <circle cx="150" cy="150" r="140" fill="none" stroke="#1d7a3c" stroke-width="10"/>
+      <circle cx="150" cy="150" r="106" fill="none" stroke="#1d7a3c" stroke-width="3"/>
+      <text x="150" y="168" text-anchor="middle" font-size="56" font-weight="900" fill="#1d7a3c" letter-spacing="4">PASS</text>
+      <text x="150" y="196" text-anchor="middle" font-size="15" fill="#1d7a3c" letter-spacing="2">MTK QA · 2026-10-16</text>
+    </svg>
+  </div>
+
+  <div class="z">
+  <div class="top">
+    <div class="l"><b>MTK GUI</b><br>Manufacturing Test &amp; Quality Record</div>
+    <div class="docid">
+      Document&nbsp; <span class="id">DUT-PASS-SN95308-000123-20261016-164522</span><br>
+      Issued&nbsp; 2026-10-16 16:45:22 &nbsp;·&nbsp; Rev 1.0<br>
+      Classification&nbsp; PRODUCTION RECORD
+    </div>
+  </div>
+
+  <h2><span class="no">1</span>Unit Identification</h2>
+  <table>
+    <tr><td class="k">Serial No.</td><td><b>SN95308-000123</b></td><td class="k">Project Part#</td><td>95308</td><td class="k">Core ID</td><td>MCXL255</td></tr>
+    <tr><td class="k">Revision</td><td>EVT (Proto-1)</td><td class="k">Batch #</td><td>B20261016-01</td><td class="k">Station / Op</td><td>STN-01 / op01</td></tr>
+    <tr><td class="k">Test Window</td><td colspan="3">2026-10-16 16:38:02 – 16:45:22 &nbsp;(cycle 7 m 20 s)</td><td class="k">SW / Config</td><td>v4.2.1 / rev 3f8a2c1</td></tr>
+  </table>
+
+  <h2><span class="no">2</span>Inspection Record (excerpt)</h2>
+  <table>
+    <tr><th style="width:24px">#</th><th>Test</th><th style="width:62px">Category</th><th style="width:66px">Measured</th><th style="width:104px">Limits</th><th style="width:40px">Unit</th><th style="width:56px">Result</th></tr>
+    <tr><td>1</td><td>DCDC_1V0</td><td>ICT</td><td>1.023</td><td>0.95 – 1.05</td><td>V</td><td class="pass">PASS</td></tr>
+    <tr><td>2</td><td>V8_F4232_1</td><td>ICT</td><td>8.012</td><td>7.80 – 8.20</td><td>V</td><td class="pass">PASS</td></tr>
+    <tr><td>3</td><td>Clock_24MHz</td><td>ICT</td><td>24.001</td><td>23.90 – 24.10</td><td>MHz</td><td class="pass">PASS</td></tr>
+    <tr><td>4</td><td>Impedance VDD_3V3</td><td>ICT</td><td>3.21</td><td>≥ 1.00</td><td>kΩ</td><td class="pass">PASS</td></tr>
+    <tr><td>5</td><td>Flash JLink FullChip</td><td>Flash</td><td>OK</td><td>—</td><td>—</td><td class="pass">PASS</td></tr>
+    <tr><td>6</td><td>Init Instruments</td><td>FCT</td><td>Done</td><td>—</td><td>0.82 s</td><td class="pass">PASS</td></tr>
+    <tr><td>7</td><td>WIFI RSSI</td><td>RF</td><td>-42</td><td>-100 – -55</td><td>dBm</td><td class="pass">PASS</td></tr>
+    <tr><td>8</td><td>Bluetooth Inquiry</td><td>RF</td><td>Done</td><td>—</td><td>1.10 s</td><td class="pass">PASS</td></tr>
+  </table>
+  <div style="font-size:8.5px;color:#777;margin-top:5px">… items 9 – 41 omitted in this sample · full console transcript dump attached as appendix</div>
+
+  <div class="verdict">
+    <div class="vbox">
+      <div class="big">PASS</div>
+      <div class="sub">OVERALL VERDICT<br>41 items executed · 41 pass · 0 fail · 0 ignore<br>All configured inspections within specification.</div>
+    </div>
+    <!-- rubber stamp beside the verdict box -->
+    <div class="stampwrap">
+      <svg viewBox="0 0 200 200" width="168" height="168">
+      <circle cx="100" cy="100" r="94" fill="rgba(29,122,60,.06)" stroke="#1d7a3c" stroke-width="6"/>
+      <path id="arcC" d="M 100,100 m -82,0 a 82,82 0 1,1 164,0 a 82,82 0 1,1 -164,0" fill="none"/>
+      <text font-size="14.5" fill="#1d7a3c" font-weight="700" letter-spacing="2.5">
+        <textPath href="#arcC" startOffset="1%">★ MTK QUALITY CONTROL ★ INSPECTION CERTIFIED</textPath>
+      </text>
+      <text x="100" y="94" text-anchor="middle" font-size="30" font-weight="900" fill="#1d7a3c" letter-spacing="3">PASS</text>
+      <text x="100" y="114" text-anchor="middle" font-size="10" fill="#1d7a3c">2026-10-16 · STN-01</text>
+      <text x="100" y="132" text-anchor="middle" font-size="9" fill="#1d7a3c" letter-spacing="1">BY MTK GUI v4.2.1</text>
+    </svg>
+  </div>
+  </div>
+
+  <div class="auth">
+    <div class="head">3 · Authorization</div>
+    <div class="bodya">
+      This document certifies that the unit identified above has been inspected in accordance with the released test
+      plan <b>A-95308_EVT-(Proto-1)_rev1.1</b> and has <b class="pass">PASSED</b> all configured inspections.  The electronic
+      signature below is issued by the MTK GUI Manufacturing Execution System on behalf of MTK Quality Assurance;
+      the trace hash recorded in the footer cryptographically binds this authorization to the captured test data.
+      Alteration of this document invalidates the seal.
+      <div class="sigline">
+        <div class="s"><div class="ink">op01</div><div class="cap">Test Operator</div><div class="dt">2026-10-16</div></div>
+        <div class="s"><div class="ink">J. Chen</div><div class="cap">Test Engineer</div><div class="dt">2026-10-16</div></div>
+        <div class="s"><div class="ink" style="font-size:21px">MTK QA AUTH.</div><div class="cap">Authorized Signature — MTK</div><div class="dt">2026-10-16</div></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="foot">
+    <span>sha256:9f2c41d7a0b86e53c1447208f6a3e81bdc07f5224…</span>
+    <span>MTK-GUI · develop · page 1/1</span>
+  </div>
+</div>
+</body></html>

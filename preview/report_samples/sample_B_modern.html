@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>DUT Report — Style B (Modern Flat)</title>
+<style>
+ body{background:#4a4e54;margin:0;padding:28px;font-family:'Helvetica Neue','Segoe UI',Arial,sans-serif}
+ .page{width:794px;min-height:1123px;background:#fff;margin:0 auto;box-shadow:0 6px 22px rgba(0,0,0,.45);box-sizing:border-box;position:relative;overflow:hidden}
+ .band{background:linear-gradient(135deg,#123a5e 0%,#2f7fd1 100%);color:#fff;padding:34px 42px 26px}
+ .band .cap{font-size:10px;letter-spacing:4px;opacity:.85;text-transform:uppercase}
+ .band h1{margin:6px 0 0;font-size:30px;font-weight:300;letter-spacing:1px}
+ .band h1 b{font-weight:800}
+ .band .sn{font-size:12px;opacity:.9;margin-top:8px;letter-spacing:.5px}
+ .badge{position:absolute;top:30px;right:42px;width:150px;height:150px;border-radius:50%;
+        background:radial-gradient(circle at 34% 30%, #35a457, #1d7a3c);
+        box-shadow:0 8px 22px rgba(0,0,0,.35), inset 0 0 0 6px rgba(255,255,255,.28), inset 0 0 0 10px rgba(255,255,255,.12);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;transform:rotate(8deg)}
+ .badge .t{font-size:30px;font-weight:900;letter-spacing:2px}
+ .badge .d{font-size:9px;letter-spacing:2px;opacity:.9;margin-top:2px}
+ .badge .r{font-size:8px;letter-spacing:1px;opacity:.75;margin-top:6px;border-top:1px solid rgba(255,255,255,.4);padding-top:5px}
+ .body{padding:26px 42px 0}
+ .cards{display:flex;gap:12px;margin-top:-52px;padding-left:0}
+ .card{flex:1;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(20,40,60,.12);padding:12px 14px}
+ .card .v{font-size:19px;font-weight:800;color:#123a5e}
+ .card .l{font-size:8.5px;letter-spacing:1.5px;color:#7b8794;text-transform:uppercase;margin-top:3px}
+ h2{font-size:11px;letter-spacing:2px;color:#2f7fd1;margin:26px 0 10px;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+ h2::after{content:"";flex:1;height:1px;background:#e1e7ee}
+ table.info{width:100%;border-collapse:collapse;font-size:11px}
+ table.info td{padding:5px 4px;border-bottom:1px dashed #dfe5ec}
+ table.info td.k{color:#7b8794;width:17%;font-size:10px;letter-spacing:.5px}
+ table.res{width:100%;border-collapse:collapse;font-size:10.5px}
+ table.res th{background:#eef4fa;color:#123a5e;padding:7px 8px;text-align:left;font-size:9.5px;letter-spacing:1px;text-transform:uppercase}
+ table.res th:first-child{border-radius:6px 0 0 6px} table.res th:last-child{border-radius:0 6px 6px 0}
+ table.res td{padding:6px 8px;border-bottom:1px solid #eef1f5}
+ .chip{display:inline-block;padding:2px 10px;border-radius:10px;background:#e2f3e8;color:#1d7a3c;font-weight:700;font-size:9px;letter-spacing:1px}
+ .meta{display:flex;justify-content:space-between;font-size:8.5px;color:#93a1af;margin-top:6px;letter-spacing:.4px}
+ /* signature strip */
+ .sigstrip{margin:34px 42px 0;background:#f7fafc;border:1px solid #e1e7ee;border-radius:10px;padding:20px 26px;display:flex;align-items:flex-end;gap:30px}
+ .who{flex:1.2}
+ .who .t{font-size:9px;letter-spacing:2px;color:#7b8794;text-transform:uppercase}
+ .who .n{font-family:'Snell Roundhand','Brush Script MT','Segoe Script',cursive;font-size:30px;color:#123a5e;line-height:1.2;margin:2px 0 6px}
+ .who .d{font-size:9.5px;color:#93a1af}
+ .chop{width:118px;height:118px;flex:0 0 auto;position:relative}
+ .auth{margin:14px 42px 0;font-size:9px;color:#93a1af;line-height:1.7}
+ .foot{position:absolute;left:42px;right:42px;bottom:14px;display:flex;justify-content:space-between;font-size:8px;color:#a8b4c0;letter-spacing:.4px;border-top:1px solid #eef1f5;padding-top:8px}
+</style></head>
+<body>
+<div class="page">
+  <div class="band">
+    <div class="cap">MTK · Manufacturing Solutions</div>
+    <h1><b>DUT</b> Test Report</h1>
+    <div class="sn">SN95308-000123 &nbsp;·&nbsp; FRDM-MCXL255 EVT (Proto-1) &nbsp;·&nbsp; Report DUT-PASS-…-164522</div>
+  </div>
+
+  <div class="badge">
+    <div class="t">PASS</div>
+    <div class="d">2026-10-16</div>
+    <div class="r">MTK QA SEAL</div>
+  </div>
+
+  <div class="body">
+    <div class="cards">
+      <div class="card"><div class="v">41 / 41</div><div class="l">Items Passed</div></div>
+      <div class="card"><div class="v">7:20</div><div class="l">Cycle Time</div></div>
+      <div class="card"><div class="v">B20261016-01</div><div class="l">Batch #</div></div>
+      <div class="card"><div class="v">STN-01 · op01</div><div class="l">Station · Operator</div></div>
+    </div>
+
+    <h2>Test Detail (excerpt)</h2>
+    <table class="res">
+      <tr><th style="width:26px">#</th><th>Test</th><th style="width:66px">Category</th><th style="width:70px">Measured</th><th style="width:110px">Limits</th><th style="width:44px">Unit</th><th style="width:70px">Result</th></tr>
+      <tr><td>1</td><td>DCDC_1V0</td><td>ICT</td><td>1.023</td><td>0.95 – 1.05</td><td>V</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>2</td><td>V8_F4232_1</td><td>ICT</td><td>8.012</td><td>7.80 – 8.20</td><td>V</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>3</td><td>Clock_24MHz</td><td>ICT</td><td>24.001</td><td>23.90 – 24.10</td><td>MHz</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>4</td><td>Impedance VDD_3V3</td><td>ICT</td><td>3.21</td><td>≥ 1.00</td><td>kΩ</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>5</td><td>Flash JLink FullChip</td><td>Flash</td><td>OK</td><td>—</td><td>—</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>6</td><td>Init Instruments</td><td>FCT</td><td>Done</td><td>—</td><td>0.82 s</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>7</td><td>WIFI RSSI</td><td>RF</td><td>-42</td><td>-100 – -55</td><td>dBm</td><td><span class="chip">PASS</span></td></tr>
+      <tr><td>8</td><td>Bluetooth Inquiry</td><td>RF</td><td>Done</td><td>—</td><td>1.10 s</td><td><span class="chip">PASS</span></td></tr>
+    </table>
+    <div class="meta"><span>… items 9 – 41 omitted in this sample · full console transcript dump attached as appendix</span><span>Test time 16:38:02 – 16:45:22</span></div>
+  </div>
+
+  <div class="sigstrip">
+    <div class="who">
+      <div class="t">Authorized Signature · MTK</div>
+      <div class="n">M.T. Kuo</div>
+      <div class="d">Quality Director &nbsp;·&nbsp; 2026-10-16 &nbsp;·&nbsp; Electronically signed via MTK GUI v4.2.1</div>
+    </div>
+    <div class="chop">
+      <svg viewBox="0 0 120 120" width="118" height="118" style="transform:rotate(-9deg)">
+        <rect x="4" y="4" width="112" height="112" rx="10" fill="none" stroke="#1d7a3c" stroke-width="4" opacity=".9"/>
+        <rect x="12" y="12" width="96" height="96" rx="6" fill="none" stroke="#1d7a3c" stroke-width="1.5" opacity=".6"/>
+        <text x="60" y="52" text-anchor="middle" font-size="21" font-weight="900" fill="#1d7a3c">MTK</text>
+        <text x="60" y="70" text-anchor="middle" font-size="9" letter-spacing="2" fill="#1d7a3c">QUALITY</text>
+        <text x="60" y="86" text-anchor="middle" font-size="9" letter-spacing="1" fill="#1d7a3c">PASSED</text>
+        <path d="M 32 96 l 56 0" stroke="#1d7a3c" stroke-width="2" opacity=".8"/>
+      </svg>
+    </div>
+  </div>
+  <div class="auth">This report is generated and electronically authorized by the MTK GUI Manufacturing Execution System. The signature and seal above certify that the unit identified by the serial number has passed all configured inspections; the document trace hash binds this authorization to the recorded test data.</div>
+
+  <div class="foot">
+    <span>sha256 · 9f2c41d7a0b86e53c1447208f6a3e81b…</span>
+    <span>v4.2.1 · rev 3f8a2c1</span>
+    <span>Page 1 / 1</span>
+  </div>
+</div>
+</body></html>

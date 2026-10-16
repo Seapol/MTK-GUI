@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>DUT Report — Style A (Classic Certificate)</title>
+<style>
+ body{background:#4a4e54;margin:0;padding:28px;font-family:'Helvetica Neue',Arial,'PingFang SC',sans-serif}
+ .page{width:794px;min-height:1123px;background:#fff;margin:0 auto;box-shadow:0 6px 22px rgba(0,0,0,.45);box-sizing:border-box;padding:30px}
+ .frame{border:4px double #16324f;padding:24px 30px;min-height:1055px;position:relative;box-sizing:border-box}
+ .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #16324f;padding-bottom:12px}
+ .brand{font-size:26px;font-weight:800;letter-spacing:3px;color:#16324f}
+ .brand small{display:block;font-size:9px;letter-spacing:2px;color:#5a6b7d;font-weight:400;margin-top:3px}
+ .title{text-align:right}
+ .title h1{margin:0;font-size:19px;letter-spacing:4px;color:#16324f}
+ .title .no{font-size:9.5px;color:#5a6b7d;margin-top:4px;letter-spacing:.5px}
+ h2{font-size:11px;letter-spacing:2px;color:#16324f;border-left:4px solid #c9a227;padding-left:8px;margin:20px 0 8px;text-transform:uppercase}
+ table.info{width:100%;border-collapse:collapse;font-size:11px}
+ table.info td{border:1px solid #b9c4cf;padding:6px 9px}
+ table.info td.k{background:#eef2f6;color:#16324f;font-weight:600;width:16%}
+ table.res{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:2px}
+ table.res th{background:#16324f;color:#fff;padding:6px 7px;text-align:left;font-size:10px;letter-spacing:.5px}
+ table.res td{border-bottom:1px solid #d4dbe2;padding:5px 7px}
+ table.res tr:nth-child(even) td{background:#f6f8fa}
+ .pass{color:#1d7a3c;font-weight:700}
+ .sum{display:flex;border:1px solid #b9c4cf;margin-top:10px}
+ .sum div{flex:1;text-align:center;padding:10px 4px;border-right:1px solid #b9c4cf}
+ .sum div:last-child{border-right:none}
+ .sum .v{font-size:17px;font-weight:800;color:#16324f}
+ .sum .l{font-size:8.5px;color:#5a6b7d;letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+ /* ---- circular stamp, overlapping the summary / signature zone ---- */
+ .stamp{position:absolute;right:56px;bottom:210px;width:172px;height:172px;transform:rotate(-11deg);opacity:.92}
+ .signrow{display:flex;justify-content:space-between;gap:24px;margin-top:150px}
+ .sig{flex:1;text-align:center}
+ .sig .line{border-bottom:1px solid #444;height:34px;margin:0 8px;position:relative}
+ .sig .ink{position:absolute;left:50%;transform:translateX(-50%);bottom:-4px;font-family:'Snell Roundhand','Brush Script MT','Segoe Script',cursive;font-size:21px;color:#1c2e6e;white-space:nowrap}
+ .sig .cap{font-size:9px;letter-spacing:1px;color:#5a6b7d;text-transform:uppercase;margin-top:6px}
+ .foot{position:absolute;left:34px;right:34px;bottom:12px;display:flex;justify-content:space-between;font-size:8px;color:#8a95a1;letter-spacing:.4px}
+ .conf{font-size:8.5px;color:#8a95a1;text-align:center;letter-spacing:1px;margin-top:14px;text-transform:uppercase}
+</style></head>
+<body>
+<div class="page"><div class="frame">
+  <div class="hdr">
+    <div class="brand">MTK<small>MEDIANTEK KILN · MANUFACTURING SOLUTIONS</small></div>
+    <div class="title"><h1>DUT TEST REPORT</h1><div class="no">Report No.&nbsp; DUT-PASS-SN95308-000123-20261016-164522</div></div>
+  </div>
+
+  <h2>1 · Product &amp; Traceability</h2>
+  <table class="info">
+    <tr><td class="k">Serial No.</td><td><b>SN95308-000123</b></td><td class="k">Project Part#</td><td>95308</td></tr>
+    <tr><td class="k">Core ID</td><td>MCXL255</td><td class="k">Revision</td><td>EVT (Proto-1)</td></tr>
+    <tr><td class="k">Batch #</td><td>B20261016-01</td><td class="k">Station / Operator</td><td>STN-01 / op01</td></tr>
+    <tr><td class="k">Test Time</td><td>2026-10-16 16:38:02 – 16:45:22 (7 m 20 s)</td><td class="k">Software / Config</td><td>v4.2.1 / rev 3f8a2c1</td></tr>
+  </table>
+
+  <h2>2 · Test Summary</h2>
+  <div class="sum">
+    <div><div class="v">41</div><div class="l">Items</div></div>
+    <div><div class="v pass">41</div><div class="l">Pass</div></div>
+    <div><div class="v" style="color:#b02a2a">0</div><div class="l">Fail</div></div>
+    <div><div class="v">7:20</div><div class="l">Cycle</div></div>
+    <div><div class="v pass">PASS</div><div class="l">Overall</div></div>
+  </div>
+
+  <h2>3 · Test Detail (excerpt)</h2>
+  <table class="res">
+    <tr><th style="width:26px">#</th><th>Test</th><th style="width:70px">Category</th><th style="width:70px">Measured</th><th style="width:60px">Low</th><th style="width:60px">High</th><th style="width:44px">Unit</th><th style="width:52px">Result</th></tr>
+    <tr><td>1</td><td>DCDC_1V0</td><td>ICT</td><td>1.023</td><td>0.95</td><td>1.05</td><td>V</td><td class="pass">PASS</td></tr>
+    <tr><td>2</td><td>V8_F4232_1</td><td>ICT</td><td>8.012</td><td>7.80</td><td>8.20</td><td>V</td><td class="pass">PASS</td></tr>
+    <tr><td>3</td><td>Clock_24MHz</td><td>ICT</td><td>24.001</td><td>23.90</td><td>24.10</td><td>MHz</td><td class="pass">PASS</td></tr>
+    <tr><td>4</td><td>Impedance VDD_3V3</td><td>ICT</td><td>3.21</td><td>1.00</td><td>—</td><td>kΩ</td><td class="pass">PASS</td></tr>
+    <tr><td>5</td><td>Flash JLink FullChip</td><td>Flash</td><td>OK</td><td>—</td><td>—</td><td>—</td><td class="pass">PASS</td></tr>
+    <tr><td>6</td><td>Init Instruments</td><td>FCT</td><td>Done</td><td>—</td><td>—</td><td>0.82 s</td><td class="pass">PASS</td></tr>
+    <tr><td>7</td><td>WIFI RSSI</td><td>RF</td><td>-42</td><td>-100</td><td>-55</td><td>dBm</td><td class="pass">PASS</td></tr>
+    <tr><td>8</td><td>Bluetooth Inquiry</td><td>RF</td><td>Done</td><td>—</td><td>—</td><td>1.10 s</td><td class="pass">PASS</td></tr>
+  </table>
+  <div style="font-size:8.5px;color:#5a6b7d;margin-top:5px">… items 9 – 41 omitted in this sample · full console transcript dump attached as appendix ·</div>
+
+  <!-- circular seal -->
+  <div class="stamp">
+    <svg viewBox="0 0 200 200" width="172" height="172">
+      <circle cx="100" cy="100" r="95" fill="none" stroke="#1d7a3c" stroke-width="7"/>
+      <circle cx="100" cy="100" r="72" fill="none" stroke="#1d7a3c" stroke-width="2"/>
+      <path id="arc" d="M 100,100 m -84,0 a 84,84 0 1,1 168,0 a 84,84 0 1,1 -168,0" fill="none"/>
+      <text font-size="15" fill="#1d7a3c" font-weight="700" letter-spacing="3">
+        <textPath href="#arc" startOffset="2%">MTK · QUALITY ASSURANCE · INSPECTED ·</textPath>
+      </text>
+      <text x="100" y="104" text-anchor="middle" font-size="34" font-weight="900" fill="#1d7a3c" letter-spacing="2">PASS</text>
+      <text x="100" y="124" text-anchor="middle" font-size="11" fill="#1d7a3c">2026-10-16</text>
+      <path d="M 70 148 l 8 0 m 6 0 l 8 0 m 6 0 l 8 0 m 6 0 l 8 0" stroke="#1d7a3c" stroke-width="2"/>
+    </svg>
+  </div>
+
+  <h2>4 · Sign-off</h2>
+  <div class="signrow">
+    <div class="sig"><div class="line"><span class="ink">op01</span></div><div class="cap">Tested by</div></div>
+    <div class="sig"><div class="line"><span class="ink">J. Chen</span></div><div class="cap">Reviewed by</div></div>
+    <div class="sig"><div class="line"><span class="ink" style="font-size:19px">MTK QA</span></div><div class="cap">Authorized by MTK</div></div>
+  </div>
+
+  <div class="conf">Electronically sealed by MTK GUI v4.2.1 — this seal is bound to the report data by trace hash</div>
+  <div class="foot">
+    <span>sha256 · 9f2c41d7a0b86e53c1447208f6a3e81b…</span>
+    <span>MTK GUI Manufacturing Execution · Page 1 / 1</span>
+  </div>
+</div></div>
+</body></html>
