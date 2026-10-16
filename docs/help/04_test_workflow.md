@@ -550,8 +550,15 @@ re-running.
 
 ### Properties and AI Review
 
-Double-click the waveform to open `Power Rails — Properties`:
+Double-click the waveform to open `Power Rails — Properties` (three
+pages, the zoomable waveform first):
 
+- `Waveform` tab: the capture drawn ENLARGED (1300 x 650 base vs the
+  embedded preview) - the mouse wheel zooms 50% - 300% (or the
+  `Zoom In` / `Zoom Out` / `Fit 100%` buttons), the scrollbars pan,
+  and the bigger plot draws more curve samples, so zooming in shows
+  real detail. The page clones the capture at open time; closing the
+  dialog never changes the capture.
 - `Properties` tab: `Capture Start` (-10 to 0 s, negative = before
   power-on), `Capture End` (0.1-30 s), computed `Duration`,
   `Sample Rate` (1-250000 Hz, the U2355A aggregate limit) and

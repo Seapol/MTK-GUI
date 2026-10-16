@@ -296,6 +296,77 @@ class WaveformWidget(QWidget):
         self.doubleClicked.emit()
 
 
+class _ZoomWaveformPage(QWidget):
+    """Enlarged, zoomable copy of the Power Rails capture (user
+    direction 2026-10-16): the properties dialog gains a page showing
+    the waveform BIG - the mouse wheel zooms (50% - 300%), the
+    scrollbars pan, and the larger plot area also draws MORE curve
+    samples (the sampling step follows the plot width), so zooming in
+    reveals real detail instead of stretched pixels.  The small
+    embedded plot stays the live preview; this page CLONES its data at
+    open time (repaints use the widget's own pixmap cache, so a 3x
+    zoom costs one render, no per-frame cost)."""
+
+    BASE_W, BASE_H = 1300, 650
+    MIN_SCALE, MAX_SCALE = 0.5, 3.0
+
+    def __init__(self, source: "WaveformWidget", parent=None):
+        super().__init__(parent)
+        self.scale = 1.0
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        bar = QHBoxLayout()
+        zout = QPushButton("Zoom Out (-)")
+        self.lbl = QLabel("Zoom: 100%")
+        self.lbl.setObjectName("muted")
+        zin = QPushButton("Zoom In (+)")
+        fit = QPushButton("Fit 100%")
+        zout.clicked.connect(lambda: self._zoom_step(0.8))
+        zin.clicked.connect(lambda: self._zoom_step(1.25))
+        fit.clicked.connect(lambda: self._set_scale(1.0))
+        hint = QLabel("wheel = zoom, scrollbars = pan")
+        hint.setObjectName("muted")
+        bar.addWidget(zout)
+        bar.addWidget(self.lbl)
+        bar.addWidget(zin)
+        bar.addWidget(fit)
+        bar.addStretch(1)
+        bar.addWidget(hint)
+        lay.addLayout(bar)
+        self.wave = WaveformWidget()
+        self.wave.set_data(source.data, source.duration, source.t_start)
+        self.wave.set_virtual(source.virtual)
+        self.scroll = QScrollArea()
+        self.scroll.setWidget(self.wave)   # fixed-size widget -> scrollbars
+        self.scroll.viewport().installEventFilter(self)
+        lay.addWidget(self.scroll, 1)
+        self._apply()
+
+    # ------------------------------------------------------------- zoom
+    def eventFilter(self, obj, event) -> bool:
+        """Mouse wheel over the plot zooms (the scrollbars pan via
+        drag / arrow keys)."""
+        if event.type() == QEvent.Type.Wheel:
+            delta = event.angleDelta().y()
+            if delta:
+                self._zoom_step(1.15 if delta > 0 else 1 / 1.15)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _zoom_step(self, factor: float) -> None:
+        self._set_scale(max(self.MIN_SCALE,
+                            min(self.MAX_SCALE, self.scale * factor)))
+
+    def _set_scale(self, s: float) -> None:
+        self.scale = s
+        self._apply()
+
+    def _apply(self) -> None:
+        self.wave.setFixedSize(int(self.BASE_W * self.scale),
+                               int(self.BASE_H * self.scale))
+        self.lbl.setText(f"Zoom: {self.scale * 100:.0f}%")
+
+
 # --------------------------------------------------------------------------
 # the page
 # --------------------------------------------------------------------------
@@ -1355,16 +1426,43 @@ class TestWorkFlowPage(QWidget):
                               self.virtual_mode)
 
     def _edit_rail_props(self):
-        """Double-click the waveform -> edit capture & rail properties,
-        plus an AI review page grading the sampled waveform."""
+        """Double-click the waveform -> the Power Rails properties
+        dialog: an ENLARGED zoomable waveform page, capture & rail
+        properties, and an AI review page grading the sample."""
+        dlg, ui = self._build_rail_props_dialog()
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        # apply capture time / rate / csv changes
+        self.cap_start = ui["start"].value()
+        self.cap_end = ui["end"].value()
+        self.cap_rate = ui["rate"].value()
+        self.csv_export = ui["csv"].isChecked()
+        self.rail_widget.t_start = self.cap_start
+        # regenerate waveform with the new time range (healthy preview)
+        self.rail_samples, self.rail_volts =             self._generate_rail_samples(inject_faults=False)
+        self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
+        self._apply_rail_filter()
+        # the rail config feeds the Yaml Build model (user question:
+        # configured power rails MUST land in the YAML)
+        self.rail_config_changed.emit()
+
+    def _build_rail_props_dialog(self):
+        """Build the "Power Rails — Properties" dialog (three pages:
+        the zoomable Waveform / Properties / AI Review).  Staged out of
+        _edit_rail_props so tests can inspect the pages without the
+        blocking exec()."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Power Rails — Properties")
-        dlg.resize(600, 680)
+        dlg.resize(980, 760)
         outer = QVBoxLayout(dlg)
         tabs = QTabWidget()
         outer.addWidget(tabs)
 
-        # page 1: capture settings + rail reference table
+        # page 1: the ENLARGED, zoomable waveform (user direction
+        # 2026-10-16: wheel zoom + pan, more samples at bigger widths)
+        tabs.addTab(_ZoomWaveformPage(self.rail_widget), "Waveform")
+
+        # page 2: capture settings + rail reference table
         prop_page = QWidget()
         form = QFormLayout(prop_page)
 
@@ -1456,23 +1554,8 @@ class TestWorkFlowPage(QWidget):
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        # apply capture time / rate / csv changes
-        self.cap_start = start_spin.value()
-        self.cap_end = end_spin.value()
-        self.cap_rate = rate_spin.value()
-        self.csv_export = csv_cb.isChecked()
-        self.rail_widget.t_start = self.cap_start
-        # regenerate waveform with the new time range (healthy preview)
-        self.rail_samples, self.rail_volts =             self._generate_rail_samples(inject_faults=False)
-        self._rail_plot_cache = self._rail_plot_data(self.rail_samples)
-        self._apply_rail_filter()
-        # the rail config feeds the Yaml Build model (user question:
-        # configured power rails MUST land in the YAML)
-        self.rail_config_changed.emit()
+        return dlg, {"start": start_spin, "end": end_spin,
+                     "rate": rate_spin, "csv": csv_cb}
 
     def _build_fct(self):
         group = QGroupBox("FCT Test Cases")
