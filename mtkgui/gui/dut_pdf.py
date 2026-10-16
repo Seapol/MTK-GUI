@@ -70,23 +70,36 @@ def stamp_pixmap(result: str) -> "QPixmap":
     p.setPen(QPen(color, 4))
     p.drawEllipse(QPointF(0, 0), c - 48, c - 48)
 
-    # curved text around the ring, evenly spread over the top arc
-    ring = "MTK  ·  QUALITY ASSURANCE  ·  INSPECTED"
+    # curved ring text, rubber-stamp style: the TOP arc reads upright
+    # (letter tops outward), the BOTTOM arc runs reversed (letter tops
+    # toward the center) so both read left -> right, never upside down
     f = QFont("Arial")
     f.setBold(True)
     f.setPixelSize(26)
     p.setFont(f)
     p.setPen(QPen(color))
-    n = len(ring)
-    span = 300.0
-    for i, ch in enumerate(ring):
-        ang = -90 - span / 2 + span * i / max(1, n - 1)
-        p.save()
-        p.rotate(ang)
-        p.drawText(QRectF(-40, -(c - 27), 80, 34),
-                   Qt.AlignmentFlag.AlignHCenter
-                   | Qt.AlignmentFlag.AlignBottom, ch)
-        p.restore()
+    ring_r = c - 27
+
+    def _arc(text, span, top: bool):
+        n = len(text)
+        for i, ch in enumerate(text):
+            if top:
+                ang = -span / 2 + span * i / max(1, n - 1)
+            else:                     # bottom runs right -> left in a
+                ang = span / 2 - span * i / max(1, n - 1)
+            p.save()
+            p.rotate(ang)
+            rect = QRectF(-40, ring_r - 17, 80, 34)
+            if top:
+                rect = QRectF(-40, -ring_r - 17, 80, 34)
+            p.drawText(rect,
+                       Qt.AlignmentFlag.AlignHCenter
+                       | (Qt.AlignmentFlag.AlignBottom if top
+                          else Qt.AlignmentFlag.AlignTop), ch)
+            p.restore()
+
+    _arc("MTK  ·  QUALITY ASSURANCE", 175.0, top=True)
+    _arc("·  INSPECTED  ·", 80.0, top=False)
 
     # verdict + date in the middle
     big = QFont("Arial")
