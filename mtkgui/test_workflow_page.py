@@ -289,7 +289,7 @@ class WaveformWidget(QWidget):
         painter.setFont(f)
         for i in range(6):
             y = plot.top() + plot.height() * i / 5
-            painter.drawText(QRectF(0, y - 8, margin_l - 8, 16),
+            painter.drawText(QRectF(0, y - 8, self.MARGIN_L - 8, 16),
                              Qt.AlignmentFlag.AlignRight
                              | Qt.AlignmentFlag.AlignVCenter,
                              f"{v_top * (5 - i) / 5:.2f} V")

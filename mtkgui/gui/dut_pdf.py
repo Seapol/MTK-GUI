@@ -133,6 +133,151 @@ def _sec(title: str) -> str:
             f"</small></font></b></td></tr></table>")
 
 
+CHART_RESOURCE = "rail_chart"
+#: ±5 % of nominal = the regulation band used by the rail analysis
+RAIL_BAND = 0.05
+
+
+def rail_analysis(report) -> list:
+    """Per-rail sequence metrics computed straight from the captured
+    samples (fractions of the rail nominal; linear interpolation
+    between samples).  Honest math - never re-judges: the note only
+    reports where the recorded curve ended relative to the ±5 % band.
+
+    Returns dicts: label / nominal / final / rise / peak / over /
+    settle / note.
+    """
+    out = []
+    dur = report.rail_duration or 0.0
+    t0 = report.rail_t_start
+    for label, _c, y_max, samples in report.rails:
+        n = len(samples)
+        if not n:
+            continue
+        step = dur / max(1, n - 1)
+
+        def _first_reach(level):
+            """First capture time the fraction curve reaches level."""
+            for i, s in enumerate(samples):
+                if s >= level:
+                    if i == 0:
+                        return t0
+                    s0 = samples[i - 1]
+                    k = (level - s0) / ((s - s0) or 1.0)
+                    return t0 + (i - 1 + k) * step
+            return None
+
+        t10, t90 = _first_reach(0.1), _first_reach(0.9)
+        rise = (t90 - t10) if (t10 is not None and t90 is not None) \
+            else None
+        peak = max(samples)
+        over = max(0.0, peak - 1.0) * 100.0
+        last_out = None
+        for i, s in enumerate(samples):
+            if abs(s - 1.0) > RAIL_BAND:
+                last_out = i
+        if last_out is None:
+            settle = t0                       # never left the band
+        elif last_out + 1 <= n - 1:
+            settle = t0 + (last_out + 1) * step
+        else:
+            settle = None                     # never settled
+        final_frac = samples[-1]
+        ok = abs(final_frac - 1.0) <= RAIL_BAND and settle is not None
+        out.append({
+            "label": label, "nominal": y_max,
+            "final": final_frac * y_max, "rise": rise,
+            "peak": peak * y_max, "over": over, "settle": settle,
+            "note": ("in regulation (±5%)"
+                     if ok else "final outside ±5% band — review"),
+        })
+    return out
+
+
+def _rail_analysis_table(analysis: list) -> str:
+    """The per-rail metrics table under the sequence chart."""
+    if not analysis:
+        return ""
+    rows = ""
+    for a in analysis:
+        rise = "—" if a["rise"] is None else f"{a['rise']:.3f}"
+        settle = "—" if a["settle"] is None else f"{a['settle']:.3f}"
+        rows += (f"<tr><td><b>{esc(a['label'])}</b></td>"
+                 f"<td>{a['nominal']:.3f}</td>"
+                 f"<td>{a['final']:.3f}</td>"
+                 f"<td>{rise}</td>"
+                 f"<td>{a['peak']:.3f}</td>"
+                 f"<td>{a['over']:.1f}%</td>"
+                 f"<td>{settle}</td>"
+                 f"<td>{esc(a['note'])}</td></tr>")
+    return ("<table width='100%' cellspacing='0' cellpadding='3'"
+            " border='0'>"
+            f"<tr bgcolor='{NAVY}'>"
+            "<td><b><font color='#ffffff'><small>RAIL</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>NOMINAL V</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>FINAL V</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>RISE 10-90% s</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>PEAK V</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>OVERSHOOT</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>SETTLE ±5% s</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>NOTE</small></font></b></td>"
+            f"</tr>{rows}</table>")
+
+
+def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
+                    report, items_table) -> str:
+    """Section 3: one table per ICT Test Method + the power-rails
+    sequence chart with per-rail analysis (empty groups are skipped)."""
+    html = _sec('3 · Test Detail')
+    for title, items in (
+            ("3.1 · Impedance (ICT)", grp_imped),
+            ("3.2 · Voltage (ICT)", grp_volt),
+            ("3.3 · Clock (ICT)", grp_clock),
+            ("3.5 · Flash / FCT / RF & Other", grp_other)):
+        if items:
+            html += (f"<b><font color='{NAVY}'><small>"
+                     f"{esc(title.upper())}</small></font></b>"
+                     + items_table(items) + "<br>")
+    # 3.4 power-rails sequence: judged rows + chart + metrics
+    if grp_seq or report.rails:
+        html += (f"<b><font color='{NAVY}'><small>"
+                 "3.4 · POWER RAILS UP SEQUENCE (DAQ AI)</small></font></b>"
+                 + "".join(
+                     f"<small>{esc(i.test_name)} — <b><font color='"
+                     f"{GREEN if 'PASS' in i.result.upper() else RED}'>"
+                     f"{esc(i.result)}</font></b></small><br>"
+                     for i in grp_seq)
+                 + (f"<img src='{CHART_RESOURCE}' width='640'><br>"
+                    if report.rails else
+                    f"<small><font color='{MUTED}'>No capture data "
+                    f"available.</font></small><br>")
+                 + _rail_analysis_table(rail_analysis(report)))
+    return html
+
+
+def rails_chart_pixmap(report, width=1160, height=480):
+    """Render the captured rails with the SAME painter as the live
+    waveform (identical grid / legend / colors), for embedding into
+    the report HTML as the ``rail_chart`` image resource."""
+    if not getattr(report, "rails", None):
+        from PySide6.QtGui import QPixmap
+        return QPixmap()
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPainter, QPixmap
+    from ..test_workflow_page import WaveformWidget
+    wave = WaveformWidget()
+    wave.resize(width, height)
+    wave.set_data(report.rails, report.rail_duration or 1.0,
+                  report.rail_t_start)
+    pm = QPixmap(width, height)
+    p = QPainter(pm)
+    try:
+        wave._paint_plot(p)
+    finally:
+        p.end()
+    return pm
+
+
 def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     """Style-A certificate markup (QTextDocument-safe tables only).
 
@@ -149,22 +294,51 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "serial": report.serial_no, "station": report.station_id,
         "user": report.user, "result": report.overall_result,
         "items": [i.__dict__ for i in report.items],
+        "rails": [list(r) for r in (report.rails or [])],
+        "rail_window": [report.rail_t_start, report.rail_duration],
         "meta": meta,
     })
     report_no = (f"DUT-{verdict}-{sn}-{when:%Y%m%d-%H%M%S}")
 
     n_pass = sum(1 for i in report.items if "PASS" in i.result.upper())
     n_fail = len(report.items) - n_pass
-    rows = "".join(
-        f"<tr>"
-        f"<td>{idx}</td><td>{esc(i.test_name)}</td>"
-        f"<td>{esc(i.category)}</td>"
-        f"<td>{esc(i.duration or i.measured)}</td>"
-        f"<td>{esc(i.low)}</td><td>{esc(i.high)}</td>"
-        f"<td>{esc(i.unit)}</td>"
-        f"<td><b><font color='{GREEN if 'PASS' in i.result.upper() else RED}'>"
-        f"{esc(i.result)}</font></b></td></tr>"
-        for idx, i in enumerate(report.items, 1))
+
+    def _items_table(items):
+        """One judged-rows table (no CATEGORY column: the section
+        title already names the group)."""
+        rows = "".join(
+            f"<tr>"
+            f"<td>{idx}</td><td>{esc(i.test_name)}</td>"
+            f"<td>{esc(i.duration or i.measured)}</td>"
+            f"<td>{esc(i.low)}</td><td>{esc(i.high)}</td>"
+            f"<td>{esc(i.unit)}</td>"
+            f"<td><b><font color='{GREEN if 'PASS' in i.result.upper() else RED}'>"
+            f"{esc(i.result)}</font></b></td></tr>"
+            for idx, i in enumerate(items, 1))
+        return ("<table width='100%' cellspacing='0' cellpadding='3'"
+                " border='0'>"
+                f"<tr bgcolor='{NAVY}'>"
+                "<td><b><font color='#ffffff'><small>#</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>TEST</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>MEASURED / DURATION"
+                "</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>LOW</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>HIGH</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>UNIT</small></font></b></td>"
+                "<td><b><font color='#ffffff'><small>RESULT</small></font></b></td>"
+                f"</tr>{rows}</table>")
+
+    # ICT detail split by Test Method (user direction 2026-10-16):
+    # impedance / voltage / clock each get their own table, the DAQ AI
+    # power-rails sequence gets chart + per-rail analysis, everything
+    # else (generic ICT, Flash, FCT, RF) lands in the combined table
+    ict = [i for i in report.items if i.category == "ICT"]
+    grp_imped = [i for i in ict if i.method == "Static Impedance"]
+    grp_volt = [i for i in ict if i.method == "Power Voltage"]
+    grp_clock = [i for i in ict if i.method == "Clock Hz"]
+    grp_seq = [i for i in ict if i.method == "DAQ AI"]
+    claimed = {id(i) for i in grp_imped + grp_volt + grp_clock + grp_seq}
+    grp_other = [i for i in report.items if id(i) not in claimed]
 
     # three-column sign-off: ink (cursive) over a rule + caption
     def _sig(ink, cap):
@@ -176,6 +350,9 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
 
     # FAIL items keep their red verdict in the table; the overall row
     # and the seal follow the report verdict
+    detail_html = _detail_section(
+        grp_imped, grp_volt, grp_clock, grp_seq, grp_other, report,
+        _items_table)
     parts = [
         # certificate double-ring frame: navy / white / navy / white
         "<table width='100%' cellspacing='0' cellpadding='5'><tr>"
@@ -216,9 +393,9 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         f"<td bgcolor='#eef2f6'><b><font color='{NAVY}'><small>"
         "REPORT TIME</small></font></b></td>"
         f"<td>{esc(report.timestamp)}</td></tr>"
-        "</table>"
+        "</table></td></tr>"
         # ---- 2 summary
-        f"{_sec('2 · Test Summary')}"
+        f"<tr><td colspan='2'>{_sec('2 · Test Summary')}"
         "<table width='100%' cellspacing='0' cellpadding='6'><tr>"
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{NAVY}'>"
         f"<font size='5'>{len(report.items)}</font></b><br>"
@@ -232,37 +409,27 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{vc}'>"
         f"<font size='5'>{verdict}</font></b><br>"
         f"<small><font color='{MUTED}'>OVERALL</font></small></td>"
-        "</tr></table>"
-        # ---- 3 detail
-        f"{_sec('3 · Test Detail')}"
-        "<table width='100%' cellspacing='0' cellpadding='3' border='0'>"
-        f"<tr bgcolor='{NAVY}'>"
-        "<td><b><font color='#ffffff'><small>#</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>TEST</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>CATEGORY</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>MEASURED / DURATION"
-        "</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>LOW</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>HIGH</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>UNIT</small></font></b></td>"
-        "<td><b><font color='#ffffff'><small>RESULT</small></font></b></td>"
-        f"</tr>{rows}</table>"
+        "</tr></table></td></tr>"
+        # ---- 3 detail (split per Test Method, 2026-10-16 user
+        # direction: impedance / voltage / clock / sequence / other)
+        f"<tr><td colspan='2'>{detail_html}</td></tr>"
         # ---- seal (right aligned, between detail and sign-off)
-        f"{_sec('4 · Inspection Seal')}"
+        f"<tr><td colspan='2'>{_sec('4 · Inspection Seal')}"
         "<table width='100%' cellspacing='0' cellpadding='4'><tr>"
         f"<td align='right'><img src='{STAMP_RESOURCE}' width='170' "
-        f"height='170'></td></tr></table>"
+        f"height='170'></td></tr></table></td></tr>"
         # ---- sign-off
-        f"{_sec('5 · Sign-off')}"
+        f"<tr><td colspan='2'>{_sec('5 · Sign-off')}"
         "<table width='100%' cellspacing='0' cellpadding='6'><tr>"
         + _sig(report.user or "operator", "Tested by")
         + _sig("", "Reviewed by")
         + _sig("MTK QA", "Authorized by MTK")
-        + "</tr></table>"
+        + "</tr></table></td></tr>"
         # ---- footer
-        f"<hr><small><font color='{MUTED}'>Electronically sealed by "
-        f"MTK GUI — this seal is bound to the report data by trace "
-        f"hash<br>sha256 · {esc(digest)}</font></small>"
+        f"<tr><td colspan='2'><hr><small><font color='{MUTED}'>"
+        f"Electronically sealed by MTK GUI — this seal is bound to the "
+        f"report data by trace hash<br>sha256 · {esc(digest)}"
+        f"</small></td></tr>"
         # close the 5 nested frame tables (content -> white -> navy
         # thin -> white ring -> navy outer)
         + "</table></td></tr>" * 5]
@@ -271,7 +438,11 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     log = report.console_log or ""
     if log.strip():
         html += "<hr>" + console_log_html(log)
-    return html
+    # fullPage printing has zero page margins: this white wrapper IS
+    # the paper margin (the navy ring would otherwise touch the paper
+    # edge and get cut by physical printers)
+    return (f"<table width='100%' cellspacing='0' cellpadding='20'>"
+            f"<tr><td bgcolor='#ffffff'>{html}</td></tr></table>")
 
 
 # ------------------------------------------------------------------ name
@@ -308,13 +479,19 @@ def export_dut_pdf(report, meta=None, path=None) -> Path:
     doc.addResource(QTextDocument.ResourceType.ImageResource,
                     QUrl(STAMP_RESOURCE), stamp_pixmap(
                         report.overall_result))
+    if getattr(report, "rails", None):
+        doc.addResource(QTextDocument.ResourceType.ImageResource,
+                        QUrl(CHART_RESOURCE), rails_chart_pixmap(report))
     doc.setHtml(dut_report_html(report, meta))
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(str(path))
     printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
     printer.setPageOrientation(QPageLayout.Orientation.Portrait)
-    printer.setPageMargins(QMarginsF(10, 10, 10, 10),
+    # fullPage + zero margins: the HTML wrapper table provides the
+    # paper margin (QPrinter margin handling shrank/drifted the layout)
+    printer.setFullPage(True)
+    printer.setPageMargins(QMarginsF(0, 0, 0, 0),
                            QPageLayout.Unit.Millimeter)
     doc.print_(printer)
     return path

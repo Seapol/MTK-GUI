@@ -1131,6 +1131,11 @@ class MainWindow(QMainWindow):
             QTextDocument.ResourceType.ImageResource,
             QUrl(dut_pdf.STAMP_RESOURCE),
             dut_pdf.stamp_pixmap(report.overall_result))
+        if report.rails:
+            browser.document().addResource(
+                QTextDocument.ResourceType.ImageResource,
+                QUrl(dut_pdf.CHART_RESOURCE),
+                dut_pdf.rails_chart_pixmap(report))
         browser.setHtml(dut_pdf.dut_report_html(report, meta)
                         + "<hr>" + summary.to_html())
         lay.addWidget(browser)

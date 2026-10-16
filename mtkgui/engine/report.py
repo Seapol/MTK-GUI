@@ -45,6 +45,10 @@ class ReportItem:
     high: str = ""
     unit: str = ""
     result: str = ""
+    # ICT sub-classification from the Test Method ("Static Impedance" /
+    # "Power Voltage" / "Clock Hz" / "DAQ AI"; "" = generic) - the
+    # certificate report splits the ICT detail into per-method tables
+    method: str = ""
     timestamp: str = field(
         default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
@@ -69,6 +73,12 @@ class DutReport:
     # full DUT console transcript (raw, ANSI codes included) — the PDF
     # exporter strips the escapes before dumping it after the test table
     console_log: str = ""
+    # power-rails capture (DAQ AI): entries (label, color, y_max,
+    # samples-as-fractions-of-nominal) + the capture time window — the
+    # certificate report draws the sequence chart + per-rail analysis
+    rails: list = field(default_factory=list)
+    rail_duration: float = 0.0
+    rail_t_start: float = 0.0
 
     # ------------------------------------------------------------- build
     @classmethod
@@ -94,7 +104,10 @@ class DutReport:
             item = table.item(r, c)
             return _clean(item.text()) if item is not None else ""
 
-        # ICT rows (kind op = standard operations; flash ops = Flash)
+        # ICT rows (kind op = standard operations; flash ops = Flash).
+        # kind IS the Test Method ("Static Impedance"/"Power Voltage"/
+        # "Clock Hz"/"DAQ AI"); a generic "test" falls back to its unit
+        # (Ω / V / Hz) the same way the virtual hardware guesses.
         for r, step in enumerate(getattr(page, "ict_steps", [])):
             kind, name = step[0], step[1]
             result = _cell(page.ict, r, 7)
@@ -103,13 +116,21 @@ class DutReport:
             category = CAT_ICT
             if kind == "op":
                 category = CAT_FLASH if "Flash" in name else CAT_ICT
+            unit = _clean(step[2]) if len(step) > 2 else ""
+            if kind == "op":
+                method = ""
+            elif kind in ("Static Impedance", "Power Voltage",
+                          "Clock Hz", "DAQ AI"):
+                method = kind
+            else:
+                method = {"Ω": "Static Impedance", "V": "Power Voltage",
+                          "Hz": "Clock Hz"}.get(unit, "")
             report.items.append(ReportItem(
                 test_name=name, category=category,
                 channel="fixture",
                 measured=_cell(page.ict, r, 4),
                 low=_cell(page.ict, r, 5), high=_cell(page.ict, r, 6),
-                unit=_clean(step[2]) if len(step) > 2 else "",
-                result=result))
+                unit=unit, result=result, method=method))
         # FCT rows (RF kinds -> RF category); the FCT table col 3 is the
         # per-row Duration (s) cell
         for r, name in enumerate(getattr(page, "fct_rows", [])):
@@ -124,6 +145,17 @@ class DutReport:
             report.items.append(ReportItem(
                 test_name=name, category=category, channel="console",
                 duration="" if dur == "--" else dur, result=result))
+
+        # power-rails capture (DAQ AI): clone the live waveform data so
+        # the report draws the sequence chart + per-rail analysis
+        rw = getattr(page, "rail_widget", None)
+        rails = getattr(rw, "data", None) or []
+        if rails:
+            report.rails = list(rails)
+            report.rail_duration = float(
+                getattr(rw, "duration", 0.0) or 0.0)
+            report.rail_t_start = float(
+                getattr(rw, "t_start", 0.0) or 0.0)
 
         # full console transcript dump (per channel RX buffer) for the
         # PDF appendix; headless / fake pages have no multi_console
