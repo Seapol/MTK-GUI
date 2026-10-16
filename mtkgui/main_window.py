@@ -1104,15 +1104,22 @@ class MainWindow(QMainWindow):
 
     def _open_dut_report(self):
         """Report > Generate Report: DUT detail + batch summary for the
-        current session (Module B) - preview HTML + CSV export."""
+        current session (Module B) - Style-A certificate preview
+        (2026-10-16 user direction: big PASS / FAIL seal + the
+        "Authorized by MTK" sign-off row) + CSV / PDF export."""
         from mtkgui.engine.report import (
             BatchSummary,
             DutReport,
             save_batch_csv,
             save_dut_csv,
         )
+        from mtkgui.gui import dut_pdf
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QTextDocument
+
         page = self.workflow_page
         report = DutReport.from_session(page)
+        meta = page.product_info()
         summary = BatchSummary(reports=[report])
         # preview dialog (proper QDialog: a QMessageBox squeezes the
         # browser widget - same fix as the About window)
@@ -1120,7 +1127,12 @@ class MainWindow(QMainWindow):
         dlg.setWindowTitle("Generate Report")
         lay = QVBoxLayout(dlg)
         browser = QTextBrowser()
-        browser.setHtml(report.to_html() + "<hr>" + summary.to_html())
+        browser.document().addResource(
+            QTextDocument.ResourceType.ImageResource,
+            QUrl(dut_pdf.STAMP_RESOURCE),
+            dut_pdf.stamp_pixmap(report.overall_result))
+        browser.setHtml(dut_pdf.dut_report_html(report, meta)
+                        + "<hr>" + summary.to_html())
         lay.addWidget(browser)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dlg.reject)
@@ -1130,9 +1142,13 @@ class MainWindow(QMainWindow):
             out_dir = Path("reports")
             dut_csv = save_dut_csv(report, out_dir)
             batch_csv = save_batch_csv(summary, out_dir)
+            pdf = dut_pdf.export_dut_pdf(
+                report, meta,
+                out_dir / datetime.now().strftime("%Y-%m-%d")
+                / dut_pdf.dut_pdf_name(report, meta))
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Report exported: "
-                f"{dut_csv} + {batch_csv}")
+                f"{dut_csv} + {batch_csv} + {pdf}")
         dlg.resize(720, 520)
         dlg.exec()
 

@@ -124,6 +124,21 @@ class DutReport:
             report.items.append(ReportItem(
                 test_name=name, category=category, channel="console",
                 duration="" if dur == "--" else dur, result=result))
+
+        # full console transcript dump (per channel RX buffer) for the
+        # PDF appendix; headless / fake pages have no multi_console
+        mc = getattr(page, "multi_console", None)
+        channels = getattr(mc, "channels", None) or {}
+        dumps = []
+        for key in channels:
+            try:
+                raw = mc.get_read_buffer(key)
+            except Exception:            # noqa: BLE001 - never re-judge
+                continue
+            if raw:
+                dumps.append(f"===== {key} =====\n"
+                             + raw.decode("utf-8", "replace"))
+        report.console_log = "\n".join(dumps)
         return report
 
     # ------------------------------------------------------------- output
