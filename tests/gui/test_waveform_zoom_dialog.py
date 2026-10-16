@@ -10,8 +10,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QWheelEvent  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import (QMouseEvent, QPainter, QPixmap,  # noqa: E402
+                           QWheelEvent)
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.test_workflow_page import (  # noqa: E402
@@ -51,6 +52,99 @@ def _wheel(page, angle):
                      Qt.KeyboardModifier.NoModifier,
                      Qt.ScrollPhase.NoScrollPhase, False)
     QApplication.sendEvent(page.scroll.viewport(), ev)
+
+
+def _mouse_event(kind, x, y):
+    return QMouseEvent(kind, QPointF(x, y), QPointF(x, y),
+                       Qt.MouseButton.LeftButton if kind !=
+                       QEvent.Type.MouseMove else Qt.MouseButton.NoButton,
+                       Qt.MouseButton.LeftButton if kind !=
+                       QEvent.Type.MouseMove else Qt.MouseButton.NoButton,
+                       Qt.KeyboardModifier.NoModifier)
+
+
+# ------------------------------------------------------------ cursors
+def test_time_voltage_mapping(page):
+    """Cursor mapping: x <-> time round-trips and rail_v_at
+    interpolates linearly between samples (midpoint = half the step)."""
+    zoom = _ZoomWaveformPage(page.rail_widget)
+    wave = zoom.wave
+    rect = wave.plot_rect()
+    # the capture starts BEFORE power-on (cap_start < 0) - derive all
+    # expectations from the wave's own t_start / duration
+    t = wave.t_start + wave.duration / 2
+    assert wave.time_to_x(t) == pytest.approx(
+        rect.left() + rect.width() / 2)
+    assert wave.x_to_time(wave.time_to_x(t)) == pytest.approx(t)
+    entry = wave.data[0]            # DCDC_1V0, nominal 1.8 V
+    # samples [0.0, 0.9, 1.8, 1.8]: the halfway point between sample
+    # 1 (0.9) and 2 (1.8) interpolates to 1.35 -> 2.43 V
+    assert wave.rail_v_at(entry, t) == pytest.approx(2.43)
+
+
+def test_hover_crosshair_only_when_enabled(page):
+    """The embedded preview (cursor_enabled False) ignores hover; the
+    zoom page's clone tracks it and emits the t readout."""
+    info = []
+    page.rail_widget.mouseMoveEvent(_mouse_event(
+        QEvent.Type.MouseMove, 200, 100))
+    assert page.rail_widget._hover is None      # preview stays clean
+    zoom = _ZoomWaveformPage(page.rail_widget)
+    assert zoom.wave.cursor_enabled
+    zoom.wave.cursorInfo.connect(info.append)
+    zoom.wave.mouseMoveEvent(_mouse_event(
+        QEvent.Type.MouseMove, 300, 120))
+    assert zoom.wave._hover is not None
+    assert info and info[-1].startswith("cursor t = ")
+
+
+def test_ab_pins_delta_and_clear(page):
+    """Click A, click B -> the readout carries dt and the per-rail dV;
+    a third click clears both and starts a fresh A."""
+    zoom = _ZoomWaveformPage(page.rail_widget)
+    wave = zoom.wave
+    rect = wave.plot_rect()
+    t1 = wave.t_start + wave.duration * 0.25
+    t2 = wave.t_start + wave.duration * 0.75
+    wave.mousePressEvent(_mouse_event(
+        QEvent.Type.MouseButtonPress, wave.time_to_x(t1),
+        rect.center().y()))
+    assert len(wave._pins) == 1
+    wave.mousePressEvent(_mouse_event(
+        QEvent.Type.MouseButtonPress, wave.time_to_x(t2),
+        rect.center().y()))
+    assert wave._pins == pytest.approx([t1, t2])
+    readout = wave._cursor_readout()
+    # DCDC_1V0 samples [0.0, 0.9, 1.8, 1.8]: frac 0.25 -> 0.675 x 1.8
+    # = 1.215 V; frac 0.75 -> the 1.8 sample x 1.8 = 3.24 V
+    assert f"dt = {wave.duration * 0.5:+.3f} s" in readout
+    assert "DCDC_1V0 dV = +2.025 V" in readout
+    # third click clears and starts a new A
+    wave.mousePressEvent(_mouse_event(
+        QEvent.Type.MouseButtonPress, rect.left() + 5, rect.center().y()))
+    assert len(wave._pins) == 1
+
+
+def test_overlay_paint_smoke(page):
+    """The cursor overlay paints on top of the cached plot without
+    exceptions (hover + both pins + the readout boxes)."""
+    from mtkgui.engine.rails import DURATION_S
+    zoom = _ZoomWaveformPage(page.rail_widget)
+    wave = zoom.wave
+    wave.resize(_ZoomWaveformPage.BASE_W, _ZoomWaveformPage.BASE_H)
+    rect = wave.plot_rect()
+    wave.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, 400, 200))
+    wave.mousePressEvent(_mouse_event(
+        QEvent.Type.MouseButtonPress, wave.time_to_x(DURATION_S * 0.3),
+        rect.center().y()))
+    wave.mousePressEvent(_mouse_event(
+        QEvent.Type.MouseButtonPress, wave.time_to_x(DURATION_S * 0.6),
+        rect.center().y()))
+    pm = QPixmap(wave.size())
+    pm.fill(Qt.GlobalColor.black)
+    painter = QPainter(pm)
+    wave._paint_cursors(painter)   # overlay only (hover + A/B + boxes)
+    painter.end()
 
 
 def test_dialog_has_waveform_page_first(page):

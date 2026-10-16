@@ -559,6 +559,12 @@ pages, the zoomable waveform first):
   and the bigger plot draws more curve samples, so zooming in shows
   real detail. The page clones the capture at open time; closing the
   dialog never changes the capture.
+- `Measurement cursors` (Zoom page): hovering shows a crosshair with
+  a readout box at the cursor (`t` plus every rail's interpolated
+  voltage). Clicking pins cursor `A` (amber), a second click pins
+  `B` (violet) - the toolbar line reports `dt` and each rail's
+  `dV` between the pins (rise / fall times, ripple amplitude). A
+  third click clears both and starts a new `A`.
 - `Properties` tab: `Capture Start` (-10 to 0 s, negative = before
   power-on), `Capture End` (0.1-30 s), computed `Duration`,
   `Sample Rate` (1-250000 Hz, the U2355A aggregate limit) and

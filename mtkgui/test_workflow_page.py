@@ -158,6 +158,11 @@ ICT_STEPS = [
 class WaveformWidget(QWidget):
     # emitted on double-click; the page connects to show an edit dialog
     doubleClicked = Signal()
+    #: cursor readout line for the zoom page toolbar (hover t/V, A/B Δ)
+    cursorInfo = Signal(str)
+
+    #: plot margins (px) - shared by the painter and the cursor mapping
+    MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = 64, 24, 34, 30
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -167,6 +172,54 @@ class WaveformWidget(QWidget):
         self.virtual = False  # Virtual mode: simulated (demo) data badge
         self._cache = None    # rendered-plot pixmap (invalidated on change)
         self.setMinimumHeight(190)
+        # cursor machinery (user direction 2026-10-16): OFF for the
+        # embedded preview (a pure live view); the ZOOM page turns it
+        # on - hover crosshair with a t / per-rail V readout box and
+        # click-pinned A/B measurement cursors with a Δt / ΔV readout
+        self.cursor_enabled = False
+        self._hover = None          # (x, y) widget coords or None
+        self._pins: list[float] = []  # pinned cursor times (max 2)
+        self._cursor_text = ""
+        self.setMouseTracking(True)
+
+    # --------------------------------------------------- cursor mapping
+    def _v_top(self) -> float:
+        """Y axis top = 110 % of the highest nominal rail (the same
+        normalization the painter uses)."""
+        return max((y_max for _, _, y_max, _ in self.data), default=1.0) * 1.1
+
+    def plot_rect(self) -> QRectF:
+        """The plot area inside the widget (margins excluded)."""
+        return QRectF(self.MARGIN_L, self.MARGIN_T,
+                      max(1.0, self.width() - self.MARGIN_L - self.MARGIN_R),
+                      max(1.0, self.height() - self.MARGIN_T - self.MARGIN_B))
+
+    def x_to_time(self, x: float) -> float:
+        """Widget x -> capture time (clamped to the plot area)."""
+        rect = self.plot_rect()
+        frac = (min(max(x, rect.left()), rect.right()) - rect.left()) \
+            / rect.width()
+        return self.t_start + self.duration * frac
+
+    def time_to_x(self, t: float) -> float:
+        """Capture time -> widget x (unclamped, callers clamp)."""
+        rect = self.plot_rect()
+        frac = ((t - self.t_start) / self.duration
+                if self.duration else 0.0)
+        return rect.left() + rect.width() * frac
+
+    def rail_v_at(self, entry, t: float) -> float:
+        """One rail's interpolated voltage at capture time t (the
+        samples are fractions of the nominal; linear between points)."""
+        _label, _color, y_max, samples = entry
+        if not samples:
+            return 0.0
+        frac = (t - self.t_start) / self.duration if self.duration else 0.0
+        pos = min(max(frac, 0.0), 1.0) * (len(samples) - 1)
+        lo = int(pos)
+        hi = min(lo + 1, len(samples) - 1)
+        k = pos - lo
+        return (samples[lo] + (samples[hi] - samples[lo]) * k) * y_max
 
     def set_data(self, data, duration, t_start=0.0):
         self.data = data
@@ -204,6 +257,11 @@ class WaveformWidget(QWidget):
             self._cache_key = key
         painter = QPainter(self)
         painter.drawPixmap(self.rect(), self._cache)
+        if self.cursor_enabled:
+            # cursor overlay on TOP of the cached plot: the hover
+            # crosshair / pinned cursors repaint ONLY this cheap pass
+            # (the base plot stays the cached pixmap - zero re-render)
+            self._paint_cursors(painter)
 
     def _paint_plot(self, painter):
         rect = self.rect().adjusted(0, 0, -1, -1)
@@ -214,14 +272,10 @@ class WaveformWidget(QWidget):
                              "No capture yet - run the demo to record rails")
             return
 
-        margin_l, margin_r, margin_t, margin_b = 64, 24, 34, 30
-        plot = QRectF(rect.left() + margin_l, rect.top() + margin_t,
-                      rect.width() - margin_l - margin_r,
-                      rect.height() - margin_t - margin_b)
+        plot = self.plot_rect().adjusted(0, 0, -1, 0)
 
         # y axis: voltage, top = 110 % of the highest nominal rail
-        v_top = max((y_max for _, _, y_max, _ in self.data),
-                    default=1.0) * 1.1
+        v_top = self._v_top()
 
         # grid + time axis
         painter.setPen(QPen(QColor("#24435a"), 1))
@@ -295,6 +349,137 @@ class WaveformWidget(QWidget):
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit()
 
+    # ------------------------------------------------ cursor interaction
+    def mouseMoveEvent(self, event):
+        if not self.cursor_enabled:
+            return
+        pos = event.position()
+        self._hover = (pos.x(), pos.y())
+        self._emit_cursor_info()
+        self.update()
+
+    def leaveEvent(self, event):
+        self._hover = None
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        """Click pins the measurement cursors: 1st click = A, 2nd = B
+        (the toolbar readout shows dt / dV), a 3rd click clears both
+        and starts a new A.  Only inside the plot area."""
+        if not self.cursor_enabled:
+            return
+        rect = self.plot_rect()
+        x = event.position().x()
+        if not (rect.left() <= x <= rect.right()):
+            return
+        if len(self._pins) >= 2:
+            self._pins = []
+        self._pins.append(self.x_to_time(x))
+        self._emit_cursor_info()
+        self.update()
+
+    def _cursor_readout(self) -> str:
+        """The toolbar readout line: pinned-cursor dt / per-rail dV,
+        else the hover position time."""
+        if len(self._pins) == 2:
+            dt = self._pins[1] - self._pins[0]
+            parts = [f"dt = {dt:+.3f} s"]
+            for entry in self.data:
+                dv = (self.rail_v_at(entry, self._pins[1])
+                      - self.rail_v_at(entry, self._pins[0]))
+                parts.append(f"{entry[0]} dV = {dv:+.3f} V")
+            return "   |   ".join(parts)
+        if self._hover is not None:
+            return f"cursor t = {self.x_to_time(self._hover[0]):.3f} s"
+        return ""
+
+    def _emit_cursor_info(self) -> None:
+        text = self._cursor_readout()
+        if text != self._cursor_text:
+            self._cursor_text = text
+            self.cursorInfo.emit(text)
+
+    def _paint_cursors(self, painter):
+        """Overlay painter (AFTER the cached plot blit): hover
+        crosshair + readout box, pinned A/B cursors + dt / dV box."""
+        if not self.data:
+            return
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        plot = self.plot_rect().adjusted(0, 0, -1, 0)
+        f = QFont()
+        f.setPointSize(8)
+        painter.setFont(f)
+
+        def _vline(t, color, label):
+            x = self.time_to_x(t)
+            if not (plot.left() - 1 <= x <= plot.right() + 1):
+                return
+            painter.setPen(QPen(QColor(color), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(QPointF(x, plot.top()),
+                             QPointF(x, plot.bottom()))
+            painter.setPen(QPen(QColor(color), 2))
+            painter.drawText(QRectF(x - 40, plot.top() + 2, 80, 14),
+                             Qt.AlignmentFlag.AlignHCenter
+                             | Qt.AlignmentFlag.AlignTop, label)
+
+        # pinned cursors: A amber, B violet, dt / dV box on the right
+        colors = ("#f5b83d", "#c084fc")
+        names = ("A", "B")
+        for i, t in enumerate(self._pins[:2]):
+            _vline(t, colors[i], f"{names[i]} {t:.3f} s")
+        if len(self._pins) == 2:
+            lines = [f"dt = {self._pins[1] - self._pins[0]:+.3f} s"]
+            for entry in self.data:
+                dv = (self.rail_v_at(entry, self._pins[1])
+                      - self.rail_v_at(entry, self._pins[0]))
+                lines.append(f"{entry[0]} dV = {dv:+.3f} V")
+            box_w = max(150, 12 + max(len(x) for x in lines) * 6)
+            box = QRectF(plot.right() - box_w, plot.top() + 18,
+                         box_w, 6 + 13 * len(lines))
+            painter.setPen(QPen(QColor("#24435a"), 1))
+            painter.fillRect(box, QColor(13, 27, 38, 230))
+            painter.drawRect(box)
+            painter.setPen(QPen(QColor("#dbe7f0"), 1))
+            for i, line in enumerate(lines):
+                painter.drawText(QRectF(box.left() + 6,
+                                        box.top() + 2 + 13 * i,
+                                        box_w - 8, 14),
+                                 Qt.AlignmentFlag.AlignLeft, line)
+
+        # hover crosshair + t / V readout box at the cursor
+        if self._hover is not None:
+            hx, hy = self._hover
+            if plot.left() <= hx <= plot.right():
+                t = self.x_to_time(hx)
+                painter.setPen(QPen(QColor("#4ec9b0"), 1,
+                                    Qt.PenStyle.DashLine))
+                painter.drawLine(QPointF(hx, plot.top()),
+                                 QPointF(hx, plot.bottom()))
+                painter.drawLine(QPointF(plot.left(), hy),
+                                 QPointF(plot.right(), hy))
+                lines = [f"t = {t:.3f} s"]
+                for entry in self.data:
+                    lines.append(f"{entry[0]} = "
+                                 f"{self.rail_v_at(entry, t):.3f} V")
+                box_w = max(140, 12 + max(len(x) for x in lines) * 6)
+                box_h = 6 + 13 * len(lines)
+                # keep the box inside the plot (flip when near the edge)
+                bx = hx + 12 if hx + 12 + box_w < plot.right() \
+                    else hx - 12 - box_w
+                by = min(max(hy - box_h / 2, plot.top() + 2),
+                         plot.bottom() - box_h - 2)
+                box = QRectF(bx, by, box_w, box_h)
+                painter.setPen(QPen(QColor("#24435a"), 1))
+                painter.fillRect(box, QColor(13, 27, 38, 230))
+                painter.drawRect(box)
+                painter.setPen(QPen(QColor("#dbe7f0"), 1))
+                for i, line in enumerate(lines):
+                    painter.drawText(QRectF(box.left() + 6,
+                                            box.top() + 2 + 13 * i,
+                                            box_w - 8, 14),
+                                     Qt.AlignmentFlag.AlignLeft, line)
+
 
 class _ZoomWaveformPage(QWidget):
     """Enlarged, zoomable copy of the Power Rails capture (user
@@ -324,7 +509,7 @@ class _ZoomWaveformPage(QWidget):
         zout.clicked.connect(lambda: self._zoom_step(0.8))
         zin.clicked.connect(lambda: self._zoom_step(1.25))
         fit.clicked.connect(lambda: self._set_scale(1.0))
-        hint = QLabel("wheel = zoom, scrollbars = pan")
+        hint = QLabel("wheel = zoom, click = cursor A / B, scrollbars = pan")
         hint.setObjectName("muted")
         bar.addWidget(zout)
         bar.addWidget(self.lbl)
@@ -336,10 +521,16 @@ class _ZoomWaveformPage(QWidget):
         self.wave = WaveformWidget()
         self.wave.set_data(source.data, source.duration, source.t_start)
         self.wave.set_virtual(source.virtual)
+        self.wave.cursor_enabled = True   # hover crosshair + A/B cursors
+        # the toolbar readout line: hover t / the pinned dt + dV values
+        self.cursor_lbl = QLabel("")
+        self.cursor_lbl.setObjectName("muted")
+        self.wave.cursorInfo.connect(self.cursor_lbl.setText)
         self.scroll = QScrollArea()
         self.scroll.setWidget(self.wave)   # fixed-size widget -> scrollbars
         self.scroll.viewport().installEventFilter(self)
         lay.addWidget(self.scroll, 1)
+        lay.addWidget(self.cursor_lbl)
         self._apply()
 
     # ------------------------------------------------------------- zoom
