@@ -184,6 +184,17 @@ def test_rail_analysis_overshoot_and_review():
     bad = dut_pdf.rail_analysis(_rail_report(
         samples=(0.0, 0.9, 0.92, 0.5)))[0]
     assert bad["settle"] is None and "review" in bad["note"]
+    assert bad["ripple_mv"] is None          # no settled window at all
+
+
+def test_rail_analysis_ripple_in_settled_window():
+    """Ripple p-p counts only the settled (±5%) window: the ramp and
+    the 1.06 overshoot sample are excluded."""
+    a = dut_pdf.rail_analysis(_rail_report(
+        samples=(0.0, 0.6, 1.06, 1.0, 0.99, 1.01, 1.0),
+        nominal=3.3))[0]
+    # settled window = samples 3..6 (1.0, 0.99, 1.01, 1.0) -> 0.02 frac
+    assert a["ripple_mv"] == pytest.approx(0.02 * 3.3 * 1000.0)
 
 
 def test_html_grouped_tables_and_sequence_chart():

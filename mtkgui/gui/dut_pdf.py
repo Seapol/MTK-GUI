@@ -145,7 +145,9 @@ def rail_analysis(report) -> list:
     reports where the recorded curve ended relative to the ±5 % band.
 
     Returns dicts: label / nominal / final / rise / peak / over /
-    settle / note.
+    settle / ripple_mv / note.  ``ripple_mv`` is the peak-to-peak
+    swing WITHIN the settled (±5 %) window, in millivolts - None when
+    the rail never settles.
     """
     out = []
     dur = report.rail_duration or 0.0
@@ -178,16 +180,22 @@ def rail_analysis(report) -> list:
                 last_out = i
         if last_out is None:
             settle = t0                       # never left the band
+            settled = samples
         elif last_out + 1 <= n - 1:
             settle = t0 + (last_out + 1) * step
+            settled = samples[last_out + 1:]
         else:
             settle = None                     # never settled
+            settled = []
         final_frac = samples[-1]
         ok = abs(final_frac - 1.0) <= RAIL_BAND and settle is not None
+        ripple_mv = (max(settled) - min(settled)) * y_max * 1000.0 \
+            if settled else None
         out.append({
             "label": label, "nominal": y_max,
             "final": final_frac * y_max, "rise": rise,
             "peak": peak * y_max, "over": over, "settle": settle,
+            "ripple_mv": ripple_mv,
             "note": ("in regulation (±5%)"
                      if ok else "final outside ±5% band — review"),
         })
@@ -202,6 +210,8 @@ def _rail_analysis_table(analysis: list) -> str:
     for a in analysis:
         rise = "—" if a["rise"] is None else f"{a['rise']:.3f}"
         settle = "—" if a["settle"] is None else f"{a['settle']:.3f}"
+        ripple = "—" if a["ripple_mv"] is None \
+            else f"{a['ripple_mv']:.1f} mV"
         rows += (f"<tr><td><b>{esc(a['label'])}</b></td>"
                  f"<td>{a['nominal']:.3f}</td>"
                  f"<td>{a['final']:.3f}</td>"
@@ -209,6 +219,7 @@ def _rail_analysis_table(analysis: list) -> str:
                  f"<td>{a['peak']:.3f}</td>"
                  f"<td>{a['over']:.1f}%</td>"
                  f"<td>{settle}</td>"
+                 f"<td>{ripple}</td>"
                  f"<td>{esc(a['note'])}</td></tr>")
     return ("<table width='100%' cellspacing='0' cellpadding='3'"
             " border='0'>"
@@ -220,6 +231,7 @@ def _rail_analysis_table(analysis: list) -> str:
             "<td><b><font color='#ffffff'><small>PEAK V</small></font></b></td>"
             "<td><b><font color='#ffffff'><small>OVERSHOOT</small></font></b></td>"
             "<td><b><font color='#ffffff'><small>SETTLE ±5% s</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>RIPPLE P-P</small></font></b></td>"
             "<td><b><font color='#ffffff'><small>NOTE</small></font></b></td>"
             f"</tr>{rows}</table>")
 
