@@ -376,7 +376,9 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "rail_window": [report.rail_t_start, report.rail_duration],
         "meta": meta,
     })
-    report_no = (f"DUT-{verdict}-{sn}-{when:%Y%m%d-%H%M%S}")
+    report_no = "-".join(
+        p for p in (f"DUT-{verdict}", report.serial_no,
+                    f"{when:%Y%m%d-%H%M%S}") if p)
 
     def _items_table(items):
         """One judged-rows table (no CATEGORY column: the section
@@ -548,15 +550,20 @@ _safe = safe_name
 
 def dut_pdf_name(report, meta=None, when: datetime | None = None) -> str:
     """DUT_[PASS/FAIL]_[Serial#]_[Core ID]_[Project Part#]_[Batch#]_
-    [Date]_[Time].pdf (the fixed naming from the spec)."""
+    [Date]_[Time].pdf (the fixed naming from the spec).  A missing
+    Serial Number is SKIPPED - the leading DUT_ prefix already names
+    the file type, a second DUT segment would be redundant (2026-10-17
+    user direction); missing meta fields fall back to NA."""
     meta = dict(meta or {})
     when = when or datetime.now()
-    sn = safe_name(report.serial_no) if report.serial_no else "DUT"
-    return (f"DUT_{_verdict(report.overall_result)}_{sn}"
-            f"_{safe_name(meta.get('core_id', ''))}"
-            f"_{safe_name(meta.get('part', ''))}"
-            f"_{safe_name(meta.get('batch', ''))}"
-            f"_{when:%Y-%m-%d}_{when:%H-%M-%S}.pdf")
+    parts = [f"DUT_{_verdict(report.overall_result)}"]
+    if report.serial_no:
+        parts.append(safe_name(report.serial_no))
+    parts += [safe_name(meta.get("core_id", "")),
+              safe_name(meta.get("part", "")),
+              safe_name(meta.get("batch", "")),
+              f"{when:%Y-%m-%d}_{when:%H-%M-%S}.pdf"]
+    return "_".join(p for p in parts if p)
 
 
 # ------------------------------------------------------------------ pdf

@@ -47,6 +47,17 @@ def test_pdf_name_fail_verdict_and_sanitized_fields():
     assert name.count("_") == 7
 
 
+def test_pdf_name_skips_missing_serial():
+    """2026-10-17 user direction: an empty Serial Number is skipped -
+    'DUT_PASS_DUT_...' duplicated the file-type prefix."""
+    name = dut_pdf.dut_pdf_name(_dut(serial=""), META)
+    assert name.startswith("DUT_PASS_95308_")
+    assert "_DUT_" not in name
+    html = dut_pdf.dut_report_html(_dut(serial=""), META)
+    assert "DUT-PASS-2" in html          # report no skips it too
+    assert "-DUT-2" not in html
+
+
 # ------------------------------------------------------------------ html
 def test_certificate_html_carries_seal_and_signoff():
     html = dut_pdf.dut_report_html(
