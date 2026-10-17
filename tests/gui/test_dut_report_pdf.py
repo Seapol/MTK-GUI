@@ -73,9 +73,11 @@ def test_certificate_html_carries_seal_and_signoff():
     assert "95308" in html and "B20261016-01" in html
     # the seal is an image resource, not raw text
     assert f"src='{dut_pdf.STAMP_RESOURCE}'" in html
-    # the MTK sign-off row + trace-hash footer
-    assert "AUTHORIZED BY MTK" in html.upper()
-    assert "TESTED BY" in html.upper() and "REVIEWED BY" in html.upper()
+    # the MTK-only sign-off + trace-hash footer (2026-10-17: no
+    # personal Tested / Reviewed signatures - users feared liability)
+    assert "AUTHORIZED SIGNATURE — MTK" in html.upper()
+    assert "TESTED BY" not in html.upper()
+    assert "REVIEWED BY" not in html.upper()
     assert re.search(r"sha256 · [0-9a-f]{64}", html)
     # per-item verdicts keep their green / red coding
     assert dut_pdf.GREEN in html

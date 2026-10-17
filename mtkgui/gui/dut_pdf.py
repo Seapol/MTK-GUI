@@ -417,14 +417,6 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     claimed = {id(i) for i in grp_imped + grp_volt + grp_clock + grp_seq}
     grp_other = [i for i in report.items if id(i) not in claimed]
 
-    # three-column sign-off: ink (cursive) over a rule + caption
-    def _sig(ink, cap):
-        return (f"<td width='33%' align='center'>"
-                f"<font face='{SCRIPT_FONT}' size='5' color='{INK}'>"
-                f"{esc(ink)}</font><br><hr>"
-                f"<small><font color='{MUTED}'>{esc(cap.upper())}</font>"
-                f"</small></td>")
-
     # summary strip counts (strict): only real failures (FAIL /
     # TIMEOUT / ERROR) count as FAIL - 'Done' op rows and INFO rows
     # are neither (they used to inflate the FAIL count)
@@ -508,13 +500,19 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "<table width='100%' cellspacing='0' cellpadding='4'><tr>"
         f"<td align='right'><img src='{STAMP_RESOURCE}' width='170' "
         f"height='170'></td></tr></table></td></tr>"
-        # ---- sign-off
+        # ---- sign-off (2026-10-17 user direction: ONLY the MTK
+        # signature - no operator / reviewer personal sign-off, users
+        # worried about taking responsibility; the tested-by identity
+        # stays in section 1 Station / Operator)
         f"<tr><td colspan='2'>{_sec('5 · Sign-off')}"
         "<table width='100%' cellspacing='0' cellpadding='6'><tr>"
-        + _sig(report.user or "operator", "Tested by")
-        + _sig("", "Reviewed by")
-        + _sig("MTK QA", "Authorized by MTK")
-        + "</tr></table></td></tr>"
+        "<td width='55%'>&nbsp;</td>"
+        f"<td width='45%' align='center'>"
+        f"<font face='{SCRIPT_FONT}' size='5' color='{INK}'>MTK QA</font>"
+        f"<br><hr>"
+        f"<small><font color='{MUTED}'>AUTHORIZED SIGNATURE — MTK · "
+        f"{esc(f'{when:%Y-%m-%d}')}</font></small></td>"
+        "</tr></table></td></tr>"
         # ---- footer
         f"<tr><td colspan='2'><hr><small><font color='{MUTED}'>"
         f"Electronically sealed by MTK GUI — this seal is bound to the "
@@ -585,11 +583,14 @@ def _render_pdf(html: str, images: dict, path: Path) -> None:
     """Lay out ``html`` and print it to an A4 PDF (safe on a worker
     thread: only QTextDocument / QPrinter are touched)."""
     from PySide6.QtCore import QMarginsF, QUrl
-    from PySide6.QtGui import QTextDocument
+    from PySide6.QtGui import QFont, QTextDocument
     from PySide6.QtGui import QPageLayout, QPageSize
     from PySide6.QtPrintSupport import QPrinter
 
     doc = QTextDocument()
+    # 2026-10-17 user direction: smaller default body font (8 pt vs
+    # the ~12 pt engine default) - fewer wrapped lines, denser tables
+    doc.setDefaultFont(QFont("Arial", 8))
     for name, img in images.items():
         doc.addResource(QTextDocument.ResourceType.ImageResource,
                         QUrl(name), img)
