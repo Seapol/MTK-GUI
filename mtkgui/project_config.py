@@ -345,13 +345,20 @@ def apply_config(config, workflow_page, equipment_page,
     # power rails are fully YAML-defined: the rail set (name / nominal
     # / ramp offset / color) rebuilds the waveform checkboxes
     pr = config.get("test_workflow", {}).get("power_rails_up_sequence", {})
-    workflow_page.set_rails([
-        (str(r.get("name", "")),
-         str(r.get("color", "#64748b")),
-         float(r.get("nominal_v", 0.0)),
-         float(r.get("ramp_offset_s", 0.0)))
-        for r in (pr.get("rails") or [])
-    ])
+    # a saved 0.0 nominal is a parse miss, not a real 0 V rail: fall back
+    # to the voltage carried by the net name (12V_DECT_1 -> 12.0) - the
+    # same rule the Yaml Build rail sync uses, so a project saved before
+    # the fix loads with its nominal repaired
+    from .gui.yamlbuild.ict_sequence import expected_voltage
+    rails = []
+    for r in (pr.get("rails") or []):
+        name = str(r.get("name", ""))
+        vnom = float(r.get("nominal_v") or 0.0)
+        if not vnom:
+            vnom = expected_voltage(name) or 0.0
+        rails.append((name, str(r.get("color", "#64748b")), vnom,
+                      float(r.get("ramp_offset_s") or 0.0)))
+    workflow_page.set_rails(rails)
     workflow_page.set_capture_settings(
         duration_s=pr.get("duration_s"),
         rate_hz=pr.get("sample_rate_hz"))

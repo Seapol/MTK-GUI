@@ -100,7 +100,11 @@ POWER_TOL = 0.05
 CLOCK_TOL_PPM = 50.0
 
 _V_RE = re.compile(r"(\d+)V(\d+)")            # 3V3 / 1V8 / 1V05
-_V_PLAIN_RE = re.compile(r"(\d+)V\b")         # 24V / 5V
+#: plain form: "V" NOT followed by a digit.  A "\b" boundary rejected
+#: "12V_DECT_1" ("_" is a word char) and parsed it as no nominal -> the
+#: rail showed 0.000 V in the report; the lookahead accepts it while
+#: still rejecting the 3V3-style names (handled by _V_RE above).
+_V_PLAIN_RE = re.compile(r"(\d+)V(?![0-9])")  # 24V / 5V / 12V_DECT_1
 
 
 def expected_voltage(net: str) -> float | None:

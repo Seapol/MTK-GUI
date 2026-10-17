@@ -329,6 +329,33 @@ def test_breakpoint_flag_absent_backwards_compatible(page, equipment):
         fresh.deleteLater()
 
 
+def test_power_rail_nominal_repaired_from_net_name(page, equipment):
+    """A project saved before the parse fix carries nominal_v 0.0 for a
+    '12V_DECT_1' style rail (the old regex rejected the 'V_' boundary);
+    loading it repopulates the nominal from the net name, while a rail
+    whose name carries no voltage keeps its real 0.0."""
+    config = build_config(page, equipment)
+    config["test_workflow"]["power_rails_up_sequence"] = {
+        "rails": [
+            {"name": "12V_DECT_1", "nominal_v": 0.0,
+             "ramp_offset_s": 0.0, "color": "#f97316"},
+            {"name": "1V2_RGMII_A_AVDDL", "nominal_v": 1.2,
+             "ramp_offset_s": 0.0, "color": "#ef4444"},
+            {"name": "VBAT_SENSE", "nominal_v": 0.0,
+             "ramp_offset_s": 0.0, "color": "#22c55e"},
+        ],
+    }
+    fresh = TestWorkFlowPage()
+    try:
+        apply_config(config, fresh, equipment)
+        rails = {name: vnom for name, _c, vnom, _o in fresh.rails}
+        assert rails["12V_DECT_1"] == 12.0
+        assert rails["1V2_RGMII_A_AVDDL"] == 1.2
+        assert rails["VBAT_SENSE"] == 0.0
+    finally:
+        fresh.deleteLater()
+
+
 def test_edit_comment_stores_and_updates_tooltip(qapp, monkeypatch):
     """The context-menu editor stores the text and syncs the tooltip;
     Cancel leaves the comment unchanged."""

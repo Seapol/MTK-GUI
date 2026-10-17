@@ -117,6 +117,13 @@ def test_auto_fills_limits_from_net_names(qapp):
     assert expected_voltage("P3V3_LDO") == 3.3
     assert expected_voltage("MCU_1V8") == 1.8
     assert expected_voltage("VIN_24V") == 24.0
+    # "V" followed by "_" (a word char) is still the plain form: the old
+    # \b boundary rejected 12V_DECT_1 and the rail showed 0.000 V
+    assert expected_voltage("12V_DECT_1") == 12.0
+    assert expected_voltage("12V0_IN_PWR_EN_B") == 12.0
+    assert expected_voltage("5V_SYS") == 5.0
+    assert expected_voltage("VCC_OSC_AUXCLKIN") is None
+    assert expected_voltage("VBAT_SENSE") is None
     assert expected_voltage("GND") is None
     assert expected_hz("CLK_24M") == 24e6
     assert expected_hz("OSC_125M") == 125e6
