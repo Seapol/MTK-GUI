@@ -100,15 +100,25 @@ def console_log_html(text: str, max_chars: int = 400_000) -> str:
     """Full DUT console transcript as a printable section appended after
     the test table.  ANSI escape sequences are stripped (QTextDocument
     cannot render them — they would pollute the PDF as garbage glyphs)
-    and the text is HTML-escaped inside a compact monospace <pre>."""
+    and the text is HTML-escaped inside a compact monospace single-cell
+    TABLE (2026-10-17 fix: the former <pre> does not wrap — one long
+    CLI / dump line widened the whole document layout past the paper
+    edge, clipping every page).  Long tokens get zero-width breaks so
+    wrapping is always possible."""
+    import re
     from ..engine.fct_test_runner import strip_ansi
-    clean = strip_ansi(text or "")
+    clean = strip_ansi(text or "").replace("\r", "")
     if len(clean) > max_chars:
         clean = clean[:max_chars] + "\n... (truncated)"
+    escaped = _html.escape(clean)
+    # zero-width break inside every 24-char unbreakable run
+    escaped = re.sub(r"\S{24}", lambda m: m.group(0) + "\u200b", escaped)
+    escaped = escaped.replace("\n", "<br>")
     return ("<h3>Console Log</h3>"
-            "<pre style='font-family:Menlo,Consolas,monospace; "
-            "font-size:6pt; background:#f7f7f7;'>"
-            f"{esc(clean)}</pre>")
+            "<table width='100%' cellspacing='0' cellpadding='4'>"
+            "<tr><td bgcolor='#f7f7f7' style=\""
+            "font-family:Menlo,Consolas,monospace; font-size:6pt\">"
+            f"{escaped}</td></tr></table>")
 
 
 def build_html_report(*, records, yield_report, cycle_report,

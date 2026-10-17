@@ -90,16 +90,24 @@ def _finish_session(page):
 
 
 def test_counted_run_generates_report_files(qapp, report_home):
+    from PySide6.QtTest import QTest
     w = _window()
     _finish_session(w.workflow_page)
     w._on_run_report_auto({"counted": True})
     # the START is announced immediately in the Event Log...
     log = w.event_log.toPlainText()
     assert "DUT report generating" in log
-    # ...while the (heavier) rendering is deferred: nothing written yet
+    # ...while the (heavy) rendering is deferred onto the worker thread
     assert not list(report_paths.dut_folder().rglob("*.pdf"))
-    # fire the deferred generation (what the singleShot would do)
+    # fire the deferred generation (what the singleShot would do) and
+    # wait for the worker thread to finish the PDF (the completion log
+    # line is emitted after QPrinter flushed the file)
     w._generate_dut_report_files(w._session_reports[-1])
+    deadline = 15_000
+    while "DUT report generated" not in w.event_log.toPlainText() \
+            and deadline > 0:
+        QTest.qWait(100)
+        deadline -= 100
     day = report_paths.dut_folder() / __import__("datetime").datetime \
         .now().strftime("%Y-%m-%d")
     pdfs = list(day.glob("DUT_PASS_*.pdf"))

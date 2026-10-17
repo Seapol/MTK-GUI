@@ -83,11 +83,11 @@ def test_certificate_html_console_appendix_and_fail():
 
 
 # ----------------------------------------------------------------- seal
-def test_stamp_pixmap_renders_for_both_verdicts(qapp):
+def test_stamp_image_renders_for_both_verdicts(qapp):
     for result in ("PASS", "FAIL"):
-        pm = dut_pdf.stamp_pixmap(result)
-        assert not pm.isNull()
-        assert pm.size().width() == 340 and pm.size().height() == 340
+        img = dut_pdf.stamp_image(result)
+        assert not img.isNull()
+        assert img.size().width() == 340 and img.size().height() == 340
 
 
 def test_stamp_resource_resolves_in_qtextdocument(qapp):
@@ -96,7 +96,7 @@ def test_stamp_resource_resolves_in_qtextdocument(qapp):
     doc = QTextDocument()
     doc.addResource(QTextDocument.ResourceType.ImageResource,
                     QUrl(dut_pdf.STAMP_RESOURCE),
-                    dut_pdf.stamp_pixmap("PASS"))
+                    dut_pdf.stamp_image("PASS"))
     doc.setHtml(dut_pdf.dut_report_html(_dut(), META))
     res = doc.resource(QTextDocument.ResourceType.ImageResource,
                        QUrl(dut_pdf.STAMP_RESOURCE))
@@ -311,7 +311,28 @@ def test_section_order_sequence_before_other():
         < html.index("3.5 · FLASH / FCT / RF")
 
 
-def test_rails_chart_pixmap(qapp):
-    pm = dut_pdf.rails_chart_pixmap(_rail_report())
-    assert not pm.isNull() and pm.width() == 1160
-    assert dut_pdf.rails_chart_pixmap(_dut()).isNull()
+def test_rails_chart_image(qapp):
+    img = dut_pdf.rails_chart_image(_rail_report())
+    assert not img.isNull() and img.width() == 1160
+    assert dut_pdf.rails_chart_image(_dut()).isNull()
+
+
+def test_pdf_render_worker_thread(qapp, tmp_path):
+    """The GUI path: the worker renders the PDF OFF the caller thread
+    and reports done / failed."""
+    from PySide6.QtCore import QThread
+    from PySide6.QtTest import QTest
+    html, images = dut_pdf.report_pdf_payload(
+        _dut(items=[ReportItem(test_name="t", category="ICT",
+                               measured="1.0", result="PASS")]), META)
+    worker = dut_pdf.PdfRenderWorker(html, images, tmp_path / "w.pdf")
+    assert isinstance(worker, QThread)
+    results = []
+    worker.done.connect(results.append)
+    worker.start()
+    deadline = 10_000  # ms
+    while not results and deadline > 0:
+        QTest.qWait(100)
+        deadline -= 100
+    worker.wait()
+    assert results and (tmp_path / "w.pdf").read_bytes()[:4] == b"%PDF"

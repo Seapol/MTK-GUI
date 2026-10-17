@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from PySide6.QtCore import QThread, Signal
+
 NAVY = "#16324f"
 GOLD = "#c9a227"
 GREEN = "#1d7a3c"
@@ -46,16 +48,18 @@ def _color(result: str) -> str:
 
 
 # ------------------------------------------------------------------ seal
-def stamp_pixmap(result: str) -> "QPixmap":
+def stamp_image(result: str) -> "QImage":
     """The circular seal, pre-rendered at 2x (displayed at 170 px):
     double ring + curved MTK QA text + the verdict + date, tilted -11
-    like a rubber stamp.  Green for PASS, red for everything else."""
+    like a rubber stamp.  Green for PASS, red for everything else.
+    QImage (not QPixmap) so the resource can also be consumed by the
+    off-GUI-thread PDF renderer."""
     from PySide6.QtCore import QPointF, QRectF, Qt
-    from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+    from PySide6.QtGui import QColor, QFont, QPainter, QPen, QImage
 
     color = QColor(_color(result))
     size = 340
-    pm = QPixmap(size, size)
+    pm = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -285,21 +289,23 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
     return html
 
 
-def rails_chart_pixmap(report, width=1160, height=480):
+def rails_chart_image(report, width=1160, height=480):
     """Render the captured rails with the SAME painter as the live
     waveform (identical grid / legend / colors), for embedding into
-    the report HTML as the ``rail_chart`` image resource."""
+    the report HTML as the ``rail_chart`` image resource.  Built on
+    the GUI thread (it instantiates a widget) but returned as QImage
+    so the off-thread PDF renderer can consume it."""
     if not getattr(report, "rails", None):
-        from PySide6.QtGui import QPixmap
-        return QPixmap()
+        from PySide6.QtGui import QImage
+        return QImage()
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QPainter, QPixmap
+    from PySide6.QtGui import QPainter, QImage
     from ..test_workflow_page import WaveformWidget
     wave = WaveformWidget()
     wave.resize(width, height)
     wave.set_data(report.rails, report.rail_duration or 1.0,
                   report.rail_t_start)
-    pm = QPixmap(width, height)
+    pm = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
     p = QPainter(pm)
     try:
         wave._paint_plot(p)
@@ -543,23 +549,30 @@ def dut_pdf_name(report, meta=None, when: datetime | None = None) -> str:
 
 
 # ------------------------------------------------------------------ pdf
-def export_dut_pdf(report, meta=None, path=None) -> Path:
-    """Render the certificate into an A4 PDF (the same markup as the
-    in-app preview, seal injected as an image resource)."""
+def report_pdf_payload(report, meta=None) -> tuple:
+    """(html, {resource_name: QImage}) for one certificate - the fast
+    GUI-thread part of the export; the heavy QPrinter rasterization is
+    done separately (sync via :func:`export_dut_pdf`, or off-thread via
+    :class:`PdfRenderWorker`)."""
+    images = {STAMP_RESOURCE: stamp_image(report.overall_result)}
+    if getattr(report, "rails", None):
+        images[CHART_RESOURCE] = rails_chart_image(report)
+    return dut_report_html(report, meta), images
+
+
+def _render_pdf(html: str, images: dict, path: Path) -> None:
+    """Lay out ``html`` and print it to an A4 PDF (safe on a worker
+    thread: only QTextDocument / QPrinter are touched)."""
     from PySide6.QtCore import QMarginsF, QUrl
     from PySide6.QtGui import QTextDocument
     from PySide6.QtGui import QPageLayout, QPageSize
     from PySide6.QtPrintSupport import QPrinter
 
-    path = Path(path)
     doc = QTextDocument()
-    doc.addResource(QTextDocument.ResourceType.ImageResource,
-                    QUrl(STAMP_RESOURCE), stamp_pixmap(
-                        report.overall_result))
-    if getattr(report, "rails", None):
+    for name, img in images.items():
         doc.addResource(QTextDocument.ResourceType.ImageResource,
-                        QUrl(CHART_RESOURCE), rails_chart_pixmap(report))
-    doc.setHtml(dut_report_html(report, meta))
+                        QUrl(name), img)
+    doc.setHtml(html)
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(str(path))
@@ -571,4 +584,37 @@ def export_dut_pdf(report, meta=None, path=None) -> Path:
     printer.setPageMargins(QMarginsF(0, 0, 0, 0),
                            QPageLayout.Unit.Millimeter)
     doc.print_(printer)
+
+
+def export_dut_pdf(report, meta=None, path=None) -> Path:
+    """Render the certificate into an A4 PDF (synchronous - tests and
+    one-off exports; the GUI uses :class:`PdfRenderWorker` instead so
+    the 1200-dpi rasterization never freezes the UI)."""
+    path = Path(path)
+    html, images = report_pdf_payload(report, meta)
+    _render_pdf(html, images, path)
     return path
+
+
+class PdfRenderWorker(QThread):
+    """Renders one certificate PDF OFF the GUI thread (2026-10-17 user
+    direction: the QPrinter rasterization froze the UI for seconds -
+    the mouse-over-menu stutter).  The html / images are prepared on
+    the GUI thread (:func:`report_pdf_payload`); this worker only
+    builds its own QTextDocument + QPrinter and paints."""
+
+    done = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, html: str, images: dict, path, parent=None):
+        super().__init__(parent)
+        self._html = html
+        self._images = images
+        self._path = Path(path)
+
+    def run(self):
+        try:
+            _render_pdf(self._html, self._images, self._path)
+            self.done.emit(str(self._path))
+        except Exception as e:                   # noqa: BLE001
+            self.failed.emit(f"{type(e).__name__}: {e}")

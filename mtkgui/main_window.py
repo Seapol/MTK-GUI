@@ -413,6 +413,7 @@ class MainWindow(QMainWindow):
         self._project_path = None
         # Module B report session batch (auto-captured per product)
         self._session_reports: list = []
+        self._report_workers: set = set()
         self._last_batch = None
 
         self._build_ui()
@@ -1120,9 +1121,11 @@ class MainWindow(QMainWindow):
     def _generate_dut_report_files(self, report) -> None:
         """Write one DUT's certificate PDF + MES CSV into the DUT
         Report folder (<program>/DUT Report/<date>/).  Called after
-        EVERY counted test run (2026-10-17 user direction) - deferred
-        onto the event loop so the finished-run UI paints first, and
-        failures are logged, never raised into the run path."""
+        EVERY counted test run (2026-10-17 user direction).  The CSV
+        is written synchronously (fast file IO); the heavy 1200-dpi
+        PDF rasterization runs on a WORKER THREAD - the GUI stays
+        responsive while the report renders (menu-hover stutter fix).
+        Failures are logged, never raised into the run path."""
         from mtkgui import report_paths
         try:
             from mtkgui.engine.report import save_dut_csv
@@ -1131,16 +1134,30 @@ class MainWindow(QMainWindow):
             out = report_paths.dut_folder()
             day = datetime.now().strftime("%Y-%m-%d")
             (out / day).mkdir(parents=True, exist_ok=True)
-            pdf = dut_pdf.export_dut_pdf(
-                report, meta, out / day / dut_pdf.dut_pdf_name(report, meta))
             csv = save_dut_csv(report, out)
-            self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] DUT report generated: "
-                f"{pdf.name} (+ {csv.name})")
+            html, images = dut_pdf.report_pdf_payload(report, meta)
+            worker = dut_pdf.PdfRenderWorker(
+                html, images, out / day / dut_pdf.dut_pdf_name(report, meta))
+            worker.done.connect(qt_safe(self._on_dut_pdf_done))
+            worker.failed.connect(qt_safe(self._on_dut_pdf_failed))
+            worker.finished.connect(
+                lambda w=worker: self._report_workers.discard(w))
+            self._report_workers.add(worker)
+            worker.start()
         except Exception as e:                   # noqa: BLE001
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] DUT report generation "
                 f"failed: {e}")
+
+    def _on_dut_pdf_done(self, path: str) -> None:
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] DUT report generated: "
+            f"{Path(path).name}")
+
+    def _on_dut_pdf_failed(self, error: str) -> None:
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] DUT report generation "
+            f"failed: {error}")
 
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture (B4 §8.3 trigger): every counted
