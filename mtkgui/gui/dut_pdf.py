@@ -269,13 +269,23 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
     # 3.4 power-rails sequence: judged rows + chart + metrics
     if grp_seq or report.rails:
         html += (f"<b><font color='{NAVY}'><small>"
-                 "3.4 · POWER RAILS UP SEQUENCE (DAQ AI)</small></font></b>"
+                 "3.4 · POWER RAILS UP SEQUENCE (DAQ AI)</small></font>"
+                 f"</b><br>"
                  + "".join(
                      f"<small>{esc(i.test_name)} — <b><font color='"
                      f"{GREEN if 'PASS' in i.result.upper() else RED}'>"
                      f"{esc(i.result)}</font></b></small><br>"
                      for i in grp_seq)
-                 + (f"<img src='{CHART_RESOURCE}' width='640'><br>"
+                 # ROOT CAUSE of the thrice-clipped 96624 report
+                 # (2026-10-17): a bare <img> sharing its <td> with
+                 # sibling tables makes QTextDocument count the image's
+                 # minimum width once per nesting level (640px chart ->
+                 # 920px layout, off the 793px page).  Isolating the img
+                 # in its own single-cell table bounds the minimum to
+                 # the image + cell chrome (~728px, fits).
+                 + (f"<table width='100%' cellspacing='0' cellpadding='0'>"
+                    f"<tr><td><img src='{CHART_RESOURCE}' width='640'>"
+                    f"</td></tr></table><br>"
                     if report.rails else
                     f"<small><font color='{MUTED}'>No capture data "
                     f"available.</font></small><br>")
