@@ -276,6 +276,67 @@ def test_verdict_conflict_banner():
     assert "VERDICT NOTE" not in dut_pdf.dut_report_html(consistent, META)
 
 
+_NETS = ["12V0_IN_PWR_EN_B", "12V_DECT_1", "1V2_RGMII_A_AVDDL",
+         "1V2_RGMII_A_DVDDL", "1V8_FT4232_1", "1V8_FT4232_2",
+         "1V8_FT4232_3", "1V8_RGMII_A_DVDDH", "SPI3_SENT_SEL_1V8",
+         "VBAT_SENSE", "VBUS_DET", "VCC_OSC_AUXCLKIN"]
+_RAIL_NOM = [1.2, 1.2, 1.8, 1.8, 1.8, 1.8, 12.0, 12.0, 1.8, 3.3, 3.3, 1.1]
+
+
+def _realistic_report(console=""):
+    """The real-world adversarial 96624/96317 report shape: 37 items
+    with long net names, a 12-rail capture, op rows and the real
+    60-char station / operator strings."""
+    def imp(n):
+        return ReportItem(test_name=f"Static Impedance - {n}",
+                          category="ICT", method="Static Impedance",
+                          measured="73.36", low="30", unit="Ω",
+                          result="PASS")
+
+    def volt(n):
+        return ReportItem(test_name=f"Power Voltage - {n}",
+                          category="ICT", method="Power Voltage",
+                          measured="12.005", low="11.400", high="12.600",
+                          unit="V", result="PASS")
+
+    items = ([imp(n) for n in _NETS] + [volt(n) for n in _NETS]
+             + [ReportItem(test_name="Clock Hz - CLKGEN2_I2C_ADDR",
+                           category="ICT", method="Clock Hz",
+                           measured="32,768.3", low="32766.3616",
+                           high="32769.6384", unit="Hz", result="PASS")]
+             + [ReportItem(test_name=op, category="FCT", duration="0.82",
+                           result="Done")
+                for op in ("Init Instruments", "Fixture Clamp Down",
+                           "Fixture Lock", "Power On DUT")]
+             + [ReportItem(test_name="Power Rails Up Sequence",
+                           category="ICT", method="DAQ AI",
+                           measured="12 Power rails assigned on DAQ "
+                                    "channels", result="Virtual PASS")])
+    report = _dut(items=items, console=console)
+    report.station_id = "SeapolShenMacBook-Pro.local"   # real 60-char
+    report.user = "seapolshenmacpro16"                  # station cell
+    report.rails = [(n, "#38bdf8", nom,
+                     [0.0, 0.5, 1.0, 0.999, 1.001, 1.0])
+                    for n, nom in zip(_NETS, _RAIL_NOM)]
+    report.rail_duration = 6.0
+    report.rail_t_start = -0.5
+    return report
+
+
+def _inject_resources(doc, report):
+    """EXACTLY like the real pipeline: images injected BEFORE setHtml."""
+    from PySide6.QtCore import QUrl
+    doc.addResource(QTextDocument.ResourceType.ImageResource,
+                    QUrl(dut_pdf.CHART_RESOURCE),
+                    dut_pdf.paint_rails_chart(
+                        list(report.rails), report.rail_duration,
+                        report.rail_t_start, True))
+    doc.addResource(QTextDocument.ResourceType.ImageResource,
+                    QUrl(dut_pdf.STAMP_RESOURCE),
+                    dut_pdf.stamp_image(report.overall_result))
+    doc.setHtml(dut_pdf.dut_report_html(report, META))
+
+
 def test_realistic_report_fits_page_width(qapp):
     """GOLDEN regression (the 96624 report was clipped THREE times):
     the layout is measured exactly like the real pipeline — 8 pt default
@@ -289,41 +350,9 @@ def test_realistic_report_fits_page_width(qapp):
         spaces, so the transcript must be hard-wrapped by characters,
       * 37 items with long net names + the real 60-char station string,
       * a 12-rail capture (chart + per-rail analysis),
-    and the document must stay inside the A4 text width (~793 px @96
-    dpi minus the wrapper padding)."""
-    from PySide6.QtCore import QUrl
+    and the document must stay inside the fixed paintable page body."""
     from PySide6.QtGui import QFont, QTextDocument
 
-    def imp(n):
-        return ReportItem(test_name=f"Static Impedance - {n}",
-                          category="ICT", method="Static Impedance",
-                          measured="73.36", low="30", unit="Ω",
-                          result="PASS")
-
-    def volt(n):
-        return ReportItem(test_name=f"Power Voltage - {n}",
-                          category="ICT", method="Power Voltage",
-                          measured="12.005", low="11.400", high="12.600",
-                          unit="V", result="PASS")
-
-    nets = ["12V0_IN_PWR_EN_B", "12V_DECT_1", "1V2_RGMII_A_AVDDL",
-            "1V2_RGMII_A_DVDDL", "1V8_FT4232_1", "1V8_FT4232_2",
-            "1V8_FT4232_3", "1V8_RGMII_A_DVDDH", "SPI3_SENT_SEL_1V8",
-            "VBAT_SENSE", "VBUS_DET", "VCC_OSC_AUXCLKIN"]
-    items = ([imp(n) for n in nets] + [volt(n) for n in nets]
-             + [ReportItem(test_name="Clock Hz - CLKGEN2_I2C_ADDR",
-                           category="ICT", method="Clock Hz",
-                           measured="32,768.3", low="32766.3616",
-                           high="32769.6384", unit="Hz", result="PASS")]
-             + [ReportItem(test_name=op, category="FCT", duration="0.82",
-                           result="Done")
-                for op in ("Init Instruments", "Fixture Clamp Down",
-                           "Fixture Lock", "Power On DUT")]
-             + [ReportItem(test_name="Power Rails Up Sequence",
-                           category="ICT", method="DAQ AI",
-                           measured="12 Power rails assigned on DAQ "
-                                    "channels", result="Virtual PASS")])
-    # real console shape: long unbreakable tokens (file names, dumps)
     console = "\n".join([
         "[12:01:02.345] DAQ973A AI acquisition: 12 channels @ 200Hz, "
         "3000 samples/channel, range=+-10V, aperture=0.02s",
@@ -334,73 +363,50 @@ def test_realistic_report_fits_page_width(qapp):
         "review.txt) -> PASS",
         "[12:01:06.000] dump:" + "A1B2C3D4E5F60718" * 25,   # 400-char wall
     ])
-    report = _dut(items=items, console=console)
-    report.station_id = "SeapolShenMacBook-Pro.local"   # real 60-char
-    report.user = "seapolshenmacpro16"                  # station cell
-    report.rails = [(n, "#38bdf8", nom,
-                     [0.0, 0.5, 1.0, 0.999, 1.001, 1.0])
-                    for n, nom in zip(nets, [1.2, 1.2, 1.8, 1.8, 1.8,
-                                             1.8, 12.0, 12.0, 1.8, 3.3,
-                                             3.3, 1.1])]
-    report.rail_duration = 6.0
-    report.rail_t_start = -0.5
+    report = _realistic_report(console=console)
 
-    # EXACTLY like the real pipeline: images injected BEFORE setHtml
+    # fixed-px elements stay inside the frame budget by construction
+    assert dut_pdf.chart_width_px() <= dut_pdf.content_budget_px()
+    assert dut_pdf.console_wrap_chars() <= 110
+
+    # mirror _render_pdf's auto-fit loop EXACTLY: measure unconstrained,
+    # shrink the default font in 0.5 pt steps until the content fits
+    from PySide6.QtGui import QFont, QTextDocument
     doc = QTextDocument()
     doc.setDefaultFont(QFont("Arial", 8))
-    doc.addResource(QTextDocument.ResourceType.ImageResource,
-                    QUrl(dut_pdf.CHART_RESOURCE),
-                    dut_pdf.paint_rails_chart(list(report.rails), 6.0,
-                                              -0.5, True))
-    doc.addResource(QTextDocument.ResourceType.ImageResource,
-                    QUrl(dut_pdf.STAMP_RESOURCE),
-                    dut_pdf.stamp_image(report.overall_result))
-    doc.setHtml(dut_pdf.dut_report_html(report, META))
-    assert doc.idealWidth() <= 760, \
-        f"layout too wide: {doc.idealWidth()} px (page ≈ 793 px)"
+    _inject_resources(doc, report)
+    pt, body = 8.0, dut_pdf.page_body_px() - 4
+    while doc.idealWidth() > body and pt > 6.0:
+        pt = max(6.0, pt - 0.5)
+        doc.setDefaultFont(QFont("Arial", pt))
+        _inject_resources(doc, report)
+    assert doc.idealWidth() <= body, \
+        f"layout does not fit even at 6 pt: {doc.idealWidth()} px " \
+        f"(page body {dut_pdf.page_body_px():.0f} px)"
+    assert pt >= 7.0, \
+        f"realistic content needed {pt} pt - the frame is too tight"
 
 
 def test_realistic_report_pdf_never_clips(qapp, tmp_path):
     """END-TO-END with the chart: the real-shaped report (12 rails,
     chart image, 24+ items) must print a PDF whose frame right border
     is INSIDE the page and whose outermost pixel columns stay blank -
-    any ink at the paper edge means the layout still overflows."""
+    any ink at the paper edge means the layout still overflows.  The
+    renderer is QPdfWriter-based at a fixed 96 dpi, so this holds on
+    every platform (macOS included - the 4th clip, 96317, was print_'s
+    72 dpi screen mapping, now bypassed entirely)."""
     from PySide6.QtCore import QSize
     from PySide6.QtPdf import QPdfDocument
 
-    nets = ["12V0_IN_PWR_EN_B", "12V_DECT_1", "1V2_RGMII_A_AVDDL",
-            "1V2_RGMII_A_DVDDL", "1V8_FT4232_1", "1V8_FT4232_2",
-            "1V8_FT4232_3", "1V8_RGMII_A_DVDDH", "SPI3_SENT_SEL_1V8",
-            "VBAT_SENSE", "VBUS_DET", "VCC_OSC_AUXCLKIN"]
-    items = ([ReportItem(test_name=f"Static Impedance - {n}",
-                         category="ICT", method="Static Impedance",
-                         measured="73.36", low="30", unit="Ω",
-                         result="PASS") for n in nets]
-             + [ReportItem(test_name=f"Power Voltage - {n}",
-                           category="ICT", method="Power Voltage",
-                           measured="12.005", low="11.400",
-                           high="12.600", unit="V", result="PASS")
-                for n in nets]
-             + [ReportItem(test_name="Power Rails Up Sequence",
-                           category="ICT", method="DAQ AI",
-                           measured="12 Power rails assigned on DAQ "
-                                    "channels", result="Virtual PASS")])
-    report = _dut(items=items)
-    report.rails = [(n, "#38bdf8", nom,
-                     [0.0, 0.5, 1.0, 0.999, 1.001, 1.0])
-                    for n, nom in zip(nets, [1.2, 1.2, 1.8, 1.8, 1.8,
-                                             1.8, 12.0, 12.0, 1.8, 3.3,
-                                             3.3, 1.1])]
-    report.rail_duration = 6.0
-    report.rail_t_start = -0.5
-
-    path = dut_pdf.export_dut_pdf(report, META, tmp_path / "real.pdf")
+    report = _realistic_report()
+    path = tmp_path / "real.pdf"
+    dut_pdf.export_dut_pdf(report, META, path)
     doc = QPdfDocument()
     doc.load(str(path))
     assert doc.pageCount() >= 2          # chart + rail table page exists
     for i in range(doc.pageCount()):
         img = doc.render(i, QSize(952, 1347))    # A4 @ ~115 dpi
-        # 1. NO ink in the outermost 3 px of any page (nothing clipped)
+        # 1. NO ink in the outermost 3 px of any page (no clipping)
         for x in (0, 1, 2, img.width() - 3, img.width() - 2,
                   img.width() - 1):
             for y in range(0, img.height(), 3):
@@ -408,8 +414,9 @@ def test_realistic_report_pdf_never_clips(qapp, tmp_path):
                 assert c.alpha() < 10 or (c.red() > 245 and
                                           c.green() > 245 and
                                           c.blue() > 245), \
-                    f"page {i}: ink touches paper edge x={x} - clipped"
-        # 2. the navy frame right border exists INSIDE the right half
+                    f"page {i}: ink at paper edge x={x}"
+        # 2. the navy frame right border exists INSIDE the right
+        # half (between 75% and the edge margin)
         right_line = any(
             sum(1 for y in range(0, img.height(), 4)
                 if img.pixelColor(x, y).red() < 120
@@ -417,7 +424,7 @@ def test_realistic_report_pdf_never_clips(qapp, tmp_path):
             > (img.height() // 4) * 0.5
             for x in range(int(img.width() * 0.75), img.width() - 4))
         assert right_line, \
-            f"page {i}: frame right border missing - layout still clips"
+            f"page {i}: frame right border missing"
 
 
 def test_autofit_shrinks_for_pathological_content(qapp, tmp_path):

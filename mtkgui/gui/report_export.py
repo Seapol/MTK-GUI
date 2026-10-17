@@ -113,7 +113,8 @@ def _hardwrap(text: str, width: int = CONSOLE_WRAP_CHARS) -> str:
     return "\n".join(out)
 
 
-def console_log_html(text: str, max_chars: int = 400_000) -> str:
+def console_log_html(text: str, max_chars: int = 400_000,
+                     wrap: int | None = None) -> str:
     """Full DUT console transcript as a printable section appended after
     the test table.  ANSI escape sequences are stripped (QTextDocument
     cannot render them — they would pollute the PDF as garbage glyphs).
@@ -122,16 +123,20 @@ def console_log_html(text: str, max_chars: int = 400_000) -> str:
     character count and rendered inside a single-cell monospace table.
     A <pre> never wraps, and QTextDocument ignores zero-width spaces
     (U+200B) — one long CLI / dump token widened the whole document
-    layout past the paper edge, clipping every page (96624 reports)."""
+    layout past the paper edge, clipping every page (96624 reports).
+    ``wrap`` overrides the default character count (the DUT certificate
+    passes a dpi-derived count — on macOS the printable page is only
+    ~595 doc px wide, see dut_pdf.page_body_px)."""
     from ..engine.fct_test_runner import strip_ansi
     clean = strip_ansi(text or "").replace("\r", "")
     if len(clean) > max_chars:
         clean = clean[:max_chars] + "\n... (truncated)"
-    escaped = _html.escape(_hardwrap(clean)).replace("\n", "<br>")
+    escaped = _html.escape(
+        _hardwrap(clean, wrap or CONSOLE_WRAP_CHARS)).replace("\n", "<br>")
     return ("<h3>Console Log</h3>"
             "<table width='100%' cellspacing='0' cellpadding='4'>"
             "<tr><td bgcolor='#f7f7f7' style=\""
-            "font-family:Menlo,Consolas,monospace; font-size:6pt\">"
+            "font-family:Menlo,Consolas,monospace; font-size:8px\">"
             f"{escaped}</td></tr></table>")
 
 

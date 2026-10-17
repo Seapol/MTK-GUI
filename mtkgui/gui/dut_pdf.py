@@ -141,6 +141,56 @@ CHART_RESOURCE = "rail_chart"
 #: ±5 % of nominal = the regulation band used by the rail analysis
 RAIL_BAND = 0.05
 
+# ------------------------------------------------- fixed page budget
+#: QTextDocument px are laid out against the layout paint device and
+#: QPrinter::print_() maps them to paper via the PLATFORM screen dpi
+#: (macOS = 72, Windows/offscreen = 96): on macOS one doc px printed
+#: as one POINT - 4/3 larger - and the A4 page was only ~595 doc px
+#: wide instead of ~794.  That platform mapping - not the html - was
+#: the real root cause of the thrice-clipped reports.  The renderer
+#: therefore does NOT use print_(): it paints onto a QPdfWriter at a
+#: FIXED 96 dpi (layout paint device forced to the writer), so every
+#: platform lays out and prints identically.
+A4_W_PX = 793.7                 # A4 width @ 96 dpi
+A4_H_PX = 1122.5                # A4 height @ 96 dpi
+PAGE_MARGIN_MM = 18             # paper margin around the certificate
+_CONTENT_CHROME_PX = 92         # wrapper padding + 4 frame tables, measured
+
+
+def page_body_px() -> float:
+    """Paintable width in document pixels: A4 @ 96 dpi minus the two
+    paper margins."""
+    return A4_W_PX - 2 * (PAGE_MARGIN_MM * 96 / 25.4)
+
+
+def content_budget_px() -> int:
+    """Max width of any FIXED-px content (chart image, console line)
+    inside the certificate frame."""
+    return int(page_body_px() - _CONTENT_CHROME_PX - 4)
+
+
+def chart_width_px() -> int:
+    """Display width for the rails sequence chart."""
+    return max(320, min(620, content_budget_px()))
+
+
+def console_wrap_chars() -> int:
+    """Hard-wrap character count for the console transcript (6 pt
+    monospace ≈ 4.8 px/char + cell padding, measured)."""
+    return max(48, min(110, int((content_budget_px() - 24) / 4.8)))
+
+
+def screen_font_scale() -> float:
+    """Font compensation for the platform screen dpi: QTextDocument
+    resolves point sizes to pixels via the PLATFORM screen dpi
+    (macOS 72 -> fewer px per pt, Windows 96).  Multiplying every
+    point size by this factor makes the pixel layout - and therefore
+    the printed physical size - identical on every platform."""
+    from PySide6.QtGui import QGuiApplication
+    scr = QGuiApplication.primaryScreen()
+    dpi = float(scr.logicalDotsPerInch()) if scr else 96.0
+    return 96.0 / dpi
+
 
 def rail_analysis(report) -> list:
     """Per-rail sequence metrics computed straight from the captured
@@ -284,7 +334,8 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
                  # in its own single-cell table bounds the minimum to
                  # the image + cell chrome (~728px, fits).
                  + (f"<table width='100%' cellspacing='0' cellpadding='0'>"
-                    f"<tr><td><img src='{CHART_RESOURCE}' width='640'>"
+                    f"<tr><td><img src='{CHART_RESOURCE}' "
+                    f"width='{chart_width_px()}'>"
                     f"</td></tr></table><br>"
                     if report.rails else
                     f"<small><font color='{MUTED}'>No capture data "
@@ -452,11 +503,14 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "<table width='100%' cellspacing='0' cellpadding='12'><tr>"
         "<td bgcolor='#ffffff'>"
         "<table width='100%' cellspacing='0' cellpadding='0'>"
-        # ---- header
-        f"<tr><td><font color='{NAVY}'><b><font size='6'>MTK</font></b><br>"
+        # ---- header (fixed px sizes: legacy <font size=N> resolves
+        # through the platform dpi - px keeps every platform identical)
+        f"<tr><td><font color='{NAVY}'><b>"
+        f"<font style='font-size:32px'>MTK</font></b><br>"
         f"<small><font color='{MUTED}'>MEDIANTEK KILN · MANUFACTURING "
         f"SOLUTIONS</font></small></font></td>"
-        f"<td align='right'><b><font color='{NAVY}'><font size='5'>"
+        f"<td align='right'><b><font color='{NAVY}'><font "
+        f"style='font-size:24px'>"
         f"DUT TEST REPORT</font></font></b><br>"
         f"<small><font color='{MUTED}'>Report No.&nbsp; {esc(report_no)}"
         f"</font></small></td></tr>"
@@ -486,16 +540,16 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         f"<tr><td colspan='2'>{_sec('2 · Test Summary')}"
         "<table width='100%' cellspacing='0' cellpadding='6'><tr>"
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{NAVY}'>"
-        f"<font size='5'>{len(report.items)}</font></b><br>"
+        f"<font style='font-size:24px'>{len(report.items)}</font></b><br>"
         f"<small><font color='{MUTED}'>ITEMS</font></small></td>"
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{GREEN}'>"
-        f"<font size='5'>{n_pass}</font></b><br>"
+        f"<font style='font-size:24px'>{n_pass}</font></b><br>"
         f"<small><font color='{MUTED}'>PASS</font></small></td>"
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{RED}'>"
-        f"<font size='5'>{n_fail}</font></b><br>"
+        f"<font style='font-size:24px'>{n_fail}</font></b><br>"
         f"<small><font color='{MUTED}'>FAIL</font></small></td>"
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{vc}'>"
-        f"<font size='5'>{verdict}</font></b><br>"
+        f"<font style='font-size:24px'>{verdict}</font></b><br>"
         f"<small><font color='{MUTED}'>OVERALL</font></small></td>"
         "</tr></table>"
         # ---- verdict / detail mismatch note (never re-judges: the
@@ -518,7 +572,8 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "<table width='100%' cellspacing='0' cellpadding='6'><tr>"
         "<td width='55%'>&nbsp;</td>"
         f"<td width='45%' align='center'>"
-        f"<font face='{SCRIPT_FONT}' size='5' color='{INK}'>MTK QA</font>"
+        f"<font face='{SCRIPT_FONT}' style='font-size:24px' "
+        f"color='{INK}'>MTK QA</font>"
         f"<br><hr>"
         f"<small><font color='{MUTED}'>AUTHORIZED SIGNATURE — MTK · "
         f"{esc(f'{when:%Y-%m-%d}')}</font></small></td>"
@@ -535,7 +590,8 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     html = "".join(parts)
     log = report.console_log or ""
     if log.strip():
-        html += "<hr>" + console_log_html(log)
+        html += ("<hr>" + console_log_html(
+            log, wrap=console_wrap_chars()))
     # fullPage printing has zero page margins: this white wrapper IS
     # the paper margin (the navy ring would otherwise touch the paper
     # edge and get cut by physical printers)
@@ -589,60 +645,88 @@ def report_pdf_payload(report, meta=None) -> tuple:
     return dut_report_html(report, meta), images, chart_spec
 
 
-def _render_pdf(html: str, images: dict, path: Path) -> float:
+def _render_pdf(html: str, images: dict, path: Path,
+                font_scale: float = 1.0) -> float:
     """Lay out ``html`` and print it to an A4 PDF (safe on a worker
-    thread: only QTextDocument / QPrinter are touched).
+    thread: only QTextDocument / QPdfWriter are touched).
 
-    AUTO-FIT safety net (2026-10-17, after the 96624 report clipped
-    TWICE): if the laid-out content is wider than the page - some
-    table / token combination will always be able to exceed it - the
-    default font shrinks in 0.5 pt steps (8 -> 6 pt) until it fits.
-    Returns the chosen point size (8 = no shrink)."""
-    from PySide6.QtCore import QMarginsF, QUrl
-    from PySide6.QtGui import QFont, QTextDocument
-    from PySide6.QtGui import QPageLayout, QPageSize
-    from PySide6.QtPrintSupport import QPrinter
+    The renderer does NOT use QTextDocument::print_() - that maps doc
+    pixels to paper via the PLATFORM screen dpi (macOS 72 vs Windows
+    96), which printed everything 4/3 larger on a Mac and clipped the
+    page (the 96624/96317 reports, clipped three times).  Instead a
+    QPdfWriter at a FIXED 96 dpi is painted page by page from the paged
+    layout, so one doc px is ALWAYS exactly 1/96 inch.  ``font_scale``
+    (= 96 / screen dpi, see :func:`screen_font_scale`) keeps the pixel
+    layout identical on every platform; the returned value is the
+    chosen BASE point size (8 = no shrink).
+
+    AUTO-FIT safety net: if the unconstrained layout is wider than the
+    paintable body - some table / token combination will always be able
+    to exceed it - the default font shrinks in 0.5 pt steps (8 -> 6 pt)
+    until it fits."""
+    from PySide6.QtCore import QMarginsF, QRectF, QSizeF, QUrl
+    from PySide6.QtGui import (QAbstractTextDocumentLayout, QFont,
+                               QPageLayout, QPageSize, QPainter,
+                               QTextDocument)
+    from PySide6.QtGui import QPdfWriter
+
+    writer = QPdfWriter(str(path))
+    writer.setResolution(96)             # 1 doc px = exactly 1/96 inch
+    writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    writer.setPageMargins(QMarginsF(PAGE_MARGIN_MM, PAGE_MARGIN_MM,
+                                    PAGE_MARGIN_MM, PAGE_MARGIN_MM),
+                          QPageLayout.Unit.Millimeter)
+    body_w = float(writer.width())       # paintable body in doc px
+    body_h = float(writer.height())
+
+    def _font(pt: float) -> QFont:
+        f = QFont("Arial")
+        f.setPointSizeF(pt * font_scale)  # platform-equal pixel size
+        return f
 
     doc = QTextDocument()
-    doc.setDefaultFont(QFont("Arial", 8))
+    doc.setDefaultFont(_font(8))
     for name, img in images.items():
         doc.addResource(QTextDocument.ResourceType.ImageResource,
                         QUrl(name), img)
     doc.setHtml(html)
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName(str(path))
-    printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-    printer.setPageOrientation(QPageLayout.Orientation.Portrait)
-    # fullPage + zero margins: the HTML wrapper table provides the
-    # paper margin (QPrinter margin handling shrank/drifted the layout)
-    printer.setFullPage(True)
-    printer.setPageMargins(QMarginsF(0, 0, 0, 0),
-                           QPageLayout.Unit.Millimeter)
-    # AUTO-FIT: document px are 96-dpi independent px; A4 full page =
-    # 793 px.  Any wider (an unbreakable table / token combination)
-    # gets clipped on paper -> shrink the default font until it fits.
-    page_w = 793.0
+    # AUTO-FIT: measure UNCONSTRAINED (no page size yet) so width=100%
+    # tables report their minimum, then shrink until the content fits
     chosen = 8.0
     pt = 8.0
-    while doc.idealWidth() > page_w + 1 and pt > 6.0:
+    while doc.idealWidth() > body_w - 4 and pt > 6.0:
         pt = max(6.0, pt - 0.5)
-        doc.setDefaultFont(QFont("Arial", pt))
+        doc.setDefaultFont(_font(pt))
         doc.setHtml(html)
         chosen = pt
-    doc.print_(printer)
+    # paged layout: the document flows into body-sized pages
+    doc.setPageSize(QSizeF(body_w, body_h))
+    n_pages = max(1, doc.pageCount())
+
+    painter = QPainter(writer)
+    ctx = QAbstractTextDocumentLayout.PaintContext()
+    layout = doc.documentLayout()
+    for i in range(n_pages):
+        if i:
+            writer.newPage()
+        painter.save()
+        painter.translate(0.0, -i * body_h)
+        ctx.clip = QRectF(0.0, i * body_h, body_w, body_h)
+        layout.draw(painter, ctx)
+        painter.restore()
+    painter.end()
     return chosen
 
 
 def export_dut_pdf(report, meta=None, path=None) -> Path:
     """Render the certificate into an A4 PDF (synchronous - tests and
     one-off exports; the GUI uses :class:`PdfRenderWorker` instead so
-    the 1200-dpi rasterization never freezes the UI)."""
+    the rasterization never freezes the UI)."""
     path = Path(path)
     html, images, chart_spec = report_pdf_payload(report, meta)
     if chart_spec:
         images[CHART_RESOURCE] = paint_rails_chart(*chart_spec)
-    _render_pdf(html, images, path)
+    _render_pdf(html, images, path, font_scale=screen_font_scale())
     return path
 
 
@@ -666,13 +750,17 @@ class PdfRenderWorker(QThread):
         self._images = images
         self._chart_spec = chart_spec
         self._path = Path(path)
+        # read the screen dpi on the GUI thread (QGuiApplication statics
+        # are not guaranteed thread-safe off the main thread)
+        self._font_scale = screen_font_scale()
 
     def run(self):
         try:
             if self._chart_spec:
                 self._images[CHART_RESOURCE] = \
                     paint_rails_chart(*self._chart_spec)
-            pt = _render_pdf(self._html, self._images, self._path)
+            pt = _render_pdf(self._html, self._images, self._path,
+                             font_scale=self._font_scale)
             self.fitted.emit(pt)
             self.done.emit(str(self._path))
         except Exception as e:                   # noqa: BLE001
