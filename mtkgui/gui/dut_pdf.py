@@ -665,8 +665,8 @@ def _render_pdf(html: str, images: dict, path: Path,
     to exceed it - the default font shrinks in 0.5 pt steps (8 -> 6 pt)
     until it fits."""
     from PySide6.QtCore import QMarginsF, QRectF, QSizeF, QUrl
-    from PySide6.QtGui import (QAbstractTextDocumentLayout, QFont,
-                               QPageLayout, QPageSize, QPainter,
+    from PySide6.QtGui import (QAbstractTextDocumentLayout, QColor, QFont,
+                               QPageLayout, QPageSize, QPainter, QPalette,
                                QTextDocument)
     from PySide6.QtGui import QPdfWriter
 
@@ -705,6 +705,19 @@ def _render_pdf(html: str, images: dict, path: Path,
 
     painter = QPainter(writer)
     ctx = QAbstractTextDocumentLayout.PaintContext()
+    # PIN THE PRINT PALETTE.  Text in the html that carries no explicit
+    # color takes its color from the paint context palette, which
+    # defaults to the DESKTOP THEME: under macOS/Windows dark mode that
+    # is WHITE text, so the entire table body printed white-on-white and
+    # only the <font color=...> spans survived (user: "where is the
+    # table content?" - the 96317 report).  QTextDocument::print_()
+    # pinned this for us; the QPdfWriter path must do it explicitly.
+    paper = QPalette()
+    paper.setColor(QPalette.ColorRole.Text, QColor("#000000"))
+    paper.setColor(QPalette.ColorRole.WindowText, QColor("#000000"))
+    paper.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
+    paper.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
+    ctx.palette = paper
     layout = doc.documentLayout()
     for i in range(n_pages):
         if i:

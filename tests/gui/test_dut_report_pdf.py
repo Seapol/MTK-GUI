@@ -427,6 +427,65 @@ def test_realistic_report_pdf_never_clips(qapp, tmp_path):
             f"page {i}: frame right border missing"
 
 
+def test_report_paper_ink_is_theme_independent(qapp, tmp_path):
+    """GOLDEN regression (the 96317 report printed WHITE-ON-WHITE):
+    html text without an explicit <font color> takes its color from the
+    PAINT CONTEXT palette, which defaults to the desktop theme - under
+    macOS/Windows dark mode that is white text, so the whole table body
+    vanished on the white paper and only the colored spans survived
+    (user: "where is the table content?").  _render_pdf must pin a print
+    palette, so the SAME report must rasterize the same no matter what
+    the application theme is."""
+    from PySide6.QtCore import QSize, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter, QPalette
+    from PySide6.QtPdf import QPdfDocument
+    from PySide6.QtWidgets import QApplication
+
+    report = _realistic_report()
+
+    def render(tag):
+        path = tmp_path / f"{tag}.pdf"
+        dut_pdf.export_dut_pdf(report, META, path)
+        doc = QPdfDocument()
+        doc.load(str(path))
+        raw = doc.render(0, QSize(952, 1347))
+        flat = QImage(raw.size(), QImage.Format.Format_RGB32)
+        flat.fill(Qt.GlobalColor.white)          # composited on paper
+        p = QPainter(flat)
+        p.drawImage(0, 0, raw)
+        p.end()
+        return flat
+
+    app = QApplication.instance()
+    original = app.palette()
+    try:
+        light = render("light")
+        dark = QPalette(original)
+        for role in (QPalette.ColorRole.Text,
+                     QPalette.ColorRole.WindowText):
+            dark.setColor(role, QColor("#ffffff"))
+        for role in (QPalette.ColorRole.Base, QPalette.ColorRole.Window):
+            dark.setColor(role, QColor("#1e1e1e"))
+        app.setPalette(dark)
+        dark_img = render("dark")
+    finally:
+        app.setPalette(original)
+
+    step = 3
+    diff = total = 0
+    for y in range(0, light.height(), step):
+        for x in range(0, light.width(), step):
+            total += 1
+            a, b = light.pixelColor(x, y), dark_img.pixelColor(x, y)
+            if (abs(a.red() - b.red()) + abs(a.green() - b.green())
+                    + abs(a.blue() - b.blue())) > 60:
+                diff += 1
+    assert diff / total < 0.002, (
+        f"{diff}/{total} px differ between the light and the dark theme: "
+        f"the paper render still follows the desktop palette "
+        f"(plain text prints white-on-white)")
+
+
 def test_autofit_shrinks_for_pathological_content(qapp, tmp_path):
     """END-TO-END auto-fit: pathological content (a 120-char
     unbreakable test name) must shrink the body font AND produce a PDF
