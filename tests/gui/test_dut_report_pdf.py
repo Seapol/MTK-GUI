@@ -229,7 +229,56 @@ def test_html_sequence_chart_with_capture():
     html = dut_pdf.dut_report_html(_rail_report(), META)
     assert f"src='{dut_pdf.CHART_RESOURCE}'" in html
     assert "RISE 10-90%" in html and "OVERSHOOT" in html
-    assert "VDD_3V3" in html and "in regulation" in html
+    # rail labels are zero-width-breakable at underscores (fit fix)
+    assert "VDD_\u200b3V3" in html and "in regulation" in html
+
+
+def test_realistic_report_fits_page_width(qapp):
+    """Regression (user PDF 2026-10-17, 96624 run): the 9-column
+    analysis table's minimum width pushed the whole document layout
+    past the paper edge, clipping the right ~15% of every page.  With
+    long real-world net names and a 12-rail capture the layout MUST
+    stay inside the A4 text width (~793 px @96 dpi minus wrapper)."""
+    from PySide6.QtGui import QTextDocument
+
+    def mk(name, m, measured, lo, hi, unit):
+        return ReportItem(test_name=name, category="ICT", method=m,
+                          measured=measured, low=lo, high=hi, unit=unit,
+                          result="PASS")
+    report = _dut(items=[
+        mk("Static Impedance - 12V0_IN_PWR_EN_B", "Static Impedance",
+           "58.39", "30", "", "Ω"),
+        mk("Power Voltage - 12V0_IN_PWR_EN_B", "Power Voltage",
+           "12.004", "11.400", "12.600", "V"),
+        mk("Clock Hz - CLKGEN2_I2C_ADDR", "Clock Hz", "32,768.3",
+           "32766.3616", "32769.6384", "Hz"),
+        ReportItem(test_name="Power Rails Up Sequence", category="ICT",
+                   method="DAQ AI", measured="12 Power rails assigned",
+                   result="Virtual PASS"),
+        ReportItem(test_name="Init Instruments", category="FCT",
+                   duration="", result="Done"),
+    ])
+    report.rails = [(f"1V2_RGMIIL_A_AVDDL{i}", "#38bdf8", 1.2,
+                     [0.0, 0.5, 1.0, 1.0]) for i in range(12)]
+    report.rail_duration = 6.0
+    report.rail_t_start = -1.0
+    doc = QTextDocument()
+    doc.setHtml(dut_pdf.dut_report_html(report, META))
+    assert doc.idealWidth() <= 760, \
+        f"layout too wide: {doc.idealWidth()} px (page ≈ 793 px)"
+
+
+def test_section_order_sequence_before_other():
+    """3.4 (sequence) prints BEFORE 3.5 (flash / fct / rf)."""
+    html = dut_pdf.dut_report_html(
+        _dut(items=[
+            ReportItem(test_name="Power Rails Up Sequence",
+                       category="ICT", method="DAQ AI", result="PASS"),
+            ReportItem(test_name="Init Instruments", category="FCT",
+                       result="Done"),
+        ]), META)
+    assert html.index("3.4 · POWER RAILS UP SEQUENCE") \
+        < html.index("3.5 · FLASH / FCT / RF")
 
 
 def test_rails_chart_pixmap(qapp):

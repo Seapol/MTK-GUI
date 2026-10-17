@@ -202,8 +202,20 @@ def rail_analysis(report) -> list:
     return out
 
 
+def _breakable(text: str) -> str:
+    """Insert zero-width spaces after underscores so long net / rail
+    names can wrap inside narrow table columns (QTextDocument only
+    wraps at spaces by default - unbreakable tokens were widening the
+    whole document layout past the paper edge)."""
+    return esc(text).replace("_", "_\u200b")
+
+
 def _rail_analysis_table(analysis: list) -> str:
-    """The per-rail metrics table under the sequence chart."""
+    """The per-rail metrics table under the sequence chart.
+
+    Compact 7-column layout: the 9-column version's minimum width
+    exceeded the A4 text width and widened the whole document layout
+    (everything right of ~85% was clipped on paper)."""
     if not analysis:
         return ""
     rows = ""
@@ -212,11 +224,10 @@ def _rail_analysis_table(analysis: list) -> str:
         settle = "—" if a["settle"] is None else f"{a['settle']:.3f}"
         ripple = "—" if a["ripple_mv"] is None \
             else f"{a['ripple_mv']:.1f} mV"
-        rows += (f"<tr><td><b>{esc(a['label'])}</b></td>"
-                 f"<td>{a['nominal']:.3f}</td>"
+        rows += (f"<tr><td><b>{_breakable(a['label'])}</b><br>"
+                 f"<small>{a['nominal']:.3f} V nominal</small></td>"
                  f"<td>{a['final']:.3f}</td>"
                  f"<td>{rise}</td>"
-                 f"<td>{a['peak']:.3f}</td>"
                  f"<td>{a['over']:.1f}%</td>"
                  f"<td>{settle}</td>"
                  f"<td>{ripple}</td>"
@@ -225,13 +236,15 @@ def _rail_analysis_table(analysis: list) -> str:
             " border='0'>"
             f"<tr bgcolor='{NAVY}'>"
             "<td><b><font color='#ffffff'><small>RAIL</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>NOMINAL V</small></font></b></td>"
             "<td><b><font color='#ffffff'><small>FINAL V</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>RISE 10-90% s</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>PEAK V</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>OVERSHOOT</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>SETTLE ±5% s</small></font></b></td>"
-            "<td><b><font color='#ffffff'><small>RIPPLE P-P</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>RISE 10-90% s"
+            "</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>OVERSHOOT"
+            "</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>SETTLE ±5% s"
+            "</small></font></b></td>"
+            "<td><b><font color='#ffffff'><small>RIPPLE P-P"
+            "</small></font></b></td>"
             "<td><b><font color='#ffffff'><small>NOTE</small></font></b></td>"
             f"</tr>{rows}</table>")
 
@@ -244,8 +257,7 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
     for title, items in (
             ("3.1 · Impedance (ICT)", grp_imped),
             ("3.2 · Voltage (ICT)", grp_volt),
-            ("3.3 · Clock (ICT)", grp_clock),
-            ("3.5 · Flash / FCT / RF & Other", grp_other)):
+            ("3.3 · Clock (ICT)", grp_clock)):
         if items:
             html += (f"<b><font color='{NAVY}'><small>"
                      f"{esc(title.upper())}</small></font></b>"
@@ -264,6 +276,12 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
                     f"<small><font color='{MUTED}'>No capture data "
                     f"available.</font></small><br>")
                  + _rail_analysis_table(rail_analysis(report)))
+    # 3.5 everything else AFTER the sequence (numbering = print order)
+    if grp_other:
+        html += (f"<b><font color='{NAVY}'><small>"
+                 f"{esc('3.5 · Flash / FCT / RF & Other'.upper())}"
+                 f"</small></font></b>"
+                 + items_table(grp_other) + "<br>")
     return html
 
 
