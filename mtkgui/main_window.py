@@ -414,6 +414,7 @@ class MainWindow(QMainWindow):
         # Module B report session batch (auto-captured per product)
         self._session_reports: list = []
         self._report_workers: set = set()
+        self._report_jobs: set = set()
         self._last_batch = None
 
         self._build_ui()
@@ -1151,14 +1152,23 @@ class MainWindow(QMainWindow):
             csv = save_dut_csv(report, run_dir, batch=meta.get("batch", ""),
                                core_id=meta.get("core_id", ""),
                                part=meta.get("part", ""))
+            pdf_path = run_dir / dut_pdf.dut_pdf_name(report, meta)
+            # dedup guard: the same run must never be rendered twice
+            # (double run_finished / retried trigger would race two
+            # workers on the same file)
+            if str(pdf_path) in self._report_jobs:
+                return
+            self._report_jobs.add(str(pdf_path))
             html, images, chart_spec = dut_pdf.report_pdf_payload(report, meta)
-            worker = dut_pdf.PdfRenderWorker(
-                html, images, run_dir / dut_pdf.dut_pdf_name(report, meta),
-                chart_spec)
+            worker = dut_pdf.PdfRenderWorker(html, images, pdf_path,
+                                             chart_spec)
             worker.done.connect(qt_safe(self._on_dut_pdf_done))
             worker.failed.connect(qt_safe(self._on_dut_pdf_failed))
+            worker.fitted.connect(qt_safe(self._on_dut_pdf_fitted))
             worker.finished.connect(
-                lambda w=worker: self._report_workers.discard(w))
+                lambda w=worker, p=str(pdf_path):
+                (self._report_workers.discard(w),
+                 self._report_jobs.discard(p)))
             self._report_workers.add(worker)
             worker.start()
         except Exception as e:                   # noqa: BLE001
@@ -1175,6 +1185,15 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] DUT report generation "
             f"failed: {error}")
+
+    def _on_dut_pdf_fitted(self, pt: float) -> None:
+        """AUTO-FIT observability: when wide content forced the body
+        font below 8 pt, say so - a recurring shrink means the report
+        layout needs a proper fix for that content shape."""
+        if pt < 8.0:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] DUT report auto-fit: body "
+                f"font reduced to {pt} pt (content wider than A4)")
 
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture (B4 §8.3 trigger): every counted

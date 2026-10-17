@@ -277,38 +277,114 @@ def test_verdict_conflict_banner():
 
 
 def test_realistic_report_fits_page_width(qapp):
-    """Regression (user PDF 2026-10-17, 96624 run): the 9-column
-    analysis table's minimum width pushed the whole document layout
-    past the paper edge, clipping the right ~15% of every page.  With
-    long real-world net names and a 12-rail capture the layout MUST
-    stay inside the A4 text width (~793 px @96 dpi minus wrapper)."""
-    from PySide6.QtGui import QTextDocument
+    """GOLDEN regression (the 96624 report was clipped TWICE): the
+    layout is measured exactly like the real pipeline — 8 pt default
+    font, real-world adversarial content:
+      * a console dump with LONG unbreakable tokens (ai_review file
+        names, CSV-ish lines) — QTextDocument IGNORES zero-width
+        spaces, so the transcript must be hard-wrapped by characters,
+      * 37 items with long net names,
+      * a 12-rail capture (chart + per-rail analysis),
+    and the document must stay inside the A4 text width (~793 px @96
+    dpi minus the wrapper padding)."""
+    from PySide6.QtGui import QFont, QTextDocument
 
-    def mk(name, m, measured, lo, hi, unit):
-        return ReportItem(test_name=name, category="ICT", method=m,
-                          measured=measured, low=lo, high=hi, unit=unit,
+    def imp(n):
+        return ReportItem(test_name=f"Static Impedance - {n}",
+                          category="ICT", method="Static Impedance",
+                          measured="73.36", low="30", unit="Ω",
                           result="PASS")
-    report = _dut(items=[
-        mk("Static Impedance - 12V0_IN_PWR_EN_B", "Static Impedance",
-           "58.39", "30", "", "Ω"),
-        mk("Power Voltage - 12V0_IN_PWR_EN_B", "Power Voltage",
-           "12.004", "11.400", "12.600", "V"),
-        mk("Clock Hz - CLKGEN2_I2C_ADDR", "Clock Hz", "32,768.3",
-           "32766.3616", "32769.6384", "Hz"),
-        ReportItem(test_name="Power Rails Up Sequence", category="ICT",
-                   method="DAQ AI", measured="12 Power rails assigned",
-                   result="Virtual PASS"),
-        ReportItem(test_name="Init Instruments", category="FCT",
-                   duration="", result="Done"),
+
+    def volt(n):
+        return ReportItem(test_name=f"Power Voltage - {n}",
+                          category="ICT", method="Power Voltage",
+                          measured="12.005", low="11.400", high="12.600",
+                          unit="V", result="PASS")
+
+    nets = ["12V0_IN_PWR_EN_B", "12V_DECT_1", "1V2_RGMII_A_AVDDL",
+            "1V2_RGMII_A_DVDDL", "1V8_FT4232_1", "1V8_FT4232_2",
+            "1V8_FT4232_3", "1V8_RGMII_A_DVDDH", "SPI3_SENT_SEL_1V8",
+            "VBAT_SENSE", "VBUS_DET", "VCC_OSC_AUXCLKIN"]
+    items = ([imp(n) for n in nets] + [volt(n) for n in nets]
+             + [ReportItem(test_name="Clock Hz - CLKGEN2_I2C_ADDR",
+                           category="ICT", method="Clock Hz",
+                           measured="32,768.3", low="32766.3616",
+                           high="32769.6384", unit="Hz", result="PASS")]
+             + [ReportItem(test_name=op, category="FCT", duration="0.82",
+                           result="Done")
+                for op in ("Init Instruments", "Fixture Clamp Down",
+                           "Fixture Lock", "Power On DUT")]
+             + [ReportItem(test_name="Power Rails Up Sequence",
+                           category="ICT", method="DAQ AI",
+                           measured="12 Power rails assigned on DAQ "
+                                    "channels", result="Virtual PASS")])
+    # real console shape: long unbreakable tokens (file names, dumps)
+    console = "\n".join([
+        "[12:01:02.345] DAQ973A AI acquisition: 12 channels @ 200Hz, "
+        "3000 samples/channel, range=+-10V, aperture=0.02s",
+        "[12:01:05.678] ICT DAQ AI: 12 rails captured (virtual), CSV "
+        "saved (power_rails_S32N79-RDB-S_96624_EVT-(Proto-1)_DUT_"
+        "virtual_20261017_120234.csv), AI review (power_rails_S32N79-"
+        "RDB-S_96624_EVT-(Proto-1)_DUT_virtual_20261017_120234_ai_"
+        "review.txt) -> PASS",
+        "[12:01:06.000] dump:" + "A1B2C3D4E5F60718" * 25,   # 400-char wall
     ])
-    report.rails = [(f"1V2_RGMIIL_A_AVDDL{i}", "#38bdf8", 1.2,
-                     [0.0, 0.5, 1.0, 1.0]) for i in range(12)]
+    report = _dut(items=items, console=console)
+    report.rails = [(n, "#38bdf8", nom,
+                     [0.0, 0.5, 1.0, 0.999, 1.001, 1.0])
+                    for n, nom in zip(nets, [1.2, 1.2, 1.8, 1.8, 1.8,
+                                             1.8, 12.0, 12.0, 1.8, 3.3,
+                                             3.3, 1.1])]
     report.rail_duration = 6.0
-    report.rail_t_start = -1.0
+    report.rail_t_start = -0.5
+
     doc = QTextDocument()
+    doc.setDefaultFont(QFont("Arial", 8))   # EXACTLY like _render_pdf
     doc.setHtml(dut_pdf.dut_report_html(report, META))
     assert doc.idealWidth() <= 760, \
         f"layout too wide: {doc.idealWidth()} px (page ≈ 793 px)"
+
+
+def test_autofit_shrinks_for_pathological_content(qapp, tmp_path):
+    """END-TO-END auto-fit: pathological content (a 120-char
+    unbreakable test name) must shrink the body font AND produce a PDF
+    whose frame right border is INSIDE the page (no clipping)."""
+    from PySide6.QtPdf import QPdfDocument
+    from PySide6.QtCore import QSize
+    r = _dut(items=[ReportItem(
+        test_name="Long-" + "X" * 120, category="ICT",
+        method="Static Impedance", measured="73.36", low="30",
+        unit="Ω", result="PASS")])
+    path = tmp_path / "auto.pdf"
+    html, images, chart_spec = dut_pdf.report_pdf_payload(r, META)
+    pt = dut_pdf._render_pdf(html, images, path)
+    assert pt < 8.0                      # the shrink actually engaged
+    assert path.read_bytes()[:4] == b"%PDF"
+    doc = QPdfDocument()
+    doc.load(str(path))
+    img = doc.render(0, QSize(1190, 1684))
+    # a vertical frame border line must exist in the RIGHT half
+    right_line = any(
+        sum(1 for y in range(0, img.height(), 4)
+            if img.pixelColor(x, y).red() < 120
+            and img.pixelColor(x, y).blue() < 120) > (img.height() // 4) * 0.5
+        for x in range(int(img.width() * 0.75), img.width()))
+    assert right_line, "frame right border missing - layout still clips"
+
+
+def test_console_hardwrap_bounds_line_length():
+    """The twice-burned mechanism: QTextDocument ignores ZWSP, so the
+    console transcript is hard-wrapped by CHARACTER COUNT - no output
+    line may exceed the wrap width."""
+    from mtkgui.gui.report_export import _hardwrap
+    token = "power_rails_S32N79-RDB-S_96624_EVT-(Proto-1)_DUT_virtual"
+    wrapped = _hardwrap(token * 5)
+    assert max(len(l) for l in wrapped.split("\n")) <= 110
+    assert len(wrapped.split("\n")) > 1
+    # NOTE (2026-10-17): zero-width-space breaking proved UNRELIABLE in
+    # practice (the 96624 report clipped even with ZWSP injected), so
+    # the transcript is hard-wrapped by character count — deterministic
+    # regardless of Qt's line-breaking implementation details.
 
 
 def test_section_order_sequence_before_other():

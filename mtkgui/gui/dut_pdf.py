@@ -579,17 +579,21 @@ def report_pdf_payload(report, meta=None) -> tuple:
     return dut_report_html(report, meta), images, chart_spec
 
 
-def _render_pdf(html: str, images: dict, path: Path) -> None:
+def _render_pdf(html: str, images: dict, path: Path) -> float:
     """Lay out ``html`` and print it to an A4 PDF (safe on a worker
-    thread: only QTextDocument / QPrinter are touched)."""
+    thread: only QTextDocument / QPrinter are touched).
+
+    AUTO-FIT safety net (2026-10-17, after the 96624 report clipped
+    TWICE): if the laid-out content is wider than the page - some
+    table / token combination will always be able to exceed it - the
+    default font shrinks in 0.5 pt steps (8 -> 6 pt) until it fits.
+    Returns the chosen point size (8 = no shrink)."""
     from PySide6.QtCore import QMarginsF, QUrl
     from PySide6.QtGui import QFont, QTextDocument
     from PySide6.QtGui import QPageLayout, QPageSize
     from PySide6.QtPrintSupport import QPrinter
 
     doc = QTextDocument()
-    # 2026-10-17 user direction: smaller default body font (8 pt vs
-    # the ~12 pt engine default) - fewer wrapped lines, denser tables
     doc.setDefaultFont(QFont("Arial", 8))
     for name, img in images.items():
         doc.addResource(QTextDocument.ResourceType.ImageResource,
@@ -605,7 +609,19 @@ def _render_pdf(html: str, images: dict, path: Path) -> None:
     printer.setFullPage(True)
     printer.setPageMargins(QMarginsF(0, 0, 0, 0),
                            QPageLayout.Unit.Millimeter)
+    # AUTO-FIT: document px are 96-dpi independent px; A4 full page =
+    # 793 px.  Any wider (an unbreakable table / token combination)
+    # gets clipped on paper -> shrink the default font until it fits.
+    page_w = 793.0
+    chosen = 8.0
+    pt = 8.0
+    while doc.idealWidth() > page_w + 1 and pt > 6.0:
+        pt = max(6.0, pt - 0.5)
+        doc.setDefaultFont(QFont("Arial", pt))
+        doc.setHtml(html)
+        chosen = pt
     doc.print_(printer)
+    return chosen
 
 
 def export_dut_pdf(report, meta=None, path=None) -> Path:
@@ -630,12 +646,14 @@ class PdfRenderWorker(QThread):
 
     done = Signal(str)
     failed = Signal(str)
+    #: emitted before done() with the chosen body font size (8 = fit)
+    fitted = Signal(float)
 
     def __init__(self, html: str, images: dict, path,
                  chart_spec=None, parent=None):
         super().__init__(parent)
         self._html = html
-        self._images = dict(images)
+        self._images = images
         self._chart_spec = chart_spec
         self._path = Path(path)
 
@@ -644,7 +662,8 @@ class PdfRenderWorker(QThread):
             if self._chart_spec:
                 self._images[CHART_RESOURCE] = \
                     paint_rails_chart(*self._chart_spec)
-            _render_pdf(self._html, self._images, self._path)
+            pt = _render_pdf(self._html, self._images, self._path)
+            self.fitted.emit(pt)
             self.done.emit(str(self._path))
         except Exception as e:                   # noqa: BLE001
             self.failed.emit(f"{type(e).__name__}: {e}")

@@ -96,24 +96,38 @@ def _status_cell(status) -> str:
     return f'<td class="{cls}">{s}</td>'
 
 
+#: console hard-wrap width (chars) - QTextDocument does NOT honor
+#: zero-width spaces, so long CLI / dump tokens must be broken by
+#: inserting real newlines (110 chars ≈ 250 px at 6 pt - always well
+#: inside the A4 text width)
+CONSOLE_WRAP_CHARS = 110
+
+
+def _hardwrap(text: str, width: int = CONSOLE_WRAP_CHARS) -> str:
+    out = []
+    for line in text.split("\n"):
+        while len(line) > width:
+            out.append(line[:width])
+            line = line[width:]
+        out.append(line)
+    return "\n".join(out)
+
+
 def console_log_html(text: str, max_chars: int = 400_000) -> str:
     """Full DUT console transcript as a printable section appended after
     the test table.  ANSI escape sequences are stripped (QTextDocument
-    cannot render them — they would pollute the PDF as garbage glyphs)
-    and the text is HTML-escaped inside a compact monospace single-cell
-    TABLE (2026-10-17 fix: the former <pre> does not wrap — one long
-    CLI / dump line widened the whole document layout past the paper
-    edge, clipping every page).  Long tokens get zero-width breaks so
-    wrapping is always possible."""
-    import re
+    cannot render them — they would pollute the PDF as garbage glyphs).
+
+    2026-10-17 (twice-burned) fix: the transcript is HARD-WRAPPED by
+    character count and rendered inside a single-cell monospace table.
+    A <pre> never wraps, and QTextDocument ignores zero-width spaces
+    (U+200B) — one long CLI / dump token widened the whole document
+    layout past the paper edge, clipping every page (96624 reports)."""
     from ..engine.fct_test_runner import strip_ansi
     clean = strip_ansi(text or "").replace("\r", "")
     if len(clean) > max_chars:
         clean = clean[:max_chars] + "\n... (truncated)"
-    escaped = _html.escape(clean)
-    # zero-width break inside every 24-char unbreakable run
-    escaped = re.sub(r"\S{24}", lambda m: m.group(0) + "\u200b", escaped)
-    escaped = escaped.replace("\n", "<br>")
+    escaped = _html.escape(_hardwrap(clean)).replace("\n", "<br>")
     return ("<h3>Console Log</h3>"
             "<table width='100%' cellspacing='0' cellpadding='4'>"
             "<tr><td bgcolor='#f7f7f7' style=\""
