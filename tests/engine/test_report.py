@@ -128,10 +128,13 @@ def test_pending_rows_are_skipped(qapp):
     page.deleteLater()
 
 
-def test_auto_trigger_captures_counted_products(qapp):
+def test_auto_trigger_captures_counted_products(qapp, tmp_path,
+                                                monkeypatch):
     """B4 §8.3: run_finished(counted) appends to the session batch;
-    uncounted runs (stop) do not."""
+    uncounted runs (stop) do not.  The report root is redirected into
+    a tmp path so the auto-generated PDF/CSV never pollute the repo."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
+    monkeypatch.setenv("MTKGUI_REPORT_HOME", str(tmp_path))
     page = TestWorkFlowPage()
     window = __import__("mtkgui.main_window",
                         fromlist=["MainWindow"]).MainWindow()

@@ -86,8 +86,8 @@ from .virtual_dut import (
     save_dut_profile,
 )
 
-# Event Log auto-save: one plain-text file per GUI session (start->exit)
-EVENT_DIR = Path(__file__).resolve().parent.parent / "event"
+# Event Log auto-save lives in the modifiable Event Report folder
+# (mtkgui.report_paths) - resolved at session start
 
 # Doubled default size; clamped to the screen at runtime.
 DEFAULT_WIDTH = 2560
@@ -720,7 +720,14 @@ class MainWindow(QMainWindow):
         self.status_progress.setValue(0)
         sb.addWidget(self.status_progress, 1)  # stretch = adaptive
         self._last_progress = (0, 1)
+        self._progress_args = (0, 0)
         self._progress_reset_pending = False
+        # 2026-10-17 user direction: the bar carries the ELAPSED task
+        # time while a run is active (1 s clock tick)
+        self._run_started_at = None
+        self._run_clock = QTimer(self)
+        self._run_clock.setInterval(1000)
+        self._run_clock.timeout.connect(self._tick_run_clock)
 
         # Instruments connection LEDs
         self.instr_status = InstrumentStatusBar(INSTRUMENTS)
@@ -943,10 +950,18 @@ class MainWindow(QMainWindow):
         run_menu.addAction(wf.act_run_to_cursor)        # Ctrl+F10
 
         # ---------------------------------------------- V4.0: Report menu
+        # 2026-10-17 user direction: the menu items OPEN the output
+        # folders - the reports themselves are generated automatically
+        # after every counted test run
         self.report_menu = self.menuBar().addMenu("Report")
-        self.report_menu.addAction("Generate Report…",
-                                   self._open_dut_report)
-        self.report_menu.addAction("Event Log", self._open_report_event_log)
+        self.report_menu.addAction("DUT Report",
+                                   self._open_dut_report_folder)
+        self.report_menu.addAction("Event Log",
+                                   self._open_report_event_log)
+        self.report_menu.addAction("DAQ CSV Data",
+                                   self._open_daq_csv_folder)
+        self.report_menu.addAction("Report Folder…",
+                                   self._open_report_folder_settings)
         self.report_menu.addAction("Statistics", self._open_statistics)
         self.report_menu.addAction("SharePoint Upload…",
                                    self._open_sharepoint_upload)
@@ -1102,64 +1117,34 @@ class MainWindow(QMainWindow):
         dlg.resize(460, 360)
         dlg.exec()
 
-    def _open_dut_report(self):
-        """Report > Generate Report: DUT detail + batch summary for the
-        current session (Module B) - Style-A certificate preview
-        (2026-10-16 user direction: big PASS / FAIL seal + the
-        "Authorized by MTK" sign-off row) + CSV / PDF export."""
-        from mtkgui.engine.report import (
-            BatchSummary,
-            DutReport,
-            save_batch_csv,
-            save_dut_csv,
-        )
-        from mtkgui.gui import dut_pdf
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QTextDocument
-
-        page = self.workflow_page
-        report = DutReport.from_session(page)
-        meta = page.product_info()
-        summary = BatchSummary(reports=[report])
-        # preview dialog (proper QDialog: a QMessageBox squeezes the
-        # browser widget - same fix as the About window)
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Generate Report")
-        lay = QVBoxLayout(dlg)
-        browser = QTextBrowser()
-        browser.document().addResource(
-            QTextDocument.ResourceType.ImageResource,
-            QUrl(dut_pdf.STAMP_RESOURCE),
-            dut_pdf.stamp_pixmap(report.overall_result))
-        if report.rails:
-            browser.document().addResource(
-                QTextDocument.ResourceType.ImageResource,
-                QUrl(dut_pdf.CHART_RESOURCE),
-                dut_pdf.rails_chart_pixmap(report))
-        browser.setHtml(dut_pdf.dut_report_html(report, meta)
-                        + "<hr>" + summary.to_html())
-        lay.addWidget(browser)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
-        # export (Operator: current session is read-only preview only)
-        if self.role == ROLE_SUPERVISOR:
-            out_dir = Path("reports")
-            dut_csv = save_dut_csv(report, out_dir)
-            batch_csv = save_batch_csv(summary, out_dir)
+    def _generate_dut_report_files(self, report) -> None:
+        """Write one DUT's certificate PDF + MES CSV into the DUT
+        Report folder (<program>/DUT Report/<date>/).  Called after
+        EVERY counted test run (2026-10-17 user direction) - failures
+        are logged, never raised into the run path."""
+        from mtkgui import report_paths
+        try:
+            from mtkgui.engine.report import save_dut_csv
+            from mtkgui.gui import dut_pdf
+            meta = self.workflow_page.product_info()
+            out = report_paths.dut_folder()
+            day = datetime.now().strftime("%Y-%m-%d")
+            (out / day).mkdir(parents=True, exist_ok=True)
             pdf = dut_pdf.export_dut_pdf(
-                report, meta,
-                out_dir / datetime.now().strftime("%Y-%m-%d")
-                / dut_pdf.dut_pdf_name(report, meta))
+                report, meta, out / day / dut_pdf.dut_pdf_name(report, meta))
+            csv = save_dut_csv(report, out)
             self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] Report exported: "
-                f"{dut_csv} + {batch_csv} + {pdf}")
-        dlg.resize(720, 520)
-        dlg.exec()
+                f"[{datetime.now():%H:%M:%S}] DUT report generated: "
+                f"{pdf.name} (+ {csv.name})")
+        except Exception as e:                   # noqa: BLE001
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] DUT report generation "
+                f"failed: {e}")
 
     def _on_run_report_auto(self, summary: dict) -> None:
-        """Automatic report capture: every counted product appends to
-        the session batch (B4 §8.3 trigger)."""
+        """Automatic report capture (B4 §8.3 trigger): every counted
+        product appends to the session batch AND gets its certificate
+        report generated immediately (2026-10-17 user direction)."""
         if not summary.get("counted"):
             return
         from mtkgui.engine.report import BatchSummary, DutReport
@@ -1167,15 +1152,79 @@ class MainWindow(QMainWindow):
         self._session_reports.append(report)
         # keep the latest batch on hand for Report > Batch Summary
         self._last_batch = BatchSummary(reports=list(self._session_reports))
+        if report.items:
+            self._generate_dut_report_files(report)
+
+    def _open_dut_report_folder(self):
+        """Report > DUT Report: open the folder where the automatic
+        DUT reports (PDF + MES CSV) land - <program>/DUT Report by
+        default, the name is modifiable via Report > Report Folder…."""
+        from mtkgui import report_paths
+        self._open_report_dir(
+            report_paths.dut_folder(), "DUT Report")
+
+    def _open_daq_csv_folder(self):
+        """Report > DAQ CSV Data: open the DAQ capture folder - it
+        lives under the SAME root as the DUT reports."""
+        from mtkgui import report_paths
+        self._open_report_dir(
+            report_paths.daq_folder(), "DAQ CSV Data")
+
+    def _open_report_dir(self, path: Path, title: str) -> None:
+        """Create-if-missing and open a report folder in the system
+        file manager."""
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            QMessageBox.warning(self, title,
+                                f"Cannot create the folder:\n{path}\n\n{e}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Opened {title} folder: {path}")
+
+    def _open_report_folder_settings(self):
+        """Report > Report Folder…: rename the two output folders
+        (defaults 'DUT Report' / 'Event Report', next to the
+        program).  New names apply to newly created files."""
+        from PySide6.QtWidgets import (QDialog, QDialogButtonBox,
+                                       QFormLayout, QLineEdit)
+        from mtkgui import report_paths
+        dut, event = report_paths.folder_names()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Report Folder Settings")
+        form = QFormLayout(dlg)
+        ed_dut = QLineEdit(dut)
+        ed_event = QLineEdit(event)
+        form.addRow("DUT Report folder:", ed_dut)
+        form.addRow("Event Log folder:", ed_event)
+        note = QLabel("Next to the program:\n"
+                      f"{report_paths.program_dir()}\n\n"
+                      "New names apply to newly created files.")
+        note.setObjectName("muted")
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        report_paths.set_folder_names(ed_dut.text(), ed_event.text())
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Report folders set: "
+            f"'{ed_dut.text()}' / '{ed_event.text()}' "
+            f"(under {report_paths.program_dir()})")
 
     def _open_report_event_log(self):
-        """Report > Event Log: full-lifecycle TXT log viewer
-        placeholder (ships with V4.0 phase B3)."""
-        QMessageBox.information(
-            self, "Event Log",
-            "Full-lifecycle event log viewer and TXT export ship with "
-            "V4.0 phase B3 (feature/report-backend). The live session "
-            "log stays available in the Event Log panel below.")
+        """Report > Event Log: open the Event Log folder - the session
+        .log auto-save files land in <program>/Event Report by
+        default (name modifiable via Report > Report Folder…)."""
+        from mtkgui import report_paths
+        self._open_report_dir(
+            report_paths.event_folder(), "Event Log")
 
     def _open_sharepoint_upload(self):
         """Report > SharePoint Upload…: site link + connectivity test +
@@ -1963,15 +2012,19 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------- Event Log
     def _start_event_log(self):
-        """Open the per-session auto-save log file under ./event/.
+        """Open the per-session auto-save log file under the Event Log
+        folder (<program>/Event Report by default, name modifiable via
+        Report > Report Folder…).
 
         One file covers a whole GUI run, from startup to exit; every log
         line is appended (and flushed) immediately so a crash still leaves
         the record on disk."""
         try:
-            EVENT_DIR.mkdir(exist_ok=True)
+            from mtkgui import report_paths
+            event_dir = report_paths.event_folder()
+            event_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = EVENT_DIR / f"event_{stamp}.log"
+            path = event_dir / f"event_{stamp}.log"
             self._event_log_path = path
             self._event_log_file = open(path, "a", encoding="utf-8")
             self._event_log_file.write(
@@ -2015,12 +2068,23 @@ class MainWindow(QMainWindow):
                 pass
 
     # ------------------------------------------------ instrument lights
+    @staticmethod
+    def _fmt_elapsed(delta) -> str:
+        """Seconds -> MM:SS (H:MM:SS past one hour)."""
+        total = max(0, int(delta.total_seconds()))
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
     def _update_run_progress(self, current, total):
         """Update the status-bar progress bar during a test run.
 
         A running test cancels any pending finish-reset (a new job may
-        start within the reset grace window)."""
+        start within the reset grace window).  2026-10-17: the bar also
+        carries the ELAPSED run time, and the Event Log records the
+        run process (started / finished lines)."""
         self._progress_reset_pending = False
+        self._progress_args = (current, total)
         if total > 1:
             self._last_progress = (current, total)  # restore point after
         if total <= 0:                              # a busy phase
@@ -2028,17 +2092,53 @@ class MainWindow(QMainWindow):
             self.status_progress.setValue(0)
             self.status_progress.setFormat("Idle")
         else:
+            if self._run_started_at is None:
+                # first progress of this run: start the elapsed clock
+                # and note the process in the Event Log
+                self._run_started_at = datetime.now()
+                self._run_clock.start()
+                self._append_event_log(
+                    f"[{datetime.now():%H:%M:%S}] Test run started "
+                    f"({total} steps)")
+            elapsed = self._fmt_elapsed(
+                datetime.now() - self._run_started_at)
             self.status_progress.setRange(0, total)
             self.status_progress.setValue(current)
             self.status_progress.setFormat(
-                f"{current}/{total} ({current * 100 // total}%)")
+                f"{current}/{total} ({current * 100 // total}%)"
+                f" · {elapsed}")
+
+    def _tick_run_clock(self):
+        """1 s heartbeat: refresh the elapsed time in the progress bar
+        (keeps the same current/total values)."""
+        if self._run_started_at is None or self._progress_reset_pending:
+            return
+        current, total = self._progress_args
+        if total <= 0:
+            return
+        elapsed = self._fmt_elapsed(datetime.now() - self._run_started_at)
+        self.status_progress.setFormat(
+            f"{current}/{total} ({current * 100 // total}%) · {elapsed}")
 
     def _finish_run_progress(self):
         """Task complete: fill the bar full, then auto-reset to the
         gray empty Idle state (grace window so the 100% is visible)."""
+        started = getattr(self, "_run_started_at", None)
+        if started is not None:
+            elapsed = self._fmt_elapsed(datetime.now() - started)
+            self.status_progress.setFormat(f"Complete (100%) · {elapsed}")
+            # the Event Log carries the run process: started -> finished
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Test run finished · "
+                f"elapsed {elapsed}")
+        else:
+            self.status_progress.setFormat("Complete (100%)")
         self.status_progress.setRange(0, 100)
         self.status_progress.setValue(100)
-        self.status_progress.setFormat("Complete (100%)")
+        clock = getattr(self, "_run_clock", None)
+        if clock is not None:
+            clock.stop()
+        self._run_started_at = None
         self._progress_reset_pending = True
         QTimer.singleShot(800, self, qt_safe(self._reset_run_progress))
 

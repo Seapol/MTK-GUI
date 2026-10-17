@@ -110,7 +110,6 @@ from .virtual_hardware import VirtualRack
 from .widgets.console_widget import ERROR_COLOR
 from .widgets.multi_console import MultiConsoleWidget
 
-LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 _ICON_DIR = Path(__file__).resolve().parent / "assets"
 
 # power rails are fully YAML-defined (see TestWorkFlowPage.set_rails):
@@ -2308,8 +2307,13 @@ class TestWorkFlowPage(QWidget):
         return rail_plot_data(self.rails, samples)
 
     def _write_csv(self, samples, volts=None):
-        return write_csv(LOGS_DIR, self.rails, samples, volts,
-                         self.cap_start, self.cap_rate, self.virtual_mode)
+        # 2026-10-17 user direction: the DAQ CSV captures live under
+        # the SAME root as the DUT reports (<program>/DUT Report/
+        # DAQ CSV, folder name modifiable via Report > Report Folder…)
+        from mtkgui import report_paths
+        return write_csv(report_paths.daq_folder(), self.rails, samples,
+                         volts, self.cap_start, self.cap_rate,
+                         self.virtual_mode)
 
     # ------------------------------------------------------------ actions
     def _set_status(self, table, row, col, status, virtual=False):

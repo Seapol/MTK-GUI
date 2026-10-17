@@ -163,6 +163,9 @@ The virtual environment is not activated — run `.venv\Scripts\activate` first.
 **User's own YAML plan files**
 User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The packaged `yaml_plan/examples/` now only carries the DUT script assets (`dut_scripts/`, used by SFTP provisioning); demo plans are no longer bundled — regenerate with `scripts\build_frdm_fct_demo_yaml.py` when needed.
 
+**Report output folders (since 2026-10-17)**
+Every counted DUT run immediately generates its report next to the exe: `MTK_GUI\DUT Report\<date>\` (certificate PDF + MES CSV; raw DAQ waveform CSV under `DUT Report\DAQ CSV\`) and `MTK_GUI\Event Report\` (one event-log .log per session). The Report menu items **DUT Report / Event Log / DAQ CSV Data** open these folders directly; the folder names can be changed in **Report → Report Folder…** (persisted in `report_folders.json` next to the exe).
+
 ---
 
 ## Appendix: Mac Dev Machine SSH Key (already set up, for reference)

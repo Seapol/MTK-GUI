@@ -96,7 +96,7 @@ def write_csv(logs_dir: Path, rails: list, samples: list,
     A real (or simulated) U2355A logs volts; the legacy demo path has
     only normalized fractions of each rail's nominal.  Returns the CSV
     path (logs_dir / power_rails[_virtual]_YYYYmmdd_HHMMSS.csv)."""
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
     mid = "_virtual" if virtual_mode else ""
     name = f"power_rails{mid}_{datetime.now():%Y%m%d_%H%M%S}.csv"
     path = Path(logs_dir) / name

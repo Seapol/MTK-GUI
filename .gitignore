@@ -18,6 +18,11 @@ archive/
 audit/
 demo/
 reports/
+# 2026-10-17: report output now lives next to the program (defaults
+# "DUT Report" / "Event Report", names modifiable at runtime)
+DUT Report/
+Event Report/
+report_folders.json
 # quick commands: per-station runtime storage (built-in defaults apply
 # when the file is missing)
 config/commands.json
