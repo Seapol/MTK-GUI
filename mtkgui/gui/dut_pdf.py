@@ -308,6 +308,43 @@ def rails_chart_pixmap(report, width=1160, height=480):
     return pm
 
 
+def verdict_conflict(report) -> str | None:
+    """Detect a mismatch between the session's overall verdict and the
+    judged detail (2026-10-17 user direction).  The report NEVER
+    re-judges (B4 §8.1 - the cells ARE the verdicts); when the overall
+    and the detail disagree, the caller renders a VERDICT NOTE banner
+    so the reader is warned to verify the session state.  Only real
+    failures count (FAIL / TIMEOUT / ERROR - 'Done' op rows and INFO
+    statuses are not failures)."""
+    if not report.items:
+        return None
+    verdict = _verdict(report.overall_result)
+    n_fail = sum(1 for i in report.items
+                 if any(k in i.result.upper()
+                        for k in ("FAIL", "TIMEOUT", "ERROR")))
+    if verdict == "PASS" and n_fail:
+        return (f"{n_fail} item(s) did NOT pass, but the session "
+                f"verdict is '{report.overall_result}'.  This report "
+                f"mirrors the session verdict without re-judging "
+                f"(B4 §8.1) - verify the session state before "
+                f"releasing this unit.")
+    if verdict == "FAIL" and n_fail == 0:
+        return (f"No failing item found, but the session verdict is "
+                f"'{report.overall_result}'.  This report mirrors the "
+                f"session verdict without re-judging (B4 §8.1) - "
+                f"verify the session state.")
+    return None
+
+
+def _conflict_banner(message: str) -> str:
+    """Amber VERDICT NOTE strip under the summary (QTextDocument-safe
+    single-row table)."""
+    return ("<table width='100%' cellspacing='0' cellpadding='6'>"
+            f"<tr><td bgcolor='#fdecea' style='border:1px solid {RED}'>"
+            f"<b><font color='{RED}'><small>VERDICT NOTE · "
+            f"{esc(message)}</small></font></b></td></tr></table>")
+
+
 def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     """Style-A certificate markup (QTextDocument-safe tables only).
 
@@ -329,9 +366,6 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         "meta": meta,
     })
     report_no = (f"DUT-{verdict}-{sn}-{when:%Y%m%d-%H%M%S}")
-
-    n_pass = sum(1 for i in report.items if "PASS" in i.result.upper())
-    n_fail = len(report.items) - n_pass
 
     def _items_table(items):
         """One judged-rows table (no CATEGORY column: the section
@@ -377,6 +411,15 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
                 f"{esc(ink)}</font><br><hr>"
                 f"<small><font color='{MUTED}'>{esc(cap.upper())}</font>"
                 f"</small></td>")
+
+    # summary strip counts (strict): only real failures (FAIL /
+    # TIMEOUT / ERROR) count as FAIL - 'Done' op rows and INFO rows
+    # are neither (they used to inflate the FAIL count)
+    n_pass = sum(1 for i in report.items if "PASS" in i.result.upper())
+    n_fail = sum(1 for i in report.items
+                 if any(k in i.result.upper()
+                        for k in ("FAIL", "TIMEOUT", "ERROR")))
+    conflict = verdict_conflict(report)
 
     # FAIL items keep their red verdict in the table; the overall row
     # and the seal follow the report verdict
@@ -439,7 +482,11 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         f"<td align='center' bgcolor='#f6f8fa'><b><font color='{vc}'>"
         f"<font size='5'>{verdict}</font></b><br>"
         f"<small><font color='{MUTED}'>OVERALL</font></small></td>"
-        "</tr></table></td></tr>"
+        "</tr></table>"
+        # ---- verdict / detail mismatch note (never re-judges: the
+        # banner only warns the reader to verify the session state)
+        + (_conflict_banner(conflict) if conflict else "")
+        + "</td></tr>"
         # ---- 3 detail (split per Test Method, 2026-10-16 user
         # direction: impedance / voltage / clock / sequence / other)
         f"<tr><td colspan='2'>{detail_html}</td></tr>"

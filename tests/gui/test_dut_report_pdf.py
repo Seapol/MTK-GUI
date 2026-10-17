@@ -233,6 +233,36 @@ def test_html_sequence_chart_with_capture():
     assert "VDD_\u200b3V3" in html and "in regulation" in html
 
 
+def test_verdict_conflict_banner():
+    """Overall vs detail mismatch renders a VERDICT NOTE banner; the
+    report still never re-judges (B4 §8.1).  'Done' op rows are not
+    failures - a PASS session with op rows stays conflict-free."""
+    ok = _dut(items=[ReportItem(test_name="t", category="ICT",
+                                measured="1.0", result="PASS"),
+                     ReportItem(test_name="op", category="FCT",
+                                duration="1.0", result="Done")])
+    assert dut_pdf.verdict_conflict(ok) is None
+    assert "VERDICT NOTE" not in dut_pdf.dut_report_html(ok, META)
+
+    fail = _dut(result="PASS", items=[
+        ReportItem(test_name="bad", category="ICT", measured="7.4",
+                   result="FAIL")])
+    msg = dut_pdf.verdict_conflict(fail)
+    assert msg and "1 item(s) did NOT pass" in msg
+    html = dut_pdf.dut_report_html(fail, META)
+    assert "VERDICT NOTE ·" in html and "verify the session state" in html
+
+    # FAIL overall without any failing item is flagged as well
+    odd = _dut(result="FAIL", items=[ReportItem(
+        test_name="t", category="ICT", measured="1.0", result="PASS")])
+    assert "No failing item found" in dut_pdf.verdict_conflict(odd)
+    # a consistent FAIL session is silent
+    consistent = _dut(result="FAIL", items=[ReportItem(
+        test_name="bad", category="ICT", measured="7.4", result="FAIL")])
+    assert dut_pdf.verdict_conflict(consistent) is None
+    assert "VERDICT NOTE" not in dut_pdf.dut_report_html(consistent, META)
+
+
 def test_realistic_report_fits_page_width(qapp):
     """Regression (user PDF 2026-10-17, 96624 run): the 9-column
     analysis table's minimum width pushed the whole document layout
