@@ -1120,8 +1120,9 @@ class MainWindow(QMainWindow):
     def _generate_dut_report_files(self, report) -> None:
         """Write one DUT's certificate PDF + MES CSV into the DUT
         Report folder (<program>/DUT Report/<date>/).  Called after
-        EVERY counted test run (2026-10-17 user direction) - failures
-        are logged, never raised into the run path."""
+        EVERY counted test run (2026-10-17 user direction) - deferred
+        onto the event loop so the finished-run UI paints first, and
+        failures are logged, never raised into the run path."""
         from mtkgui import report_paths
         try:
             from mtkgui.engine.report import save_dut_csv
@@ -1144,7 +1145,10 @@ class MainWindow(QMainWindow):
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture (B4 §8.3 trigger): every counted
         product appends to the session batch AND gets its certificate
-        report generated immediately (2026-10-17 user direction)."""
+        report generated immediately (2026-10-17 user direction).
+        2026-10-17 refinement: the start is announced in the Event Log
+        right away and the (heavier) rendering is DEFERRED a beat onto
+        the event loop so the finished-run UI never freezes."""
         if not summary.get("counted"):
             return
         from mtkgui.engine.report import BatchSummary, DutReport
@@ -1153,7 +1157,13 @@ class MainWindow(QMainWindow):
         # keep the latest batch on hand for Report > Batch Summary
         self._last_batch = BatchSummary(reports=list(self._session_reports))
         if report.items:
-            self._generate_dut_report_files(report)
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] DUT report generating "
+                f"({len(report.items)} items, serial "
+                f"{report.serial_no or 'n/a'})...")
+            QTimer.singleShot(
+                150, self,
+                qt_safe(lambda: self._generate_dut_report_files(report)))
 
     def _open_dut_report_folder(self):
         """Report > DUT Report: open the folder where the automatic

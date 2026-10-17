@@ -93,6 +93,13 @@ def test_counted_run_generates_report_files(qapp, report_home):
     w = _window()
     _finish_session(w.workflow_page)
     w._on_run_report_auto({"counted": True})
+    # the START is announced immediately in the Event Log...
+    log = w.event_log.toPlainText()
+    assert "DUT report generating" in log
+    # ...while the (heavier) rendering is deferred: nothing written yet
+    assert not list(report_paths.dut_folder().rglob("*.pdf"))
+    # fire the deferred generation (what the singleShot would do)
+    w._generate_dut_report_files(w._session_reports[-1])
     day = report_paths.dut_folder() / __import__("datetime").datetime \
         .now().strftime("%Y-%m-%d")
     pdfs = list(day.glob("DUT_PASS_*.pdf"))
@@ -100,8 +107,7 @@ def test_counted_run_generates_report_files(qapp, report_home):
     assert pdfs and csvs, f"missing files under {day}"
     assert pdfs[0].read_bytes()[:4] == b"%PDF"
     # the Event Log shows the process
-    log = w.event_log.toPlainText()
-    assert "DUT report generated" in log
+    assert "DUT report generated" in w.event_log.toPlainText()
     w.deleteLater()
 
 
