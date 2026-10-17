@@ -290,28 +290,33 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
 
 
 def rails_chart_image(report, width=1160, height=480):
-    """Render the captured rails with the SAME painter as the live
-    waveform (identical grid / legend / colors), for embedding into
-    the report HTML as the ``rail_chart`` image resource.  Built on
-    the GUI thread (it instantiates a widget) but returned as QImage
-    so the off-thread PDF renderer can consume it."""
+    """Render the captured rails chart (same painter as the live
+    waveform) - widget-free, safe on any thread."""
     if not getattr(report, "rails", None):
         from PySide6.QtGui import QImage
         return QImage()
+    return paint_rails_chart(report.rails, report.rail_duration or 1.0,
+                             report.rail_t_start,
+                             getattr(report, "virtual", False),
+                             width, height)
+
+
+def paint_rails_chart(data, duration: float, t_start: float,
+                      virtual: bool, width=1160, height=480):
+    """Widget-free rails chart render (the worker thread uses this:
+    plain data in, QImage out - the GUI thread is never touched)."""
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QPainter, QImage
-    from ..test_workflow_page import WaveformWidget
-    wave = WaveformWidget()
-    wave.resize(width, height)
-    wave.set_data(report.rails, report.rail_duration or 1.0,
-                  report.rail_t_start)
-    pm = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
-    p = QPainter(pm)
+    from ..test_workflow_page import paint_waveform_plot
+    img = QImage(int(width), int(height),
+                 QImage.Format.Format_ARGB32_Premultiplied)
+    p = QPainter(img)
     try:
-        wave._paint_plot(p)
+        paint_waveform_plot(p, width, height, data, duration, t_start,
+                            virtual)
     finally:
         p.end()
-    return pm
+    return img
 
 
 def verdict_conflict(report) -> str | None:
@@ -550,14 +555,17 @@ def dut_pdf_name(report, meta=None, when: datetime | None = None) -> str:
 
 # ------------------------------------------------------------------ pdf
 def report_pdf_payload(report, meta=None) -> tuple:
-    """(html, {resource_name: QImage}) for one certificate - the fast
-    GUI-thread part of the export; the heavy QPrinter rasterization is
-    done separately (sync via :func:`export_dut_pdf`, or off-thread via
-    :class:`PdfRenderWorker`)."""
+    """(html, {resource_name: QImage}, chart_spec) for one certificate
+    - all cheap, GUI-thread work.  The chart_spec carries the raw rail
+    data; the WORKER renders the chart + the PDF off-thread, so the
+    user can immediately start testing the next DUT."""
     images = {STAMP_RESOURCE: stamp_image(report.overall_result)}
+    chart_spec = None
     if getattr(report, "rails", None):
-        images[CHART_RESOURCE] = rails_chart_image(report)
-    return dut_report_html(report, meta), images
+        chart_spec = (list(report.rails), report.rail_duration or 1.0,
+                      report.rail_t_start,
+                      getattr(report, "virtual", False))
+    return dut_report_html(report, meta), images, chart_spec
 
 
 def _render_pdf(html: str, images: dict, path: Path) -> None:
@@ -591,29 +599,37 @@ def export_dut_pdf(report, meta=None, path=None) -> Path:
     one-off exports; the GUI uses :class:`PdfRenderWorker` instead so
     the 1200-dpi rasterization never freezes the UI)."""
     path = Path(path)
-    html, images = report_pdf_payload(report, meta)
+    html, images, chart_spec = report_pdf_payload(report, meta)
+    if chart_spec:
+        images[CHART_RESOURCE] = paint_rails_chart(*chart_spec)
     _render_pdf(html, images, path)
     return path
 
 
 class PdfRenderWorker(QThread):
     """Renders one certificate PDF OFF the GUI thread (2026-10-17 user
-    direction: the QPrinter rasterization froze the UI for seconds -
-    the mouse-over-menu stutter).  The html / images are prepared on
-    the GUI thread (:func:`report_pdf_payload`); this worker only
-    builds its own QTextDocument + QPrinter and paints."""
+    direction: the 1200-dpi rasterization froze the UI for seconds AND
+    the user must be able to test the next DUT while reports render -
+    several workers may run concurrently).  Everything heavy happens
+    in run(): the chart QImage and the QPrinter painting; the GUI
+    thread only built the html string."""
 
     done = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, html: str, images: dict, path, parent=None):
+    def __init__(self, html: str, images: dict, path,
+                 chart_spec=None, parent=None):
         super().__init__(parent)
         self._html = html
-        self._images = images
+        self._images = dict(images)
+        self._chart_spec = chart_spec
         self._path = Path(path)
 
     def run(self):
         try:
+            if self._chart_spec:
+                self._images[CHART_RESOURCE] = \
+                    paint_rails_chart(*self._chart_spec)
             _render_pdf(self._html, self._images, self._path)
             self.done.emit(str(self._path))
         except Exception as e:                   # noqa: BLE001

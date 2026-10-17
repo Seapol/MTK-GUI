@@ -154,6 +154,108 @@ ICT_STEPS = [
 # --------------------------------------------------------------------------
 # waveform widget (QPainter - no extra dependencies)
 # --------------------------------------------------------------------------
+#: plot margins (px) - shared by the widget painter and the cursor
+#: mapping (WaveformWidget class constants mirror these)
+WAVE_MARGIN_L, WAVE_MARGIN_R, WAVE_MARGIN_T, WAVE_MARGIN_B = 64, 24, 34, 30
+
+
+def paint_waveform_plot(painter, width: float, height: float, data,
+                        duration: float, t_start: float,
+                        virtual: bool = False) -> None:
+    """Render the power-rails plot (background / grid / legend /
+    curves / virtual badge) into ANY painter.  Widget-free on purpose:
+    the DUT report's PDF worker thread uses it to render the chart
+    image off the GUI thread, the live widget uses the very same code
+    so the report chart always matches the on-screen waveform."""
+    from PySide6.QtCore import QRectF, QPointF, Qt
+    from PySide6.QtGui import QColor, QPen, QFont
+
+    rect = QRectF(0, 0, width, height).adjusted(0, 0, -1, -1)
+    painter.fillRect(rect, QColor("#0d1b26"))
+    if not data:
+        painter.setPen(QPen(QColor("#8fa6b8")))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                         "No capture yet - run the demo to record rails")
+        return
+
+    ml, mr, mt, mb = WAVE_MARGIN_L, WAVE_MARGIN_R, WAVE_MARGIN_T, \
+        WAVE_MARGIN_B
+    plot = QRectF(ml, mt,
+                  max(1.0, width - ml - mr),
+                  max(1.0, height - mt - mb)).adjusted(0, 0, -1, 0)
+
+    # y axis: voltage, top = 110 % of the highest nominal rail
+    v_top = max((y_max for _, _, y_max, _ in data), default=1.0) * 1.1
+
+    # grid + time axis
+    painter.setPen(QPen(QColor("#24435a"), 1))
+    for i in range(6):
+        y = plot.top() + plot.height() * i / 5
+        painter.drawLine(QPointF(plot.left(), y),
+                         QPointF(plot.right(), y))
+    painter.setPen(QPen(QColor("#8fa6b8"), 1))
+    f = QFont()
+    f.setPointSize(8)
+    painter.setFont(f)
+    for i in range(6):
+        y = plot.top() + plot.height() * i / 5
+        painter.drawText(QRectF(0, y - 8, ml - 8, 16),
+                         Qt.AlignmentFlag.AlignRight
+                         | Qt.AlignmentFlag.AlignVCenter,
+                         f"{v_top * (5 - i) / 5:.2f} V")
+
+    n = max((len(s) for _, _, _, s in data), default=1)
+    for i in range(6):
+        x = plot.left() + plot.width() * i / 5
+        painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+        t = t_start + duration * i / 5
+        painter.drawText(QRectF(x - 30, plot.bottom() + 6, 60, 16),
+                         Qt.AlignmentFlag.AlignHCenter
+                         | Qt.AlignmentFlag.AlignTop,
+                         f"{t:.1f} s")
+
+    # legend (two rows, 6 entries each)
+    col_w = min(195, plot.width() / 6)
+    for i, (label, color, y_max, samples) in enumerate(data):
+        row, col = divmod(i, 6)
+        lx = plot.left() + 10 + col * col_w
+        ly = plot.top() - 12 - row * 16
+        painter.setPen(QPen(QColor(color), 2))
+        painter.drawLine(QPointF(lx, ly), QPointF(lx + 18, ly))
+        painter.setPen(QPen(QColor("#dbe7f0"), 1))
+        painter.drawText(QRectF(lx + 22, ly - 9, col_w - 24, 18),
+                         Qt.AlignmentFlag.AlignLeft
+                         | Qt.AlignmentFlag.AlignVCenter,
+                         f"{label} ({y_max:.2f} V)")
+
+    # curves (samples are fractions of nominal; plot as voltage,
+    # normalized to v_top = 110 % of the highest nominal rail; the
+    # clamp allows the small post-ramp overshoot of virtual rails)
+    for label, color, y_max, samples in data:
+        painter.setPen(QPen(QColor(color), 2))
+        step = max(1, len(samples) // max(1, int(plot.width())))
+        pts = []
+        for idx in range(0, len(samples), step):
+            volts = min(1.08, max(0.0, samples[idx])) * y_max
+            x = plot.left() + plot.width() * idx / (n - 1 if n > 1 else 1)
+            y = plot.bottom() - plot.height() * (volts / v_top)
+            pts.append(QPointF(x, y))
+        if len(pts) > 1:
+            painter.drawPolyline(pts)
+
+    # Virtual mode: mark the capture as simulated demo data
+    if virtual:
+        f.setPointSize(8)
+        f.setBold(True)
+        painter.setFont(f)
+        painter.setPen(QPen(QColor("#f5b83d"), 2))
+        painter.drawText(QRectF(plot.right() - 130, plot.top() + 2,
+                                126, 16),
+                         Qt.AlignmentFlag.AlignRight
+                         | Qt.AlignmentFlag.AlignVCenter,
+                         "VIRTUAL DATA (simulated)")
+
+
 class WaveformWidget(QWidget):
     # emitted on double-click; the page connects to show an edit dialog
     doubleClicked = Signal()
@@ -161,7 +263,8 @@ class WaveformWidget(QWidget):
     cursorInfo = Signal(str)
 
     #: plot margins (px) - shared by the painter and the cursor mapping
-    MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = 64, 24, 34, 30
+    MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = (
+        WAVE_MARGIN_L, WAVE_MARGIN_R, WAVE_MARGIN_T, WAVE_MARGIN_B)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -263,87 +366,12 @@ class WaveformWidget(QWidget):
             self._paint_cursors(painter)
 
     def _paint_plot(self, painter):
-        rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.fillRect(rect, QColor("#0d1b26"))
-        if not self.data:
-            painter.setPen(QPen(QColor("#8fa6b8")))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
-                             "No capture yet - run the demo to record rails")
-            return
-
-        plot = self.plot_rect().adjusted(0, 0, -1, 0)
-
-        # y axis: voltage, top = 110 % of the highest nominal rail
-        v_top = self._v_top()
-
-        # grid + time axis
-        painter.setPen(QPen(QColor("#24435a"), 1))
-        for i in range(6):
-            y = plot.top() + plot.height() * i / 5
-            painter.drawLine(QPointF(plot.left(), y),
-                             QPointF(plot.right(), y))
-        painter.setPen(QPen(QColor("#8fa6b8"), 1))
-        f = QFont()
-        f.setPointSize(8)
-        painter.setFont(f)
-        for i in range(6):
-            y = plot.top() + plot.height() * i / 5
-            painter.drawText(QRectF(0, y - 8, self.MARGIN_L - 8, 16),
-                             Qt.AlignmentFlag.AlignRight
-                             | Qt.AlignmentFlag.AlignVCenter,
-                             f"{v_top * (5 - i) / 5:.2f} V")
-
-        n = max((len(s) for _, _, _, s in self.data), default=1)
-        for i in range(6):
-            x = plot.left() + plot.width() * i / 5
-            painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
-            t = self.t_start + self.duration * i / 5
-            painter.drawText(QRectF(x - 30, plot.bottom() + 6, 60, 16),
-                             Qt.AlignmentFlag.AlignHCenter
-                             | Qt.AlignmentFlag.AlignTop,
-                             f"{t:.1f} s")
-
-        # legend (two rows, 6 entries each)
-        col_w = min(195, plot.width() / 6)
-        for i, (label, color, y_max, samples) in enumerate(self.data):
-            row, col = divmod(i, 6)
-            lx = plot.left() + 10 + col * col_w
-            ly = plot.top() - 12 - row * 16
-            painter.setPen(QPen(QColor(color), 2))
-            painter.drawLine(QPointF(lx, ly), QPointF(lx + 18, ly))
-            painter.setPen(QPen(QColor("#dbe7f0"), 1))
-            painter.drawText(QRectF(lx + 22, ly - 9, col_w - 24, 18),
-                             Qt.AlignmentFlag.AlignLeft
-                             | Qt.AlignmentFlag.AlignVCenter,
-                             f"{label} ({y_max:.2f} V)")
-
-        # curves (samples are fractions of nominal; plot as voltage,
-        # normalized to v_top = 110 % of the highest nominal rail; the
-        # clamp allows the small post-ramp overshoot of virtual rails)
-        for label, color, y_max, samples in self.data:
-            pen = QPen(QColor(color), 2)
-            painter.setPen(pen)
-            step = max(1, len(samples) // max(1, int(plot.width())))
-            pts = []
-            for idx in range(0, len(samples), step):
-                volts = min(1.08, max(0.0, samples[idx])) * y_max
-                x = plot.left() + plot.width() * idx / (n - 1 if n > 1 else 1)
-                y = plot.bottom() - plot.height() * (volts / v_top)
-                pts.append(QPointF(x, y))
-            if len(pts) > 1:
-                painter.drawPolyline(pts)
-
-        # Virtual mode: mark the capture as simulated demo data
-        if self.virtual:
-            f.setPointSize(8)
-            f.setBold(True)
-            painter.setFont(f)
-            painter.setPen(QPen(QColor("#f5b83d"), 2))
-            painter.drawText(QRectF(plot.right() - 130, plot.top() + 2,
-                                    126, 16),
-                             Qt.AlignmentFlag.AlignRight
-                             | Qt.AlignmentFlag.AlignVCenter,
-                             "VIRTUAL DATA (simulated)")
+        """The cached base plot - delegates to the widget-free
+        :func:`paint_waveform_plot` (shared with the report's
+        off-thread chart renderer)."""
+        paint_waveform_plot(painter, self.width(), self.height(),
+                            self.data, self.duration, self.t_start,
+                            self.virtual)
 
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit()

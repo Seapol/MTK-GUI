@@ -318,21 +318,26 @@ def test_rails_chart_image(qapp):
 
 
 def test_pdf_render_worker_thread(qapp, tmp_path):
-    """The GUI path: the worker renders the PDF OFF the caller thread
-    and reports done / failed."""
+    """The GUI path: the worker renders the chart AND the PDF OFF the
+    caller thread and reports done / failed - the user can keep
+    testing the next DUT while reports render."""
     from PySide6.QtCore import QThread
     from PySide6.QtTest import QTest
-    html, images = dut_pdf.report_pdf_payload(
-        _dut(items=[ReportItem(test_name="t", category="ICT",
-                               measured="1.0", result="PASS")]), META)
-    worker = dut_pdf.PdfRenderWorker(html, images, tmp_path / "w.pdf")
+    report = _rail_report()          # with rails -> chart_spec set
+    html, images, chart_spec = dut_pdf.report_pdf_payload(report, META)
+    assert chart_spec is not None    # chart is rendered in the worker
+    assert dut_pdf.CHART_RESOURCE not in images
+    worker = dut_pdf.PdfRenderWorker(html, images, tmp_path / "w.pdf",
+                                     chart_spec)
     assert isinstance(worker, QThread)
     results = []
     worker.done.connect(results.append)
     worker.start()
-    deadline = 10_000  # ms
+    deadline = 15_000  # ms
     while not results and deadline > 0:
         QTest.qWait(100)
         deadline -= 100
     worker.wait()
     assert results and (tmp_path / "w.pdf").read_bytes()[:4] == b"%PDF"
+    # the chart image landed in the worker's own resource dict
+    assert not worker._images[dut_pdf.CHART_RESOURCE].isNull()

@@ -1135,9 +1135,10 @@ class MainWindow(QMainWindow):
             day = datetime.now().strftime("%Y-%m-%d")
             (out / day).mkdir(parents=True, exist_ok=True)
             csv = save_dut_csv(report, out)
-            html, images = dut_pdf.report_pdf_payload(report, meta)
+            html, images, chart_spec = dut_pdf.report_pdf_payload(report, meta)
             worker = dut_pdf.PdfRenderWorker(
-                html, images, out / day / dut_pdf.dut_pdf_name(report, meta))
+                html, images, out / day / dut_pdf.dut_pdf_name(report, meta),
+                chart_spec)
             worker.done.connect(qt_safe(self._on_dut_pdf_done))
             worker.failed.connect(qt_safe(self._on_dut_pdf_failed))
             worker.finished.connect(
