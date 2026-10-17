@@ -1119,25 +1119,41 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _generate_dut_report_files(self, report) -> None:
-        """Write one DUT's certificate PDF + MES CSV into the DUT
-        Report folder (<program>/DUT Report/<date>/).  Called after
-        EVERY counted test run (2026-10-17 user direction).  The CSV
-        is written synchronously (fast file IO); the heavy 1200-dpi
-        PDF rasterization runs on a WORKER THREAD - the GUI stays
-        responsive while the report renders (menu-hover stutter fix).
-        Failures are logged, never raised into the run path."""
+        """Write one DUT's certificate PDF + MES CSV into its IDENTITY
+        folder under the DUT Report root (2026-10-17 user direction:
+        folder AND file names carry Part# / Core ID / Batch# / Serial#
+        / timestamp).  When this run captured a DAQ CSV, the report
+        joins THAT folder; otherwise an identity folder is created.
+        The CSV is written synchronously (fast file IO); the heavy
+        1200-dpi PDF rasterization runs on a WORKER THREAD - the GUI
+        stays responsive while the report renders (the user can start
+        testing the next DUT immediately).  Failures are logged, never
+        raised into the run path."""
         from mtkgui import report_paths
         try:
             from mtkgui.engine.report import save_dut_csv
             from mtkgui.gui import dut_pdf
             meta = self.workflow_page.product_info()
             out = report_paths.dut_folder()
-            day = datetime.now().strftime("%Y-%m-%d")
-            (out / day).mkdir(parents=True, exist_ok=True)
-            csv = save_dut_csv(report, out)
+            # identity folder: prefer THIS run's DAQ capture folder
+            capture_csv = getattr(self.workflow_page, "rail_csv_path", None)
+            if capture_csv and Path(capture_csv).is_file():
+                run_dir = Path(capture_csv).parent
+            else:
+                run_dir = out / (
+                    "_".join(dut_pdf.safe_name(v) for v in
+                             (meta.get("part") or "NA",
+                              meta.get("core_id") or "NA",
+                              meta.get("batch") or "NA",
+                              report.serial_no or "DUT"))
+                    + f"_{datetime.now():%Y%m%d_%H%M%S}")
+            run_dir.mkdir(parents=True, exist_ok=True)
+            csv = save_dut_csv(report, run_dir, batch=meta.get("batch", ""),
+                               core_id=meta.get("core_id", ""),
+                               part=meta.get("part", ""))
             html, images, chart_spec = dut_pdf.report_pdf_payload(report, meta)
             worker = dut_pdf.PdfRenderWorker(
-                html, images, out / day / dut_pdf.dut_pdf_name(report, meta),
+                html, images, run_dir / dut_pdf.dut_pdf_name(report, meta),
                 chart_spec)
             worker.done.connect(qt_safe(self._on_dut_pdf_done))
             worker.failed.connect(qt_safe(self._on_dut_pdf_failed))
@@ -1192,11 +1208,11 @@ class MainWindow(QMainWindow):
             report_paths.dut_folder(), "DUT Report")
 
     def _open_daq_csv_folder(self):
-        """Report > DAQ CSV Data: open the DAQ capture folder - it
-        lives under the SAME root as the DUT reports."""
+        """Report > DAQ CSV Data: the DAQ captures live INSIDE the
+        per-DUT identity folders under the DUT Report root - open
+        that root."""
         from mtkgui import report_paths
-        self._open_report_dir(
-            report_paths.daq_folder(), "DAQ CSV Data")
+        self._open_report_dir(report_paths.dut_folder(), "DAQ CSV Data")
 
     def _open_report_dir(self, path: Path, title: str) -> None:
         """Create-if-missing and open a report folder in the system

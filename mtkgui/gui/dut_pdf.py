@@ -534,10 +534,16 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
 
 
 # ------------------------------------------------------------------ name
-def _safe(text: str) -> str:
+def safe_name(text: str) -> str:
+    """File / folder-name safe: strip Windows-forbidden chars and
+    spaces (parentheses etc. are legal on Windows and kept)."""
     for ch in '/\\:*?"<>| ':
         text = text.replace(ch, "-")
     return text.strip("-") or "NA"
+
+
+# legacy alias
+_safe = safe_name
 
 
 def dut_pdf_name(report, meta=None, when: datetime | None = None) -> str:
@@ -545,11 +551,11 @@ def dut_pdf_name(report, meta=None, when: datetime | None = None) -> str:
     [Date]_[Time].pdf (the fixed naming from the spec)."""
     meta = dict(meta or {})
     when = when or datetime.now()
-    sn = _safe(report.serial_no) if report.serial_no else "DUT"
+    sn = safe_name(report.serial_no) if report.serial_no else "DUT"
     return (f"DUT_{_verdict(report.overall_result)}_{sn}"
-            f"_{_safe(meta.get('core_id', ''))}"
-            f"_{_safe(meta.get('part', ''))}"
-            f"_{_safe(meta.get('batch', ''))}"
+            f"_{safe_name(meta.get('core_id', ''))}"
+            f"_{safe_name(meta.get('part', ''))}"
+            f"_{safe_name(meta.get('batch', ''))}"
             f"_{when:%Y-%m-%d}_{when:%H-%M-%S}.pdf")
 
 

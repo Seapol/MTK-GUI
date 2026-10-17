@@ -2335,13 +2335,26 @@ class TestWorkFlowPage(QWidget):
         return rail_plot_data(self.rails, samples)
 
     def _write_csv(self, samples, volts=None):
-        # 2026-10-17 user direction: the DAQ CSV captures live under
-        # the SAME root as the DUT reports (<program>/DUT Report/
-        # DAQ CSV, folder name modifiable via Report > Report Folder…)
+        """DAQ capture CSV - 2026-10-17 identity naming: the capture
+        lives in its own identity folder under the DUT Report root,
+        folder AND file name carry Part# / Core ID / Batch# / Serial# /
+        timestamp.  The DUT report joins the SAME folder at run finish
+        (via rail_csv_path)."""
+        from datetime import datetime as _dt
         from mtkgui import report_paths
-        return write_csv(report_paths.daq_folder(), self.rails, samples,
-                         volts, self.cap_start, self.cap_rate,
-                         self.virtual_mode)
+        from mtkgui.gui.dut_pdf import safe_name
+        info = self.product_info()
+        ident = tuple(safe_name(v) for v in
+                      (info["part"] or "NA", info["core_id"] or "NA",
+                       info["batch"] or "NA", info["serial"] or "DUT"))
+        # identity folder: Part#_CoreID_Batch#_SN_+ capture timestamp
+        run_dir = (report_paths.dut_folder()
+                   / ("_".join(ident)
+                      + f"_{_dt.now():%Y%m%d_%H%M%S}"))
+        stem = "power_rails_" + "_".join(ident)
+        return write_csv(run_dir, self.rails, samples, volts,
+                         self.cap_start, self.cap_rate,
+                         self.virtual_mode, stem=stem)
 
     # ------------------------------------------------------------ actions
     def _set_status(self, table, row, col, status, virtual=False):

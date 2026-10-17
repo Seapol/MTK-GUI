@@ -263,15 +263,28 @@ class BatchSummary:
 
 
 # ------------------------------------------------------------------ output
-def save_dut_csv(report: DutReport, out_dir: Path,
-                 batch: str = "") -> Path:
-    """Write the DUT detail CSV: reports/<date>/<batch_><SN>_<ts>.csv."""
+def _clean_name(value) -> str:
+    """File-name safe fragment (Windows-forbidden chars + spaces)."""
+    text = "" if value is None else str(value)
+    for ch in '/\\:*?"<>| ':
+        text = text.replace(ch, "-")
+    return text.strip("-") or "NA"
+
+
+def save_dut_csv(report: DutReport, out_dir: Path, batch: str = "",
+                 core_id: str = "", part: str = "") -> Path:
+    """Write the DUT detail CSV straight into ``out_dir`` - the per-DUT
+    IDENTITY folder under the DUT Report root (2026-10-17: no date
+    subfolder any more; folder AND file name carry Part# / Core ID /
+    Batch# / Serial# / timestamp)."""
     stamp = datetime.now().strftime("%H%M%S")
-    day = datetime.now().strftime("%Y-%m-%d")
-    prefix = f"{batch}_" if batch else ""
-    target = Path(out_dir) / day
+    target = Path(out_dir)
     target.mkdir(parents=True, exist_ok=True)
-    path = target / f"{prefix}{report.serial_no or 'DUT'}_{stamp}.csv"
+    name = "DUT_detail_" + "_".join(
+        _clean_name(v) for v in (report.serial_no or "DUT",
+                                 core_id or "NA", part or "NA",
+                                 batch or "NA")) + f"_{stamp}.csv"
+    path = target / name
     with open(path, "w", newline="", encoding="utf-8") as handle:
         csv.writer(handle).writerows(report.csv_rows())
     return path

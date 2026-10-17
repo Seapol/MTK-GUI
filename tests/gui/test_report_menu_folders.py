@@ -34,17 +34,12 @@ def qapp():
 def test_default_folders_next_to_program(report_home):
     assert report_paths.dut_folder() == report_home / "DUT Report"
     assert report_paths.event_folder() == report_home / "Event Report"
-    # DAQ CSV lives under the SAME root as the DUT reports
-    assert report_paths.daq_folder() == \
-        report_home / "DUT Report" / "DAQ CSV"
 
 
 def test_folder_names_roundtrip(report_home):
     report_paths.set_folder_names("My Reports", "My Logs")
     assert report_paths.dut_folder() == report_home / "My Reports"
     assert report_paths.event_folder() == report_home / "My Logs"
-    assert report_paths.daq_folder() == \
-        report_home / "My Reports" / "DAQ CSV"
     assert (report_home / report_paths.CFG_NAME).is_file()
     # blank names fall back to the defaults, never to an empty path
     report_paths.set_folder_names("  ", "")
@@ -65,7 +60,7 @@ def test_report_menu_opens_folders(qapp, report_home):
                           "Report Folder…"]
     # the folder openers create the folders on demand
     w._open_daq_csv_folder()
-    assert (report_home / "DUT Report" / "DAQ CSV").is_dir()
+    assert (report_home / "DUT Report").is_dir()
     w.deleteLater()
 
 
@@ -108,11 +103,14 @@ def test_counted_run_generates_report_files(qapp, report_home):
             and deadline > 0:
         QTest.qWait(100)
         deadline -= 100
-    day = report_paths.dut_folder() / __import__("datetime").datetime \
-        .now().strftime("%Y-%m-%d")
-    pdfs = list(day.glob("DUT_PASS_*.pdf"))
-    csvs = list(day.glob("*_*.csv"))
-    assert pdfs and csvs, f"missing files under {day}"
+    # 2026-10-17 identity naming: the report lives in a per-DUT folder
+    # whose name carries Part# / Core ID / Batch# / Serial# / timestamp
+    pdfs = list(report_paths.dut_folder().rglob("DUT_PASS_*.pdf"))
+    csvs = list(report_paths.dut_folder().rglob("DUT_detail_*.csv"))
+    assert pdfs and csvs, "missing identity-named report files"
+    run_dir = pdfs[0].parent
+    assert run_dir.name.startswith("NA_NA_freebatch_DUT_2026")
+    assert run_dir == csvs[0].parent          # report + detail csv together
     assert pdfs[0].read_bytes()[:4] == b"%PDF"
     # the Event Log shows the process
     assert "DUT report generated" in w.event_log.toPlainText()
@@ -155,11 +153,17 @@ def test_finish_without_run_keeps_plain_complete(qapp, report_home):
 
 
 # ------------------------------------------------------- DAQ CSV path
-def test_daq_csv_lands_under_dut_root(qapp, report_home):
+def test_daq_csv_lands_in_identity_folder(qapp, report_home):
+    """2026-10-17 identity naming: the DAQ capture lives in its own
+    identity folder under the DUT Report root - folder AND file name
+    carry Part# / Core ID / Batch# / Serial#."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
     page.set_rails([("VDD_3V3", "#38bdf8", 3.3, 0.0)])
     path = page._write_csv([[0.0, 0.5, 1.0]])
-    assert path.parent == report_home / "DUT Report" / "DAQ CSV"
-    assert path.is_file() and path.name.startswith("power_rails")
+    assert path.parent.parent == report_paths.dut_folder()
+    # product_info defaults: part/core empty -> NA, batch -> freebatch
+    assert path.parent.name.startswith("NA_NA_freebatch_DUT_2026")
+    assert path.name.startswith("power_rails_NA_NA_freebatch_DUT_")
+    assert path.is_file()
     page.deleteLater()

@@ -44,12 +44,17 @@ def test_dut_report_csv_rows_header_and_items():
 def test_csv_file_is_well_formed(tmp_path):
     report = _dut(items=[ReportItem(test_name="t", category="FCT",
                                     result="PASS")])
-    path = save_dut_csv(report, tmp_path, batch="B42")
+    path = save_dut_csv(report, tmp_path, batch="B42",
+                        core_id="96624", part="S32N79-RDB-S")
     with open(path, newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
     assert rows[0][0] == "serial_no"
     assert rows[1][0] == "SN001"
-    assert path.parent.name == report.timestamp[:10]  # day archive
+    # 2026-10-17 identity naming: straight into the per-DUT folder
+    # (no date subfolder), file name carries SN / core / part / batch
+    assert path.parent == tmp_path
+    assert path.name.startswith("DUT_detail_SN001_96624_S32N79-RDB-S_B42_")
+    assert path.name.endswith(".csv")
 
 
 def test_batch_summary_statistics_and_ranking():

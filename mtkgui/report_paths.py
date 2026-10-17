@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 """Report output folders (user direction 2026-10-17).
 
-The DUT reports, DAQ CSV captures and the Event Log text files live
-NEXT TO THE PROGRAM by default:
+Every DUT run gets an IDENTITY folder next to the program - the
+folder name and every file inside carry Project Part# / Core ID /
+Batch# / Serial Number / timestamp:
 
-    <program dir>/DUT Report/<date>/DUT_<PASS|FAIL>_...pdf
-    <program dir>/DUT Report/<date>/<SN>_<ts>.csv          (MES rows)
-    <program dir>/DUT Report/DAQ CSV/power_rails_*.csv
-    <program dir>/Event Report/event_<ts>.log
+    <program dir>/DUT Report/<Part#>_<CoreID>_<Batch#>_<SN>_<ts>/
+        power_rails_<...>.csv          (DAQ capture, when enabled)
+        DUT_PASS_<...>.pdf             (certificate, auto after the run)
+        DUT_detail_<...>.csv           (MES rows)
 
-Both folder NAMES are modifiable (Report > Report Folder…): the
-override is persisted in ``report_folders.json`` next to the program
-(the file is created on first save).  The ``MTKGUI_REPORT_HOME``
+    <program dir>/Event Report/event_<ts>.log   (one per GUI session)
+
+The DUT / Event folder NAMES are modifiable (Report > Report
+Folder…): the override is persisted in ``report_folders.json`` next
+to the program (created on first save).  The ``MTKGUI_REPORT_HOME``
 environment variable replaces the whole program dir - used by the
 tests to keep their output in a tmp path.
 """
@@ -25,7 +28,6 @@ from pathlib import Path
 CFG_NAME = "report_folders.json"
 DEFAULT_DUT = "DUT Report"
 DEFAULT_EVENT = "Event Report"
-DAQ_SUBDIR = "DAQ CSV"
 
 
 def program_dir() -> Path:
@@ -78,8 +80,3 @@ def dut_folder() -> Path:
 def event_folder() -> Path:
     """<program>/Event Report (name modifiable)."""
     return program_dir() / _names()["event"]
-
-
-def daq_folder() -> Path:
-    """DAQ CSV captures live under the SAME root as the DUT reports."""
-    return dut_folder() / DAQ_SUBDIR
