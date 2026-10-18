@@ -30,8 +30,8 @@ from .rails import (DURATION_S, SAMPLE_HZ, ai_wave_review,
                     write_csv)
 from .results import StepResult, StepStatus
 from .runner import TestRunner
-from .steps import (CONSOLE_KINDS, FCT_METHODS, OP_STEPS,
-                    console_keyword_fallback, display_text,
+from .steps import (CONSOLE_KINDS, FCT_METHODS, MESSAGE_CONSOLE_KINDS,
+                    OP_STEPS, console_keyword_fallback, display_text,
                     fct_kind_from_name, is_impedance_short, op_step,
                     op_summary, steps_template)
 
@@ -39,6 +39,7 @@ __all__ = [
     "CONSOLE_KINDS",
     "DURATION_S",
     "FCT_METHODS",
+    "MESSAGE_CONSOLE_KINDS",
     "OP_STEPS",
     "SAMPLE_HZ",
     "StepResult",

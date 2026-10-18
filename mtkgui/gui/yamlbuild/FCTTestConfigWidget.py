@@ -70,11 +70,12 @@ from mtkgui.engine.fct_test_config import (
 # cells are only a rendered summary.
 _CMD_ROLE = Qt.UserRole + 1
 
-#: Console-column choice that turns a row into an operator dialog
-# (MessageOK / MessageYesNo / MessageGoStop) instead of a console
-# command — no serial/ssh interaction, the row pops the dialog at its
-# sequence position (kept in sync with the Test Work Flow page so the
-# standard ops there are no longer overwritten by a rebuild).
+#: Console-column choice that turns a row into a Console-domain operator
+# dialog (MessageOKtoConsole / MessageYesNotoConsole /
+# MessageGoStoptoConsole) instead of a console command - the row WAITS
+# the expected console message, then pops the dialog at its sequence
+# position (kept in sync with the Test Work Flow page so the standard
+# ops there are no longer overwritten by a rebuild).
 MESSAGE_CHOICE = "(message)"
 
 #: visible label per dialog style (Capture column of a message row)
@@ -386,27 +387,30 @@ class FCTTestConfigPanel(QWidget):
             capture_enabled=False))
 
     def _add_message_row(self, style: str) -> None:
-        """The three operator-message presets (user direction
-        2026-10-14):
+        """The three Console-domain operator-dialog presets (user
+        direction 2026-10-18).  Every row WAITS the expected console
+        message first (edit it in the row editor), then notifies the
+        operator:
 
-        - MessageOK: no console action at all - wait / send / capture
-          OFF, timeout OFF, retry OFF; OK continues the sequence.
-        - MessageYesNo: Yes sends y, No sends n (payloads editable in
-          the row editor); timeout 4 s; wait / capture / retry OFF.
-        - MessageGoStop: GO sends y -> the step PASSes and the run
-          continues; STOP sends n -> the step FAILs and the run
-          stops; timeout 4 s; the rest OFF."""
+        - MessageOKtoConsole: OK notice - no console command, the
+          Console is NOT blocked; answer timeout OFF.
+        - MessageYesNotoConsole: Yes sends y, No sends n (PASS either
+          way); answer timeout 4 s.
+        - MessageGoStoptoConsole: GO sends y -> PASS, run continues;
+          STOP sends n -> FAIL, run stops; answer timeout 4 s."""
         cmd = ConsoleCommand(
             kind=KIND_MESSAGE, dialog_style=style,
-            wait_enabled=False, capture_enabled=False,
+            wait_enabled=True, wait_timeout=10.0,
+            capture_enabled=False,
             confirm_enabled=False, retries=0,
             timeout=4.0 if style in (DIALOG_YESNO, DIALOG_GOSTOP)
             else 0.0)
         cmd.send_enabled = style != DIALOG_OK
         if cmd.send_enabled:
             cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
-        cmd.name = {"ok": "MessageOK", "yesno": "MessageYesNo",
-                    "gostop": "MessageGoStop"}[style]
+        cmd.name = {"ok": "MessageOKtoConsole",
+                    "yesno": "MessageYesNotoConsole",
+                    "gostop": "MessageGoStoptoConsole"}[style]
         self._insert_row(cmd)
 
     def _cmd_row_buttons(self) -> QHBoxLayout:
@@ -420,11 +424,11 @@ class FCTTestConfigPanel(QWidget):
         add_menu.addAction("Add console row",
                            lambda: self._add_console_row())
         add_menu.addSeparator()
-        add_menu.addAction("Add MessageOK",
+        add_menu.addAction("Add MessageOKtoConsole",
                            lambda: self._add_message_row(DIALOG_OK))
-        add_menu.addAction("Add MessageYesNo",
+        add_menu.addAction("Add MessageYesNotoConsole",
                            lambda: self._add_message_row(DIALOG_YESNO))
-        add_menu.addAction("Add MessageGoStop",
+        add_menu.addAction("Add MessageGoStoptoConsole",
                            lambda: self._add_message_row(DIALOG_GOSTOP))
         add.setMenu(add_menu)
 
@@ -591,12 +595,16 @@ class FCTTestConfigPanel(QWidget):
         dlg.activateWindow()
         lay = QVBoxLayout(dlg)
         lay.addWidget(QLabel(
-            "No console interaction - this row pops the selected dialog "
-            "at its sequence position and passes/fails on the operator "
-            "answer."))
+            "Console-domain operator dialog - the row first WAITS the "
+            "expected console message, then notifies the operator. "
+            "MessageOKtoConsole sends nothing (the Console is not "
+            "blocked); MessageYesNotoConsole sends yes / no and always "
+            "continues; MessageGoStoptoConsole GO continues and STOP "
+            "stops the run."))
         form = QFormLayout()
         style = QComboBox()
-        style.addItems(["MessageOK", "MessageYesNo", "MessageGoStop"])
+        style.addItems(["MessageOKtoConsole", "MessageYesNotoConsole",
+                        "MessageGoStoptoConsole"])
         try:
             style.setCurrentIndex(_DIALOG_ORDER.index(cmd.dialog_style))
         except ValueError:
@@ -606,6 +614,19 @@ class FCTTestConfigPanel(QWidget):
         msg.setPlaceholderText("Text shown to the operator "
                                "(empty = row name)")
         form.addRow("Message text:", msg)
+        # user direction 2026-10-18: the row WAITS this console message
+        # before the operator is notified (empty = no wait phase)
+        expected = QLineEdit(cmd.expect_pass or "")
+        expected.setPlaceholderText(
+            "Console message to wait for (empty = wait disabled)")
+        form.addRow("Expected message:", expected)
+        wait_timeout = QDoubleSpinBox()
+        wait_timeout.setRange(0.0, 3600.0)
+        wait_timeout.setDecimals(0)
+        wait_timeout.setSuffix(" s")
+        wait_timeout.setSpecialValueText("off")
+        wait_timeout.setValue(float(max(cmd.wait_timeout, 0.0)))
+        form.addRow("Wait timeout:", wait_timeout)
         # user direction 2026-10-14: the answer payloads (YesNo /
         # GoStop rows only) - Yes / GO sends send_yes, No / STOP sends
         # send_no; MessageOK sends nothing
@@ -629,6 +650,10 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             cmd.dialog_style = _DIALOG_ORDER[style.currentIndex()]
             cmd.confirm_message = msg.text().strip()
+            cmd.expect_pass = expected.text().strip()
+            cmd.expect_pass_is_regex = False
+            cmd.wait_enabled = bool(cmd.expect_pass)
+            cmd.wait_timeout = float(wait_timeout.value())
             cmd.send_yes = send_yes.text().strip() or "y"
             cmd.send_no = send_no.text().strip() or "n"
             cmd.timeout = float(timeout.value())
@@ -1275,19 +1300,28 @@ class FCTTestConfigPanel(QWidget):
         """Refresh the visible summary cells/dropdowns from cmd."""
         self._set_cell(r, 0, cmd.name)
         if cmd.kind == KIND_MESSAGE:
-            # operator-dialog row (user direction 2026-10-14): the
-            # dialog style shows in the Capture column; SendTo shows
-            # the answer payloads (YesNo / GoStop) or (off) for
-            # MessageOK; MessageOK has NO timeout (wait forever), the
-            # other two carry their judgement window
-            self._set_cell(r, 2, "(off)", editable=False)
+            # Console-domain operator-dialog row (user direction
+            # 2026-10-18): it WAITS the expected console message (col 2),
+            # then the dialog style shows in the Capture column; SendTo
+            # shows the answer payloads (YesNo / GoStop) or (off) for
+            # OK; Timeout shows W:<wait>s / S:<answer>s
+            self._set_cell(r, 2, cmd.expect_pass
+                           if (cmd.wait_enabled and cmd.expect_pass)
+                           else "(off)", editable=False)
             if cmd.dialog_style == DIALOG_OK:
                 self._set_cell(r, 3, "(off)", editable=False)
-                self._set_cell(r, 5, "-", editable=False)
+                self._set_cell(r, 5, f"W:{int(cmd.wait_timeout)}s"
+                               if cmd.wait_enabled else "-",
+                               editable=False)
             else:
                 self._set_cell(r, 3, f"{cmd.send_yes} / {cmd.send_no}",
                                editable=False)
-                self._set_cell(r, 5, f"S:{int(cmd.timeout)}s",
+                parts = []
+                if cmd.wait_enabled:
+                    parts.append(f"W:{int(cmd.wait_timeout)}s")
+                if cmd.timeout > 0:
+                    parts.append(f"S:{int(cmd.timeout)}s")
+                self._set_cell(r, 5, " ".join(parts) or "-",
                                editable=False)
             self._set_cell(r, 4, _DIALOG_LABELS.get(
                 cmd.dialog_style, _DIALOG_LABELS[DIALOG_YESNO]),

@@ -596,11 +596,27 @@ class FctTestRunner:
         return results
 
     def _run_message_row(self, serial, cmd) -> tuple:
-        """Operator message row (kind == "message"): the dialog answer
-        drives the console.  Returns (verdict, detail)."""
+        """Console-domain operator dialog row (kind == "message").
+
+        Phase 1 (user direction 2026-10-18): WAIT the expected console
+        message (``expect_pass``).  Phase 2: the dialog answer drives
+        the console - MessageOKtoConsole only acks (no command, PASS),
+        MessageYesNotoConsole sends send_yes / send_no (PASS either
+        way), MessageGoStoptoConsole GO sends send_yes (PASS, run
+        continues) and STOP sends send_no (FAIL, the sequence stops).
+        A wait or answer timeout FAILs (and stops the run).
+        Returns (verdict, detail)."""
         ask = getattr(self, "_human_confirm", None)
         if not callable(ask):
             return "ERROR", "no confirm hook bound"
+        if cmd.wait_enabled and cmd.expect_pass:
+            verdict, text = wait_stage(
+                serial, cmd.expect_pass, cmd.expect_pass_is_regex,
+                cmd.case_sensitive, cmd.wait_timeout,
+                history=self._cycle)
+            self._note_fresh(text or "", len(self._cycle))
+            if verdict != "PASS":
+                return "FAIL", f"wait timeout, no '{cmd.expect_pass}'"
         answer = ask(cmd.confirm_message or cmd.name or "Confirm?")
         style = cmd.dialog_style or "ok"
         if style == "ok":

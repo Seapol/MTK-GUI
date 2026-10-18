@@ -259,12 +259,16 @@ def test_add_message_ok_preset_all_off(qapp):
     cmd = panel._get_row_cmd(r)
     assert cmd.kind == "message" and cmd.dialog_style == "ok"
     assert cmd.timeout == 0.0 and cmd.retries == 0
-    assert cmd.wait_enabled is False and cmd.capture_enabled is False
+    assert cmd.name == "MessageOKtoConsole"
+    # user direction 2026-10-18: every Console-domain message row waits
+    # the expected console message first
+    assert cmd.wait_enabled is True and cmd.wait_timeout == 10.0
+    assert cmd.capture_enabled is False
     assert cmd.send_enabled is False
-    # visible columns: wait / send off, no timeout
+    # visible columns: empty wait pattern -> (off); send off; W:10s
     assert panel.cmd_table.item(r, 2).text() == "(off)"
     assert panel.cmd_table.item(r, 3).text() == "(off)"
-    assert panel.cmd_table.item(r, 5).text() == "-"
+    assert panel.cmd_table.item(r, 5).text() == "W:10s"
 
 
 def test_add_message_yesno_gostop_presets(qapp):
@@ -276,12 +280,15 @@ def test_add_message_yesno_gostop_presets(qapp):
     for cmd, style in ((yn, "yesno"), (gs, "gostop")):
         assert cmd.kind == "message" and cmd.dialog_style == style
         assert cmd.timeout == 4.0 and cmd.retries == 0
-        assert cmd.wait_enabled is False and cmd.capture_enabled is False
+        assert cmd.wait_enabled is True and cmd.wait_timeout == 10.0
+        assert cmd.capture_enabled is False
         assert cmd.send_enabled is True
         assert cmd.send_yes == "y" and cmd.send_no == "n"
+    assert yn.name == "MessageYesNotoConsole"
+    assert gs.name == "MessageGoStoptoConsole"
     r = panel.cmd_table.rowCount() - 2
     assert panel.cmd_table.item(r, 3).text() == "y / n"
-    assert panel.cmd_table.item(r, 5).text() == "S:4s"
+    assert panel.cmd_table.item(r, 5).text() == "W:10s S:4s"
 
 
 # --------------------------------------------------- runner semantics
@@ -396,3 +403,177 @@ def test_message_without_console_logs_honest_drop(msg_env):
     msg_env.multi_console = None
     _run_message(msg_env, "MessageYesNo", {})
     assert any("NOT sent" in line for line in msg_env._log_lines())
+
+
+# ---------------------- Console-domain operator dialogs (2026-10-18)
+# MessageOKtoConsole / MessageYesNotoConsole / MessageGoStoptoConsole:
+# each WAITS the expected Console message first, then prompts.
+def test_console_message_case_roundtrips_wait_params():
+    """A page Message*toConsole case syncs back to a ConsoleCommand that
+    carries the wait pattern and timeout (the row is Console-domain)."""
+    from mtkgui.engine.fct_test_config import _message_command_from_case
+    case = {"kind": "MessageGoStoptoConsole",
+            "name": "MessageGoStoptoConsole: 'flash now?' (expected)",
+            "op_params": {"fct_step": {
+                "name": "Power on DUT", "step_type": "GUI_CONFIRM",
+                "channel": "ser1",
+                "params": {"style": "gostop", "console_dialog": True,
+                           "wait_pattern": "flash now?",
+                           "wait_timeout": 12.0, "send_yes": "y",
+                           "send_no": "n", "message_timeout_s": 4.0}}}}
+    cmd = _message_command_from_case(case)
+    assert cmd["dialog_style"] == "gostop"
+    assert cmd["wait_enabled"] is True
+    assert cmd["expect_pass"] == "flash now?"
+    assert cmd["wait_timeout"] == 12.0
+    assert cmd["send_enabled"] is True
+
+
+def test_console_row_step_carries_console_dialog_marker():
+    """A Console message row -> ONE GUI_CONFIRM step bound to the console
+    channel, carrying the wait pattern (the new wait-then-prompt model)."""
+    from mtkgui.engine.fct_test_config import _console_row_steps
+    cmd = ConsoleCommand(kind="message", name="Power on DUT",
+                         dialog_style="gostop", wait_enabled=True,
+                         expect_pass="booting", wait_timeout=15.0,
+                         send_enabled=True, timeout=4.0)
+    steps = _console_row_steps(cmd, "ser1")
+    assert len(steps) == 1
+    s = steps[0]
+    assert s.step_type == "GUI_CONFIRM" and s.channel == "ser1"
+    assert s.params["console_dialog"] is True
+    assert s.params["wait_pattern"] == "booting"
+    assert s.params["wait_timeout"] == 15.0
+
+
+def test_emit_console_message_kind_has_channel():
+    """build_fct_steps -> to_project_fct_cases: a Console message row
+    publishes as the *toConsole kind bound to the console channel."""
+    from mtkgui.engine.fct_test_config import FctTestConfig, build_fct_steps
+    from mtkgui.gui.yamlbuild.fct_build import FctSequence, \
+        to_project_fct_cases
+    cfg = FctTestConfig.from_dict({
+        "dut_type": "linux",
+        "console": {"enabled": True, "test_commands": [
+            {"kind": "message", "name": "Ready check", "dialog_style": "ok",
+             "expect_pass": "ready", "wait_enabled": True,
+             "wait_timeout": 10.0}]},
+        "wifi": {"enabled": False}, "bluetooth": {"enabled": False}})
+    cases = to_project_fct_cases(
+        FctSequence(name="FCT", steps=build_fct_steps(cfg)))
+    msg = [c for c in cases if c["name"] == "Ready check"][0]
+    assert msg["kind"] == "MessageOKtoConsole"
+    marker = msg["op_params"]["fct_step"]
+    assert marker["channel"] == "ser1"
+    assert marker["params"]["wait_pattern"] == "ready"
+
+
+def test_console_dialog_empty_pattern_skips_wait():
+    """An empty wait pattern prompts straight away (no console I/O) -
+    the legacy dialog behaviour is preserved for pattern-less rows."""
+    from mtkgui.engine.fct_exec import (
+        VERDICT_FAIL, VERDICT_PASS, FctStep, execute_fct_step,
+        make_virtual_context)
+    step = FctStep(name="msg", step_type="GUI_CONFIRM",
+                   params={"console_dialog": True, "wait_pattern": "",
+                           "style": "ok"})
+    ctx, _ = make_virtual_context(human_answers=[True])
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    ctx, _ = make_virtual_context(human_answers=[False])
+    assert execute_fct_step(step, ctx).verdict == VERDICT_FAIL
+
+
+def test_console_dialog_waits_console_message_then_asks():
+    from mtkgui.engine.fct_exec import (
+        VERDICT_PASS, FctStep, execute_fct_step, make_virtual_context)
+    ctx, _ = make_virtual_context({"ser1": ["DUT ready"]},
+                                  human_answers=[True])
+    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
+                   timeout_s=2, params={"console_dialog": True,
+                                        "wait_pattern": "DUT ready",
+                                        "wait_timeout": 2, "style": "yesno"})
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+
+
+def test_console_dialog_pattern_timeout_fails():
+    from mtkgui.engine.fct_exec import (
+        VERDICT_FAIL, FctStep, execute_fct_step, make_virtual_context)
+    ctx, _ = make_virtual_context({"ser1": ["noise"]}, human_answers=[True])
+    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
+                   timeout_s=0.2, params={"console_dialog": True,
+                                          "wait_pattern": "never",
+                                          "wait_timeout": 0.2})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_FAIL and "wait for 'never'" in out.reason
+
+
+def test_console_dialog_pattern_without_channel_errors():
+    from mtkgui.engine.fct_exec import (
+        VERDICT_ERROR, FctContext, FctStep, execute_fct_step)
+    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
+                   params={"console_dialog": True, "wait_pattern": "x"})
+    assert execute_fct_step(step, FctContext()).verdict == VERDICT_ERROR
+
+
+def test_console_message_row_waits_first(msg_env):
+    """The page TestRunner Phase 1 parks the row in RUNNING with the
+    expected message + message_kind so the poll can switch to Phase 2."""
+    msg_env.fct_rows = ["MessageOKtoConsole: Ready?"]
+    msg_env.fct_kinds = ["MessageOKtoConsole"]
+    msg_env.fct_op_params = [{"expect_pass": "ready", "wait_timeout": 3.0}]
+    msg_env.fct_enables = [True]
+    runner = TestRunner(msg_env)
+    msg_env.runner = runner
+    runner._exec_fct_row(0, interactive=True)
+    w = runner._fct_console_wait
+    assert w is not None and w["message_kind"] == "MessageOKtoConsole"
+    assert w["keywords"] == ["ready"]
+    assert msg_env.rows[("fct", 0)] == "RUNNING"
+
+
+def _console_answer_runner(env, kind, answers, name="Ready?"):
+    import time as _time
+    env.fct_rows = [f"{kind}: {name}"]
+    env.fct_kinds = [kind]
+    env._answers = list(answers)
+    runner = TestRunner(env)
+    env.runner = runner
+    w = {"row": 0, "key": "VCOM0", "name": name, "keywords": [],
+         "from_len": 0, "t0": _time.monotonic(),
+         "deadline": _time.monotonic() + 5,
+         "message_kind": kind,
+         "cfg": {"send_yes": "y", "send_no": "n"}}
+    return runner, w
+
+
+def test_console_message_ok_notice_sends_nothing(msg_env):
+    runner, w = _console_answer_runner(msg_env, "MessageOKtoConsole", [])
+    runner._fct_console_message_answer(w)
+    assert msg_env.multi_console.sent == []
+    assert msg_env.rows[("fct", 0)] == "PASS"
+
+
+def test_console_message_yesno_no_always_passes(msg_env):
+    runner, w = _console_answer_runner(msg_env, "MessageYesNotoConsole", ["no"])
+    runner._fct_console_message_answer(w)
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.rows[("fct", 0)] == "PASS"
+
+
+def test_console_message_gostop_stop_sends_n_fails_and_stops(msg_env):
+    stops = []
+    runner, w = _console_answer_runner(msg_env, "MessageGoStoptoConsole",
+                                       ["stop"])
+    runner.abort = lambda trigger="operator": stops.append(trigger)
+    runner._fct_console_message_answer(w)
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.rows[("fct", 0)] == "FAIL"
+    assert stops == ["operator"]
+
+
+def test_console_message_yesno_timeout_fails(msg_env):
+    runner, w = _console_answer_runner(msg_env, "MessageYesNotoConsole",
+                                       ["timeout"])
+    runner._fct_console_message_answer(w)
+    assert msg_env.multi_console.sent == []
+    assert msg_env.rows[("fct", 0)] == "FAIL"

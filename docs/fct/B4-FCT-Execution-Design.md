@@ -92,6 +92,19 @@ IDLE -> PREPARE -> (CAPTURE | WAIT_HUMAN | SPAWN) -> JUDGE -> DONE
 | `CLI_RUN` | SPAWN: send `command` on the bound channel (or host subprocess for `resource=host`), capture + exit-code joint judgement (§4) | serial / ssh / subprocess / virtual |
 | `EXTERNAL_TOOL` | launch wrapper (tool registry §5) -> capture output and/or pop GUI_CONFIRM (params.confirm) -> JUDGE | subprocess + optional dialog |
 
+Console-domain operator dialogs (user direction 2026-10-18) are
+`GUI_CONFIRM` steps carrying `params.console_dialog=True` and a
+`params.wait_pattern`: they FIRST wait the expected message on the
+bound Console channel (the `MESSAGE_CHECK` wait semantics), THEN hand
+over to the operator confirm. `MessageOKtoConsole` shows a non-modal
+notice and sends nothing (Console not blocked, always PASS on
+acknowledge); `MessageYesNotoConsole` sends `y`/`n` and always
+continues (PASS); `MessageGoStoptoConsole` sends `y` on GO (PASS,
+continue) or `n` on STOP (FAIL, run stops), and an unanswered timeout
+is FAIL and stops the run. An empty `wait_pattern` skips the wait.
+These are distinct from the plain `MessageOK` / `MessageYesNo` /
+`MessageGoStop` rows, which pop the dialog immediately.
+
 EventLog record points (EVERY line carries `[Station ID] [User]` via
 `gui/identity.py`): `step start`, `channel bound`, `command sent`,
 `capture n lines`, `retry n/N`, `human answer <X>`, `verdict <V>

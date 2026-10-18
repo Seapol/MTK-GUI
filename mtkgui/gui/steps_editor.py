@@ -153,6 +153,18 @@ class StepsEditorDialog(QDialog):
                  "MessageYesNo: New Test", "MessageYesNo"),
                 ("MessageGoStop — Go / Stop dialog (No stops the run)",
                  "MessageGoStop: New Test", "MessageGoStop"),
+                ("MessageOKtoConsole — wait console msg, OK notice "
+                 "(no command)",
+                 "MessageOKtoConsole: 'ready' (expected)",
+                 "MessageOKtoConsole"),
+                ("MessageYesNotoConsole — wait console msg, Yes / No "
+                 "(always continues)",
+                 "MessageYesNotoConsole: 'ready' (expected)",
+                 "MessageYesNotoConsole"),
+                ("MessageGoStoptoConsole — wait console msg, Go / Stop "
+                 "(No stops the run)",
+                 "MessageGoStoptoConsole: 'ready' (expected)",
+                 "MessageGoStoptoConsole"),
                 ("SendtoConsole — send command to console",
                  "SendtoConsole: COM1, 'cmd'", "SendtoConsole"),
                 ("WaitforConsole — wait for a console keyword",

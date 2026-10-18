@@ -126,9 +126,10 @@ def test_message_row_becomes_standard_op_case(page):
     assert errors == []
     by_name = {c["name"]: c["kind"] for c in cases}
     assert by_name["Kernel check: 'done' (expected)"] == "CapturefromConsole"
-    assert by_name["Swap DUT fixture"] == "MessageYesNo"
-    assert by_name["Ready check"] == "MessageOK"
-    # message rows carry no channel-bound step (no console I/O)
+    assert by_name["Swap DUT fixture"] == "MessageYesNotoConsole"
+    assert by_name["Ready check"] == "MessageOKtoConsole"
+    # console message rows wait on the console channel first, then prompt
     for c in cases:
-        if c["kind"] in ("MessageOK", "MessageYesNo"):
-            assert c["op_params"]["fct_step"]["channel"] == ""
+        if c["kind"] in ("MessageOKtoConsole", "MessageYesNotoConsole"):
+            assert c["op_params"]["fct_step"]["channel"] == "ser1"
+            assert c["op_params"]["fct_step"]["params"]["console_dialog"] is True

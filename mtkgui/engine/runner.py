@@ -36,6 +36,7 @@ from .rails import ai_wave_review
 from .results import StepResult, StepStatus
 from .steps import (
     CONSOLE_KINDS,
+    MESSAGE_CONSOLE_KINDS,
     console_keyword_fallback,
     display_text,
     is_impedance_short,
@@ -780,6 +781,14 @@ class TestRunner(QObject):
             # never virtualises FCT, only the ICT instruments)
             self._exec_fct_console(r, kind, name, t0)
             return
+        elif interactive and kind in MESSAGE_CONSOLE_KINDS:
+            # Console-domain operator dialog (user direction 2026-10-18):
+            # WAIT the expected message from the Console channel first,
+            # then notify the operator - MessageOKtoConsole is a
+            # non-blocking notice with NO command, MessageGoStoptoConsole
+            # / MessageYesNotoConsole are modal and send y / n.
+            self._exec_fct_console_message(r, kind, name, t0)
+            return
         elif interactive and kind in ("MessageOK", "MessageYesNo",
                                       "MessageGoStop"):
             # user direction 2026-10-14 - the operator answer drives the
@@ -937,7 +946,56 @@ class TestRunner(QObject):
                                     {}).get(ch_key, []):
                     ch.inject_output(line)
                 ctx.channels[ch_key] = ch
-        if step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
+        if (step.step_type == "GUI_CONFIRM"
+                and step.params.get("console_dialog")):
+            # Console-domain operator dialog (user direction 2026-10-18):
+            # fct_exec waits the expected console message first (see
+            # fct_exec._console_dialog), then calls this hook.  OK sends
+            # nothing (non-blocking), YesNo sends y / n and PASSes either
+            # way, GoStop sends y (PASS) or n (FAIL + run stops); a
+            # timeout FAILs and stops the run.
+            _ck = {"ok": "MessageOKtoConsole",
+                   "yesno": "MessageYesNotoConsole"}.get(
+                str(step.params.get("style") or ""),
+                "MessageGoStoptoConsole")
+            _ct = str(step.params.get("message")
+                      or f"Confirm: {step.name}")
+            _cy = str(step.params.get("send_yes") or "y")
+            _cn = str(step.params.get("send_no") or "n")
+            _ctm = float(step.params.get("message_timeout_s") or 0.0)
+
+            def _ask(_s, _k=_ck, _t=_ct, _y=_cy, _n=_cn, _m=_ctm):
+                if not interactive:
+                    env._log("human answer GO (simulated)")
+                    return True
+                if _k == "MessageOKtoConsole":
+                    self._fct_message_notice(_t)
+                    return True
+                answer = env._fct_message_dialog(_k, _t, timeout_s=_m)
+                if _k == "MessageYesNotoConsole":
+                    if answer in ("yes", "no"):
+                        self._fct_message_send(
+                            _y if answer == "yes" else _n, _t)
+                        return True
+                    _stop_flag["stop"] = True
+                    env._log(f"FCT {_t}: operator timeout -> FAIL "
+                             f"(run stops)")
+                    return False
+                if answer == "go":
+                    self._fct_message_send(_y, _t)
+                    return True
+                if answer == "stop":
+                    self._fct_message_send(_n, _t)
+                    _stop_flag["stop"] = True
+                    env._log(f"FCT {_t}: operator STOP -> FAIL "
+                             f"(run stops)")
+                    return False
+                _stop_flag["stop"] = True
+                env._log(f"FCT {_t}: operator timeout -> FAIL "
+                         f"(run stops)")
+                return False
+            ctx.human_confirm = _ask
+        elif step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
             if interactive:
                 # dialog style travels in params ("style": ok | yesno |
                 # gostop) — the FCT Sequence message rows pick the
@@ -1141,6 +1199,89 @@ class TestRunner(QObject):
             finish("FAIL", f"FCT {name}: buffer does not contain "
                            f"{expect} -> FAIL")
 
+    def _exec_fct_console_message(self, r: int, kind: str, name: str,
+                                  t0: float) -> None:
+        """Phase 1 of a Console-domain operator dialog (user direction
+        2026-10-18): WAIT the expected message from the connected
+        serial Console channel.  When it arrives the poll switches to
+        Phase 2 (`_fct_console_message_answer`), which notifies the
+        operator and judges the row.  The expected message comes from
+        op_params (`expect_pass`) or from the quoted segment of the
+        step name."""
+        env = self.env
+        cfg = (env.fct_op_params[r]
+               if r < len(env.fct_op_params) else None) or {}
+        quotes, rest = parse_console_step(name)
+        expected = str(cfg.get("expect_pass") or "").strip()
+        if not expected:
+            expected = quotes[0] if quotes \
+                else console_keyword_fallback(rest)
+        expected = expected.strip().strip("'\"").strip()
+        keywords = [expected] if expected else []
+        key = self._pick_serial_channel()
+        if key is None:
+            self._put("fct", r, StepStatus.ERROR, None,
+                      time.monotonic() - t0)
+            env._log(f"FCT {name}: no connected serial console "
+                     f"channel -> Error")
+            return
+        wait_timeout = cfg.get("wait_timeout")
+        if wait_timeout in (None, ""):
+            wait_timeout = (env.fct_timeouts[r]
+                            if r < len(env.fct_timeouts) else 10000) / 1000.0
+        env._log(f"FCT {name}: waiting for console message "
+                 f"{' / '.join(keywords) or 'output'} ...")
+        self._fct_console_wait = {
+            "row": r, "key": key, "name": name,
+            "keywords": keywords, "from_len": 0, "t0": t0,
+            "deadline": time.monotonic() + max(0.1, float(wait_timeout)),
+            "message_kind": kind, "cfg": dict(cfg),
+        }
+        self._put("fct", r, StepStatus.RUNNING)
+
+    def _fct_console_message_answer(self, w: dict) -> None:
+        """Phase 2 of a Console-domain operator dialog: the expected
+        console message has arrived.  MessageOKtoConsole shows a
+        non-blocking OK notice and sends nothing (Console NOT blocked);
+        MessageGoStoptoConsole / MessageYesNotoConsole pop the modal
+        Go / Stop (or Yes / No) dialog - the operator answer blocks the
+        Console within the timeout - then send y / n to the Console."""
+        env = self.env
+        kind, name = w["message_kind"], w["name"]
+        cfg = w.get("cfg") or {}
+        self._fct_console_wait = None
+        t0 = w["t0"]
+        if kind == "MessageOKtoConsole":
+            # non-blocking notice, no console command: the run does not
+            # stop for the OK click
+            self._fct_message_notice(name)
+            verdict = self._fct_message_action("MessageOK", name, "ok",
+                                               cfg)
+        else:
+            plain = ("MessageYesNo" if kind == "MessageYesNotoConsole"
+                     else "MessageGoStop")
+            answer = env._fct_message_dialog(
+                kind, name,
+                timeout_s=float(cfg.get("timeout")
+                                or cfg.get("message_timeout_s") or 0.0))
+            verdict = self._fct_message_action(plain, name, answer, cfg)
+        self._put("fct", w["row"],
+                  StepStatus.PASS if verdict == "PASS"
+                  else StepStatus.FAIL if verdict == "FAIL"
+                  else StepStatus.ERROR,
+                  None, time.monotonic() - t0)
+
+    def _fct_message_notice(self, name: str) -> None:
+        """Show the non-blocking OK notice for MessageOKtoConsole: the
+        Console keeps streaming while the operator reads it (user
+        direction 2026-10-18).  The page owns the Qt widget; a headless
+        env just logs."""
+        fn = getattr(self.env, "_fct_message_notice", None)
+        if callable(fn):
+            fn(name)
+        else:
+            self.env._log(f"FCT {name}: operator notice shown")
+
     def _poll_fct_console(self) -> None:
         """Poll the pending console step: finish as soon as one of the
         keywords shows up in the channel read buffer, or judge
@@ -1159,9 +1300,14 @@ class TestRunner(QObject):
         buf = mc.get_read_buffer(w["key"])
         text = buf[w["from_len"]:].decode("utf-8", "replace")
         if w["keywords"] and any(k in text for k in w["keywords"]):
-            self._finish_console_wait(
-                "PASS", f"FCT {w['name']}: found "
-                        f"{' / '.join(w['keywords'])} -> PASS")
+            if w.get("message_kind"):
+                # the expected console message arrived: run the
+                # Console-domain operator dialog (Phase 2)
+                self._fct_console_message_answer(w)
+            else:
+                self._finish_console_wait(
+                    "PASS", f"FCT {w['name']}: found "
+                            f"{' / '.join(w['keywords'])} -> PASS")
             return
         if time.monotonic() < w["deadline"]:
             return  # keep waiting

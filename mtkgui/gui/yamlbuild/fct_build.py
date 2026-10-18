@@ -303,9 +303,18 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
                 kind = "MessageOK"
         elif s.step_type == STEP_GUI_CONFIRM:
             # dialog style travels in params ("style"): ok -> MessageOK,
-            # yesno -> MessageYesNo, everything else -> MessageGoStop
-            kind = {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
-                str(s.params.get("style") or ""), "MessageGoStop")
+            # yesno -> MessageYesNo, everything else -> MessageGoStop.
+            # A Console-domain operator dialog (params.console_dialog,
+            # user direction 2026-10-18) keeps the "*toConsole" kind so
+            # the row waits the expected console message first.
+            style = str(s.params.get("style") or "")
+            if s.params.get("console_dialog"):
+                kind = {"ok": "MessageOKtoConsole",
+                        "yesno": "MessageYesNotoConsole"}.get(
+                    style, "MessageGoStoptoConsole")
+            else:
+                kind = {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
+                    style, "MessageGoStop")
         elif s.step_type == STEP_CLI_RUN:
             kind = "SendtoCLI"
             name = _kw_name(f"{s.name}: '{s.command}'", s.expect_pass)

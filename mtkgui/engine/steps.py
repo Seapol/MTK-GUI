@@ -18,13 +18,34 @@ import re
 from .results import StepStatus
 
 # FCT test methods (Test Method column in the step editor / YAML kind)
+#
+# The three "*toConsole" methods (user direction 2026-10-18) are the
+# Console-domain operator dialogs and are DIFFERENT from the plain
+# standard-operation MessageOK / MessageYesNo / MessageGoStop:
+#   Phase 1 - WAIT the expected message from the Console channel;
+#   Phase 2 - notify the operator and take the answer:
+#     * MessageOKtoConsole      : OK notice, NO command sent, the
+#                                 Console is NOT blocked;
+#     * MessageGoStoptoConsole  : modal GO / STOP (blocks the Console
+#                                 while awaiting the answer) - GO sends
+#                                 "y" and continues, STOP sends "n" and
+#                                 stops the run, timeout -> FAIL;
+#     * MessageYesNotoConsole   : modal Yes / No (blocks the Console)
+#                                 - Yes/No send "y"/"n" and BOTH
+#                                 continue, timeout -> FAIL + stop.
 FCT_METHODS = [
     "MessageOK", "MessageYesNo", "MessageGoStop",
+    "MessageOKtoConsole", "MessageYesNotoConsole",
+    "MessageGoStoptoConsole",
     "SendtoConsole", "WaitforConsole", "CapturefromConsole",
     "Delay",
     "SendtoCLI", "WaitforCLI", "CapturefromCLI",
     "WIFI", "Bluetooth",
 ]
+
+#: Console-domain operator dialog methods (wait-for-message + notify)
+MESSAGE_CONSOLE_KINDS = ("MessageOKtoConsole", "MessageYesNotoConsole",
+                         "MessageGoStoptoConsole")
 
 
 def fct_kind_from_name(name: str) -> str:

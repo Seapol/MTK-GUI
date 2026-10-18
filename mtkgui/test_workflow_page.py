@@ -2240,7 +2240,9 @@ class TestWorkFlowPage(QWidget):
             name = (self.fct_rows[i] if i < len(self.fct_rows) else "")
             marker = (self.fct_op_params[i] or {}
                       if i < len(self.fct_op_params) else {})
-            if (kind in ("MessageOK", "MessageYesNo", "MessageGoStop")
+            if (kind in ("MessageOK", "MessageYesNo", "MessageGoStop",
+                         "MessageOKtoConsole", "MessageYesNotoConsole",
+                         "MessageGoStoptoConsole")
                     and not marker.get("fct_step")
                     and name and name not in generated):
                 kept.append({
@@ -2471,21 +2473,30 @@ class TestWorkFlowPage(QWidget):
     def _fct_message_dialog(self, kind, name, timeout_s: float = 0.0):
         """Modal operator dialog for the FCT message test methods.
 
-        Returns the operator ANSWER (user direction 2026-10-14):
+        Returns the operator ANSWER (user direction 2026-10-14; the
+        Console-domain kinds added 2026-10-18):
 
         MessageOK     -> ``"ok"``      (acknowledge, no console action)
         MessageYesNo  -> ``"yes"`` / ``"no"``   (the runner sends y / n)
         MessageGoStop -> ``"go"`` / ``"stop"``  (the runner sends y / n;
                          STOP fails the step and stops the run)
 
-        ``timeout_s`` > 0 auto-closes the dialog after that many
-        seconds -> ``"timeout"`` (no send, the step fails).
+        The Console-domain kinds MessageYesNotoConsole /
+        MessageGoStoptoConsole share the plain dialog (their expected
+        console message is WAITED before the dialog opens); the OK
+        variant MessageOKtoConsole uses the non-blocking
+        :meth:`_fct_message_notice` instead.
 
-        While the dialog is open the 100 ms run timer keeps ticking;
-        the runner's _fct_dialog_open flag makes those ticks no-ops so
-        the run does not re-enter.  The dialog is centered by the
-        app-level event filter like every other dialog."""
+        ``timeout_s`` > 0 auto-closes the dialog after that many
+        seconds -> ``"timeout"`` (no send, the step fails).  While the
+        dialog is open the 100 ms run timer keeps ticking; the runner's
+        _fct_dialog_open flag makes those ticks no-ops so the run does
+        not re-enter.  The dialog is centered by the app-level event
+        filter like every other dialog."""
         from PySide6.QtCore import QTimer
+        kind = {"MessageOKtoConsole": "MessageOK",
+                "MessageYesNotoConsole": "MessageYesNo",
+                "MessageGoStoptoConsole": "MessageGoStop"}.get(kind, kind)
         method, _, message = name.partition(":")
         message = message.strip() or name
         box = QMessageBox(self)
@@ -2537,6 +2548,36 @@ class TestWorkFlowPage(QWidget):
             return "yes" if clicked.text().replace("&", "") == "Yes" \
                 else "no"
         return "go" if clicked is go else "stop"
+
+    def _fct_message_notice(self, name):
+        """Non-blocking OK notice for MessageOKtoConsole (user direction
+        2026-10-18): the operator is notified once the expected console
+        message arrived, but the Console keeps streaming and the run
+        does NOT stop for the OK click - no command is sent to the
+        Console.  Shown modelessly (kept referenced so it is not garbage
+        collected); returns immediately."""
+        method, _, message = name.partition(":")
+        box = QMessageBox(self)
+        box.setWindowTitle(f"FCT: {method.strip()}")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(message.strip() or name)
+        box.setModal(False)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        if not hasattr(self, "_fct_notice_boxes"):
+            self._fct_notice_boxes = []
+        self._fct_notice_boxes.append(box)
+        box.finished.connect(
+            lambda _r, b=box: self._fct_notice_closed(b))
+        box.show()
+        self._log(f"FCT {name}: operator notified (OK notice, "
+                  f"no console action)")
+
+    def _fct_notice_closed(self, box):
+        """Drop a closed MessageOKtoConsole notice from the keep-alive
+        list."""
+        boxes = getattr(self, "_fct_notice_boxes", None)
+        if boxes and box in boxes:
+            boxes.remove(box)
 
     def run_demo(self):
         """Synchronous full pass (used by smoke test); honors the

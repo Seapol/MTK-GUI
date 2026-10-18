@@ -414,6 +414,36 @@ any `Fail` / `Error` keyword in the captured batch beats a later
   intrusive actions such as firmware flashing; STOP (or closing)
   fails the step, GO continues. *Example*: `Flash FAT Firmware`.
 
+#### Console operator dialogs
+
+These three are the **Console-domain** counterparts of the dialogs
+above. Each one first **waits for the expected message on the active
+serial Console channel**, then prompts the operator - so they combine
+the Wait / Capture behaviour with an operator confirmation. They are
+distinct from the plain `MessageOK` / `MessageYesNo` / `MessageGoStop`
+rows and are the presets the FCT `Console` page builds.
+
+- **MessageOKtoConsole** - wait for the expected Console message, then
+  show a **non-modal** OK notice. Acknowledging it passes the step;
+  nothing is written to the Console and the run is not blocked by the
+  notice. *Use for*: an informational milestone the Console announces,
+  e.g. `MessageOKtoConsole: 'ready' (expected)`.
+- **MessageYesNotoConsole** - wait for the expected Console message,
+  then a modal Yes / No question. Yes sends `y`, No sends `n`, and the
+  run **always continues** afterwards. *Use for*: an optional check the
+  Console asks for, e.g. `MessageYesNotoConsole: 'tone?' (expected)`.
+- **MessageGoStoptoConsole** - wait for the expected Console message,
+  then a modal GO / STOP gate. GO sends `y` and continues; STOP sends
+  `n` and stops the run. While the modal dialog is open the Console
+  channel is held; a timeout is judged FAIL and stops the run. *Use
+  for*: a Console prompt before a long or intrusive action, e.g.
+  `MessageGoStoptoConsole: 'flash now?' (expected)`.
+
+The expected message comes from the quoted segment of the step name
+(or the `Expected message` field of the Console row); the wait is
+bounded by the row `Wait timeout`. An empty expected message means no
+wait - the step prompts straight away.
+
 #### Console and CLI keyword tests
 
 - **SendtoConsole** / **WaitforConsole** / **CapturefromConsole** -
@@ -458,7 +488,8 @@ the changes back and refills the table.
   - ICT: every standard `Operation:` (with its default parameters),
     `Operation: Custom` and `Test (measurement)`.
   - FCT: standard operations first, then one entry per test method
-    (`MessageOK`, `MessageYesNo`, `MessageGoStop`, `SendtoConsole`,
+    (`MessageOK`, `MessageYesNo`, `MessageGoStop`, `MessageOKtoConsole`,
+    `MessageYesNotoConsole`, `MessageGoStoptoConsole`, `SendtoConsole`,
     `WaitforConsole`, `CapturefromConsole`, `Delay`, `SendtoCLI`,
     `WaitforCLI`, `CapturefromCLI`, `WIFI`, `Bluetooth`).
 - `Remove` - delete the selected step (disabled when only one step

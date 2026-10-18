@@ -161,6 +161,15 @@ buffer. The FCT console methods use it as follows:
   a reply without the expected keyword -> `FAIL`.
 - `CapturefromConsole` - searches the **whole accumulated buffer**
   instantly (the boot log may already contain the expected keyword).
+- `MessageOKtoConsole` / `MessageYesNotoConsole` / `MessageGoStoptoConsole`
+  - console operator dialogs: first wait for the expected message on
+  the channel (same wait semantics as `WaitforConsole`), then prompt the
+  operator. `MessageOKtoConsole` shows a non-modal OK notice and writes
+  nothing; `MessageYesNotoConsole` sends `y` / `n` and always continues;
+  `MessageGoStoptoConsole` sends `y` (continue) or `n` (stop the run)
+  and its timeout is judged FAIL. The expected message comes from the
+  quoted segment of the step name; an empty expected message skips the
+  wait and prompts straight away.
 - `SendtoCLI` / `WaitforCLI` / `CapturefromCLI` - the same three
   behaviors for CLI-style steps.
 - Keywords are parsed from quoted segments (`'Pass'` or `"OK"`) of the

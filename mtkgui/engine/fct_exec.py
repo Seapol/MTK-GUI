@@ -251,6 +251,46 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
             time.sleep(0.02)
 
 
+def _console_dialog(step: FctStep, ctx: FctContext) -> FctOutcome:
+    """A Console-domain operator dialog (MessageOKtoConsole /
+    MessageYesNotoConsole / MessageGoStoptoConsole, user direction
+    2026-10-18).
+
+    Phase 1: WAIT the expected console message (``params.wait_pattern``)
+    on the step channel.  Phase 2: hand over to the bound confirm hook,
+    which notifies the operator and sends y / n where the METHOD calls
+    for it (the runner owns the send / verdict semantics)."""
+    p = step.params
+    pattern = str(p.get("wait_pattern") or "")
+    if pattern:
+        channel = ctx.channel_for(step)
+        if channel is None:
+            return FctOutcome(VERDICT_ERROR,
+                              f"channel '{step.channel}' not bound")
+        wait_step = FctStep(
+            name=f"{step.name} (wait)", step_type=STEP_MESSAGE_CHECK,
+            channel=step.channel,
+            timeout_s=float(p.get("wait_timeout") or step.timeout_s
+                            or 30.0),
+            params={"fct_console": True, "kind": "wait",
+                    "expect_pass_re": pattern,
+                    "expect_pass_is_regex": bool(p.get("wait_is_regex")),
+                    "capture_is_expected": True,
+                    "case_sensitive": bool(p.get("case_sensitive", True))})
+        ctx.log(f"{step.name}: waiting for console message '{pattern}'")
+        outcome = _regex_capture(channel, wait_step, ctx)
+        if outcome.verdict != VERDICT_PASS:
+            return FctOutcome(outcome.verdict,
+                              f"wait for '{pattern}': {outcome.reason}",
+                              list(outcome.lines))
+    if ctx.human_confirm is None:
+        return FctOutcome(VERDICT_ERROR, "no confirm hook bound")
+    go = bool(ctx.human_confirm(step))
+    ctx.log(f"human answer {'GO' if go else 'STOP'}")
+    return FctOutcome(VERDICT_PASS if go else VERDICT_FAIL,
+                      "human GO" if go else "human STOP")
+
+
 def runner_for(ctx: FctContext):
     """A HostCliRunner bound to the context identity/log (host-side
     commands such as the own-Bluetooth-address lookup)."""
@@ -435,6 +475,10 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             return FctOutcome(
                 VERDICT_PASS if verdict == "Done" else VERDICT_ERROR,
                 f"{op_name}: {verdict}")
+        if step.params.get("console_dialog"):
+            # Console-domain operator dialog (user direction 2026-10-18):
+            # WAIT the expected console message first, THEN ask
+            return _console_dialog(step, ctx)
         if ctx.human_confirm is None:
             return FctOutcome(VERDICT_ERROR, "no confirm hook bound")
         ctx.log("waiting for human confirmation")

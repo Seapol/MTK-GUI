@@ -131,9 +131,12 @@ KIND_SEND = "send"              # write line(s); verdict Pass ("sent")
 KIND_CAPTURE = "capture"        # judge output (send optional); fail-wins
 KIND_SFTP_PUT = "sftp_put"      # ssh file transfer DUT <- Host
 KIND_SFTP_GET = "sftp_get"      # ssh file transfer DUT -> Host
-KIND_MESSAGE = "message"        # operator dialog (MessageOK/YesNo/GoStop);
-                                # no console interaction - the row joins
-                                # the ordered sequence where it is placed
+KIND_MESSAGE = "message"        # Console-domain operator dialog
+                                # (MessageOKtoConsole / MessageYesNotoConsole
+                                # / MessageGoStoptoConsole): the row WAITS the
+                                # expected console message, then notifies the
+                                # operator; the row joins the ordered sequence
+                                # where it is placed
 KIND_HOST = "host"              # run a command ON THE HOST PC (test
                                 # station CLI, e.g. start/stop a local
                                 # iperf3 server); PASS = exit code 0
@@ -147,9 +150,22 @@ DIALOG_GOSTOP = "gostop"
 DIALOG_STYLES = (DIALOG_OK, DIALOG_YESNO, DIALOG_GOSTOP)
 
 #: project fct_test_cases kind -> message dialog style
+#:
+#: The three "*toConsole" kinds are the Console-domain operator dialogs
+#: (user direction 2026-10-18): the row WAITS the expected console
+#: message first, then notifies the operator.  They are DIFFERENT from
+#: the plain standard-operation MessageOK / MessageYesNo / MessageGoStop
+#: (which never touch the Console).
 _CASE_MESSAGE_STYLES = {"MessageOK": DIALOG_OK,
                         "MessageYesNo": DIALOG_YESNO,
-                        "MessageGoStop": DIALOG_GOSTOP}
+                        "MessageGoStop": DIALOG_GOSTOP,
+                        "MessageOKtoConsole": DIALOG_OK,
+                        "MessageYesNotoConsole": DIALOG_YESNO,
+                        "MessageGoStoptoConsole": DIALOG_GOSTOP}
+
+#: message kinds whose row waits for a console message first
+_CONSOLE_MESSAGE_KINDS = ("MessageOKtoConsole", "MessageYesNotoConsole",
+                          "MessageGoStoptoConsole")
 
 
 def _case_marker(case: dict) -> dict:
@@ -170,12 +186,18 @@ def _message_command_from_case(case: dict) -> dict:
     style = str(params.get("style")
                 or _CASE_MESSAGE_STYLES.get(kind, DIALOG_GOSTOP))
     # strip a leading "MessageOK: " style prefix, keep plain names
-    # intact ("fat.py: setup confirm" must not lose its prefix)
+    # intact ("fat.py: setup confirm" must not lose its prefix).
+    # Longest prefix first so "MessageOKtoConsole:" is not stripped by
+    # the shorter "MessageOK".
     display = name
-    for prefix in ("MessageOK", "MessageYesNo", "MessageGoStop"):
+    for prefix in ("MessageOKtoConsole", "MessageYesNotoConsole",
+                   "MessageGoStoptoConsole",
+                   "MessageOK", "MessageYesNo", "MessageGoStop"):
         if display.startswith(prefix + ":"):
             display = display.split(":", 1)[-1].strip()
             break
+    is_console = kind in _CONSOLE_MESSAGE_KINDS
+    wait_pattern = str(params.get("wait_pattern") or "")
     cmd = {
         "kind": KIND_MESSAGE,
         "name": display or name,
@@ -189,13 +211,20 @@ def _message_command_from_case(case: dict) -> dict:
         "confirm_message": ("" if str(params.get("message") or "")
                             in (display, name)
                             else str(params.get("message") or "")),
-        "wait_enabled": False,
+        # Console-domain operator dialog: WAIT the expected console
+        # message before the operator is notified
+        "wait_enabled": bool(is_console or wait_pattern),
+        "expect_pass": wait_pattern,
+        "expect_pass_is_regex": bool(
+            params.get("wait_is_regex", False)),
+        "wait_timeout": float(params.get("wait_timeout") or 10.0),
         "send_enabled": style != DIALOG_OK,
         "capture_enabled": False,
         "retries": int(marker.get("retries", 0) or 0),
     }
     if style == DIALOG_OK:
-        cmd["timeout"] = 0.0        # no judgement window
+        cmd["timeout"] = 0.0 if not is_console else \
+            float(params.get("message_timeout_s") or 4.0)
     else:
         cmd["timeout"] = float(params.get("message_timeout_s") or 4.0)
         cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
@@ -1117,23 +1146,31 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
                     "action": cmd.kind,
                     "local": cmd.local, "remote": cmd.remote}))
         return steps
-    # Operator-dialog rows (MessageOK / MessageYesNo /
-    # MessageGoStop): no console interaction except the answer
-    # payloads - YesNo / GoStop send send_yes / send_no to the bound
-    # DUT console (user direction 2026-10-14); the row joins the
-    # ordered sequence exactly where it is placed.
+    # Console-domain operator-dialog rows (MessageOKtoConsole /
+    # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
+    # 2026-10-18): the row WAITS the expected console message from the
+    # bound DUT console, THEN notifies the operator.  OK sends nothing
+    # (non-blocking), YesNo / GoStop send send_yes / send_no (default y
+    # / n); the row joins the ordered sequence exactly where it is
+    # placed.  Legacy rows without an expected message simply skip the
+    # wait phase.
     if cmd.kind == KIND_MESSAGE:
         steps.append(FctStep(
             name=cmd.name or "Operator message",
-            step_type=STEP_GUI_CONFIRM,
-            timeout_s=float(cmd.timeout),
+            step_type=STEP_GUI_CONFIRM, channel=channel_key,
+            timeout_s=float(cmd.wait_timeout or 10.0),
             retries=int(cmd.retries),
             params={"style": cmd.dialog_style or DIALOG_YESNO,
                     "message": cmd.confirm_message
                     or cmd.name or "Operator message",
                     "send_yes": cmd.send_yes or "y",
                     "send_no": cmd.send_no or "n",
-                    "message_timeout_s": float(cmd.timeout or 0.0)}))
+                    "message_timeout_s": float(cmd.timeout or 0.0),
+                    "console_dialog": True,
+                    "wait_pattern": str(cmd.expect_pass or ""),
+                    "wait_timeout": float(cmd.wait_timeout or 10.0),
+                    "wait_is_regex": bool(cmd.expect_pass_is_regex),
+                    "case_sensitive": bool(cmd.case_sensitive)}))
         return steps
     # Map the three-stage model to the MESSAGE_CHECK executor.
     #   WaitFor (wait-only row) -> positive pattern, found=PASS

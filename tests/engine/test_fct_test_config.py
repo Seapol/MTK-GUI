@@ -1054,10 +1054,11 @@ def test_message_command_defaults_to_yesno():
     assert ConsoleCommand(kind=KIND_MESSAGE).dialog_style == DIALOG_YESNO
 
 
-def test_build_steps_message_row_is_channel_free_gui_confirm():
-    """A '(message)' console row becomes a GUI_CONFIRM without a
-    channel at its sequence position - executed through the existing
-    human_confirm hook (fct_exec unchanged)."""
+def test_build_steps_message_row_is_console_dialog_gui_confirm():
+    """A '(message)' console row becomes a GUI_CONFIRM bound to the
+    console channel carrying the console_dialog marker (user direction
+    2026-10-18): the row WAITS the expected Console message first, then
+    prompts the operator."""
     cfg = frdm_config()
     cfg.console.test_commands = [
         _cmd(name="Kernel check", kind="send", send="uname -a"),
@@ -1069,8 +1070,8 @@ def test_build_steps_message_row_is_channel_free_gui_confirm():
     msg = steps[1]
     assert msg.name == "Swap DUT fixture"
     assert msg.step_type == "GUI_CONFIRM"
-    assert not msg.channel                           # no console I/O
-    assert msg.timeout_s == 30.0
+    assert msg.channel == "ser1"                     # waits the console
+    assert msg.params["console_dialog"] is True
     assert msg.params["style"] == DIALOG_YESNO
     assert msg.params["message"] == "Swap DUT fixture"
 
