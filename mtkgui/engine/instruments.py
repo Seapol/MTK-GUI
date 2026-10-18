@@ -315,7 +315,6 @@ class RealGateway:
 
     def _op_flash(self, p: dict) -> GatewayOutcome:
         mod = self._require_module()
-        drv = self._driver("JLINK")
         # P1 Task6: structured parameter resolution + full validation
         # BEFORE any driver call (illegal params never reach the flash)
         from .flash_params import (flash_param_log_lines,
@@ -353,6 +352,18 @@ class RealGateway:
                 "Done", value="reused",
                 lines=log_lines + ["[SLOT_IMG] identical image "
                                    "already flashed -> write skipped"])
+        # R2 dual-path: "auto" with a configured third-party tool
+        # profile drives the CLI tool and judges on its output
+        # keywords; without a profile the legacy J-Link driver path
+        # below runs unchanged (backward compatible)
+        from .flash_tool import load_flash_profile
+        profile = load_flash_profile(
+            self._equipment, str(p.get("tool") or "J-Link"))
+        if str(p.get("mode") or "auto") == "auto" and \
+                profile is not None:
+            return self._op_flash_cli(p, params, profile, log_lines,
+                                      rec.sha256)
+        drv = self._driver("JLINK")
         # P1 Task8: fault-tolerant execution - segmented timeouts,
         # transient-disconnect retry, rollback on write/verify failure,
         # forced driver release
@@ -384,6 +395,45 @@ class RealGateway:
             + [f"J-Link flash {slot} {params.image}: "
                f"{write.detail} bytes OK",
                "J-Link reset & run"]
+            + log_lines[1:])
+
+    def _op_flash_cli(self, p: dict, params, profile, log_lines,
+                      sha: str) -> GatewayOutcome:
+        """R2 auto path: drive the third-party CLI tool.
+
+        The captured output keywords decide the verdict
+        (flash_tool.run_cli_flash); fault tolerance (retry budget,
+        slot rollback on failure) is shared with the driver path via
+        FlashTolerance.  The executor is injectable
+        (gw._flash_executor) so tests run a ScriptedExecutor - the
+        same pattern as the RF drivers (fake executor, not fake
+        driver)."""
+        from .flash_ft import FlashVerifyFailed, FlashWriteFailed, \
+            FlashTolerance
+        from .flash_tool import run_cli_flash
+        if getattr(self, "_flash_executor", None) is None:
+            from ..drivers.rf_common import SubprocessExecutor
+            self._flash_executor = SubprocessExecutor()
+        ft = FlashTolerance(
+            retries=params.retries,
+            log_fn=lambda line: log_lines.append(line))
+        try:
+            write = ft.execute_write(
+                lambda: run_cli_flash(
+                    profile, params.resolved_image(),
+                    executor=self._flash_executor,
+                    verify=params.verify, reset_run=params.reset_run,
+                    log_fn=lambda line: log_lines.append(line)),
+                self._slot_registry, params.slot)
+        except (FlashWriteFailed, FlashVerifyFailed) as exc:
+            raise self._require_module().InstrumentConfigError(str(exc))
+        slot = params.slot
+        self._slot_registry.mark_flashed(slot, sha)
+        return GatewayOutcome(
+            "Done", value=write.detail or "CLI",
+            lines=log_lines[:1]
+            + [f"{profile.tool} CLI flash {slot} {params.image}: "
+               f"{write.detail}"]
             + log_lines[1:])
 
     # ------------------------------------------------- measurement rows
