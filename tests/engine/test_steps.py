@@ -24,6 +24,19 @@ from mtkgui.engine.steps import (
 
 
 class TestOpCatalog:
+    def test_flash_steps_carry_the_dual_path_mode(self):
+        """user direction 2026-10-17 (R1 schema): the two firmware
+        flash steps carry the dual-path switch - "auto" = third-party
+        CLI tool judged on its output, "manual" = third-party GUI plus
+        the operator GO / STOP answer.  "auto" is the default so
+        projects written before the switch keep their behaviour."""
+        assert OP_STEPS["Flash FAT Firmware"]["mode"] == "auto"
+        assert OP_STEPS["Flash OOBE Firmware"]["mode"] == "auto"
+        assert op_step("Flash FAT Firmware")[6]["mode"] == "auto"
+        # the slot each step flashes stays untouched
+        assert OP_STEPS["Flash FAT Firmware"]["slot"] == "fat"
+        assert OP_STEPS["Flash OOBE Firmware"]["slot"] == "oobe"
+
     def test_op_step_default_params(self):
         step = op_step("Power On DUT")
         assert step[0] == "op"

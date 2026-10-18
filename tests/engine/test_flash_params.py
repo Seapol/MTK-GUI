@@ -39,6 +39,22 @@ def _good(**over) -> FlashParams:
 
 # ------------------------------------------------------------- resolution
 class TestResolution:
+    def test_dual_path_keys_do_not_disturb_resolution(self, fw_dir):
+        """user direction 2026-10-17 (R1): mode / tool / launch /
+        message ride along in the step op_params (they pick and drive
+        the third-party tool).  The resolver must keep producing the
+        same structured parameters and never reject them."""
+        base = resolve_flash_params(
+            {"type": "flash", "slot": "fat", "image": "firmware/fat.bin"})
+        dual = resolve_flash_params(
+            {"type": "flash", "slot": "fat", "image": "firmware/fat.bin",
+             "mode": "manual", "tool": "J-Link",
+             "launch": "C:/Tools/flashtool.exe",
+             "message": "Flash the fat firmware, then answer GO / STOP",
+             "message_timeout_s": 0})
+        assert dual == base
+        assert not validate_flash_params(dual)
+
     def test_step_params_win_over_config(self):
         config = {"firmware": {"fat_image": "cfg/fat.bin",
                                "baudrate": 2000}}

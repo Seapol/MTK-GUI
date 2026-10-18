@@ -1466,10 +1466,37 @@ _BLOCK_EDITORS = {
 # devices NOT listed here are not integrated yet - double-clicking
 # shows the not-yet-available notice (persisted as
 # cfg["device_params"][device], keys match the driver options).
-# Currently EMPTY: even the J-Link probe stays "not developed" until
-# the real-device integration happens (user direction) - register its
-# fields here when that work starts
-_DEVICE_EDITORS: dict[tuple[str, str], list] = {}
+# user direction 2026-10-17: the Flash / Debug Probes rows ARE the
+# third-party flash tools - each row edits that tool's CLI profile
+# (executable, command templates, the output patterns the engine
+# judges on, timeout).  Keeping the rules in the project YAML means
+# they are field-maintainable without a rebuild.
+def _flash_tool_spec(exe: str) -> list:
+    """CLI profile fields for one Flash / Debug Probe row.  The keys
+    match the driver options; ``{image}`` in a command template is
+    substituted with the step's firmware image."""
+    return [
+        ("exe", "Executable path", exe),
+        ("device", "Device", ""),
+        ("interface", "Interface", "SWD"),
+        ("speed_khz", "Speed (kHz)", "4000"),
+        ("write_cmd", "Write command", "loadfile {image}"),
+        ("verify_cmd", "Verify command", "verifyfile {image}"),
+        ("reset_cmd", "Reset & run command", "r|g|exit"),
+        ("ok_regex", "OK pattern", r"O\.K\."),
+        ("verify_regex", "Verify OK pattern", r"O\.K\."),
+        ("fail_regex", "Fail pattern", "Error|Cannot connect|FAILED"),
+        ("timeout_s", "Timeout (s)", "120"),
+    ]
+
+
+_DEVICE_EDITORS: dict[tuple[str, str], list] = {
+    ("probes", tool): _flash_tool_spec(
+        "C:/Program Files/SEGGER/JLink/JLink.exe" if tool == "J-Link"
+        else "")
+    for tool in ("J-Link", "PE Micro", "Lauterbach", "CMSIS-DAP",
+                 "MCU-LINK", "OpenSDA")
+}
 
 _NOT_YET = "Not yet available - under development."
 

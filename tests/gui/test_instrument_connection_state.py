@@ -118,6 +118,40 @@ def test_instrument_dialog_test_log_is_large(page):
         dlg.deleteLater()
 
 
+def test_flash_tool_profile_round_trips_through_yaml(page):
+    """user direction 2026-10-17 (R1): the third-party flash tool CLI
+    profile (executable, command templates and the output patterns the
+    verdict is judged on) is edited on the Flash / Debug Probes row and
+    MUST travel with the project YAML.  The equipment harvest used to
+    drop ``device_params`` entirely, so a saved project lost them."""
+    import yaml as pyyaml
+
+    from mtkgui import project_config
+    from mtkgui.equipment_page import _DEVICE_EDITORS
+    spec = _DEVICE_EDITORS[("probes", "J-Link")]
+    assert [key for key, _label, _default in spec] == [
+        "exe", "device", "interface", "speed_khz", "write_cmd",
+        "verify_cmd", "reset_cmd", "ok_regex", "verify_regex",
+        "fail_regex", "timeout_s"]
+
+    page.configs["probes"]["device_params"] = {"J-Link": {
+        "exe": "C:/Tools/JLink.exe",
+        "write_cmd": "loadfile {image}",
+        "verify_cmd": "verifyfile {image}",
+        "ok_regex": r"O\.K\.", "verify_regex": r"O\.K\.",
+        "fail_regex": "Error", "timeout_s": "120"}}
+
+    equipment = project_config._equipment_to_yaml(page.configs)
+    assert equipment["probes"]["device_params"]["J-Link"]["exe"] == \
+        "C:/Tools/JLink.exe"
+    restored = project_config._equipment_from_yaml(
+        pyyaml.safe_load(pyyaml.safe_dump(equipment)))
+    profile = restored["probes"]["device_params"]["J-Link"]
+    assert profile["fail_regex"] == "Error"
+    assert profile["write_cmd"] == "loadfile {image}"
+    assert profile["timeout_s"] == "120"
+
+
 def test_instrument_config_round_trips_through_yaml(page):
     """User question: 'why is the instrument config not saved in the
     YAML?' - the edited connection (interface / address) and parameter

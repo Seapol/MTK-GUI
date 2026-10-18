@@ -78,10 +78,14 @@ OP_STEPS: dict[str, dict] = {
         "type": "power", "voltage": 5.0, "current": 1.0},
     "Power Off DUT": {
         "type": "power"},
+    # user direction 2026-10-17: the flash steps carry the dual-path
+    # switch - "auto" drives the third-party CLI tool and judges on the
+    # captured output, "manual" opens the third-party GUI and takes the
+    # operator GO / STOP answer as the verdict (R1: schema only)
     "Flash FAT Firmware": {
-        "type": "flash", "slot": "fat"},
+        "type": "flash", "slot": "fat", "mode": "auto"},
     "Flash OOBE Firmware": {
-        "type": "flash", "slot": "oobe"},
+        "type": "flash", "slot": "oobe", "mode": "auto"},
 }
 
 

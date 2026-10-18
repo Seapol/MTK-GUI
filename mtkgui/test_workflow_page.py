@@ -3305,6 +3305,9 @@ class _SequenceEditorDialog(QDialog):
         param_box.setLayout(param_form)
         outer.addWidget(param_box)
         fields = {}
+        # flash: the mode combo is re-read from here (not from the saved
+        # params) because switching it only toggles the manual-only rows
+        state = {"mode": str(params.get("mode") or "auto")}
 
         def current_type():
             return OP_STEPS.get(op_combo.currentText().strip(),
@@ -3357,6 +3360,97 @@ class _SequenceEditorDialog(QDialog):
                 else:
                     param_form.addRow(
                         QLabel("N5747A output OFF — no setpoints."))
+            elif t == "flash":
+                # user direction 2026-10-17: dual-path firmware flash.
+                # "auto" drives the third-party CLI tool (the judging
+                # rules live in the Equipment page tool profile),
+                # "manual" opens the third-party GUI and takes the
+                # operator GO / STOP answer as the verdict.
+                _slot = (OP_STEPS.get(op_combo.currentText().strip(),
+                                      {}).get("slot")
+                         or params.get("slot") or "fat")
+                mode = QComboBox()
+                mode.addItems(["auto", "manual"])
+                mode.setCurrentText(state["mode"])
+                tool = QComboBox()
+                tool.setEditable(True)
+                try:
+                    from .equipment_page import _DEVICE_EDITORS
+                    tool.addItems([name for block, name in _DEVICE_EDITORS
+                                   if block == "probes"])
+                except Exception:            # pragma: no cover - headless
+                    tool.addItems(["J-Link"])
+                tool.setCurrentText(str(params.get("tool") or "J-Link"))
+                image = QLineEdit(str(params.get("image") or ""))
+                image.setPlaceholderText(
+                    "empty -> firmware.<slot>_image from the project YAML")
+                device = QLineEdit(str(params.get("device") or ""))
+                address = QLineEdit(str(params.get("address") or ""))
+                address.setPlaceholderText("e.g. 0x60000000 (optional)")
+                baud = QSpinBox()
+                baud.setRange(0, 100000)
+                baud.setSuffix(" kHz")
+                baud.setValue(int(params.get("baudrate") or 4000))
+                verify = QCheckBox()
+                verify.setChecked(bool(params.get("verify", True)))
+                reset_run = QCheckBox()
+                reset_run.setChecked(bool(params.get("reset_run", True)))
+                erase = QCheckBox()
+                erase.setChecked(bool(params.get("erase", False)))
+                tmo = QSpinBox()
+                tmo.setRange(0, 3600)
+                tmo.setSuffix(" s")
+                tmo.setValue(int(float(params.get("timeout_s") or 120)))
+                retries = QSpinBox()
+                retries.setRange(0, 5)
+                retries.setValue(int(params.get("retries") or 0))
+                fields.update(mode=mode, tool=tool, image=image,
+                              device=device, address=address,
+                              baudrate=baud, verify=verify,
+                              reset_run=reset_run, erase=erase,
+                              timeout_s=tmo, retries=retries)
+                param_form.addRow("Mode:", mode)
+                param_form.addRow("Programmer tool:", tool)
+                param_form.addRow("Image:", image)
+                param_form.addRow("Device:", device)
+                param_form.addRow("Address:", address)
+                param_form.addRow("Baudrate:", baud)
+                param_form.addRow("Verify after write:", verify)
+                param_form.addRow("Reset & run:", reset_run)
+                param_form.addRow("Erase before write:", erase)
+                param_form.addRow("Write timeout:", tmo)
+                param_form.addRow("Driver retries:", retries)
+                # manual-only rows live in their own container so the
+                # mode switch only toggles VISIBILITY - rebuilding the
+                # form from inside the combo's own signal handler would
+                # delete the emitting widget (segfault)
+                launch = QLineEdit(str(params.get("launch") or ""))
+                launch.setPlaceholderText(
+                    "empty -> the third-party GUI is NOT launched")
+                msg = QLineEdit(str(
+                    params.get("message")
+                    or f"Flash the {_slot} firmware via the "
+                       "third-party tool, then answer GO / STOP"))
+                mtmo = QSpinBox()
+                mtmo.setRange(0, 999999)
+                mtmo.setSuffix(" s")
+                mtmo.setValue(int(params.get("message_timeout_s") or 0))
+                fields.update(launch=launch, message=msg,
+                              message_timeout_s=mtmo)
+                manual_box = QWidget()
+                manual_form = QFormLayout(manual_box)
+                manual_form.setContentsMargins(0, 0, 0, 0)
+                manual_form.addRow("GUI path (manual):", launch)
+                manual_form.addRow("Operator prompt:", msg)
+                manual_form.addRow("Answer timeout:", mtmo)
+                manual_box.setVisible(state["mode"] == "manual")
+
+                def _on_mode(text):
+                    state["mode"] = text
+                    manual_box.setVisible(text == "manual")
+
+                mode.currentTextChanged.connect(_on_mode)
+                param_form.addRow(manual_box)
             else:
                 param_form.addRow(
                     QLabel("Custom operation: no parameters."))
@@ -3406,6 +3500,28 @@ class _SequenceEditorDialog(QDialog):
             if "voltage" in fields:
                 new_params["voltage"] = fields["voltage"].value()
                 new_params["current"] = fields["current"].value()
+        elif t == "flash":
+            new_params = {
+                "type": "flash",
+                "slot": (OP_STEPS.get(new_name, {}).get("slot")
+                         or params.get("slot") or "fat"),
+                "mode": fields["mode"].currentText(),
+                "tool": fields["tool"].currentText().strip() or "J-Link",
+                "image": fields["image"].text().strip(),
+                "device": fields["device"].text().strip(),
+                "address": fields["address"].text().strip(),
+                "baudrate": fields["baudrate"].value(),
+                "verify": fields["verify"].isChecked(),
+                "reset_run": fields["reset_run"].isChecked(),
+                "erase": fields["erase"].isChecked(),
+                "timeout_s": fields["timeout_s"].value(),
+                "retries": fields["retries"].value(),
+            }
+            if fields["mode"].currentText() == "manual":
+                new_params["launch"] = fields["launch"].text().strip()
+                new_params["message"] = fields["message"].text().strip()
+                new_params["message_timeout_s"] = \
+                    fields["message_timeout_s"].value()
         else:
             new_params = None
         if self._kind == "ict":

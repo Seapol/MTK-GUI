@@ -102,6 +102,14 @@ def _equipment_to_yaml(configs):
                 {"item": item, "role": role, "status": status}
                 for item, role, status in cfg["table"]
             ]
+        # user direction 2026-10-17: the per-device options (the
+        # third-party flash tool CLI profiles: executable, command
+        # templates, output patterns, timeout) were dropped by this
+        # harvest - they now travel with the project file
+        if cfg.get("device_params"):
+            entry["device_params"] = {
+                device: dict(opts)
+                for device, opts in cfg["device_params"].items()}
         data[key] = entry
     return data
 
@@ -517,5 +525,9 @@ def _equipment_from_yaml(data):
         if entry.get("table"):
             cfg["table"] = [(row["item"], row["role"], row["status"])
                             for row in entry["table"]]
+        if entry.get("device_params"):
+            cfg["device_params"] = {
+                device: dict(opts)
+                for device, opts in entry["device_params"].items()}
         configs[key] = cfg
     return configs
