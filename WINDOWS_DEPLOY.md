@@ -125,6 +125,7 @@ MTK_GUI\         <- 整个文件夹一起拷，缺一不可
 | iperf3 | 测试计划启用了 Wi-Fi 吞吐量步骤（host 侧 `iperf3 -c` 测速或 `iperf3 -s` 当 server） | 下载 Windows 版 iperf3.exe，放进 `MTK_GUI\` 文件夹（和 MTK_GUI.exe 同目录）或 `C:\Windows\`；计划未启用吞吐步骤则不用装 |
 | USB 串口驱动 | 用 USB 转串口线连接 DUT | FTDI / CP210x 在 Win10/11 一般自动装；CH340 系列通常需手动装一次 |
 | WLAN 网卡 | host 侧 Wi-Fi 扫描/连接/吞吐测试 | 电脑本身需有可用的 WLAN 网卡 |
+| 第三方烧录工具（2026-10-18 起） | 测试计划启用了 Flash FAT / Flash OOBE 步骤 | 安装站点选定的烧录工具（如 SEGGER J-Link 包），并在 Equipment 页对应 Flash / Debug Probe 行的 CLI profile 里填好 exe 路径、命令模板与输出关键词；`mode: auto` 由 MTK GUI 调 CLI 并按关键词判定，`mode: manual` 则由操作员在第三方 GUI 里手动烧录后在 MTK GUI 弹窗回填 GO / STOP（GUI 路径可配 `launch` 自动拉起，不配则手动打开） |
 
 **两个前提 + 一条说明：**
 

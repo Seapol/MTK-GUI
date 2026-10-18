@@ -143,9 +143,26 @@ class TestRunner(QObject):
   limit FAILs that reflect real DUT defects are NOT expected to recover and
   will still trigger the stop strategies after the retries are exhausted.
 - Firmware flash steps are op steps with `op_params`:
-  `{"type": "flash", "slot": "fat" | "oobe", "image": <path>}`. The image
-  path is taken ONLY from the YAML `firmware.<slot>_image` key — the engine
-  never guesses a path.
+  `{"type": "flash", "slot": "fat" | "oobe", "image": <path>, "mode":
+  "auto" | "manual"}`. The image path is taken ONLY from the YAML
+  `firmware.<slot>_image` key — the engine never guesses a path.
+  Dual path (resolved decision D2, 2026-10-18):
+  - `mode: auto` (default) — drives the third-party CLI tool and
+    judges the captured output on keywords: a `fail_regex` hit or a
+    missing `ok_regex` / `verify_regex` fails the step. Fault
+    tolerance (retry budget, slot rollback) is shared with the
+    J-Link driver path.
+  - `mode: manual` — opens the third-party GUI and takes the
+    operator GO / STOP (MessageGoStop) as the verdict: GO → PASS,
+    STOP → FAIL and the run stops, timeout → FAIL, no operator
+    dialog (headless) → IGNORED (never guessed). Optional `launch`
+    path detaches the GUI first (non-blocking).
+  - Tool CLI profiles (executable, command templates, output
+    patterns, timeout) live in `equipment.probes.device_params[<tool>]`
+    and travel with the project YAML.
+  - Every flash attempt logs one `[FLASH]` audit line (mode, slot,
+    tool, image, verdict); the report Measured column carries the
+    verdict source (`CLI flash OK (<tool>)` / `Operator: GO`).
 - Overall Result rollup: FAIL if any non-ignored step FAIL/ERROR; otherwise PASS.
 - Waveform sample data: ordered samples `t -> {rail_name: voltage}` captured
   between `start_s` and `end_s` at `rate_hz` (negative `start_s` = pre-trigger).

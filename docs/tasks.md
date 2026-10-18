@@ -47,7 +47,7 @@ Integration checkpoint I2: merge T3/T4/T5 sequentially, integration test each.
 | ID | Decision | Impact | Why blocked |
 |----|----------|--------|-------------|
 | D1 | Real RF test (WiFi/BLE): which host-side external CLI tools, and are they in scope for T1/T2? | Adds dependency/step types | `.traerules` forbids adding pip deps or inventing tool commands without asking |
-| D2 | Automated FAT/OOBE firmware flashing via JLink: automate in T1 (driver) or keep operator-manual MessageGoStop flow? | T1 scope size | Product decision |
+| D2 | Automated FAT/OOBE firmware flashing via JLink: automate in T1 (driver) or keep operator-manual MessageGoStop flow? | T1 scope size | **Resolved 2026-10-18** — dual path implemented in the engine (R1-R4): `op_params.mode=auto` drives a third-party CLI tool and judges its output keywords, `mode=manual` takes the operator GO/STOP as the verdict; tool profiles live in `equipment.probes.device_params` |
 | D3 | Equipment page `_mock_configs()` -> YAML-driven instrument inventory: move to T1 or T5? | R5 ownership | Overlap between two task scopes |
 | D4 | Supervisor password as plain constant in `permissions.py`: acceptable for shop floor, or move to env/secret? | Security hardening | User decision |
 | D5 | Add `pytest` (now) and `pyvisa` (with T1) to `requirements.txt`? | CI + packaging | Dep additions need explicit approval |

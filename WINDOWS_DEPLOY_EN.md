@@ -131,6 +131,7 @@ MTK_GUI\         <- copy the whole folder, nothing may be missing
 | iperf3 | The test plan enables a Wi-Fi throughput step (host-side `iperf3 -c` measurement or `iperf3 -s` as server) | Download the Windows iperf3.exe and drop it into the `MTK_GUI\` folder (next to MTK_GUI.exe) or `C:\Windows\`; not needed if no throughput step |
 | USB serial driver | When connecting the DUT via a USB-to-serial cable | FTDI / CP210x usually auto-install on Win10/11; CH340-family chips typically need a one-time manual install |
 | WLAN adapter | Host-side Wi-Fi scan / connect / throughput tests | The PC itself must have a working WLAN adapter |
+| Third-party flash tool (2026-10-18) | The test plan enables Flash FAT / Flash OOBE steps | Install the station's flash tool (e.g. the SEGGER J-Link package) and fill in the CLI profile on the matching Flash / Debug Probe row of the Equipment page (exe path, command templates, output keywords). With `mode: auto` MTK GUI calls the CLI and judges on the keywords; with `mode: manual` the operator flashes in the third-party GUI and answers GO / STOP in the MTK GUI dialog (an optional `launch` path auto-opens the GUI, otherwise open it by hand) |
 
 **Two prerequisites + one note:**
 

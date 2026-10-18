@@ -43,9 +43,14 @@ supported programmers:
   route through the instrument gateway; without a programmer
   gateway connected the step reports
   `no programmer gateway connected (Real mode)`.
-- **Status** - the read-only block exists; per-probe driver
-  integration and the flashing configuration UI are
-  **not yet developed** (placeholder).
+- **Flashing** - each flash step picks a path via `mode`: `auto`
+  drives the probe's CLI tool and judges its output on the
+  configured keywords, `manual` opens the third-party GUI and takes
+  the operator GO / STOP as the verdict.
+- **Status** - the CLI profile of every probe (executable, command
+  templates, output patterns, timeout) is edited on its Flash /
+  Debug Probes row and saved with the project YAML; the legacy
+  J-Link driver path still runs when a probe has no profile.
 
 ## Test Peripherals
 
