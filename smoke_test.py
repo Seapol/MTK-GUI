@@ -283,8 +283,9 @@ print("equipment block click ok")
 
 # 14. Test Work Flow: tables and demo run.
 wf = w.workflow_page
-# tables are empty until a YAML is loaded
-assert wf.ict.rowCount() == 1 and wf.fct.rowCount() == 1
+# tables are empty until a YAML is loaded (user direction 2026-10-15:
+# the former single empty placeholder row is gone - zero rows)
+assert wf.ict.rowCount() == 0 and wf.fct.rowCount() == 0
 
 # Run is blocked until a YAML project file is loaded: a warning popup
 # appears, the run does not start and the buttons stay in idle state.

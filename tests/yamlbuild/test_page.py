@@ -206,7 +206,7 @@ def test_block_cards_carry_sequence_badges(page):
 def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
     """The merged 'Build ICT Test Work Flow Sequence' card opens the
     sequence builder dialog; on accept it emits ict_sequence_ready
-    with the generated test rows (no standard operations)."""
+    with the WHOLE editor state (steps / enables / waits / timeouts)."""
     from mtkgui.gui.yamlbuild import ict_sequence
     fired = []
     page.ict_sequence_ready.connect(lambda rows: fired.append(rows))
@@ -231,9 +231,12 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
         lambda self: self.DialogCode.Accepted)
     page._open_block("ict_workflow")
     assert len(fired) == 1
-    rows = fired[0]
-    assert rows and all(r[0] == "test" for r in rows)   # tests only
-    names = [r[1] for r in rows]
+    # the whole editor state travels back (steps / enables / waits /
+    # timeouts); the default seed holds test rows only
+    steps, enables, waits, timeouts = fired[0]
+    assert steps and all(r[0] == "test" for r in steps)   # tests only
+    assert len(enables) == len(waits) == len(timeouts) == len(steps)
+    names = [r[1] for r in steps]
     assert any(n.startswith("Static Impedance") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
     # no navigation any more (the main window navigates on the signal)

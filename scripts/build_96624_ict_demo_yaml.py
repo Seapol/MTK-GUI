@@ -289,8 +289,17 @@ def apply_to_window(window, model) -> None:
 
     # power-rails capture (12) must exist BEFORE the sequence builder
     # inserts the DAQ AI row
+    from mtkgui.gui.yamlbuild.ict_sequence import (
+        daq_ai_rail_count,
+        standard_ict_sequence,
+    )
     window._sync_rails_to_workflow()
-    window._fill_ict_sequence(build_sequence(page_model))
+    # the canonical sequence (standard operations + tests + the derived
+    # DAQ AI rail capture): the YAML carries the SAME sequence the
+    # Build ICT dialog emits, so the demo plan stays complete
+    window._fill_ict_sequence(standard_ict_sequence(
+        build_sequence(page_model),
+        daq_ai_rail_count(page_model.channel_allocation)))
     # ICT-only: no FCT cases + disable the Overall Flow FCT stage
     page.load_fct_cases([])
     page._overall_en[1] = False

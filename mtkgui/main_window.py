@@ -59,7 +59,6 @@ from .permissions import (
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
 from .test_workflow_page import TestWorkFlowPage
-from .engine.steps import op_step
 from .version_info import get_version_info
 from .yaml_build_page import YamlBuildPage
 from .style import (
@@ -571,10 +570,17 @@ class MainWindow(QMainWindow):
             lambda: self.yaml_build_page.model.imported.get(
                 "testable_nets") or {})
         # bidirectional sync (user direction 2026-10-14): the Build ICT
-        # dialog seeds from the CURRENT ICT Test Cases rows (page ->
-        # dialog); on OK the rows flow back through ict_sequence_ready
+        # dialog seeds from the CURRENT ICT result rows (page -> dialog);
+        # on OK the whole sequence flows back through ict_sequence_ready
         self.yaml_build_page.current_ict_cases_provider = \
             self.workflow_page.current_ict_case_tuples
+        # single sequence source (task): double-clicking a result row
+        # asks the ONE Build dialog to open - the page owns no editor
+        # any more (block-04 card and row double-click share the path)
+        self.workflow_page.ict_build_requested.connect(
+            self.yaml_build_page.open_ict_sequence)
+        self.workflow_page.fct_build_requested.connect(
+            self.yaml_build_page.open_fct_sequence)
         # the DAQ AI Net cell is read-only: its count comes from the
         # Channel Allocation tables (U2355A AI power rails)
         self.workflow_page.daq_ai_rail_count_provider = (
@@ -1698,75 +1704,53 @@ class MainWindow(QMainWindow):
         table.setCurrentCell(0, 1)
         table.scrollToTop()
 
-    #: the canonical standard-operation skeleton around the generated
-    #: tests (impedance tests run BEFORE power-on: a short under power
-    #: risks damaging the board)
-    _ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Clamp Down",
-                            "Fixture Lock", "Fixture E-Stop Healthy")
-    _ICT_OPS_MID = ("Power On DUT",)
-    _ICT_OPS_AFTER_TEST = ("Power Off DUT", "Fixture Unlock",
-                           "Fixture Release", "Reset Instruments")
+    def _fill_ict_sequence(self, steps, enables=None, waits=None,
+                           timeouts=None):
+        """Write the WHOLE sequence returned by the Build ICT dialog
+        verbatim into the ICT result table (task: single sequence
+        source).
 
-    def _fill_ict_sequence(self, tests):
-        """Rebuild the ICT Test Cases table from the test rows - the
-        adjusted tests in order WITH the standard operations around
-        them (impedance before power-on)."""
-        from mtkgui.gui.yamlbuild.ict_sequence import (
-            daq_ai_net_label,
-            is_daq_ai_row,
-        )
+        The dialog now owns the standard operations, the flash
+        operations and the Delay steps, so NOTHING is injected here any
+        more: the rows land exactly as the operator ordered them.  The
+        optional enable / wait / timeout lists carry the dialog's
+        per-step settings; when absent (the Load-current-yaml and demo
+        build paths) the defaults apply.
+        """
         page = self.workflow_page
         # the DAQ AI row and the rails capture share the same resource
         # set: sync the page rails from the Yaml Build model (Channel
-        # Allocation) BEFORE placing the row - without this, a dialog
+        # Allocation) BEFORE the table refresh - without this a dialog
         # OK on a fresh page (empty rail set) silently DROPPED the
-        # user-added DAQ AI test (root cause of the "not saved to
-        # yaml" report)
+        # user-added DAQ AI test (root cause of the "not saved to yaml"
+        # report)
         if not page.rails:
             self._sync_rails_to_workflow()
-        by_name = {s[1]: s for s in page.ict_steps if s[0] == "op"}
-
-        def op(name):
-            return by_name.get(name) or op_step(name)
-
-        impedance = [t for t in tests
-                     if not is_daq_ai_row(t) and "Impedance" in t[1]]
-        daq_rows = [t for t in tests if is_daq_ai_row(t)]
-        rest = [t for t in tests
-                if not is_daq_ai_row(t) and "Impedance" not in t[1]]
-        mid = [op(n) for n in self._ICT_OPS_MID]
-        if daq_rows or page.rails:
-            # user direction 2026-10-14: the DAQ AI power-rails capture
-            # runs right AFTER Power On DUT and BEFORE the voltage /
-            # clock tests. Its Net is the count of DAQ AI rails from
-            # Channel Allocation (read-only) - never a free net.  A
-            # user-added row is ALWAYS kept (its count label is
-            # refreshed to the current allocation; duplicates collapse
-            # into the single capture row).
-            mid.append(("DAQ AI", daq_ai_net_label(len(page.rails)),
-                        "V", "—", "—", "—"))
-        seq = [op(n) for n in self._ICT_OPS_BEFORE_TEST] + impedance \
-            + mid + rest \
-            + [op(n) for n in self._ICT_OPS_AFTER_TEST]
+        seq = list(steps)
+        n = len(seq)
         page.ict_steps = seq
-        page.ict_enables = [True] * len(seq)
-        page.ict_waits = [100] * len(seq)
-        page.ict_timeouts = [5000] * len(seq)
-        page.ict.setRowCount(len(seq))
+        page.ict_enables = (list(enables) if enables is not None
+                            else [True] * n)
+        page.ict_waits = (list(waits) if waits is not None
+                          else [100] * n)
+        page.ict_timeouts = (list(timeouts) if timeouts is not None
+                             else [5000] * n)
+        page.ict.setRowCount(n)
         page._ict_edit_guard = True
         page._fill_ict(placeholder=True)
         page._ict_edit_guard = False
 
-    def _on_ict_sequence_ready(self, tests):
-        """Block-04 sequence builder accepted: rebuild the ICT Test
-        Cases table - the adjusted tests in order WITH the standard
-        operations around them (impedance before power-on) - jump to
-        the Test Work Flow page and offer the YAML save (apply)."""
-        self._fill_ict_sequence(tests)
+    def _on_ict_sequence_ready(self, result):
+        """Block-04 sequence builder accepted: write the WHOLE sequence
+        (test items + standard operations + flash + Delay) into the ICT
+        result table verbatim, jump to the Test Work Flow page and offer
+        the YAML save (apply)."""
+        steps, enables, waits, timeouts = result
+        self._fill_ict_sequence(steps, enables, waits, timeouts)
         self._goto_test_workflow()
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
-            f"{len(tests)} tests + standard operations")
+            f"{len(steps)} steps")
         # apply to yaml: the same save dialog as the preview Apply
         self._on_yaml_apply_committed()
 
@@ -1812,9 +1796,10 @@ class MainWindow(QMainWindow):
         if ict_ready:
             from mtkgui.gui.yamlbuild.ict_sequence import (
                 auto_fill_limits,
+                daq_ai_rail_count,
                 generate_sequence,
-                is_daq_ai_row,
                 merge_saved_limits,
+                standard_ict_sequence,
             )
             # user direction 2026-10-14: the regeneration only re-derives
             # what Auto can - previously filled Expected / Min / Max
@@ -1823,13 +1808,12 @@ class MainWindow(QMainWindow):
             rows = auto_fill_limits(generate_sequence(
                 model.allocated_testable()))
             rows = merge_saved_limits(rows, previous)
-            # the DAQ AI row is NOT a generated row (its Net is derived
-            # from Channel Allocation) - carry it across the
-            # regeneration or a previously added row would be dropped;
-            # _fill_ict_sequence repositions it after Power On DUT and
-            # refreshes the rail-count label
-            rows += [tuple(s[:6]) for s in previous
-                     if len(s) >= 6 and is_daq_ai_row(s)]
+            # the canonical skeleton (standard operations + the derived
+            # DAQ AI rail capture after Power On DUT) is built here: the
+            # Build ICT dialog is the single EDIT source, this Load path
+            # regenerates the same canonical sequence from the model
+            rows = standard_ict_sequence(
+                rows, daq_ai_rail_count(model.channel_allocation))
             self._fill_ict_sequence(rows)
             loaded.append(f"ICT {len(rows)} tests")
         if fct_ready:

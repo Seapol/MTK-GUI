@@ -1,7 +1,7 @@
 project:
   software: mtk-gui v1.0.0.0
   revision: 1.0.0
-  created: '2026-10-15T11:25:08'
+  created: '2026-10-17T23:33:36'
 product:
   part_number: FRDM-IMX93
   core_id: '94611'
@@ -250,9 +250,9 @@ test_workflow:
   power_rails_up_sequence:
     instrument: Keysight U2355A analog input
     channels: 0
-    duration_s: 7.0
+    duration_s: 7.5
     pre_trigger_s: -0.5
-    post_trigger_s: 6.5
+    post_trigger_s: 7.0
     sample_rate_hz: 200
     judgment: record only - no pass/fail
     rails: []
@@ -1330,54 +1330,6 @@ test_workflow:
         retries: 0
         step_type: EXTERNAL_TOOL
         timeout_s: 15.0
-  - name: FCT done.
-    kind: MessageOK
-    enable: true
-    wait_ms: 100
-    timeout_ms: 1000
-    op_params:
-      fct_step:
-        channel: ''
-        command: ''
-        depends: []
-        expect_fail: []
-        expect_pass: []
-        name: FCT done.
-        on_fail: abort
-        params:
-          message: FCT done.
-          message_timeout_s: 0.0
-          send_no: n
-          send_yes: y
-          style: ok
-        resource: ''
-        retries: 0
-        step_type: GUI_CONFIRM
-        timeout_s: 0.0
-  - name: FCT done.
-    kind: MessageOK
-    enable: true
-    wait_ms: 100
-    timeout_ms: 1000
-    op_params:
-      fct_step:
-        channel: ''
-        command: ''
-        depends: []
-        expect_fail: []
-        expect_pass: []
-        name: FCT done.
-        on_fail: abort
-        params:
-          message: FCT done.
-          message_timeout_s: 0.0
-          send_no: n
-          send_yes: y
-          style: ok
-        resource: ''
-        retries: 0
-        step_type: GUI_CONFIRM
-        timeout_s: 0.0
   - name: Wi-Fi Scan / RSSI (DUT console)
     kind: WIFI
     enable: true
@@ -1620,7 +1572,7 @@ test_workflow:
     - refused
 yaml_build_state:
   plan_version: 1.0.0
-  saved_at: '2026-10-15T11:25:08'
+  saved_at: '2026-10-17T23:33:36'
   imported:
     net:
       file: ''
@@ -1632,11 +1584,11 @@ yaml_build_state:
     gpio: []
     column_widths:
       power:
-      - 183
-      - 149
-      - 149
-      - 149
-      - 149
+      - 207
+      - 174
+      - 174
+      - 174
+      - 174
       clock:
       - 184
       - 151
@@ -1864,19 +1816,13 @@ yaml_build_state:
           \ false\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
           \ ''\n      dialog_style: ok\n      send_yes: y\n      send_no: n\n      timeout: 0.0\n      wait_timeout: 10.0\n\
           \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: message\n      name:\
-          \ FCT done.\n      transport: serial\n      enabled: true\n      wait_enabled: false\n      send_enabled: false\n\
-          \      capture_enabled: false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: false\n     \
-          \ capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n    \
-          \  dialog_style: ok\n      send_yes: y\n      send_no: n\n      timeout: 0.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n    post_rf_commands: []\n  wifi:\n    enabled: true\n\
-          \    interface: mlan0\n    driver_load_cmd: ''\n    scan_enabled: true\n    ap_ssid: ChinaNet-4zEc-5G\n    ap_password:\
-          \ dgu3vcgs\n    ap_ip: ''\n    host_ip: ''\n    rssi_min: -70\n    scan_timeout: 15.0\n    scan_via: dut_console\n\
-          \    ping_enabled: true\n    ping_count: 20\n    ping_timeout: 15.0\n    iperf_enabled: true\n    iperf_tool: iperf3\n\
-          \    iperf_min_mbps: 1.0\n    iperf_server_ip: ''\n    iperf_duration: 10\n    iperf_timeout: 45.0\n  bluetooth:\n\
-          \    enabled: true\n    rssi_enabled: true\n    expected_name: FRDM-IMX93-DUT\n    expected_addr: b8:f4:4f:59:51:a0\n\
-          \    scan_retries: 3\n    rssi_min: -75\n    rssi_timeout: 25.0\n    pair_enabled: true\n    pair_timeout: 40.0\n\
-          \    l2ping_count: 10\n    tone_enabled: true\n    audio_confirm: true\n    tone_timeout: 50.0\n  setup:\n    power_mode:\
-          \ none\n    use_fixture: false\n    manual_on_message: ''\n    manual_off_message: ''\n"
+          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    post_rf_commands: []\n  wifi:\n\
+          \    enabled: true\n    interface: mlan0\n    driver_load_cmd: ''\n    scan_enabled: true\n    ap_ssid: ChinaNet-4zEc-5G\n\
+          \    ap_password: dgu3vcgs\n    ap_ip: ''\n    host_ip: ''\n    rssi_min: -70\n    scan_timeout: 15.0\n    scan_via:\
+          \ dut_console\n    ping_enabled: true\n    ping_count: 20\n    ping_timeout: 15.0\n    iperf_enabled: true\n   \
+          \ iperf_tool: iperf3\n    iperf_min_mbps: 1.0\n    iperf_server_ip: ''\n    iperf_duration: 10\n    iperf_timeout:\
+          \ 45.0\n  bluetooth:\n    enabled: true\n    rssi_enabled: true\n    expected_name: FRDM-IMX93-DUT\n    expected_addr:\
+          \ b8:f4:4f:59:51:a0\n    scan_retries: 3\n    rssi_min: -75\n    rssi_timeout: 25.0\n    pair_enabled: true\n  \
+          \  pair_timeout: 40.0\n    l2ping_count: 10\n    tone_enabled: true\n    audio_confirm: true\n    tone_timeout:\
+          \ 50.0\n  setup:\n    power_mode: none\n    use_fixture: false\n    manual_on_message: ''\n    manual_off_message:\
+          \ ''\n"

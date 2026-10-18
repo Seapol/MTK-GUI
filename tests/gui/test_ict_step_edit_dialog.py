@@ -100,6 +100,23 @@ def test_unit_map_covers_all_methods(qapp):
         assert dlg.ICT_METHOD_UNITS["Static Impedance"] == "Ω"
         assert dlg.ICT_METHOD_UNITS["Power Voltage"] == "V"
         assert dlg.ICT_METHOD_UNITS["Clock Hz"] == "Hz"
+        # the plain Delay wait step reuses the per-step Wait (ms) field
+        assert dlg.ICT_METHOD_UNITS["delay"] == "ms"
+    finally:
+        dlg.deleteLater()
+
+
+def test_ict_add_menu_offers_ops_flash_and_delay(qapp):
+    """Single sequence source: the ICT Add menu offers the standard
+    operations (incl. the flash operations) AND the Delay step - the
+    three categories the user asked for live in the ONE editor."""
+    dlg = make_dialog(None)
+    try:
+        actions = [a.text() for a in dlg.btn_add.menu().actions()]
+        assert "Operation: Init Instruments" in actions
+        assert "Operation: Flash FAT Firmware" in actions
+        assert "Operation: Flash OOBE Firmware" in actions
+        assert "Delay — plain wait (ms)" in actions
     finally:
         dlg.deleteLater()
 

@@ -91,10 +91,11 @@ class YamlBuildPage(QWidget):
     #: Flow page and jumps there (guarded; warns when nothing is
     #: usable)
     load_yaml_requested = Signal()
-    #: the block-04 sequence dialog was accepted - carries the ICT
-    #: test rows (step tuples, "test" kind only); the main window
-    #: merges the standard operations on the Test Work Flow page and
-    #: offers the YAML save
+    #: the block-04 sequence dialog was accepted - carries the WHOLE
+    #: editor state [steps, enables, waits, timeouts] (the steps hold
+    #: tests + standard operations + flash + Delay); the main window
+    #: writes it verbatim on the Test Work Flow page and offers the
+    #: YAML save
     ict_sequence_ready = Signal(list)
     #: P3-B5: the block-07 FCT config was accepted - carries the
     #: generated FCT case dicts (name/kind/enable/wait_ms/timeout_ms/
@@ -277,10 +278,17 @@ class YamlBuildPage(QWidget):
             FctSequence,
             to_project_fct_cases,
         )
+        # the block-07 Sequence tab carries the standard operations /
+        # flash operations / Delay steps by hand - they run BEFORE the
+        # generated console / Wi-Fi / Bluetooth body (single sequence
+        # edit source: the Test Work Flow FCT table is a read-only result
+        # view)
+        seq_cases = self._sequence_cases_from_params(params)
         text = str((params or {}).get("fct_test_config_yaml", "") or "")
         if not text.strip():
-            # nothing configured -> ICT-only project is fine
-            return [], []
+            # nothing configured -> ICT-only project is fine (unless the
+            # Sequence tab carries steps of its own)
+            return list(seq_cases), []
         try:
             node = _yaml.safe_load(text) or {}
             cfg = FctTestConfig.from_dict(
@@ -293,8 +301,8 @@ class YamlBuildPage(QWidget):
         from mtkgui.engine.fct_test_config import build_fct_steps
         body = build_fct_steps(cfg)
         if not body:
-            # all FCT tabs disabled -> ICT-only project, zero cases
-            return [], []
+            # all FCT tabs disabled -> the Sequence-tab steps only
+            return list(seq_cases), []
         from mtkgui.engine.fct_test_config import wrap_fct_setup
         steps = wrap_fct_setup(cfg, body)
         seq = FctSequence(name="FCT Test Work Flow", steps=steps)
@@ -303,8 +311,27 @@ class YamlBuildPage(QWidget):
         # runner routes the row through fct_exec
         for case, step in zip(cases, steps):
             case.setdefault("op_params", {})["fct_step"] = step.to_dict()
+        cases = list(seq_cases) + cases
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
+
+    def _sequence_cases_from_params(self, params: dict) -> list:
+        """The standard-op / flash / Delay steps added in the block-07
+        Sequence tab (stored as a YAML list of case dicts)."""
+        import yaml as _yaml
+        raw = (params or {}).get("fct_sequence_cases_yaml")
+        if isinstance(raw, list):
+            raw = "\n".join(str(ln) for ln in raw)
+        text = str(raw or "")
+        if not text.strip():
+            return []
+        try:
+            data = _yaml.safe_load(text)
+        except _yaml.YAMLError:
+            return []
+        if not isinstance(data, list):
+            return []
+        return [dict(c) for c in data if isinstance(c, dict)]
 
     def _fct_build_params_with_live_cases(self, module_key: str) -> dict:
         """Reverse sync (user direction 2026-10-14): seed the Build FCT
@@ -324,10 +351,116 @@ class YamlBuildPage(QWidget):
                 current.get("fct_test_config_yaml"), cases)
         return current
 
+    def open_ict_sequence(self) -> None:
+        """Open the "Build ICT Test Work Flow Sequence" dialog.
+
+        Single ICT sequence edit source: reached by the block-04 card
+        click AND by double-clicking an ICT result row on the Test Work
+        Flow page (that table is now a read-only result view).
+        """
+        # quiet sync of the embedded Channel Allocation tables into the
+        # model BEFORE the pre-check reads allocated_testable
+        self.model.set_channel_allocation(self.channel_alloc.collect())
+        from mtkgui.gui.yamlbuild.ict_sequence import (
+            IctWorkFlowSequenceDialog,
+            daq_ai_rail_count,
+        )
+        # guidance: only channel-allocated nets reach the sequence
+        # builder (auto Do-Not-Test rule) - explain BEFORE an empty
+        # dialog confuses the operator.  A live result table already
+        # holding a sequence (a loaded project) needs no parse run:
+        # the dialog re-seeds straight from those rows.
+        testable = self.model.imported.get("testable_nets") or {}
+        provider = getattr(self, "current_ict_cases_provider", None)
+        initial = provider() if callable(provider) else None
+        if not testable and not initial:
+            QMessageBox.information(
+                self, "Build ICT Test Work Flow Sequence",
+                "No testable nets parsed yet - run Parse Nets "
+                "(block 02) first.")
+            return
+        allocated = self.model.allocated_testable() or {}
+        if len(allocated) < len(testable):
+            box = QMessageBox(QMessageBox.Icon.Question,
+                              "Channel Allocation incomplete",
+                              f"{len(testable) - len(allocated)} of "
+                              f"{len(testable)} testable nets have "
+                              "no instrument channel assigned - "
+                              "unallocated nets are auto "
+                              "Do-Not-Test and will NOT appear in "
+                              "the sequence.\n\nOpen Channel "
+                              "Allocation now?",
+                              QMessageBox.StandardButton.Yes
+                              | QMessageBox.StandardButton.No,
+                              self)
+            box.button(QMessageBox.StandardButton.Yes).setText(
+                "Open Channel Allocation")
+            box.button(QMessageBox.StandardButton.No).setText(
+                "Continue anyway")
+            if box.exec() == QMessageBox.StandardButton.Yes:
+                # single-page flow: scroll to the embedded tables
+                self._goto_channel_alloc()
+                return
+        # bidirectional sync: the live ICT result rows already seed the
+        # dialog (page -> dialog); let the user edit them
+        dlg = IctWorkFlowSequenceDialog(
+            # user rule: nets WITHOUT an allocated instrument
+            # channel are auto Do-Not-Test - only allocated nets
+            # reach the Test Work Flow sequence builder
+            self.model.allocated_testable,
+            # bidirectional sync (user direction 2026-10-14): seed
+            # the dialog from the CURRENT ICT sequence (the Test Work
+            # Flow page mirrors it), so the user edits the live
+            # sequence instead of a fresh one
+            initial_tests=initial,
+            rail_count=daq_ai_rail_count(
+                self.model.channel_allocation),
+            parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # the WHOLE editor state travels back (steps + enables +
+            # waits + timeouts) - the page writes it verbatim (single
+            # sequence source; nothing is re-injected downstream)
+            self.ict_sequence_ready.emit(list(dlg.result_data()))
+            # configured (OK) -> star mark (user direction)
+            self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
+
+    def open_fct_sequence(self) -> None:
+        """Open the "Build FCT Test Work Flow Sequence" dialog.
+
+        Single FCT sequence edit source: reached by the block-07 card
+        click AND by double-clicking an FCT result row on the Test Work
+        Flow page (that table is now a read-only result view).
+        """
+        self.model.set_channel_allocation(self.channel_alloc.collect())
+        params, _dialog = self.block_flow.open_dialog(
+            "fct_build",
+            self._fct_build_params_with_live_cases("fct_build"),
+            self,
+            log_sink=self.task_log.emit,
+            progress_sink=self.task_progress.emit)
+        if params is None:
+            return
+        self.model.set_params("fct_build", params)
+        # P3-B5: block accepted -> generate the FCT work-flow cases from
+        # the configured fct_test_config. Errors are shown explicitly (no
+        # silent ignore); an all-disabled FCT is a valid ICT-only project
+        # and still offers the YAML save.
+        cases, fct_errors = self._emit_fct_sequence(params)
+        if fct_errors:
+            self._tlog("ERROR", "FCT config invalid: "
+                                + "; ".join(fct_errors))
+            QMessageBox.warning(
+                self, "Build FCT Test Work Flow",
+                "The FCT configuration is invalid - fix the "
+                "following before applying:\n\n"
+                + "\n".join(fct_errors[:15]))
+            return
+        self.fct_sequence_ready.emit(cases)
+        self._set_mark("fct_build", MARK_STAR)
+
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
-        net = self.model.imported.get("net") or {}
         if module_key == "channel_alloc":
             # the "Auto-Channel Allocation" card (user direction
             # 2026-10-13): clicking runs the automatic allocation
@@ -336,80 +469,21 @@ class YamlBuildPage(QWidget):
             self.channel_alloc.auto_allocate()
             self._set_mark("channel_alloc", MARK_STAR)
             return
+        # the two sequence builders are public entry points: the Test Work
+        # Flow page's row double-click lands here (single sequence edit
+        # source) exactly like the block card click
+        if module_key == "ict_workflow":
+            return self.open_ict_sequence()
+        if module_key == "fct_build":
+            return self.open_fct_sequence()
+        net = self.model.imported.get("net") or {}
         # quiet sync of the embedded Channel Allocation tables into
-        # the model BEFORE any dependent read (the ICT sequence
-        # pre-check reads allocated_testable; the tab-leave hideEvent
+        # the model BEFORE any dependent read (the tab-leave hideEvent
         # save logs loudly, this one is silent)
         self.model.set_channel_allocation(self.channel_alloc.collect())
-        if module_key == "ict_workflow":
-            # merged 04/05/06 node: open the ICT Test Work Flow
-            # Sequence builder (user direction) - one test per row,
-            # impedance -> power rails (voltage) -> clock, manual
-            # adjustment; on OK the main window adds the standard
-            # operations and offers the YAML save
-            from mtkgui.gui.yamlbuild.ict_sequence import (
-                IctWorkFlowSequenceDialog,
-                daq_ai_rail_count,
-            )
-            # guidance: only channel-allocated nets reach the
-            # sequence builder (auto Do-Not-Test rule) - explain
-            # BEFORE an empty dialog confuses the operator
-            testable = self.model.imported.get("testable_nets") or {}
-            if not testable:
-                QMessageBox.information(
-                    self, "Build ICT Test Work Flow Sequence",
-                    "No testable nets parsed yet - run Parse Nets "
-                    "(block 02) first.")
-                return
-            allocated = self.model.allocated_testable() or {}
-            if len(allocated) < len(testable):
-                box = QMessageBox(QMessageBox.Icon.Question,
-                                  "Channel Allocation incomplete",
-                                  f"{len(testable) - len(allocated)} of "
-                                  f"{len(testable)} testable nets have "
-                                  "no instrument channel assigned - "
-                                  "unallocated nets are auto "
-                                  "Do-Not-Test and will NOT appear in "
-                                  "the sequence.\n\nOpen Channel "
-                                  "Allocation now?",
-                                  QMessageBox.StandardButton.Yes
-                                  | QMessageBox.StandardButton.No,
-                                  self)
-                box.button(QMessageBox.StandardButton.Yes).setText(
-                    "Open Channel Allocation")
-                box.button(QMessageBox.StandardButton.No).setText(
-                    "Continue anyway")
-                if box.exec() == QMessageBox.StandardButton.Yes:
-                    # single-page flow: scroll to the embedded tables
-                    self._goto_channel_alloc()
-                    return
-            # bidirectional sync: load the live ICT Test Cases rows
-            # first (page -> dialog), then let the user edit them
-            provider = getattr(self, "current_ict_cases_provider", None)
-            initial = provider() if callable(provider) else None
-            dlg = IctWorkFlowSequenceDialog(
-                # user rule: nets WITHOUT an allocated instrument
-                # channel are auto Do-Not-Test - only allocated nets
-                # reach the Test Work Flow sequence builder
-                self.model.allocated_testable,
-                # bidirectional sync (user direction 2026-10-14): seed
-                # the dialog from the CURRENT ICT Test Cases rows (the
-                # Test Work Flow page is the source of truth), so the
-                # user edits the live sequence instead of a fresh one
-                initial_tests=initial,
-                rail_count=daq_ai_rail_count(
-                    self.model.channel_allocation),
-                parent=self)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self.ict_sequence_ready.emit(dlg.result_tests())
-                # configured (OK) -> star mark (user direction)
-                self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
-            return
         params, dialog = self.block_flow.open_dialog(
             module_key,
-            self._fct_build_params_with_live_cases(module_key)
-            if module_key == "fct_build"
-            else self.model.get_params(module_key),
+            self.model.get_params(module_key),
             self,
             log_sink=self.task_log.emit,
             progress_sink=self.task_progress.emit,
@@ -433,22 +507,6 @@ class YamlBuildPage(QWidget):
         if params is None:
             return
         self.model.set_params(module_key, params)
-        if module_key == "fct_build":
-            # P3-B5: block accepted -> generate the FCT work-flow cases
-            # from the configured fct_test_config. Errors are shown
-            # explicitly (no silent ignore); an all-disabled FCT is a
-            # valid ICT-only project and still offers the YAML save.
-            cases, fct_errors = self._emit_fct_sequence(params)
-            if fct_errors:
-                self._tlog("ERROR", "FCT config invalid: "
-                                    + "; ".join(fct_errors))
-                QMessageBox.warning(
-                    self, "Build FCT Test Work Flow",
-                    "The FCT configuration is invalid - fix the "
-                    "following before applying:\n\n"
-                    + "\n".join(fct_errors[:15]))
-                return
-            self.fct_sequence_ready.emit(cases)
         # configured (OK) -> star mark (user direction); the full
         # sequence validation runs AUTOMATICALLY before every publish
         # (the manual Validate card was retired 2026-10-13)

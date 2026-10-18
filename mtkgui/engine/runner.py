@@ -523,6 +523,14 @@ class TestRunner(QObject):
             self._exec_rail_capture_row(r)
             return
 
+        if kind == "delay":
+            # plain wait step: the scheduler already paused for
+            # ict_waits[r] ms before this call (see _run_step_body), so
+            # the row just reports PASS with no measured value - it must
+            # stay ahead of the rack.measure_row path below
+            self._put("ict", r, StepStatus.PASS, None)
+            return
+
         if kind == "op":
             status = self._run_op(
                 "ICT", name, params,

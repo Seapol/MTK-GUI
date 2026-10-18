@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """Block-04 ICT Test Work Flow Sequence builder: generation order
 (impedance -> voltage -> clock), manual adjustments (move / add /
-remove / duplicate) and the test-only row set."""
+remove / duplicate) and the whole-sequence result.
+
+The dialog is a :class:`StepsEditorDialog` subclass (single sequence
+edit source), so the manual-adjustment cases drive the shared list /
+button API instead of the removed table helpers.
+"""
 from __future__ import annotations
 
 import pytest
@@ -11,7 +16,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.gui.yamlbuild.ict_sequence import (  # noqa: E402
-    IctTestItemDialog,
     IctWorkFlowSequenceDialog,
 )
 
@@ -37,7 +41,7 @@ def test_generation_order_impedance_voltage_clock(qapp):
     then the clock nets - one test per row, no standard operations."""
     dlg = make_dialog()
     try:
-        rows = dlg.result_tests()
+        rows = dlg.result_data()[0]
         names = [r[1] for r in rows]
         assert names == [
             "Static Impedance - 1V8_CORE", "Static Impedance - 3V3",
@@ -54,58 +58,59 @@ def test_generation_order_impedance_voltage_clock(qapp):
 def test_move_up_down_and_duplicate(qapp):
     dlg = make_dialog()
     try:
-        dlg.table.selectRow(2)                     # Power Voltage - 1V8
-        dlg._move_up()
-        assert dlg.result_tests()[1][1] == "Power Voltage - 1V8_CORE"
-        dlg._move_down()
-        assert dlg.result_tests()[2][1] == "Power Voltage - 1V8_CORE"
-        dlg._duplicate()
-        assert len(dlg.result_tests()) == 6
-        assert dlg.result_tests()[3][1] == "Power Voltage - 1V8_CORE"
-        dlg._remove()
-        assert len(dlg.result_tests()) == 5
+        dlg.select_row(2)                          # Power Voltage - 1V8
+        dlg._on_move_up()
+        assert dlg._steps[1][1] == "Power Voltage - 1V8_CORE"
+        dlg._on_move_down()
+        assert dlg._steps[2][1] == "Power Voltage - 1V8_CORE"
+        dlg._on_duplicate()
+        assert len(dlg.result_data()[0]) == 6
+        assert dlg._steps[3][1] == "Power Voltage - 1V8_CORE"
+        dlg._on_remove()
+        assert len(dlg.result_data()[0]) == 5
     finally:
         dlg.deleteLater()
 
 
-def test_rapid_moves_swap_in_place(qapp):
-    """Smoothness contract: Move Up / Down swaps rows IN PLACE - the
-    QTableWidgetItem objects are REUSED (no full table rebuild, so
-    rapid clicks stay responsive) and the selection follows the row."""
+def test_rapid_moves_stay_clamped_and_ordered(qapp):
+    """Smoothness contract: rapid Move Up clicks stay clamped at the top
+    and the shared list stays in sync with result_data()."""
     dlg = make_dialog()
     try:
-        dlg.table.selectRow(2)
-        item = dlg.table.item(2, 1)            # Power Voltage - 1V8
-        dlg._move_up()
-        assert dlg.table.item(1, 1) is item    # same objects, swapped
-        dlg._move_up()
-        dlg._move_up()                         # rapid repeated clicks
-        assert dlg.table.currentRow() == 0     # clamped at the top
-        names = [dlg.table.item(r, 1).text()
-                 for r in range(dlg.table.rowCount())]
-        assert names[0] == "Power Voltage - 1V8_CORE"
-        assert names == [r[1] for r in dlg.result_tests()]
+        dlg.select_row(2)
+        dlg._on_move_up()
+        dlg._on_move_up()
+        dlg._on_move_up()                          # rapid repeated clicks
+        assert dlg.list_widget.currentRow() == 0   # clamped at the top
+        assert dlg._steps[0][1] == "Power Voltage - 1V8_CORE"
+        assert len(dlg.result_data()[0]) == dlg.list_widget.count()
+        labels = [dlg.list_widget.item(r).text()
+                  for r in range(dlg.list_widget.count())]
+        assert "Power Voltage - 1V8_CORE" in labels[0]
     finally:
         dlg.deleteLater()
 
 
-def test_double_click_opens_editor(qapp, monkeypatch):
-    """Double-clicking a row opens the item editor for THAT row and
-    the accepted values replace it (user direction)."""
+def test_double_click_opens_the_row_editor(qapp, monkeypatch):
+    """Double-clicking a row opens the shared row editor for THAT row
+    and the accepted values replace it (user direction)."""
     dlg = make_dialog()
     try:
-        monkeypatch.setattr(
-            "mtkgui.gui.yamlbuild.ict_sequence.QDialog.exec",
-            lambda self: self.DialogCode.Accepted)
-        monkeypatch.setattr(
-            "mtkgui.gui.yamlbuild.ict_sequence."
-            "IctTestItemDialog.values",
-            lambda self: ("test", "Power Voltage - 3V3", "V", "—",
-                          "3.135", "3.465"))
-        dlg.table.cellDoubleClicked.emit(1, 0)   # Static Impedance-3V3
-        assert dlg.result_tests()[1] == ("test", "Power Voltage - 3V3",
-                                         "V", "—", "3.135", "3.465")
-        assert dlg.table.currentRow() == 1       # selection kept
+        edited = []
+
+        def fake_edit(r):
+            edited.append(r)
+            dlg._steps[r] = ("test", "Power Voltage - 3V3", "V",
+                             "—", "3.135", "3.465")
+            return True
+
+        monkeypatch.setattr(dlg, "_edit_ict_step", fake_edit)
+        dlg.list_widget.setCurrentRow(1)           # Static Impedance-3V3
+        dlg._on_edit()
+        assert edited == [1]
+        assert dlg.result_data()[0][1] == ("test", "Power Voltage - 3V3",
+                                           "V", "—", "3.135", "3.465")
+        assert dlg.list_widget.currentRow() == 1   # selection kept
     finally:
         dlg.deleteLater()
 
@@ -132,8 +137,9 @@ def test_auto_fills_limits_from_net_names(qapp):
 
     dlg = make_dialog()
     try:
-        dlg._auto()
-        rows = {r[1]: r for r in dlg.result_tests()}
+        # the dialog seeds with auto-filled limits at construction (the
+        # old table-level _auto() step is gone: Auto is the seed now)
+        rows = {r[1]: r for r in dlg.result_data()[0]}
         # power: expected 1.800 V, +/- 5 %, 0.001 V precision
         assert rows["Power Voltage - 1V8_CORE"][3] == "1.800"
         assert rows["Power Voltage - 1V8_CORE"][4] == "1.710"
@@ -149,83 +155,18 @@ def test_auto_fills_limits_from_net_names(qapp):
         dlg.deleteLater()
 
 
-def test_impedance_min_only(qapp):
-    """Impedance (user direction): NO expected value, NO Max - only
-    the Min (lower) limit is editable."""
-    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
-                            method="Static Impedance",
-                            name="Static Impedance - 5V_SDA_PSW")
-    try:
-        assert not dlg.spin_expected.isEnabled()
-        assert not dlg.spin_hi.isEnabled()
-        assert dlg.spin_lo.isEnabled()
-        dlg.spin_lo.setValue(1.5)
-        rows = dlg.values()
-        assert rows[3] == "—"            # no expected
-        assert rows[4] == "1.5"          # Min only
-        assert rows[5] == "—"            # no Max
-    finally:
-        dlg.deleteLater()
-
-
-def test_voltage_expected_drives_limits(qapp):
-    """Voltage / Clock carry an EXPECTED value (prefilled from the
-    net name); Min / Max derive as Expected * (1 -/+ tolerance)."""
-    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
-                            method="Power Voltage",
-                            name="Power Voltage - DCDC_3V3")
-    try:
-        assert dlg.spin_expected.isEnabled()
-        assert dlg.spin_hi.isEnabled()
-        # prefill 3.3 V from the name -> +/- 5 %
-        assert dlg.spin_expected.value() == pytest.approx(3.3)
-        rows = dlg.values()
-        assert rows[3] == "3.3"
-        assert rows[4] == "3.135"
-        assert rows[5] == "3.465"
-    finally:
-        dlg.deleteLater()
-
-
-def test_daq_ai_needs_no_configuration(qapp):
-    """DAQ AI (user direction): the Power rails are allocated in
-    Channel Allocation - the item editor shows the read-only rail
-    count in the Net cell (no free net) and disables Net / Min / Max."""
-    from mtkgui.gui.yamlbuild.ict_sequence import IctTestItemDialog
-    dlg = IctTestItemDialog(lambda: dict(TESTABLE),
-                            method="DAQ AI", rail_count=12)
-    try:
-        assert dlg.combo_method.currentText() == "DAQ AI"
-        assert not dlg.combo_net.isEnabled()
-        assert not dlg.spin_lo.isEnabled()
-        assert not dlg.spin_hi.isEnabled()
-        assert dlg.edit_unit.text() == "V"
-        # the Net cell carries the DAQ AI rail count (read-only)
-        assert dlg.combo_net.currentText() == \
-            "12 Power rails assigned on DAQ channels"
-        assert dlg.values() == ("DAQ AI",
-                                "12 Power rails assigned on DAQ channels",
-                                "V", "—", "—", "—")
-    finally:
-        dlg.deleteLater()
-
-
-def test_add_row_without_operations(qapp, monkeypatch):
-    """Add opens the item dialog; the accepted row lands at the end.
-    Standard operations never enter the table."""
+def test_add_row_lands_at_the_end(qapp, monkeypatch):
+    """The shared Add inserts the chosen step after the current row and
+    the accepted row joins the whole-sequence result."""
     dlg = make_dialog()
     try:
-        monkeypatch.setattr(
-            "mtkgui.gui.yamlbuild.ict_sequence.QDialog.exec",
-            lambda self: self.DialogCode.Accepted)
-        monkeypatch.setattr(
-            "mtkgui.gui.yamlbuild.ict_sequence."
-            "IctTestItemDialog.values",
-            lambda self: ("test", "Power Voltage - 3V3", "V", "—",
-                          "3.201", "3.399"))
-        dlg._add()
-        rows = dlg.result_tests()
-        assert rows[-1][1] == "Power Voltage - 3V3"
-        assert all(r[0] == "test" for r in rows)
+        monkeypatch.setattr(dlg, "_on_edit", lambda *a, **k: None)
+        before = len(dlg.result_data()[0])
+        dlg._on_add(("test", "Power Voltage - 3V3", "V", "—",
+                     "3.201", "3.399"))
+        rows = dlg.result_data()[0]
+        assert len(rows) == before + 1
+        assert rows[-1] == ("test", "Power Voltage - 3V3", "V", "—",
+                            "3.201", "3.399")
     finally:
         dlg.deleteLater()

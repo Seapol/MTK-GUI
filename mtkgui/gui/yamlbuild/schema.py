@@ -252,6 +252,9 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("case_link", "Case Link", hidden=True),
         _f("fct_test_config_yaml", "FCT Test Config", ftype=T_TEXT,
            hidden=True, remarks="fct_test_config YAML node (P3-B5)"),
+        _f("fct_sequence_cases_yaml", "FCT Sequence Steps", ftype=T_TEXT,
+           hidden=True,
+           remarks="standard op / flash / Delay steps (shared editor)"),
     ),
 }
 
