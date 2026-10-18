@@ -52,6 +52,17 @@ _STATUS_TO_ENUM = {
     "Ignore": StepStatus.IGNORED, "RUNNING": StepStatus.RUNNING,
 }
 
+#: _run_op verdict string -> row status.  Op steps used to report only
+#: "Done" / "Error"; the R3 manual flash path adds "Fail" (operator
+#: STOP / timeout) and "Ignore" (headless - never judged).
+_OP_VERDICT_STATUS = {"Done": StepStatus.PASS, "Fail": StepStatus.FAIL,
+                      "Ignore": StepStatus.IGNORED}
+
+
+def op_verdict_status(verdict: str) -> StepStatus:
+    """Map a :meth:`TestRunner._run_op` verdict to the row status."""
+    return _OP_VERDICT_STATUS.get(verdict, StepStatus.ERROR)
+
 #: the DAQ AI step produced by the ICT sequence builder arrives as
 #: kind="test" with this NAME (the Power rails are pre-allocated in
 #: Channel Allocation) - it MUST dispatch to the rail-capture path
@@ -86,6 +97,12 @@ class TestRunner(QObject):
         self._interrupted = False
         self._timeout_retried = False
         self._wait_done = False
+        # R3: whether the current step may ask the operator (Run
+        # button) - False in Run Demo / smoke.  Set by
+        # _exec_with_retry; the ICT executor reads it.
+        self._op_interactive = True
+        # R4: the flash verdict source for the report Measured column
+        self._last_op_measured = ""
         self._run_steps: list[tuple] = []
         self._run_index = 0
         # pre-FCT console connect step ("fctconn"): open every console
@@ -290,6 +307,11 @@ class TestRunner(QObject):
             getattr(self, "retry_count", 0) or 0)
         attempt = 0
         while True:
+            # R3: interactivity travels on the runner (not the
+            # _exec_ict_row signature) - the ICT row executor keeps its
+            # 1-arg contract that tests monkeypatch
+            self._op_interactive = (True if interactive is None
+                                    else interactive)
             if kind == "ict":
                 self._exec_ict_row(args[0])
             elif kind == "fct":
@@ -309,19 +331,37 @@ class TestRunner(QObject):
                 f"(attempt {attempt - 1}) -> Retry {attempt}/{retries}")
 
     # ------------------------------------------------------- op helpers
-    def _run_op(self, tag: str, name: str, params: dict | None) -> str:
-        """Execute one standard operation step; returns "Done"/"Error".
+    def _run_op(self, tag: str, name: str, params: dict | None,
+                interactive: bool = True) -> str:
+        """Execute one standard operation step; returns "Done" / "Fail"
+        / "Ignore" / "Error".
 
         Virtual mode drives the simulated rack (flash steps run
         engine-side in every mode); Real mode goes through the
         instrument gateway.  REAL MODE NEVER SIMULATES: without a
         gateway an op is an equipment fault -> Error (the stop policies
-        then apply)."""
+        then apply).
+
+        R3: a flash step with ``mode == "manual"`` opens the
+        third-party GUI and takes the operator GO / STOP answer as the
+        verdict ("Fail" on STOP / timeout - the run stops on STOP);
+        with no operator dialog available (headless) it is "Ignore".
+        """
         env = self.env
         gw = getattr(env, "gateway", None)
         virtual = getattr(env, "virtual_mode", False)
         is_flash = (params or {}).get("type") == "flash"
         self._last_op_error = ""     # reason surfaced in the row detail
+        # R4: the flash verdict SOURCE lands in the report Measured
+        # column ("CLI flash OK (J-Link)" / "Operator: GO") so the
+        # report tells machine-parsed from operator-judged flashes
+        self._last_op_measured = ""
+        if is_flash and str((params or {}).get("mode") or "auto") == \
+                "manual":
+            verdict = self._run_manual_flash(tag, name, params,
+                                             interactive)
+            self._flash_audit_line(tag, name, params, verdict)
+            return verdict
         if is_flash:
             if gw is not None and hasattr(gw, "execute_op"):
                 out = gw.execute_op(name, params)
@@ -363,9 +403,100 @@ class TestRunner(QObject):
                 # keep the gateway's reason for the row detail
                 self._last_op_error = " | ".join(
                     out.lines) or "instrument error"
+                self._flash_audit_line(tag, name, params, "Error")
                 return "Error"
+            # R4: a string gateway outcome value IS the verdict source
+            # (the CLI path returns "CLI flash OK (J-Link)"); the legacy
+            # driver path returns bytes - never rendered into the report
+            value = getattr(out, "value", None)
+            if is_flash and isinstance(value, str) and \
+                    value not in ("", "reused"):
+                self._last_op_measured = value
         env._log(f"{tag} op {name}: Done")
+        if is_flash:
+            self._flash_audit_line(tag, name, params, "Done")
         return "Done"
+
+    def _flash_audit_line(self, tag: str, name: str, params: dict,
+                          verdict: str) -> None:
+        """R4: one audit line per flash attempt - the who/what of the
+        verdict travels in the run log next to the [FLASH_TOOL] and
+        [SLOT_IMG] lines."""
+        p = params or {}
+        self.env._log(
+            f"[FLASH] {tag} {name}: mode={p.get('mode') or 'auto'} "
+            f"slot={p.get('slot') or '?'} "
+            f"tool={p.get('tool') or 'J-Link'} "
+            f"image={p.get('image') or '(config)'} "
+            f"verdict={verdict}"
+            + (f" ({self._last_op_measured})"
+               if self._last_op_measured else ""))
+
+    def _run_manual_flash(self, tag: str, name: str, params: dict,
+                          interactive: bool) -> str:
+        """R3 manual path: the third-party GUI flashes the DUT and the
+        OPERATOR judges it (user direction 2026-10-17 - mode: manual is
+        a human verdict).
+
+        GO -> Done (PASS); STOP -> Fail and the run stops; timeout ->
+        Fail; a headless run with no operator dialog IGNOREDs the step
+        (never guessed).  An optional ``launch`` path opens the
+        third-party GUI detached first - a launch failure is logged and
+        the operator can still flash by hand."""
+        env = self.env
+        slot = str(params.get("slot") or "fat")
+        prompt = str(params.get("message")
+                     or f"Flash the {slot} firmware via the third-party "
+                        "tool, then answer GO / STOP")
+        timeout_s = float(params.get("message_timeout_s") or 0.0)
+        launch = str(params.get("launch") or "").strip()
+        if launch:
+            from .flash_tool import launch_tool_gui
+            started, detail = launch_tool_gui(launch)
+            env._log(f"{tag} op {name}: third-party GUI {launch} -> "
+                     f"{detail}")
+        if not interactive:
+            # Run Demo / smoke: simulate the operator GO (no dialog)
+            env._log(f"{tag} op {name}: manual flash operator GO "
+                     f"(simulated) -> Done")
+            self._last_op_measured = "Operator: GO (simulated)"
+            return "Done"
+        answer = self._operator_gostop(prompt, timeout_s)
+        if answer is None:
+            env._log(f"{tag} op {name}: no operator dialog available "
+                     f"(headless) -> IGNORED")
+            return "Ignore"
+        if answer == "go":
+            env._log(f"{tag} op {name}: operator GO -> Done")
+            self._last_op_measured = "Operator: GO"
+            return "Done"
+        reason = "operator STOP" if answer == "stop" else \
+            f"operator {answer}"
+        self._last_op_error = f"manual flash {reason}"
+        self._last_op_measured = f"Operator: {answer.capitalize()}"
+        env._log(f"{tag} op {name}: {reason} -> FAIL"
+                 + (" (run stops)" if answer == "stop" else ""))
+        if answer == "stop":
+            # operator-style abort: flagged teardown rows still run
+            self.abort(trigger="operator")
+        return "Fail"
+
+    def _operator_gostop(self, prompt: str, timeout_s: float = 0.0) \
+            -> str | None:
+        """Shared MessageGoStop operator interaction (R3).
+
+        Reuses the env's FCT operator dialog (the same MessageGoStop
+        box used by the operator test methods).  Returns the answer
+        string ("go" / "stop" / "timeout" / "ok"), or ``None`` when no
+        operator dialog is available (headless env / 2-arg stub)."""
+        fn = getattr(self.env, "_fct_message_dialog", None)
+        if fn is None:
+            return None
+        try:
+            return fn("MessageGoStop", prompt, timeout_s)
+        except TypeError:
+            # legacy headless stub signature (kind, name) - no operator
+            return None
 
     # ------------------------------------------------------ ICT staging
     def _exec_ict_row(self, r: int) -> None:
@@ -393,12 +524,19 @@ class TestRunner(QObject):
             return
 
         if kind == "op":
-            status = self._run_op("ICT", name, params)
-            self._put("ict", r,
-                      StepStatus.PASS if status == "Done"
-                      else StepStatus.ERROR,
-                      None if status == "Done"
-                      else getattr(self, "_last_op_error", None))
+            status = self._run_op(
+                "ICT", name, params,
+                getattr(self, "_op_interactive", True))
+            # R4: flash rows carry the verdict source in Measured
+            # (machine-parsed CLI text or "Operator: GO"); other op
+            # rows keep the plain Done/Error + error detail shape
+            is_flash = (params or {}).get("type") == "flash"
+            measured = getattr(self, "_last_op_measured", "") or None \
+                if is_flash else None
+            self._put("ict", r, op_verdict_status(status),
+                      measured if measured is not None
+                      else (None if status == "Done"
+                            else getattr(self, "_last_op_error", None)))
             return
 
         # ------------------------------------------------ measurement rows
@@ -583,14 +721,22 @@ class TestRunner(QObject):
             return
         if kind == "op":
             # standard operation step: move fixture / PSU state, log
-            # every sub-action, Done or Error (equipment fault)
+            # every sub-action, Done / Fail / Ignore or Error
             params = (env.fct_op_params[r]
                       if r < len(env.fct_op_params) else None)
-            verdict = self._run_op("FCT", name, params)
-            self._put("fct", r,
-                      StepStatus.PASS if verdict == "Done"
-                      else StepStatus.ERROR,
-                      None, time.monotonic() - t0)
+            verdict = self._run_op("FCT", name, params, interactive)
+            status = op_verdict_status(verdict)
+            if (params or {}).get("type") == "flash":
+                # R4: flash rows carry the verdict source in Measured
+                # INSTEAD of the duration (the report renders
+                # duration-or-measured) - machine vs human verdict is
+                # visible on the report
+                measured = getattr(self, "_last_op_measured", "") or \
+                    getattr(self, "_last_op_error", "") or None
+                self._put("fct", r, status, measured)
+            else:
+                self._put("fct", r, status, None,
+                          time.monotonic() - t0)
             return
         verdict = None
         if r in env.fct_sim_fail:
@@ -740,7 +886,8 @@ class TestRunner(QObject):
         ctx = FctContext(station_id=station, user=user,
                          log_sink=env._log,
                          run_op=lambda op_name, op_params:
-                         self._run_op("FCT", op_name, op_params),
+                         self._run_op("FCT", op_name, op_params,
+                                      interactive),
                          keyword_pass=list(getattr(
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
@@ -1563,7 +1710,7 @@ class TestRunner(QObject):
                 if env.ict_enables[r]:
                     self.step_started.emit(r)
                     self._step_t0 = time.monotonic()
-                    self._exec_with_retry("ict", (r,))
+                    self._exec_with_retry("ict", (r,), interactive=False)
                     self.step_finished.emit(r,
                                             self._step_result("ict", (r,)))
                 else:
