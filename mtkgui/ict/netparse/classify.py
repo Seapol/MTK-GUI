@@ -80,6 +80,14 @@ _CHIP_MODEL_RE = re.compile(
     r"(^|_)(SI5332|SJA1124|TJA1230|FPGA)([0-9A-Z_]*)?", re.IGNORECASE)
 #: parenthesized mux marker: ``SUSCLK_32KHZ(SCU_GPIO0_07)``
 _MUX_SUFFIX_RE = re.compile(r"\([^)]*\)")
+#: M1 tail fix: crystal-family tokens allow an ALPHABETIC tail too
+#: (``XTALI`` / ``XTALO`` / ``RTC_XTALI`` / ``RTC_XTALO`` are crystal
+#: IO pins).  The CLK / MCLK / REFCLK / SUSCLK / AUXCLK / SCKI tokens
+#: keep their ``[0-9_]``-only tail so ``CLKOUTRUN``-style names stay
+#: excluded.  Checked BEFORE _CLOCK_PREFIX_RE (chip-model and
+#: interface exclusions still run first).
+_CRYSTAL_TOKEN_RE = re.compile(
+    r"(^|_)(OSCI|OSCO|OSC|XTAL|EXTAL)([0-9A-Z_]*)?$", re.IGNORECASE)
 #: differential-clock markers: ``REFCLK_P`` / ``REFCLK_N``
 _DIFF_CLOCK_RE = re.compile(
     r"(_P|_N)([0-9]*)$|_(PLUS|MINUS)$", re.IGNORECASE)
@@ -114,7 +122,8 @@ def classify_clock(name: str) -> bool:
     base = _MUX_SUFFIX_RE.sub("", name).strip()
     if not base:
         return False
-    return bool(_CLOCK_PREFIX_RE.search(base)
+    return bool(_CRYSTAL_TOKEN_RE.search(base)
+                or _CLOCK_PREFIX_RE.search(base)
                 or _CLOCK_SUFFIX_RE.search(base)
                 or _CLOCK_FREQ_RE.match(base))
 
