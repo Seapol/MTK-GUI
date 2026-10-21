@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import re
 
+from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
+                           FPGA as ROLE_FPGA,
+                           INTERFACE_CHIP as ROLE_INTERFACE,
+                           _NAME_FPGA_RE, role_for_part_number)
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
                     NetCollection, NetlistData, NetRecord)
@@ -88,10 +92,42 @@ _MUX_SUFFIX_RE = re.compile(r"\([^)]*\)")
 #: interface exclusions still run first).
 _CRYSTAL_TOKEN_RE = re.compile(
     r"(^|_)(OSCI|OSCO|OSC|XTAL|EXTAL)([0-9A-Z_]*)?$", re.IGNORECASE)
+#: M2 PART B: a net is a DEVICE-ROLE candidate when its name mentions
+#: any clock-ish token (plain substring - the role step refines, the
+#: M1 rules stay authoritative without a library)
+_CLOCK_HINT_RE = re.compile(
+    r"CLK|XTAL|OSC|MCLK|REFCLK|SUSCLK|AUXCLK", re.IGNORECASE)
+#: clock-generator power-strap suffixes beat the clock role
+#: (``SI5332_CLK_VDDA`` -> Power)
+_CLOCK_GEN_POWER_RE = re.compile(
+    r"(^|_)(VDDA|VDDDIG|VDDXTAL|VIO|VDD|PWR|AVDD|DVDD|IOVDD)"
+    r"([0-9A-Z_.-]*)?$", re.IGNORECASE)
 #: differential-clock markers: ``REFCLK_P`` / ``REFCLK_N``
 _DIFF_CLOCK_RE = re.compile(
     r"(_P|_N)([0-9]*)$|_(PLUS|MINUS)$", re.IGNORECASE)
 _PIN_TOKEN_RE = re.compile(r"^[\w\.\-\[\]/#]+$")
+
+
+def _clock_excluded(name: str, chip_model: bool = True) -> bool:
+    """M1 interface / pin-multiplex / chip-model / diff exclusions.
+
+    Shared by :func:`classify_clock` and the M2 device-role step (the
+    role step sits BETWEEN the clock token match and the chip-model
+    exclusion, i.e. interface-excluded names never reach it; with
+    ``chip_model=False`` the no-library chip-model fallback is left
+    out so the role step can re-classify chip-model nets).
+    """
+    if _CLOCK_EXCLUDE_RE.search(name):
+        return True
+    if _CLOCK_IFACE_ANCHOR_RE.search(name):
+        return True
+    if _CLOCK_PSI5_RE.search(name):
+        return True
+    if chip_model and _CHIP_MODEL_RE.search(name):
+        return True
+    if _CLOCK_IFACE2_RE.search(name):
+        return True
+    return bool(_DIFF_CLOCK_RE.search(name))
 
 
 def classify_clock(name: str) -> bool:
@@ -106,18 +142,7 @@ def classify_clock(name: str) -> bool:
     """
     if not name:
         return False
-    if _CLOCK_EXCLUDE_RE.search(name):
-        return False
-    if _CLOCK_IFACE_ANCHOR_RE.search(name):
-        return False
-    if _CLOCK_PSI5_RE.search(name):
-        return False
-    # chip-model table runs BEFORE the token match (M2 placeholder)
-    if _CHIP_MODEL_RE.search(name):
-        return False
-    if _CLOCK_IFACE2_RE.search(name):
-        return False
-    if _DIFF_CLOCK_RE.search(name):
+    if _clock_excluded(name):
         return False
     base = _MUX_SUFFIX_RE.sub("", name).strip()
     if not base:
@@ -128,11 +153,17 @@ def classify_clock(name: str) -> bool:
                 or _CLOCK_FREQ_RE.match(base))
 
 
-def classify_nets(netlist: NetlistData) -> NetCollection:
+def classify_nets(netlist: NetlistData,
+                  library: dict[str, str] | None = None) -> NetCollection:
     """Classify every netlist net into the fixed type set.
 
     Args:
         netlist: Parsed Allegro netlist (see ``parse_netlist``).
+        library: Optional ``refdes -> part_number`` map (M2 device
+                 knowledge base, built from the BOM).  With a library,
+                 clock-ish nets get a DEVICE-ROLE step between the
+                 clock token match and the chip-model exclusion;
+                 ``None`` keeps the M1 no-library behaviour.
 
     Returns:
         :class:`NetCollection` with ``gnd_ref`` / ``diff_pair`` /
@@ -147,17 +178,74 @@ def classify_nets(netlist: NetlistData) -> NetCollection:
             net_type, provenance = NET_TYPE_GND_REF, "rule:gnd_ref"
         elif name in pair_map:
             net_type, provenance = NET_TYPE_DIFF_PAIR, "rule:diff_pair"
-        elif _POWER_RE.match(name):
-            net_type, provenance = NET_TYPE_POWER, "rule:power"
-        elif classify_clock(name):
-            net_type, provenance = NET_TYPE_CLOCK_SINGLE, "rule:se_clock"
+        elif library is not None:
+            resolved = _device_role_type(name, members, library)
+            if resolved is not None:
+                net_type, provenance = resolved
+            else:
+                net_type, provenance = _name_type(name)
         else:
-            net_type, provenance = NET_TYPE_SIGNAL, "physical:signal"
+            net_type, provenance = _name_type(name)
         collection.nets.append(
             NetRecord(name=name, members=members, net_type=net_type,
                       provenance=provenance))
     collection.diff_pairs = _pair_tuples(pair_map)
     return collection
+
+
+def _name_type(name: str) -> tuple[str, str]:
+    """M1 name-based classification (no library)."""
+    if _POWER_RE.match(name):
+        return NET_TYPE_POWER, "rule:power"
+    if classify_clock(name):
+        return NET_TYPE_CLOCK_SINGLE, "rule:se_clock"
+    return NET_TYPE_SIGNAL, "physical:signal"
+
+
+def _device_role_type(name: str, members: list[str],
+                      library: dict) -> tuple[str, str] | None:
+    """M2 device-role step for clock-ish nets (None = fall through).
+
+    Clock-generator chips: power straps beat the clock role (``...
+    _VDDA`` -> Power), outputs -> Clock.  Interface chips: clock
+    inputs stay untested.  FPGA clock inputs from the DUT -> Clock.
+    LOAD / unknown roles fall through to the M1 rules unchanged.
+
+    Library entries are ``{"part_number": str, "description": str}``
+    (a bare string PN is also accepted).  A net whose NAME carries an
+    FPGA marker (``FPGA`` / ``AG25`` / ...) but whose members map to
+    no known part (connector + resistor paths) counts as an FPGA
+    clock input.
+    """
+    if not _CLOCK_HINT_RE.search(name) or _clock_excluded(name,
+                                                          chip_model=False):
+        return None
+    roles: set[str] = set()
+    for token in members:
+        entry = library.get(token.split(".", 1)[0])
+        if not entry:
+            continue
+        if isinstance(entry, dict):
+            role = role_for_part_number(
+                entry.get("part_number") or "",
+                entry.get("description") or "")
+        else:
+            role = role_for_part_number(str(entry))
+        if role:
+            roles.add(role)
+    if not roles and _NAME_FPGA_RE.search(name):
+        roles.add(ROLE_FPGA)
+    if not roles:
+        return None
+    if ROLE_CLOCK_GEN in roles:
+        if _CLOCK_GEN_POWER_RE.search(name):
+            return NET_TYPE_POWER, "device_role:clock_gen_power"
+        return NET_TYPE_CLOCK_SINGLE, "device_role:clock_gen"
+    if ROLE_INTERFACE in roles:
+        return NET_TYPE_SIGNAL, "device_role:interface"
+    if ROLE_FPGA in roles:
+        return NET_TYPE_CLOCK_SINGLE, "device_role:fpga"
+    return None
 
 
 def _diff_pair_map(names: list[str]) -> dict[str, str]:

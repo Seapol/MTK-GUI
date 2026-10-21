@@ -57,6 +57,8 @@ class DraftNode:
     draft_missing_param: bool = True
     x: float = 0.0
     y: float = 0.0
+    #: M2 A2: rail served only by PDF-only RefDes (not auto-selected)
+    pdf_only: bool = False
 
 
 @dataclass
@@ -95,12 +97,18 @@ def guess_domain(net_name: str) -> str:
 
 
 def derive_candidate_tree(library: ComponentLibrary,
-                          collection: NetCollection) -> CandidatePowerTree:
+                          collection: NetCollection,
+                          pdf_only: set[str] | None = None) \
+        -> CandidatePowerTree:
     """Derive the draft power tree from regulators + the netlist.
 
     Args:
-        library:    Component library (pmic/dcdc/ldo drive the flow).
+        library:    Component library (pmic/dcdc/ldo drive the flow;
+                    DNP regulators never become draft nodes - M2 A1).
         collection: Classified net collection (netlist ground truth).
+        pdf_only:   RefDes found only in the PDF schematic (M2 A2);
+                    power nets served ONLY by such RefDes keep a
+                    warning entry and are not auto-selected.
 
     Returns:
         :class:`CandidatePowerTree` - topology only, every node
@@ -108,6 +116,14 @@ def derive_candidate_tree(library: ComponentLibrary,
         collected for the Event-Log (never raised).
     """
     tree = CandidatePowerTree()
+    # M2 A1: rails served ONLY by DNP regulators are skipped with ONE
+    # warning each (a not-populated regulator cannot power a rail)
+    dnp_out_rails: dict[str, str] = {}    # rail -> dnp refdes
+    for rec in library.dnp_regulators():
+        pins = collection.pins_of(rec.refdes)
+        for pin, net in pins.items():
+            if _OUT_PIN_RE.match(pin) and net not in dnp_out_rails:
+                dnp_out_rails[net] = rec.refdes
     # per-component pin -> net view from the netlist
     pin_views = {rec.refdes: collection.pins_of(rec.refdes)
                  for rec in library.regulators()}
@@ -130,6 +146,7 @@ def derive_candidate_tree(library: ComponentLibrary,
                                stage_of_net)
             stage_of_net[net] = stage
             regulator_outputs.append((net, stage, rec.refdes))
+            dnp_out_rails.pop(net, None)
         # edges: input net -> each output net
         for in_net in in_nets:
             for out_net in out_nets:
@@ -144,6 +161,9 @@ def derive_candidate_tree(library: ComponentLibrary,
     for rec in collection.nets:
         if rec.net_type != NET_TYPE_POWER:
             continue
+        # M2 A1: DNP-only rails never become draft nodes
+        if rec.name in dnp_out_rails:
+            continue
         node = _ensure_node(tree, rec.name)
         if rec.name not in stage_of_net:
             fed_by_connector = any(
@@ -151,6 +171,27 @@ def derive_candidate_tree(library: ComponentLibrary,
             if fed_by_connector:
                 node.power_stage = 0
         node.power_domain = guess_domain(rec.name)
+    # M2 A1: one warning per DNP-only rail (skipped, no node)
+    for net, refdes in dnp_out_rails.items():
+        served = any(out_net == net for out_net, _s, _r
+                     in regulator_outputs)
+        if not served:
+            tree.warnings.append(
+                f"rail {net} served by DNP part only (skipped)")
+    # M2 A2: power nets whose members are ALL PDF-only RefDes keep a
+    # warning and are NOT auto-selected as test candidates
+    if pdf_only:
+        for rec in collection.nets:
+            if rec.net_type != NET_TYPE_POWER:
+                continue
+            refs = {_refdes_prefix(tok) + _refdes_num(tok)
+                    for tok in rec.members}
+            if refs and refs <= {r.upper() for r in pdf_only}:
+                node = _ensure_node(tree, rec.name)
+                node.pdf_only = True
+                tree.warnings.append(
+                    f"rail {rec.name}: PDF-only sources, not "
+                    "auto-selected as a test candidate")
     # children bookkeeping from edges
     for src, child in tree.edges:
         src_node = _ensure_node(tree, src)
@@ -162,6 +203,12 @@ def derive_candidate_tree(library: ComponentLibrary,
     # rails fed only by another rail inherit the parent stage + 1
     _propagate_stages(tree)
     return tree
+
+
+def _refdes_num(pin_token: str) -> str:
+    """RefDes number part of a member token (``U12.3`` -> ``12``)."""
+    match = re.match(r"^[A-Z]+(\d+)", pin_token, re.IGNORECASE)
+    return match.group(1) if match else pin_token
 
 
 def _refdes_prefix(pin_token: str) -> str:

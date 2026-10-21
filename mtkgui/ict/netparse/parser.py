@@ -37,8 +37,9 @@ _FILTER_REASONS = {
 }
 
 
-def parse_testable_nets(net_text: str,
-                        rules: dict | None = None) -> ParseNetsResult:
+def parse_testable_nets(net_text: str, rules: dict | None = None,
+                        library: dict[str, str] | None = None) \
+        -> ParseNetsResult:
     """Formally parse the raw netlist text and extract the testable
     nets (headless core - unit-testable without Qt).
 
@@ -48,6 +49,9 @@ def parse_testable_nets(net_text: str,
                   Step 2: user rules > system defaults; an explicit
                   empty key suppresses the name-based default for that
                   category).  GND is system-auto, never user-configured.
+        library:  Optional ``refdes -> part_number`` map (M2 device
+                  knowledge base, built from the BOM).  ``None``
+                  keeps the M1 no-library behaviour unchanged.
 
     Returns:
         :class:`ParseNetsResult` with the three categories.
@@ -61,7 +65,7 @@ def parse_testable_nets(net_text: str,
         raise ValueError(
             "no nets found - the file has no recognizable netlist "
             "content (wrong file or unsupported format)")
-    collection = classify_nets(netlist)
+    collection = classify_nets(netlist, library)
     result = ParseNetsResult(total=len(collection.nets))
     result.format = detect_netlist_format(net_text)
     for rec in collection.nets:
@@ -140,13 +144,15 @@ def parse_testable_nets(net_text: str,
     return result
 
 
-def parse_nets_file(path: str,
-                    rules: dict | None = None) -> ParseNetsResult:
+def parse_nets_file(path: str, rules: dict | None = None,
+                    library: dict[str, str] | None = None) \
+        -> ParseNetsResult:
     """Read + formally parse a netlist file.
 
     Args:
-        path:  Netlist file path.
-        rules: User custom classification regexes.
+        path:    Netlist file path.
+        rules:   User custom classification regexes.
+        library: Optional ``refdes -> part_number`` map (M2).
 
     Returns:
         :class:`ParseNetsResult` with ``source`` set to the file name.
@@ -157,6 +163,7 @@ def parse_nets_file(path: str,
     """
     if not os.path.isfile(path):
         raise FileNotFoundError(f"netlist file not found: {path}")
-    result = parse_testable_nets(read_text_any_encoding(path), rules)
+    result = parse_testable_nets(read_text_any_encoding(path), rules,
+                                 library)
     result.source = os.path.basename(path)
     return result

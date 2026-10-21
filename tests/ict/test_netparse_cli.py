@@ -38,9 +38,9 @@ def test_cli_json_stdout(tmp_path, capsys):
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert code == 0
-    assert payload["schema"] == "mtkgui.ict.netparse.v2"
+    assert payload["schema"] == "mtkgui.ict.netparse.v3"
     assert payload["total"] == 2
-    assert payload["nets"]["power"][0]["test_point"] == "TP1.1"
+    assert payload["nets"]["power"]["nets"][0]["test_point"] == "TP1.1"
 
 
 def test_cli_csv_stdout(tmp_path, capsys):
@@ -82,7 +82,7 @@ def test_cli_auto_detects_allegro_report(tmp_path, capsys):
     assert code == 0
     assert payload["format"] == "allegro_report"
     assert payload["total"] == 2
-    assert payload["nets"]["power"][0]["net"] == "3V3"
+    assert payload["nets"]["power"]["nets"][0]["net"] == "3V3"
 
 
 def test_cli_applies_user_rules(tmp_path, capsys):

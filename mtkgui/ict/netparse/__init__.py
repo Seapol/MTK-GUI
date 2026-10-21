@@ -23,6 +23,12 @@ from .formats import (clean_net_text, detect_netlist_format,
                       parse_allegro_report, parse_netlist_auto,
                       parse_pstxnet)
 from .classify import classify_clock, classify_nets
+from .priority import rank_result
+from .capacity import (DEFAULT_LIMITS, ResourceLimits, parse_limits,
+                       truncate)
+from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
+                           FPGA as ROLE_FPGA, INTERFACE_CHIP as ROLE_INTERFACE,
+                           LOAD as ROLE_LOAD, role_for_part_number)
 from .rules import (DEFAULT_RULES, EXCLUDED_REASON as RULE_EXCLUDED_REASON,
                     RULE_SLOTS, SYSTEM_RANDOM_RE, apply_user_rules,
                     classify_net, control_io_rule, exclude_pattern,
@@ -44,7 +50,9 @@ __all__ = [
     "SpfData", "SpfParseError", "cross_check_nets", "parse_spf",
     "clean_net_text", "detect_netlist_format", "parse_allegro_report",
     "parse_netlist_auto", "parse_pstxnet", "classify_clock",
-    "classify_nets", "DEFAULT_RULES", "RULE_EXCLUDED_REASON",
+    "classify_nets", "rank_result", "DEFAULT_LIMITS", "ResourceLimits",
+    "parse_limits", "truncate",
+    "DEFAULT_RULES", "RULE_EXCLUDED_REASON",
     "RULE_SLOTS", "SYSTEM_RANDOM_RE", "apply_user_rules", "classify_net",
     "control_io_rule", "exclude_pattern", "validate_rules",
     "select_test_points",

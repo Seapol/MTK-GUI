@@ -15,13 +15,15 @@ Nothing outside this module decides the commit gate - the GUI calls
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from mtkgui.ict.netparse import (NET_TYPE_GND_REF, NET_TYPE_POWER,
                                  NetCollection)
 
-from .components import CATEGORY_OTHER, ComponentLibrary
+from .components import (CATEGORY_OTHER, ComponentLibrary,
+                         _BOM_NOT_MAIN_RE)
 from .power_tree_draft import CandidatePowerTree
 from .sources import SOURCE_NATIVE_TEXT_SPF, SOURCE_SMART_PDF_SPF
 
@@ -45,6 +47,15 @@ COMMIT_LOG_PREFIX = "INFO: User performed Final Review & Commit Design-Input"
 SMART_PDF_COMMIT_WARNING = (
     "WARNING: Schematic source is Smart-PDF, please double-check "
     "component library and power-tree source-children links.")
+
+# M2 A4: after this many warnings, identical-pattern lines collapse
+WARNING_BUDGET = 50
+
+# M2 A3: SoC-family markers sorted FIRST in the core_id suggestion
+# (module-level constant, extendable)
+_SOC_FAMILY_MARKERS: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (r"IMX93", r"IMX8", r"S32", r"I\.MX", r"MT[0-9]{4}"))
 
 
 @dataclass
@@ -119,22 +130,19 @@ class DesignDataModel:
             errors.append("no net is marked as reference GND "
                           "(is_reference_gnd)")
 
-        # non-blocking warnings
+        # non-blocking warnings (M2 A4: unrecognized passive parts
+        # converge into ONE line per part-prefix family, then the
+        # whole list is collapsed under WARNING_BUDGET)
         if not (self.project_info.get("core_id") or "").strip():
             warnings.append("core_id is empty (non-blocking)")
-        others = [r.refdes for r in self.component_library.records
-                  if r.dev_category == CATEGORY_OTHER]
-        if others:
-            warnings.append(
-                f"{len(others)} device(s) still unclassified as "
-                f"'{CATEGORY_OTHER}': {', '.join(others[:8])}")
+        warnings.extend(self._unclassified_warnings())
         if self.has_alternative_testpoints():
             warnings.append(
                 "alternative test points present - review probe "
                 "accessibility")
         if self.source_type == SOURCE_SMART_PDF_SPF:
             warnings.append(SMART_PDF_COMMIT_WARNING)
-        return errors, warnings
+        return errors, collapse_warnings(warnings)
 
     def commit(self) -> tuple[list[str], list[str]]:
         """Final Review & Commit Design-Input.
@@ -171,10 +179,49 @@ class DesignDataModel:
                    for rec in self.net_collection.nets)
 
     def core_id_suggestion(self) -> str:
-        """``+``-joined main_mcu part numbers (core_id auto fill)."""
-        parts = [rec.part_number for rec
-                 in self.component_library.mains() if rec.part_number]
-        return "+".join(parts)
+        """``+``-joined main_mcu part numbers (core_id auto fill).
+
+        M2 A3: dedupe (first-appearance order), drop blocked
+        descriptions (the ``components.py`` blocklist), sort the
+        SoC-family markers first and cap at 3 entries.
+        """
+        seen: set[str] = set()
+        parts: list[str] = []
+        for rec in self.component_library.mains():
+            pn = (rec.part_number or "").strip()
+            if not pn or pn in seen or _BOM_NOT_MAIN_RE.search(pn):
+                continue
+            seen.add(pn)
+            parts.append(pn)
+        parts.sort(key=lambda pn: 0 if _is_soc(pn) else 1)
+        return "+".join(parts[:3])
+
+    def _unclassified_warnings(self) -> list[str]:
+        """Unclassified-device warnings, converged per family (M2 A4).
+
+        Passive part-prefix families (R*/C*/L*) collapse into ONE
+        line each (``unrecognized R* parts: 214``); the rest keep the
+        generic aggregated line.
+        """
+        others = [r.refdes for r in self.component_library.records
+                  if r.dev_category == CATEGORY_OTHER]
+        if not others:
+            return []
+        lines: list[str] = []
+        passive: set[str] = set()
+        for prefix in ("R", "C", "L"):
+            family = [r for r in others
+                      if r.upper().startswith(prefix)]
+            if family:
+                passive.update(family)
+                lines.append(f"unrecognized {prefix}* parts: "
+                             f"{len(family)}")
+        rest = [r for r in others if r not in passive]
+        if rest:
+            lines.append(
+                f"{len(rest)} device(s) still unclassified as "
+                f"'{CATEGORY_OTHER}': {', '.join(rest[:8])}")
+        return lines
 
     # -------------------------------------------------------------- bind
     def bind_power_tree_to_nets(self) -> int:
@@ -228,7 +275,7 @@ class DesignDataModel:
             "component_library": [
                 {"refdes": r.refdes, "part_number": r.part_number,
                  "dev_category": r.dev_category, "note": r.note,
-                 "dnp": r.dnp}
+                 "dnp": r.dnp, "vendor": r.vendor}
                 for r in self.component_library.records],
             "net_collection": [
                 {"net_name": r.name, "net_type": r.net_type,
@@ -236,6 +283,38 @@ class DesignDataModel:
                 for r in self.net_collection.nets],
             "power_tree": self.power_tree if official else None,
         }
+
+
+def _is_soc(part_number: str) -> bool:
+    """True for SoC-family part numbers (sorted first - M2 A3)."""
+    return any(p.search(part_number) for p in _SOC_FAMILY_MARKERS)
+
+
+def collapse_warnings(warnings: list[str],
+                      budget: int | None = None) -> list[str]:
+    """Collapse the warning list under :data:`WARNING_BUDGET` (M2 A4).
+
+    After the budget, identical-pattern warnings (digits normalized)
+    collapse into a single suppressed-counter line
+    ``... and N more <pattern> warnings suppressed (budget)``.
+    """
+    budget = WARNING_BUDGET if budget is None else budget
+    if len(warnings) <= budget:
+        return list(warnings)
+    patterns: dict[str, list[str]] = {}
+    for warning in warnings:
+        patterns.setdefault(re.sub(r"\d+", "N", warning),
+                            []).append(warning)
+    out = [group[0] for group in patterns.values()]
+    suppressed = len(warnings) - len(out)
+    if suppressed > 0:
+        out.append(f"... and {suppressed} more warnings suppressed "
+                   "(budget)")
+    if len(out) > budget:
+        out = out[:budget - 1] + [
+            f"... and {len(out) - budget + 1} more warnings "
+            "suppressed (budget)"]
+    return out
 
 
 def _blank(value) -> bool:

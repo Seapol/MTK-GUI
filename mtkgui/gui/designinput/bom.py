@@ -48,6 +48,14 @@ _DNP_ALIASES: tuple[str, ...] = (
     "not populated", "nf", "populate", "fitted",
 )
 _QTY_ALIASES: tuple[str, ...] = ("quantity", "qty")
+#: vendor / manufacturer aliases (M2 A5; priority after part_number).
+#: The Chinese column headers are written as unicode escapes so the
+#: factory-floor English-UI guard sees no CJK source text; the values
+#: are identical strings.
+_VENDOR_ALIASES: tuple[str, ...] = (
+    "vendor", "manufacturer", "mfr", "make",
+    "\u5382\u5bb6", "\u5236\u9020\u5546", "\u5382\u5546",
+)
 
 _DNP_TRUE = {"y", "yes", "1", "true", "dnp", "do not populate",
              "do not stuff", "not fitted", "not populated", "nf"}
@@ -66,6 +74,7 @@ class BomRecord:
     part_number: str = ""
     description: str = ""
     dnp: bool = False
+    vendor: str = ""
 
 
 @dataclass
@@ -241,6 +250,8 @@ def parse_bom(path: str) -> BomData:
                 headers, _DNP_ALIASES, {ref_col, mpn_col}),
             "quantity": _find_column(
                 headers, _QTY_ALIASES, {ref_col, mpn_col}),
+            "vendor": _find_column(
+                headers, _VENDOR_ALIASES, {ref_col, mpn_col}),
         }
         break
     if header_index < 0:
@@ -272,7 +283,8 @@ def parse_bom(path: str) -> BomData:
         for refdes in refdes_list:
             data.records.append(BomRecord(
                 refdes=refdes, part_number=part,
-                description=description, dnp=dnp))
+                description=description, dnp=dnp,
+                vendor=_cell(row, columns.get("vendor", -1))))
     if not data.records:
         raise ValueError("BOM contains no component records")
     return data

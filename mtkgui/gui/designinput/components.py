@@ -61,6 +61,7 @@ class ComponentRecord:
         dev_category: Fixed category set membership.
         note:        Free-form user note (empty until edited).
         dnp:         Do-Not-Populate flag (BOM OR-merged).
+        vendor:      Manufacturer / vendor name ("" when unknown).
     """
 
     refdes: str
@@ -68,6 +69,7 @@ class ComponentRecord:
     dev_category: str = CATEGORY_OTHER
     note: str = ""
     dnp: bool = False
+    vendor: str = ""
 
 
 @dataclass
@@ -96,14 +98,29 @@ class ComponentLibrary:
         return rec.dev_category if rec else CATEGORY_OTHER
 
     def mains(self) -> list[ComponentRecord]:
-        """All ``main_mcu`` records (project core-id derivation)."""
+        """All non-DNP ``main_mcu`` records (core-id derivation).
+
+        DNP parts are excluded (M2 A1): a not-populated MCU must not
+        drive the project core id.
+        """
         return [r for r in self.records
-                if r.dev_category == CATEGORY_MAIN_MCU]
+                if r.dev_category == CATEGORY_MAIN_MCU and not r.dnp]
 
     def regulators(self) -> list[ComponentRecord]:
-        """All pmic / dcdc / ldo records (power-tree drafting)."""
+        """All non-DNP pmic / dcdc / ldo records (power-tree drafting).
+
+        DNP parts are excluded (M2 A1): a not-populated regulator
+        never becomes a draft main / regulator node.
+        """
         keep = (CATEGORY_PMIC, CATEGORY_DCDC, CATEGORY_LDO)
-        return [r for r in self.records if r.dev_category in keep]
+        return [r for r in self.records
+                if r.dev_category in keep and not r.dnp]
+
+    def dnp_regulators(self) -> list[ComponentRecord]:
+        """DNP pmic / dcdc / ldo records (DNP-only rail warning)."""
+        keep = (CATEGORY_PMIC, CATEGORY_DCDC, CATEGORY_LDO)
+        return [r for r in self.records
+                if r.dev_category in keep and r.dnp]
 
 
 def categorize(part_number: str, refdes: str = "") -> str:
@@ -229,7 +246,8 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
                 entry.part_number, entry.refdes, entry.description)
             library.records.append(ComponentRecord(
                 refdes=entry.refdes, part_number=entry.part_number,
-                dev_category=category, dnp=entry.dnp))
+                dev_category=category, dnp=entry.dnp,
+                vendor=entry.vendor))
             if category == CATEGORY_OTHER:
                 library.unclassified.append(entry.refdes)
             report.added += 1
@@ -244,7 +262,40 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
             _sync_unclassified(library, record)
             report.updated += 1
         record.dnp = record.dnp or entry.dnp
+        record.vendor = record.vendor or entry.vendor
     return report
+
+
+def pdf_only_refdes(components: list[tuple[str, str]],
+                    bom_records) -> tuple[list[str], str]:
+    """RefDes found ONLY in the PDF schematic (M2 A2).
+
+    The BOM is the authoritative RefDes list: PDF-only RefDes carry
+    no BOM record and are dropped from power / clock candidates.
+
+    Args:
+        components:  (refdes, part_number) pairs from the PDF parser.
+        bom_records: ``BomRecord`` iterable (the authoritative list).
+
+    Returns:
+        ``(dropped, warning)`` - the ordered unique dropped RefDes
+        list and ONE aggregated warning line ("" when nothing is
+        dropped).
+    """
+    bom_refs = {rec.refdes.upper() for rec in bom_records}
+    seen: set[str] = set()
+    pdf_refs: list[str] = []
+    for refdes, _part in components:
+        key = refdes.upper()
+        if key not in seen:
+            seen.add(key)
+            pdf_refs.append(refdes)
+    dropped = [r for r in pdf_refs if r.upper() not in bom_refs]
+    if not dropped:
+        return [], ""
+    warning = (f"{len(dropped)} PDF-only RefDes dropped (not present "
+               f"in BOM): {', '.join(dropped[:3])} ...")
+    return dropped, warning
 
 
 def _sync_unclassified(library: ComponentLibrary,

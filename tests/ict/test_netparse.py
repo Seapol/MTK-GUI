@@ -187,7 +187,7 @@ def test_result_to_dict_schema_and_test_points():
     assert payload["format"] == "allegro_report"
     assert payload["summary"]["power"] == 1
     assert payload["summary"]["filtered"] == 2
-    power = payload["nets"]["power"][0]
+    power = payload["nets"]["power"]["nets"][0]
     assert power["test_point"] == "C48.1"      # C beats unranked D/U
     assert "D43.A" in power["alternatives"]
 
@@ -197,7 +197,7 @@ def test_result_to_csv_rows():
     text = result_to_csv(result)
     lines = text.splitlines()
     assert lines[0] == ("net,category,test_point,alternatives,members,"
-                        "sub_class,reason")
+                        "sub_class,reason,priority,rank")
     assert any(line.startswith("5V_SDA_PSW,Power,") for line in lines[1:])
     assert any(",Filtered," in line and "differential" in line
                for line in lines[1:])

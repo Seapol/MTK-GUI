@@ -82,6 +82,8 @@ class NetRecord:
         nominal / tolerance_pct / jumper_controlled:
             Business parameters bound back from the formal power tree
             by ``bind_power_tree_to_nets`` (None until bound).
+        priority: M2 B1 ranking stamp
+            ``{class, score, band, stage, rank}`` (None until ranked).
     """
 
     name: str
@@ -89,6 +91,7 @@ class NetRecord:
     net_type: str = NET_TYPE_SIGNAL
     sub_class: str = ""
     provenance: str = ""
+    priority: dict | None = None
     nominal: str | None = None
     tolerance_pct: str | None = None
     jumper_controlled: bool | None = None
