@@ -151,13 +151,27 @@ def test_vendor_merged_and_persisted():
     bom = type("B", (), {"records": [
         type("E", (), {"refdes": "U1", "part_number": "NEW-2",
                        "description": "", "dnp": False,
-                       "vendor": "NXP"})()]})()
+                       "vendor": "NXP", "value": "0R"})()]})()
     merge_bom(lib, bom)
     assert lib.records[0].vendor == "NXP"
+    assert lib.records[0].value == "0R"
     model = DesignDataModel()
     model.component_library = lib
     payload = model.to_dict(official=False)
     assert payload["component_library"][0]["vendor"] == "NXP"
+
+
+# ----------------------------------------------------------------- A5
+def test_bom_vendor_and_value_columns_separated(tmp_path):
+    path = tmp_path / "bom.csv"
+    path.write_text(
+        "Manufacturer,Part Number,Value,Reference Designator\n"
+        "NXP,PCA9555,0R,U1\n", encoding="utf-8")
+    data = parse_bom(str(path))
+    record = data.records[0]
+    assert record.vendor == "NXP"
+    assert record.part_number == "PCA9555"
+    assert record.value == "0R"
 
 
 # ------------------------------------------- library-mode smoke (B2)

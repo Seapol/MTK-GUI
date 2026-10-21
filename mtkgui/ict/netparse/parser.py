@@ -20,7 +20,9 @@ from __future__ import annotations
 import os
 import re
 
+from .bridge import merge_power_bridges
 from .classify import classify_nets
+from .confidence import resolve_conflicts, stamp_confidence
 from .formats import detect_netlist_format, parse_netlist_auto
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
@@ -141,6 +143,13 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
                 (rec.name, _FILTER_REASONS.get(
                     rec.net_type, "not an ICT test object")))
             result.filtered_records.append(rec)
+    # M2 B1: every classified net carries a confidence
+    stamp_confidence(result, library)
+    if library:
+        # M2 B0: passive-bridge rail merge (power only, library mode)
+        result.bridge_report = merge_power_bridges(result, library)
+        # M2 B1.5: cross-class conflict resolution (library mode)
+        resolve_conflicts(result, library)
     return result
 
 
@@ -167,3 +176,58 @@ def parse_nets_file(path: str, rules: dict | None = None,
                                  library)
     result.source = os.path.basename(path)
     return result
+
+
+#: B5 override target class -> bucket attribute
+_OVERRIDE_BUCKETS = {
+    "power": "power", "clock": "clock", "control_io": "control_io",
+    "others": "others",
+}
+
+
+def apply_user_overrides(result: ParseNetsResult,
+                         overrides: dict[str, str]) -> dict[str, str]:
+    """B5: apply a ``{net: class}`` user-override map in place.
+
+    The override takes precedence over the algorithmic class: the net
+    record is moved to the target bucket (``power`` / ``clock`` /
+    ``control_io`` / ``others``).  Returns the applied subset.
+    """
+    if not overrides:
+        return {}
+    buckets = ("power", "clock", "control_io", "others", "gnd")
+    applied: dict[str, str] = {}
+    for net, target in overrides.items():
+        target = str(target).strip().lower()
+        if target not in _OVERRIDE_BUCKETS:
+            continue
+        found = None
+        for bucket in buckets:
+            for rec in getattr(result, bucket):
+                if rec.name == net:
+                    found = (bucket, rec)
+                    break
+            if found:
+                break
+        if not found:
+            continue
+        bucket, rec = found
+        if bucket == target:
+            applied[net] = target
+            continue
+        getattr(result, bucket).remove(rec)
+        if target == "others":
+            rec.net_type = NET_TYPE_SIGNAL
+            rec.sub_class = SUBCLASS_UNCLASSIFIED
+        else:
+            rec.net_type = (NET_TYPE_POWER if target == "power"
+                            else NET_TYPE_CLOCK_SINGLE
+                            if target == "clock" else NET_TYPE_SIGNAL)
+            rec.sub_class = ""
+        rec.provenance = "user_override"
+        rec.confidence = "high"
+        getattr(result, _OVERRIDE_BUCKETS[target]).append(rec)
+        applied[net] = target
+    if applied:
+        result.user_override = dict(applied)
+    return applied

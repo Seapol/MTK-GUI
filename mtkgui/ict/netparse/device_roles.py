@@ -25,7 +25,10 @@ import re
 CLOCK_GEN = "clock_gen"      # clock generator / buffer / oscillator chip
 INTERFACE_CHIP = "interface"  # PHY, transceiver, LIN/CAN/bus driver
 FPGA = "fpga"                # programmable logic
-LOAD = "load"                # MCU/SoC/memory (unused by classification)
+LOAD = "load"                # MCU/SoC/memory
+CONTROL_CHIP = "control_chip"  # MCU/CPLD/EC/SIO/BMC/GPIO-expander;
+                               # PMIC control side: control IO here
+                               # ranks first (owner rule, M2 B2)
 
 #: part-number / family markers -> role.  Extendable; M2 ships with
 #: the set below (``MT[0-9]{4}``-style entries are regexes, the rest
@@ -39,6 +42,9 @@ _ROLE_MARKERS: dict[str, tuple[str, ...]] = {
     FPGA: ("FPGA", "XC7", "XCU", "AG25", "AG32", "CYCLONE", "A2F",
            "ARTIX", "KINTEX", "VIRTEX"),
     LOAD: ("IMX93", "IMX8", "S32", "MT[0-9]{4}", "STM32", "GD32"),
+    CONTROL_CHIP: ("CPLD", "EC", "SIO", "BMC", "PCA95", "TCA95",
+                   "M051", "N76", "PIC", "ATTINY", "STM32F0",
+                   "MSP430", "XILINX_CPLD", "LATTICE"),
 }
 
 def _is_regex(marker: str) -> bool:

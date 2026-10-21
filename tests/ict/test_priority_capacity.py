@@ -148,13 +148,16 @@ def test_b6_capacity_report():
     total_power = len(result.power)
     assert report["power"]["limit"] == 80
     assert len(report["power"]["selected"]) == 80
+    # medium/low overflow -> Others(capacity); high overflow stays
     assert len(report["power"]["overflow"]) == total_power - 80
     assert report["clock"]["limit"] == 3
     assert len(report["clock"]["selected"]) == 3
-    assert len(report["clock"]["overflow"]) == len(result.clock) - 3
+    assert len(report["clock"]["overflow"]) + \
+        len(report["clock"]["overflow_high"]) == len(result.clock) - 3
     assert report["control_io"]["limit"] == 24
     assert len(report["control_io"]["selected"]) == 24
-    assert len(report["control_io"]["overflow"]) == \
+    assert len(report["control_io"]["overflow"]) + \
+        len(report["control_io"]["overflow_high"]) == \
         len(result.control_io) - 24
     # rails-up list = first 12 of the ranked power candidates
     rails = [e["net"] for e in payload["rails_up"]]
@@ -180,20 +183,26 @@ def test_b6_clock_selected_top3():
     payload, _ = _b6_dict()
     selected = [e["net"] for e in payload["capacity_report"]["clock"]
                 ["selected"]]
-    # 1 LF (stable input order) + 2 HF by score (SoC +3, MCLK +2)
-    assert selected == ["RTC_XTAL", "SYS_CLK0", "MCLK_OUT0"]
+    # confidence desc then frequency ascending (LF band first):
+    # SUSCLK_32K high (numeric tail), RTC_XTAL medium; HF high by
+    # importance (SoC +3 first, LOAD-member MCLK +2 next)
+    assert selected == ["SUSCLK_32K", "SYS_CLK0", "MCLK_OUT0"]
 
 
 def test_b6_ctrl_selected_rst_first():
     payload, _ = _b6_dict()
-    selected = [e["net"] for e in payload["capacity_report"]
-                ["control_io"]["selected"]]
+    report = payload["capacity_report"]["control_io"]
+    selected = [e["net"] for e in report["selected"]]
     assert selected[0] == "RST_0"
     assert selected[10] == "EN_0"
     assert selected[23] == "EN_13"    # 10 RST + 14 EN fill the 24 DIO
-    overflow = [e["net"] for e in payload["capacity_report"]
-                ["control_io"]["overflow"]]
-    assert overflow[0] == "EN_14"     # rest of the EN family first
+    # all control candidates are high confidence: overflow STAYS in
+    # the class (test_selected=false), nothing relaxes to capacity
+    assert report["overflow"] == []
+    high = [e["net"] for e in report["overflow_high"]]
+    assert high[0] == "EN_14"         # rest of the EN family first
+    assert all(e["test_selected"] is False
+               for e in report["overflow_high"])
 
 
 def test_b6_csv_overflow_under_others():
@@ -205,8 +214,9 @@ def test_b6_csv_overflow_under_others():
     assert len(power_rows) == 80
     assert any(l.startswith("VDD_80,Others,")
                and ",capacity," in l for l in lines)
+    # clock rows: selected + high-confidence overflow stay in class
     clock_rows = [l for l in lines if l.split(",")[1] == "Clock"]
-    assert len(clock_rows) == 3
+    assert len(clock_rows) == 8
 
 
 def test_b6_no_library_mode_unchanged_classification():

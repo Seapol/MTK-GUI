@@ -18,7 +18,7 @@ import sys
 
 from .capacity import parse_limits
 from .export import result_to_csv, result_to_json
-from .parser import parse_nets_file
+from .parser import apply_user_overrides, parse_nets_file
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -38,6 +38,10 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="instrument capacity overrides, "
                              "\"power=80,rails=12,clock_lf=1,"
                              "clock_hf=2,ctrl=24\" (defaults)")
+    parser.add_argument("--apply-overrides", default=None,
+                        help="JSON file with a {net: class} user-"
+                             "override map (B5 round-trip; the user "
+                             "choice beats the algorithmic class)")
     parser.add_argument("--format", choices=("json", "csv"),
                         default="json", help="output format (default json)")
     parser.add_argument("--output", default=None,
@@ -84,14 +88,31 @@ def _read_library(path: str | None) -> dict[str, str] | None:
     for refdes, info in data.items():
         if isinstance(info, dict):
             entry = {"part_number": str(info.get("part_number") or ""),
-                     "description": str(info.get("description") or "")}
-            if entry["part_number"] or entry["description"]:
+                     "description": str(info.get("description") or ""),
+                     "value": str(info.get("value") or "")}
+            if any(entry.values()):
                 library[str(refdes)] = entry
         else:
             part = str(info)
             if part:
                 library[str(refdes)] = part
     return library
+
+
+def _read_overrides(path: str | None) -> dict[str, str]:
+    """Read the B5 ``{net: class}`` user-override map."""
+    if not path:
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as exc:
+        raise ValueError(f"cannot read overrides file: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid overrides JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("overrides file must map net -> class")
+    return {str(k): str(v) for k, v in data.items()}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
         rules = _read_rules(args.rules)
         library = _read_library(args.library)
         limits = parse_limits(args.limits)
+        overrides = _read_overrides(args.apply_overrides)
         result = parse_nets_file(args.input, rules, library)
+        if overrides:
+            apply_user_overrides(result, overrides)
         if args.format == "csv":
             text = result_to_csv(result, limits, library)
         else:

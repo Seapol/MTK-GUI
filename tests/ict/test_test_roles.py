@@ -182,7 +182,7 @@ def test_json_v2_export():
 def test_csv_sub_class_column():
     lines = result_to_csv(parse_testable_nets(NET_SAMPLE)).splitlines()
     assert lines[0] == ("net,category,test_point,alternatives,members,"
-                        "sub_class,reason,priority,rank")
+                        "sub_class,reason,priority,rank,confidence")
     assert any(line.startswith(
         f"SOC_RST0,{CATEGORY_CONTROL_IO_LABEL},") for line in lines[1:])
     assert any(line.startswith("GPIO_LED1,Others,")

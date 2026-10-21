@@ -56,6 +56,13 @@ _VENDOR_ALIASES: tuple[str, ...] = (
     "vendor", "manufacturer", "mfr", "make",
     "\u5382\u5bb6", "\u5236\u9020\u5546", "\u5382\u5546",
 )
+#: value aliases (M2 A5: feeds the passive-bridge detection in the
+#: netparse B0 stage - 0-ohm resistors / ferrite beads).  Priority
+#: AFTER part_number; "value" here beats the description fallback.
+_VALUE_ALIASES: tuple[str, ...] = (
+    "value", "val", "resistance", "capacitance", "inductance",
+    "impedance",
+)
 
 _DNP_TRUE = {"y", "yes", "1", "true", "dnp", "do not populate",
              "do not stuff", "not fitted", "not populated", "nf"}
@@ -75,6 +82,7 @@ class BomRecord:
     description: str = ""
     dnp: bool = False
     vendor: str = ""
+    value: str = ""
 
 
 @dataclass
@@ -241,17 +249,23 @@ def parse_bom(path: str) -> BomData:
         if mpn_col < 0:
             continue
         header_index = index
+        value_col = _find_column(headers, _VALUE_ALIASES,
+                                 {ref_col, mpn_col})
+        desc_taken = {ref_col, mpn_col}
+        if value_col >= 0:
+            desc_taken.add(value_col)   # value beats description
         columns = {
             "refdes": ref_col,
             "mpn": mpn_col,
-            "description": _find_column(
-                headers, _DESC_ALIASES, {ref_col, mpn_col}),
+            "description": _find_column(headers, _DESC_ALIASES,
+                                        desc_taken),
             "dnp": _find_column(
                 headers, _DNP_ALIASES, {ref_col, mpn_col}),
             "quantity": _find_column(
                 headers, _QTY_ALIASES, {ref_col, mpn_col}),
             "vendor": _find_column(
                 headers, _VENDOR_ALIASES, {ref_col, mpn_col}),
+            "value": value_col,
         }
         break
     if header_index < 0:
@@ -284,7 +298,8 @@ def parse_bom(path: str) -> BomData:
             data.records.append(BomRecord(
                 refdes=refdes, part_number=part,
                 description=description, dnp=dnp,
-                vendor=_cell(row, columns.get("vendor", -1))))
+                vendor=_cell(row, columns.get("vendor", -1)),
+                value=_cell(row, columns.get("value", -1))))
     if not data.records:
         raise ValueError("BOM contains no component records")
     return data

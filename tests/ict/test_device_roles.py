@@ -106,7 +106,8 @@ def test_cli_library_flag(tmp_path, capsys):
     code = main([str(net_file), "--library", str(lib_file)])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["nets"]["power"]["nets"][0]["net"] == "SI5332_CLK_VDDA"
+    power_names = [r["net"] for r in payload["nets"]["power"]["nets"]]
+    assert "SI5332_CLK_VDDA" in power_names
     names = [row["net"] for row in payload["nets"]["clock"]["nets"]]
     assert "SI5332_CLK0_OUT" in names
     assert "DUT_CLK1_FPGA_AG25" in names

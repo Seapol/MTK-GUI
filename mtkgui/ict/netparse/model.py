@@ -29,9 +29,17 @@ CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
 #: for schema stability.
 CATEGORY_CONTROL_IO_LABEL = "Un-reused GPIO / EN / RST / CS / MODE"
 
-#: ``others`` sub-classes
-SUBCLASS_SYSTEM_RANDOM = "system_random"
-SUBCLASS_UNCLASSIFIED = "unclassified"
+#: ``others`` sub-classes (M2: capacity / bridge_duplicate / ambiguous)
+class SubClass:
+    SYSTEM_RANDOM = "system_random"
+    UNCLASSIFIED = "unclassified"
+    CAPACITY = "capacity"
+    BRIDGE_DUPLICATE = "bridge_duplicate"
+    AMBIGUOUS = "ambiguous"
+
+
+SUBCLASS_SYSTEM_RANDOM = SubClass.SYSTEM_RANDOM
+SUBCLASS_UNCLASSIFIED = SubClass.UNCLASSIFIED
 
 
 @dataclass
@@ -97,6 +105,8 @@ class NetRecord:
     jumper_controlled: bool | None = None
     is_reference_gnd: bool = False
     is_alternative_testpoint: bool = False
+    confidence: str = ""    # B1: high / medium / low ("" = not stamped)
+    meta: dict | None = None    # B1.5 audit (conflict scores, ...)
 
 
 @dataclass
@@ -163,6 +173,12 @@ class ParseNetsResult:
     invalid_lines: list[str] = field(default_factory=list)
     format: str = ""
     source: str = ""
+    #: B0 bridge merge report: {representative net: [bridged nets]}
+    bridge_report: dict[str, list[str]] = field(default_factory=dict)
+    #: B0 unknown-value bridge warnings (warning-budgeted)
+    warnings: list[str] = field(default_factory=list)
+    #: B5 user overrides applied on this result {net: class}
+    user_override: dict[str, str] = field(default_factory=dict)
 
     @property
     def gpio(self) -> list[NetRecord]:

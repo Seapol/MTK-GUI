@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import re
 
-from .device_roles import LOAD, role_for_part_number
+from .confidence import clock_freq_hz
+from .device_roles import CONTROL_CHIP, LOAD, role_for_part_number
 from .model import (CATEGORY_CLOCK, CATEGORY_CONTROL_IO_LABEL,
                     CATEGORY_POWER, NET_TYPE_CLOCK_SINGLE,
                     ParseNetsResult)
@@ -80,6 +81,32 @@ def _main_refdes(library: dict | None) -> set[str]:
         if role_for_part_number(pn, desc) == LOAD:
             mains.add(refdes)
     return mains
+
+
+def _control_refdes(library: dict | None) -> set[str]:
+    """CONTROL_CHIP-role refdes set (MCU / CPLD / GPIO-expander ...)."""
+    if not library:
+        return set()
+    ctrl = set()
+    for refdes, info in library.items():
+        entry = info if isinstance(info, dict) else \
+            {"part_number": str(info), "description": ""}
+        pn = str(entry.get("part_number") or "")
+        desc = str(entry.get("description") or "")
+        if role_for_part_number(pn, desc) == CONTROL_CHIP:
+            ctrl.add(refdes)
+    return ctrl
+
+
+def nominal_volts_of(name: str) -> float:
+    """Nominal voltage of a power net name (0.0 when unknown)."""
+    return _nominal_volts(name)
+
+
+def _conf_rank(rec) -> int:
+    """Confidence rank of a record (high=0 ... low=2, medium default)."""
+    return {"high": 0, "medium": 1, "low": 2}.get(
+        getattr(rec, "confidence", "") or "medium", 1)
 
 
 def _nominal_volts(name: str) -> float:
@@ -156,34 +183,49 @@ def rank_result(result: ParseNetsResult,
     for index, rec in enumerate(result.power):
         stage = _power_stage(rec.name)
         rec.priority = {"class": CATEGORY_POWER, "score": 0,
-                        "band": "", "stage": stage, "rank": index}
+                        "band": "", "stage": stage, "rank": index,
+                        "confidence": rec.confidence, "freq_hz": None}
     result.power.sort(key=lambda rec: rec.priority["rank"])
-    result.power.sort(key=lambda rec: _power_key(
-        rec.priority["rank"], rec))
+    # capacity fill order: high confidence first, then tree flow
+    result.power.sort(key=lambda rec: (_conf_rank(rec),
+                                       _power_key(
+                                           rec.priority["rank"], rec)))
     for rank, rec in enumerate(result.power):
         rec.priority["rank"] = rank
 
     ranked_clocks = []
     for index, rec in enumerate(result.clock):
         band = _clock_band(rec.name)
+        freq = clock_freq_hz(rec.name)
         score = _clock_score(rec.name, rec.members, mains)
-        ranked_clocks.append((band != "LF", -score, index, rec))
+        # owner order: confidence desc, frequency ASCENDING (unknown
+        # last), then importance score, then stable input order
+        ranked_clocks.append((band != "LF", _conf_rank(rec),
+                              (1, 0.0) if not freq else (0, freq),
+                              -score, index, rec))
         rec.priority = {"class": CATEGORY_CLOCK, "score": score,
-                        "band": band, "stage": None, "rank": index}
-    ranked_clocks.sort(key=lambda item: item[:3])
-    result.clock = [item[3] for item in ranked_clocks]
+                        "band": band, "stage": None, "rank": index,
+                        "confidence": rec.confidence,
+                        "freq_hz": freq or None}
+    ranked_clocks.sort(key=lambda item: item[:5])
+    result.clock = [item[5] for item in ranked_clocks]
     for rank, rec in enumerate(result.clock):
         rec.priority["rank"] = rank
 
+    ctrl_members = _control_refdes(library)
     ranked_ctrl = []
     for index, rec in enumerate(result.control_io):
         weight = _ctrl_weight(rec.name)
-        ranked_ctrl.append((-weight, index, rec))
+        from_ctrl_chip = any(_refdes_of(t) in ctrl_members
+                             for t in rec.members)
+        ranked_ctrl.append((0 if from_ctrl_chip else 1, -weight,
+                            _conf_rank(rec), index, rec))
         rec.priority = {"class": CATEGORY_CONTROL_IO_LABEL,
                         "score": weight, "band": "", "stage": None,
-                        "rank": index}
-    ranked_ctrl.sort(key=lambda item: item[:2])
-    result.control_io = [item[2] for item in ranked_ctrl]
+                        "rank": index, "confidence": rec.confidence,
+                        "freq_hz": None, "control_chip": from_ctrl_chip}
+    ranked_ctrl.sort(key=lambda item: item[:4])
+    result.control_io = [item[4] for item in ranked_ctrl]
     for rank, rec in enumerate(result.control_io):
         rec.priority["rank"] = rank
     return result

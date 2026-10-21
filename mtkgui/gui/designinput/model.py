@@ -275,7 +275,7 @@ class DesignDataModel:
             "component_library": [
                 {"refdes": r.refdes, "part_number": r.part_number,
                  "dev_category": r.dev_category, "note": r.note,
-                 "dnp": r.dnp, "vendor": r.vendor}
+                 "dnp": r.dnp, "vendor": r.vendor, "value": r.value}
                 for r in self.component_library.records],
             "net_collection": [
                 {"net_name": r.name, "net_type": r.net_type,

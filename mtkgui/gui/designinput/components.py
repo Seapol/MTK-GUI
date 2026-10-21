@@ -62,6 +62,8 @@ class ComponentRecord:
         note:        Free-form user note (empty until edited).
         dnp:         Do-Not-Populate flag (BOM OR-merged).
         vendor:      Manufacturer / vendor name ("" when unknown).
+        value:       Passive value (``0R`` / ``1K`` / ``FB`` ...,
+                     feeds the B0 passive-bridge detection).
     """
 
     refdes: str
@@ -70,6 +72,7 @@ class ComponentRecord:
     note: str = ""
     dnp: bool = False
     vendor: str = ""
+    value: str = ""
 
 
 @dataclass
@@ -247,7 +250,7 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
             library.records.append(ComponentRecord(
                 refdes=entry.refdes, part_number=entry.part_number,
                 dev_category=category, dnp=entry.dnp,
-                vendor=entry.vendor))
+                vendor=entry.vendor, value=entry.value))
             if category == CATEGORY_OTHER:
                 library.unclassified.append(entry.refdes)
             report.added += 1
@@ -263,6 +266,7 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
             report.updated += 1
         record.dnp = record.dnp or entry.dnp
         record.vendor = record.vendor or entry.vendor
+        record.value = record.value or entry.value
     return report
 
 
