@@ -2,7 +2,7 @@
 """ICT Test Work Flow Sequence builder (block 04, user direction).
 
 Clicking the "Build ICT Test Work Flow Sequence" card opens this
-dialog: it seeds the ICT sequence from the parse result (impedance ->
+dialog: it seeds the ICT sequence from the parse result (R-GND ->
 power rails (voltage) -> clock, one test per row) and then edits the
 WHOLE sequence with the shared step editor - test items plus the
 standard operations, the flash operations and Delay steps.  This dialog
@@ -16,11 +16,12 @@ import re
 
 from PySide6.QtWidgets import QWidget
 
+from ...engine.steps import METHOD_R_GND
 from ..steps_editor import StepsEditorDialog
 
 #: Test Method -> unit (mirrors the Test Work Flow step edit dialog)
 METHOD_UNITS = {
-    "Static Impedance": "Ω",
+    METHOD_R_GND: "Ω",
     "Power Voltage": "V",
     "Clock Hz": "Hz",
     "DAQ AI": "V",
@@ -29,7 +30,7 @@ METHOD_UNITS = {
 
 #: Test Method -> the parse-result category of the offered nets
 METHOD_NET_CATEGORY = {
-    "Static Impedance": "Power",
+    METHOD_R_GND: "Power",
     "Power Voltage": "Power",
     "DAQ AI": "Power",
     "Clock Hz": "Clock",
@@ -63,7 +64,7 @@ def is_daq_ai_row(row) -> bool:
     return bool(row) and row[0] == DAQ_AI_METHOD
 
 #: canonical ICT standard-operation skeleton around the generated
-#: tests (impedance runs BEFORE power-on: a short under power risks
+#: tests (R-GND runs BEFORE power-on: a short under power risks
 #: damaging the board).  The Build ICT dialog is the single sequence
 #: EDIT source; this skeleton is the canonical SEED reused by the
 #: Load-current-yaml flow and the ICT demo build script so they emit
@@ -94,20 +95,23 @@ def standard_ict_sequence(tests: list, rail_count: int = 0) -> list[tuple]:
     def op(name: str):
         return by_name.get(name) or op_step(name)
 
-    impedance = [t for t in rows
-                 if not is_daq_ai_row(t) and "Impedance" in str(t[1])]
+    # R-GND rows run BEFORE power-on; legacy rows still say "Impedance"
+    r_gnd = [t for t in rows
+             if not is_daq_ai_row(t)
+             and ("R-GND" in str(t[1]) or "Impedance" in str(t[1]))]
     rest = [t for t in rows
-            if not is_daq_ai_row(t) and "Impedance" not in str(t[1])]
+            if not is_daq_ai_row(t)
+            and "R-GND" not in str(t[1]) and "Impedance" not in str(t[1])]
     mid = [op(n) for n in ICT_OPS_MID]
     if rail_count:
         mid.append((DAQ_AI_METHOD, daq_ai_net_label(rail_count),
                     "V", "—", "—", "—"))
-    return ([op(n) for n in ICT_OPS_BEFORE_TEST] + impedance + mid + rest
+    return ([op(n) for n in ICT_OPS_BEFORE_TEST] + r_gnd + mid + rest
             + [op(n) for n in ICT_OPS_AFTER_TEST])
 
-#: the canonical generation order (user direction): impedance ->
-#: power rails (voltage) -> clock
-METHOD_ORDER = ("Static Impedance", "Power Voltage", "Clock Hz")
+#: the canonical generation order (user direction): R-GND ->
+#: power voltage -> clock
+METHOD_ORDER = (METHOD_R_GND, "Power Voltage", "Clock Hz")
 
 #: default Auto tolerances (user direction): power rails +/- 5 %,
 #: clock +/- 50 ppm (= 0.005 %)
@@ -158,8 +162,8 @@ def _fmt_clock(value: float) -> str:
 def generate_sequence(testable: dict) -> list[tuple]:
     """The automatic sequence rows (module level so the Load-current-
     yaml flow reuses it without instantiating the dialog): per power
-    net one Static Impedance and one Power Voltage test, per clock net
-    one Clock Hz test - impedance -> power rails (voltage) -> clock.
+    net one R-GND and one Power Voltage test, per clock net one Clock
+    Hz test - R-GND -> power rails (voltage) -> clock.
     The Expected / Min / Max cells stay unset ("\"—\""); combine with
     :func:`auto_fill_limits` for the fully derived rows."""
     testable = testable or {}
@@ -169,7 +173,7 @@ def generate_sequence(testable: dict) -> list[tuple]:
         for net in sorted(n for n, info in testable.items()
                           if (info or {}).get("category")
                           == category):
-            label = {"Static Impedance": f"Static Impedance - {net}",
+            label = {METHOD_R_GND: f"R-GND - {net}",
                      "Power Voltage": f"Power Voltage - {net}",
                      "Clock Hz": f"Clock Hz - {net}"}.get(
                 method, f"{method} - {net}")

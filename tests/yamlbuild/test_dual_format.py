@@ -5,12 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.yamlbuild.dual_format import (  # noqa: E402
+from mtkgui.ict.netparse import (  # noqa: E402
     clean_net_text,
     detect_netlist_format,
     parse_netlist_auto,
-)
-from mtkgui.gui.yamlbuild.test_points import (  # noqa: E402
     select_test_points,
 )
 
@@ -99,7 +97,7 @@ def test_both_formats_parse_to_identical_model():
 def test_both_formats_equivalent_downstream():
     """Classification, bridges, risk scoring and the power tree are
     identical for both formats (zero algorithm deviation)."""
-    from mtkgui.gui.designinput.netlist import classify_nets
+    from mtkgui.ict.netparse import classify_nets
     from mtkgui.gui.yamlbuild.power_alloc import (
         PowerTree,
         find_bridges,
@@ -168,7 +166,7 @@ def test_pstxnet_branch_parses_nets_and_pins():
 def test_pstxnet_equivalent_to_net_model():
     """pstxnet output == NET output for the same connectivity
     (classification / bridges / risk all identical)."""
-    from mtkgui.gui.designinput.netlist import classify_nets
+    from mtkgui.ict.netparse import classify_nets
     net = parse_netlist_auto(NET_TEXT)
     pstx = parse_netlist_auto(PSTX_TEXT)
     types_net = {r.name: r.net_type for r in classify_nets(net).nets}
@@ -192,7 +190,7 @@ def test_unknown_file_diagnostic_error():
 def test_user_rules_override_classification():
     """Step 2: user regex rules take priority over the system
     defaults (Power / SE Clock / Signal; GND is system-auto)."""
-    from mtkgui.gui.yamlbuild.parse_nets import parse_testable_nets
+    from mtkgui.ict.netparse import parse_testable_nets
     # GPIO_LED1 is a signal by default; the user power rule
     # re-classifies it to Power
     result = parse_testable_nets(NET_TEXT, rules={"power": r"^GPIO_"})
@@ -225,7 +223,7 @@ def test_signal_rows_listed_no_manual_add(qapp):
                 for r in range(panel.table.rowCount())}
         assert "GPIO_LED1" in rows
         assert panel.table.cellWidget(rows["GPIO_LED1"], 2).currentText() \
-            == "Signal"
+            == "Control IO (non-mux GPIO/EN/CS/RST)"
     finally:
         panel.deleteLater()
 

@@ -10,19 +10,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mtkgui.gui.yamlbuild.dual_format import (  # noqa: E402
+from mtkgui.ict.netparse import (  # noqa: E402
     detect_netlist_format,
     parse_netlist_auto,
+    parse_testable_nets,
+    select_test_points,
 )
 from mtkgui.gui.yamlbuild.parser import (  # noqa: E402
     core_id_from_filename,
     extract_drawing_board_name,
-)
-from mtkgui.gui.yamlbuild.parse_nets import (  # noqa: E402
-    parse_testable_nets,
-)
-from mtkgui.gui.yamlbuild.test_points import (  # noqa: E402
-    select_test_points,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "NET-96317_A.net"

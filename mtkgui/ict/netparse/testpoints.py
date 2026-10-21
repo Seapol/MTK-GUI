@@ -13,7 +13,6 @@ net members - nothing is removed from the netlist data itself).
 
 Pure headless functions - no Qt, no parsing-core change.
 """
-
 from __future__ import annotations
 
 import re
@@ -53,7 +52,7 @@ def select_test_points(members: list[str]) -> tuple[str, list[str]]:
         (same rank ties keep the netlist order; only the best per
         rank prefix is kept).
     """
-    ranked = sorted((( _rank(m), i, m.strip())
+    ranked = sorted(((_rank(m), i, m.strip())
                      for i, m in enumerate(members or [])),
                     key=lambda t: (t[0], t[1]))
     if not ranked:

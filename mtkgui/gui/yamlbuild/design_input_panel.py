@@ -38,10 +38,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.gui.yamlbuild.parser import (
-    core_id_from_filename,
-    read_text_any_encoding,
-)
+from mtkgui.ict.netparse import read_text_any_encoding
+from mtkgui.gui.yamlbuild.parser import core_id_from_filename
 from mtkgui.gui.yamlbuild.schema import (
     BATCH_CUSTOMIZED_PREFIX,
     BATCH_DEVIATION_PREFIX,

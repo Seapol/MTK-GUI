@@ -2,10 +2,9 @@
 """Candidate power-tree derivation tests (topology only, no params)."""
 from __future__ import annotations
 
-from mtkgui.gui.yamlbuild.parser import parse_netlist
+from mtkgui.ict.netparse import classify_nets, parse_netlist
 
 from mtkgui.gui.designinput.components import build_library
-from mtkgui.gui.designinput.netlist import classify_nets
 from mtkgui.gui.designinput.power_tree_draft import (
     DRAFT_MISSING_PARAM_TOOLTIP,
     derive_candidate_tree,

@@ -40,24 +40,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.gui.designinput.components import build_library
-from mtkgui.gui.designinput.model import (
+from mtkgui.ict.netparse import (SpfParseError, classify_nets,
+                                 parse_netlist_file, parse_spf,
+                                 read_text_any_encoding)
+
+from .bom import parse_bom
+from .components import build_library, merge_bom
+from .model import (
     BOARD_TYPES,
     DesignDataModel,
 )
-from mtkgui.gui.designinput.netlist import classify_nets, \
-    parse_netlist_file
-from mtkgui.gui.designinput.pdf_schematic import parse_pdf_schematic
-from mtkgui.gui.designinput.power_tree_draft import \
+from .pdf_schematic import parse_pdf_schematic
+from .power_tree_draft import \
     derive_candidate_tree
-from mtkgui.gui.designinput.sources import (
+from .sources import (
     SCANNED_PDF_NOTICE,
     SOURCE_SMART_PDF_SPF,
     ScannedPdfError,
     detect_schematic_source,
 )
-from mtkgui.gui.designinput.spf_parser import SpfParseError, parse_spf
-from mtkgui.gui.designinput.testpoints import select_test_points
+from .testpoints import select_test_points
 from mtkgui.gui.yamlbuild.parser import extract_pdf_text
 
 SMART_PDF_MARKER = "(Smart-PDF source, review component library!)"
@@ -94,6 +96,7 @@ class DesignInputPage(QWidget):
         self._schematic_text: str | None = None
         self._schematic_source: str | None = None
         self._net_path: str | None = None
+        self._bom_path: str | None = None
         self._parsed = False
 
         root = QVBoxLayout(self)
@@ -116,6 +119,17 @@ class DesignInputPage(QWidget):
         net_row.addWidget(self.btn_net, 0)
         net_row.addWidget(self.lbl_net_status, 1)
         load_form.addRow(net_row)
+
+        bom_row = QHBoxLayout()
+        self.btn_bom = QPushButton("BOM File [Browse]")
+        self.btn_bom.setToolTip(
+            "Optional: load a BOM (.csv / .xlsx) to enhance the "
+            "component library with authoritative RefDes -> MPN / DNP "
+            "data (does not change the net parse result)")
+        self.lbl_bom_status = QLabel("BOM: -")
+        bom_row.addWidget(self.btn_bom, 0)
+        bom_row.addWidget(self.lbl_bom_status, 1)
+        load_form.addRow(bom_row)
 
         self.btn_parse = QPushButton("Parse nets for ICT")
         self.btn_parse.setEnabled(False)      # until BOTH files imported
@@ -167,6 +181,7 @@ class DesignInputPage(QWidget):
         # ---------------------------------------------------- wiring
         self.btn_schematic.clicked.connect(self._browse_schematic)
         self.btn_net.clicked.connect(self._browse_net)
+        self.btn_bom.clicked.connect(self._browse_bom)
         self.btn_parse.clicked.connect(self._parse_nets)
         # user edits mark the field as manually entered
         self.edit_project_name.textEdited.connect(
@@ -243,6 +258,24 @@ class DesignInputPage(QWidget):
                           f"({size} bytes) - not parsed yet, click "
                           "'Parse nets for ICT'")
         self._sync_parse_button()
+
+    def _browse_bom(self) -> None:
+        """Optional BOM import (validated now, merged during parse)."""
+        path, _filter = QFileDialog.getOpenFileName(
+            self, "Select BOM", "", "BOM (*.csv *.xlsx)")
+        if not path:
+            return
+        try:
+            data = parse_bom(path)
+        except (OSError, ValueError) as exc:
+            reason = f"BOM import failed: {exc}"
+            self._log("ERROR", reason)
+            QMessageBox.critical(self, "Import Failed", reason)
+            return
+        self._bom_path = path
+        self.lbl_bom_status.setText("BOM: ✔ Imported (optional)")
+        self._log("INFO", f"BOM imported: {Path(path).name} "
+                          f"({len(data.records)} records)")
 
     # ------------------------------------------------------------- parse
     def _sync_parse_button(self) -> None:
@@ -387,7 +420,31 @@ class DesignInputPage(QWidget):
         n_comp = len(self.model.component_library.records)
         self._log("INFO", f"schematic resolved (source={source}): "
                           f"{n_comp} components")
+        self._apply_bom()
         self._auto_fill_name(self.model.project_info["project_name"])
+
+    def _apply_bom(self) -> None:
+        """Merge the optional BOM into the component library.
+
+        The BOM is optional: any read / format problem is logged as a
+        WARNING and never aborts the schematic parse.
+        """
+        if not self._bom_path:
+            return
+        try:
+            bom = parse_bom(self._bom_path)
+        except (OSError, ValueError) as exc:
+            self._log("WARNING", f"BOM ignored: {exc}")
+            return
+        report = merge_bom(self.model.component_library, bom)
+        self._log("INFO", f"BOM applied: {report.records} records, "
+                          f"{report.updated} PN updated, "
+                          f"{report.added} added, "
+                          f"{len(report.conflicts)} conflicts, "
+                          f"{report.dnp} DNP")
+        for refdes, old, new in report.conflicts[:10]:
+            self._log("WARNING",
+                      f"BOM PN override {refdes}: {old} -> {new}")
 
     # ------------------------------------------------------------ helpers
     def _auto_fill_name(self, value: str) -> None:
@@ -408,7 +465,6 @@ class DesignInputPage(QWidget):
 
 def _read_text(path: str) -> str:
     """Read a text file with the tolerant decode chain."""
-    from mtkgui.gui.yamlbuild.parser import read_text_any_encoding
     return read_text_any_encoding(path)
 
 

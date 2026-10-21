@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Netlist parsing and net classification (spec B1-01-01 item 1).
-
-net_collection is derived 100% from the external Allegro ``.net``
-file - a PDF schematic never degrades it (boundary rule 7).
+"""Net classification kernel (spec B1-01-01 item 1).
 
 Classification rules (applied in this order):
 
@@ -18,19 +15,10 @@ Classification rules (applied in this order):
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 
-from mtkgui.gui.yamlbuild.parser import NetlistData, parse_netlist, \
-    read_text_any_encoding
-
-NET_TYPE_GND_REF = "gnd_ref"
-NET_TYPE_DIFF_PAIR = "diff_pair"
-NET_TYPE_POWER = "power"
-NET_TYPE_CLOCK_SINGLE = "clock_single"
-NET_TYPE_SIGNAL = "signal"
-
-NET_TYPES = (NET_TYPE_GND_REF, NET_TYPE_DIFF_PAIR, NET_TYPE_POWER,
-             NET_TYPE_CLOCK_SINGLE, NET_TYPE_SIGNAL)
+from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
+                    NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
+                    NetCollection, NetlistData, NetRecord)
 
 _GND_RE = re.compile(
     r"^(GND|AGND|DGND|PGND)([_\W].*)?$", re.IGNORECASE)
@@ -46,64 +34,6 @@ _POWER_RE = re.compile(
 _CLOCK_RE = re.compile(
     r"(CLK|XTAL|OSC|MCLK|SCKI|REFCLK)", re.IGNORECASE)
 _PIN_TOKEN_RE = re.compile(r"^[\w\.\-\[\]/#]+$")
-
-
-@dataclass
-class NetRecord:
-    """One classified net (draft state, pre test-point selection).
-
-    Attributes:
-        name:     Net name.
-        members:  Member pin tokens (``U1.5``, ``J2.3``, ``TP4`` ...).
-        net_type: One of :data:`NET_TYPES`.
-        nominal / tolerance_pct / jumper_controlled:
-            Business parameters bound back from the formal power tree
-            by ``bind_power_tree_to_nets`` (None until bound).
-    """
-
-    name: str
-    members: list[str]
-    net_type: str = NET_TYPE_SIGNAL
-    nominal: str | None = None
-    tolerance_pct: str | None = None
-    jumper_controlled: bool | None = None
-    is_reference_gnd: bool = False
-    is_alternative_testpoint: bool = False
-
-
-@dataclass
-class NetCollection:
-    """Classified net collection (draft).
-
-    Attributes:
-        nets:            NetRecord list in netlist order.
-        diff_pairs:      ``(_P name, _N name)`` sibling tuples.
-        unclassified:    Names kept as ``signal`` (no WARNING case).
-    """
-
-    nets: list[NetRecord] = field(default_factory=list)
-    diff_pairs: list[tuple[str, str]] = field(default_factory=list)
-
-    def by_name(self, name: str) -> NetRecord | None:
-        """Return the record for *name* (None when absent)."""
-        for rec in self.nets:
-            if rec.name == name:
-                return rec
-        return None
-
-    def pins_of(self, refdes: str) -> dict[str, str]:
-        """pin -> net mapping for one component (netlist ground truth).
-
-        Used by the power-tree drafter and the Device Library Editor
-        pin-net view.
-        """
-        pins: dict[str, str] = {}
-        prefix = refdes + "."
-        for rec in self.nets:
-            for token in rec.members:
-                if token.startswith(prefix):
-                    pins[token[len(prefix):]] = rec.name
-        return pins
 
 
 def classify_nets(netlist: NetlistData) -> NetCollection:
@@ -135,20 +65,6 @@ def classify_nets(netlist: NetlistData) -> NetCollection:
             NetRecord(name=name, members=members, net_type=net_type))
     collection.diff_pairs = _pair_tuples(pair_map)
     return collection
-
-
-def parse_netlist_file(path: str) -> tuple[NetlistData, str]:
-    """Read + parse a netlist file (tolerant decode chain).
-
-    Args:
-        path: Netlist file path (``.net`` / ``.net.txt``).
-
-    Returns:
-        (NetlistData, raw_text) - the raw text stays available for
-        audit / re-parse without touching the file again.
-    """
-    text = read_text_any_encoding(path)
-    return parse_netlist(text), text
 
 
 def _diff_pair_map(names: list[str]) -> dict[str, str]:

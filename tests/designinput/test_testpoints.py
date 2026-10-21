@@ -2,9 +2,8 @@
 """Test-point selection tests (priority J > JP > SJ > C > L > R)."""
 from __future__ import annotations
 
-from mtkgui.gui.yamlbuild.parser import parse_netlist
+from mtkgui.ict.netparse import classify_nets, parse_netlist
 
-from mtkgui.gui.designinput.netlist import classify_nets
 from mtkgui.gui.designinput.testpoints import (
     gnd_reference_names,
     select_test_points,

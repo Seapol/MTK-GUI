@@ -32,7 +32,7 @@ results comparable across operators, boards and shifts:
    must be enabled and the Auto-SN / serial format pre-check must
    pass (see `Run Gates and Pre-Test`).
 2. **ICT stage** - the ICT table executes strictly top -> bottom:
-   fixture close -> impedance shorts (board still unpowered) ->
+   fixture close -> R-GND shorts (board still unpowered) ->
    `Power On DUT` -> electrical measurements -> `Power Off DUT` ->
    fixture open. Every measurement is judged against its per-row
    `Min` / `Max` limits; a short or a `Stop if failure` event ends
@@ -159,7 +159,7 @@ the two test stages.
   is loaded.
 - Stage table columns: `#`, `Stage`, `EN`, `Status`,
   `Duration (s)`.
-  - Row 1 - **ICT**: In-Circuit Test, 80 power nets impedance ->
+  - Row 1 - **ICT**: In-Circuit Test, 80 power nets R-GND ->
     voltage -> RTC / CLKOUT1 / CLKOUT2 clocks (shown as a tooltip).
   - Row 2 - **FCT**: Functional Test, LED -> Serial Console (Linux) ->
     Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE (tooltip).
@@ -178,11 +178,11 @@ operator unticks a box or a project YAML overrides it.
 
 - `Stop if failure` (default **ON**): any test / operation that
   reports FAIL aborts the whole run immediately when checked.
-- `Stop if any short` (default **ON**): applies to every Impedance
+- `Stop if any short` (default **ON**): applies to every R-GND
   Shorts test. A short under power can damage the board, so the run
   aborts right there - before `Power On DUT`.
 
-**Note:** impedance shorts are intentionally sequenced before the DUT
+**Note:** R-GND shorts are intentionally sequenced before the DUT
 is powered on; keep `Stop if any short` enabled unless you know the
 board is safe.
 
@@ -223,13 +223,13 @@ The ICT table executes strictly top -> bottom. Columns:
 - `EN` - single-click the checkbox to enable / disable the step.
 - `Unit` - measurement unit (`Ω`, `V`, `Hz`, `ch`); `—` for operations.
 - `Measured` - measured / captured value, filled during the run.
-- `Min` / `Max` - numeric limits; Impedance Shorts has only a Min
+- `Min` / `Max` - numeric limits; R-GND Shorts has only a Min
   threshold (Max stays blank).
 - `Result` - `PASS` / `FAIL` for tests, `Done` / `Error` for standard
   operations.
 
 The factory sequence (17 steps): `Init Instruments`, `Fixture Clamp
-Down`, `Fixture Lock`, `Fixture E-Stop Healthy`, `Impedance Shorts
+Down`, `Fixture Lock`, `Fixture E-Stop Healthy`, `R-GND Shorts
 (80 pts)` (Min 1.5 Ω), `Power On DUT`, `Power Voltage (80 pts)`
 (3.201-3.399 V), `RTC - 32.768 kHz (907A TOT)`, `CLKOUT1 - 4 MHz
 (U2355A CTR0)`, `CLKOUT2 - 6 MHz (U2355A CTR1)`, `ADC Stimulus
@@ -243,20 +243,20 @@ The `Test Method` field of a measurement row decides how the row is
 executed and judged. Four measurement methods exist, plus the
 generic `test` row type.
 
-#### Static Impedance
+#### R-GND
 
 - **What it does** - closes the DAQM908A crosspoint of the net under
   test and reads the 2-wire resistance through the DAQ973A built-in
-  DMM. This is the Impedance Shorts screen: every power net is
+  DMM. This is the R-GND Shorts screen: every power net is
   measured against a minimum threshold while the board is still
   unpowered.
-- **Configure** - `Test Method` = `Static Impedance`, `Net` = a
+- **Configure** - `Test Method` = `R-GND`, `Net` = a
   power net from the Yaml Build parse, `Min` = lower resistance
   limit, `Max` blank, `Unit` fixed to `Ω`.
 - **Use when** - the net must be proven not shorted to ground or a
   neighbouring net **before** power is applied. Keep these rows in
   the pre-power segment of the sequence.
-- **Example** - row `Impedance Shorts (80 pts)`, Min `1.5`: a
+- **Example** - row `R-GND Shorts (80 pts)`, Min `1.5`: a
   reading of `0.62` trips `Stop if any short` and aborts the run
   right there, before `Power On DUT`.
 
@@ -333,7 +333,7 @@ step needs a connected rack session - connect from the Equipment page
 or with `Tools > Set All instruments > Connect all` (see
 `05_equipment.md`).
 
-- Without a connection, `Static Impedance`, `Power Voltage`,
+- Without a connection, `R-GND`, `Power Voltage`,
   `Clock Hz`, the `DAQ AI` rails capture and the instrument /
   fixture / power operations report `Error` - never a PASS. The
   `Measured` cell stays empty and the Event Log prints the reason
@@ -374,7 +374,7 @@ editor.
 | `Reset Instruments` | returns every instrument to a safe standby (teardown) | instruments checklist |
 | `Operation: Custom` | free-form operation row for site-specific control | per dialog |
 
-- **Use when** - keep the factory order: impedance before power
+- **Use when** - keep the factory order: R-GND before power
   (shorts must never be probed on a live board), E-Stop check before
   `Power On DUT`, and never remove a teardown row - an aborted run
   would leave the DUT powered or the fixture closed.
@@ -503,11 +503,11 @@ the changes back and refills the table.
 
 Fields, in order:
 
-- `Test Method` - `op`, `test`, `Static Impedance`, `Power Voltage`,
+- `Test Method` - `op`, `test`, `R-GND`, `Power Voltage`,
   `Clock Hz`, `DAQ AI`. Changing it updates the fields below.
 - `Net` - the net name. The offered choices come **per test method**
-  from the Yaml Build parse result: Power nets for `Static Impedance`
-  and `Power Voltage`, Clock nets for `Clock Hz`, GPIO nets for the
+  from the Yaml Build parse result: Power nets for `R-GND`
+  and `Power Voltage`, Clock nets for `Clock Hz`, Control IO nets for the
   generic `test`. A legacy name outside the category stays
   selectable (prepended to the list). For `DAQ AI` the field is
   READ-ONLY and shows the rail count from Channel Allocation

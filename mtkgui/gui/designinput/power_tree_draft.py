@@ -19,9 +19,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from mtkgui.ict.netparse import NET_TYPE_POWER, NetCollection
+
 from .components import CATEGORY_DCDC, CATEGORY_LDO, \
     CATEGORY_PMIC, ComponentLibrary
-from .netlist import NetCollection, NET_TYPE_POWER
 
 DRAFT_MISSING_PARAM_TOOLTIP = (
     "Draft topology: sync to the Power-Tree Editor and fill in "

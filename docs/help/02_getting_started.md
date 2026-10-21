@@ -113,7 +113,7 @@ A safe path from a fresh install to the first verdict:
   Allocation tables, Build ICT Test Work Flow Sequence, Build FCT
   Test Work Flow Sequence) and confirm with Apply to save the YAML.
 - **Step 3 - Review the channel allocation.** The Power / Clock /
-  GPIO tables are embedded in the **Yaml Build** page right below
+  Control IO tables are embedded in the **Yaml Build** page right below
   the block cards, filled from the Parse Nets result; adjust the
   mapping and use Apply to persist it into the project YAML.
 - **Step 4 - Run.** On the **Test Work Flow** tab enter the Serial

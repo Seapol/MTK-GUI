@@ -85,7 +85,7 @@ def test_net_choices_follow_the_method(qapp):
     placeholder."""
     dlg = make_dialog(None)
     try:
-        assert dlg._net_choices("Static Impedance") == \
+        assert dlg._net_choices("R-GND") == \
             ["1V8_CORE", "3V3"]
         assert dlg._net_choices("Clock Hz") == ["CLK_24M"]
         assert dlg._net_choices("test") == ["GPIO_LED1"]
@@ -97,7 +97,7 @@ def test_net_choices_follow_the_method(qapp):
 def test_unit_map_covers_all_methods(qapp):
     dlg = make_dialog(None)
     try:
-        assert dlg.ICT_METHOD_UNITS["Static Impedance"] == "Ω"
+        assert dlg.ICT_METHOD_UNITS["R-GND"] == "Ω"
         assert dlg.ICT_METHOD_UNITS["Power Voltage"] == "V"
         assert dlg.ICT_METHOD_UNITS["Clock Hz"] == "Hz"
         # the plain Delay wait step reuses the per-step Wait (ms) field
@@ -172,7 +172,7 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             step_dlg = dialog_self
             combos = [c for c in combos
                       if c.count() and c.itemText(0) in
-                      ("op", "test", "Static Impedance")]
+                      ("op", "test", "R-GND")]
             kind_combo = None
             for c in combos:
                 if c.currentText() in ("test", "op") or \
@@ -180,7 +180,7 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
                     kind_combo = c
                     break
             assert kind_combo is not None
-            kind_combo.setCurrentText("Static Impedance")
+            kind_combo.setCurrentText("R-GND")
             # net combo: the combo whose items contain a catalog net
             net_combo = next(c for c in
                              step_dlg.findChildren(QComboBox)
@@ -203,7 +203,7 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             "mtkgui.test_workflow_page.QDialog.exec", fake_exec)
         assert dlg._edit_ict_step(0) is True
         kind, name, unit, measured, lo, hi = dlg._steps[0][:6]
-        assert kind == "Static Impedance"
+        assert kind == "R-GND"
         assert name == "3V3"
         assert unit == "Ω" and captured["unit"] == "Ω"
         assert measured == "2"

@@ -12,25 +12,26 @@ Routing is fully automatic from the FILE HEADER FEATURES - never from
 the file extension, never a manual choice:
 
 * SPF section headers in the head of the file  -> the mature SPF
-  parsing chain (:func:`mtkgui.gui.designinput.spf_parser.parse_spf`);
+  parsing chain (:func:`mtkgui.ict.netparse.spf.parse_spf`);
 * NET header features                          -> the NET chain
-  (:func:`mtkgui.gui.yamlbuild.parser.parse_netlist`) after the
+  (:func:`mtkgui.ict.netparse.netlist.parse_netlist`) after the
   NET-specific cleaning (subckt removal, continuation join, common
   junk filtering).
 
 Both branches emit the EXACT same structured output
-(:class:`mtkgui.gui.yamlbuild.parser.NetlistData`) - the downstream
+(:class:`mtkgui.ict.netparse.model.NetlistData`) - the downstream
 classification, topology, test-point selection, risk scoring, power
 tree and YAML persistence are format-unaware (zero adaptation).
 The existing NET parsing logic itself is untouched (red line).
 """
-
 from __future__ import annotations
 
+import csv
 import re
 
-from mtkgui.gui.designinput.spf_parser import parse_spf
-from mtkgui.gui.yamlbuild.parser import NetlistData, parse_netlist
+from .model import NetlistData
+from .netlist import parse_netlist
+from .spf import parse_spf
 
 #: how many leading non-empty lines the header scan inspects
 HEADER_SCAN_LINES = 40
@@ -234,13 +235,17 @@ def parse_allegro_report(text: str) -> NetlistData:
             if _REPORT_HEADER_RE.match(line):
                 in_table = True
             continue
-        name, _, pins_part = line.partition(",")
-        name = name.strip().strip('"').strip()
+        # CSV-aware split: quoted net names may embed commas
+        try:
+            fields = next(csv.reader([line]))
+        except (csv.Error, StopIteration):
+            continue
+        name = (fields[0] if fields else "").strip()
         if not name:
             continue
         members = data.nets.setdefault(name, [])
-        for token in pins_part.split():
-            token = token.strip('"').strip()
+        for token in " ".join(fields[1:]).split():
+            token = token.strip()
             if token and _pin_ok.match(token):
                 members.append(token)
     data.missing_tp = [

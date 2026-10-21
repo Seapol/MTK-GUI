@@ -18,16 +18,11 @@ Event Log):
   (excluded from the clock set by the classification rules);
 * nets without any valid member pin - no test point possible.
 
-The parse result is the single data source for the Channel
-Allocation tables (T10).  Classification rules come from the shared
-:class:`mtkgui.gui.designinput.netlist.classify_nets` kernel - this
-module only orchestrates GUI-side; the kernel is untouched.
+The parse core lives in the headless :mod:`mtkgui.ict.netparse`
+package - this module only provides the Block 02 Qt panel.
 """
 
 from __future__ import annotations
-
-import re
-from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -44,19 +39,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.gui.designinput.netlist import (
-    NET_TYPE_CLOCK_SINGLE,
-    NET_TYPE_DIFF_PAIR,
-    NET_TYPE_GND_REF,
-    NET_TYPE_POWER,
-    NET_TYPE_SIGNAL,
-    NetRecord,
-    classify_nets,
+from mtkgui.ict.netparse import (
+    CATEGORY_CONTROL_IO_LABEL,
+    CATEGORY_GND,
+    CATEGORY_POWER,
+    ParseNetsResult,
+    detect_netlist_format,
+    parse_netlist_auto,
+    parse_testable_nets,
+    select_test_points,
 )
-from mtkgui.gui.yamlbuild.dual_format import parse_netlist_auto
-from mtkgui.gui.yamlbuild.net_rules import DEFAULT_RULES
-from mtkgui.gui.yamlbuild.parser import parse_netlist
-from mtkgui.gui.yamlbuild.test_points import select_test_points
 from mtkgui.gui.yamlbuild.path_risk import (
     DEFAULT_THRESHOLDS,
     LEVEL_HIGH,
@@ -65,196 +57,16 @@ from mtkgui.gui.yamlbuild.path_risk import (
     evaluate_paths,
 )
 
-#: the ICT test-object categories (Channel Allocation order)
-CATEGORY_POWER = "Power"
-CATEGORY_CLOCK = "Clock"
-CATEGORY_GPIO = "GPIO"
-CATEGORY_GND = "GND"
-CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
-
 #: Parsed-Nets-table category labels (the combo the user can change;
 #: "Filtered" moves a net into the Filtered Nets table)
-TABLE_CATEGORIES = ("Power", "SE Clock", "Signal", "GND", "Filtered")
+TABLE_CATEGORIES = ("Power", "SE Clock", CATEGORY_CONTROL_IO_LABEL,
+                    "GND", "Filtered")
 
 #: the Filtered-Nets-table category (moved back by picking a real one)
 CATEGORY_FILTERED = "Filtered"
 
 #: nets of these categories default to Do Not Test (user direction)
-DNT_DEFAULT_CATEGORIES = ("Signal", "GND")
-
-_FILTER_REASONS = {
-    NET_TYPE_GND_REF: "reference ground (measurement loop)",
-    NET_TYPE_DIFF_PAIR: "differential pair (not an ICT test object)",
-    NET_TYPE_SIGNAL: "",          # placeholder, never filtered as such
-}
-
-#: user-rule category -> kernel net type (Step 2 override mapping)
-_USER_RULE_TYPES = {
-    "power": NET_TYPE_POWER,
-    "se_clock": NET_TYPE_CLOCK_SINGLE,
-    "diff_pair": NET_TYPE_DIFF_PAIR,
-}
-
-#: exclusion reason wording (Exclude Parse Nets regex matches)
-EXCLUDED_REASON = "excluded by Exclude Parse Nets regex"
-
-
-def _exclude_pattern(rules: dict | None) -> str:
-    """The active exclusion pattern: the user's Exclude Parse Nets
-    regex when configured, the factory default otherwise; an explicit
-    EMPTY user value disables the exclusion entirely."""
-    rules = rules or {}
-    if "exclude" in rules:
-        return (rules.get("exclude") or "").strip()
-    return DEFAULT_RULES["exclude"]
-
-
-def _apply_user_rules(name: str, net_type: str,
-                      rules: dict | None) -> str:
-    """Step 2 user-regex override (user rules > system defaults).
-
-    For every user-configured category (Power / SE Clock / Diff Pair
-    - GND is system-auto and never overridden): a non-empty user
-    pattern that matches the name re-classifies the net; an explicit
-    EMPTY pattern suppresses the kernel's name-based default for that
-    category (the net falls to Signal).  Categories without a user
-    key keep the kernel classification unchanged.
-    """
-    rules = rules or {}
-    matched_user = False
-    for key, net_cls in _USER_RULE_TYPES.items():
-        if key not in rules:
-            continue
-        pattern = (rules.get(key) or "").strip()
-        if not pattern:
-            continue
-        try:
-            if re.match(pattern, name):
-                return net_cls
-        except re.error:
-            continue
-        matched_user = True     # this category HAS a working pattern
-    if not matched_user:
-        # explicit-empty categories suppress the kernel name default
-        for key, net_cls in _USER_RULE_TYPES.items():
-            if key in rules and not (rules.get(key) or "").strip() \
-                    and net_type == net_cls:
-                return NET_TYPE_SIGNAL
-    return net_type
-
-
-@dataclass
-class ParseNetsResult:
-    """Formal net parse result (the T10 data source).
-
-    Attributes:
-        power / clock / gpio: NetRecord lists per category.
-        filtered:             (net name, reason) of every dropped net.
-        total:                Net count in the raw file.
-        invalid_lines:        Malformed raw lines (report only).
-    """
-
-    power: list[NetRecord] = field(default_factory=list)
-    clock: list[NetRecord] = field(default_factory=list)
-    gpio: list[NetRecord] = field(default_factory=list)
-    gnd: list[NetRecord] = field(default_factory=list)
-    filtered: list[tuple[str, str]] = field(default_factory=list)
-    #: the dropped NetRecords (name + reason above) - the Filtered
-    #: Nets table uses them to move a net back into the parsed set
-    filtered_records: list[NetRecord] = field(default_factory=list)
-    total: int = 0
-    invalid_lines: list[str] = field(default_factory=list)
-
-    def category(self, name: str) -> str:
-        """Category of one net ("" when not testable)."""
-        for cat, records in ((CATEGORY_POWER, self.power),
-                             (CATEGORY_CLOCK, self.clock),
-                             (CATEGORY_GPIO, self.gpio),
-                             (CATEGORY_GND, self.gnd)):
-            if any(r.name == name for r in records):
-                return cat
-        return ""
-
-    def summary(self) -> str:
-        """One-line counts summary for the Event Log."""
-        return (f"power={len(self.power)} clock={len(self.clock)} "
-                f"gpio={len(self.gpio)} gnd={len(self.gnd)} "
-                f"filtered={len(self.filtered)}")
-
-
-def parse_testable_nets(net_text: str,
-                        rules: dict | None = None) -> ParseNetsResult:
-    """Formally parse the raw netlist text and extract the testable
-    nets (headless core - unit-testable without Qt).
-
-    Args:
-        net_text: Raw netlist text (SPF or NET - auto-detected).
-        rules:    User custom classification regexes (core standard
-                  Step 2: user rules > system defaults; an explicit
-                  empty key suppresses the name-based default for that
-                  category).  GND is system-auto, never user-configured.
-
-    Returns:
-        :class:`ParseNetsResult` with the three categories.
-
-    Raises:
-        ValueError: The text contains no recognizable netlist content
-                    (no nets at all) - a clear, non-silent error.
-    """
-    netlist = parse_netlist_auto(net_text)
-    if not netlist.nets:
-        raise ValueError(
-            "no nets found - the file has no recognizable netlist "
-            "content (wrong file or unsupported format)")
-    collection = classify_nets(netlist)
-    result = ParseNetsResult(total=len(collection.nets))
-    for rec in collection.nets:
-        # Step 2: user regex override (user rules > system defaults;
-        # explicit-empty key = no name matching for that category)
-        rec.net_type = _apply_user_rules(rec.name, rec.net_type, rules)
-        # Exclude Parse Nets regex: matching SIGNAL nets never become
-        # ICT test objects (user regex when configured, factory
-        # default otherwise; an explicit empty value disables it)
-        pattern = _exclude_pattern(rules)
-        if pattern and rec.net_type == NET_TYPE_SIGNAL:
-            try:
-                if re.search(pattern, rec.name):
-                    result.filtered.append(
-                        (rec.name, EXCLUDED_REASON))
-                    result.filtered_records.append(rec)
-                    continue
-            except re.error:
-                pass
-        members = [t for t in rec.members if "." in t or
-                   t.upper().startswith("TP")]
-        if not members:
-            # invalid: a net without any testable member pin cannot
-            # get a test point -> filtered with the reason
-            result.filtered.append(
-                (rec.name, "no valid member pin (no test point)"))
-            result.filtered_records.append(rec)
-            continue
-        if rec.net_type == NET_TYPE_POWER:
-            rec.members = members
-            result.power.append(rec)
-        elif rec.net_type == NET_TYPE_CLOCK_SINGLE:
-            rec.members = members
-            result.clock.append(rec)
-        elif rec.net_type == NET_TYPE_SIGNAL:
-            rec.members = members
-            result.gpio.append(rec)
-        elif rec.net_type == NET_TYPE_GND_REF:
-            # reference grounds: measurement-loop references, default
-            # Do Not Test (they appear in the Parsed Nets table)
-            rec.members = members
-            result.gnd.append(rec)
-        else:
-            # diff_pair: documented, non-testable object
-            result.filtered.append(
-                (rec.name, _FILTER_REASONS.get(
-                    rec.net_type, "not an ICT test object")))
-            result.filtered_records.append(rec)
-    return result
+DNT_DEFAULT_CATEGORIES = (CATEGORY_CONTROL_IO_LABEL, "GND")
 
 
 class ParseNetsPanel(QWidget):
@@ -306,7 +118,7 @@ class ParseNetsPanel(QWidget):
         self.btn_rules = QPushButton("Edit Net Classification Rules")
         self.btn_rules.setToolTip(
             "Edit the net name regex rules: Power / SE Clock / "
-            "Signal / Differential pair, with instant test, factory "
+            "Control IO / Differential pair, with instant test, factory "
             "reset and save-time regex validation (GND is "
             "system-auto)")
         row.addWidget(self.btn_rules)
@@ -325,7 +137,7 @@ class ParseNetsPanel(QWidget):
         # direction: the SE Clock / GPIO allocation tables are GONE -
         # the channel assignment lives in Channel Allocation only.
         # Columns: Net | Test Points | Category (user-changeable) |
-        # Do Not Test, Signal and GND default to Do Not Test)
+        # Do Not Test, Control IO and GND default to Do Not Test)
         lbl_nets = QLabel("Parsed Nets:")
         lbl_nets.setObjectName("strong")
         lay.addWidget(lbl_nets)
@@ -346,7 +158,7 @@ class ParseNetsPanel(QWidget):
         # ------------------------------ table 2: Filtered Nets (user
         # direction: the excluded nets stay visible with their reason;
         # the Category combo defaults to "Filtered" - picking Power /
-        # SE Clock / Signal / GND moves the net BACK into the Parsed
+        # SE Clock / Control IO / GND moves the net BACK into the Parsed
         # Nets table, and picking "Filtered" in the Parsed Nets table
         # moves it here)
         lbl_filtered = QLabel("Filtered Nets:")
@@ -393,7 +205,7 @@ class ParseNetsPanel(QWidget):
     # ---------------------------------------------------------- item 24
     def set_dnt_state(self, dnt_nets: set[str] | None) -> None:
         """Restore the persisted Do-Not-Test net set (the explicit
-        user flags - they win over the Signal/GND category defaults)."""
+        user flags - they win over the Control IO/GND category defaults)."""
         self._dnt_flags = {n: True for n in (dnt_nets or set())}
 
     def power_dnt_nets(self) -> list[str]:
@@ -401,7 +213,7 @@ class ParseNetsPanel(QWidget):
         return sorted(n for n, v in self._dnt_flags.items() if v)
 
     def _dnt_default(self, category: str) -> bool:
-        """Category default: Signal and GND default Do Not Test."""
+        """Category default: Control IO and GND default Do Not Test."""
         return category in DNT_DEFAULT_CATEGORIES
 
     def _dnt_set(self, name: str, checked: bool) -> None:
@@ -478,7 +290,7 @@ class ParseNetsPanel(QWidget):
     def _evaluate_risk(self, result: ParseNetsResult) -> None:
         """Evaluate the loop risk for every non-DNT testable net.
 
-        Scored targets: the Power / SE Clock / Signal nets NOT flagged
+        Scored targets: the Power / SE Clock / Control IO nets NOT flagged
         Do Not Test (the channel assignment itself lives in the
         Channel Allocation page).  GND nets are excluded.  Advisory
         only - never blocks a channel assignment."""
@@ -486,7 +298,7 @@ class ParseNetsPanel(QWidget):
         scored = set()
         for records, category in ((result.power, "Power"),
                                   (result.clock, "SE Clock"),
-                                  (result.gpio, "Signal")):
+                                  (result.gpio, CATEGORY_CONTROL_IO_LABEL)):
             for rec in records:
                 if self._auto_generated.get(rec.name):
                     continue
@@ -612,9 +424,6 @@ class ParseNetsPanel(QWidget):
         try:
             # Step 1: format auto-detection (SPF / NET header features)
             self.task_progress.emit(10, "parse nets: detecting format")
-            from mtkgui.gui.yamlbuild.dual_format import (
-                detect_netlist_format,
-            )
             fmt = detect_netlist_format(text)
             fmt_label = {"spf": "SPF", "pstxnet": "PSTXNET"}.get(
                 fmt, "NET (fallback)" if fmt != "net" else "NET")
@@ -637,7 +446,7 @@ class ParseNetsPanel(QWidget):
         self.task_log.emit("INFO", "net classification done")
         self.result = result
         # Task 6: any net present in NET but NOT in the imported SPF
-        # is an Allegro auto-generated random net -> Signal, locked
+        # is an Allegro auto-generated random net -> Control IO, locked
         # Do Not Test (tag persists in YAML)
         spf_nets = getattr(self, "spf_nets", None) or set()
         if spf_nets:
@@ -699,13 +508,13 @@ class ParseNetsPanel(QWidget):
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
         """Render the PARSED NETS table (Net | Test Points | Category |
-        Do Not Test): the Power / SE Clock / Signal / GND nets MINUS
+        Do Not Test): the Power / SE Clock / Control IO / GND nets MINUS
         the ones overridden to "Filtered", PLUS the filtered nets
         overridden back to a real category; the Category combo (with
         the "Filtered" choice) drives the moves."""
         groups = ((CATEGORY_POWER, result.power),
                   ("SE Clock", result.clock),
-                  ("Signal", result.gpio),
+                  (CATEGORY_CONTROL_IO_LABEL, result.gpio),
                   (CATEGORY_GND, result.gnd))
         rows = [(rec, cat) for cat, records in groups for rec in records
                 if self._category_overrides.get(rec.name)
@@ -758,7 +567,7 @@ class ParseNetsPanel(QWidget):
                 QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.addItems(TABLE_CATEGORIES)
             combo.setCurrentText(
-                category if category in TABLE_CATEGORIES else "Signal")
+                category if category in TABLE_CATEGORIES else CATEGORY_CONTROL_IO_LABEL)
             combo.currentTextChanged.connect(
                 lambda value, name=rec.name: self._category_changed(
                     name, value))

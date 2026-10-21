@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.yamlbuild.net_rules import (
+from mtkgui.ict.netparse.rules import (  # noqa: E402
     CATEGORY_DIFF_PAIR,
     CATEGORY_GND,
     CATEGORY_POWER,
@@ -12,10 +12,10 @@ from mtkgui.gui.yamlbuild.net_rules import (
     CATEGORY_SIGNAL,
     DEFAULT_RULES,
     RULE_SLOTS,
-    NetRulesEditorDialog,
     classify_net,
     validate_rules,
 )
+from mtkgui.gui.yamlbuild.net_rules import NetRulesEditorDialog  # noqa: E402
 
 
 # ------------------------------------------------------- classification

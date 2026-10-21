@@ -44,6 +44,11 @@ from mtkgui.gui.yamlbuild.block_flow import (
     MARK_STAR,
     BlockFlowWidget,
 )
+from mtkgui.ict.netparse import (
+    CATEGORY_CLOCK,
+    CATEGORY_CONTROL_IO_LABEL,
+    CATEGORY_GPIO,
+)
 from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
@@ -65,6 +70,13 @@ from mtkgui.version_info import get_version_info
 
 #: default output directory for published plan files (created on use)
 PLANS_DIR = "config/plans"
+
+#: Parsed-Nets-table display label -> the internal testable-net category
+#: stored in the project YAML (Power / Clock / GPIO stay the data keys)
+DISPLAY_TO_CATEGORY = {
+    "SE Clock": CATEGORY_CLOCK,
+    CATEGORY_CONTROL_IO_LABEL: CATEGORY_GPIO,
+}
 
 
 class YamlBuildPage(QWidget):
@@ -534,8 +546,9 @@ class YamlBuildPage(QWidget):
                 for rec in records:
                     if overrides.get(rec.name) == "Filtered":
                         continue        # moved to Filtered Nets
+                    chosen = overrides.get(rec.name, cat)
                     testable[rec.name] = {
-                        "category": overrides.get(rec.name, cat),
+                        "category": DISPLAY_TO_CATEGORY.get(chosen, chosen),
                         "members": list(rec.members),
                         **({"auto_generated": True}
                            if dialog.nets_panel._auto_generated.get(
@@ -549,7 +562,7 @@ class YamlBuildPage(QWidget):
                                if "." in t
                                or t.upper().startswith("TP")]
                     testable[rec.name] = {
-                        "category": cat,
+                        "category": DISPLAY_TO_CATEGORY.get(cat, cat),
                         "members": members or list(rec.members),
                         "category_override": True}
             self.model.imported["testable_nets"] = testable

@@ -60,11 +60,11 @@ with the project YAML.
   (thermocouple / RTD / thermistor), diode and capacitance.
 - **Configure** - `Scan speed (ch/s)` 450, `Timeout (ms)` 2000,
   `NPLC` 1.0 (integration time per reading: higher = quieter but
-  slower - raise it for noisy impedance readings).
+  slower - raise it for noisy R-GND readings).
 - **Connects to the PC** - `GPIB0::9::INSTR` (LAN / USB also
   available); all three slot modules share this one address.
 - **In the tests** - `Measure 2-wire Ω` behind every
-  Static Impedance row, `Measure DCV` behind Power Voltage,
+  R-GND row, `Measure DCV` behind Power Voltage,
   `Measure Frequency` for slow clock rows.
 - **Reference** -
   [Keysight DAQ973A product page](https://www.keysight.com/us/en/product/DAQ973A/data-acquisition-system-usb-lan-gpib.html)
@@ -86,13 +86,13 @@ with the project YAML.
 - **Station build** - channels CH101-CH140 (module 1) and
   CH201-CH240 (module 2); each channel maps to a fixture test point
   (TP_P1 - TP_P80); channel reuse = `2-wire Ω then DCV` (one wire
-  pair serves the impedance and the voltage screen).
+  pair serves the R-GND and the voltage screen).
 - **Configure** - `Wire mode` 2-wire, `Bias source` off; the
   net -> channel assignment comes from the Yaml Build channel
   allocation, not from this window.
 - **Connects to the fixture** - the module terminal block is wired
   1:1 to the fixture test points through the harness.
-- **In the tests** - Impedance Shorts and Power Voltage rows; the
+- **In the tests** - R-GND Shorts and Power Voltage rows; the
   `Scan CH101 - CH140` and `Relay Self Test` simple tests verify the
   relay matrix.
 - **Reference** -
@@ -186,7 +186,7 @@ instruments through the fixture harness:
 
 - the two DAQM908A multiplexers land their 80 channels
   (CH101 - CH240) on the fixture test points TP_P1 - TP_P80 as
-  2-wire pairs, reused for impedance and then voltage;
+  2-wire pairs, reused for R-GND and then voltage;
 - the DAQM907A open-drain DIO drives the fixture actuators and
   feedback lines (clamp / lock / E-Stop chain) and its ±12 V analog
   outputs stimulate the analog test points;
@@ -205,7 +205,7 @@ allocation must match the physical mapping exactly.
 
 | Resource | Instrument | Pool | Used by |
 |---|---|---|---|
-| 2-wire Ω + DCV sense | DAQM908A #1 / #2 via DAQ973A | CH101 - CH240 (80 ch) | Static Impedance, Power Voltage |
+| 2-wire Ω + DCV sense | DAQM908A #1 / #2 via DAQ973A | CH101 - CH240 (80 ch) | R-GND, Power Voltage |
 | Power-rails capture | U2355A analog inputs | AI01 - AI12 (12 ch) | DAQ AI power-rails capture |
 | Slow-clock frequency | DAQ973A frequency function | 3 Hz - 300 kHz | Clock Hz (RTC crystals) |
 | Fast-clock counters | U2355A counters | CTR0 / CTR1, 0.1 Hz - 6 MHz | Clock Hz (> 300 kHz) |
@@ -216,7 +216,7 @@ allocation must match the physical mapping exactly.
 
 ## How the Tests Use the Instruments
 
-- **Static Impedance** - the DAQM908A closes the net's crosspoint
+- **R-GND** - the DAQM908A closes the net's crosspoint
   and the DAQ973A reads the 2-wire resistance against the row Min
   limit; the `NPLC` setting trades noise against scan speed.
 - **Power Voltage** - the SAME channel pair is reused for DCV after

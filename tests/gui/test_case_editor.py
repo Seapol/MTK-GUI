@@ -202,7 +202,7 @@ def test_page_tree_grouping_and_select(page):
     assert "PWR VDD_3V3 Voltage" in child_texts
     # priority + dimension + status badges present
     item = page_.tree.topLevelItem(pw).child(0)
-    assert item.text(2) in ("Voltage", "Impedance"), "dimension badge"
+    assert item.text(2) in ("Voltage", "R-GND"), "dimension badge"
     assert item.text(3) in ("Enabled", "Disabled", "🔒 Locked")
 
 

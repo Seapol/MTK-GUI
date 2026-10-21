@@ -48,7 +48,7 @@ _HEADERS = ("Module", "Module Key", "Parameter", "Value", "Type",
 ALLOCATION_SHEET_NAMES = {"power": "Power", "clock": "Clock",
                           "gpio": "GPIO"}
 ALLOCATION_HEADERS = {
-    "power": ("Net name", "Test point", "Impedance", "Power rails",
+    "power": ("Net name", "Test point", "R-GND", "Power rails",
               "Voltage"),
     "clock": ("Net name", "Test point", "SE Clock Hz",
               "Frequency band"),

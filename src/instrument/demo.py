@@ -157,7 +157,7 @@ def load_station_config(path: str) -> dict:
     """Derive the demo ``demo`` section from a station YAML file.
 
     Parses ``test_workflow.ict_test_cases`` of the station config
-    (Impedance Shorts / Power Voltages / Clock entries) into the
+    (R-GND Shorts / Power Voltages / Clock entries) into the
     flat ``ict_points`` list the demo ICT runner consumes.  FCT
     (WiFi / Bluetooth) parameters keep the embedded demo defaults
     when the station YAML does not define them.
@@ -180,7 +180,8 @@ def load_station_config(path: str) -> dict:
         if not case.get("enable", True):
             continue
         name = case.get("name", "")
-        if name.startswith("Impedance Shorts") and "(TP_" in name:
+        if (name.startswith("R-GND") or name.startswith("Impedance Shorts")) \
+                and "(TP_" in name:
             min_ohm = _num(case.get("threshold_min"))
             if min_ohm is None:
                 continue

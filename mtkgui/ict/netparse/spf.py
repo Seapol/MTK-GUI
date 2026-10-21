@@ -19,8 +19,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from mtkgui.gui.yamlbuild.parser import read_text_any_encoding
-
 
 class SpfParseError(ValueError):
     """The SPF file is corrupt / not a recognizable Concept-HDL export."""

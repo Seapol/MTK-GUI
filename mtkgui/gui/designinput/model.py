@@ -18,8 +18,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from mtkgui.ict.netparse import (NET_TYPE_GND_REF, NET_TYPE_POWER,
+                                 NetCollection)
+
 from .components import CATEGORY_OTHER, ComponentLibrary
-from .netlist import NET_TYPE_GND_REF, NET_TYPE_POWER, NetCollection
 from .power_tree_draft import CandidatePowerTree
 from .sources import SOURCE_NATIVE_TEXT_SPF, SOURCE_SMART_PDF_SPF
 
@@ -225,7 +227,8 @@ class DesignDataModel:
             "project_info": dict(self.project_info),
             "component_library": [
                 {"refdes": r.refdes, "part_number": r.part_number,
-                 "dev_category": r.dev_category, "note": r.note}
+                 "dev_category": r.dev_category, "note": r.note,
+                 "dnp": r.dnp}
                 for r in self.component_library.records],
             "net_collection": [
                 {"net_name": r.name, "net_type": r.net_type,

@@ -43,7 +43,7 @@ from mtkgui.gui.yamlbuild.channel_allocation import (
     rows_from_testable,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
-from mtkgui.gui.yamlbuild.parse_nets import parse_testable_nets
+from mtkgui.ict.netparse import parse_testable_nets
 
 MAX_GPIO_ROWS = 16          # DAQM907A DIO pool
 MAX_RAMP_RAILS = 10         # rails in the power-up sequence
@@ -178,7 +178,7 @@ def _tests_from_testable(testable: dict) -> list[tuple]:
         category = METHOD_NET_CATEGORY[method]
         for net in sorted(n for n, info in (testable or {}).items()
                           if (info or {}).get("category") == category):
-            label = {"Static Impedance": f"Static Impedance - {net}",
+            label = {"R-GND": f"R-GND - {net}",
                      "Power Voltage": f"Power Voltage - {net}",
                      "Clock Hz": f"Clock Hz - {net}"}.get(
                 method, f"{method} - {net}")

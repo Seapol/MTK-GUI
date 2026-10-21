@@ -44,7 +44,7 @@ def test_generation_order_impedance_voltage_clock(qapp):
         rows = dlg.result_data()[0]
         names = [r[1] for r in rows]
         assert names == [
-            "Static Impedance - 1V8_CORE", "Static Impedance - 3V3",
+            "R-GND - 1V8_CORE", "R-GND - 3V3",
             "Power Voltage - 1V8_CORE", "Power Voltage - 3V3",
             "Clock Hz - CLK_24M",
         ]
@@ -105,7 +105,7 @@ def test_double_click_opens_the_row_editor(qapp, monkeypatch):
             return True
 
         monkeypatch.setattr(dlg, "_edit_ict_step", fake_edit)
-        dlg.list_widget.setCurrentRow(1)           # Static Impedance-3V3
+        dlg.list_widget.setCurrentRow(1)           # R-GND - 3V3
         dlg._on_edit()
         assert edited == [1]
         assert dlg.result_data()[0][1] == ("test", "Power Voltage - 3V3",
@@ -149,8 +149,8 @@ def test_auto_fills_limits_from_net_names(qapp):
         assert rows["Clock Hz - CLK_24M"][4] == "23998800.0"
         assert rows["Clock Hz - CLK_24M"][5] == "24001200.0"
         # impedance: no nominal parsed -> untouched
-        assert rows["Static Impedance - 1V8_CORE"][3] == "—"
-        assert rows["Static Impedance - 1V8_CORE"][4] == "—"
+        assert rows["R-GND - 1V8_CORE"][3] == "—"
+        assert rows["R-GND - 1V8_CORE"][4] == "—"
     finally:
         dlg.deleteLater()
 

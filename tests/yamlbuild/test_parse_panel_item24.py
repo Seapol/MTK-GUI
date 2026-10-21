@@ -103,8 +103,9 @@ def test_parsed_nets_single_table_no_alloc_tables(panel):
              panel.table.cellWidget(r, 3).isChecked())
             for r in range(panel.table.rowCount())}
     assert rows["CLK1"] == ("SE Clock", False)
-    assert rows["GPIO0"] == ("Signal", True)      # default DNT
-    assert rows["SENSE_FB"] == ("Signal", True)   # default DNT
+    control_io = "Control IO (non-mux GPIO/EN/CS/RST)"
+    assert rows["GPIO0"] == (control_io, True)      # default DNT
+    assert rows["SENSE_FB"] == (control_io, True)   # default DNT
     assert rows["VIN_24V"] == ("Power", False)
 
 

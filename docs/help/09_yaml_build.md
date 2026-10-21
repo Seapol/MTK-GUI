@@ -135,7 +135,8 @@ The parse sorts every net into the three ICT test objects:
 - **Power nets** - supply rails (`VDD`, `VCC`, `nVn`, `VPRE`, ...).
 - **Clock nets** - single-ended clock nets (`CLK`, `XTAL`, `OSC`,
   ...).
-- **GPIO nets** - the remaining signal nets.
+- **Control IO nets** - the remaining non-multiplexed GPIO / enable /
+  chip-select / reset nets (`Control IO (non-mux GPIO/EN/CS/RST)`).
 
 Plus **GND** reference grounds (measurement loop reference, default
 Do Not Test) and the **Filtered Nets** table.
@@ -147,10 +148,11 @@ Columns `Net` / `Test Points` / `Category` / `Do Not Test`:
 - **Net** - net name (read-only).
 - **Test Points** - the net's member probe pins; the best candidate
   first, alternatives shown as `(+n alt)`.
-- **Category** - dropdown with `Power` / `SE Clock` / `Signal` /
-  `GND` / `Filtered`. Picking `Filtered` moves the net into the
+- **Category** - dropdown with `Power` / `SE Clock` /
+  `Control IO (non-mux GPIO/EN/CS/RST)` / `GND` / `Filtered`.
+  Picking `Filtered` moves the net into the
   Filtered Nets table; the override survives re-parses.
-- **Do Not Test** - checkbox. `Signal` and `GND` nets default to
+- **Do Not Test** - checkbox. Control IO and `GND` nets default to
   Do Not Test; an explicit toggle wins over the category default.
 
 ### Filtered Nets table
@@ -168,7 +170,7 @@ moves the net back into the Parsed Nets table.
 
 **Note:** every net that exists in the NET file but not in the
 imported SPF is treated as an Allegro auto-generated net: it is
-classified as Signal and **locked Do Not Test** (a WARNING line
+classified as Control IO and **locked Do Not Test** (a WARNING line
 lands in the Event Log).
 
 **Warning:** the parse fails hard on unusable input with
@@ -193,7 +195,7 @@ instrument channel resources to the nets parsed by block 02. In the
 workflow it sits between the parse and the build steps:
 
 - Every parsed net lands in one of the three tables
-  (Power / Clock / GPIO) and receives its instrument resources from
+  (Power / Clock / Control IO) and receives its instrument resources from
   dropdowns only.
 - The **03 · Auto-Channel Allocation** card fills the Power / Clock
   tables automatically (best test point + sequential channels);
@@ -232,7 +234,7 @@ block 02 `Parse nets for ICT` first.
   Allocation** card (the standalone buttons are gone; applying to
   the YAML is owned by the preview pane's `Apply to Yaml` button).
 - The muted hint line naming the data source.
-- The tab widget with `Power Nets` / `Clock Nets` / `GPIO Nets`.
+- The tab widget with `Power Nets` / `Clock Nets` / `Control IO Nets`.
 - The summary line at the bottom, for example
   `rows: power=12 clock=3 gpio=8 - validation: OK`. With resource
   conflicts the line turns red and appends the detail, e.g.
@@ -247,14 +249,14 @@ Columns:
   pin when the members carry one, otherwise the member pins; the
   fixed `TP1` - `TP4` fallback applies only when a net has no
   dot-pins at all.
-- `Impedance` - DAQM908A sense channel for the 2-wire ohm
+- `R-GND` - DAQM908A sense channel for the 2-wire ohm
   measurement: `DAQM908A #1 CH101` - `CH140` and `DAQM908A #2
   CH201` - `CH240`.
 - `Power rails` - U2355A analog input for the up-sequence capture:
   `U2355A AI01` - `AI12` (the hardware offers 16 inputs, the GUI
   provides 12 for a balanced sampling rate).
 - `Voltage` - DAQM908A sense channel for the DCV measurement (the
-  same pool as `Impedance`).
+  same pool as `R-GND`).
 
 There are no `Instrument` / `Channel` / `Status` columns by design -
 the resource is implicit in the channel name.
@@ -270,7 +272,7 @@ the resource is implicit in the channel name.
   counters map to `0.1 Hz ~ 6 MHz`. A legacy free-text band resets
   to the unset state on reload.
 
-### GPIO Nets Tab
+### Control IO Nets Tab
 
 - `Net` - net name (read-only).
 - `Test point` - member-pin dropdown.
@@ -300,7 +302,7 @@ from the allocation.
 
 1. **Test point**: the best probe pin of the net (a `TP` pin
    preferred, else the first member pin).
-2. **Power rows**: sequential DAQM908A sense channels - `Impedance`
+2. **Power rows**: sequential DAQM908A sense channels - `R-GND`
    and `Voltage` share the SAME channel (the 2-wire ohm then DCV
    reuse) - plus the next free `U2355A AI` channel for
    `Power rails`.
@@ -316,7 +318,7 @@ configure them manually.
 
 A row is OK when every configurable cell of its kind is set:
 
-- power: `Test point` + `Impedance` + `Power rails` + `Voltage`
+- power: `Test point` + `R-GND` + `Power rails` + `Voltage`
 - clock: `Test point` + `SE Clock Hz` (the band auto-fills)
 - gpio: `Test point` + `DIO Channel`
 
@@ -329,8 +331,8 @@ every table is complete; otherwise it reads
 - A net **without a fully allocated channel set is automatically
   Do-Not-Test**: only allocated nets reach the ICT Test Work Flow
   sequence builder. A power net needs all three resources
-  (`Impedance` + `Power rails` + `Voltage`) before its tests are
-  generated; a clock net needs `SE Clock Hz`; a GPIO net needs
+  (`R-GND` + `Power rails` + `Voltage`) before its tests are
+  generated; a clock net needs `SE Clock Hz`; a Control IO net needs
   `DIO Channel`.
 - Nets flagged Do Not Test in the Parse Nets panel (block 02) keep
   that flag; the flags persist with the project.
@@ -345,9 +347,9 @@ One instrument resource used by **more than one net** is a conflict
 and turns the summary line red:
 
 - The conflict check runs per resource pool: DAQM908A (the
-  `Impedance` + `Voltage` pool), `U2355A AI` (the `Power rails`
+  `R-GND` + `Voltage` pool), `U2355A AI` (the `Power rails`
   pool), `SE Clock` and `DAQM907A DIO`.
-- One net using the same channel for `Impedance` AND `Voltage` is
+- One net using the same channel for `R-GND` AND `Voltage` is
   the normal Auto behavior - NOT a conflict.
 - The summary line shows the conflicts in red as soon as they
   exist, e.g. `- CONFLICT: DAQM908A CH101 -> VDD_3V3, VDD_1V8`.
@@ -399,7 +401,7 @@ Instrument / programmer / peripheral hardware is configured on the
 Connection state mirrors between the Equipment page and the
 status-bar LEDs.
 
-## Build ICT Test Work Flow Sequence (Rails / Clocks / GPIO)
+## Build ICT Test Work Flow Sequence (Rails / Clocks / Control IO)
 
 The merged card for the underlying `rails` / `clocks` / `gpios`
 modules. It reuses the Equipment-page instrument resources read-only
@@ -407,8 +409,8 @@ and owns the ICT test case editing. Clicking the card opens the
 **Build ICT Test Work Flow Sequence** dialog:
 
 - One ICT test per row, auto-generated in the canonical order
-  **impedance -> power rails (voltage) -> clock** from the parse
-  result: per power net one `Static Impedance` and one
+  **R-GND -> power rails (voltage) -> clock** from the parse
+  result: per power net one `R-GND` and one
   `Power Voltage` test, per clock net one `Clock Hz` test. No
   standard operations here - they are added on the Test Work Flow
   page on `OK`.
@@ -427,7 +429,7 @@ and owns the ICT test case editing. Clicking the card opens the
   `Expected` pre-fills from the net name (`P3V3_LDO` -> 3.3 V,
   `CLK_24M` -> 24 MHz). The expected value with the default
   tolerance derives `Min` / `Max` (power rails +/-5%, clock
-  +/-50 ppm). `Static Impedance` has no expected value and no max -
+  +/-50 ppm). `R-GND` has no expected value and no max -
   a lower limit only.
 - Only nets **with an allocated instrument channel** are offered;
   unallocated nets are auto Do-Not-Test.
@@ -456,7 +458,7 @@ rails   Power-On Voltage (V, 0-60, default 5.0)
         Power-Off Protection (default true)
         Rail Sequence - one "rail:delay_s" entry per line (required)
         Voltage Tolerance (%, 0-5, default 0.1)
-        Impedance Min (Ohm, default 1.5)
+        R-GND Min (Ohm, default 1.5)
         Sample Rate (Hz, 1-250000, default 1000)
         Pre-Trigger (s, default -0.5)
         Post-Trigger (s, default 6.0)

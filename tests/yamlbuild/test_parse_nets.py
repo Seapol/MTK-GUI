@@ -16,14 +16,14 @@ from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
-from mtkgui.gui.yamlbuild.parse_nets import (  # noqa: E402
+from mtkgui.ict.netparse import (  # noqa: E402
     CATEGORY_CLOCK,
     CATEGORY_GND,
     CATEGORY_GPIO,
     CATEGORY_POWER,
-    ParseNetsPanel,
     parse_testable_nets,
 )
+from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel  # noqa: E402
 
 NET_SAMPLE = """*SIGNAL* 3V3
 U1.5 U2.VOUT
@@ -203,7 +203,7 @@ def test_panel_parse_renders_parsed_nets_table(panel):
     assert panel.table.cellWidget(names["CLK_24M"], 2).currentText() == \
         "SE Clock"
     assert panel.table.cellWidget(names["GPIO_LED1"], 2).currentText() \
-        == "Signal"
+        == "Control IO (non-mux GPIO/EN/CS/RST)"
     assert panel.table.cellWidget(names["GND"], 2).currentText() == "GND"
     # DNT defaults: Signal + GND checked, Power / SE Clock unchecked
     assert panel.table.cellWidget(names["3V3"], 3).isChecked() is False

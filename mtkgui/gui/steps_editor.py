@@ -34,8 +34,10 @@ from PySide6.QtWidgets import (
 
 from ..engine import (
     FCT_METHODS,
+    METHOD_R_GND,
     OP_STEPS,
     fct_kind_from_name as _fct_kind_from_name,
+    normalize_ict_method,
     op_step as _op_step,
     op_summary as _op_summary,
 )
@@ -331,7 +333,7 @@ class StepsEditorDialog(QDialog):
     #: Test Method -> unit (the Unit field is auto-filled, user
     #: direction) and -> the net category offered in the Net combo
     ICT_METHOD_UNITS = {
-        "Static Impedance": "Ω",
+        METHOD_R_GND: "Ω",
         "Power Voltage": "V",
         "Clock Hz": "Hz",
         "DAQ AI": "V",
@@ -340,7 +342,7 @@ class StepsEditorDialog(QDialog):
         "delay": "ms",
     }
     ICT_METHOD_NET_CATEGORY = {
-        "Static Impedance": "Power",
+        METHOD_R_GND: "Power",
         "Power Voltage": "Power",
         "DAQ AI": "Power",
         "Clock Hz": "Clock",
@@ -351,10 +353,11 @@ class StepsEditorDialog(QDialog):
 
     def _net_choices(self, method: str) -> list[str]:
         """The nets offered for one Test Method (user direction: the
-        Net combo follows the method): Power nets for the impedance /
-        voltage methods, Clock nets for Clock Hz, GPIO nets for the
-        generic test; the DAQ AI method has NO free net - a read-only
-        count of the DAQ AI rails assigned in Channel Allocation."""
+        Net combo follows the method): Power nets for the R-GND /
+        voltage methods, Clock nets for Clock Hz, Control IO nets for
+        the generic test; the DAQ AI method has NO free net - a
+        read-only count of the DAQ AI rails assigned in Channel
+        Allocation."""
         if method == "DAQ AI":
             from .yamlbuild.ict_sequence import daq_ai_net_label
             # defensive getattr: this helper also runs on the
@@ -375,6 +378,7 @@ class StepsEditorDialog(QDialog):
         if step[0] == "op":
             return self._edit_op_step(r, step)
         kind, name, unit, measured, lo, hi = step[:6]
+        kind = normalize_ict_method(kind)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
         form = QFormLayout(dlg)
@@ -384,7 +388,7 @@ class StepsEditorDialog(QDialog):
         # Expected * (1 + tol) - user direction)
         kind_combo = QComboBox()
         kind_combo.addItems(
-            ["op", "test", "delay", "Static Impedance", "Power Voltage",
+            ["op", "test", "delay", METHOD_R_GND, "Power Voltage",
              "Clock Hz", "DAQ AI"])
         kind_combo.setCurrentText(kind)
         unit_edit = QLineEdit(unit)

@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .netlist import NetCollection, NET_TYPE_GND_REF
+from mtkgui.ict.netparse import NET_TYPE_GND_REF, NetCollection
 
 # spec priority order (highest first)
 TP_PRIORITY = ("J", "JP", "SJ", "C", "L", "R")

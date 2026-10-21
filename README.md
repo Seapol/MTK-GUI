@@ -23,8 +23,8 @@ ICT ──► Flash FAT firmware ──► FCT ──► Flash OOBE firmware
 ```
 
 - **ICT** (numeric tests, verdict from limits — in range ⇒ PASS, otherwise FAIL):
-  fixture interlocks → 80-point 2-wire impedance shorts (R_min threshold, 1.5 Ω
-  tolerance; catches low-impedance shorts before power is applied) → power on →
+  fixture interlocks → 80-point 2-wire R-GND shorts (R_min threshold, 1.5 Ω
+  tolerance; catches low-resistance shorts before power is applied) → power on →
   12-channel power-rails up-sequence capture → 80-point DC voltage (±0.1 %) →
   three clocks (32.768 kHz / 4 MHz / 6 MHz) → AO→ADC stimulus → fixture DIO →
   24 DUT GPIO.

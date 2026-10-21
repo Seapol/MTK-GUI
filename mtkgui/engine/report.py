@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .steps import METHOD_R_GND, is_r_gnd_method
+
 #: CSV column header (DUT detail rows, MES-importable flat shape)
 CSV_HEADER = ("serial_no", "station_id", "user", "timestamp",
               "test_name", "category", "channel", "duration", "low",
@@ -45,7 +47,7 @@ class ReportItem:
     high: str = ""
     unit: str = ""
     result: str = ""
-    # ICT sub-classification from the Test Method ("Static Impedance" /
+    # ICT sub-classification from the Test Method ("R-GND" /
     # "Power Voltage" / "Clock Hz" / "DAQ AI"; "" = generic) - the
     # certificate report splits the ICT detail into per-method tables
     method: str = ""
@@ -105,8 +107,8 @@ class DutReport:
             return _clean(item.text()) if item is not None else ""
 
         # ICT rows (kind op = standard operations; flash ops = Flash).
-        # kind IS the Test Method ("Static Impedance"/"Power Voltage"/
-        # "Clock Hz"/"DAQ AI"); a generic "test" falls back to its unit
+        # kind IS the Test Method ("R-GND"/"Power Voltage"/"Clock Hz"/
+        # "DAQ AI"); a generic "test" falls back to its unit
         # (Ω / V / Hz) the same way the virtual hardware guesses.
         for r, step in enumerate(getattr(page, "ict_steps", [])):
             kind, name = step[0], step[1]
@@ -119,11 +121,12 @@ class DutReport:
             unit = _clean(step[2]) if len(step) > 2 else ""
             if kind == "op":
                 method = ""
-            elif kind in ("Static Impedance", "Power Voltage",
-                          "Clock Hz", "DAQ AI"):
+            elif is_r_gnd_method(kind):
+                method = METHOD_R_GND
+            elif kind in ("Power Voltage", "Clock Hz", "DAQ AI"):
                 method = kind
             else:
-                method = {"Ω": "Static Impedance", "V": "Power Voltage",
+                method = {"Ω": METHOD_R_GND, "V": "Power Voltage",
                           "Hz": "Clock Hz"}.get(unit, "")
             report.items.append(ReportItem(
                 test_name=name, category=category,

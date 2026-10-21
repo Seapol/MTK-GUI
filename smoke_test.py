@@ -327,8 +327,8 @@ assert wf.ict_steps[daq][1] == "DAQ AI - Power rails"
 wf.run_demo()
 assert wf.overall.item(0, 3).text() == "PASS"
 assert wf.ict.item(0, 7).text() == "Done"          # Init Instruments op
-assert wf.ict.item(4, 7).text() in ("PASS", "Done")  # first impedance test
-assert wf.ict_steps[4][1].startswith("Static Impedance")
+assert wf.ict.item(4, 7).text() in ("PASS", "Done")  # first R-GND test
+assert wf.ict_steps[4][1].startswith("R-GND")
 assert wf.fct.item(0, 4).text() in ("PASS", "Done")
 # DAQ AI (row 15, right after Power On DUT): samples + CSV captured
 assert wf.rail_csv_path is not None and wf.rail_csv_path.exists()
@@ -375,7 +375,7 @@ print("overall flow EN ok")
 # 15. Overall Flow stop policies: defaults + abort decisions.
 assert wf.stop_if_fail_cb.isChecked() is False
 assert wf.stop_if_short_cb.isChecked() is True
-# row 4 = impedance (Ω unit), row 16 = power voltage (V unit)
+# row 4 = R-GND (Ω unit), row 16 = power voltage (V unit)
 assert wf._is_impedance_short_row(4)
 assert not wf._is_impedance_short_row(16)
 # simulated short at the impedance row
@@ -595,8 +595,8 @@ assert r2.execute_op("Fixture Lock",
                       "level": "H"}).verdict == "Error"
 # 80 two-wire OHM points (DAQM908A slot1/slot2 routing), all >= 1.5 ohm
 for i in range(1, 81):
-    m = rack.measure_row("Static Impedance",
-                         f"Impedance Shorts: NET{i} (TP_P{i:02d})",
+    m = rack.measure_row("R-GND",
+                         f"R-GND Shorts: NET{i} (TP_P{i:02d})",
                          "Ω", 1.5, 9999)
     assert m.verdict == "PASS" and float(m.text) >= 1.5, (i, m.lines)
 # power on, then 80 DCV points inside the +/-3 % window
@@ -628,9 +628,9 @@ assert r3.measure_row("Power Voltage", "x (TP_P01)", "V", 3.2, 3.4
 assert r3.measure_row("Clock Hz", "Clock Hz: RTC_CLK (TP_C01)", "Hz",
                       32766, 32769).verdict == "FAIL"
 # forced FAIL / Error override the policy
-assert rack.measure_row("Static Impedance", "short (TP_P05)", "Ω",
+assert rack.measure_row("R-GND", "short (TP_P05)", "Ω",
                         1.5, 9999, force="FAIL").verdict == "FAIL"
-assert rack.measure_row("Static Impedance", "to (TP_P05)", "Ω",
+assert rack.measure_row("R-GND", "to (TP_P05)", "Ω",
                         1.5, 9999, force="Error").verdict == "Error"
 # E-Stop loop open -> PSU J1 inhibit keeps the output OFF
 r4 = VirtualRack(0, 0, seed=4)

@@ -237,7 +237,7 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
     assert steps and all(r[0] == "test" for r in steps)   # tests only
     assert len(enables) == len(waits) == len(timeouts) == len(steps)
     names = [r[1] for r in steps]
-    assert any(n.startswith("Static Impedance") for n in names)
+    assert any(n.startswith("R-GND") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
     # no navigation any more (the main window navigates on the signal)
     nav = []

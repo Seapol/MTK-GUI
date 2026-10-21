@@ -7,7 +7,7 @@ ICT-only demo (no FCT), Virtual mode (no physical instruments):
   * parse ``NET-96624_A.net`` (block-02 core) into Power / Clock / GPIO;
   * auto-allocate the Channel Allocation resources (block 05) to FULL
     capacity - the pool is filled then the excess nets are left alone:
-      - Power: DAQM908A sense channels (impedance + voltage, same
+      - Power: DAQM908A sense channels (R-GND + voltage, same
         channel) for up to 80 nets, and the 12 U2355A AI power-rail
         channels for the FIRST 12 power nets (the DAQ AI up-sequence);
       - Clock: the 3 SE clock channels (DAQM907A TOT 0-100 kHz +
@@ -55,7 +55,7 @@ from mtkgui.gui.yamlbuild.channel_allocation import (  # noqa: E402
     rows_from_testable,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
-from mtkgui.gui.yamlbuild.parse_nets import parse_testable_nets  # noqa: E402
+from mtkgui.ict.netparse import parse_testable_nets  # noqa: E402
 
 CORE = "96624"
 PART = "A-96624"
@@ -121,7 +121,7 @@ def build_testable(result) -> dict:
 def build_allocation(testable: dict) -> ChannelAllocationData:
     """Fill every resource pool to capacity; excess nets left alone."""
     alloc = ChannelAllocationData()
-    # power: sense channels (impedance == voltage == same channel) +
+    # power: sense channels (R-GND == voltage == same channel) +
     # the 12 U2355A AI power-rail channels
     sense = iter(DAQM908A_SENSE_CHANNELS)
     rails = iter(U2355A_AI_CHANNELS)
@@ -247,8 +247,8 @@ def build_model(net_path: Path, spf_path) -> YamlBuildModel:
 
 
 def build_sequence(model: YamlBuildModel) -> list[tuple]:
-    """The ICT test rows (impedance -> voltage -> clock) with the
-    correct limits: auto tolerance for power voltage / impedance, and
+    """The ICT test rows (R-GND -> voltage -> clock) with the
+    correct limits: auto tolerance for power voltage / R-GND, and
     an explicit 32.768 kHz (+/-50 ppm) for the clock rows."""
     from mtkgui.gui.yamlbuild.ict_sequence import (
         auto_fill_limits,

@@ -43,7 +43,7 @@ The diagram is drawn in four layers (top to bottom):
   `GND Probes` and `GPIO Nets TP_GPIO0 - TP_GPIO23`.
 
 The colored signal trunks show who measures what: blue = DAQM908A
-impedance/voltage scan, orange = U2355A power-rails up-sequence
+R-GND/voltage scan, orange = U2355A power-rails up-sequence
 tap-off, purple = clocks (907A totalizer + U2355A counters), green =
 analog output stimulus to the ADC, red = supply power plus the
 dashed remote-sense line, gray = ground drops to the star plane.

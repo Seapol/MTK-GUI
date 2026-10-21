@@ -22,6 +22,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
+from mtkgui.engine.steps import is_r_gnd_method
+
 NAVY = "#16324f"
 GOLD = "#c9a227"
 GREEN = "#1d7a3c"
@@ -309,7 +311,7 @@ def _detail_section(grp_imped, grp_volt, grp_clock, grp_seq, grp_other,
     sequence chart with per-rail analysis (empty groups are skipped)."""
     html = _sec('3 · Test Detail')
     for title, items in (
-            ("3.1 · Impedance (ICT)", grp_imped),
+            ("3.1 · R-GND (ICT)", grp_imped),
             ("3.2 · Voltage (ICT)", grp_volt),
             ("3.3 · Clock (ICT)", grp_clock)):
         if items:
@@ -467,11 +469,11 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
                 f"</tr>{rows}</table>")
 
     # ICT detail split by Test Method (user direction 2026-10-16):
-    # impedance / voltage / clock each get their own table, the DAQ AI
+    # R-GND / voltage / clock each get their own table, the DAQ AI
     # power-rails sequence gets chart + per-rail analysis, everything
     # else (generic ICT, Flash, FCT, RF) lands in the combined table
     ict = [i for i in report.items if i.category == "ICT"]
-    grp_imped = [i for i in ict if i.method == "Static Impedance"]
+    grp_imped = [i for i in ict if is_r_gnd_method(i.method)]
     grp_volt = [i for i in ict if i.method == "Power Voltage"]
     grp_clock = [i for i in ict if i.method == "Clock Hz"]
     grp_seq = [i for i in ict if i.method == "DAQ AI"]

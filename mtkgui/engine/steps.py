@@ -190,18 +190,43 @@ def meas_instrument_abbr(kind: str, name: str) -> str:
     return "DAQM"
 
 
+#: ICT R-to-GND test method (user naming direction 2026-10-21).
+#: Legacy YAML / project files used "Static Impedance"; the loader
+#: normalizes that name to R-GND so old projects keep working.
+METHOD_R_GND = "R-GND"
+METHOD_R_GND_LEGACY = "Static Impedance"
+
+
+def normalize_ict_method(value: str) -> str:
+    """Map the legacy Static Impedance method to its R-GND name."""
+    return METHOD_R_GND if value == METHOD_R_GND_LEGACY else value
+
+
+def normalize_ict_step_name(name: str) -> str:
+    """Map a legacy 'Static Impedance - <net>' row name to R-GND."""
+    prefix = METHOD_R_GND_LEGACY + " - "
+    if name.startswith(prefix):
+        return METHOD_R_GND + " - " + name[len(prefix):]
+    return normalize_ict_method(name)
+
+
+def is_r_gnd_method(value: str) -> bool:
+    """True for the R-GND method (new name or legacy Static Impedance)."""
+    return value in (METHOD_R_GND, METHOD_R_GND_LEGACY)
+
+
 def is_impedance_short(step: tuple) -> bool:
-    """True for every Impedance Shorts test row — the scope of the
-    'Stop if any short' policy. Detected by the Static Impedance
-    test method, by unit Ω (per-net rows), or by the legacy
-    aggregate name containing 'impedance short'."""
-    if step[0] == "Static Impedance":
+    """True for every R-GND (legacy Impedance Shorts) test row — the
+    scope of the 'Stop if any short' policy. Detected by the R-GND
+    test method, by unit Ω (per-net rows), or by the legacy aggregate
+    name containing 'impedance short'."""
+    if is_r_gnd_method(step[0]):
         return True
     unit = step[2].strip()
     if unit == "Ω":
         return True
     name = step[1].lower()
-    return "impedance" in name and "short" in name
+    return ("impedance" in name or "r-gnd" in name) and "short" in name
 
 
 def steps_template(ict_count: int, fct_count: int,

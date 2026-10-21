@@ -9,7 +9,7 @@ The overall flow is a table:
   (Init Instruments, Fixture Clamp Down / Lock / E-Stop Healthy, Power On
   DUT, Power Off DUT, Fixture Unlock / Release, Reset Instruments) report
   Done/Error; in between them the measurement tests report PASS/FAIL:
-    - impedance shorts: 80 points, 2-wire Ω via DAQ973A, R_min threshold
+    - R-GND shorts: 80 points, 2-wire Ω via DAQ973A, R_min threshold
     - power voltage: 80 points, ±0.1 % via DAQ973A
     - clocks: CLK1 32.768 kHz (907A totalizer), CLK2 4 MHz / CLK3 6 MHz
       (U2355A counters)
@@ -118,7 +118,7 @@ _ICON_DIR = Path(__file__).resolve().parent / "assets"
 # ICT test cases: the sequence executes strictly top -> bottom. Standard
 # operations (fixture / instrument control) report Done/Error; measurement
 # tests report PASS/FAIL.
-# Impedance shorts MUST run before the DUT is powered on: a short under
+# R-GND shorts MUST run before the DUT is powered on: a short under
 # power risks damaging the board, so "Stop if any short" aborts the run
 # right here, before "Power On DUT".
 # (kind, name, unit, measured, min / threshold, max[, op_params])
@@ -129,7 +129,7 @@ ICT_STEPS = [
     _op_step("Fixture Clamp Down"),
     _op_step("Fixture Lock"),
     _op_step("Fixture E-Stop Healthy"),
-    ("test", "Impedance Shorts (80 pts)", "Ω", "80/80",
+    ("test", "R-GND Shorts (80 pts)", "Ω", "80/80",
      "1.5", ""),
     _op_step("Power On DUT"),
     ("test", "Power Voltage (80 pts)", "V", "80/80", "3.201", "3.399"),
@@ -1352,8 +1352,8 @@ class TestWorkFlowPage(QWidget):
         self.stop_if_short_cb = QCheckBox("Stop if any short")
         self.stop_if_short_cb.setChecked(True)
         self.stop_if_short_cb.setToolTip(
-            "Default ON. Applies to every Impedance Shorts test: if low "
-            "impedance (short risk) is found, abort before powering the "
+            "Default ON. Applies to every R-GND Shorts test: if low "
+            "resistance (short risk) is found, abort before powering the "
             "DUT on.")
         policy_row.addWidget(self.stop_if_short_cb)
         policy_row.addStretch(1)
@@ -1367,7 +1367,7 @@ class TestWorkFlowPage(QWidget):
         # stage description shows only as a hover tooltip, no column
         rows = [
             ("1", "ICT",
-             "In-Circuit Test: 80 power nets impedance -> voltage "
+             "In-Circuit Test: 80 power nets R-GND -> voltage "
              "-> RTC/CLKOUT1/CLKOUT2 clocks"),
             ("2", "FCT",
              "Functional Test: LED -> Serial Console (Linux) "
@@ -1546,7 +1546,7 @@ class TestWorkFlowPage(QWidget):
             en_item.setCheckState(wanted)
         self._ict_edit_guard = False
         # cols 3-6: Unit, Measured, Min, Max
-        # (Impedance Shorts has only a Min limit — Max stays blank)
+        # (R-GND Shorts has only a Min limit — Max stays blank)
         vals = (["--", "", lo, hi] if placeholder
                 else [unit, measured, lo, hi])
         for c, val in enumerate(vals):
@@ -2119,7 +2119,7 @@ class TestWorkFlowPage(QWidget):
             item.setToolTip(comments[row])
 
     def _is_impedance_short_row(self, r):
-        """True for every Impedance Shorts test row (engine helper,
+        """True for every R-GND Shorts test row (engine helper,
         mtkgui.engine.steps.is_impedance_short)."""
         return is_impedance_short_row(self.ict_steps[r])
 

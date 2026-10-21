@@ -326,3 +326,79 @@ def test_smart_pdf_parse_warns_review(page, files, tmp_path, monkeypatch):
 def test_qtpdf_extractor_still_available():
     """The bundled QtPdf extractor import path stays functional."""
     assert callable(extract_pdf_text)
+
+
+# ---------------------------------------------------------------- BOM
+BOM_SAMPLE = (
+    "Reference Designator,Name,Number,Description,Quantity\n"
+    "U1,750-10117,745000402354,IC MCU S32K566 BGA437,1\n"
+    "U2,315-84165,745000010567,IC POWER MANAGEMENT 5.5V,1\n")
+
+
+def _load_with_bom(page, files, tmp_path, monkeypatch):
+    spf, net = files
+    bom = tmp_path / "board-bom.csv"
+    bom.write_text(BOM_SAMPLE, encoding="utf-8")
+    sequence = iter([spf, net, str(bom)])
+    monkeypatch.setattr(
+        "mtkgui.gui.designinput.page.QFileDialog.getOpenFileName",
+        staticmethod(lambda *a, **k: (next(sequence), "")))
+    page._browse_schematic()
+    page._browse_net()
+    page._browse_bom()
+
+
+def test_bom_is_optional_and_does_not_gate_parse(page, files,
+                                                 monkeypatch):
+    spf, net = files
+    sequence = iter([spf, net])
+    monkeypatch.setattr(
+        "mtkgui.gui.designinput.page.QFileDialog.getOpenFileName",
+        staticmethod(lambda *a, **k: (next(sequence), "")))
+    page._browse_schematic()
+    page._browse_net()
+    assert page.btn_parse.isEnabled() is True
+    page._parse_nets()
+    assert page._parsed is True
+
+
+def test_bom_merge_overrides_part_numbers(page, files, tmp_path,
+                                          monkeypatch):
+    lines = []
+    page.event_log.connect(lambda level, msg: lines.append((level, msg)))
+    _load_with_bom(page, files, tmp_path, monkeypatch)
+    assert page.lbl_bom_status.text() == "BOM: ✔ Imported (optional)"
+    page._parse_nets()
+    assert page._parsed is True
+    assert page.model.component_library.by_refdes("U1").part_number == \
+        "750-10117"
+    assert any(level == "INFO" and "BOM applied: 2 records, 2 PN updated"
+               in msg for level, msg in lines)
+    assert any(level == "WARNING" and "BOM PN override U1" in msg
+               for level, msg in lines)
+
+
+def test_bom_parse_failure_is_ignored(page, files, tmp_path,
+                                      monkeypatch):
+    lines = []
+    page.event_log.connect(lambda level, msg: lines.append((level, msg)))
+    _load(page, files, monkeypatch)
+    page._bom_path = str(tmp_path / "gone.csv")   # vanished after import
+    page._parse_nets()
+    assert page._parsed is True                     # main parse survives
+    assert any(level == "WARNING" and msg.startswith("BOM ignored:")
+               for level, msg in lines)
+
+
+def test_bom_browse_invalid_file_reports(page, tmp_path, monkeypatch):
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical",
+                        lambda *a, **k: shown.append(a) or 0)
+    bad = tmp_path / "bad.csv"
+    bad.write_text("a,b,c\n1,2,3\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "mtkgui.gui.designinput.page.QFileDialog.getOpenFileName",
+        staticmethod(lambda *a, **k: (str(bad), "")))
+    page._browse_bom()
+    assert page._bom_path is None
+    assert shown and "BOM import failed" in shown[0][2]

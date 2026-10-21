@@ -5,7 +5,7 @@ tool covering the complete production flow:
 
     ICT -> Flash FAT firmware -> FCT -> Flash OOBE firmware
 
-- **ICT** (In-Circuit Test): fixture interlocks, impedance shorts,
+- **ICT** (In-Circuit Test): fixture interlocks, R-GND shorts,
   power-on, power-rails capture, DC voltage, clocks, GPIO.
 - **Flash FAT**: factory acceptance firmware, flashed by a third-party
   GUI (operator confirm) or a CLI (automatic keyword parse).

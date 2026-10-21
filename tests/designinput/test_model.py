@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.yamlbuild.parser import parse_netlist
+from mtkgui.ict.netparse import NET_TYPE_GND_REF, classify_nets, \
+    parse_netlist
 
 from mtkgui.gui.designinput.components import build_library
 from mtkgui.gui.designinput.model import (
@@ -15,8 +16,6 @@ from mtkgui.gui.designinput.model import (
     DesignDataModel,
     validate_power_tree,
 )
-from mtkgui.gui.designinput.netlist import NET_TYPE_GND_REF, \
-    classify_nets
 
 NETLIST = """
 *SIGNAL* GND

@@ -111,7 +111,7 @@ class TestAIDraft:
         assert names[:5] == ["Init Instruments", "Fixture Clamp Down",
                              "Fixture Lock", "Fixture E-Stop Healthy",
                              "Power On DUT"]
-        assert any(n.startswith("Impedance Shorts") for n in names)
+        assert any(n.startswith("R-GND Shorts") for n in names)
         assert "PWR 3V3 Voltage" in names
         assert "PWR 1V8 Voltage" in names
         assert "PWR 3V3 Power-Up Sequence (SEQ 1)" in names
@@ -126,7 +126,7 @@ class TestAIDraft:
         assert abs(v["threshold_max"] - 3.333) < 0.01
         clk = by_name["CLK RTC_32K Frequency"]
         assert abs(clk["threshold_min"] - 32761.45) < 0.1
-        imp = by_name["Impedance Shorts (3 pts)"]
+        imp = by_name["R-GND Shorts (3 pts)"]
         assert imp["threshold_min"] == 1.5
 
     def test_priority_follows_power_tree_depth(self, tmp_path, net_path):
@@ -224,7 +224,7 @@ class TestBackfillSync:
         assert len(config["ict_test_cases"]) == n0 + 1
         # untouched rows keep their YAML-only fields
         imp = next(c for c in config["ict_test_cases"]
-                   if c["name"] == "Impedance Shorts (3 pts)")
+                   if c["name"] == "R-GND Shorts (3 pts)")
         assert imp["ai_meta"]["gen_version"] == AI_GEN_VERSION
 
     def test_removal_sync(self, tmp_path, net_path):

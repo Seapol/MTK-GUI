@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.designinput.spf_parser import (
+from mtkgui.ict.netparse import (
     SpfParseError,
     cross_check_nets,
     parse_spf,

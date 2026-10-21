@@ -30,6 +30,7 @@ from .test_workflow_page import (
     SAMPLE_HZ,
     _fct_kind_from_name,
 )
+from .engine.steps import normalize_ict_method, normalize_ict_step_name
 
 REVISION = "1.1"
 # THE single release version (user directive 2026-10-14): never
@@ -154,8 +155,8 @@ def _workflow_to_yaml(page):
         kind, name = step[0], step[1]
         case = {
             "name": name,
-            "kind": kind,          # "op" -> Done/Error; "test"/"Static
-            # Impedance"/"Power Voltage"/"Clock Hz"/"DAQ AI" -> PASS/FAIL
+            "kind": kind,          # "op" -> Done/Error; "test"/"R-GND"/
+            # "Power Voltage"/"Clock Hz"/"DAQ AI" -> PASS/FAIL
             "enable": enable,
             "wait_ms": wait,
             "timeout_ms": timeout,
@@ -284,9 +285,15 @@ def load_config(path):
 
 
 def _ict_step_from_yaml(c):
-    """YAML ict case dict -> step tuple (op steps carry op_params)."""
-    kind = str(c.get("kind", "test"))
-    step = (kind, str(c.get("name", "")), str(c.get("unit", "—")), "—",
+    """YAML ict case dict -> step tuple (op steps carry op_params).
+
+    Legacy projects store the R-GND method as "Static Impedance"; the
+    name and kind are normalized on load so old YAML keeps working.
+    """
+    kind = normalize_ict_method(str(c.get("kind", "test")))
+    step = (kind,
+            normalize_ict_step_name(str(c.get("name", ""))),
+            str(c.get("unit", "—")), "—",
             str(c.get("threshold_min", "—")),
             str(c.get("threshold_max", "—")))
     if kind == "op":

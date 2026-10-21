@@ -89,7 +89,7 @@ def test_load_pushes_ict_sequence_and_jumps(window):
     names = [s[1] for s in ict_steps]
     # standard operations around the generated tests
     assert "Init Instruments" in names
-    assert any(n.startswith("Static Impedance") for n in names)
+    assert any(n.startswith("R-GND") for n in names)
     assert any(n.startswith("Power Voltage") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
     # the derived limits: P3V3-style net name absent, but the power

@@ -33,7 +33,7 @@ GUI_EDITABLE = EDITABLE + ("retry", "skip_if")
 
 # dimension toggle groups (spec P2-3 item 3)
 DIMENSIONS = ("impedance", "voltage", "timing")
-DIM_CN = {"impedance": "Impedance", "voltage": "Voltage",
+DIM_CN = {"impedance": "R-GND", "voltage": "Voltage",
           "timing": "Power-up timing"}
 
 
@@ -65,7 +65,7 @@ def categorize(case: dict) -> str:
     if name.startswith("SIG"):
         return "Signal network"
     if name.startswith("PWR") or dim in ("voltage", "timing") \
-            or name.startswith("Impedance"):
+            or name.startswith("R-GND") or name.startswith("Impedance"):
         return "Power network"
     return "Procedure"
 

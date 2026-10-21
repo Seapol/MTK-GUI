@@ -131,7 +131,7 @@ class TestRunner(QObject):
 - Step model mirrors YAML: `kind` (op / ict / fct), `name`, `method`, `enable`,
   `params` / `op_params`, limits (`min` / `max` / `unit`), `wait`, `timeout`.
 - Stop strategies: `stop_if_failure` (default **false**), `stop_if_any_short`
-  (default **true** — abort before power-up on impedance shorts).
+  (default **true** — abort before power-up on R-GND shorts).
 - Basic fault-policy retry: `retry_count` (default **0** = off) re-executes a
   FAIL/ERROR step up to N times BEFORE the stop strategies are evaluated.
   Constraints: `N` is a non-negative integer (0–9 recommended bound; the
@@ -225,7 +225,7 @@ No module can invent new yaml fields without updating this spec.
 > |---|---|---|
 > | `test_workflow.retry` | basic fault-policy step retry: re-execute a FAIL/ERROR step up to N times before the stop strategies evaluate | `0` (off) |
 > | `test_workflow.stop_if_failure` | abort the whole run on any FAIL step | `false` |
-> | `test_workflow.stop_if_any_short` | abort before power-up on impedance shorts | `true` |
+> | `test_workflow.stop_if_any_short` | abort before power-up on R-GND shorts | `true` |
 > | `firmware.<slot>_image` | flash image path for slot `fat` / `oobe`; the ONLY source the engine reads (never guessed) | — (required by flash steps) |
 >
 > Flash steps are op steps with `op_params: {"type": "flash", "slot": "fat" |
@@ -1139,7 +1139,7 @@ is the always-visible right pane).  The `instruments` module stays a
 YAML module but shows NO card (Equipment page holds the values).
 
 Module parameter groups: design input (product id, part number,
-sw/hw versions), ICT net parsing, impedance/voltage/rails-up
+sw/hw versions), ICT net parsing, R-GND/voltage/rails-up
 capture, clocks, GPIOs, FCT flow build.
 
 Dual-version publishing (FIXED naming, unified with the project
@@ -1160,6 +1160,32 @@ Excel exchange (B1): `Export to Excel` writes all module parameters,
 thresholds, sequence order, enable state and remarks;
 `Import from Excel` bulk-updates with validation and error listing.
 Requires the `openpyxl` dependency (approved for V4.0).
+
+### 31.1 Headless ICT net parsing (`mtkgui/ict/netparse/`)
+
+Qt-free package shared by the GUI, scripts and tests. Format routing is
+automatic from file-header features: Concept-HDL SPF, Allegro NET
+(`*SIGNAL*` / `NET`), Cadence PSTXNET (`NET_NAME`) and Allegro Report
+(`Net Name,Net Pins`). No `PySide6` / `mtkgui.gui` imports.
+
+```python
+from mtkgui.ict.netparse import parse_nets_file, parse_testable_nets
+
+result = parse_nets_file("board.net")        # ParseNetsResult
+result = parse_testable_nets(text, rules)    # raw text
+```
+
+- `parse_netlist_file(path) -> (NetlistData, raw_text)` - tolerant
+  decode, empty/unreadable file degrades to an empty netlist.
+- `parse_testable_nets(text, rules=None) -> ParseNetsResult` -
+  classification (gnd_ref / diff_pair / power / clock_single /
+  signal), user regex overrides, Exclude Parse Nets filter.
+- `result_to_json()` / `result_to_csv()` - schema
+  `mtkgui.ict.netparse.v1`; CSV columns
+  `net,category,test_point,alternatives,members,reason`.
+- CLI: `python -m mtkgui.ict.netparse <input> [--rules RULES.json]
+  [--format json|csv] [--output FILE] [--indent N]`; failures print
+  `error: <reason>` to stderr and exit 2.
 
 ### 32. Equipment <-> Yaml Build Sync Contract (NEW — owned by V4.0-B4, `mtkgui/gui/yamlbuild/sync.py`)
 

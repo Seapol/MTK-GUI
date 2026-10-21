@@ -2,15 +2,14 @@
 """Net classification tests (gnd_ref / diff_pair / power / clock)."""
 from __future__ import annotations
 
-from mtkgui.gui.yamlbuild.parser import parse_netlist
-
-from mtkgui.gui.designinput.netlist import (
+from mtkgui.ict.netparse import (
     NET_TYPE_CLOCK_SINGLE,
     NET_TYPE_DIFF_PAIR,
     NET_TYPE_GND_REF,
     NET_TYPE_POWER,
     NET_TYPE_SIGNAL,
     classify_nets,
+    parse_netlist,
     parse_netlist_file,
 )
 

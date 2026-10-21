@@ -147,7 +147,7 @@ def test_from_session_classifies_ict_methods_and_rails(qapp):
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
     page.ict_steps = [
-        ("Static Impedance", "Imp VDD_3V3", "Ω", "—", "1.0", "—"),
+        ("R-GND", "Imp VDD_3V3", "Ω", "—", "1.0", "—"),
         ("Power Voltage", "VDD_3V3", "V", "—", "3.2", "3.4"),
         ("Clock Hz", "CLK24M", "Hz", "—", "23.9", "24.1"),
         ("DAQ AI", "Power Rails Up Sequence", "V", "—", "—", "—"),
@@ -160,7 +160,7 @@ def test_from_session_classifies_ict_methods_and_rails(qapp):
     page.rail_widget.set_data(rails, 6.0, -1.0)
     report = DR.from_session(page)
     methods = [i.method for i in report.items]
-    assert methods == ["Static Impedance", "Power Voltage", "Clock Hz",
+    assert methods == ["R-GND", "Power Voltage", "Clock Hz",
                        "DAQ AI", "Power Voltage"]
     assert report.rails == rails
     assert report.rail_duration == 6.0 and report.rail_t_start == -1.0
@@ -228,7 +228,7 @@ def test_html_grouped_tables_and_sequence_chart():
                        duration="1.1", result="PASS"),
         ]), META)
     up = html.upper()
-    assert "3.1 · IMPEDANCE (ICT)" in up
+    assert "3.1 · R-GND (ICT)" in up
     assert "3.2 · VOLTAGE (ICT)" in up
     assert "3.3 · CLOCK (ICT)" in up
     assert "3.5 · FLASH / FCT / RF" in up

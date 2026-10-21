@@ -4,14 +4,14 @@
 The parsed testable nets (T8 Parse Nets result - the single data
 source) populate three independent tables:
 
-* **Power nets**  - Net / Test point / Impedance (DAQM908A sense
+* **Power nets**  - Net / Test point / R-GND (DAQM908A sense
   channel) / Power rails (U2355A AI channel) / Voltage (DAQM908A
   sense channel) - no Instrument / Channel / Status columns;
 * **Clock nets**  - Net / Test point / SE Clock Hz (DAQM907A TOT or
   one of the two U2355A counters) / Frequency band (read-only,
   hardware-derived: DAQM907A 0 ~ 100 kHz, U2355A 0.1 Hz ~ 6 MHz) -
   no Instrument / Channel / Status columns;
-* **GPIO nets**   - Net / Test point / DIO Channel (one of the 16
+* **Control IO nets** - Net / Test point / DIO Channel (one of the 16
   DAQM907A DIO resources; the U2355A DIO stays fixture-reserved) -
   no Instrument / Channel / Status / Digital Input / Digital Output
   columns.
@@ -78,7 +78,7 @@ LAZY_MARGIN_ROWS = 30
 POWER_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("impedance", "Impedance", DAQM908A_SENSE_CHANNELS),
+    ("impedance", "R-GND", DAQM908A_SENSE_CHANNELS),
     ("power_rails", "Power rails", U2355A_AI_CHANNELS),
     ("voltage", "Voltage", DAQM908A_SENSE_CHANNELS),
 )
@@ -181,12 +181,17 @@ class AllocatedRow:
 
 def rows_from_testable(testable: dict, kind: str) -> list[AllocatedRow]:
     """Build the rows for one table from the T8 parse result (the
-    single data source).  Category mapping: Power / Clock / GPIO."""
+    single data source).  Category mapping: Power / Clock / GPIO
+    (legacy display labels such as ``Signal`` / ``SE Clock`` and the
+    Control IO label are accepted too)."""
     wanted = {"power": "Power", "clock": "Clock",
               "gpio": "GPIO"}[kind]
+    aliases = {"SE Clock": "Clock", "Signal": "GPIO",
+               "Control IO (non-mux GPIO/EN/CS/RST)": "GPIO"}
     rows = []
     for name, info in (testable or {}).items():
-        if info.get("category") != wanted:
+        category = (info or {}).get("category")
+        if aliases.get(category, category) != wanted:
             continue
         rows.append(AllocatedRow(net=name))
     return rows
@@ -598,7 +603,7 @@ class ChannelAllocationPage(QWidget):
                                     self._members_of)
         self.tabs.addTab(self.table_power, "Power Nets")
         self.tabs.addTab(self.table_clock, "Clock Nets")
-        self.tabs.addTab(self.table_gpio, "GPIO Nets")
+        self.tabs.addTab(self.table_gpio, "Control IO Nets")
         # a hidden tab has a zero-height viewport - its dropdown window
         # renders the moment the tab is shown (lazy render, 2026-10-15)
         self.tabs.currentChanged.connect(

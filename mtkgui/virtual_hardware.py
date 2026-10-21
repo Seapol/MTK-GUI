@@ -704,7 +704,8 @@ class VirtualRack:
         if "gpio" in n_low:
             return self.daq.gpio_test(fault)
 
-        if kind == "Static Impedance" or (unit or "").strip() == "Ω":
+        if kind in ("R-GND", "Static Impedance") \
+                or (unit or "").strip() == "Ω":
             r_min = lo if lo is not None else 1.5
             return self.daqm.measure_ohm(name, r_min, fault)
 

@@ -108,7 +108,7 @@ class CaseGenerator:
         # impedance shorts sweep first (stop_if_any_short gate)
         if power:
             cases.append(_case(
-                f"Impedance Shorts ({len(power)} pts)", "test", "Ω",
+                f"R-GND Shorts ({len(power)} pts)", "test", "Ω",
                 IMPEDANCE_MIN_OHM, None, dim="impedance",
                 extra={"notes": "short detection before power-up"}))
 

@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                       # pragma: no cover - typing only
+    from .bom import BomData
 
 CATEGORY_MAIN_MCU = "main_mcu"
 CATEGORY_PMIC = "pmic"
@@ -56,12 +60,14 @@ class ComponentRecord:
         part_number: Ordering code ("" when the source had none).
         dev_category: Fixed category set membership.
         note:        Free-form user note (empty until edited).
+        dnp:         Do-Not-Populate flag (BOM OR-merged).
     """
 
     refdes: str
     part_number: str = ""
     dev_category: str = CATEGORY_OTHER
     note: str = ""
+    dnp: bool = False
 
 
 @dataclass
@@ -137,3 +143,115 @@ def build_library(components: list[tuple[str, str]]) -> ComponentLibrary:
             ComponentRecord(refdes=refdes, part_number=part,
                             dev_category=category))
     return lib
+
+
+#: BOM ``Description`` fallback hints - the internal ordering code
+#: alone is often not classifiable, while the description names the
+#: device family (``IC MCU ...`` / ``IC VREG LDO ...``).
+_BOM_DESCRIPTION_RULES: tuple[tuple[str, re.Pattern], ...] = (
+    (CATEGORY_MAIN_MCU, re.compile(
+        r"\bMCU\b|\bMPU\b|\bCPU\b|MICROCONTROLLER|MICROPROCESSOR|"
+        r"\bPROCESSOR\b", re.IGNORECASE)),
+    (CATEGORY_PMIC, re.compile(
+        r"\bPMIC\b|POWER MANAGEMENT", re.IGNORECASE)),
+    (CATEGORY_DCDC, re.compile(
+        r"\bBUCK\b|DC[-/ ]?DC|SWITCHING REGULATOR", re.IGNORECASE)),
+    (CATEGORY_LDO, re.compile(
+        r"\bLDO\b|LINEAR REGULATOR|\bVREG\b", re.IGNORECASE)),
+    (CATEGORY_TRANSCEIVER, re.compile(
+        r"TRANSCEIVER|\bPHY\b|ETHERNET", re.IGNORECASE)),
+)
+
+#: descriptions that must NOT be promoted to ``main_mcu`` even when
+#: they mention MCU / MPU: memory parts ("IC MCU SEMPERFLASH") and
+#: support circuits ("IC MPU RESET CIRC") are not the core device.
+_BOM_NOT_MAIN_RE = re.compile(
+    r"SEMPER|EEPROM|\bMEM\b|DRAM|RESET|\bCIRC\b", re.IGNORECASE)
+
+
+def _categorize_bom(part_number: str, refdes: str,
+                    description: str) -> str:
+    """Classify a BOM device (PN/RefDes first, description fallback)."""
+    category = categorize(part_number, refdes)
+    if category != CATEGORY_OTHER:
+        return category
+    text = description or ""
+    if _BOM_NOT_MAIN_RE.search(text):
+        return CATEGORY_OTHER
+    for category, pattern in _BOM_DESCRIPTION_RULES:
+        if pattern.search(text):
+            return category
+    return CATEGORY_OTHER
+
+
+@dataclass
+class BomMergeReport:
+    """BOM merge statistics (Event-Log summary).
+
+    Attributes:
+        records:   BOM records processed.
+        updated:   Existing library PNs overwritten by the BOM.
+        added:     BOM-only RefDes appended to the library.
+        dnp:       BOM records flagged Do-Not-Populate.
+        conflicts: ``(refdes, old_pn, new_pn)`` for review.
+    """
+
+    records: int = 0
+    updated: int = 0
+    added: int = 0
+    dnp: int = 0
+    conflicts: list[tuple[str, str, str]] = field(default_factory=list)
+
+
+def merge_bom(library: ComponentLibrary, bom: "BomData") \
+        -> BomMergeReport:
+    """Merge BOM RefDes -> MPN / DNP data into the component library.
+
+    The BOM is authoritative: a non-empty MPN overwrites the
+    schematic-derived PN and the record is re-categorized.  BOM-only
+    RefDes are appended (original order kept), DNP is OR-merged, and
+    devices missing from the BOM are never removed.
+
+    Args:
+        library: Component library built from the schematic.
+        bom:     Parsed BOM data.
+
+    Returns:
+        :class:`BomMergeReport` with update / conflict statistics.
+    """
+    report = BomMergeReport(records=len(bom.records))
+    for entry in bom.records:
+        record = library.by_refdes(entry.refdes)
+        if entry.dnp:
+            report.dnp += 1
+        if record is None:
+            category = _categorize_bom(
+                entry.part_number, entry.refdes, entry.description)
+            library.records.append(ComponentRecord(
+                refdes=entry.refdes, part_number=entry.part_number,
+                dev_category=category, dnp=entry.dnp))
+            if category == CATEGORY_OTHER:
+                library.unclassified.append(entry.refdes)
+            report.added += 1
+            continue
+        if entry.part_number and entry.part_number != record.part_number:
+            if record.part_number:
+                report.conflicts.append(
+                    (entry.refdes, record.part_number, entry.part_number))
+            record.part_number = entry.part_number
+            record.dev_category = _categorize_bom(
+                entry.part_number, entry.refdes, entry.description)
+            _sync_unclassified(library, record)
+            report.updated += 1
+        record.dnp = record.dnp or entry.dnp
+    return report
+
+
+def _sync_unclassified(library: ComponentLibrary,
+                       record: ComponentRecord) -> None:
+    """Keep ``unclassified`` in sync after a category change."""
+    listed = record.refdes in library.unclassified
+    if record.dev_category == CATEGORY_OTHER and not listed:
+        library.unclassified.append(record.refdes)
+    elif record.dev_category != CATEGORY_OTHER and listed:
+        library.unclassified.remove(record.refdes)
