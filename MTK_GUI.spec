@@ -58,6 +58,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='MTK_GUI.app',
-    icon=None,
+    icon='resources/app_icon.icns',
     bundle_identifier='com.mtk.gui',
 )

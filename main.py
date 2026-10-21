@@ -5,15 +5,30 @@ Run with: python main.py
 """
 
 import sys
+from pathlib import Path
 
 import mtkgui.startup_timing as _timing
 
 _timing.mark("entry (pyinstaller bootloader done)")
 
 
+def _app_icon_path():
+    """Application icon (brand mark) inside the bundled ``resources``.
+
+    A frozen PyInstaller build unpacks ``resources`` next to the entry
+    script under ``sys._MEIPASS`` (``_internal`` for onedir), so the
+    bundle root is used there instead of the source tree.
+    """
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    root = (Path(bundle_root) if bundle_root
+            else Path(__file__).resolve().parent)
+    return root / "resources" / "app_icon.png"
+
+
 def main():
     import faulthandler
 
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
     from mtkgui import __app_name__
@@ -33,6 +48,9 @@ def main():
     app.setApplicationDisplayName(__app_name__)
     app.setOrganizationName("Manufacturing Test Kit")
     app.setStyleSheet(QSS)
+    icon_path = _app_icon_path()
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
     _timing.mark("QApplication ready")
 
     # startup login: Supervisor (password) or Operator; must pick one.

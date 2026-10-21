@@ -51,6 +51,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='MTK_GUI',
+    icon='resources/app_icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

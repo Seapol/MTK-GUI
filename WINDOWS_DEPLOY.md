@@ -68,6 +68,8 @@ exe 的名字由 spec 文件里的 `name=` 决定，仓库自带的
 > 说明：
 > - `EXE(name='MTK_GUI')` 决定最终 exe 文件名 → `MTK_GUI.exe`
 > - `COLLECT(name='MTK_GUI')` 决定输出文件夹名 → `dist\MTK_GUI\`
+> - `EXE(icon='resources/app_icon.ico')` 决定 exe / 任务栏图标，图标文件随
+>   `resources` 一起打包，无需额外步骤（2026-10-21 新增）
 > - **无需任何手工修改**，直接打包即可（2026-10-15 修正：旧版文档
 >   曾教手工把 name 改成 `mtk`，与实际产物不一致，已废弃）。
 

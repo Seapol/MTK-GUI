@@ -68,6 +68,8 @@ The exe name is controlled by `name=` in the spec file. The shipped
 > Notes:
 > - `EXE(name='MTK_GUI')` determines the final exe file name → `MTK_GUI.exe`
 > - `COLLECT(name='MTK_GUI')` determines the output folder name → `dist\MTK_GUI\`
+> - `EXE(icon='resources/app_icon.ico')` sets the exe / taskbar icon; the
+>   icon ships inside `resources`, so no extra step is needed (added 2026-10-21)
 > - **No manual edit is needed** — build directly (2026-10-15 correction:
 >   an earlier revision of this guide told builders to rename `name` to
 >   `mtk`, which never matched the actual product; that section is retired).

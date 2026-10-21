@@ -314,7 +314,11 @@ Flag reference:
 - `--collect-submodules serial` — make sure every pyserial submodule (including port enumeration) is bundled
 - The default is **onedir**: ship the whole `dist/MTK_GUI/` folder; it starts faster and is more robust.
 - Add `--onefile` for a single executable (slower startup; unpacks to a temp directory on each run).
-- Add an icon with `--icon=assets/icon.ico` on Windows or `--icon=assets/icon.icns` on macOS.
+- The app icon ships with the repo: `resources/app_icon.png` (window icon,
+  set at startup), `resources/app_icon.icns` (macOS bundle) and
+  `resources/app_icon.ico` (Windows exe) — both `.spec` files reference them.
+  For a manual build add `--icon=resources/app_icon.ico` on Windows or
+  `--icon=resources/app_icon.icns` on macOS.
 
 ### Option 3 — cloud build with GitHub Actions
 
