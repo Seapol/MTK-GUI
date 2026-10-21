@@ -222,8 +222,10 @@ def test_signal_rows_listed_no_manual_add(qapp):
         rows = {panel.table.item(r, 0).text(): r
                 for r in range(panel.table.rowCount())}
         assert "GPIO_LED1" in rows
+        # plain un-reused GPIO with no chip-control token -> Others
+        # (owner decision 2026-10-22)
         assert panel.table.cellWidget(rows["GPIO_LED1"], 2).currentText() \
-            == "Control IO (non-mux GPIO/EN/CS/RST)"
+            == "Others"
     finally:
         panel.deleteLater()
 

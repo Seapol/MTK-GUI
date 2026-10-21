@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel  # noqa: E402
+from mtkgui.ict.netparse import CATEGORY_OTHERS  # noqa: E402
 from tests.yamlbuild.conftest import fill_required  # noqa: E402
 from mtkgui.gui.yamlbuild.power_alloc import (  # noqa: E402
     CLOCK_CHANNELS,
@@ -103,9 +104,9 @@ def test_parsed_nets_single_table_no_alloc_tables(panel):
              panel.table.cellWidget(r, 3).isChecked())
             for r in range(panel.table.rowCount())}
     assert rows["CLK1"] == ("SE Clock", False)
-    control_io = "Control IO (non-mux GPIO/EN/CS/RST)"
-    assert rows["GPIO0"] == (control_io, True)      # default DNT
-    assert rows["SENSE_FB"] == (control_io, True)   # default DNT
+    # a plain un-reused GPIO with no chip-control token is "Others"
+    assert rows["GPIO0"] == (CATEGORY_OTHERS, True)      # default DNT
+    assert rows["SENSE_FB"] == (CATEGORY_OTHERS, True)   # default DNT
     assert rows["VIN_24V"] == ("Power", False)
 
 

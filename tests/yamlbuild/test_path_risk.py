@@ -185,9 +185,11 @@ def test_advisory_only_dnt_not_blocked(panel):
     clk_box = panel.table.cellWidget(rows["CLK1"], 3)
     assert clk_box.isChecked() is False       # SE Clock default testable
     clk_box.setChecked(True)                  # advisory, never blocked
-    # the Signal nets default Do Not Test; the CLKMID* nets classify
-    # SE Clock (kernel CLK token) so they stay testable
-    assert panel.power_dnt_nets() == ["CLK1", "GND", "GPIO0",
+    # the Signal nets default Do Not Test; the CLKMID* nets still
+    # classify SE Clock (anchored prefix CLK + digit, M1 tightened
+    # rules) so they stay testable
+    assert panel.power_dnt_nets() == ["CLK1", "CLKMID1", "CLKMID2",
+                                      "CLKMID3", "GND", "GPIO0",
                                       "MID_A", "MID_B"]
 
 

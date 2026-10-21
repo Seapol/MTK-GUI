@@ -78,6 +78,51 @@ _USER_RULE_TYPES = {
 #: exclusion reason wording (Exclude Parse Nets regex matches)
 EXCLUDED_REASON = "excluded by Exclude Parse Nets regex"
 
+#: Allegro auto-generated system-random net names
+SYSTEM_RANDOM_RE = re.compile(r"^\$?N?\d+$")
+
+#: interface / pin-multiplex markers: a name carrying one of these is
+#: a reused IO, NOT a chip-control IO (owner decision 2026-10-22).
+_CONTROL_IO_INTERFACE_RE = re.compile(
+    r"(RGMII|MII|RMII|SGMII|ENET|ETH|SPDIF|TRACE|1588|SERDES|"
+    r"PHY|LINK|FPGA)", re.IGNORECASE)
+
+#: control-semantic rule sets: anchored tokens only (no substring
+#: matching).  Active-low / rail suffixes (_B, _N, _3.3V, numeric
+#: indices) are accepted after the token.
+_CONTROL_IO_RULES: tuple[tuple[str, re.Pattern], ...] = (
+    ("reset", re.compile(
+        r"(?:^|_)(?:RESET|RST)(?:[0-9]*)(?:_?[BN])?"
+        r"(?:[_0-9][0-9A-Z._+#-]*)?$", re.IGNORECASE)),
+    ("enable", re.compile(
+        r"(?:^|_)(?:ENABLE|EN)(?:(?:[0-9][0-9A-Z._+#-]*)|"
+        r"(?:_[0-9A-Z._+#-]+)|[BN])?$", re.IGNORECASE)),
+    ("cs", re.compile(
+        r"(?:^|_)(?:CS|CSB|CS_N|CSN)(?:[0-9]*)(?:_?[ABN])?$",
+        re.IGNORECASE)),
+    ("mode", re.compile(
+        r"(?:^|_)(?:MODE|BOOT(?:MOD)?)(?:[0-9_][0-9A-Z._+#-]*)?$",
+        re.IGNORECASE)),
+)
+
+
+def control_io_rule(name: str) -> str:
+    """Return the control-IO rule id for *name* ("" = not control IO).
+
+    The carrier precondition: no parenthesized reuse marker
+    (``GPIO7(MAC2_RGMII_TXCLK)`` is REUSED) and no interface/mux
+    marker.  A plain un-reused GPIO without a control token is NOT
+    control IO.
+    """
+    if not name or "(" in name:
+        return ""
+    if _CONTROL_IO_INTERFACE_RE.search(name):
+        return ""
+    for rule_id, pattern in _CONTROL_IO_RULES:
+        if pattern.search(name):
+            return rule_id
+    return ""
+
 
 def exclude_pattern(rules: dict | None) -> str:
     """The active exclusion pattern: the user's Exclude Parse Nets

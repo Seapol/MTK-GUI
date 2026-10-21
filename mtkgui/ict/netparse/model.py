@@ -21,11 +21,17 @@ CATEGORY_POWER = "Power"
 CATEGORY_CLOCK = "Clock"
 CATEGORY_GPIO = "GPIO"
 CATEGORY_GND = "GND"
+CATEGORY_OTHERS = "Others"
 CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
 
-#: Display label for the GPIO bucket (user naming direction 2026-10-21).
-#: The internal JSON key / constant stays ``gpio`` for compatibility.
-CATEGORY_CONTROL_IO_LABEL = "Control IO (non-mux GPIO/EN/CS/RST)"
+#: Human-facing label for the control-IO bucket (owner naming direction
+#: 2026-10-22).  The internal JSON key / constant stays ``control_io``
+#: for schema stability.
+CATEGORY_CONTROL_IO_LABEL = "Un-reused GPIO / EN / RST / CS / MODE"
+
+#: ``others`` sub-classes
+SUBCLASS_SYSTEM_RANDOM = "system_random"
+SUBCLASS_UNCLASSIFIED = "unclassified"
 
 
 @dataclass
@@ -69,6 +75,10 @@ class NetRecord:
         name:     Net name.
         members:  Member pin tokens (``U1.5``, ``J2.3``, ``TP4`` ...).
         net_type: One of :data:`NET_TYPES`.
+        sub_class: ``others`` sub-class (``system_random`` /
+            ``unclassified``); "" for every other bucket.
+        provenance: Which rule / fallback produced the classification
+            (e.g. ``rule:se_clock``, ``exclude:regex``).
         nominal / tolerance_pct / jumper_controlled:
             Business parameters bound back from the formal power tree
             by ``bind_power_tree_to_nets`` (None until bound).
@@ -77,6 +87,8 @@ class NetRecord:
     name: str
     members: list[str]
     net_type: str = NET_TYPE_SIGNAL
+    sub_class: str = ""
+    provenance: str = ""
     nominal: str | None = None
     tolerance_pct: str | None = None
     jumper_controlled: bool | None = None
@@ -123,7 +135,9 @@ class ParseNetsResult:
     """Formal net parse result (the Channel Allocation data source).
 
     Attributes:
-        power / clock / gpio / gnd: NetRecord lists per category.
+        power / clock / control_io / others / gnd: NetRecord lists per
+                              test role (``others`` carries
+                              ``sub_class``).
         filtered:             (net name, reason) of every dropped net.
         filtered_records:     The dropped NetRecords (name + reason
                               above) - the Filtered Nets table uses
@@ -137,7 +151,8 @@ class ParseNetsResult:
 
     power: list[NetRecord] = field(default_factory=list)
     clock: list[NetRecord] = field(default_factory=list)
-    gpio: list[NetRecord] = field(default_factory=list)
+    control_io: list[NetRecord] = field(default_factory=list)
+    others: list[NetRecord] = field(default_factory=list)
     gnd: list[NetRecord] = field(default_factory=list)
     filtered: list[tuple[str, str]] = field(default_factory=list)
     filtered_records: list[NetRecord] = field(default_factory=list)
@@ -146,12 +161,20 @@ class ParseNetsResult:
     format: str = ""
     source: str = ""
 
+    @property
+    def gpio(self) -> list[NetRecord]:
+        """Compatible view: the old ``gpio`` bucket = control IO +
+        others (existing consumers keep working in this milestone)."""
+        return self.control_io + self.others
+
     def category(self, name: str) -> str:
         """Category of one net ("" when not testable)."""
-        for cat, records in ((CATEGORY_POWER, self.power),
-                             (CATEGORY_CLOCK, self.clock),
-                             (CATEGORY_GPIO, self.gpio),
-                             (CATEGORY_GND, self.gnd)):
+        for cat, records in (
+                (CATEGORY_POWER, self.power),
+                (CATEGORY_CLOCK, self.clock),
+                (CATEGORY_CONTROL_IO_LABEL, self.control_io),
+                (CATEGORY_OTHERS, self.others),
+                (CATEGORY_GND, self.gnd)):
             if any(r.name == name for r in records):
                 return cat
         return ""
@@ -159,5 +182,6 @@ class ParseNetsResult:
     def summary(self) -> str:
         """One-line counts summary for the Event Log."""
         return (f"power={len(self.power)} clock={len(self.clock)} "
-                f"gpio={len(self.gpio)} gnd={len(self.gnd)} "
+                f"control_io={len(self.control_io)} "
+                f"others={len(self.others)} gnd={len(self.gnd)} "
                 f"filtered={len(self.filtered)}")

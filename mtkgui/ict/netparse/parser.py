@@ -24,9 +24,11 @@ from .classify import classify_nets
 from .formats import detect_netlist_format, parse_netlist_auto
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
+                    SUBCLASS_SYSTEM_RANDOM, SUBCLASS_UNCLASSIFIED,
                     ParseNetsResult)
 from .netlist import read_text_any_encoding
-from .rules import EXCLUDED_REASON, apply_user_rules, exclude_pattern
+from .rules import (EXCLUDED_REASON, SYSTEM_RANDOM_RE, apply_user_rules,
+                    control_io_rule, exclude_pattern)
 
 _FILTER_REASONS = {
     NET_TYPE_GND_REF: "reference ground (measurement loop)",
@@ -65,7 +67,10 @@ def parse_testable_nets(net_text: str,
     for rec in collection.nets:
         # Step 2: user regex override (user rules > system defaults;
         # explicit-empty key = no name matching for that category)
+        physical_type = rec.net_type
         rec.net_type = apply_user_rules(rec.name, rec.net_type, rules)
+        if rec.net_type != physical_type:
+            rec.provenance = "user_rule"
         # Exclude Parse Nets regex: matching SIGNAL nets never become
         # ICT test objects (user regex when configured, factory
         # default otherwise; an explicit empty value disables it)
@@ -73,6 +78,14 @@ def parse_testable_nets(net_text: str,
         if pattern and rec.net_type == NET_TYPE_SIGNAL:
             try:
                 if re.search(pattern, rec.name):
+                    # Exclude wins over Control-IO keywords (interface
+                    # buses are never tested); the sub-class still tells
+                    # an auto-generated random name apart.
+                    rec.sub_class = (
+                        SUBCLASS_SYSTEM_RANDOM
+                        if SYSTEM_RANDOM_RE.match(rec.name)
+                        else SUBCLASS_UNCLASSIFIED)
+                    rec.provenance = "exclude:regex"
                     result.filtered.append(
                         (rec.name, EXCLUDED_REASON))
                     result.filtered_records.append(rec)
@@ -95,8 +108,24 @@ def parse_testable_nets(net_text: str,
             rec.members = members
             result.clock.append(rec)
         elif rec.net_type == NET_TYPE_SIGNAL:
-            rec.members = members
-            result.gpio.append(rec)
+            # test-role split (owner direction 2026-10-22):
+            # control IO = chip-control tokens on an un-reused IO;
+            # everything else is "others" (system_random/unclassified).
+            rule = control_io_rule(rec.name)
+            if rule:
+                rec.provenance = f"control_io:{rule}"
+                rec.members = members
+                result.control_io.append(rec)
+            elif SYSTEM_RANDOM_RE.match(rec.name):
+                rec.sub_class = SUBCLASS_SYSTEM_RANDOM
+                rec.provenance = "rule:system_random"
+                rec.members = members
+                result.others.append(rec)
+            else:
+                rec.sub_class = SUBCLASS_UNCLASSIFIED
+                rec.provenance = "fallback:unclassified"
+                rec.members = members
+                result.others.append(rec)
         elif rec.net_type == NET_TYPE_GND_REF:
             # reference grounds: measurement-loop references, default
             # Do Not Test (they appear in the Parsed Nets table)

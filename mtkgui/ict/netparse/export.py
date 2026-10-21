@@ -9,13 +9,14 @@ import csv
 import io
 import json
 
-from .model import CATEGORY_CONTROL_IO_LABEL, ParseNetsResult
+from .model import (CATEGORY_CONTROL_IO_LABEL, CATEGORY_OTHERS,
+                    ParseNetsResult)
 from .testpoints import select_test_points
 
-RESULT_SCHEMA = "mtkgui.ict.netparse.v1"
+RESULT_SCHEMA = "mtkgui.ict.netparse.v2"
 
 _CSV_HEADER = ("net", "category", "test_point", "alternatives",
-               "members", "reason")
+               "members", "sub_class", "reason")
 
 
 def _net_entry(rec) -> dict:
@@ -27,6 +28,8 @@ def _net_entry(rec) -> dict:
         "members": list(rec.members),
         "test_point": best,
         "alternatives": [t for t in kept if t != best],
+        "sub_class": rec.sub_class,
+        "provenance": rec.provenance,
     }
 
 
@@ -40,6 +43,8 @@ def result_to_dict(result: ParseNetsResult) -> dict:
         "summary": {
             "power": len(result.power),
             "clock": len(result.clock),
+            "control_io": len(result.control_io),
+            "others": len(result.others),
             "gpio": len(result.gpio),
             "gnd": len(result.gnd),
             "filtered": len(result.filtered),
@@ -47,6 +52,9 @@ def result_to_dict(result: ParseNetsResult) -> dict:
         "nets": {
             "power": [_net_entry(r) for r in result.power],
             "clock": [_net_entry(r) for r in result.clock],
+            "control_io": [_net_entry(r) for r in result.control_io],
+            "others": [_net_entry(r) for r in result.others],
+            # compatible view: control_io + others
             "gpio": [_net_entry(r) for r in result.gpio],
             "gnd": [_net_entry(r) for r in result.gnd],
         },
@@ -72,16 +80,18 @@ def result_to_json(result: ParseNetsResult, indent: int = 2) -> str:
 def result_to_csv(result: ParseNetsResult) -> str:
     """Serialize a parse result to CSV text.
 
-    Row order: Power, Clock, Control IO, GND, Filtered.  ``members`` /
-    ``alternatives`` are space joined; ``reason`` is set only on the
-    Filtered rows.
+    Row order: Power, Clock, Un-reused GPIO / EN / RST / CS / MODE,
+    Others, GND, Filtered.  ``members`` / ``alternatives`` are space
+    joined; ``sub_class`` is set only on Others rows; ``reason`` only
+    on Filtered rows.
     """
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(_CSV_HEADER)
     groups = ((("Power", result.power)),
               (("Clock", result.clock)),
-              ((CATEGORY_CONTROL_IO_LABEL, result.gpio)),
+              ((CATEGORY_CONTROL_IO_LABEL, result.control_io)),
+              ((CATEGORY_OTHERS, result.others)),
               (("GND", result.gnd)))
     for category, records in groups:
         for rec in records:
@@ -89,7 +99,9 @@ def result_to_csv(result: ParseNetsResult) -> str:
             writer.writerow((
                 entry["net"], category, entry["test_point"],
                 " ".join(entry["alternatives"]),
-                " ".join(entry["members"]), ""))
+                " ".join(entry["members"]),
+                rec.sub_class if category == CATEGORY_OTHERS else "",
+                ""))
     for name, reason in result.filtered:
-        writer.writerow((name, "Filtered", "", "", "", reason))
+        writer.writerow((name, "Filtered", "", "", "", "", reason))
     return buffer.getvalue()

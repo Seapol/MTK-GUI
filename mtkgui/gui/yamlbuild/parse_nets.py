@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from mtkgui.ict.netparse import (
     CATEGORY_CONTROL_IO_LABEL,
     CATEGORY_GND,
+    CATEGORY_OTHERS,
     CATEGORY_POWER,
     ParseNetsResult,
     detect_netlist_format,
@@ -60,13 +61,14 @@ from mtkgui.gui.yamlbuild.path_risk import (
 #: Parsed-Nets-table category labels (the combo the user can change;
 #: "Filtered" moves a net into the Filtered Nets table)
 TABLE_CATEGORIES = ("Power", "SE Clock", CATEGORY_CONTROL_IO_LABEL,
-                    "GND", "Filtered")
+                    CATEGORY_OTHERS, "GND", "Filtered")
 
 #: the Filtered-Nets-table category (moved back by picking a real one)
 CATEGORY_FILTERED = "Filtered"
 
-#: nets of these categories default to Do Not Test (user direction)
-DNT_DEFAULT_CATEGORIES = (CATEGORY_CONTROL_IO_LABEL, "GND")
+#: nets of these categories default to Do Not Test (user direction:
+#: control IO is testable, others are not)
+DNT_DEFAULT_CATEGORIES = (CATEGORY_OTHERS, "GND")
 
 
 class ParseNetsPanel(QWidget):
@@ -137,7 +139,7 @@ class ParseNetsPanel(QWidget):
         # direction: the SE Clock / GPIO allocation tables are GONE -
         # the channel assignment lives in Channel Allocation only.
         # Columns: Net | Test Points | Category (user-changeable) |
-        # Do Not Test, Control IO and GND default to Do Not Test)
+        # Do Not Test; Others and GND default to Do Not Test)
         lbl_nets = QLabel("Parsed Nets:")
         lbl_nets.setObjectName("strong")
         lay.addWidget(lbl_nets)
@@ -213,7 +215,8 @@ class ParseNetsPanel(QWidget):
         return sorted(n for n, v in self._dnt_flags.items() if v)
 
     def _dnt_default(self, category: str) -> bool:
-        """Category default: Control IO and GND default Do Not Test."""
+        """Category default: Others and GND default Do Not Test
+        (control IO stays testable)."""
         return category in DNT_DEFAULT_CATEGORIES
 
     def _dnt_set(self, name: str, checked: bool) -> None:
@@ -298,7 +301,8 @@ class ParseNetsPanel(QWidget):
         scored = set()
         for records, category in ((result.power, "Power"),
                                   (result.clock, "SE Clock"),
-                                  (result.gpio, CATEGORY_CONTROL_IO_LABEL)):
+                                  (result.control_io,
+                                   CATEGORY_CONTROL_IO_LABEL)):
             for rec in records:
                 if self._auto_generated.get(rec.name):
                     continue
@@ -508,13 +512,15 @@ class ParseNetsPanel(QWidget):
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
         """Render the PARSED NETS table (Net | Test Points | Category |
-        Do Not Test): the Power / SE Clock / Control IO / GND nets MINUS
+        Do Not Test): the Power / SE Clock / Control IO / Others / GND
+        nets MINUS
         the ones overridden to "Filtered", PLUS the filtered nets
         overridden back to a real category; the Category combo (with
         the "Filtered" choice) drives the moves."""
         groups = ((CATEGORY_POWER, result.power),
                   ("SE Clock", result.clock),
-                  (CATEGORY_CONTROL_IO_LABEL, result.gpio),
+                  (CATEGORY_CONTROL_IO_LABEL, result.control_io),
+                  (CATEGORY_OTHERS, result.others),
                   (CATEGORY_GND, result.gnd))
         rows = [(rec, cat) for cat, records in groups for rec in records
                 if self._category_overrides.get(rec.name)
@@ -599,8 +605,8 @@ class ParseNetsPanel(QWidget):
                 rows.append((rec.name,
                              reasons.get(rec.name, ""), ))
                 seen.add(rec.name)
-        for records in (result.power, result.clock, result.gpio,
-                        result.gnd):
+        for records in (result.power, result.clock, result.control_io,
+                        result.others, result.gnd):
             for rec in records:
                 if rec.name not in seen and \
                         self._category_overrides.get(rec.name) \

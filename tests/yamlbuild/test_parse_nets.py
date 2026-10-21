@@ -19,7 +19,7 @@ from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
 from mtkgui.ict.netparse import (  # noqa: E402
     CATEGORY_CLOCK,
     CATEGORY_GND,
-    CATEGORY_GPIO,
+    CATEGORY_OTHERS,
     CATEGORY_POWER,
     parse_testable_nets,
 )
@@ -78,7 +78,7 @@ def test_parse_result_category_lookup():
     result = parse_testable_nets(NET_SAMPLE)
     assert result.category("3V3") == CATEGORY_POWER
     assert result.category("CLK_24M") == CATEGORY_CLOCK
-    assert result.category("GPIO_LED1") == CATEGORY_GPIO
+    assert result.category("GPIO_LED1") == CATEGORY_OTHERS
     assert result.category("GND") == CATEGORY_GND
 
 
@@ -90,8 +90,8 @@ def test_parse_no_nets_raises_clear_error():
 
 def test_parse_summary_counts():
     result = parse_testable_nets(NET_SAMPLE)
-    assert result.summary() == ("power=2 clock=1 gpio=1 gnd=1 "
-                                "filtered=3")
+    assert result.summary() == ("power=2 clock=1 control_io=0 others=1 "
+                                "gnd=1 filtered=3")
 
 
 def test_exclude_regex_drops_signal_nets():
@@ -203,7 +203,7 @@ def test_panel_parse_renders_parsed_nets_table(panel):
     assert panel.table.cellWidget(names["CLK_24M"], 2).currentText() == \
         "SE Clock"
     assert panel.table.cellWidget(names["GPIO_LED1"], 2).currentText() \
-        == "Control IO (non-mux GPIO/EN/CS/RST)"
+        == CATEGORY_OTHERS
     assert panel.table.cellWidget(names["GND"], 2).currentText() == "GND"
     # DNT defaults: Signal + GND checked, Power / SE Clock unchecked
     assert panel.table.cellWidget(names["3V3"], 3).isChecked() is False
