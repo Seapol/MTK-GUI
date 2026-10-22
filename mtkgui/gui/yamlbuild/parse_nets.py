@@ -50,6 +50,7 @@ from mtkgui.ict.netparse import (
     detect_netlist_format,
     parse_netlist_auto,
     parse_testable_nets,
+    rank_result,
     select_test_points,
 )
 from mtkgui.gui.yamlbuild.path_risk import (
@@ -242,9 +243,53 @@ class ParseNetsPanel(QWidget):
         self.yaml_model = model
 
     def mark_applied(self) -> None:
-        """Open the commit gate: the block was applied (OK saved), so a
-        workbook import may now write the production YAML."""
+        """Open the commit gate for this dialog instance (fallback; the
+        sync buttons gate on the MODEL, not on this instance flag)."""
         self._applied = True
+
+    def _model_has_applied_plan(self) -> bool:
+        """True when the project YAML already holds an applied parse
+        result: testable nets or a filled channel allocation.  This is
+        the sync gate - a per-dialog 'applied' flag can never survive
+        the OK-click that closes the dialog (GUI-FIX2 F1)."""
+        model = self.yaml_model
+        if model is None:
+            return False
+        if self._applied:
+            return True
+        if (model.imported or {}).get("testable_nets"):
+            return True
+        allocation = model.get_channel_allocation() or {}
+        return any(bool(allocation.get(kind))
+                   for kind in ("power", "clock", "gpio"))
+
+    def _plan_source_result(self):
+        """Parse result for the workbook sync: the dialog's own parse,
+        else a fresh run of the SAME headless pipeline - never an
+        'apply first' round-trip."""
+        if self.result is not None:
+            return self.result
+        if (self._net_text or "").strip():
+            self.parse_nets()
+        return self.result
+
+    def _sync_allowed(self, title: str) -> bool:
+        """Sync precondition: a project YAML plus parsed ICT data
+        (from the dialog or from an earlier applied block)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        if self.yaml_model is None:
+            QMessageBox.warning(self, title, "No project YAML is loaded.")
+            return False
+        if self._model_has_applied_plan():
+            return True
+        if self._plan_source_result() is not None:
+            return True
+        QMessageBox.warning(
+            self, title,
+            "No parsed ICT data yet - parse the nets (or apply this "
+            "block once) before syncing with the YAML.")
+        return False
 
     def _project_name(self) -> str:
         from mtkgui.ict.netparse.export_testplan import (
@@ -286,25 +331,22 @@ class ParseNetsPanel(QWidget):
             f"({sections} nets)")
 
     def import_to_yaml(self) -> None:
-        """Workbook -> project YAML (commit gate: applied only)."""
+        """Workbook -> project YAML (gate: project YAML + parsed data)."""
         from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
-        if self.yaml_model is None:
-            QMessageBox.warning(self, "Import to YAML",
-                                "No project YAML is loaded.")
-            return
-        if not self._applied:
-            QMessageBox.warning(
-                self, "Import to YAML",
-                "Apply this block (OK) before writing the production "
-                "YAML.")
+        if not self._sync_allowed("Import to YAML"):
             return
         path, _selected = QFileDialog.getOpenFileName(
             self, "Import to YAML", "", "Excel (*.xlsx)")
         if not path:
             return
-        testplan_to_yaml(self.yaml_model, path, None, self.result)
+        try:
+            testplan_to_yaml(self.yaml_model, path, None, self.result)
+        except (OSError, ValueError, KeyError) as exc:
+            QMessageBox.warning(self, "Import to YAML",
+                                f"Could not import the workbook:\n{exc}")
+            return
         self._log_report("import to YAML",
                          self.yaml_model.testplan_sync_report)
 
@@ -313,9 +355,7 @@ class ParseNetsPanel(QWidget):
         from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
-        if self.yaml_model is None:
-            QMessageBox.warning(self, "Export from YAML",
-                                "No project YAML is loaded.")
+        if not self._sync_allowed("Export from YAML"):
             return
         default = f"ICT Test Plan for {self._project_name()}.xlsx"
         path, _selected = QFileDialog.getSaveFileName(
@@ -324,7 +364,12 @@ class ParseNetsPanel(QWidget):
             return
         md_path = str(Path(path).with_name(
             Path(path).stem + "_evidence.md"))
-        yaml_to_testplan(self.yaml_model, path, md_path)
+        try:
+            yaml_to_testplan(self.yaml_model, path, md_path)
+        except (OSError, ValueError, KeyError) as exc:
+            QMessageBox.warning(self, "Export from YAML",
+                                f"Could not export the workbook:\n{exc}")
+            return
         self._log_report("export from YAML",
                          self.yaml_model.testplan_sync_report)
 
@@ -562,6 +607,10 @@ class ParseNetsPanel(QWidget):
             self.task_log.emit("INFO", "netlist cleaning done")
             self.task_progress.emit(40, "parse nets: parsing")
             result = parse_testable_nets(text, rules=self.net_rules)
+            # GUI == CLI ordering (user rule M3): rank BEFORE the
+            # preview / testable_nets / channel_allocation materialise
+            # so input rails come first - never the netlist (name) order
+            rank_result(result)
         except ValueError as exc:
             self.task_log.emit("ERROR", f"parse nets failed: {exc}")
             self.task_progress.emit(0, "parse nets: idle")

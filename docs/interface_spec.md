@@ -1186,6 +1186,35 @@ result = parse_testable_nets(text, rules)    # raw text
 - CLI: `python -m mtkgui.ict.netparse <input> [--rules RULES.json]
   [--format json|csv] [--output FILE] [--indent N]`; failures print
   `error: <reason>` to stderr and exit 2.
+- Ordering contract (shared by CLI, `export_testplan` and the GUI):
+  `rank_result(result)` is applied once, immediately after
+  `parse_testable_nets`. Power nets are ordered input-rail first, then
+  by power-tree stage / confidence / rank; the GUI materialises
+  `design_data.testable_nets`, the Channel Allocation rows and the
+  exported workbook in exactly this order - never alphabetical name
+  order.
+
+### 31.2 Parse-Nets dialog Test Plan sync buttons (GUI-FIX2)
+
+`02 · Parse nets for ICT` carries three buttons whose behaviour is part
+of the interface contract:
+
+| Button | Precondition | Effect |
+| --- | --- | --- |
+| `Export ICT Test Plan` | a parse result in this dialog | writes the six-sheet workbook + evidence markdown (design artifact, allowed in Draft) |
+| `Import to YAML` | project YAML loaded AND sync data available | workbook -> YAML merge (YAML non-empty values win, blanks filled, new nets appended, never deleted); decisions mirrored to the Event Log |
+| `Export from YAML` | project YAML loaded AND sync data available | YAML model -> workbook + evidence markdown |
+
+"Sync data available" is a **MODEL** condition, not a dialog-instance
+state: `design_data.testable_nets` non-empty or `channel_allocation`
+(power / clock / gpio) filled. Applying the block (OK) closes the
+dialog, so an instance-level flag can never gate a reopened dialog.
+When neither the model nor this dialog holds a parse, the click runs
+the same headless pipeline (`mtkgui.ict.netparse.parse_testable_nets`
++ `rank_result`) on the Design Input NET bytes and syncs immediately -
+no apply-first round-trip. With no project YAML the buttons warn
+`No project YAML is loaded.`; with no NET source either they warn
+`No parsed ICT data yet ...`.
 
 ### 32. Equipment <-> Yaml Build Sync Contract (NEW — owned by V4.0-B4, `mtkgui/gui/yamlbuild/sync.py`)
 
