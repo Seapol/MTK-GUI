@@ -30,14 +30,18 @@ from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
                            FPGA as ROLE_FPGA, INTERFACE_CHIP as ROLE_INTERFACE,
                            LOAD as ROLE_LOAD, role_for_part_number)
 from .rules import (DEFAULT_RULES, EXCLUDED_REASON as RULE_EXCLUDED_REASON,
-                    RULE_SLOTS, SYSTEM_RANDOM_RE, apply_user_rules,
-                    classify_net, control_io_rule, exclude_pattern,
-                    validate_rules)
+                    RULE_SLOTS, RULES_VERSION, SYSTEM_RANDOM_RE,
+                    apply_user_rules, classify_net, control_io_rule,
+                    exclude_pattern, validate_rules)
 from .testpoints import select_test_points
 from .parser import (EXCLUDED_REASON, parse_nets_file,
                      parse_testable_nets)
 from .export import (RESULT_SCHEMA, result_to_csv, result_to_dict,
                      result_to_json)
+from .rule_layers import (BASE_SCHEMA as RULES_BASE_SCHEMA,
+                          RULES_SCHEMA as EXTERNAL_RULES_SCHEMA,
+                          export_base_rules, load_external,
+                          regression_gate, suggest)
 
 __all__ = [
     "CATEGORIES", "CATEGORY_CLOCK", "CATEGORY_CONTROL_IO_LABEL",
@@ -59,4 +63,6 @@ __all__ = [
     "EXCLUDED_REASON", "parse_nets_file", "parse_testable_nets",
     "RESULT_SCHEMA", "result_to_csv", "result_to_dict",
     "result_to_json",
+    "RULES_VERSION", "RULES_BASE_SCHEMA", "EXTERNAL_RULES_SCHEMA",
+    "export_base_rules", "load_external", "regression_gate", "suggest",
 ]

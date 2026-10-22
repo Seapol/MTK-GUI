@@ -26,10 +26,26 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m mtkgui.ict.netparse",
         description="Parse a netlist (SPF / Allegro NET / PSTXNET / "
                     "Allegro Report) and export the ICT testable nets.")
-    parser.add_argument("input", help="netlist file to parse")
+    parser.add_argument("input", nargs="?", default=None,
+                        help="netlist file to parse (not required with "
+                             "--export-base)")
     parser.add_argument("--rules", default=None,
-                        help="JSON file with classification rules "
-                             "(power / se_clock / diff_pair / exclude)")
+                        help="JSON file: either user classification "
+                             "regexes (power / se_clock / diff_pair / "
+                             "exclude) or an M3 external rule library "
+                             "(schema mtkgui.ict.netparse.rules.v1, "
+                             "auto-detected)")
+    parser.add_argument("--rules-dir", default=None, dest="rules_dir",
+                        help="directory of M3 external rule-library "
+                             "JSON files, applied in filename order")
+    parser.add_argument("--export-base", default=None,
+                        dest="export_base",
+                        help="write the frozen base rule-set snapshot "
+                             "to PATH (base_rules.json) and exit")
+    parser.add_argument("--suggest", action="store_true",
+                        help="print learnable-rule candidates (M3 "
+                             "review gate) as a JSON array instead of "
+                             "the parse result")
     parser.add_argument("--library", default=None,
                         help="JSON/YAML file mapping refdes -> "
                              "{'part_number': str} (M2 device-role "
@@ -115,18 +131,79 @@ def _read_overrides(path: str | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
+def _split_rules(raw: dict | None) -> tuple[dict | None, dict | None]:
+    """Split a ``--rules`` JSON into (legacy regexes, external layer)."""
+    if raw is None:
+        return None, None
+    from .rule_layers import is_external_rules, load_external
+    if is_external_rules(raw):
+        return None, load_external([_last_rules_path[0]])
+    return raw, None
+
+
+#: single-element holder so _split_rules can validate the source path
+_last_rules_path: list[str] = [""]
+
+
+def _read_external_dir(path: str) -> dict | None:
+    """Merge every ``*.json`` external rule file in *path* (filename
+    order; later files override earlier on the same key)."""
+    import glob as _glob
+    import os
+
+    if not path:
+        return None
+    files = sorted(_glob.glob(os.path.join(path, "*.json")))
+    if not files:
+        return None
+    from .rule_layers import load_external
+    return load_external(files)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI; returns the process exit code."""
     args = _build_parser().parse_args(argv)
     try:
-        rules = _read_rules(args.rules)
+        if args.export_base:
+            from .rule_layers import export_base_rules
+            snapshot = export_base_rules()
+            with open(args.export_base, "w", encoding="utf-8") as handle:
+                json.dump(snapshot, handle, indent=2, ensure_ascii=False)
+                handle.write("\n")
+            print(f"base rules snapshot written: {args.export_base} "
+                  f"(rules_version {snapshot['rules_version']})")
+            return 0
+        if not args.input:
+            print("error: netlist input file required", file=sys.stderr)
+            return 2
+        raw_rules = _read_rules(args.rules)
+        _last_rules_path[0] = args.rules or ""
+        legacy_rules, ext_single = _split_rules(raw_rules)
+        ext_dir = _read_external_dir(args.rules_dir)
+        external = ext_single
+        if ext_single and ext_dir:
+            # both given: single file first, then dir (filename order)
+            import glob as _glob
+            import os as _os
+            from .rule_layers import load_external
+            external = load_external(
+                [_last_rules_path[0]]
+                + sorted(_glob.glob(
+                    _os.path.join(args.rules_dir, "*.json"))))
+        else:
+            external = ext_single or ext_dir
         library = _read_library(args.library)
         limits = parse_limits(args.limits)
         overrides = _read_overrides(args.apply_overrides)
-        result = parse_nets_file(args.input, rules, library)
+        result = parse_nets_file(args.input, legacy_rules, library,
+                                 external)
         if overrides:
             apply_user_overrides(result, overrides)
-        if args.format == "csv":
+        if args.suggest:
+            from .rule_layers import suggest
+            text = json.dumps(suggest(result, library), indent=2,
+                              ensure_ascii=False)
+        elif args.format == "csv":
             text = result_to_csv(result, limits, library)
         else:
             text = result_to_json(result, limits, library,

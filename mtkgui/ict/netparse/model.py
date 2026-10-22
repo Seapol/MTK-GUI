@@ -184,6 +184,9 @@ class ParseNetsResult:
     warnings: list[str] = field(default_factory=list)
     #: B5 user overrides applied on this result {net: class}
     user_override: dict[str, str] = field(default_factory=dict)
+    #: M3 external rule layer audit: every applied external rule
+    #: (id / kind / class / value / provenance / affected nets)
+    applied_rules: list[dict] = field(default_factory=list)
 
     @property
     def gpio(self) -> list[NetRecord]:

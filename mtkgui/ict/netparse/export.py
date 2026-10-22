@@ -22,6 +22,7 @@ from .capacity import DEFAULT_LIMITS, ResourceLimits, capacity_reason, \
 from .model import (CATEGORY_CONTROL_IO_LABEL, CATEGORY_OTHERS,
                     ParseNetsResult, SubClass)
 from .priority import rank_result
+from .rules import RULES_VERSION
 from .testpoints import select_test_points
 
 RESULT_SCHEMA = "mtkgui.ict.netparse.v3"
@@ -141,8 +142,28 @@ def result_to_dict(result: ParseNetsResult,
     high_entries = {class_key: blocks[class_key]["overflow_high"]
                     for class_key in _CLASSES}
 
+    # M2 closeout metric (M3 1.4): "determined" = every net carrying a
+    # decided verdict (candidates + others interface/muxed + high-conf
+    # bridge_duplicate/capacity).  ``legacy`` = power/clock/control_io
+    # only, printed alongside for comparison.
+    cand = [e for class_key in _CLASSES
+            for e in blocks[class_key]["nets"]]
+    determined = list(cand)
+    for entry in others_entries:
+        sub = entry.get("sub_class")
+        if sub in (SubClass.INTERFACE, SubClass.MUXED) or (
+                sub in (SubClass.BRIDGE_DUPLICATE, SubClass.CAPACITY)
+                and entry.get("confidence") == "high"):
+            determined.append(entry)
+
+    def _conf(entries: list[dict]) -> float:
+        high = sum(1 for e in entries if e.get("confidence") == "high")
+        med = sum(1 for e in entries if e.get("confidence") == "medium")
+        return (high + 0.5 * med) / max(1, len(entries))
+
     return {
         "schema": RESULT_SCHEMA,
+        "rules_version": RULES_VERSION,
         "source": result.source,
         "format": result.format,
         "total": result.total,
@@ -158,6 +179,8 @@ def result_to_dict(result: ParseNetsResult,
             "gpio": len(result.gpio),
             "gnd": len(result.gnd),
             "filtered": len(result.filtered),
+            "overall_confidence": round(_conf(determined), 3),
+            "legacy_conf": round(_conf(cand), 3),
         },
         "nets": {
             "power": blocks["power"],
@@ -180,6 +203,7 @@ def result_to_dict(result: ParseNetsResult,
         },
         "bridge_report": dict(result.bridge_report),
         "user_override": dict(result.user_override),
+        "applied_rules": list(result.applied_rules),
         "rails_up": [_net_entry(r, test_selected=True)
                      for r in working.power[:limits.rails_up]],
         "warnings": list(result.warnings),

@@ -22,6 +22,7 @@ from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
                            LOAD as ROLE_LOAD, role_for_part_number)
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_POWER,
                     NET_TYPE_SIGNAL, ParseNetsResult, SubClass)
+from .rules import PROTOCOL_TOKENS
 
 HIGH, MEDIUM, LOW = "high", "medium", "low"
 _CONF_RANK = {HIGH: 0, MEDIUM: 1, LOW: 2}
@@ -34,10 +35,12 @@ CONFLICT_HIGH = 3
 _POWER_STRONG_RE = re.compile(
     r"^\d*\.?\d+\s?V|^VBAT|^VIN|_PWR$|_PSW$|^PP[0-9]*V", re.IGNORECASE)
 #: power tokens - medium alone (high only together with a voltage
-#: prefix); doubles as the weak evidence (+1) for B1.5
-_POWER_WEAK_RE = re.compile(
-    r"PSW|PWR|VBAT|VIN|VDDA|VDDDIG|VDDXTAL|VIO|VDD|AVDD|DVDD|IOVDD|"
-    r"V[0-9]+", re.IGNORECASE)
+#: prefix); doubles as the weak evidence (+1) for B1.5.  (M3: table
+#: form; ``V[0-9]+`` is a pattern entry, kept verbatim.)
+_POWER_WEAK_TOKENS = ("PSW", "PWR", "VBAT", "VIN", "VDDA", "VDDDIG",
+                      "VDDXTAL", "VIO", "VDD", "AVDD", "DVDD", "IOVDD",
+                      "V[0-9]+")
+_POWER_WEAK_RE = re.compile("|".join(_POWER_WEAK_TOKENS), re.IGNORECASE)
 #: strong clock tokens (anchored, same families as B1) - +2
 _CLOCK_STRONG_RE = re.compile(
     r"(^|_)(CLKOUT|CLKIN|CLK_OUT|CLK_IN|CLK|OSCI|OSCO|OSC|XTAL|EXTAL|"
@@ -51,12 +54,11 @@ _CONTROL_STRONG_RE = re.compile(
     r"BOOTMOD|SEL|CFG)([0-9A-Z_]*)?$", re.IGNORECASE)
 #: weak control evidence - +1
 _CONTROL_WEAK_RE = re.compile(r"RST|ENB|CS|MODE|SEL|CFG|RESET", re.IGNORECASE)
-#: protocol / mux tokens - NEGATIVE evidence on ALL classes (-3)
+#: protocol / mux tokens - NEGATIVE evidence on ALL classes (-3).
+#: (M3: built from the shared rules.PROTOCOL_TOKENS table so an
+#: external tokens.remove layer keeps name-evidence consistent.)
 _PROTOCOL_RE = re.compile(
-    r"I2C|SCL|SDA|SPI|QSPI|UART|TX|RX|CAN|USB|SD|SDHC|USDHC|EMMC|UFS|"
-    r"PCIE|ETH|ENET|RGMII|MII|SGMII|SAI|ESAI|I2S|PSI5|MIPI|DBGIF|JTAG|"
-    r"SWD|SWCLK|TCK|1588|TRACE|PHY|SERDES|LINK|SPDIF|MLB|SIM|GPIO",
-    re.IGNORECASE)
+    "|".join(list(PROTOCOL_TOKENS) + ["GPIO"]), re.IGNORECASE)
 #: clock-gen power-strap name form (B4 rule reused by the scoring)
 _CLOCK_GEN_POWER_RE = re.compile(
     r"(^|_)(VDDA|VDDDIG|VDDXTAL|VIO|VDD|PWR|AVDD|DVDD|IOVDD)"
@@ -254,9 +256,10 @@ def resolve_conflicts(result: ParseNetsResult, library: dict) -> list[str]:
     for bucket in ("power", "clock", "control_io"):
         keep = []
         for rec in list(getattr(result, bucket)):
-            # a decisive M1 device-role / user-rule classification is
-            # not a conflict - never re-score it (Fix 1 semantics)
-            if rec.provenance.startswith(("device_role:", "user_rule")):
+            # a decisive M1 device-role / user-rule or M3 external
+            # classification is not a conflict - never re-score it
+            if rec.provenance.startswith(("device_role:", "user_rule",
+                                          "external")):
                 keep.append(rec)
                 continue
             scores = _name_evidence(rec.name)
@@ -309,6 +312,9 @@ def _audit_candidates(result: ParseNetsResult) -> None:
             else:
                 keep.append(rec)
                 continue
+            # a determined not-tested verdict is a HIGH-confidence
+            # decision (M3 1.4: determined decisions stay visible)
+            rec.confidence = HIGH
             rec.net_type = NET_TYPE_SIGNAL
             result.others.append(rec)
         getattr(result, bucket)[:] = keep
@@ -325,9 +331,11 @@ def _label_excluded(result: ParseNetsResult) -> None:
         if token:
             rec.sub_class = SubClass.INTERFACE
             rec.provenance = f"interface:{token}"
+            rec.confidence = HIGH
         elif is_muxed(rec.name):
             rec.sub_class = SubClass.MUXED
             rec.provenance = "muxed:reused_io"
+            rec.confidence = HIGH
 
 
 def _move_to_class(result: ParseNetsResult, rec, class_key: str,

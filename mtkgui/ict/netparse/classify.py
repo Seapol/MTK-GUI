@@ -36,7 +36,7 @@ _POWER_RE = re.compile(
     r"|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*"
     r"|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?"
     r")$", re.IGNORECASE)
-#: anchored system-clock tokens - M1 Fix 4 A: WORD-anchored (start of
+#: anchored system-clock TOKENS - M1 Fix 4 A: WORD-anchored (start of
 #: the mux-stripped name OR after ``_``) so vendor prefixes
 #: (``R_`` / ``DUT_`` / ``BB_``) no longer hide real clocks; longer
 #: tokens first (AUXCLKIN before CLKIN before CLK, OSCI before OSC,
@@ -44,13 +44,36 @@ _POWER_RE = re.compile(
 #: audio MASTER clocks (CODEC_SYS_MCLK / MCLK_OUT0) are ICT clock test
 #: objects (owner decision 2026-10-22) - audio INTERFACE clocks
 #: (SAI / ESAI / I2S) stay excluded via the rule-4 exclusion below.
-_CLOCK_PREFIX_RE = re.compile(
-    r"(^|_)(CLKOUT|CLKIN|CLK_OUT|CLK_IN|AUXCLKIN|AUXCLKOUT|AUXCLK|"
-    r"CLK|OSCI|OSCO|OSC|XTAL|EXTAL|MCLK|SCKI|REFCLK|SUSCLK)"
-    r"([0-9_].*)?$", re.IGNORECASE)
+#: (M3: table form so an external rule layer can add/remove tokens.)
+_CLOCK_PREFIX_TOKENS = (
+    "CLKOUT", "CLKIN", "CLK_OUT", "CLK_IN", "AUXCLKIN", "AUXCLKOUT",
+    "AUXCLK", "CLK", "OSCI", "OSCO", "OSC", "XTAL", "EXTAL", "MCLK",
+    "SCKI", "REFCLK", "SUSCLK")
+#: crystal-family tokens allow an ALPHABETIC tail (``XTALI`` ...)
+_CRYSTAL_TOKENS = ("OSCI", "OSCO", "OSC", "XTAL", "EXTAL")
 #: anchored clock token at the END of the mux-stripped net name
+_CLOCK_SUFFIX_TOKENS = ("CLK", "XTAL", "OSC")
+#: M1 Fix 3 / Fix 4 B / close-out FIX 1: interface clock exclusion
+#: tokens (SPI / QSPI / audio / MLB / SIM / PSI5 / ENET / MIPI / PCIE)
+_CLOCK_IFACE_ANCHOR_TOKENS = ("SPI", "QSPI", "ESAI", "SAI", "I2S",
+                              "MLB", "SIM")
+_CLOCK_IFACE2_TOKENS = ("ENET", "MIPI", "PCIE")
+
+_CLOCK_PREFIX_RE = re.compile(
+    r"(^|_)(" + "|".join(_CLOCK_PREFIX_TOKENS) + r")([0-9_].*)?$",
+    re.IGNORECASE)
+_CRYSTAL_TOKEN_RE = re.compile(
+    r"(^|_)(" + "|".join(_CRYSTAL_TOKENS) + r")([0-9A-Z_]*)?$",
+    re.IGNORECASE)
 _CLOCK_SUFFIX_RE = re.compile(
-    r"(_CLK|_XTAL|_OSC)([0-9_]*)$", re.IGNORECASE)
+    r"(" + "|".join("_" + t for t in _CLOCK_SUFFIX_TOKENS) + r")"
+    r"([0-9_]*)$", re.IGNORECASE)
+_CLOCK_IFACE_ANCHOR_RE = re.compile(
+    r"(^|_)(" + "|".join(_CLOCK_IFACE_ANCHOR_TOKENS) + r")([0-9A-Z_]*)?",
+    re.IGNORECASE)
+_CLOCK_IFACE2_RE = re.compile(
+    r"(^|_)(" + "|".join(_CLOCK_IFACE2_TOKENS) + r")([0-9A-Z_]*)?",
+    re.IGNORECASE)
 #: frequency form: 24M / 32K / 25MHZ / 25MHZ_2 ... (the ``HZ`` part is
 #: optional; the trailing part only allows a bus index - M1 Fix 2 A:
 #: ``10G_1_REXT`` / ``16G_REXT`` are SERDES rate labels + calibration
@@ -64,19 +87,9 @@ _CLOCK_EXCLUDE_RE = re.compile(
     r"(RGMII|MII|RMII|ETH|SPDIF|TRACE|1588|SERDES|PHY|LINK|GPIO|"
     r"I2C|SD|SDHC|USDHC|MMC|EMMC|UFS|DBGIF|TCK|SWCLK|SWD|JTAG)",
     re.IGNORECASE)
-#: M1 Fix 3: SPI / QSPI / audio (ESAI / SAI / I2S) / MLB / SIM
-#: interface clocks, as ANCHORED tokens (no bare substrings - same
-#: lesson as Clock).  ``QSPI`` is listed explicitly because ``SPI``
-#: preceded by ``Q`` is not at a ``^`` / ``_`` boundary.
-_CLOCK_IFACE_ANCHOR_RE = re.compile(
-    r"(^|_)(SPI|QSPI|ESAI|SAI|I2S|MLB|SIM)([0-9A-Z_]*)?", re.IGNORECASE)
 #: M1 Fix 4 B: PSI5 automotive sensor interface clocks
 _CLOCK_PSI5_RE = re.compile(
     r"(^|_)(PSI5)([0-9A-Z_]*)?", re.IGNORECASE)
-#: M1 close-out FIX 1: ENET / MIPI / PCIe interface clocks and
-#: clock-enable / oscillator-power straps
-_CLOCK_IFACE2_RE = re.compile(
-    r"(^|_)(ENET|MIPI|PCIE)([0-9A-Z_]*)?", re.IGNORECASE)
 #: M1 close-out FIX 2: chip-model exclusion table (M2 PLACEHOLDER -
 #: replaced by the M2 BOM device knowledge base).  These are
 #: chip-supply / power-strap nets of clock chips, not clocks.
@@ -84,14 +97,6 @@ _CHIP_MODEL_RE = re.compile(
     r"(^|_)(SI5332|SJA1124|TJA1230|FPGA)([0-9A-Z_]*)?", re.IGNORECASE)
 #: parenthesized mux marker: ``SUSCLK_32KHZ(SCU_GPIO0_07)``
 _MUX_SUFFIX_RE = re.compile(r"\([^)]*\)")
-#: M1 tail fix: crystal-family tokens allow an ALPHABETIC tail too
-#: (``XTALI`` / ``XTALO`` / ``RTC_XTALI`` / ``RTC_XTALO`` are crystal
-#: IO pins).  The CLK / MCLK / REFCLK / SUSCLK / AUXCLK / SCKI tokens
-#: keep their ``[0-9_]``-only tail so ``CLKOUTRUN``-style names stay
-#: excluded.  Checked BEFORE _CLOCK_PREFIX_RE (chip-model and
-#: interface exclusions still run first).
-_CRYSTAL_TOKEN_RE = re.compile(
-    r"(^|_)(OSCI|OSCO|OSC|XTAL|EXTAL)([0-9A-Z_]*)?$", re.IGNORECASE)
 #: M2 PART B: a net is a DEVICE-ROLE candidate when its name mentions
 #: any clock-ish token (plain substring - the role step refines, the
 #: M1 rules stay authoritative without a library)

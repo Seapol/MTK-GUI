@@ -21,6 +21,10 @@ import re
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_POWER, NET_TYPE_SIGNAL)
 
+#: M3: frozen base rule-set version (exported in the JSON output as
+#: ``rules_version`` and in the ``--export-base`` snapshot)
+RULES_VERSION = "2.0"
+
 CATEGORY_POWER = "Power"
 CATEGORY_GND = "GND"
 CATEGORY_SE_CLOCK = "SE Clock"
@@ -94,15 +98,24 @@ PROTOCOL_TOKENS = (
     "DBGIF", "JTAG", "SWD", "SWCLK", "TCK", "1588", "TRACE", "PHY",
     "SERDES", "LINK", "SPDIF", "MLB", "SIM",
 )
+#: mux / reuse indicator TOKENS (M3: table form so an external rule
+#: layer can add/remove tokens per run); the compiled MUX_RE is built
+#: from this tuple
+MUX_TOKENS = ("GPIO", "ALT", "MUX", "IOMUX", "REUSE", "FMUX")
+
+
+def _word_anchored(tokens) -> re.Pattern:
+    """Word-anchored ``(^|_)TOKEN`` matcher for a token tuple."""
+    return re.compile(
+        r"(^|_)(" + "|".join(tokens) + r")([0-9A-Z_]*)?", re.IGNORECASE)
+
+
 #: compiled word-anchored protocol matcher (one shared definition)
-PROTOCOL_RE = re.compile(
-    r"(^|_)(" + "|".join(PROTOCOL_TOKENS) + r")([0-9A-Z_]*)?",
-    re.IGNORECASE)
+PROTOCOL_RE = _word_anchored(PROTOCOL_TOKENS)
 #: mux / reuse indicators: GPIO token, parenthesised mux marker or an
 #: explicit ``_ALT`` / ``_MUX`` / ``_IOMUX`` / ``_REUSE`` / ``_FMUX``
 #: suffix (spec M2 Fix 1)
-MUX_RE = re.compile(r"(^|_)(GPIO|ALT|MUX|IOMUX|REUSE|FMUX)([0-9A-Z_]*)?",
-                    re.IGNORECASE)
+MUX_RE = _word_anchored(MUX_TOKENS)
 _PAREN_RE = re.compile(r"\([^)]*\)")
 #: FPGA names are also reused-JTAG / interface carriers (M1 kept them
 #: out of control IO; preserved here for the same pre-filter)
@@ -130,23 +143,42 @@ def is_muxed(name: str) -> bool:
         return True
     return bool(MUX_RE.search(name))
 
-#: control-semantic rule sets: anchored tokens only (no substring
-#: matching).  Active-low / rail suffixes (_B, _N, _3.3V, numeric
-#: indices) are accepted after the token.
-_CONTROL_IO_RULES: tuple[tuple[str, re.Pattern], ...] = (
-    ("reset", re.compile(
-        r"(?:^|_)(?:RESET|RST)(?:[0-9]*)(?:_?[BN])?"
-        r"(?:[_0-9][0-9A-Z._+#-]*)?$", re.IGNORECASE)),
-    ("enable", re.compile(
-        r"(?:^|_)(?:ENABLE|EN)(?:(?:[0-9][0-9A-Z._+#-]*)|"
-        r"(?:_[0-9A-Z._+#-]+)|[BN])?$", re.IGNORECASE)),
-    ("cs", re.compile(
-        r"(?:^|_)(?:CS|CSB|CS_N|CSN)(?:[0-9]*)(?:_?[ABN])?$",
-        re.IGNORECASE)),
-    ("mode", re.compile(
-        r"(?:^|_)(?:MODE|BOOT(?:MOD)?)(?:[0-9_][0-9A-Z._+#-]*)?$",
-        re.IGNORECASE)),
-)
+#: control-semantic rule tables: anchored TOKENS per rule id + the
+#: shared suffix shape (M3: table form so an external layer can remove
+#: a token per run).  Active-low / rail suffixes (_B, _N, _3.3V,
+#: numeric indices) are accepted after the token.
+_CONTROL_IO_TOKENS: dict[str, tuple[tuple[str, ...], str]] = {
+    "reset": ((  "RESET", "RST"),
+              r"(?:[0-9]*)(?:_?[BN])?(?:[_0-9][0-9A-Z._+#-]*)?$"),
+    "enable": (("ENABLE", "EN"),
+               r"(?:(?:[0-9][0-9A-Z._+#-]*)|(?:_[0-9A-Z._+#-]+)|[BN])?$"),
+    "cs":     (("CSB", "CS_N", "CSN", "CS"),
+               r"(?:[0-9]*)(?:_?[ABN])?$"),
+    "mode":   (("MODE", "BOOTMOD", "BOOT"),
+               r"(?:[0-9_][0-9A-Z._+#-]*)?$"),
+}
+
+
+def build_control_io_rules(removed: tuple[str, ...] = ()) \
+        -> tuple[tuple[str, re.Pattern], ...]:
+    """Compile the control-IO rules, dropping *removed* tokens.
+
+    A rule whose token list becomes empty is dropped entirely.
+    """
+    rules = []
+    for rule_id, (anchors, suffix) in _CONTROL_IO_TOKENS.items():
+        kept = tuple(a for a in anchors if a.upper() not in
+                     {t.upper() for t in removed})
+        if not kept:
+            continue
+        rules.append((rule_id, re.compile(
+            r"(?:^|_)(?:" + "|".join(kept) + r")" + suffix,
+            re.IGNORECASE)))
+    return tuple(rules)
+
+
+_CONTROL_IO_RULES: tuple[tuple[str, re.Pattern], ...] = \
+    build_control_io_rules()
 
 
 def control_io_rule(name: str) -> str:

@@ -52,13 +52,20 @@ def _is_regex(marker: str) -> bool:
     return bool(re.search(r"[\[\]{}]", marker))
 
 
+def build_ordered(markers: dict[str, tuple[str, ...]]) \
+        -> list[tuple[str, re.Pattern]]:
+    """Longest-marker-first (role, pattern) lookup from a markers map."""
+    return sorted(
+        ((role, re.compile(re.escape(marker)
+                           if not _is_regex(marker) else marker,
+                           re.IGNORECASE))
+         for role, role_markers in markers.items()
+         for marker in role_markers),
+        key=lambda item: -len(item[1].pattern))
+
+
 #: longest-marker-first lookup (longest match wins, case-insensitive)
-_ORDERED: list[tuple[str, re.Pattern]] = sorted(
-    ((role, re.compile(re.escape(marker)
-                       if not _is_regex(marker) else marker, re.IGNORECASE))
-     for role, markers in _ROLE_MARKERS.items()
-     for marker in markers),
-    key=lambda item: -len(item[1].pattern))
+_ORDERED: list[tuple[str, re.Pattern]] = build_ordered(_ROLE_MARKERS)
 
 #: REAL Innovator BOMs carry internal ordering codes (``312-10382``)
 #: instead of MPNs - the device family shows up in the DESCRIPTION

@@ -1,0 +1,7 @@
+Allegro Report
+C:/work/m3_foreign.brd
+
+Net Name,Net Pins
+BB_MLB_CLK,U1.1 TP1.1
+TELEM_PWR_MON,U1.2 TP2.1
+NAV_SER_VO,U1.3 TP3.1
