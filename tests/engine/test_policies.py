@@ -34,6 +34,30 @@ class TestPolicyAbortReason:
             "ict", "FAIL", "Impedance Shorts (80 pts)", is_short=True,
             stop_if_any_short=False) is None
 
+    def test_short_fail_keeps_short_wording(self):
+        # regression: a FAIL impedance row IS the short case
+        msg = policy_abort_reason(
+            "ict", "FAIL", "AGND", is_short=True,
+            stop_if_any_short=True)
+        assert "low impedance detected at 'AGND'" in msg
+        assert "Overall Result: FAIL" in msg
+
+    def test_short_error_names_instrument_error(self):
+        # instrument Error (e.g. READ? timeout) is NOT a board short
+        msg = policy_abort_reason(
+            "ict", "Error", "AGND", is_short=True,
+            stop_if_any_short=True)
+        assert "could not be verified (Error)" in msg
+        assert "low impedance" not in msg
+        assert "Overall Result: FAIL" in msg
+
+    def test_short_error_uses_failure_policy_when_short_policy_off(self):
+        msg = policy_abort_reason(
+            "ict", "Error", "AGND", is_short=True,
+            stop_if_any_short=False, stop_if_failure=True)
+        assert "Stop policy (Stop if failure)" in msg
+        assert "Overall Result: FAIL" in msg
+
     def test_short_wins_over_generic_failure_policy(self):
         msg = policy_abort_reason(
             "ict", "FAIL", "Impedance Shorts", is_short=True,
