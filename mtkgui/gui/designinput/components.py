@@ -260,10 +260,15 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
                 report.conflicts.append(
                     (entry.refdes, record.part_number, entry.part_number))
             record.part_number = entry.part_number
-            record.dev_category = _categorize_bom(
-                entry.part_number, entry.refdes, entry.description)
-            _sync_unclassified(library, record)
             report.updated += 1
+        # M2 Fix 4: the BOM is authoritative even when the part number
+        # is unchanged - its DESCRIPTION carries the device family
+        # (``IC MCU ...`` / ``IC VREG ...``), so re-categorize always.
+        category = _categorize_bom(
+            entry.part_number, entry.refdes, entry.description)
+        if category != record.dev_category:
+            record.dev_category = category
+            _sync_unclassified(library, record)
         record.dnp = record.dnp or entry.dnp
         record.vendor = record.vendor or entry.vendor
         record.value = record.value or entry.value

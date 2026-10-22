@@ -21,7 +21,7 @@ from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
                            INTERFACE_CHIP as ROLE_INTERFACE,
                            LOAD as ROLE_LOAD, role_for_part_number)
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_POWER,
-                    ParseNetsResult, SubClass)
+                    NET_TYPE_SIGNAL, ParseNetsResult, SubClass)
 
 HIGH, MEDIUM, LOW = "high", "medium", "low"
 _CONF_RANK = {HIGH: 0, MEDIUM: 1, LOW: 2}
@@ -234,51 +234,116 @@ def _bom_evidence(name: str, members: list[str],
 def resolve_conflicts(result: ParseNetsResult, library: dict) -> list[str]:
     """B1.5 cross-class conflict resolution (library mode only).
 
-    Scans the unclassified ``Others`` nets; a winner scoring
-    ``>= CONFLICT_HIGH`` is re-classified into its class with
-    confidence ``high``; otherwise the net becomes
-    ``Others`` / ``ambiguous`` with the competing scores kept in
-    ``members_meta``.  Returns the audited net names.
+    M2 Fix 1 semantics: the conflict path ONLY looks at nets M1
+    classified into ``power`` / ``clock`` / ``control_io``.  Nets M1
+    already excluded (``Others``) are determined not-tested and are
+    never re-scored - they only get a truthful sub-class label
+    (``interface`` / ``muxed``).
+
+    A candidate hitting a protocol token or a mux indicator leaves
+    its candidate class for ``Others`` with the matching sub-class.
+    The remaining candidates are scored (name + BOM evidence); a net
+    with >=2 class features whose winner reaches
+    :data:`CONFLICT_HIGH` moves to that class, otherwise it becomes
+    ``Others`` / ``ambiguous``.  Returns the audited net names.
     """
+    _audit_candidates(result)
+    _label_excluded(result)
     audited: list[str] = []
-    keep: list = []
-    for rec in result.others:
-        if rec.sub_class != SubClass.UNCLASSIFIED:
-            keep.append(rec)
-            continue
-        scores = _name_evidence(rec.name)
-        bom = _bom_evidence(rec.name, rec.members, library)
-        for key, value in bom.items():
-            scores[key] += value
-        audited.append(rec.name)
-        best = max(scores, key=lambda k: (scores[k], k))
-        ordered = sorted(scores.values(), reverse=True)
-        if scores[best] >= CONFLICT_HIGH and ordered[0] > ordered[1]:
-            rec.meta = {"conflict_scores": dict(scores),
-                        "original_class": "others"}
-            _move_to_class(result, rec, best)
-            continue
-        rec.sub_class = SubClass.AMBIGUOUS
-        rec.provenance = "conflict:ambiguous"
-        rec.meta = {"conflict_scores": dict(scores)}
-        keep.append(rec)
-    result.others[:] = keep
+    moved: list = []
+    for bucket in ("power", "clock", "control_io"):
+        keep = []
+        for rec in list(getattr(result, bucket)):
+            # a decisive M1 device-role / user-rule classification is
+            # not a conflict - never re-score it (Fix 1 semantics)
+            if rec.provenance.startswith(("device_role:", "user_rule")):
+                keep.append(rec)
+                continue
+            scores = _name_evidence(rec.name)
+            features = sum(1 for value in scores.values() if value > 0)
+            if features < 2:
+                keep.append(rec)
+                continue
+            bom = _bom_evidence(rec.name, rec.members, library)
+            for key, value in bom.items():
+                scores[key] += value
+            audited.append(rec.name)
+            best = max(scores, key=lambda k: (scores[k], k))
+            ordered = sorted(scores.values(), reverse=True)
+            if scores[best] >= CONFLICT_HIGH and ordered[0] > ordered[1]:
+                if best != bucket:
+                    rec.meta = {"conflict_scores": dict(scores),
+                                "original_class": bucket}
+                    _move_to_class(result, rec, best, bucket)
+                else:
+                    keep.append(rec)
+                continue
+            rec.meta = {"conflict_scores": dict(scores)}
+            rec.sub_class = SubClass.AMBIGUOUS
+            rec.provenance = "conflict:ambiguous"
+            rec.net_type = NET_TYPE_SIGNAL
+            moved.append(rec)
+        getattr(result, bucket)[:] = keep
+    result.others.extend(moved)
     return audited
 
 
-def _move_to_class(result: ParseNetsResult, rec, class_key: str) -> None:
+def _audit_candidates(result: ParseNetsResult) -> None:
+    """Protocol / mux audit of M1 clock + control-IO candidates.
+
+    Power rails are never audited here - ``EMMC_VCC`` / ``USB_5V``
+    are legitimate supply nets.
+    """
+    from .rules import is_muxed, protocol_token
+
+    for bucket in ("clock", "control_io"):
+        keep = []
+        for rec in getattr(result, bucket):
+            token = protocol_token(rec.name)
+            if token:
+                rec.sub_class = SubClass.INTERFACE
+                rec.provenance = f"interface:{token}"
+            elif is_muxed(rec.name):
+                rec.sub_class = SubClass.MUXED
+                rec.provenance = "muxed:reused_io"
+            else:
+                keep.append(rec)
+                continue
+            rec.net_type = NET_TYPE_SIGNAL
+            result.others.append(rec)
+        getattr(result, bucket)[:] = keep
+
+
+def _label_excluded(result: ParseNetsResult) -> None:
+    """Label M1-excluded ``Others`` nets (no re-scoring)."""
+    from .rules import is_muxed, protocol_token
+
+    for rec in result.others:
+        if rec.sub_class != SubClass.UNCLASSIFIED:
+            continue
+        token = protocol_token(rec.name)
+        if token:
+            rec.sub_class = SubClass.INTERFACE
+            rec.provenance = f"interface:{token}"
+        elif is_muxed(rec.name):
+            rec.sub_class = SubClass.MUXED
+            rec.provenance = "muxed:reused_io"
+
+
+def _move_to_class(result: ParseNetsResult, rec, class_key: str,
+                   source: str) -> None:
+    getattr(result, source).remove(rec)
     if class_key == "power":
         rec.net_type = NET_TYPE_POWER
         rec.provenance = "conflict:power"
-        rec.confidence = HIGH
         result.power.append(rec)
     elif class_key == "clock":
         rec.net_type = NET_TYPE_CLOCK_SINGLE
         rec.provenance = "conflict:clock"
-        rec.confidence = HIGH
         result.clock.append(rec)
     else:
-        rec.net_type = "signal"
-        rec.provenance = f"control_io:conflict:{class_key}"
-        rec.confidence = HIGH
+        rec.net_type = NET_TYPE_SIGNAL
+        rec.provenance = "conflict:control_io"
         result.control_io.append(rec)
+    rec.sub_class = ""
+    rec.confidence = HIGH

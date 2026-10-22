@@ -96,6 +96,11 @@ class BomData:
 
     records: list[BomRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: detected column map (``refdes`` / ``mpn`` / ``description`` /
+    #: ``vendor`` / ``value`` -> index; -1 = column genuinely absent).
+    #: M2 Fix 4: lets callers report truthful per-column availability
+    #: instead of silently showing empty vendor / value values.
+    columns: dict[str, int] = field(default_factory=dict)
 
 
 def _norm_header(value) -> str:
@@ -275,6 +280,7 @@ def parse_bom(path: str) -> BomData:
             "required")
 
     data = BomData()
+    data.columns = dict(columns)
     for row in rows[header_index + 1:]:
         if not row or not any(str(cell or "").strip() for cell in row):
             continue

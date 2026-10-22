@@ -83,9 +83,52 @@ SYSTEM_RANDOM_RE = re.compile(r"^\$?N?\d+$")
 
 #: interface / pin-multiplex markers: a name carrying one of these is
 #: a reused IO, NOT a chip-control IO (owner decision 2026-10-22).
+#: M2 Fix 1/2: the FULL B2 rule-2 protocol token list, word-anchored
+#: ``(^|_)`` so ``MIPI_CSI0_RST_B`` / ``EMMC_RST_B`` / ``PCIE_RST_B`` /
+#: ``SDA_RST_BUFF`` are determined not-tested, while ``DDR0_CS0``
+#: (memory chip-select, owner-confirmed) stays control IO.
+PROTOCOL_TOKENS = (
+    "I2C", "SCL", "SDA", "SPI", "QSPI", "UART", "TX", "RX", "CAN",
+    "USB", "SD", "SDHC", "USDHC", "EMMC", "UFS", "PCIE", "ETH", "ENET",
+    "RGMII", "MII", "SGMII", "SAI", "ESAI", "I2S", "PSI5", "MIPI",
+    "DBGIF", "JTAG", "SWD", "SWCLK", "TCK", "1588", "TRACE", "PHY",
+    "SERDES", "LINK", "SPDIF", "MLB", "SIM",
+)
+#: compiled word-anchored protocol matcher (one shared definition)
+PROTOCOL_RE = re.compile(
+    r"(^|_)(" + "|".join(PROTOCOL_TOKENS) + r")([0-9A-Z_]*)?",
+    re.IGNORECASE)
+#: mux / reuse indicators: GPIO token, parenthesised mux marker or an
+#: explicit ``_ALT`` / ``_MUX`` / ``_IOMUX`` / ``_REUSE`` / ``_FMUX``
+#: suffix (spec M2 Fix 1)
+MUX_RE = re.compile(r"(^|_)(GPIO|ALT|MUX|IOMUX|REUSE|FMUX)([0-9A-Z_]*)?",
+                    re.IGNORECASE)
+_PAREN_RE = re.compile(r"\([^)]*\)")
+#: FPGA names are also reused-JTAG / interface carriers (M1 kept them
+#: out of control IO; preserved here for the same pre-filter)
 _CONTROL_IO_INTERFACE_RE = re.compile(
-    r"(RGMII|MII|RMII|SGMII|ENET|ETH|SPDIF|TRACE|1588|SERDES|"
-    r"PHY|LINK|FPGA)", re.IGNORECASE)
+    r"(^|_)(FPGA)([0-9A-Z_]*)?" + "|" + PROTOCOL_RE.pattern,
+    re.IGNORECASE)
+
+
+def protocol_token(name: str) -> str:
+    """First protocol token matched in *name* ("" = none).
+
+    Deterministic: the leftmost word-anchored match.
+    """
+    if not name:
+        return ""
+    match = PROTOCOL_RE.search(name)
+    return match.group(2).upper() if match else ""
+
+
+def is_muxed(name: str) -> bool:
+    """True when *name* carries a mux / reuse indicator."""
+    if not name:
+        return False
+    if _PAREN_RE.search(name):
+        return True
+    return bool(MUX_RE.search(name))
 
 #: control-semantic rule sets: anchored tokens only (no substring
 #: matching).  Active-low / rail suffixes (_B, _N, _3.3V, numeric

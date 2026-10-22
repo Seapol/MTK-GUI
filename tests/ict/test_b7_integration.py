@@ -148,7 +148,8 @@ def test_b7_power_high_first_ranking():
 
 # ------------------------------------------------------------ B3 clock
 def test_b7_clock_capacity():
-    payload = _payload()
+    result = _parse()
+    payload = result_to_dict(result, library=B7_LIBRARY)
     report = payload["capacity_report"]["clock"]
     selected = [e["net"] for e in report["selected"]]
     # 1 LF (SUSCLK_32K, high) + 2 HF by frequency ascending (24M, 25M)
@@ -157,9 +158,12 @@ def test_b7_clock_capacity():
     relaxed = {e["net"] for e in report["overflow"]}
     # high-confidence overflow stays in the class (not selected)
     assert high == {"CLKOUT0", "CLKOUT1", "MCLK_OUT0",
-                    "BB_MCLK_IN(MCLK_IN0)", "DUT_CLK1_FPGA_AG25"}
+                    "DUT_CLK1_FPGA_AG25"}
     # weak / medium clocks relax to Others/capacity
     assert relaxed == {"RTC_XTAL", "SI5332_CLK0_OUT", "EEPROM_CLK"}
+    # parenthesised mux marker -> determined not-tested, not a clock
+    by_name = {r.name: r for r in result.others}
+    assert by_name["BB_MCLK_IN(MCLK_IN0)"].sub_class == "muxed"
     assert all(e["sub_class"] == "capacity" for e in report["overflow"])
 
 

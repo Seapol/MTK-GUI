@@ -186,3 +186,42 @@ def test_library_mode_classifies_si5332_strap_as_power():
     fallback = classify_nets(parse_netlist_auto(
         "Net Name,Net Pins\nSI5332_CLK_VDDA,U1.1\n"))
     assert fallback.nets[0].net_type == "signal"
+
+
+# ------------------------------------------------------------- M2 Fix 4
+def test_merge_bom_recategorizes_when_pn_unchanged():
+    """The BOM description carries the device family even when the
+    part number is identical to the schematic-derived one."""
+    lib = build_library([("U8", "344-02410")])
+    assert lib.records[0].dev_category == CATEGORY_OTHER
+    bom = type("B", (), {"records": [
+        type("E", (), {"refdes": "U8", "part_number": "344-02410",
+                       "description": "IC MCU ARM FLASH 640KB SRAM",
+                       "dnp": False, "vendor": "", "value": ""})()]})()
+    merge_bom(lib, bom)
+    assert lib.records[0].dev_category == CATEGORY_MAIN_MCU
+    model = DesignDataModel()
+    model.component_library = lib
+    assert model.core_id_suggestion() == "344-02410"
+
+
+def test_bom_column_availability_is_truthful(tmp_path):
+    with_vendor = tmp_path / "with.csv"
+    with_vendor.write_text(
+        "Manufacturer,Part Number,Value,Description,"
+        "Reference Designator\nNXP,PCA9555,0R,IC MCU,U1\n",
+        encoding="utf-8")
+    data = parse_bom(str(with_vendor))
+    assert data.columns["vendor"] >= 0
+    assert data.columns["value"] >= 0
+    assert data.records[0].vendor == "NXP"
+    assert data.records[0].value == "0R"
+
+    without = tmp_path / "without.csv"
+    without.write_text(
+        "Name,Number,Description,Reference Designator\n"
+        "150-1,344-1,IC MCU ARM,U1\n", encoding="utf-8")
+    data = parse_bom(str(without))
+    assert data.columns["vendor"] == -1
+    assert data.columns["value"] == -1
+    assert data.columns["description"] >= 0

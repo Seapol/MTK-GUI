@@ -147,12 +147,14 @@ def test_conflict_resolution_library_mode():
     assert by_name["5V_SDA_PSW"].net_type == "power"
     assert by_name["SI5332_CLK0_OUT"].net_type == "clock_single"
     assert by_name["DUT_CLK1_FPGA_AG25"].net_type == "clock_single"
-    # protocol negative evidence: no class reaches the threshold
+    # determined not-tested: protocol nets are labelled interface,
+    # never mislabeled ambiguous (M2 Fix 1)
     for net in ("PCIE_CLK_OE1", "ENET1_REFCLK"):
         rec = by_name[net]
         assert rec in result.others
-        assert rec.sub_class == "ambiguous"
-        assert rec.meta["conflict_scores"]
+        assert rec.sub_class == "interface"
+        assert rec.provenance.startswith("interface:")
+    assert not any(r.sub_class == "ambiguous" for r in result.others)
 
 
 def test_no_library_mode_conflict_path_untouched():

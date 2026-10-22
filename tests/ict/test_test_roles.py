@@ -110,9 +110,12 @@ def test_exclude_wins_over_control_io_keywords():
 def test_exclude_disabled_restores_control_io_and_random():
     result = parse_testable_nets(NET_SAMPLE, rules={"exclude": ""})
     control = {r.name: r for r in result.control_io}
-    assert control["SPI0_CS"].provenance == "control_io:cs"
+    # M2 Fix 2: the protocol pre-filter is independent of the user
+    # Exclude regex - SPI0_CS is never control IO
+    assert "SPI0_CS" not in control
     assert control["WIFI_EN"].provenance == "control_io:enable"
     others = {r.name: r for r in result.others}
+    assert others["SPI0_CS"].sub_class == SUBCLASS_UNCLASSIFIED
     assert others["N12345"].sub_class == SUBCLASS_SYSTEM_RANDOM
     assert others["N12345"].provenance == "rule:system_random"
 

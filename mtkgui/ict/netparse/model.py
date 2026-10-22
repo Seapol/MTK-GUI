@@ -35,6 +35,11 @@ class SubClass:
     UNCLASSIFIED = "unclassified"
     CAPACITY = "capacity"
     BRIDGE_DUPLICATE = "bridge_duplicate"
+    #: determined not-tested: protocol-bus net (never an ICT object)
+    INTERFACE = "interface"
+    #: determined not-tested: reused / pin-multiplexed IO
+    MUXED = "muxed"
+    #: genuinely undecidable: >=2 class features, no winner
     AMBIGUOUS = "ambiguous"
 
 
