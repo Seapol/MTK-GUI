@@ -405,7 +405,8 @@ class BlockFlowWidget(QWidget):
                     parent: QWidget,
                     log_sink=None, progress_sink=None,
                     net_source: tuple[str, str] | None = None,
-                    panel_state: dict | None = None):
+                    panel_state: dict | None = None,
+                    yaml_model=None):
         """Open the dedicated config dialog for one module.
 
         Args:
@@ -421,6 +422,7 @@ class BlockFlowWidget(QWidget):
                               from the Design Input import (T8).
             panel_state:      Block 02 restore data (rules / power
                               tree / overrides / spf_nets) - item 24.
+            yaml_model:       Block 02 ICT Test Plan sync target (M5).
 
         Returns:
             ``(values, dialog)`` where ``values`` is the validated
@@ -429,7 +431,8 @@ class BlockFlowWidget(QWidget):
         """
         dialog = BlockConfigDialog(module_key, params, parent,
                                    net_source=net_source,
-                                   panel_state=panel_state)
+                                   panel_state=panel_state,
+                                   yaml_model=yaml_model)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:

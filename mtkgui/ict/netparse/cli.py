@@ -60,6 +60,10 @@ def _build_parser() -> argparse.ArgumentParser:
                              "choice beats the algorithmic class)")
     parser.add_argument("--format", choices=("json", "csv"),
                         default="json", help="output format (default json)")
+    parser.add_argument("--export-plan", default=None, dest="export_plan",
+                        help="write the M5 ICT Test Plan workbook to PATH "
+                             "plus the sibling _evidence.md (no JSON on "
+                             "stdout unless --output is given)")
     parser.add_argument("--output", default=None,
                         help="write the result to FILE (default stdout)")
     parser.add_argument("--indent", type=int, default=2,
@@ -199,6 +203,16 @@ def main(argv: list[str] | None = None) -> int:
                                  external)
         if overrides:
             apply_user_overrides(result, overrides)
+        if args.export_plan:
+            from .export_testplan import (export_testplan_pair,
+                                          project_name_from_path)
+            rows, sections = export_testplan_pair(
+                result, limits, args.export_plan,
+                project_name_from_path(args.input))
+            print(f"test plan written: {args.export_plan} "
+                  f"({rows} rows) + evidence ({sections} nets)")
+            if not args.output:
+                return 0
         if args.suggest:
             from .rule_layers import suggest
             text = json.dumps(suggest(result, library), indent=2,

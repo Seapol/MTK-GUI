@@ -24,6 +24,8 @@ package - this module only provides the Block 02 Qt panel.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -102,6 +104,12 @@ class ParseNetsPanel(QWidget):
         # user category overrides (combo changes)
         self._dnt_flags: dict[str, bool] = {}
         self._category_overrides: dict[str, str] = {}
+        # M5 ICT Test Plan sync: the project YamlBuildModel (injected by
+        # the block dialog) and the commit gate - importing a workbook
+        # into the production YAML is only allowed once the block was
+        # applied (OK saved)
+        self.yaml_model = None
+        self._applied = False
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -199,12 +207,126 @@ class ParseNetsPanel(QWidget):
             "(Medium / High lower bounds). The warning is advisory "
             "only and never blocks a channel assignment")
         tools.addWidget(self.btn_risk_thresholds)
+        # M5 ICT Test Plan output files + YAML bidirectional sync
+        self.btn_export_plan = QPushButton("Export ICT Test Plan")
+        self.btn_export_plan.setToolTip(
+            "Write the six-sheet ICT Test Plan workbook (Power / "
+            "SE-Clock / Control IO / GND / Others) plus its evidence "
+            "markdown")
+        tools.addWidget(self.btn_export_plan)
+        self.btn_import_yaml = QPushButton("Import to YAML")
+        self.btn_import_yaml.setToolTip(
+            "Import an ICT Test Plan workbook into the project YAML: "
+            "existing YAML values always win, blank cells are filled, "
+            "new nets are appended (never deleted)")
+        tools.addWidget(self.btn_import_yaml)
+        self.btn_export_yaml = QPushButton("Export from YAML")
+        self.btn_export_yaml.setToolTip(
+            "Re-export the ICT Test Plan workbook + evidence from the "
+            "project YAML (YAML production values win, blanks are "
+            "filled by the algorithm)")
+        tools.addWidget(self.btn_export_yaml)
         tools.addStretch(1)
         lay.addLayout(tools)
 
         self.btn_rules.clicked.connect(self._edit_rules)
         self.btn_risk_thresholds.clicked.connect(
             self._edit_risk_thresholds)
+        self.btn_export_plan.clicked.connect(self.export_test_plan)
+        self.btn_import_yaml.clicked.connect(self.import_to_yaml)
+        self.btn_export_yaml.clicked.connect(self.export_from_yaml)
+
+    # ------------------------------------------------- ICT Test Plan sync
+    def set_yaml_model(self, model) -> None:
+        """Inject the project YamlBuildModel (Test Plan sync target)."""
+        self.yaml_model = model
+
+    def mark_applied(self) -> None:
+        """Open the commit gate: the block was applied (OK saved), so a
+        workbook import may now write the production YAML."""
+        self._applied = True
+
+    def _project_name(self) -> str:
+        from mtkgui.ict.netparse.export_testplan import (
+            project_name_from_path,
+        )
+        product = ""
+        if self.yaml_model is not None:
+            product = str(self.yaml_model.get_params("design_input")
+                          .get("product_id") or "").strip()
+        return product or project_name_from_path(self._net_name or "")
+
+    def _log_report(self, title: str, report: list) -> None:
+        for line in report:
+            self.task_log.emit("INFO", f"{title}: {line}")
+
+    def export_test_plan(self) -> None:
+        """Write the workbook + evidence markdown from the current
+        parse (allowed in DRAFT - it is a design artifact)."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        from mtkgui.ict.netparse.capacity import DEFAULT_LIMITS
+        from mtkgui.ict.netparse.export_testplan import (
+            export_testplan_pair,
+        )
+        if self.result is None:
+            QMessageBox.warning(self, "Export ICT Test Plan",
+                                "Parse the nets first.")
+            return
+        default = f"ICT Test Plan for {self._project_name()}.xlsx"
+        path, _selected = QFileDialog.getSaveFileName(
+            self, "Export ICT Test Plan", default, "Excel (*.xlsx)")
+        if not path:
+            return
+        rows, sections = export_testplan_pair(
+            self.result, DEFAULT_LIMITS, path, self._project_name())
+        self.task_log.emit(
+            "INFO",
+            f"ICT Test Plan written: {path} ({rows} rows) + evidence "
+            f"({sections} nets)")
+
+    def import_to_yaml(self) -> None:
+        """Workbook -> project YAML (commit gate: applied only)."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
+        if self.yaml_model is None:
+            QMessageBox.warning(self, "Import to YAML",
+                                "No project YAML is loaded.")
+            return
+        if not self._applied:
+            QMessageBox.warning(
+                self, "Import to YAML",
+                "Apply this block (OK) before writing the production "
+                "YAML.")
+            return
+        path, _selected = QFileDialog.getOpenFileName(
+            self, "Import to YAML", "", "Excel (*.xlsx)")
+        if not path:
+            return
+        testplan_to_yaml(self.yaml_model, path, None, self.result)
+        self._log_report("import to YAML",
+                         self.yaml_model.testplan_sync_report)
+
+    def export_from_yaml(self) -> None:
+        """Project YAML -> workbook + evidence markdown."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
+        if self.yaml_model is None:
+            QMessageBox.warning(self, "Export from YAML",
+                                "No project YAML is loaded.")
+            return
+        default = f"ICT Test Plan for {self._project_name()}.xlsx"
+        path, _selected = QFileDialog.getSaveFileName(
+            self, "Export from YAML", default, "Excel (*.xlsx)")
+        if not path:
+            return
+        md_path = str(Path(path).with_name(
+            Path(path).stem + "_evidence.md"))
+        yaml_to_testplan(self.yaml_model, path, md_path)
+        self._log_report("export from YAML",
+                         self.yaml_model.testplan_sync_report)
 
     # ---------------------------------------------------------- item 24
     def set_dnt_state(self, dnt_nets: set[str] | None) -> None:

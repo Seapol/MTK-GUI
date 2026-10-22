@@ -515,7 +515,8 @@ class YamlBuildPage(QWidget):
                     or {}),
                 "risk_scores": dict(
                     (self.model.path_risk or {}).get("scores") or {}),
-            } if module_key == "parse_ict" else None)
+            } if module_key == "parse_ict" else None,
+            yaml_model=self.model if module_key == "parse_ict" else None)
         if params is None:
             return
         self.model.set_params(module_key, params)

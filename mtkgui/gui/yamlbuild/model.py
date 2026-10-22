@@ -157,6 +157,14 @@ class YamlBuildModel:
         # config synced into the model (user question: the configured
         # power rails MUST appear in the YAML preview / Apply)
         self.power_rails_up_sequence: dict = {}
+        # M5 ICT Test Plan snapshot imported from the workbook (the
+        # evidence the xlsx deliberately omits: confidence / provenance
+        # / sub_class / input_rail / members) - the YAML production
+        # truth survives every re-export
+        self.ict_test_plan: dict = {}
+        #: last import / export decision list (Event-Log mirror; never
+        #: persisted - it is an operation log, not project data)
+        self.testplan_sync_report: list = []
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -364,6 +372,9 @@ class YamlBuildModel:
             section["gpio_allocation"] = self.gpio_allocation
         if self.path_risk:
             section["path_risk"] = self.path_risk
+        # M5 ICT Test Plan snapshot (the evidence behind the workbook)
+        if self.ict_test_plan:
+            section["ict_test_plan"] = self.ict_test_plan
         return {"yaml_build": section}
 
     def to_effective_yaml(self) -> str:
@@ -490,6 +501,10 @@ class YamlBuildModel:
         risk = section.get("path_risk")
         if isinstance(risk, dict):
             self.path_risk = risk
+        # M5 ICT Test Plan snapshot restore (legacy files: key absent)
+        plan = section.get("ict_test_plan")
+        if isinstance(plan, dict):
+            self.ict_test_plan = plan
         self.changed = True
         return errors
 
@@ -584,6 +599,7 @@ class YamlBuildModel:
                 copy.deepcopy(self.se_clock_allocation),
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
             "path_risk": copy.deepcopy(self.path_risk),
+            "ict_test_plan": copy.deepcopy(self.ict_test_plan),
             "marks": dict(self.marks),
             "modules": {
                 key: {
@@ -625,7 +641,8 @@ class YamlBuildModel:
         for key, default in (("net_classification_rules", {}),
                              ("se_clock_allocation", []),
                              ("gpio_allocation", []),
-                             ("path_risk", {})):
+                             ("path_risk", {}),
+                             ("ict_test_plan", {})):
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)

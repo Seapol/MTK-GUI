@@ -85,7 +85,8 @@ class BlockConfigDialog(QDialog):
     def __init__(self, module_key: str, params: dict,
                  parent: QWidget | None = None,
                  net_source: tuple[str, str] | None = None,
-                 panel_state: dict | None = None) -> None:
+                 panel_state: dict | None = None,
+                 yaml_model=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -98,6 +99,8 @@ class BlockConfigDialog(QDialog):
             panel_state:      Block 02 only - item 24 restore data
                               (net rules, power tree, allocation
                               overrides, SPF net names).
+            yaml_model:       Block 02 only - the project YamlBuildModel
+                              the Test Plan sync writes into (M5).
         """
         super().__init__(parent)
         self.module_key = module_key
@@ -181,6 +184,7 @@ class BlockConfigDialog(QDialog):
                     DEFAULT_THRESHOLDS)
             self.nets_panel.risk_scores = dict(
                 state.get("risk_scores") or {})
+            self.nets_panel.set_yaml_model(yaml_model)
             self.nets_panel.task_log.connect(self._panel_log)
             self.nets_panel.task_progress.connect(self._panel_progress)
             lay.addWidget(self.nets_panel)
@@ -282,6 +286,10 @@ class BlockConfigDialog(QDialog):
                 self, "Validation",
                 "Please fix the highlighted fields before saving.")
             return
+        if self.nets_panel is not None:
+            # M5 commit gate: a workbook import may write the
+            # production YAML only after the block was applied
+            self.nets_panel.mark_applied()
         self.accept()
 
     def values(self) -> dict:
