@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
                                           project_name_from_path)
             rows, sections = export_testplan_pair(
                 result, limits, args.export_plan,
-                project_name_from_path(args.input))
+                project_name_from_path(args.input), library=library)
             print(f"test plan written: {args.export_plan} "
                   f"({rows} rows) + evidence ({sections} nets)")
             if not args.output:

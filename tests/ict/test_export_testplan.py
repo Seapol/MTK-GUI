@@ -2,7 +2,10 @@
 """M5 PART 1: ICT Test Plan output files (xlsx + evidence md)."""
 from __future__ import annotations
 
+import json
+
 import openpyxl
+import pytest
 
 from mtkgui.ict.netparse.capacity import DEFAULT_LIMITS
 from mtkgui.ict.netparse.cli import main
@@ -175,3 +178,117 @@ def test_cli_export_plan(tmp_path, capsys):
     assert md.exists()
     assert "test plan written" in capsys.readouterr().out
     assert tuple(openpyxl.load_workbook(str(out)).sheetnames) == SHEET_NAMES
+
+
+# --------------------------------------------- M5-FIX1: library pass-through
+#: inlet evidence: P1 power jack + SW1 rated power switch
+INLET_LIBRARY = {
+    "P1": {"part_number": "DC-005", "description": "PWR JACK"},
+    "SW1": {"part_number": "SS-12D00", "description": "5A@125VAC"},
+}
+
+
+def _inlet_result() -> ParseNetsResult:
+    result = ParseNetsResult(source="inlet.net", total=2)
+    result.power = [
+        NetRecord(name="VBAT_PWR", members=["U9.1"],
+                  net_type="power", provenance="rule:power",
+                  confidence="high"),
+        NetRecord(name="12V_IN", members=["P1.1", "SW1.2"],
+                  net_type="power", provenance="rule:power",
+                  confidence="high"),
+    ]
+    rank_result(result)
+    return result
+
+
+def _input_rails_of(md_path) -> list[str]:
+    from pathlib import Path
+    text = Path(md_path).read_text(encoding="utf-8")
+    body = text.split("## Input rails")[1].split("## ")[0]
+    return [line.strip().lstrip("- ") for line in body.splitlines()
+            if line.strip().startswith("- ") and "none" not in line]
+
+
+def test_library_recovers_input_rail_and_power_order(tmp_path):
+    path = tmp_path / "inlet.xlsx"
+    export_testplan_pair(_inlet_result(), DEFAULT_LIMITS, str(path),
+                         "inlet", library=INLET_LIBRARY)
+    rows = list(openpyxl.load_workbook(str(path))[SHEET_POWER]
+                .iter_rows(min_row=2, values_only=True))
+    assert [row[0] for row in rows] == ["12V_IN", "VBAT_PWR"]
+    md = path.with_name("inlet_evidence.md")
+    assert _input_rails_of(md) == ["12V_IN"]
+    assert "- input_rail: true" in md.read_text(encoding="utf-8")
+
+
+def test_without_library_keeps_working(tmp_path):
+    path = tmp_path / "nolib.xlsx"
+    export_testplan_pair(_inlet_result(), DEFAULT_LIMITS, str(path),
+                         "nolib")
+    rows = list(openpyxl.load_workbook(str(path))[SHEET_POWER]
+                .iter_rows(min_row=2, values_only=True))
+    # the name heuristic ranks VBAT (stage 0) first - degraded but safe
+    assert [row[0] for row in rows] == ["VBAT_PWR", "12V_IN"]
+    assert _input_rails_of(path.with_name("nolib_evidence.md")) == []
+
+
+def test_cli_export_plan_passes_library(tmp_path, capsys):
+    net = tmp_path / "NET-97122_A.net"
+    net.write_text("*SIGNAL* VBAT_PWR\nU9.1\n"
+                   "*SIGNAL* 12V_IN\nP1.1 SW1.2\n", encoding="utf-8")
+    library = tmp_path / "library.json"
+    library.write_text(
+        '{"P1": {"part_number": "DC-005", "description": "PWR JACK"},'
+        ' "SW1": {"part_number": "SS-12D00", "description": "5A@125VAC"}}',
+        encoding="utf-8")
+    out = tmp_path / "ICT Test Plan for 97122.xlsx"
+    code = main([str(net), "--library", str(library),
+                 "--export-plan", str(out)])
+    assert code == 0
+    capsys.readouterr()
+    rows = list(openpyxl.load_workbook(str(out))[SHEET_POWER]
+                .iter_rows(min_row=2, values_only=True))
+    assert rows[0][0] == "12V_IN"
+
+
+# ------------------------- M5-FIX1 regression: five-project export parity
+PARITY_PROJECTS = [
+    ("29420", "NET-29420_H.net", "library_29420.json"),
+    ("94923", "NET-94923_A.net", "library_94923.json"),
+    ("96317", "NET-96317_A.net", "library_96317.json"),
+    ("97122", "NET-97122_A.net", "library_97122.json"),
+    ("96624", "NET-96624_A.net", "library_96624.json"),
+]
+#: fix2 CLI JSON baseline: input_rails set + rank1 power net
+PARITY_EXPECT = {
+    "29420": ["VCC_12V0", "VCC_VBUS"],
+    "94923": [],
+    "96317": ["DC_5V_IN", "5V_SDA_PSW", "5V_USB0_OTG"],
+    "97122": ["12V_IN"],
+    "96624": ["VDD_12V"],
+}
+
+
+@pytest.mark.parametrize("pid,net_name,lib_name", PARITY_PROJECTS)
+def test_five_project_export_parity(tmp_path, pid, net_name, lib_name):
+    from pathlib import Path
+
+    from mtkgui.ict.netparse import parse_nets_file
+    root = Path(__file__).resolve().parents[2]
+    net = root / "projects" / pid / net_name
+    lib = root / "reports" / lib_name
+    if not net.exists() or not lib.exists():
+        pytest.skip("project fixture not available")
+    library = json.loads(lib.read_text(encoding="utf-8"))
+    result = parse_nets_file(str(net), library=library)
+    out = tmp_path / f"ICT Test Plan for {pid}.xlsx"
+    export_testplan_pair(result, DEFAULT_LIMITS, str(out), pid,
+                         library=library)
+    rails = _input_rails_of(out.with_name(
+        f"ICT Test Plan for {pid}_evidence.md"))
+    assert rails == PARITY_EXPECT[pid]
+    rows = list(openpyxl.load_workbook(str(out))[SHEET_POWER]
+                .iter_rows(min_row=2, values_only=True))
+    if PARITY_EXPECT[pid]:
+        assert rows[0][0] == PARITY_EXPECT[pid][0]

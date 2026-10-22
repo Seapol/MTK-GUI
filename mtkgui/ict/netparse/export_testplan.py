@@ -110,16 +110,17 @@ def _test_points(rec, override: str = "") -> str:
 
 
 def _ranked(result: ParseNetsResult,
-            overrides: dict | None = None) -> ParseNetsResult:
-    """Deep copy of *result*, ranked (never mutates the input).
+            overrides: dict | None = None,
+            library: dict | None = None) -> ParseNetsResult:
+    """Deep copy of *result*, ranked with the BOM *library* (never
+    mutates the input).
 
-    ``rank_result`` re-derives ``input_rail`` from the member tokens;
-    without the BOM library some strong input-rail evidence (fuse /
-    inlet) is lost, so the YAML merge hook restores the stored
-    ``input_rail`` markers after ranking.
+    ``rank_result`` re-derives ``input_rail`` from the member tokens
+    and the library evidence (fuse / inlet / TVS / USB-PD / FL).  The
+    YAML merge hook then restores user-approved markers as a backup.
     """
     working = copy.deepcopy(result)
-    rank_result(working)
+    rank_result(working, library)
     for rec in working.power:
         if _overrides_for(overrides, rec.name).get("input_rail"):
             rec.input_rail = True
@@ -224,10 +225,11 @@ def _clock_nominal_khz(rec, override: dict) -> str:
 
 
 def _build_plan(result: ParseNetsResult, limits: ResourceLimits,
-                project_name: str, overrides: dict | None = None) -> dict:
+                project_name: str, overrides: dict | None = None,
+                library: dict | None = None) -> dict:
     """All sheet rows + markdown blocks from one parse result."""
     limits = limits or DEFAULT_LIMITS
-    working = _ranked(result, overrides)
+    working = _ranked(result, overrides, library)
     report = truncate(working, limits)
     name = project_name or Path(result.source).stem or "project"
 
@@ -327,7 +329,8 @@ def export_testplan_xlsx(result: ParseNetsResult,
                          limits: ResourceLimits,
                          path: str,
                          project_name: str = "",
-                         overrides: dict | None = None) -> int:
+                         overrides: dict | None = None,
+                         library: dict | None = None) -> int:
     """Write the six-sheet ICT Test Plan workbook.
 
     Args:
@@ -340,6 +343,9 @@ def export_testplan_xlsx(result: ParseNetsResult,
                      ``upper_v`` / ``nominal_khz`` / ``lower_khz`` /
                      ``upper_khz`` / ``r_gnd_min_ohm`` / ``r_v_channel``
                      / ``daq_ai_channel`` / ``freq_channel``.
+        library:     Optional BOM library ``{refdes: part info}``: input-
+                     rail evidence (fuse / inlet / TVS / USB-PD / FL)
+                     and the power sort then match the CLI JSON.
 
     Returns:
         Number of data rows written across the five net sheets.
@@ -348,7 +354,7 @@ def export_testplan_xlsx(result: ParseNetsResult,
     from openpyxl.styles import Font
 
     plan = _build_plan(result, limits or DEFAULT_LIMITS, project_name,
-                       overrides)
+                       overrides, library)
     workbook = Workbook()
     workbook.remove(workbook.active)
 
@@ -423,10 +429,11 @@ def _evidence_block(rec, category: str, nominal: str,
 def build_testplan_markdown(result: ParseNetsResult,
                             limits: ResourceLimits,
                             project_name: str = "",
-                            overrides: dict | None = None) -> str:
+                            overrides: dict | None = None,
+                            library: dict | None = None) -> str:
     """Render the evidence markdown (shared by file export / tests)."""
     plan = _build_plan(result, limits or DEFAULT_LIMITS, project_name,
-                       overrides)
+                       overrides, library)
     working = plan["working"]
     report = plan["truncated"]
     out: list[str] = [
@@ -446,7 +453,11 @@ def build_testplan_markdown(result: ParseNetsResult,
     out += [f"- {key}: {text}" for key, text in plan["limits"]]
     out += ["", "## Input rails", ""]
     if plan["input_rails"]:
-        out += [f"- {net}: {hint}" for net, hint in plan["input_rails"]]
+        # one bare ``- NET`` per rail (machine-readable parity list);
+        # the evidence hint follows as a non-list line
+        out += [f"- {net}" for net, _hint in plan["input_rails"]]
+        out += [f"  evidence: {net}: {hint}"
+                for net, hint in plan["input_rails"]]
     else:
         out.append("- (none detected)")
     out += ["", "## Bridge merges", ""]
@@ -530,14 +541,15 @@ def export_testplan_markdown(result: ParseNetsResult,
                              limits: ResourceLimits,
                              path: str,
                              project_name: str = "",
-                             overrides: dict | None = None) -> int:
+                             overrides: dict | None = None,
+                             library: dict | None = None) -> int:
     """Write the evidence markdown next to the workbook.
 
     Returns:
         Number of evidence sections written (every classified net).
     """
     text = build_testplan_markdown(result, limits, project_name,
-                                   overrides)
+                                   overrides, library)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(text, encoding="utf-8")
     return text.count("\n### ")
@@ -547,7 +559,8 @@ def export_testplan_pair(result: ParseNetsResult,
                          limits: ResourceLimits,
                          xlsx_path: str,
                          project_name: str = "",
-                         overrides: dict | None = None) -> tuple[int, int]:
+                         overrides: dict | None = None,
+                         library: dict | None = None) -> tuple[int, int]:
     """Write the workbook + the ``_evidence.md`` beside it.
 
     Returns:
@@ -556,9 +569,9 @@ def export_testplan_pair(result: ParseNetsResult,
     md_path = str(Path(xlsx_path).with_name(
         Path(xlsx_path).stem + "_evidence.md"))
     rows = export_testplan_xlsx(result, limits, xlsx_path, project_name,
-                               overrides)
+                                overrides, library)
     sections = export_testplan_markdown(result, limits, md_path,
-                                        project_name, overrides)
+                                        project_name, overrides, library)
     return rows, sections
 
 
