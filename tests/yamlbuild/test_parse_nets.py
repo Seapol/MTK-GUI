@@ -8,13 +8,23 @@ table rendered, Event Log detail + failures with exact reasons, and
 the result stored as the single data source for Channel Allocation."""
 from __future__ import annotations
 
+from pathlib import Path
+
+import openpyxl
 import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QFileDialog,
+    QMessageBox,
+)
 
 from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog  # noqa: E402
+from mtkgui.gui.yamlbuild.channel_allocation import (  # noqa: E402
+    rows_from_testable,
+)
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
 from mtkgui.ict.netparse import (  # noqa: E402
     CATEGORY_CLOCK,
@@ -22,8 +32,16 @@ from mtkgui.ict.netparse import (  # noqa: E402
     CATEGORY_OTHERS,
     CATEGORY_POWER,
     parse_testable_nets,
+    rank_result,
+)
+from mtkgui.ict.netparse.capacity import DEFAULT_LIMITS  # noqa: E402
+from mtkgui.ict.netparse.export_testplan import (  # noqa: E402
+    SHEET_POWER,
+    export_testplan_pair,
 )
 from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel  # noqa: E402
+
+FIXTURE_96317 = Path(__file__).parent / "fixtures" / "NET-96317_A.net"
 
 NET_SAMPLE = """*SIGNAL* 3V3
 U1.5 U2.VOUT
@@ -329,3 +347,127 @@ def test_old_model_state_without_net_key():
         "schematic": {}, "netlist": {}, "tp_resolutions": {}}})
     assert model.imported["net"] == {"file": "", "raw": ""}
     assert model.imported["testable_nets"] == {}
+
+
+# ------------------------------------------- GUI-FIX2 F1: sync gate
+def test_sync_gate_opens_on_applied_model(panel):
+    """A REOPENED dialog (no instance 'applied' flag) may sync when
+    the model already holds an applied parse result - the former
+    gate could never be satisfied (GUI-FIX2 F1)."""
+    model = YamlBuildModel()
+    model.imported["testable_nets"] = {
+        "3V3": {"category": "Power", "members": ["U1.5"]}}
+    panel.set_yaml_model(model)
+    assert panel._applied is False
+    assert panel._sync_allowed("Export from YAML") is True
+
+
+def test_sync_gate_opens_on_channel_allocation_only(panel):
+    """A filled channel allocation counts as an applied plan too."""
+    model = YamlBuildModel()
+    model.set_channel_allocation({
+        "power": [{"net": "3V3"}], "clock": [], "gpio": []})
+    panel.set_yaml_model(model)
+    assert panel._sync_allowed("Import to YAML") is True
+
+
+def test_sync_gate_warns_without_parse_data(panel, monkeypatch):
+    """No project YAML data and no parse: one warning, WITHOUT the
+    retired 'Apply this block (OK)' instruction."""
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or 0)
+    panel.set_yaml_model(YamlBuildModel())
+    assert panel._sync_allowed("Import to YAML") is False
+    assert warnings and "No parsed ICT data yet" in warnings[0][2]
+    assert "Apply this block" not in warnings[0][2]
+
+
+def test_sync_gate_warns_without_project_yaml(panel, monkeypatch):
+    """No project YAML loaded -> explicit message (never a crash)."""
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or 0)
+    assert panel._sync_allowed("Export from YAML") is False
+    assert warnings and warnings[0][2] == "No project YAML is loaded."
+
+
+def test_import_to_yaml_lazy_parses_and_syncs(panel, tmp_path,
+                                              monkeypatch):
+    """Clicking Import to YAML in a dialog that never called Parse
+    runs the same headless pipeline, then syncs immediately - no
+    apply-first round-trip, no file dialog for a missing precondition."""
+    source = parse_testable_nets(NET_SAMPLE)
+    rank_result(source)
+    xlsx = str(tmp_path / "plan.xlsx")
+    export_testplan_pair(source, DEFAULT_LIMITS, xlsx, "board")
+
+    model = YamlBuildModel()
+    panel.set_yaml_model(model)
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    warnings, logs = [], []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or 0)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (xlsx, ""))
+    panel.task_log.connect(lambda _lvl, msg: logs.append(msg))
+
+    panel.import_to_yaml()
+
+    assert warnings == []
+    assert not any("Apply this block" in str(w) for w in warnings)
+    assert panel.result is not None          # lazy parse ran
+    assert "3V3" in model.imported["testable_nets"]
+    assert any("import to YAML" in msg for msg in logs)
+
+
+def test_export_from_yaml_reopened_dialog(panel, tmp_path, monkeypatch):
+    """Reopened dialog (model applied earlier, no parse inside this
+    instance): Export from YAML writes the workbook + evidence md."""
+    model = YamlBuildModel()
+    model.imported["testable_nets"] = {
+        "3V3": {"category": "Power", "members": ["U1.5", "U2.VOUT"]}}
+    panel.set_yaml_model(model)
+    out = str(tmp_path / "out.xlsx")
+    warnings, logs = [], []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or 0)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        lambda *a, **k: (out, ""))
+    panel.task_log.connect(lambda _lvl, msg: logs.append(msg))
+
+    panel.export_from_yaml()
+
+    assert warnings == []
+    assert Path(out).exists()
+    assert Path(out).with_name("out_evidence.md").exists()
+    assert any("export from YAML" in msg for msg in logs)
+
+
+# ---------------------------------------- GUI-FIX2 F2: rank ordering
+def test_96317_power_order_input_rail_first(panel, tmp_path):
+    """96317 must materialise DC_5V_IN (the only input rail) FIRST in
+    the panel preview, the Channel Allocation row order AND the
+    exported workbook - CLI / export_testplan share one ranking."""
+    panel.set_net_source(FIXTURE_96317.read_text(encoding="utf-8"),
+                         "NET-96317_A.net")
+    panel.parse_nets()
+    names = [rec.name for rec in panel.result.power]
+    assert names[0] == "DC_5V_IN"
+    assert panel.result.power[0].input_rail is True
+    assert panel.table.item(0, 0).text() == "DC_5V_IN"
+
+    # Channel Allocation rows follow the same order (the GUI
+    # materialises testable_nets in the parse order -> dict order)
+    testable = {rec.name: {"category": "Power",
+                           "members": list(rec.members)}
+                for rec in panel.result.power}
+    assert [row.net for row in rows_from_testable(testable, "power")] \
+        == names
+
+    # the exported Test Plan Power sheet keeps the identical order
+    xlsx = str(tmp_path / "plan.xlsx")
+    export_testplan_pair(panel.result, DEFAULT_LIMITS, xlsx, "96317")
+    rows = list(openpyxl.load_workbook(xlsx)[SHEET_POWER]
+                .iter_rows(min_row=2, values_only=True))
+    assert [row[0] for row in rows] == names

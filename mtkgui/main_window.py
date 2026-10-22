@@ -1604,11 +1604,15 @@ class MainWindow(QMainWindow):
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
         self._project_path = path
+        # a published plan file ("yaml_build" section) is just as
+        # runnable as a legacy project yaml - register it for the Run
+        # gate in BOTH branches (GUI-FIX2 F3: plan loads used to show
+        # "Project File: (none)" and block Run)
+        self.workflow_page.set_project_file(path)
         if self._yaml_plan_errors is not None:
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Plan yaml loaded: {path}")
         else:
-            self.workflow_page.set_project_file(path)
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Yaml loaded: {path}")
 

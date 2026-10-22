@@ -330,3 +330,8 @@ def test_plan_yaml_load_updates_product_information(window, monkeypatch,
     assert page.core_edit.text() == "29420"
     assert page.batch_edit.text() == "EVT (Proto-1)"
     assert "Plan yaml loaded" in window.event_log.toPlainText()
+    # GUI-FIX2 F3: a loaded plan file is registered as the project file
+    # (Overall Flow label filled, Run gate passes) - the plan branch
+    # used to skip set_project_file
+    assert page.project_path == str(path)
+    assert page.project_file_lbl.text() == "plan.yaml"
