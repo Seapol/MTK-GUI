@@ -45,20 +45,54 @@ def test_is_input_rail_connector_plus_fuse():
     assert is_input_rail(["J45.1", "F1.1", "TP72.1"])
 
 
-def test_is_input_rail_connector_plus_bead():
+def test_is_input_rail_connector_plus_input_inductor():
+    # M2: connector + FL input inductor
     assert is_input_rail(["J2.A8", "FL6.2", "U49.1"])
 
 
-def test_is_input_rail_diode_plus_inductor():
-    assert is_input_rail(["D42.A", "L25.2", "U45.5"])
+def test_is_input_rail_output_beads_not_evidence():
+    # FB/L beads + plain connectors are output distribution (fix2)
+    assert not is_input_rail(["J7.1", "L46.1", "L49.1", "U10.1"])
+    assert not is_input_rail(["FB1.1", "FB7.1", "L13.1", "TP3.1"])
 
 
-def test_is_input_rail_diode_plus_ic_library_role():
-    lib = {"D43": {"part_number": "SMAJ5.0A",
-                   "description": "TVS input protection"}}
+def test_is_input_rail_power_jack_and_rated_switch():
+    # S2: P<n> PWR jack / SW<n> with an amperage rating
+    lib = {"P1": {"part_number": "210-1", "description": "CON 2 PWR JACK"},
+           "SW1": {"part_number": "312-2",
+                   "description": "SW SPDT 5A@125VAC"}}
+    assert is_input_rail(["P1.1", "SW1.1", "TP2.1"], lib)
+    # tact / config switches are NOT power switches
+    lib_tact = {"SW7": {"part_number": "312-3",
+                        "description": "SW SPST PB MOM TACT 0.02A 15V"}}
+    assert not is_input_rail(["SW7.1", "J52.1"], lib_tact)
+
+
+def test_is_input_rail_usb_pd_current_limited_pwr_sw():
+    # M1b: input-path power switch even WITHOUT a connector
+    lib = {"U17": {"part_number": "312-81574",
+                   "description": "IC USB PD TYPE C CURRENT LIMITED "
+                                  "PWR SW 2.5-5.5V WLCSP12"}}
     assert is_input_rail(["D43.A", "U17.1"], lib)
-    # no library / no input-protection role -> not evidence-based
-    assert not is_input_rail(["D43.A", "U17.1"])
+
+
+def test_is_input_rail_output_side_chips_not_evidence():
+    # LOAD SW / plain CURRENT LIMITED / TVS diodes are NOT input evidence
+    lib = {"U132": {"part_number": "315-84100",
+                    "description": "IC LOAD SWITCH 10A"},
+           "U7": {"part_number": "315-81584",
+                  "description": "IC SW CURRENT LIMITED FOR USB"},
+           "D83": {"part_number": "480-79770",
+                   "description": "DIODE TVS UNIDIR 5V 600W"}}
+    assert not is_input_rail(["U132.1", "TP220.1"], lib)
+    assert not is_input_rail(["U7.1", "J6.1"], lib)
+    assert not is_input_rail(["D83.1", "J1.1"], lib)
+
+
+def test_is_input_rail_usb_pd_phy_is_not_power():
+    lib = {"U37": {"part_number": "315-81118",
+                   "description": "IC USB PD PHY 1PORT 2.7-5.5V"}}
+    assert not is_input_rail(["U37.1", "TP3.1"], lib)
 
 
 def test_is_input_rail_plain_power_ic_not_enough():

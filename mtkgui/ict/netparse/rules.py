@@ -158,77 +158,127 @@ def gnd_sub_class(name: str) -> str:
 
 
 # --------------------------------------------- input-rail recognition
+# (M3 fix2 2026-10-22: input-path-specific evidence ONLY - beads,
+# plain connectors and ordinary diodes are NOT input evidence, output
+# rails carry them too)
 #: connector / header power pins (``J2.A8`` / ``P1`` / ``CN4`` / ``JN9``)
 _CONNECTOR_RE = re.compile(r"^(J|JN|P|CN)[0-9]", re.IGNORECASE)
-_FUSE_RE = re.compile(r"^F[0-9]", re.IGNORECASE)
-_BEADED_RE = re.compile(r"^FL[0-9]", re.IGNORECASE)
-_INDUCTOR_RE = re.compile(r"^L[0-9]", re.IGNORECASE)
-_DIODE_RE = re.compile(r"^D[0-9]", re.IGNORECASE)
+#: test point (M1 counts it as an externally reachable power pin)
+_TP_RE = re.compile(r"^TP[0-9]", re.IGNORECASE)
+#: S1 - fuse, refdes prefix exactly ``F<digits>`` (NOT FL / FB)
+_FUSE_RE = re.compile(r"^F[0-9]+$", re.IGNORECASE)
+#: S2 - power inlet jack ``P<digits>`` / power switch ``SW<digits>``
+_POWER_JACK_RE = re.compile(r"^P[0-9]+$", re.IGNORECASE)
+_POWER_SWITCH_RE = re.compile(r"^SW[0-9]+$", re.IGNORECASE)
+#: M2 - input inductor / common-mode choke ``FL<digits>`` (NOT FB bead)
+_FL_RE = re.compile(r"^FL[0-9]+$", re.IGNORECASE)
 _IC_RE = re.compile(r"^U[0-9]", re.IGNORECASE)
-#: converter devices - an inductor feeding one of these is the
-#: converter's OWN output inductor, not an input-path filter
-_CONVERTER_DEV_RE = re.compile(
-    r"STEP-?DOWN|STEP-?UP|BUCK|BOOST|LDO|DCDC|REGULATOR|PMIC|"
-    r"POWER SWITCH|PWR SW|LOAD SWITCH|CHARGE|SUPPLY", re.IGNORECASE)
+_DIODE_RE = re.compile(r"^D[0-9]", re.IGNORECASE)
+#: M1 - INPUT-side power-device markers in the BOM description.
+#: Plain STEP DOWN / VREG / BUCK / LDO / PMIC are explicitly NOT
+#: input evidence (their VOUT rails also carry the chip); bare
+#: ``LOAD SW`` / ``CURRENT LIMITED`` are output-side current limiters
+#: (fix2 acceptance: 96624 VDD_5V, 29420 VCC_TX_5V0) - excluded.
+_INPUT_CHIP_RE = re.compile(
+    r"USB PD|PWR SW|OR-ING|IDEAL DIODE|CHARGE PUMP|BATTERY CHARGER",
+    re.IGNORECASE)
+#: M1b - USB-PD current-limited power switch: input-path device even
+#: WITHOUT a connector on the net (96317 5V_SDA_PSW = U17 only)
+_INPUT_CURR_LTD_PSW_RE = re.compile(
+    r"CURRENT[- ]LIMITED.*PWR SW|PWR SW.*CURRENT[- ]LIMITED",
+    re.IGNORECASE)
+#: S1b - resettable input fuse (polyfuse / poly switch)
+_POLYFUSE_RE = re.compile(r"PLY ?SW|POLY|RESETTABLE", re.IGNORECASE)
+#: S1a - power-inlet connector (PLUG, or a JACK that is not a SKT
+#: output socket)
+_INLET_CONN_RE = re.compile(r"PWR", re.IGNORECASE)
+_INLET_SOCKET_RE = re.compile(r"SKT", re.IGNORECASE)
+#: S2 - rated power switch (``5A@125VAC``), not a tact/config switch
+_RATED_SW_RE = re.compile(r"[0-9]\s*A\s*@", re.IGNORECASE)
 
 
 def _member_refdes(token: str) -> str:
     return token.split(".", 1)[0] if "." in token else token
 
 
-def _converter_on_net(refdes: list[str], library: dict | None) -> bool:
-    """True when a member IC is a converter (buck/boost/LDO/PMIC ...)."""
-    if not library:
-        return False
-    for ref in refdes:
-        if not _IC_RE.match(ref):
-            continue
-        entry = library.get(ref)
-        if not entry:
-            continue
-        info = entry if isinstance(entry, dict) else \
-            {"part_number": str(entry), "description": ""}
-        if _CONVERTER_DEV_RE.search(
-                str(info.get("description") or "")):
-            return True
-    return False
+def _library_text(refdes: str, library: dict | None) -> str:
+    """Upper-cased ``part_number + description`` of a library entry."""
+    entry = (library or {}).get(refdes)
+    if not entry:
+        return ""
+    info = entry if isinstance(entry, dict) else \
+        {"part_number": str(entry), "description": ""}
+    return (str(info.get("part_number") or "") + " "
+            + str(info.get("description") or "")).upper()
 
 
 def input_rail_tier(members: list[str], library: dict | None = None) \
         -> int:
-    """Input-rail evidence tier (system rule, no user config).
+    """Input-rail evidence tier (M3 fix2: input-path devices only).
 
-    A power rail is an INPUT rail when its members show a source-path
-    chain.  Tiers (strongest source first, owner decision 2026-10-22
-    "main input ranked first"):
+    A board power INLET (barrel jack, USB VBUS, battery, external
+    supply connector) entering the power system.  Tiers order the
+    ranked rails (strongest source first):
 
-    * 0 - connector power pin + fuse (external mains source);
-    * 1 - connector power pin + bead / diode / non-converter inductor;
-    * 2 - diode + bead/inductor branch, or diode + power-IC input
-      (multi-input boards: ALL input rails count);
+    * 0 (STRONG) - S1 fuse ``F<digits>`` + power-inlet connector
+      (description ``PWR PLUG`` / ``PWR JACK`` without ``SKT``) or
+      resettable polyfuse; S2 power-inlet jack ``P<digits>``
+      (description ``PWR``) or rated power switch ``SW<digits>``
+      (``<n>A@`` current rating - tact/config switches excluded);
+    * 1 (MEDIUM) - M1 input-side power device (``USB PD`` / ``PWR SW``
+      / ``OR-ING`` / ``IDEAL DIODE`` / ``CHARGE PUMP`` / ``BATTERY
+      CHARGER``; ``USB PD PHY`` protocol chips excluded) with a
+      connector / test-point pin, or a USB-PD current-limited power
+      switch even without a connector; M2 connector / test-point pin
+      + input inductor ``FL<digits>``;
     * -1 - not an input rail.
 
-    Name heuristics are deliberately NOT used (owner decision).
+    Excluded (NOT evidence): ``FB``/``L`` beads and inductors, plain
+    connectors alone, ordinary / TVS diodes (output rails carry them
+    too - 96624 VDD_12V_CONN D78, VDD_5V_VBUS_DBG D83), bare ``LOAD
+    SW`` / ``CURRENT LIMITED`` switches.
     """
     refdes = [_member_refdes(t) for t in members]
-    conn = any(_CONNECTOR_RE.match(r) for r in refdes)
-    fuse = any(_FUSE_RE.match(r) for r in refdes)
-    bead = any(_BEADED_RE.match(r) for r in refdes)
-    ind = any(_INDUCTOR_RE.match(r) for r in refdes)
-    diode = any(_DIODE_RE.match(r) for r in refdes)
-    ic = any(_IC_RE.match(r) for r in refdes)
-    if conn and fuse:
-        return 0
-    if conn and (bead or diode):
+    conn_refs = [r for r in refdes if _CONNECTOR_RE.match(r)]
+    conn = bool(conn_refs or any(_TP_RE.match(r) for r in refdes))
+    # STRONG - S1: fuse + inlet connector, or resettable polyfuse
+    fuse_refs = [r for r in refdes if _FUSE_RE.match(r)]
+    if fuse_refs:
+        for c in conn_refs:
+            text = _library_text(c, library)
+            if _INLET_CONN_RE.search(text) and (
+                    "PLUG" in text or
+                    ("JACK" in text and not _INLET_SOCKET_RE.search(text))):
+                return 0
+        if any(_POLYFUSE_RE.search(_library_text(f, library))
+               for f in fuse_refs):
+            return 0
+        if not library:
+            return 1              # unverified fuse+net: medium tier
+    # STRONG - S2: power-inlet jack / rated power switch
+    for r in refdes:
+        text = _library_text(r, library)
+        if _POWER_JACK_RE.match(r) and _INLET_CONN_RE.search(text):
+            return 0
+        if _POWER_SWITCH_RE.match(r) and _RATED_SW_RE.search(text):
+            return 0
+    # MEDIUM - M1: input-side power device
+    for r in refdes:
+        if not _IC_RE.match(r):
+            continue
+        text = _library_text(r, library)
+        if not text:
+            continue
+        if _INPUT_CURR_LTD_PSW_RE.search(text):
+            return 1              # M1b: needs no connector
+        if conn and _INPUT_CHIP_RE.search(text):
+            if "PHY" in text and not re.search(
+                    r"PWR SW|SWITCH|LOAD", text):
+                continue          # USB PD PHY = protocol chip, not power
+            return 1              # M1a
+    # MEDIUM - M2: connector / test point + input inductor FL
+    if conn and any(_FL_RE.match(r) for r in refdes):
         return 1
-    # connector + inductor only counts when the inductor does NOT feed
-    # a converter IC (otherwise it is the converter's output inductor)
-    if conn and ind and not _converter_on_net(refdes, library):
-        return 1
-    if diode and (bead or ind):
-        return 2
-    if diode and ic and _library_diode_is_input(refdes, library):
-        return 2
     return -1
 
 
@@ -236,32 +286,6 @@ def is_input_rail(members: list[str], library: dict | None = None) \
         -> bool:
     """True when :func:`input_rail_tier` recognises an input rail."""
     return input_rail_tier(members, library) >= 0
-
-
-def _library_diode_is_input(refdes: list[str], library: dict | None) \
-        -> bool:
-    """True when the library marks a member diode as input protection
-    / reverse-polarity / OR-ing / Schottky input diode (part number or
-    description)."""
-    if not library:
-        return False
-    for ref in refdes:
-        if not _DIODE_RE.match(ref):
-            continue
-        entry = library.get(ref)
-        if not entry:
-            continue
-        info = entry if isinstance(entry, dict) else \
-            {"part_number": str(entry), "description": ""}
-        text = (str(info.get("part_number") or "") + " "
-                + str(info.get("description") or "")).upper()
-        if "LED" in text:
-            continue
-        if re.search(r"TVS|ESD|TRANSIENT|REVERSE|ORING|OR-ING|"
-                     r"INPUT PROTECTION|IDEAL DIODE|SCHOTTKY|\bSCH\b",
-                     text):
-            return True
-    return False
 
 
 # ---------------------------------- power-name + control-token conflict
