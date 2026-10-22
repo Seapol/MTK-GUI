@@ -192,10 +192,11 @@ def test_panel_parse_renders_parsed_nets_table(panel):
     panel.parse_nets()
     assert panel.result is not None
     assert panel.table.rowCount() == 5       # 2 power + clock + signal + gnd
-    assert panel.table.columnCount() == 4
+    assert panel.table.columnCount() == 7
     headers = [panel.table.horizontalHeaderItem(i).text()
-               for i in range(4)]
-    assert headers == ["Net", "Test Points", "Category", "Do Not Test"]
+               for i in range(7)]
+    assert headers == ["Net", "Test Points", "Category", "Do Not Test",
+                       "Confidence", "Input Rail", "Sub-class"]
     names = {panel.table.item(r, 0).text(): r for r in range(5)}
     # category combos reflect the parse categories
     assert panel.table.cellWidget(names["3V3"], 2).currentText() == \
@@ -210,6 +211,11 @@ def test_panel_parse_renders_parsed_nets_table(panel):
     assert panel.table.cellWidget(names["CLK_24M"], 3).isChecked() is False
     assert panel.table.cellWidget(names["GPIO_LED1"], 3).isChecked() is True
     assert panel.table.cellWidget(names["GND"], 3).isChecked() is True
+    # M4 PART 6: read-only facts (confidence / input_rail / sub_class)
+    assert panel.table.item(names["3V3"], 4).text() in (
+        "high", "medium", "low")
+    assert panel.table.item(names["3V3"], 5).text() == ""
+    assert panel.table.item(names["GND"], 6).text() == "pcb"
     assert "power=2" in panel.lbl_summary.text()
 
 

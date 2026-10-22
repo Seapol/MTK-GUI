@@ -139,13 +139,15 @@ class ParseNetsPanel(QWidget):
         # direction: the SE Clock / GPIO allocation tables are GONE -
         # the channel assignment lives in Channel Allocation only.
         # Columns: Net | Test Points | Category (user-changeable) |
-        # Do Not Test; Others and GND default to Do Not Test)
+        # Do Not Test + the M4 read-only facts Confidence / Input Rail
+        # / Sub-class; Others and GND default to Do Not Test)
         lbl_nets = QLabel("Parsed Nets:")
         lbl_nets.setObjectName("strong")
         lay.addWidget(lbl_nets)
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Net", "Test Points", "Category", "Do Not Test"])
+            ["Net", "Test Points", "Category", "Do Not Test",
+             "Confidence", "Input Rail", "Sub-class"])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
         # the slack goes to the TEST POINTS column (user direction:
@@ -512,8 +514,8 @@ class ParseNetsPanel(QWidget):
     # ------------------------------------------------------------ preview
     def _fill_preview(self, result: ParseNetsResult) -> None:
         """Render the PARSED NETS table (Net | Test Points | Category |
-        Do Not Test): the Power / SE Clock / Control IO / Others / GND
-        nets MINUS
+        Do Not Test | Confidence | Input Rail | Sub-class): the Power /
+        SE Clock / Control IO / Others / GND nets MINUS
         the ones overridden to "Filtered", PLUS the filtered nets
         overridden back to a real category; the Category combo (with
         the "Filtered" choice) drives the moves."""
@@ -584,6 +586,15 @@ class ParseNetsPanel(QWidget):
                 lambda checked, name=rec.name: self._dnt_set(
                     name, checked))
             self.table.setCellWidget(row, 3, dnt)
+            # M4 PART 6: read-only netparse facts (confidence /
+            # input_rail marker / GND or Others sub-class)
+            for col, text in ((4, rec.confidence or ""),
+                              (5, "yes" if rec.input_rail else ""),
+                              (6, rec.sub_class or "")):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags()
+                              & ~Qt.ItemFlag.ItemIsEditable)
+                self.table.setItem(row, col, item)
         self.lbl_summary.setText(
             f"{result.total} nets parsed: {result.summary()}")
         # re-fit the columns AFTER the combos are in place (their

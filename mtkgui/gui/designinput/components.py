@@ -11,6 +11,12 @@ Classification is a deterministic keyword pass over the part number
 (with a RefDes fallback); anything unmatchable lands in ``other`` -
 the caller logs a WARNING and the Device Library Editor lets the user
 re-assign it.
+
+Boundary (M4 PART 5): ``dev_category`` is the GUI / board-level view
+(core_id, board-type, power-tree regulator staging);
+``mtkgui.ict.netparse.device_roles.role_for_part_number`` is the
+net-classification view (conflict resolution).  Both stay - the only
+shared input is :meth:`ComponentLibrary.netparse_library`.
 """
 from __future__ import annotations
 
@@ -58,6 +64,9 @@ class ComponentRecord:
     Attributes:
         refdes:      Reference designator (U1, R2, ...).
         part_number: Ordering code ("" when the source had none).
+        description: BOM device description ("" when the source has
+                     none) - the netparse input-path / device-role
+                     evidence reads it.
         dev_category: Fixed category set membership.
         note:        Free-form user note (empty until edited).
         dnp:         Do-Not-Populate flag (BOM OR-merged).
@@ -68,6 +77,7 @@ class ComponentRecord:
 
     refdes: str
     part_number: str = ""
+    description: str = ""
     dev_category: str = CATEGORY_OTHER
     note: str = ""
     dnp: bool = False
@@ -124,6 +134,18 @@ class ComponentLibrary:
         keep = (CATEGORY_PMIC, CATEGORY_DCDC, CATEGORY_LDO)
         return [r for r in self.records
                 if r.dev_category in keep and r.dnp]
+
+    def netparse_library(self) -> dict:
+        """The ONE library dict handed to ``parse_testable_nets``.
+
+        PART 4: same ``ComponentLibrary`` records, no second BOM parse.
+        DNP parts are KEPT (netparse's bridge / conflict logic handles
+        them downstream).  Shape matches the headless library format
+        ``{refdes: {part_number, description}}``.
+        """
+        return {rec.refdes: {"part_number": rec.part_number,
+                             "description": rec.description}
+                for rec in self.records}
 
 
 def categorize(part_number: str, refdes: str = "") -> str:
@@ -249,8 +271,8 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
                 entry.part_number, entry.refdes, entry.description)
             library.records.append(ComponentRecord(
                 refdes=entry.refdes, part_number=entry.part_number,
-                dev_category=category, dnp=entry.dnp,
-                vendor=entry.vendor, value=entry.value))
+                description=entry.description, dev_category=category,
+                dnp=entry.dnp, vendor=entry.vendor, value=entry.value))
             if category == CATEGORY_OTHER:
                 library.unclassified.append(entry.refdes)
             report.added += 1
@@ -261,6 +283,10 @@ def merge_bom(library: ComponentLibrary, bom: "BomData") \
                     (entry.refdes, record.part_number, entry.part_number))
             record.part_number = entry.part_number
             report.updated += 1
+        # PART 4: the BOM DESCRIPTION is the netparse input-path /
+        # device-role evidence (single data source into both consumers)
+        if entry.description:
+            record.description = entry.description
         # M2 Fix 4: the BOM is authoritative even when the part number
         # is unchanged - its DESCRIPTION carries the device family
         # (``IC MCU ...`` / ``IC VREG ...``), so re-categorize always.

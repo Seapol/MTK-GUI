@@ -9,7 +9,10 @@ rule 4: no schematic source can supply them).
 
 Stage model (spec):
 
-* stage-0: top-level external input (connector-fed net);
+* stage-0: top-level external input rail - ONLY the rails the headless
+  parse flags ``input_rail`` (fuse / power-inlet / TVS / USB-PD input
+  switch / FL input inductor evidence; M4 PART 3 replaces the old
+  J-prefix connector heuristic that contradicted fix2);
 * stage-1: PMIC pre-regulation output (VPRE);
 * stage-2: Buck/DCDC first-stage output;
 * stage-3: LDO / IO-analog domain second-stage output.
@@ -59,6 +62,8 @@ class DraftNode:
     y: float = 0.0
     #: M2 A2: rail served only by PDF-only RefDes (not auto-selected)
     pdf_only: bool = False
+    #: M3/M4: netparse input-rail evidence (stage-0 source)
+    input_rail: bool = False
 
 
 @dataclass
@@ -157,7 +162,8 @@ def derive_candidate_tree(library: ComponentLibrary,
     for net, stage, refdes in regulator_outputs:
         node = _ensure_node(tree, net)
         node.power_stage = max(node.power_stage, stage)
-    # finalize: stage-0 for external/connector-fed power nets
+    # finalize: stage-0 follows the netparse input_rail evidence (M4
+    # PART 3) - a plain connector pin is NOT input evidence (fix2)
     for rec in collection.nets:
         if rec.net_type != NET_TYPE_POWER:
             continue
@@ -165,11 +171,9 @@ def derive_candidate_tree(library: ComponentLibrary,
         if rec.name in dnp_out_rails:
             continue
         node = _ensure_node(tree, rec.name)
-        if rec.name not in stage_of_net:
-            fed_by_connector = any(
-                _refdes_prefix(tok) == "J" for tok in rec.members)
-            if fed_by_connector:
-                node.power_stage = 0
+        if rec.input_rail:
+            node.power_stage = 0
+            node.input_rail = True
         node.power_domain = guess_domain(rec.name)
     # M2 A1: one warning per DNP-only rail (skipped, no node)
     for net, refdes in dnp_out_rails.items():
@@ -202,6 +206,12 @@ def derive_candidate_tree(library: ComponentLibrary,
             child_node.sources.append(src)
     # rails fed only by another rail inherit the parent stage + 1
     _propagate_stages(tree)
+    # M4 PART 3: input rails render FIRST (netparse rank order), then
+    # the remaining rails in discovery order
+    rank_of = {rec.name: (rec.priority or {}).get("rank", 0)
+               for rec in collection.nets}
+    tree.nodes.sort(key=lambda node: (
+        0 if node.input_rail else 1, rank_of.get(node.rail_name, 0)))
     return tree
 
 
@@ -253,7 +263,7 @@ def _propagate_stages(tree: CandidatePowerTree) -> None:
         changed = False
         for node in tree.nodes:
             if node.sources and node.power_stage == 0 \
-                    and not _is_external(node):
+                    and not node.input_rail and not _is_external(node):
                 parent_stage = max(
                     (tree.by_name(s).power_stage
                      for s in node.sources

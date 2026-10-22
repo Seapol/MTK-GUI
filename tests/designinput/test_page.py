@@ -273,6 +273,66 @@ def test_parse_progress_bar_reaches_done(page, files, monkeypatch):
     assert "done" in page.progress.format()
 
 
+# ------------------------------------------------- M4 integration
+def test_capacity_hint_shown_after_parse(page, files, monkeypatch):
+    """PART 6: the read-only capacity line comes from the parse."""
+    _load(page, files, monkeypatch)
+    assert page.lbl_capacity.text() == "capacity: parse first"
+    page._parse_nets()
+    text = page.lbl_capacity.text()
+    assert "power 2/80" in text
+    assert "rails-up 2/12" in text
+    assert "ctrl 0/24" in text
+
+
+def test_netparse_result_is_the_single_source(page, files, monkeypatch):
+    """PART 1: the page keeps the headless ParseNetsResult."""
+    _load(page, files, monkeypatch)
+    page._parse_nets()
+    result = page.netparse_result
+    assert result is not None
+    assert len(page.model.net_collection.nets) == (
+        len(result.power) + len(result.clock) + len(result.control_io)
+        + len(result.others) + len(result.gnd))
+
+
+def test_external_rules_logged(page, files, tmp_path, monkeypatch):
+    """PART 7: config/<product>/netparse_rules.json fires + audits."""
+    rules = tmp_path / "netparse_rules.json"
+    rules.write_text(
+        '{"schema": "mtkgui.ict.netparse.rules.v1", "version": "1.0", '
+        '"applies_to": ["all"], "entries": [{"id": "ext-1", '
+        '"pattern": "^VPRE$", "class": "clock"}]}', encoding="utf-8")
+    monkeypatch.setattr(
+        "mtkgui.gui.designinput.page.external_rules_path",
+        lambda product: rules)
+    lines = []
+    page.event_log.connect(lambda level, msg: lines.append((level, msg)))
+    _load(page, files, monkeypatch)
+    page._parse_nets()
+    assert page._parsed is True
+    assert page.netparse_result.applied_rules
+    assert any(level == "INFO" and "external rule applied: ext-1" in msg
+               and "VPRE" in msg for level, msg in lines)
+
+
+def test_bad_external_rules_are_ignored(page, files, tmp_path,
+                                        monkeypatch):
+    """PART 7: an invalid external file is a WARNING, never an abort."""
+    rules = tmp_path / "netparse_rules.json"
+    rules.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(
+        "mtkgui.gui.designinput.page.external_rules_path",
+        lambda product: rules)
+    lines = []
+    page.event_log.connect(lambda level, msg: lines.append((level, msg)))
+    _load(page, files, monkeypatch)
+    page._parse_nets()
+    assert page._parsed is True
+    assert any(level == "WARNING" and msg.startswith("external rules")
+               for level, msg in lines)
+
+
 def test_parse_failure_resets_progress(page, tmp_path, monkeypatch):
     """A parse failure resets the progress bar and logs ERROR."""
     bad = tmp_path / "bad.spf"

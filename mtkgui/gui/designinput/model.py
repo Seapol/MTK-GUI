@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from mtkgui.ict.netparse import (NET_TYPE_GND_REF, NET_TYPE_POWER,
-                                 NetCollection)
+                                 NetCollection, ParseNetsResult,
+                                 rank_result, select_test_points)
 
 from .components import (CATEGORY_OTHER, ComponentLibrary,
                          _BOM_NOT_MAIN_RE)
@@ -288,6 +289,51 @@ class DesignDataModel:
 def _is_soc(part_number: str) -> bool:
     """True for SoC-family part numbers (sorted first - M2 A3)."""
     return any(p.search(part_number) for p in _SOC_FAMILY_MARKERS)
+
+
+def net_collection_from_result(result: ParseNetsResult,
+                               library: dict | None = None) \
+        -> NetCollection:
+    """GUI mapping of the headless :class:`ParseNetsResult` (M4 PART 1).
+
+    ONE parsing truth: classification / test point / confidence /
+    input_rail / GND sub_class / control_io split / capacity all come
+    from ``parse_testable_nets`` (plus the same ``rank_result`` pass
+    the CLI export runs, so GUI == CLI JSON).  This layer adds ONLY the
+    GUI-only concepts:
+
+    * ``is_alternative_testpoint`` - the selected probe is an
+      auto-substitute (``alternatives`` carry no dedicated TP as
+      primary);
+    * ``is_reference_gnd`` - every GND record defaults ON (the user
+      can untoggle; pcb GND is rank 0).
+    """
+    rank_result(result, library)
+    collection = NetCollection()
+    for rec in (*result.power, *result.clock, *result.control_io,
+                *result.others, *result.gnd):
+        best, _kept = select_test_points(rec.members)
+        rec.is_alternative_testpoint = bool(best) \
+            and not best.upper().startswith("TP")
+        rec.is_reference_gnd = rec.net_type == NET_TYPE_GND_REF
+        collection.nets.append(rec)
+    return collection
+
+
+def capacity_hint(result: ParseNetsResult) -> str:
+    """Read-only instrument-capacity line (M4 PART 6)."""
+    from mtkgui.ict.netparse import DEFAULT_LIMITS
+
+    limits = DEFAULT_LIMITS
+    lf = sum(1 for r in result.clock
+             if (r.priority or {}).get("band") == "LF")
+    hf = len(result.clock) - lf
+    return (f"power {len(result.power)}/{limits.power_pts} "
+            f"(R-GND+Voltage), rails-up "
+            f"{min(len(result.power), limits.rails_up)}/"
+            f"{limits.rails_up} (input_rails first), clock LF/HF "
+            f"{lf}/{hf}, ctrl {len(result.control_io)}/"
+            f"{limits.ctrl_io}, GND ref {len(result.gnd)}")
 
 
 def collapse_warnings(warnings: list[str],

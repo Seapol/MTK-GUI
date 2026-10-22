@@ -98,7 +98,7 @@ def test_parsed_nets_single_table_no_alloc_tables(panel):
     assert not hasattr(panel, "gpio_table")
     assert not hasattr(panel, "btn_add_signal")
     assert not hasattr(panel, "gpio_candidate_combo")
-    assert panel.table.columnCount() == 4
+    assert panel.table.columnCount() == 7
     rows = {panel.table.item(r, 0).text():
             (panel.table.cellWidget(r, 2).currentText(),
              panel.table.cellWidget(r, 3).isChecked())

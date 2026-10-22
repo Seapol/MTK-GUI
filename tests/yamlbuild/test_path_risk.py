@@ -160,7 +160,8 @@ def test_panel_parse_fills_risk_scores(panel):
     assert "GPIO0" not in panel.risk_scores      # Signal default DNT
     headers = [panel.table.horizontalHeaderItem(i).text()
                for i in range(panel.table.columnCount())]
-    assert headers == ["Net", "Test Points", "Category", "Do Not Test"]
+    assert headers == ["Net", "Test Points", "Category", "Do Not Test",
+                       "Confidence", "Input Rail", "Sub-class"]
 
 
 def test_threshold_change_reevaluates_live(panel, qapp, monkeypatch):

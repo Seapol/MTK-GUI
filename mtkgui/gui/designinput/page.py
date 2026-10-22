@@ -40,15 +40,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mtkgui.ict.netparse import (SpfParseError, classify_nets,
-                                 parse_netlist_file, parse_spf,
+from mtkgui.ict.netparse import (ParseNetsResult, SpfParseError,
+                                 detect_netlist_format, parse_spf,
+                                 parse_testable_nets,
                                  read_text_any_encoding)
+from mtkgui.ict.netparse.rule_layers import load_external
 
 from .bom import parse_bom
 from .components import build_library, merge_bom
 from .model import (
     BOARD_TYPES,
     DesignDataModel,
+    capacity_hint,
+    net_collection_from_result,
 )
 from .pdf_schematic import parse_pdf_schematic
 from .power_tree_draft import \
@@ -59,11 +63,27 @@ from .sources import (
     ScannedPdfError,
     detect_schematic_source,
 )
-from .testpoints import select_test_points
 from mtkgui.gui.yamlbuild.parser import extract_pdf_text
 
 SMART_PDF_MARKER = "(Smart-PDF source, review component library!)"
 MANUAL_MARKER = "⚠ Manually entered"
+
+#: repository root (``config/<product>/`` lives next to it)
+_CONFIG_ROOT = Path(__file__).resolve().parents[3] / "config"
+EXTERNAL_RULES_FILENAME = "netparse_rules.json"
+
+
+def external_rules_path(product: str) -> Path | None:
+    """Project-level external rules JSON path (M4 PART 7).
+
+    ``config/<product>/netparse_rules.json`` next to the project
+    configuration; ``None`` for an empty product (= no external layer).
+    """
+    name = (product or "").strip()
+    if not name:
+        return None
+    return _CONFIG_ROOT / name / EXTERNAL_RULES_FILENAME
+
 
 BOARD_LABELS = {
     "FULL_SYSTEM_BOARD": "FULL_SYSTEM_BOARD full-system board",
@@ -98,6 +118,9 @@ class DesignInputPage(QWidget):
         self._net_path: str | None = None
         self._bom_path: str | None = None
         self._parsed = False
+        # M4 PART 1/7: GUI user rules + the ONE headless parse result
+        self.net_rules: dict = {}
+        self.netparse_result: ParseNetsResult | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -143,6 +166,11 @@ class DesignInputPage(QWidget):
         self.progress.setObjectName("parse_progress")
         self.progress.setFormat("parse: idle")
         load_form.addRow(self.progress)
+        # PART 6: read-only instrument-capacity hint (netparse truth)
+        self.lbl_capacity = QLabel("capacity: parse first")
+        self.lbl_capacity.setObjectName("muted")
+        self.lbl_capacity.setWordWrap(True)
+        load_form.addRow(self.lbl_capacity)
         root.addWidget(load_group)
 
         # ------------------------------------------------- meta group
@@ -320,41 +348,55 @@ class DesignInputPage(QWidget):
         self._parse_progress(30, "netlist structure")
         self._log("INFO", "parse step 2/4: netlist structure resolve")
         try:
-            netlist, _text = parse_netlist_file(self._net_path)
-        except (OSError, ValueError) as exc:
+            net_text = _read_text(self._net_path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
             self._parse_failed("netlist parse", exc)
             return
-        if not netlist.nets:
+        if not net_text.strip():
             self._parse_failed(
                 "netlist parse",
                 ValueError(f"{Path(self._net_path).name} contains "
                            "no nets (*SIGNAL* blocks)"))
             return
-        self._log("INFO", f"netlist resolved: {len(netlist.nets)} nets")
+        self._log("INFO", "netlist format: "
+                          f"{detect_netlist_format(net_text)}")
         self._parse_progress(55, "net classification")
         self._log("INFO", "parse step 3/4: net classification + "
                           "test-point selection")
+        # PART 1: the FULL headless pipeline (bridge merge, confidence,
+        # input_rail, GND sub_class, control_io/others split, capacity,
+        # external rules) - one parsing truth, GUI == CLI
         try:
-            self.model.net_collection = classify_nets(netlist)
-            assignments = select_test_points(self.model.net_collection)
-        except (KeyError, TypeError, ValueError) as exc:
+            library = self._netparse_library()
+            result = parse_testable_nets(
+                net_text,
+                rules=self._user_rules(),
+                library=library,
+                external=self._external_rules())
+        except (OSError, ValueError) as exc:
             self._parse_failed("net classification", exc)
             return
-        for rec in self.model.net_collection.nets:
-            assign = assignments.get(rec.name)
-            if assign is None:
-                continue
-            rec.is_alternative_testpoint = assign.is_alternative_testpoint
-            if rec.net_type == "gnd_ref":
-                # reference grounds default ON (user can untoggle)
-                rec.is_reference_gnd = True
-        type_counts = {}
-        for rec in self.model.net_collection.nets:
-            type_counts[rec.net_type] = \
-                type_counts.get(rec.net_type, 0) + 1
-        summary = ", ".join(f"{t}={n}"
-                            for t, n in sorted(type_counts.items()))
-        self._log("INFO", f"nets classified: {summary}")
+        self.netparse_result = result
+        self.model.net_collection = net_collection_from_result(
+            result, library)
+        self._log("INFO", f"netlist resolved: {result.total} nets")
+        self._log("INFO", f"nets classified: {result.summary()}")
+        hint = capacity_hint(result)
+        self.lbl_capacity.setText(f"capacity: {hint}")
+        self._log("INFO", f"capacity: {hint}")
+        merged = sum(len(nets) for nets in result.bridge_report.values())
+        if merged:
+            self._log("INFO", f"bridge merged: {merged} net(s)")
+        for rule in result.applied_rules:
+            nets = ", ".join(rule.get("nets") or [])
+            self._log("INFO",
+                      f"external rule applied: {rule.get('id', '?')} "
+                      f"kind={rule.get('kind', '?')} "
+                      f"class={rule.get('class', '?')} nets={nets}")
+        for warning in result.warnings:
+            self._log("WARNING", warning)
+        for name, reason in result.filtered:
+            self._log("INFO", f"net {name} filtered: {reason}")
         self._parse_progress(80, "power tree / board type")
         self._log("INFO", "parse step 4/4: main chips + power tree + "
                           "board type")
@@ -445,6 +487,37 @@ class DesignInputPage(QWidget):
         for refdes, old, new in report.conflicts[:10]:
             self._log("WARNING",
                       f"BOM PN override {refdes}: {old} -> {new}")
+
+    # ------------------------------------------------------------ rules
+    def set_user_rules(self, rules: dict) -> None:
+        """Load the persisted GUI user classification rules."""
+        self.net_rules = dict(rules or {})
+
+    def _user_rules(self) -> dict:
+        """Custom regex rules handed to ``parse_testable_nets``."""
+        return dict(self.net_rules)
+
+    def _netparse_library(self) -> dict:
+        """PART 4: BOM-merged library (the single BOM data source)."""
+        return self.model.component_library.netparse_library()
+
+    def _external_rules(self) -> dict | None:
+        """PART 7: optional ``config/<product>/netparse_rules.json``.
+
+        A missing / unreadable / invalid file is logged once as a
+        WARNING and never aborts the parse (the external layer is
+        optional).
+        """
+        product = (self.model.project_info.get("project_name")
+                   or self.model.project_info.get("core_id") or "")
+        path = external_rules_path(product)
+        if path is None or not path.is_file():
+            return None
+        try:
+            return load_external([str(path)])
+        except (OSError, ValueError) as exc:
+            self._log("WARNING", f"external rules ignored: {exc}")
+            return None
 
     # ------------------------------------------------------------ helpers
     def _auto_fill_name(self, value: str) -> None:
