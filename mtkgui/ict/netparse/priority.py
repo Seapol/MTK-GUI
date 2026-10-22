@@ -23,8 +23,9 @@ import re
 from .confidence import clock_freq_hz
 from .device_roles import CONTROL_CHIP, LOAD, role_for_part_number
 from .model import (CATEGORY_CLOCK, CATEGORY_CONTROL_IO_LABEL,
-                    CATEGORY_POWER, NET_TYPE_CLOCK_SINGLE,
+                    CATEGORY_GND, CATEGORY_POWER, NET_TYPE_CLOCK_SINGLE,
                     ParseNetsResult)
+from .rules import gnd_sub_class, input_rail_tier
 
 # --------------------------------------------------------------- power
 #: stage 0 - external input rails
@@ -182,16 +183,37 @@ def rank_result(result: ParseNetsResult,
     mains = _main_refdes(library)
     for index, rec in enumerate(result.power):
         stage = _power_stage(rec.name)
+        tier = input_rail_tier(rec.members, library)
+        rec.input_rail = tier >= 0
         rec.priority = {"class": CATEGORY_POWER, "score": 0,
                         "band": "", "stage": stage, "rank": index,
                         "confidence": rec.confidence, "freq_hz": None}
     result.power.sort(key=lambda rec: rec.priority["rank"])
-    # capacity fill order: high confidence first, then tree flow
-    result.power.sort(key=lambda rec: (_conf_rank(rec),
-                                       _power_key(
-                                           rec.priority["rank"], rec)))
+    # capacity fill order: all input rails first (strongest source
+    # tier, netlist order within a tier), then the existing
+    # high-confidence + tree-flow heuristic for the rest (M3 PART 2.3)
+    result.power.sort(key=lambda rec: (
+        (0, input_rail_tier(rec.members, library),
+         rec.priority["rank"], 0.0) if rec.input_rail
+        else (1, 0, _conf_rank(rec),
+              _power_key(rec.priority["rank"], rec))))
     for rank, rec in enumerate(result.power):
         rec.priority["rank"] = rank
+
+    ranked_gnd = []
+    for index, rec in enumerate(result.gnd):
+        sub = rec.sub_class or gnd_sub_class(rec.name)
+        rec.sub_class = sub
+        # M3 PART 1.2: pcb-plane GND first (default reference), then
+        # chassis, then shield; netlist order within a subtype
+        order = {"pcb": 0, "chassis": 1, "shield": 2}.get(sub, 3)
+        ranked_gnd.append((order, index, rec))
+    ranked_gnd.sort(key=lambda item: item[:2])
+    result.gnd = [item[2] for item in ranked_gnd]
+    for rank, rec in enumerate(result.gnd):
+        rec.priority = {"class": CATEGORY_GND, "score": 0, "band": "",
+                        "stage": None, "rank": rank,
+                        "confidence": rec.confidence, "freq_hz": None}
 
     ranked_clocks = []
     for index, rec in enumerate(result.clock):

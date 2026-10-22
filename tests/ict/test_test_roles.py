@@ -170,7 +170,7 @@ def test_json_v2_export():
     result = parse_testable_nets(NET_SAMPLE)
     payload = result_to_dict(result)
     assert payload["schema"] == RESULT_SCHEMA
-    assert payload["schema"] == "mtkgui.ict.netparse.v3"
+    assert payload["schema"] == "mtkgui.ict.netparse.v4"
     assert payload["summary"]["control_io"] == 4
     assert payload["summary"]["others"] == 4
     assert payload["summary"]["gpio"] == 8

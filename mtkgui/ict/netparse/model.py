@@ -111,6 +111,11 @@ class NetRecord:
     is_reference_gnd: bool = False
     is_alternative_testpoint: bool = False
     confidence: str = ""    # B1: high / medium / low ("" = not stamped)
+    #: M3: input-rail evidence (main power input, ranked first)
+    input_rail: bool = False
+    #: M3: free-text hint carried for the GUI / user (algorithm never
+    #: generates notes)
+    note: str = ""
     meta: dict | None = None    # B1.5 audit (conflict scores, ...)
 
 

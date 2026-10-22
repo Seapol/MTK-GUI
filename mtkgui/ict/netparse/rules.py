@@ -135,6 +135,187 @@ def protocol_token(name: str) -> str:
     return match.group(2).upper() if match else ""
 
 
+# ------------------------------------------------ M3 GND-plane subtypes
+#: chassis / earth / metal-frame GND (owner decision 2026-10-22)
+_GND_CHASSIS_RE = re.compile(
+    r"CHASSIS|EARTH|CHS|FRAME|SHELL|METAL", re.IGNORECASE)
+#: shield / screening / cable-braid GND
+_GND_SHIELD_RE = re.compile(
+    r"SHIELD|SGND|GND_SH|_SH_|_SH$", re.IGNORECASE)
+
+
+def gnd_sub_class(name: str) -> str:
+    """GND-plane subtype: ``chassis`` / ``shield`` / ``pcb`` (default).
+
+    The PCB-plane GND is the DEFAULT reference and ranks FIRST (owner
+    decision 2026-10-22).
+    """
+    if _GND_CHASSIS_RE.search(name):
+        return "chassis"
+    if _GND_SHIELD_RE.search(name):
+        return "shield"
+    return "pcb"
+
+
+# --------------------------------------------- input-rail recognition
+#: connector / header power pins (``J2.A8`` / ``P1`` / ``CN4`` / ``JN9``)
+_CONNECTOR_RE = re.compile(r"^(J|JN|P|CN)[0-9]", re.IGNORECASE)
+_FUSE_RE = re.compile(r"^F[0-9]", re.IGNORECASE)
+_BEADED_RE = re.compile(r"^FL[0-9]", re.IGNORECASE)
+_INDUCTOR_RE = re.compile(r"^L[0-9]", re.IGNORECASE)
+_DIODE_RE = re.compile(r"^D[0-9]", re.IGNORECASE)
+_IC_RE = re.compile(r"^U[0-9]", re.IGNORECASE)
+#: converter devices - an inductor feeding one of these is the
+#: converter's OWN output inductor, not an input-path filter
+_CONVERTER_DEV_RE = re.compile(
+    r"STEP-?DOWN|STEP-?UP|BUCK|BOOST|LDO|DCDC|REGULATOR|PMIC|"
+    r"POWER SWITCH|PWR SW|LOAD SWITCH|CHARGE|SUPPLY", re.IGNORECASE)
+
+
+def _member_refdes(token: str) -> str:
+    return token.split(".", 1)[0] if "." in token else token
+
+
+def _converter_on_net(refdes: list[str], library: dict | None) -> bool:
+    """True when a member IC is a converter (buck/boost/LDO/PMIC ...)."""
+    if not library:
+        return False
+    for ref in refdes:
+        if not _IC_RE.match(ref):
+            continue
+        entry = library.get(ref)
+        if not entry:
+            continue
+        info = entry if isinstance(entry, dict) else \
+            {"part_number": str(entry), "description": ""}
+        if _CONVERTER_DEV_RE.search(
+                str(info.get("description") or "")):
+            return True
+    return False
+
+
+def input_rail_tier(members: list[str], library: dict | None = None) \
+        -> int:
+    """Input-rail evidence tier (system rule, no user config).
+
+    A power rail is an INPUT rail when its members show a source-path
+    chain.  Tiers (strongest source first, owner decision 2026-10-22
+    "main input ranked first"):
+
+    * 0 - connector power pin + fuse (external mains source);
+    * 1 - connector power pin + bead / diode / non-converter inductor;
+    * 2 - diode + bead/inductor branch, or diode + power-IC input
+      (multi-input boards: ALL input rails count);
+    * -1 - not an input rail.
+
+    Name heuristics are deliberately NOT used (owner decision).
+    """
+    refdes = [_member_refdes(t) for t in members]
+    conn = any(_CONNECTOR_RE.match(r) for r in refdes)
+    fuse = any(_FUSE_RE.match(r) for r in refdes)
+    bead = any(_BEADED_RE.match(r) for r in refdes)
+    ind = any(_INDUCTOR_RE.match(r) for r in refdes)
+    diode = any(_DIODE_RE.match(r) for r in refdes)
+    ic = any(_IC_RE.match(r) for r in refdes)
+    if conn and fuse:
+        return 0
+    if conn and (bead or diode):
+        return 1
+    # connector + inductor only counts when the inductor does NOT feed
+    # a converter IC (otherwise it is the converter's output inductor)
+    if conn and ind and not _converter_on_net(refdes, library):
+        return 1
+    if diode and (bead or ind):
+        return 2
+    if diode and ic and _library_diode_is_input(refdes, library):
+        return 2
+    return -1
+
+
+def is_input_rail(members: list[str], library: dict | None = None) \
+        -> bool:
+    """True when :func:`input_rail_tier` recognises an input rail."""
+    return input_rail_tier(members, library) >= 0
+
+
+def _library_diode_is_input(refdes: list[str], library: dict | None) \
+        -> bool:
+    """True when the library marks a member diode as input protection
+    / reverse-polarity / OR-ing / Schottky input diode (part number or
+    description)."""
+    if not library:
+        return False
+    for ref in refdes:
+        if not _DIODE_RE.match(ref):
+            continue
+        entry = library.get(ref)
+        if not entry:
+            continue
+        info = entry if isinstance(entry, dict) else \
+            {"part_number": str(entry), "description": ""}
+        text = (str(info.get("part_number") or "") + " "
+                + str(info.get("description") or "")).upper()
+        if "LED" in text:
+            continue
+        if re.search(r"TVS|ESD|TRANSIENT|REVERSE|ORING|OR-ING|"
+                     r"INPUT PROTECTION|IDEAL DIODE|SCHOTTKY|\bSCH\b",
+                     text):
+            return True
+    return False
+
+
+# ---------------------------------- power-name + control-token conflict
+#: control tokens that conflict with a power-form name (M3 PART 3)
+_CONTROL_CONFLICT_RE = re.compile(
+    r"(^|_)(CTL|EN|ENABLE|RST|RESET|CS|MODE)([0-9A-Z_]*)?$",
+    re.IGNORECASE)
+#: active-low / negated suffix
+_ACTIVE_LOW_RE = re.compile(r"(_B|_N|#)$")
+#: voltage token anywhere in the name (``1V8`` / ``5V`` / ``3.3V`` ...)
+_VOLT_TOKEN_RE = re.compile(
+    r"[0-9]+([.][0-9]+)?V|[0-9]+V|_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)",
+    re.IGNORECASE)
+
+
+def is_control_conflict_name(name: str) -> bool:
+    """True when a name carries power AND control features at once
+    (independent control token + active-low suffix)."""
+    if not name:
+        return False
+    return bool(_CONTROL_CONFLICT_RE.search(name)
+                and _ACTIVE_LOW_RE.search(name))
+
+
+#: device families that resolve a power/control conflict to POWER
+_POWER_DEVICE_RE = re.compile(
+    r"PMIC|DCDC|BUCK|BOOST|LDO|LOAD SWITCH|POWER SWITCH|POWER DIST|"
+    r"HOT[- ]?SWAP|E-FUSE|EFUSE|CHARGE|REGULATOR|BATTERY|SUPPLY",
+    re.IGNORECASE)
+#: device families that resolve it to a CONTROL signal
+_LOGIC_DEVICE_RE = re.compile(
+    r"BUFFER|LEVEL SHIFT|ANALOG SWITCH|MUX|MULTIPLEX|TRANSCEIVER|PHY|"
+    r"CPLD|FPGA|MCU|PROCESSOR|LOGIC|DRIVER|GATE|INVERTER",
+    re.IGNORECASE)
+
+
+def conflict_device_class(part_number: str, description: str) \
+        -> str | None:
+    """``power`` / ``logic`` device family of a BOM entry (None unknown).
+
+    Used to resolve a power-name + control-token conflict by
+    device-role evidence (owner decision 2026-10-22: never power when
+    unresolved).
+    """
+    text = f"{part_number} {description}".upper()
+    if not text.strip():
+        return None
+    if _POWER_DEVICE_RE.search(text):
+        return "power"
+    if _LOGIC_DEVICE_RE.search(text):
+        return "logic"
+    return None
+
+
 def is_muxed(name: str) -> bool:
     """True when *name* carries a mux / reuse indicator."""
     if not name:

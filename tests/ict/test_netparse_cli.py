@@ -38,7 +38,7 @@ def test_cli_json_stdout(tmp_path, capsys):
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert code == 0
-    assert payload["schema"] == "mtkgui.ict.netparse.v3"
+    assert payload["schema"] == "mtkgui.ict.netparse.v4"
     assert payload["total"] == 2
     assert payload["nets"]["power"]["nets"][0]["test_point"] == "TP1.1"
 

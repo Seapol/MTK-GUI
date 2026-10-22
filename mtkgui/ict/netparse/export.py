@@ -20,12 +20,12 @@ import json
 from .capacity import DEFAULT_LIMITS, ResourceLimits, capacity_reason, \
     truncate
 from .model import (CATEGORY_CONTROL_IO_LABEL, CATEGORY_OTHERS,
-                    ParseNetsResult, SubClass)
+                    NET_TYPE_POWER, ParseNetsResult, SubClass)
 from .priority import rank_result
 from .rules import RULES_VERSION
 from .testpoints import select_test_points
 
-RESULT_SCHEMA = "mtkgui.ict.netparse.v3"
+RESULT_SCHEMA = "mtkgui.ict.netparse.v4"
 
 _CSV_HEADER = ("net", "category", "test_point", "alternatives",
                "members", "sub_class", "reason", "priority", "rank",
@@ -50,6 +50,10 @@ def _net_entry(rec, test_selected: bool | None = None) -> dict:
         "rank": rec.priority.get("rank") if rec.priority else None,
         "test_selected": test_selected,
     }
+    if rec.net_type == NET_TYPE_POWER:
+        # v4: input-rail evidence + free-text note (GUI/user hint)
+        entry["input_rail"] = rec.input_rail
+        entry["note"] = rec.note
     if rec.meta:
         entry["members_meta"] = dict(rec.meta)
     return entry
@@ -287,7 +291,7 @@ def result_to_csv(result: ParseNetsResult,
                      capacity_reason(class_key,
                                      report[class_key]["limit"]))
     for rec in result.gnd:
-        _row(rec, "GND")
+        _row(rec, "GND", rec.sub_class)
     for name, reason in result.filtered:
         writer.writerow((name, "Filtered", "", "", "", "", reason,
                          "", "", ""))

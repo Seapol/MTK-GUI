@@ -22,7 +22,8 @@ from .device_roles import (CLOCK_GEN as ROLE_CLOCK_GEN,
                            LOAD as ROLE_LOAD, role_for_part_number)
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_POWER,
                     NET_TYPE_SIGNAL, ParseNetsResult, SubClass)
-from .rules import PROTOCOL_TOKENS
+from .rules import (PROTOCOL_TOKENS, _VOLT_TOKEN_RE,
+                    conflict_device_class, is_control_conflict_name)
 
 HIGH, MEDIUM, LOW = "high", "medium", "low"
 _CONF_RANK = {HIGH: 0, MEDIUM: 1, LOW: 2}
@@ -251,6 +252,7 @@ def resolve_conflicts(result: ParseNetsResult, library: dict) -> list[str]:
     """
     _audit_candidates(result)
     _label_excluded(result)
+    _resolve_power_control_conflicts(result, library)
     audited: list[str] = []
     moved: list = []
     for bucket in ("power", "clock", "control_io"):
@@ -289,6 +291,55 @@ def resolve_conflicts(result: ParseNetsResult, library: dict) -> list[str]:
         getattr(result, bucket)[:] = keep
     result.others.extend(moved)
     return audited
+
+
+def _resolve_power_control_conflicts(result: ParseNetsResult,
+                                     library: dict) -> None:
+    """M3 PART 3: power-name + control-token conflicts never stay power.
+
+    A power record whose name carries an independent control token
+    (``CTL`` / ``EN`` / ``RST`` / ``CS`` / ``MODE``) plus an active-low
+    suffix (``_B`` / ``_N`` / ``#``) AND a voltage token is resolved by
+    device-role evidence from the BOM library: power devices keep the
+    power class, logic / buffer / interface devices move to
+    ``control_io``, unresolved conflicts move to ``Others`` (never
+    power, owner decision 2026-10-22).
+    """
+    keep = []
+    for rec in result.power:
+        if rec.provenance.startswith(("device_role:", "user_rule",
+                                      "external")):
+            keep.append(rec)
+            continue
+        if not (is_control_conflict_name(rec.name)
+                and _VOLT_TOKEN_RE.search(rec.name)):
+            keep.append(rec)
+            continue
+        device = None
+        for token in rec.members:
+            refdes = token.split(".", 1)[0]
+            entry = library.get(refdes)
+            if not entry or not refdes.upper().startswith("U"):
+                continue
+            info = entry if isinstance(entry, dict) else \
+                {"part_number": str(entry), "description": ""}
+            device = conflict_device_class(
+                str(info.get("part_number") or ""),
+                str(info.get("description") or ""))
+            if device:
+                break
+        if device == "power":
+            keep.append(rec)
+            continue
+        if device == "logic":
+            _move_to_class(result, rec, "control_io", "power")
+            continue
+        rec.meta = {"conflict": "control_features"}
+        rec.sub_class = SubClass.UNCLASSIFIED
+        rec.provenance = "conflict:control_features"
+        rec.net_type = NET_TYPE_SIGNAL
+        result.others.append(rec)
+    result.power[:] = keep
 
 
 def _audit_candidates(result: ParseNetsResult) -> None:

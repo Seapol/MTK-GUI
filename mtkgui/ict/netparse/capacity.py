@@ -5,6 +5,12 @@ The ranked nets (see :mod:`.priority`) are truncated to the ICT
 instrument capacity; anything beyond capacity falls to ``Others`` with
 ``sub_class = "capacity"`` while keeping its original class / rank for
 audit.
+
+M3 note: GND nets are the measurement REFERENCE plane (R-GND /
+Voltage use them as the reference, not as measured channels) - they
+are exported separately (``nets.gnd``) and do NOT consume the 80
+power/voltage DAQ points nor the 12 rails-up channels (capacity
+unchanged).
 """
 from __future__ import annotations
 

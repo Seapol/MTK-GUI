@@ -30,7 +30,7 @@ from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     ParseNetsResult)
 from .netlist import read_text_any_encoding
 from .rules import (EXCLUDED_REASON, SYSTEM_RANDOM_RE, apply_user_rules,
-                    control_io_rule, exclude_pattern)
+                    control_io_rule, exclude_pattern, gnd_sub_class)
 
 _FILTER_REASONS = {
     NET_TYPE_GND_REF: "reference ground (measurement loop)",
@@ -160,8 +160,10 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
                     result.others.append(rec)
             elif rec.net_type == NET_TYPE_GND_REF:
                 # reference grounds: measurement-loop references, default
-                # Do Not Test (they appear in the Parsed Nets table)
+                # Do Not Test (they appear in the Parsed Nets table);
+                # M3: every GND carries its plane sub_class
                 rec.members = members
+                rec.sub_class = gnd_sub_class(rec.name)
                 result.gnd.append(rec)
             else:
                 # diff_pair: documented, non-testable object

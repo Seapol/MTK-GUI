@@ -26,7 +26,7 @@ from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NetCollection, NetlistData, NetRecord)
 
 _GND_RE = re.compile(
-    r"^(GND|AGND|DGND|PGND)([_\W].*)?$", re.IGNORECASE)
+    r"^(GND|AGND|DGND|PGND|VSS|GROUND)([_\W].*)?$", re.IGNORECASE)
 _POWER_RE = re.compile(
     r"^(?!.+INTB)(?:"
     r"V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D|DDL|DQL)([0-9_].*)?"
