@@ -208,8 +208,21 @@ class SharePointUploadDialog(QDialog):
         # ----------------------------------------------------- timer
         self._timer = self._make_timer()
 
-        # saved config -> fields (defaults: sync mode)
-        saved = load_upload_config()
+        # saved config -> fields (defaults: sync mode). An explicitly
+        # injected config_path (tests / embedders) wins over the module
+        # config so a local sharepoint_upload.json can never leak into
+        # an isolated dialog; the real GUI passes config_path=None and
+        # keeps restoring the persisted upload mode.
+        if self._config_path is not None:
+            try:
+                data = json.loads(
+                    self._config_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = None
+            saved = (data or {}).get("sharepoint", {}) \
+                if isinstance(data, dict) else {}
+        else:
+            saved = load_upload_config()
         self._apply_section(saved)
 
     # ---------------------------------------------------------- plumbing
