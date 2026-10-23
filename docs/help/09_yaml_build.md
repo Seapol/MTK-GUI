@@ -152,8 +152,11 @@ Columns `Net` / `Test Points` / `Category` / `Do Not Test`:
   `Control IO (non-mux GPIO/EN/CS/RST)` / `GND` / `Filtered`.
   Picking `Filtered` moves the net into the
   Filtered Nets table; the override survives re-parses.
-- **Do Not Test** - checkbox. Control IO and `GND` nets default to
-  Do Not Test; an explicit toggle wins over the category default.
+- **Do Not Test** - checkbox. `Others` (nets outside every ICT test
+  object) and `GND` nets default to Do Not Test; Control IO nets stay
+  testable - they are exercised through the U2355A DIO Read / Write
+  operations once a DIO channel is assigned. An explicit toggle wins
+  over the category default.
 
 ### Filtered Nets table
 
@@ -274,16 +277,74 @@ the resource is implicit in the channel name.
 
 ### Control IO Nets Tab
 
+Columns:
+
 - `Net` - net name (read-only).
 - `Test point` - member-pin dropdown.
 - `DIO Channel` - one of the 24 U2355A digital channels
   (`U2355A DIO01` - `U2355A DIO24`). The DAQM907A DIO stays
   reserved for the fixture control (press / inpos / presence /
-  estop).
+  estop) and is never part of this pool.
 
-There are no `Digital Input` / `Digital Output` columns - the
-drive / read / toggle behavior comes from the test definitions, not
-from the allocation.
+Capacity is **24 channels**: nets beyond it stay fully classified
+(category, confidence) but get no channel, so they cannot be driven or
+read. The summary line reports the overflow, e.g.
+`rows: power=10 clock=1 gpio=24 (+4 over capacity) - validation: OK`.
+
+There are no `Digital Input` / `Digital Output` columns - each DIO
+channel carries both directions, selected by the standard operation
+that uses it (see below).
+
+### Control IO Operations (DIO Read / DIO Write)
+
+The ICT / FCT step catalog includes two standard operations for the
+allocated control nets; insert them anywhere a standard operation is
+allowed (ICT or FCT, before or after `Power On DUT`, like the Fixture
+ops):
+
+- **`U2355A DIO Read`** - samples the whole U2355A DIO bank once and
+  prints the level of every allocated control net to the Event Log as
+  `Control IO <NET>: DIO<n> = HIGH/LOW`. It is a reference sample: the
+  row makes no assertion, shows `—` as measured and always reports
+  `Done` (a hardware fault still reports `Error`).
+- **`U2355A DIO Write`** - drives the given channel range with a
+  pattern: `Channels` (e.g. `DIO01-DIO08`) and `Pattern` (`0x3C`, or
+  a per-channel list such as `DIO01=1,DIO03=0`). The row label reads
+  `DIO01-DIO08 = 0x3C`.
+
+#### DIO Write Isolation Guard
+
+Before the first write the engine checks every targeted net against the
+isolation assessment that netparse stamped on it (`isolated` +
+`active_drivers`, derived from the BOM: an ACTIVE device such as a
+main MCU, PMIC, FPGA or transceiver makes a net *not isolated*;
+passive members only - resistors, capacitors, jumpers, test points,
+diodes, switches / buttons / keys - make it *isolated*). Three notice
+levels apply:
+
+- **Not isolated (active IO found)** - red-level warning listing the
+  active IO refdes (`Control IO <NET> connects active IO - NOT
+  isolated; driving may conflict / short. Active IO sources: ...`).
+  The operator sees a modal whose default is `Cancel`, with
+  `Force-Continue` as the explicit override; a headless / automatic run
+  refuses the write and reports `Error`
+  (`control net <NET> is not isolated / cannot be confirmed - DIO
+  write refused`). A forced write is logged as
+  `operator forced (not isolated)` and recorded in the step params.
+- **Isolation cannot be confirmed** - same warning + `Cancel` /
+  `Force-Continue` gate and the same headless refusal, worded
+  `isolation cannot be confirmed (unknown refdes ...)` (a member pin
+  the BOM cannot resolve).
+- **Passive-only (isolated)** - informational reminder, no cancel
+  gate: `Control IO <NET>: passive-only (no active IO found) - please
+  human-review to avoid algorithm error. All connections: <pin list>`.
+  Every member pin is listed so the operator can still verify the
+  algorithm by hand.
+
+The classifier tables live in `rules/base_rules.json` (active roles /
+active device categories / passive refdes prefixes) and can be extended
+with an external rules file, so a new device family does not require a
+code change.
 
 ### Dropdown Rules
 
@@ -416,7 +477,9 @@ and owns the ICT test case editing. Clicking the card opens the
   result: per power net one `R-GND` and one
   `Power Voltage` test, per clock net one `Clock Hz` test. No
   standard operations here - they are added on the Test Work Flow
-  page on `OK`.
+  page on `OK` (the catalog includes `U2355A DIO Read` /
+  `U2355A DIO Write` for the allocated control nets; see
+  *Control IO Operations* above).
 - **Bidirectional sync** - the dialog opens pre-loaded with the
   CURRENT ICT Test Cases rows of the Test Work Flow page (the page
   is the source of truth): edit the live sequence, then `OK` writes

@@ -6,8 +6,8 @@ Covers the three station capabilities:
 * **AI capture** - the 12 analog inputs record the power-rails
   up-sequence (CSV + waveform) at a configured rate,
 * **Counters** - the two counters (up to 6 MHz) measure CLK2 / CLK3,
-* **DIO** - the 24 TTL channels walk the DUT GPIO through the level
-  shifters.
+* **DIO** - the 24 TTL channels drive / read the DUT control-IO nets
+  through the level shifters (``U2355A DIO Write`` / ``DIO Read``).
 
 Verification status: the U2355A remote programming model must be
 confirmed against the official programming documentation during the
@@ -224,7 +224,7 @@ class U2355ADriver(InstrumentDriver):
     # -- DIO ---------------------------------------------------------------------
 
     def dio_write(self, channels: str, value: int) -> None:
-        """Write the DIO bank (DUT GPIO through level shifters).
+        """Write the DIO bank (control-IO nets through level shifters).
 
         Args:
             channels: DIO port channel string (from YAML).
@@ -243,7 +243,7 @@ class U2355ADriver(InstrumentDriver):
         self.write(CMD["dio_write"].format(value=value, chans=chans))
 
     def dio_read(self, channels: str) -> MeasurementResult:
-        """Read the DIO bank (GPIO loopback test).
+        """Read the DIO bank once (reference level sample, no assertion).
 
         Args:
             channels: DIO port channel string (from YAML).

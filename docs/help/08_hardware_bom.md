@@ -16,7 +16,7 @@ chapter `07_station_equipment.md`.
 | Keysight DAQ973A mainframe | 1 | 3-slot measurement mainframe, 6.5-digit (22-bit) DMM, frequency function 3 Hz - 300 kHz | Static Impedance, Power Voltage, slow Clock Hz | **Must** |
 | Keysight DAQM908A multiplexer | 2 (slots 1-2) | 40-ch single-ended multiplexer each, `2-wire Ω then DCV` reuse | Static Impedance (80 nets), Power Voltage | **Must** |
 | Keysight DAQM907A multifunction | 1 (slot 3) | 16-ch open-drain DIO, 2 x ±12 V AO, 100 kHz totalizer | fixture ops (clamp / lock / E-Stop), ADC Stimulus, CLK1 | **Must** |
-| Keysight U2355A USB DAQ | 1 | 16-bit AI, 250 kSa/s aggregate; 2 counters 0.1 Hz - 6 MHz | DAQ AI power-rails capture, Clock Hz > 300 kHz | **Must** |
+| Keysight U2355A USB DAQ | 1 | 16-bit AI, 250 kSa/s aggregate; 2 counters 0.1 Hz - 6 MHz; 24 TTL DIO (out / in) | DAQ AI power-rails capture, Clock Hz > 300 kHz, Control IO DIO Read / Write | **Must** |
 | Keysight N5747A system PSU | 1 | 60 V / 12.5 A / 750 W, 4-wire remote sense | Power On / Off DUT | **Must** |
 
 All five are mandatory for the reference plan: the ICT stage
@@ -51,6 +51,7 @@ be left out of that station's BoM.
 | Fixture harness (mux) | 1 set | DAQM908A #1 / #2 terminal blocks -> fixture test points TP_P1 - TP_P80, 2-wire pairs | Impedance + Voltage routing | **Must** |
 | AI sense harness | 1 | U2355A AI01 - AI12 -> rail sense points at the fixture | power-rails waveform | **Must** |
 | DIO / AO wiring | 1 set | DAQM907A DIO01 - DIO16, AO0 / AO1 -> fixture actuators + analog test points | fixture ops, ADC Stimulus | **Must** |
+| Control IO DIO wiring | 1 set | U2355A DIO01 - DIO24 -> level shifters -> DUT control-IO nets (non-mux GPIO / EN / CS / RST) | DIO Read / DIO Write ops | **Must** for plans with Control IO rows |
 | PSU power + sense wiring | 1 set | N5747A output + 4-wire sense -> fixture power blades (sense AT the load) | DUT power integrity | **Must** |
 | Serial console cable(s) | per DUT | HOST PC COM port -> DUT debug UART | FCT console keyword tests | **Must** |
 

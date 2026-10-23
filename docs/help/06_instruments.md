@@ -133,8 +133,8 @@ with the project YAML.
 - **Role** - the waveform recorder: acquires the power-rails up
   sequence and measures the fast clocks.
 - **Key specifications** - analog input 16-bit, ±10 V, 250 kSa/s
-  aggregate; counters 2 x 0.1 Hz - 6 MHz; digital IO 24 TTL
-  channels; backup AO 2 x 12-bit ±10 V.
+  aggregate; counters 2 x 0.1 Hz - 6 MHz; 24 TTL DIO in two roles
+  (digital output / digital input); backup AO 2 x 12-bit ±10 V.
 - **Configure** - `Sample rate (kSa/s)` 20, `Range (V)` 10,
   `Averaging` 1; the capture window and the rail set live in the
   project YAML (max 12 capture nets) and the waveform Properties
@@ -143,10 +143,30 @@ with the project YAML.
   (`USB0::0x2A8D::0x3018::MY30180001::0::INSTR`).
 - **Connects to the fixture** - the analog inputs sense the critical
   rails at the fixture (one channel per rail), the counters take the
-  fast clock taps (CLK2 / CLK3), the TTL DIO supports loopback
-  checks.
-- **In the tests** - the `DAQ AI` power-rails row (CSV + AI review)
-  and the >300 kHz Clock Hz rows.
+  fast clock taps (CLK2 / CLK3), and the 24 TTL DIO lines run through
+  the station level shifters to the DUT control-IO nets
+  (non-multiplexed GPIO / enable / chip-select / reset). The DAQM907A
+  open-drain DIO stays the fixture-control pool (press / inpos /
+  presence / estop) and is never offered as a DUT GPIO pool.
+- **DIO capability in the tests** - the same 24 channels carry both
+  directions, selected by the standard operation:
+  - **Digital output** - `U2355A DIO Write` drives the allocated
+    control nets (`Channels` range + `Pattern`, e.g.
+    `DIO01-DIO08` = `0x3C`). It runs in ICT and FCT anywhere a
+    standard operation is allowed and is guarded by the isolation
+    preflight (see `09_yaml_build.md`).
+  - **Digital input** - `U2355A DIO Read` samples the whole bank once
+    and prints the level of every control net already allocated to
+    DIO01-24 as `Control IO <NET>: DIO<n> = HIGH/LOW` to the Event
+    Log. The row is engineering reference only - it makes no
+    assertion and always reports `Done`.
+  - **Capacity** - 24 DIO channels. Nets beyond capacity stay
+    classified but get no channel (the summary shows e.g.
+    `gpio=24 (+4 over capacity)`), so they can be neither driven nor
+    read until a channel is assigned.
+- **In the tests** - the `DAQ AI` power-rails row (CSV + AI review),
+  the >300 kHz Clock Hz rows, and the `U2355A DIO Read` /
+  `U2355A DIO Write` control-IO operations.
 
 ### N5747A System Power Supply (PSU)
 
@@ -190,8 +210,9 @@ instruments through the fixture harness:
 - the DAQM907A open-drain DIO drives the fixture actuators and
   feedback lines (clamp / lock / E-Stop chain) and its ±12 V analog
   outputs stimulate the analog test points;
-- the U2355A analog inputs sense the critical rails at the fixture
-  and its counters take the fast clock taps;
+- the U2355A analog inputs sense the critical rails at the fixture,
+  its counters take the fast clock taps, and its 24 DIO lines reach
+  the DUT control-IO nets through the level shifters;
 - the N5747A output (with 4-wire remote sense at the load) feeds the
   fixture power blades.
 

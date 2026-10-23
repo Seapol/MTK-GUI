@@ -28,7 +28,8 @@ The diagram is drawn in four layers (top to bottom):
     output, 16-ch open-drain DIO).
   - `U2355A` USB DAQ, drawn as `Analog Inputs` (12 critical rails,
     about 20 kSa/s per channel to CSV) and `Counters + DIO`
-    (CTR0/CTR1 for CLK2/CLK3, 24-ch DIO to the DUT GPIO).
+    (CTR0/CTR1 for CLK2/CLK3, 24-ch DIO to the DUT control IO
+    through the level shifters).
   - `N5747A DC Power Supply` (60 V / 12.5 A / 750 W, 4-wire remote
     sense) with its `Output & Sense` detail block.
 - **Layer 3 - fixture**: `Fixture Probe Board` (128 pinhole pins,
@@ -138,7 +139,8 @@ connect and use the values from `Parameter Configuration`:
 - DAQM907A: `DIO Write`, `DIO Read`, `Totalizer (CLK1)`,
   `AO Output`.
 - U2355A: `AI Read (12 rails)`, `Counter CTR0 (CLK2)`,
-  `Counter CTR1 (CLK3)`, `DIO Loopback`.
+  `Counter CTR1 (CLK3)`, `DIO Loopback` (bench check of the 24 DIO
+  lines - a manual wiring verification, not an automated ICT test).
 - N5747A: `Power ON`, `Power OFF`, `Read V/I` (readback about 1%).
 
 **Warning:** the whole `Control & Simple Tests` group is disabled in

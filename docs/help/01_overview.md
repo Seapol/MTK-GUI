@@ -6,7 +6,8 @@ tool covering the complete production flow:
     ICT -> Flash FAT firmware -> FCT -> Flash OOBE firmware
 
 - **ICT** (In-Circuit Test): fixture interlocks, R-GND shorts,
-  power-on, power-rails capture, DC voltage, clocks, GPIO.
+  power-on, power-rails capture, DC voltage, clocks, control IO
+  (U2355A DIO Read / Write operations).
 - **Flash FAT**: factory acceptance firmware, flashed by a third-party
   GUI (operator confirm) or a CLI (automatic keyword parse).
 - **FCT** (Functional Test): message testing - the verdict comes from
@@ -97,7 +98,7 @@ Four pages cover the complete workflow:
   diagram (click a block to configure, right-click to enable or
   disable) next to a live YAML preview that is two-way synced with
   the diagram.
-- **Channel Allocation** - dedicated Power / Clock / GPIO tables;
+- **Channel Allocation** - dedicated Power / Clock / Control IO tables;
   the data source is the Parse Nets result of the Yaml Build model.
 
 ![Equipment page](images/03_equipment.png)
@@ -238,9 +239,9 @@ be performed manually by the user.
   (Design Input, Parse nets for ICT, Channel Allocation, the ICT
   workflow builder, the FCT sequence) with the Channel Allocation
   tables embedded on the same page, and the live YAML preview.
-- **Chapter 10 - Channel Allocation**: Power / Clock / GPIO channel
-  mapping tables (embedded in the Yaml Build page) and applying them
-  back to the project YAML.
+- **Chapter 10 - Channel Allocation**: Power / Clock / Control IO
+  channel mapping tables (embedded in the Yaml Build page) and applying
+  them back to the project YAML.
 - **Chapter 11 - Virtual Mode & Fault Injection**: rehearsing the
   full flow without hardware and configuring random faults.
 - **Chapter 12 - Shortcuts & Tips**: the Visual Studio style run and

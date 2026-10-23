@@ -33,10 +33,11 @@ results comparable across operators, boards and shifts:
    pass (see `Run Gates and Pre-Test`).
 2. **ICT stage** - the ICT table executes strictly top -> bottom:
    fixture close -> R-GND shorts (board still unpowered) ->
-   `Power On DUT` -> electrical measurements -> `Power Off DUT` ->
-   fixture open. Every measurement is judged against its per-row
-   `Min` / `Max` limits; a short or a `Stop if failure` event ends
-   the stage immediately.
+   `Power On DUT` -> electrical measurements (including the optional
+   `U2355A DIO Read` / `U2355A DIO Write` control-IO operations) ->
+   `Power Off DUT` -> fixture open. Every measurement is judged against
+   its per-row `Min` / `Max` limits; a short or a `Stop if failure`
+   event ends the stage immediately.
 3. **FCT stage** - the console channels auto-connect (a failure
    opens the `Console Connect Failed` popup and stops the run), then
    the FCT table executes top -> bottom: operator dialogs, console /
@@ -317,10 +318,13 @@ generic `test` row type.
 #### test (generic)
 
 - **What it does** - measurement row for nets outside the power /
-  clock categories (typically DUT GPIO level checks through the
-  fixture DIO); judged against its limits like any measurement.
-- **Configure** - `Test Method` = `test`, `Net` = a GPIO net from
-  the parse, limits optional (`—` = no value).
+  clock categories (typically a Control IO level check through the
+  U2355A DIO bank); judged against its limits like any measurement.
+- **Configure** - `Test Method` = `test`, `Net` = a Control IO net
+  from the parse, limits optional (`—` = no value).
+- **Reference-only alternative** - to log control-IO levels without a
+  limit, insert the `U2355A DIO Read` standard operation instead; the
+  old 24-channel walking GPIO row is gone.
 
 ### During the Run
 

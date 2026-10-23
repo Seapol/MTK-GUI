@@ -1342,6 +1342,92 @@ statistics exports - B1) via `VersionInfo.suffix()`.  The suffix is
 filename-safe (no spaces / parentheses) so exported-file naming
 rules stay valid.
 
+### 34. M7 - DIO standard operations and isolation preflight
+
+Two standard operations work the U2355A 24-ch DIO bank (the Control IO
+pool of 31.4) from both ICT and FCT, in any position a standard
+operation is allowed.
+
+#### Operation contract
+
+| Catalog name | `op_params.type` | Params | Row label |
+| --- | --- | --- | --- |
+| `U2355A DIO Read` | `dio_read` | none | `24 ch Control IO` |
+| `U2355A DIO Write` | `dio_out` | `channels` (`DIO01-DIO08`), `pattern` (`0x3C` or `DIO01=1,DIO03=0`) | `<channels> = <pattern>` |
+
+- `OP_STEPS` (`mtkgui/engine/steps.py`) is the single catalog; it feeds
+  the GUI step editor (`mtkgui/gui/steps_editor.py` renders the
+  `Channels` / `Pattern` fields) and the YAML round-trip
+  (`op_params` survives save / load).
+- Execution path: `TestRunner._run_op` -> `env.rack.execute_op`
+  (Virtual mode) / `env.gateway.execute_op` (Real mode,
+  `"DAQM": "daq973a", "DAQ": "u2355a"`) -> `_op_dio_read` /
+  `_op_dio_out` -> `U2355A.dio_read` / `U2355A.dio_write`.
+  `RealGateway.KNOWN_OP_TYPES` includes both types.
+- Channel names are canonicalised (`U2355A DIO07` -> `DIO07`) before
+  range expansion, so allocation labels and op ranges always match.
+- `dio_read` is a reference sample: measured stays `—`, the verdict is
+  `Done` and each allocated net prints
+  `Control IO <NET>: DIO<n> = HIGH/LOW` to the Event Log. A hardware
+  fault still reports `Error`.
+- `dio_out` drives the bank and prints
+  `U2355A DIO write <channels> = <pattern> -> written`.
+
+#### Isolation algorithm (`mtkgui/ict/netparse/isolation.py`, headless)
+
+Every control-IO `NetRecord` carries:
+
+- `isolated` - `True` (passive only) / `False` (active source found) /
+  `None` (cannot confirm);
+- `active_drivers` - refdes list of the active sources;
+- `isolation_checked` - "assessment ran" flag (absent value == never
+  assessed, keeps YAML backwards compatible).
+
+Rules (conservative):
+
+1. Member pin -> owning refdes (`U68.56` -> `U68`).
+2. Refdes in `PASSIVE_PREFIXES` (`R C L FB FER FERRITE FL J SJ TP TEST D
+   SW BTN KEY`) -> passive, never flagged (SW / BTN / KEY are the
+   push-button / DIP-switch upstreams).
+3. Refdes absent from the BOM library -> unknown -> `None`.
+4. Refdes in the library and not passive-prefixed -> ACTIVE (ACTIVE
+   roles `load / control_chip / fpga / interface / clock_gen` and BOM
+   categories `main_mcu / pmic / dcdc / ldo / transceiver / fpga /
+   memory` are the named tables; any other populated device is still
+   counted as a potential driver).
+5. Any ACTIVE -> `False` + `active_drivers`; only PASSIVE -> `True`;
+   else (unknown present) -> `None`.
+
+The three tables live in `rules/base_rules.json` (`isolation` section)
+and are extended by an external rules file
+(`rule_layers.load_external`, `isolation.passive_prefixes` /
+`active_roles` / `active_categories`). `parser.py` runs
+`annotate_control_io` after classification / bridging.
+
+#### DIO Write preflight (three notice levels)
+
+`TestRunner._dio_write_preflight` evaluates every allocated net it is
+about to drive:
+
+| `isolated` | Notice | Operator gate | Headless run |
+| --- | --- | --- | --- |
+| `False` | `WARN Control IO <NET> connects active IO - NOT isolated; driving may conflict / short. Active IO sources: <refdes>` | modal, default `Cancel`, `Force-Continue` optional | refused -> `Error` |
+| `None` | `WARN Control IO <NET>: isolation cannot be confirmed (unknown refdes ...)` | same modal | refused -> `Error` |
+| `True` | `INFO Control IO <NET>: passive-only (no active IO found) - please human-review ... All connections: <members>` | no gate | write proceeds |
+
+Refusal reason: `control net <NET> is not isolated / cannot be
+confirmed - DIO write refused`. A forced write sets `op_params.force`
+and logs `operator forced (not isolated)`; `force` skips the gate on
+later runs.
+
+#### Output contract
+
+- xlsx Test Plan Control IO sheet stays `Net` / `Test Point` - no new
+  columns.
+- `isolated` / `active_drivers` appear only in the CSV export (columns
+  appended after `confidence`), the JSON export (same keys per net) and
+  the Test Plan evidence markdown (`- isolated:` / `- active_drivers:`).
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

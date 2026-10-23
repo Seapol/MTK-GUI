@@ -57,8 +57,9 @@ bringing up the real drivers is a drop-in replacement:
   injected failures fall out of range. GND reference points read ~0 V.
 - **VirtualU2355A** — 12-ch AI power-rails capture with per-rail rise time,
   overshoot, ripple and fresh random entropy on every capture; two counters
-  (CLK2/CLK3); a 24-channel walking-pattern GPIO test that reports the failing
-  channel number.
+  (CLK2/CLK3); a 24-channel TTL DIO bank serving the `U2355A DIO Read`
+  (deterministic reference levels per allocated control net) and
+  `U2355A DIO Write` (channel range + pattern) standard operations.
 - **VirtualPSU (N5747A)** — output on/off, voltage/current programming with
   ~0.15 % readback error; the E-Stop hardware loop *inhibits* the output, so
   `OUTP ON` while the loop is open is rejected (Error) and the supply stays off.

@@ -34,3 +34,25 @@ Entry format:
   connected rack); DUT report / Event Log / Statistics; role and
   permission management; five GUI themes; Windows packaging via
   PyInstaller + GitHub Actions.
+
+## Development milestones (not releases)
+
+Engineering traceability only: these are `develop` commits. They do
+NOT bump the version and do NOT change what the application reports
+as its current release.
+
+- **M6** (2026-10-23, `7a179b6`) - BOM import in Design Input
+  (`design_input.bom_file`; the shared `ict/netparse/bom.py` library
+  serves both the GUI and the headless CLI); the Control IO DIO pool
+  moved to the U2355A `DIO01` - `DIO24` (24-channel capacity,
+  over-capacity reported as `gpio=24 (+4 over capacity)`, DAQM907A
+  DIO stays fixture-reserved); the unused `mtkgui/gui/designinput/`
+  package removed.
+- **M7** (2026-10-23, `e7930ef`) - `U2355A DIO Read` (reference level
+  log, always `Done`) and `U2355A DIO Write` (drive with
+  `Channels` + `Pattern`) standard operations; DIO Write isolation
+  preflight with three notice levels (not isolated / cannot confirm /
+  passive-only), `Cancel` + `Force-Continue` modal and headless
+  refusal; netparse `isolated` / `active_drivers` evidence in CSV,
+  JSON and the Test Plan evidence markdown; the old 24-channel
+  walking GPIO template row removed from the Test Work Flow page.

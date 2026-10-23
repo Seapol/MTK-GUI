@@ -512,19 +512,24 @@ class VirtualU2355A:
             f"({lo:g}..{hi:g} Hz) -> {verdict}"], value=value)
 
     def gpio_test(self, fault):
-        """24-ch DUT GPIO walking pattern through level shifters."""
+        """Legacy GPIO level check on the 24-ch U2355A DIO bank.
+
+        Only a legacy project row whose name carries "gpio" reaches
+        this path - M7 replaced the walking template row with the
+        ``U2355A DIO Read`` / ``U2355A DIO Write`` standard ops.
+        """
         if fault == "Error":
             return Measurement("Error", "—", [
                 "DAQ: U2355A DIO bank: USB transfer error -> Error"])
         if fault == "FAIL":
             ch = self.rng.randrange(24)
             return Measurement("FAIL", "23/24 ch", [
-                "DAQ: U2355A DIO walking 1/0 via level shifter "
+                "DAQ: U2355A DIO level check via level shifter "
                 "(1.8/3.3/5 V)",
                 f"DAQ: GPIO CH{ch:02d} readback mismatch -> 23/24 ch "
                 f"-> FAIL"], failed_point=f"GPIO CH{ch:02d}")
         return Measurement("PASS", "24/24 ch", [
-            "DAQ: U2355A DIO walking 1/0 via level shifter "
+            "DAQ: U2355A DIO level check via level shifter "
             "(1.8/3.3/5 V)",
             "DAQ: 24/24 GPIO channels verified"])
 
