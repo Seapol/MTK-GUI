@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
-from ...engine.steps import METHOD_R_GND
+from ...engine.steps import METHOD_R_GND, op_step
 from ..steps_editor import StepsEditorDialog
 
 #: Test Method -> unit (mirrors the Test Work Flow step edit dialog)
@@ -159,13 +159,23 @@ def _fmt_clock(value: float) -> str:
     return f"{value:.1f}"
 
 
+#: the control-IO operations appended automatically when the parse
+#: result carries at least one GPIO net (M9 W1) - read / write happen
+#: while the DUT is powered, i.e. right after the clock tests
+DIO_AUTO_OP_NAMES = ("U2355A DIO Read", "U2355A DIO Write")
+
+
 def generate_sequence(testable: dict) -> list[tuple]:
     """The automatic sequence rows (module level so the Load-current-
     yaml flow reuses it without instantiating the dialog): per power
     net one R-GND and one Power Voltage test, per clock net one Clock
     Hz test - R-GND -> power rails (voltage) -> clock.
-    The Expected / Min / Max cells stay unset ("\"—\""); combine with
-    :func:`auto_fill_limits` for the fully derived rows."""
+
+    When the parse result holds at least one GPIO net, the two U2355A
+    DIO operations are appended after the clock rows (M9 W1): every
+    allocated control net is read / written inside the ICT run without
+    a manual Add.  The Expected / Min / Max cells stay unset ("—");
+    combine with :func:`auto_fill_limits` for the fully derived rows."""
     testable = testable or {}
     rows: list[tuple] = []
     for method in METHOD_ORDER:
@@ -179,6 +189,9 @@ def generate_sequence(testable: dict) -> list[tuple]:
                 method, f"{method} - {net}")
             rows.append(("test", label,
                          METHOD_UNITS[method], "—", "—", "—"))
+    if any((info or {}).get("category") == "GPIO"
+           for info in testable.values()):
+        rows.extend(op_step(name) for name in DIO_AUTO_OP_NAMES)
     return rows
 
 
@@ -206,7 +219,7 @@ def auto_fill_limits(rows: list[tuple],
     testable = testable or {}
     out: list[tuple] = []
     for step in rows:
-        kind, name, unit, _expected, _lo, _hi = step
+        kind, name, unit, _expected, _lo, _hi = step[:6]
         method = (name.split(" - ")[0] if " - " in name else name)
         net = name.split(" - ", 1)[1] if " - " in name else ""
         info = testable.get(net) or {}
@@ -225,7 +238,7 @@ def auto_fill_limits(rows: list[tuple],
             continue
         out.append((kind, name, unit, fmt(nominal),
                     fmt(nominal * (1 - tol)),
-                    fmt(nominal * (1 + tol))))
+                    fmt(nominal * (1 + tol)), *step[6:]))
     return out
 
 
@@ -238,17 +251,21 @@ def _filled(text) -> str:
 
 _SKELETON_OP_NAMES = frozenset(
     ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST)
+#: generated operations that must appear exactly once.  The DIO ops are
+#: auto-appended by :func:`generate_sequence` (M9 W1) but are not part
+#: of the canonical skeleton - a saved plan may already carry them.
+_DEDUP_OP_NAMES = _SKELETON_OP_NAMES | frozenset(DIO_AUTO_OP_NAMES)
 
 
 def _drop_repeated_skeleton_ops(rows: list[tuple]) -> list[tuple]:
-    """One row per canonical operation: a rebuild that passes the saved
+    """One row per generated operation: a rebuild that passes the saved
     skeleton ops through ``standard_ict_sequence`` keeps their saved
     parameters (``by_name``) but the same rows also land in the "rest"
     block - keep the first occurrence only."""
     seen: set[str] = set()
     out: list[tuple] = []
     for step in rows:
-        if step and step[0] == "op" and step[1] in _SKELETON_OP_NAMES:
+        if step and step[0] == "op" and step[1] in _DEDUP_OP_NAMES:
             if step[1] in seen:
                 continue
             seen.add(step[1])
@@ -261,18 +278,73 @@ def merge_saved_limits(rows: list[tuple],
     """Keep previously filled Expected / Min / Max cells across a
     sequence regeneration (user direction 2026-10-14): Auto re-derives
     what it can, any manually edited value wins.  Rows are matched by
-    test name; empty / dash cells fall back to the fresh derivation."""
+    test name; empty / dash cells fall back to the fresh derivation.
+    Operation rows pass through unchanged (their saved parameters are
+    merged by :func:`merge_saved_ops`)."""
     old = {s[1]: s for s in previous_steps
            if s[0] != "op" and len(s) >= 6}
     merged: list[tuple] = []
-    for kind, name, unit, exp, lo, hi in rows:
+    for step in rows:
+        kind, name, unit, exp, lo, hi = step[:6]
+        if kind == "op":
+            merged.append(step)
+            continue
         prev = old.get(name)
         if prev is not None:
             exp = _filled(prev[3]) or exp
             lo = _filled(prev[4]) or lo
             hi = _filled(prev[5]) or hi
-        merged.append((kind, name, unit, exp, lo, hi))
+        merged.append((kind, name, unit, exp, lo, hi, *step[6:]))
     return merged
+
+
+def merge_saved_ops(rows: list[tuple],
+                    previous_steps: list[tuple]) -> list[tuple]:
+    """Keep the saved operation rows (with their parameters) across a
+    rebuild: a generated default operation is replaced in place by the
+    saved row of the same name (the operator's channels / pattern win),
+    and any saved operation the seed does not know (flash / Delay /
+    custom) is appended."""
+    saved: dict[str, tuple] = {}
+    for step in previous_steps or []:
+        if step and step[0] == "op" and len(step) > 1:
+            saved.setdefault(step[1], step)
+    seen: set[str] = set()
+    out: list[tuple] = []
+    for step in rows:
+        if step and step[0] == "op":
+            name = step[1]
+            if name in saved and name not in seen:
+                out.append(saved[name])
+                seen.add(name)
+                continue
+            seen.add(name)
+        out.append(step)
+    for name, step in saved.items():
+        if name not in seen:
+            out.append(step)
+            seen.add(name)
+    return out
+
+
+def canonical_ict_sequence(testable: dict, previous_steps=None,
+                           rail_count: int = 0) -> list[tuple]:
+    """The ONE canonical ICT seed shared by the 04 Build dialog and the
+    Load-current-yaml path (M8 W3 / M9 W1):
+
+    1. Auto-filled test rows (R-GND -> voltage -> clock) plus the two
+       auto-appended DIO operations when GPIO nets exist;
+    2. saved manual limits and saved operation parameters win;
+    3. the standard-operation skeleton (Power On DUT + DAQ AI rails
+       capture BEFORE the voltage / clock tests, R-GND before power-on).
+    """
+    testable = testable or {}
+    previous = list(previous_steps or [])
+    rows = auto_fill_limits(generate_sequence(testable), testable)
+    rows = merge_saved_limits(rows, previous)
+    rows = merge_saved_ops(rows, previous)
+    return _drop_repeated_skeleton_ops(
+        standard_ict_sequence(rows, rail_count))
 
 
 class IctWorkFlowSequenceDialog(StepsEditorDialog):
@@ -285,17 +357,15 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
                  parent: QWidget | None = None) -> None:
         self._net_provider = net_provider
         self._rail_count = int(rail_count)
-        # M8 W3: same canonical pipeline as the Load-current-yaml path -
-        # Auto-filled limits, saved manual limits / user ops preserved,
-        # then the standard-operation skeleton (Power On DUT + rails
+        # M9 W1: ONE canonical pipeline shared with the Load-current-yaml
+        # path - Auto-filled limits plus the DIO operations when GPIO nets
+        # are present, saved manual limits / user operation parameters
+        # win, then the standard-operation skeleton (Power On DUT + rails
         # capture BEFORE the voltage / clock tests)
         previous = list(initial_tests or [])
         testable = net_provider() if net_provider else {}
-        base = auto_fill_limits(generate_sequence(testable), testable)
-        base = merge_saved_limits(base, previous)
-        base.extend(s for s in previous if s and s[0] == "op")
-        steps = _drop_repeated_skeleton_ops(
-            standard_ict_sequence(base, self._rail_count))
+        steps = canonical_ict_sequence(
+            testable, previous, self._rail_count)
         n = len(steps)
         super().__init__(
             "ict", steps, [True] * n, [100] * n, [5000] * n, parent)
@@ -305,3 +375,43 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         # parse result; the DAQ AI Net stays a read-only rail count
         self.net_catalog_provider = net_provider
         self.daq_ai_rail_count_provider = lambda: self._rail_count
+        # M9 W2: make a Clock row whose limits are still empty obvious
+        self._limits_hint = QLabel(self)
+        self._limits_hint.setWordWrap(True)
+        self._limits_hint.setStyleSheet(
+            "color: #b45309; font-weight: bold;")
+        self.layout().insertWidget(0, self._limits_hint)
+        self._refresh_limits_hint()
+
+    def _populate(self):
+        super()._populate()
+        self._refresh_limits_hint()
+
+    def _refresh_limits_hint(self) -> None:
+        """[WARNING] line listing the Clock nets Auto could not fill.
+
+        A Clock row without Expected / Min / Max stops the run with
+        ``limits missing -> Error``; surfacing it here lets the operator
+        edit the row before building (M9 W2)."""
+        label = getattr(self, "_limits_hint", None)
+        if label is None:
+            return
+        missing = []
+        for step in self._steps:
+            if not step or step[0] != "test":
+                continue
+            name = str(step[1])
+            if name.split(" - ")[0] != "Clock Hz":
+                continue
+            if any(not _filled(value) for value in step[3:6]):
+                missing.append(name.split(" - ", 1)[1])
+        if missing:
+            label.setText(
+                "[WARNING] Clock limits missing (the frequency could not be "
+                "inferred) - double-click the row to fill Expected / Min / "
+                "Max, otherwise the run stops with 'limits missing -> "
+                "Error': " + ", ".join(missing))
+            label.show()
+        else:
+            label.clear()
+            label.hide()

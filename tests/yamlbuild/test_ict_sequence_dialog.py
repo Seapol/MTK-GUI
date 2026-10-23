@@ -38,8 +38,10 @@ def make_dialog():
 
 def test_generation_order_impedance_voltage_clock(qapp):
     """The seed is the canonical sequence: per power net impedance then
-    voltage, then the clock nets, wrapped in the standard-operation
-    skeleton (R-GND before Power On DUT, voltage after it)."""
+    voltage, then the clock nets, then the auto-appended DIO operations
+    (M9 W1: the parse result carries a GPIO net), wrapped in the
+    standard-operation skeleton (R-GND before Power On DUT, voltage
+    after it)."""
     dlg = make_dialog()
     try:
         rows = dlg.result_data()[0]
@@ -51,11 +53,22 @@ def test_generation_order_impedance_voltage_clock(qapp):
             "Power On DUT",
             "Power Voltage - 1V8_CORE", "Power Voltage - 3V3",
             "Clock Hz - CLK_24M",
+            "U2355A DIO Read", "U2355A DIO Write",
             "Power Off DUT", "Fixture Unlock", "Fixture Release",
             "Reset Instruments",
         ]
         assert names.index("R-GND - 3V3") < names.index("Power On DUT") \
             < names.index("Power Voltage - 3V3")
+        # DIO read / write happen while the DUT is powered (M9 W1)
+        assert names.index("Clock Hz - CLK_24M") \
+            < names.index("U2355A DIO Read") \
+            < names.index("U2355A DIO Write") \
+            < names.index("Power Off DUT")
+        dio_write = next(r for r in rows if r[1] == "U2355A DIO Write")
+        assert dio_write[0] == "op"
+        assert dio_write[6]["type"] == "dio_out"
+        assert dio_write[6]["channels"] == "DIO01-DIO08"
+        assert dio_write[6]["pattern"] == "0x00"
         units = [r[2] for r in rows]
         assert units[4:10] == ["Ω", "Ω", "—", "V", "V", "Hz"]
     finally:

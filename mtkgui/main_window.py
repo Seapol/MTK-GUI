@@ -1802,11 +1802,8 @@ class MainWindow(QMainWindow):
         self._sync_rails_to_workflow()
         if ict_ready:
             from mtkgui.gui.yamlbuild.ict_sequence import (
-                auto_fill_limits,
+                canonical_ict_sequence,
                 daq_ai_rail_count,
-                generate_sequence,
-                merge_saved_limits,
-                standard_ict_sequence,
             )
             # user direction 2026-10-14: the regeneration only re-derives
             # what Auto can - previously filled Expected / Min / Max
@@ -1815,15 +1812,13 @@ class MainWindow(QMainWindow):
             # M8: the parsed nominal (nominal_v / nominal_khz) carried in
             # imported.testable_nets wins over the net-name heuristic
             testable = model.imported.get("testable_nets") or {}
-            rows = auto_fill_limits(
-                generate_sequence(model.allocated_testable()), testable)
-            rows = merge_saved_limits(rows, previous)
-            # the canonical skeleton (standard operations + the derived
-            # DAQ AI rail capture after Power On DUT) is built here: the
-            # Build ICT dialog is the single EDIT source, this Load path
-            # regenerates the same canonical sequence from the model
-            rows = standard_ict_sequence(
-                rows, daq_ai_rail_count(model.channel_allocation))
+            # M9: the Build ICT dialog is the single EDIT source - this
+            # Load path runs the SAME canonical pipeline (auto-filled
+            # tests + the DIO operations when GPIO nets exist + the
+            # standard-operation skeleton around them)
+            rows = canonical_ict_sequence(
+                testable, previous,
+                daq_ai_rail_count(model.channel_allocation))
             self._fill_ict_sequence(rows)
             loaded.append(f"ICT {len(rows)} tests")
         if fct_ready:

@@ -83,15 +83,23 @@ _FREQ_TAIL_RE = re.compile(
     r"([0-9_]+)$)", re.IGNORECASE)
 #: known clock-family nominal frequencies (extendable, module-level)
 _NOMINAL_HZ = ((re.compile(r"OSC32K|SUSCLK|RTC|32K", re.IGNORECASE), 32768.0),)
+#: explicit per-net nominal frequencies (M9 W2): real net names whose
+#: frequency the generic name rules cannot infer.  Highest priority.
+_NET_NOMINAL_HZ = {
+    "DMIC_CLK": 3.072e6,       # IMXRT DMIC MCLK = 3072 kHz
+}
 
 
 def clock_freq_hz(name: str) -> float:
     """Nominal frequency in Hz extracted from the net name (0 unknown).
 
-    Generic: the known-family nominal table first (``SUSCLK`` / ``RTC``
-    / ``32K`` -> 32768), then the numeric forms ``32K`` / ``24M`` /
-    ``12P288M`` / ``32768``.
+    Priority (M9 W2): the explicit per-net table first, then the known
+    family table (``SUSCLK`` / ``RTC`` / ``32K`` -> 32768), then the
+    numeric forms ``32K`` / ``24M`` / ``12P288M`` / ``32768``.
     """
+    key = (name or "").strip().upper()
+    if key in _NET_NOMINAL_HZ:
+        return _NET_NOMINAL_HZ[key]
     for pattern, hz in _NOMINAL_HZ:
         if pattern.search(name):
             return hz
