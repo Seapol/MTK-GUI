@@ -1,0 +1,133 @@
+# -*- coding: utf-8 -*-
+"""Foreground progress feedback for slow GUI actions (M10-FIX3).
+
+The slow design actions (Parse Nets for ICT, Load current yaml, the
+Test Plan sync / export) stay SYNCHRONOUS because they mutate the GUI
+models and widgets directly; this module only drives a modal
+:class:`QProgressDialog` on top of them and pumps the event loop after
+each stage, so the window repaints instead of freezing.
+
+The dialog is shown only after ``SHOW_DELAY_S`` seconds, so a fast run
+never flashes a window.  There is deliberately no cancel button: the
+actions are short and not safely interruptible, and a button that
+cannot stop the work would mislead the operator.
+"""
+from __future__ import annotations
+
+import time
+from contextlib import contextmanager
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication,
+    QMessageBox,
+    QProgressDialog,
+    QWidget,
+)
+
+#: seconds a run may take before the dialog is actually shown
+SHOW_DELAY_S = 0.3
+
+
+class ProgressDialog(QProgressDialog):
+    """Delayed, modal, input-blocking progress dialog.
+
+    ``set_stage`` is the slot the panels connect their
+    ``task_progress`` signal to; it stores the latest value / label and
+    only pushes them into the widget once the delayed show triggered.
+    """
+
+    def __init__(self, owner: QWidget | None, title: str = "Working…",
+                 minimum: int = 0, maximum: int = 100,
+                 delay: float = SHOW_DELAY_S) -> None:
+        super().__init__(title, None, minimum, maximum, owner)
+        self.setModal(True)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setWindowTitle(title)
+        # no cancel button: the operation cannot be interrupted safely
+        self.setCancelButton(None)
+        self.setAutoClose(False)
+        self.setAutoReset(False)
+        self._started = time.monotonic()
+        self._delay = max(0.0, float(delay))
+        self._value = minimum
+        self._label = title
+        self._shown = False
+
+    # ------------------------------------------------------------ timing
+    def show_delayed(self) -> bool:
+        """Show the dialog only once the run passed the delay.
+
+        Returns True when the dialog is (now) visible."""
+        if self._shown:
+            return True
+        if time.monotonic() - self._started < self._delay:
+            return False
+        self._shown = True
+        # push the buffered stage BEFORE showing: with minimumDuration
+        # at 0 Qt would otherwise pop the empty dialog on the first
+        # setValue
+        super().setValue(self._value)
+        super().setLabelText(self._label)
+        super().setMinimumDuration(0)
+        super().show()
+        QApplication.processEvents()
+        return True
+
+    # ------------------------------------------------------------ stages
+    def set_stage(self, value: int, label: str) -> None:
+        """Record a stage and repaint (the task_progress signal slot)."""
+        self._value = int(value)
+        self._label = str(label)
+        if self._shown:
+            super().setValue(self._value)
+            super().setLabelText(self._label)
+        else:
+            self.show_delayed()
+        QApplication.processEvents()
+
+    def close_done(self) -> None:
+        """Hide and dispose - safe to call on every exit path."""
+        self._shown = False
+        self.reset()
+        self.hide()
+        self.deleteLater()
+        QApplication.processEvents()
+
+
+@contextmanager
+def busy_progress(owner: QWidget | None, title: str,
+                  delay: float = SHOW_DELAY_S):
+    """Indeterminate delayed progress around a synchronous action.
+
+    Yields a ``stage(value, label)`` callback for optional coarse
+    stages; the finally block always hides the dialog, so a failure
+    can never leave a window stranded."""
+    dlg = ProgressDialog(owner, title, 0, 0, delay=delay)
+    dlg.show_delayed()
+    try:
+        yield dlg.set_stage
+    finally:
+        dlg.close_done()
+
+
+def guarded_run(owner: QWidget | None, button, title: str, fn) -> object:
+    """Run ``fn(stage)`` under the busy dialog with the trigger button
+    disabled.
+
+    The button is restored to its PREVIOUS enabled state on success and
+    on every failure / exception; an exception surfaces as a critical
+    message (never crashes the window) and yields None."""
+    was_enabled = button.isEnabled() if button is not None else True
+    if button is not None:
+        button.setEnabled(False)
+    try:
+        with busy_progress(owner, title) as stage:
+            return fn(stage)
+    except Exception as exc:                     # noqa: BLE001
+        QMessageBox.critical(
+            owner, title, str(exc) or exc.__class__.__name__)
+        return None
+    finally:
+        if button is not None:
+            button.setEnabled(was_enabled)

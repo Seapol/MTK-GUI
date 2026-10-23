@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 
 from . import project_config
 from .equipment_page import EquipmentPage
+from .gui.progress_dialog import busy_progress
 from .permissions import (
     FIXTURE_ATE,
     FIXTURE_MANUAL,
@@ -1810,61 +1811,82 @@ class MainWindow(QMainWindow):
             return
         loaded = []
         page = self.workflow_page
-        # the power-rails capture set feeds the DAQ AI test row inserted
-        # by _fill_ict_sequence - sync it model -> page BEFORE building
-        self._sync_rails_to_workflow()
-        if ict_ready:
-            from mtkgui.gui.yamlbuild.ict_sequence import (
-                canonical_ict_sequence,
-                daq_ai_rail_count,
-            )
-            # user direction 2026-10-14: the regeneration only re-derives
-            # what Auto can - previously filled Expected / Min / Max
-            # cells (manual corrections) win over the fresh derivation
-            previous = list(page.ict_steps)
-            # M8: the parsed nominal (nominal_v / nominal_khz) carried in
-            # imported.testable_nets wins over the net-name heuristic
-            testable = model.imported.get("testable_nets") or {}
-            # M9: the Build ICT dialog is the single EDIT source - this
-            # Load path runs the SAME canonical pipeline (auto-filled
-            # tests + the DIO operations when GPIO nets exist + the
-            # standard-operation skeleton around them)
-            rows = canonical_ict_sequence(
-                testable, previous,
-                daq_ai_rail_count(model.channel_allocation))
-            self._fill_ict_sequence(rows)
-            loaded.append(f"ICT {len(rows)} tests")
-        if fct_ready:
-            cases, errors = self.yaml_build_page._emit_fct_sequence(
-                fct_params)
-            if errors:
-                QMessageBox.warning(
-                    self, "Load current yaml",
-                    "The FCT configuration is invalid:\n"
-                    + "\n".join(errors[:10]))
-            else:
-                self.workflow_page.load_fct_cases(cases)
-                loaded.append(f"FCT {len(cases)} cases")
-        if not fct_ready:
-            # ICT-only load (user direction 2026-10-13): clear the FCT
-            # placeholder row - with the Overall Flow FCT stage enabled
-            # a stale MessageOK step would stop the run on an operator
-            # dialog that has no place in an ICT-only project
-            self.workflow_page.load_fct_cases([])
-        # user direction 2026-10-14: carry the Design Input identity
-        # into the Product Information group (it previously stayed
-        # empty after a Load; the serial number stays manual)
-        project_config.sync_product_identity({}, page, model)
-        loaded.append("Product Info")
-        self._goto_test_workflow()
-        self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Current yaml loaded - "
-            + "; ".join(loaded))
-        # user direction 2026-10-14: a Load must leave the GUI runnable
-        # - without a project file the Run button blocks ("No YAML file
-        # is loaded"), so the fresh state is saved automatically
-        if not self._project_path:
-            self._auto_save_project()
+        # M10-FIX3 F3: the derivation blocks the GUI on a big project -
+        # drive a delayed foreground progress dialog and disable the
+        # triggering page button for the whole run
+        btn = self.yaml_build_page.btn_load_yaml
+        was_enabled = btn.isEnabled()
+        btn.setEnabled(False)
+        try:
+            with busy_progress(self, "Load current yaml…") as stage:
+                # the power-rails capture set feeds the DAQ AI test row
+                # inserted by _fill_ict_sequence - sync it model -> page
+                # BEFORE building
+                stage(0, "Load current yaml: syncing rails")
+                self._sync_rails_to_workflow()
+                if ict_ready:
+                    from mtkgui.gui.yamlbuild.ict_sequence import (
+                        canonical_ict_sequence,
+                        daq_ai_rail_count,
+                    )
+                    # user direction 2026-10-14: the regeneration only
+                    # re-derives what Auto can - previously filled
+                    # Expected / Min / Max cells (manual corrections)
+                    # win over the fresh derivation
+                    previous = list(page.ict_steps)
+                    # M8: the parsed nominal (nominal_v / nominal_khz)
+                    # carried in imported.testable_nets wins over the
+                    # net-name heuristic
+                    testable = model.imported.get("testable_nets") or {}
+                    # M9: the Build ICT dialog is the single EDIT source
+                    # - this Load path runs the SAME canonical pipeline
+                    # (auto-filled tests + the DIO operations when GPIO
+                    # nets exist + the standard-operation skeleton)
+                    stage(25, "Load current yaml: building ICT tests")
+                    rows = canonical_ict_sequence(
+                        testable, previous,
+                        daq_ai_rail_count(model.channel_allocation))
+                    self._fill_ict_sequence(rows)
+                    loaded.append(f"ICT {len(rows)} tests")
+                if fct_ready:
+                    stage(60, "Load current yaml: building FCT cases")
+                    cases, errors = self.yaml_build_page._emit_fct_sequence(
+                        fct_params)
+                    if errors:
+                        QMessageBox.warning(
+                            self, "Load current yaml",
+                            "The FCT configuration is invalid:\n"
+                            + "\n".join(errors[:10]))
+                    else:
+                        self.workflow_page.load_fct_cases(cases)
+                        loaded.append(f"FCT {len(cases)} cases")
+                if not fct_ready:
+                    # ICT-only load (user direction 2026-10-13): clear
+                    # the FCT placeholder row - with the Overall Flow FCT
+                    # stage enabled a stale MessageOK step would stop the
+                    # run on an operator dialog that has no place in an
+                    # ICT-only project
+                    self.workflow_page.load_fct_cases([])
+                # user direction 2026-10-14: carry the Design Input
+                # identity into the Product Information group (it
+                # previously stayed empty after a Load; the serial
+                # number stays manual)
+                stage(80, "Load current yaml: product information")
+                project_config.sync_product_identity({}, page, model)
+                loaded.append("Product Info")
+                self._goto_test_workflow()
+                self._append_event_log(
+                    f"[{datetime.now():%H:%M:%S}] Current yaml loaded - "
+                    + "; ".join(loaded))
+                # user direction 2026-10-14: a Load must leave the GUI
+                # runnable - without a project file the Run button
+                # blocks ("No YAML file is loaded"), so the fresh state
+                # is saved automatically
+                if not self._project_path:
+                    self._auto_save_project()
+                stage(100, "Load current yaml: done")
+        finally:
+            btn.setEnabled(was_enabled)
 
     def _auto_save_project(self):
         """Dialog-free project save after Load current yaml: the

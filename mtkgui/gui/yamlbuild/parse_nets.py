@@ -29,6 +29,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -54,6 +55,7 @@ from mtkgui.ict.netparse import (
     rank_result,
     select_test_points,
 )
+from mtkgui.gui.progress_dialog import ProgressDialog, guarded_run
 from mtkgui.gui.yamlbuild.path_risk import (
     DEFAULT_THRESHOLDS,
     LEVEL_HIGH,
@@ -213,7 +215,7 @@ class ParseNetsPanel(QWidget):
         self.lbl_gnd_risk.setWordWrap(True)
         lay.addWidget(self.lbl_gnd_risk)
 
-        self.btn_parse.clicked.connect(self.parse_nets)
+        self.btn_parse.clicked.connect(self._on_parse_clicked)
 
         # ------------------------------------------------ item 24 tools
         # risk thresholds (the rules dialog button sits next to Parse)
@@ -334,13 +336,25 @@ class ParseNetsPanel(QWidget):
             QMessageBox.warning(self, "Export ICT Test Plan",
                                 "Parse the nets first.")
             return
-        default = f"ICT Test Plan for {self._project_name()}.xlsx"
+        project = self._project_name()
+        default = f"ICT Test Plan for {project}.xlsx"
         path, _selected = QFileDialog.getSaveFileName(
             self, "Export ICT Test Plan", default, "Excel (*.xlsx)")
         if not path:
             return
-        rows, sections = export_testplan_pair(
-            self.result, DEFAULT_LIMITS, path, self._project_name())
+
+        def work(stage):
+            stage(0, "Export ICT Test Plan: writing workbook")
+            rows, sections = export_testplan_pair(
+                self.result, DEFAULT_LIMITS, path, project)
+            stage(100, "Export ICT Test Plan: done")
+            return rows, sections
+
+        written = guarded_run(self, self.btn_export_plan,
+                              "Export ICT Test Plan", work)
+        if written is None:
+            return
+        rows, sections = written
         self.task_log.emit(
             "INFO",
             f"ICT Test Plan written: {path} ({rows} rows) + evidence "
@@ -348,7 +362,7 @@ class ParseNetsPanel(QWidget):
 
     def import_to_yaml(self) -> None:
         """Workbook -> project YAML (gate: project YAML + parsed data)."""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog
 
         from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
         if not self._sync_allowed("Import to YAML"):
@@ -357,18 +371,22 @@ class ParseNetsPanel(QWidget):
             self, "Import to YAML", "", "Excel (*.xlsx)")
         if not path:
             return
-        try:
+
+        def work(stage):
+            stage(0, "Import to YAML: reading workbook")
             testplan_to_yaml(self.yaml_model, path, None, self.result)
-        except (OSError, ValueError, KeyError) as exc:
-            QMessageBox.warning(self, "Import to YAML",
-                                f"Could not import the workbook:\n{exc}")
+            stage(100, "Import to YAML: done")
+            return True
+
+        if guarded_run(self, self.btn_import_yaml, "Import to YAML",
+                       work) is not True:
             return
         self._log_report("import to YAML",
                          self.yaml_model.testplan_sync_report)
 
     def export_from_yaml(self) -> None:
         """Project YAML -> workbook + evidence markdown."""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog
 
         from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
         if not self._sync_allowed("Export from YAML"):
@@ -380,11 +398,15 @@ class ParseNetsPanel(QWidget):
             return
         md_path = str(Path(path).with_name(
             Path(path).stem + "_evidence.md"))
-        try:
+
+        def work(stage):
+            stage(0, "Export from YAML: writing workbook")
             yaml_to_testplan(self.yaml_model, path, md_path)
-        except (OSError, ValueError, KeyError) as exc:
-            QMessageBox.warning(self, "Export from YAML",
-                                f"Could not export the workbook:\n{exc}")
+            stage(100, "Export from YAML: done")
+            return True
+
+        if guarded_run(self, self.btn_export_yaml, "Export from YAML",
+                       work) is not True:
             return
         self._log_report("export from YAML",
                          self.yaml_model.testplan_sync_report)
@@ -622,6 +644,24 @@ class ParseNetsPanel(QWidget):
         self.task_log.emit("INFO", f"BOM library loaded: {summary}")
         return library
 
+    def _on_parse_clicked(self) -> None:
+        """Button path (M10-FIX3 F2): drive a determinate foreground
+        dialog from the existing ``task_progress`` signal and disable
+        the trigger button for the whole run - re-enabled on success,
+        failure and exception alike."""
+        dlg = ProgressDialog(self, "Parse Nets for ICT", 0, 100)
+        self.task_progress.connect(dlg.set_stage)
+        self.btn_parse.setEnabled(False)
+        try:
+            self.parse_nets()
+        finally:
+            try:
+                self.task_progress.disconnect(dlg.set_stage)
+            except (RuntimeError, TypeError):
+                pass
+            dlg.close_done()
+            self.btn_parse.setEnabled(True)
+
     def parse_nets(self) -> None:
         """Run the formal parse with per-step progress + Event-Log
         detail (core-algorithm standard section 6: every pipeline
@@ -650,6 +690,7 @@ class ParseNetsPanel(QWidget):
                 fmt, "NET (fallback)" if fmt != "net" else "NET")
             self.task_log.emit(
                 "INFO", f"netlist format detected: {fmt_label}")
+            QApplication.processEvents()
             # Step 2: cleaning + parse (dual-format branch)
             self.task_progress.emit(25, "parse nets: cleaning")
             self.task_log.emit("INFO", "netlist cleaning done")
@@ -661,6 +702,7 @@ class ParseNetsPanel(QWidget):
             # preview / testable_nets / channel_allocation materialise
             # so input rails come first - never the netlist (name) order
             rank_result(result)
+            QApplication.processEvents()
         except ValueError as exc:
             self.task_log.emit("ERROR", f"parse nets failed: {exc}")
             self.task_progress.emit(0, "parse nets: idle")
@@ -672,6 +714,7 @@ class ParseNetsPanel(QWidget):
         self.task_progress.emit(55, "parse nets: classifying nets")
         self.task_log.emit("INFO", "net classification done")
         self.result = result
+        QApplication.processEvents()
         # Task 6: any net present in NET but NOT in the imported SPF
         # is an Allegro auto-generated random net -> Control IO, locked
         # Do Not Test (tag persists in YAML)
@@ -689,11 +732,13 @@ class ParseNetsPanel(QWidget):
         self.task_log.emit("INFO", "test point selection done")
         self._fill_preview(result)
         self._fill_filtered(result)
+        QApplication.processEvents()
         # Step 5: path risk (advisory scores for the non-DNT nets)
         self.task_progress.emit(85, "parse nets: scoring path risk")
         self.task_log.emit("INFO", "path risk calculation done")
         self._evaluate_risk(result)
         self._update_gnd_risk(result)
+        QApplication.processEvents()
         self.task_progress.emit(100, "parse nets: done")
         self.task_log.emit(
             "INFO", f"parse nets done: {result.summary()}")
