@@ -24,6 +24,7 @@ from .bridge import merge_power_bridges
 from .classify import classify_nets
 from .confidence import resolve_conflicts, stamp_confidence
 from .formats import detect_netlist_format, parse_netlist_auto
+from .isolation import annotate_control_io
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
                     SUBCLASS_SYSTEM_RANDOM, SUBCLASS_UNCLASSIFIED,
@@ -181,6 +182,8 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
             result.bridge_report = merge_power_bridges(result, library)
             # M2 B1.5: cross-class conflict resolution (library mode)
             resolve_conflicts(result, library)
+        # M7 W6: DIO-write isolation assessment for control-IO nets
+        annotate_control_io(result, library, external)
     if external:
         result.applied_rules.extend(ext_log)
     return result

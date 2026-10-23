@@ -41,6 +41,8 @@ from .steps import (
     display_text,
     is_impedance_short,
     meas_instrument_abbr,
+    expand_dio_channels,
+    dio_name,
     op_instrument_abbr,
     op_status_lines,
     parse_console_step,
@@ -332,6 +334,96 @@ class TestRunner(QObject):
                 f"(attempt {attempt - 1}) -> Retry {attempt}/{retries}")
 
     # ------------------------------------------------------- op helpers
+    def _control_io_rows(self) -> list[dict]:
+        """Allocated control-IO rows (net <-> DIO + isolation verdict).
+
+        The page supplies ``control_io_provider`` (Channel Allocation
+        rows merged with the parsed isolation evidence); without one
+        (headless) no control net is mapped.
+        """
+        provider = getattr(self.env, "control_io_provider", None)
+        if provider is None:
+            return []
+        try:
+            rows = provider() or []
+        except Exception:             # pragma: no cover - defensive
+            return []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def _dio_write_preflight(self, tag: str, name: str, params,
+                             rows: list[dict], interactive: bool) \
+            -> str | None:
+        """M7 W6: active-driver guard before a U2355A DIO Write.
+
+        Levels:
+          * isolated=True  -> INFO review request (no cancel gate);
+          * isolated=False -> WARN "connects active IO - NOT isolated"
+            (cancel default / force in the GUI, REFUSE headless);
+          * isolated=None  -> WARN "cannot be confirmed" (same gate).
+        Returns "Error" when the write must not happen, else None.
+        """
+        env = self.env
+        p = params if isinstance(params, dict) else {}
+        channels = expand_dio_channels(str(p.get("channels") or ""))
+        targets = [row for row in rows
+                   if not channels
+                   or dio_name(str(row.get("dio"))) in channels]
+        blocked: list[dict] = []
+        for row in targets:
+            net = str(row.get("net") or "")
+            if row.get("isolated") is True:
+                members = " ".join(str(m) for m in
+                                   (row.get("members") or []))
+                env._log(
+                    f"[INFO] Control IO {net}: passive-only (no active "
+                    f"IO found) - please human-review to avoid "
+                    f"algorithm error. All connections: {members}")
+                notice = getattr(env, "_dio_passive_reminder", None)
+                if interactive and notice is not None:
+                    notice(net, members)
+            elif row.get("isolated") is False:
+                blocked.append(row)
+                drivers = ", ".join(str(d) for d in
+                                    (row.get("active_drivers") or []))
+                env._log(
+                    f"[WARN] Control IO {net} connects active IO - NOT "
+                    f"isolated; driving may conflict / short. Active IO "
+                    f"sources: {drivers}.")
+            else:
+                blocked.append(row)
+                drivers = ", ".join(str(d) for d in
+                                    (row.get("active_drivers") or []))
+                env._log(
+                    f"[WARN] Control IO {net}: isolation cannot be "
+                    f"confirmed (unknown refdes {drivers or 'unknown'}) "
+                    f"- drive at your own risk?")
+        if not blocked:
+            return None
+        if p.get("force"):
+            env._log(f"[WARN] {tag} op {name}: operator forced "
+                     f"(not isolated)")
+            return None
+        dialog = getattr(env, "_dio_write_preflight_dialog", None)
+        if interactive and dialog is not None:
+            if dialog(blocked) == "force":
+                p["force"] = True
+                env._log(f"[WARN] {tag} op {name}: operator forced "
+                         f"(not isolated)")
+                return None
+            self._last_op_error = (f"operator cancelled - control net "
+                                   f"{blocked[0].get('net', '')} is not "
+                                   f"isolated")
+            env._log(f"[WARN] {tag} op {name}: {self._last_op_error} "
+                     f"-> Error")
+            return "Error"
+        # headless (no operator dialog): never drive an unconfirmed net
+        net = blocked[0].get("net", "")
+        self._last_op_error = (
+            f"control net {net} is not isolated / cannot be confirmed "
+            f"- DIO write refused")
+        env._log(f"[WARN] {tag} op {name}: {self._last_op_error} -> Error")
+        return "Error"
+
     def _run_op(self, tag: str, name: str, params: dict | None,
                 interactive: bool = True) -> str:
         """Execute one standard operation step; returns "Done" / "Fail"
@@ -357,6 +449,24 @@ class TestRunner(QObject):
         # column ("CLI flash OK (J-Link)" / "Operator: GO") so the
         # report tells machine-parsed from operator-judged flashes
         self._last_op_measured = ""
+        # M7: U2355A DIO ops - inject the allocated control-net map and
+        # run the DIO Write isolation preflight (Read is read-only)
+        op_type = (params or {}).get("type")
+        if op_type in ("dio_read", "dio_out"):
+            rows = self._control_io_rows()
+            if virtual and getattr(env, "rack", None) is not None:
+                try:
+                    env.rack.control_io = rows
+                except Exception:      # pragma: no cover - defensive
+                    pass
+            exec_params = dict(params or {})
+            exec_params["control_io"] = rows
+            if op_type == "dio_out":
+                refused = self._dio_write_preflight(
+                    tag, name, params, rows, interactive)
+                if refused:
+                    return refused
+            params = exec_params
         if is_flash and str((params or {}).get("mode") or "auto") == \
                 "manual":
             verdict = self._run_manual_flash(tag, name, params,

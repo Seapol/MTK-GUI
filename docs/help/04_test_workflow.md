@@ -228,14 +228,18 @@ The ICT table executes strictly top -> bottom. Columns:
 - `Result` - `PASS` / `FAIL` for tests, `Done` / `Error` for standard
   operations.
 
-The factory sequence (17 steps): `Init Instruments`, `Fixture Clamp
+The factory sequence (16 steps): `Init Instruments`, `Fixture Clamp
 Down`, `Fixture Lock`, `Fixture E-Stop Healthy`, `R-GND Shorts
 (80 pts)` (Min 1.5 Ω), `Power On DUT`, `Power Voltage (80 pts)`
 (3.201-3.399 V), `RTC - 32.768 kHz (907A TOT)`, `CLKOUT1 - 4 MHz
 (U2355A CTR0)`, `CLKOUT2 - 6 MHz (U2355A CTR1)`, `ADC Stimulus
 AO0/AO1 -> TP_ADC` (±12 V), `Fixture DIO (16 ch, 4 used)`,
-`DUT GPIO (24 ch)`, `Power Off DUT`, `Fixture Unlock`,
-`Fixture Release`, `Reset Instruments`.
+`Power Off DUT`, `Fixture Unlock`, `Fixture Release`,
+`Reset Instruments`.
+
+The Control-IO nets mapped to the U2355A DIO01-24 pool are exercised
+with the `U2355A DIO Read` (reference levels only) and `U2355A DIO
+Write` standard operations, insertable anywhere in ICT / FCT.
 
 ### ICT Test Methods
 

@@ -440,10 +440,13 @@ class ComponentLibrary:
         PART 4: same ``ComponentLibrary`` records, no second BOM parse.
         DNP parts are KEPT (netparse's bridge / conflict logic handles
         them downstream).  Shape matches the headless library format
-        ``{refdes: {part_number, description}}``.
+        ``{refdes: {part_number, description}}``; M7 adds the BOM
+        ``dev_category`` so the DIO-write isolation assessment can
+        flag active devices.
         """
         return {rec.refdes: {"part_number": rec.part_number,
-                             "description": rec.description}
+                             "description": rec.description,
+                             "dev_category": rec.dev_category}
                 for rec in self.records}
 
 

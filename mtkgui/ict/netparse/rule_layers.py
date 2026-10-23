@@ -32,7 +32,7 @@ import json
 import re
 from contextlib import contextmanager
 
-from . import classify, confidence, device_roles, rules
+from . import classify, confidence, device_roles, isolation, rules
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_POWER,
                     NET_TYPE_SIGNAL, ParseNetsResult)
 
@@ -70,6 +70,8 @@ def load_external(paths: list[str]) -> dict:
                    "reweight": {}},
         "device_roles": {"add": {}},
         "clock_nominal_freq": {"add": {}},
+        "isolation": {"passive_prefixes": [], "active_roles": [],
+                      "active_categories": []},
         "entries": []}
     for path in paths:
         try:
@@ -106,6 +108,13 @@ def load_external(paths: list[str]) -> dict:
         merged["clock_nominal_freq"]["add"].update(
             {str(k): str(v) for k, v in
              (data.get("clock_nominal_freq") or {}).get("add", {}).items()})
+        # M7: DIO-write isolation tables (add semantics, same learning
+        # mechanism as the token / device-role sections)
+        iso = data.get("isolation") or {}
+        for key in ("passive_prefixes", "active_roles",
+                    "active_categories"):
+            merged["isolation"][key] += [
+                str(value) for value in (iso.get(key) or [])]
         for entry in data.get("entries", []):
             if not entry.get("pattern") or not entry.get("class"):
                 raise ValueError(
@@ -156,6 +165,11 @@ def export_base_rules() -> dict:
                          device_roles._ROLE_MARKERS.items()},
         "clock_nominal_freq": [{"pattern": pattern.pattern, "hz": hz}
                                for pattern, hz in confidence._NOMINAL_HZ],
+        # M7: DIO-write isolation tables (control-IO active/passive)
+        "isolation": {
+            "active_roles": sorted(isolation.ACTIVE_ROLES),
+            "active_categories": sorted(isolation.ACTIVE_CATEGORIES),
+            "passive_prefixes": sorted(isolation.PASSIVE_PREFIXES)},
         "thresholds": {"conflict_high": confidence.CONFLICT_HIGH},
         "capacity_defaults": {
             "power_pts": DEFAULT_LIMITS.power_pts,

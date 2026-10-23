@@ -551,6 +551,11 @@ class YamlBuildPage(QWidget):
                     testable[rec.name] = {
                         "category": DISPLAY_TO_CATEGORY.get(chosen, chosen),
                         "members": list(rec.members),
+                        # M7: DIO-write isolation evidence (control IO)
+                        **({"isolated": rec.isolated,
+                            "active_drivers": list(rec.active_drivers)}
+                           if getattr(rec, "isolation_checked", False)
+                           else {}),
                         **({"auto_generated": True}
                            if dialog.nets_panel._auto_generated.get(
                                rec.name) else {}),

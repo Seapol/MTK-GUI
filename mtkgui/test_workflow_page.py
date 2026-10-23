@@ -14,7 +14,7 @@ The overall flow is a table:
     - clocks: CLK1 32.768 kHz (907A totalizer), CLK2 4 MHz / CLK3 6 MHz
       (U2355A counters)
     - ADC stimulus: 2 x AO ±12 V -> TP_ADC0/1
-    - fixture DIO (16 ch open-drain, 4 signals used) and DUT GPIO (24 ch)
+    - fixture DIO (16 ch open-drain, 4 signals used)
   Values are numeric with units (ohm / V / Hz) and PASS when in range.
 * Power rails up sequence is a DAQ capture: 12 critical rails are recorded
   by the U2355A analog inputs, saved as a CSV log and drawn as a waveform
@@ -142,7 +142,6 @@ ICT_STEPS = [
     ("test", "ADC Stimulus AO0/AO1 -> TP_ADC", "V", "2/2",
      "-12", "12"),
     ("test", "Fixture DIO (16 ch, 4 used)", "ch", "4/4", "—", "—"),
-    ("test", "DUT GPIO (24 ch)", "ch", "24/24", "—", "—"),
     _op_step("Power Off DUT"),
     _op_step("Fixture Unlock"),
     _op_step("Fixture Release"),
@@ -653,6 +652,10 @@ class TestWorkFlowPage(QWidget):
         # the number of power rails assigned to DAQ AI channels in the
         # Channel Allocation tables (the DAQ AI Net cell is read-only)
         self.daq_ai_rail_count_provider = None
+        # M7: allocated control-IO rows (net / DIO channel / isolation
+        # verdict) set by the main window - the U2355A DIO Read/Write
+        # ops consume it (DIO Write runs the isolation preflight)
+        self.control_io_provider = None
         self._runner = TestRunner(self)
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
@@ -2469,6 +2472,50 @@ class TestWorkFlowPage(QWidget):
         policies (engine, mtkgui.engine.policies). Returns an abort log
         message, or None to continue."""
         return self._runner._policy_abort_reason(kind, args)
+
+    def _dio_write_preflight_dialog(self, blocked):
+        """M7: STRONG / SOFT isolation warning before a DIO Write.
+
+        *blocked* is the list of control-net rows the algorithm could
+        not clear (isolated False = active IO source, None = unknown).
+        Returns ``"force"`` when the operator chooses Force-Continue,
+        ``"cancel"`` otherwise (Cancel is the DEFAULT button).
+        """
+        box = QMessageBox(self)
+        box.setWindowTitle("U2355A DIO Write - isolation check")
+        box.setIcon(QMessageBox.Icon.Critical)
+        lines = []
+        for row in blocked or []:
+            net = str(row.get("net") or "")
+            drivers = ", ".join(str(d) for d in
+                                (row.get("active_drivers") or []))
+            if row.get("isolated") is False:
+                lines.append(
+                    f"Control IO {net} connects active IO - NOT "
+                    f"isolated; driving may conflict / short. "
+                    f"Active IO sources: {drivers}.")
+            else:
+                lines.append(
+                    f"Control IO {net}: isolation cannot be confirmed "
+                    f"(unknown refdes {drivers or 'unknown'}) - drive "
+                    f"at your own risk?")
+        box.setText("\n\n".join(lines) + "\n\nForce-Continue drives the "
+                   "U2355A DIO bank anyway.")
+        force = box.addButton("Force-Continue",
+                              QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        return "force" if box.clickedButton() is force else "cancel"
+
+    def _dio_passive_reminder(self, net, members):
+        """M7: BENIGN reminder for an isolated (passive-only) control
+        net - review request, no cancel gate (INFO level)."""
+        QMessageBox.information(
+            self, "U2355A DIO Write - review request",
+            f"Algorithm assessed {net} as passive-only (no active IO "
+            f"found) - please human-review to avoid algorithm error.\n\n"
+            f"All connections: {members}")
 
     def _fct_message_dialog(self, kind, name, timeout_s: float = 0.0):
         """Modal operator dialog for the FCT message test methods.

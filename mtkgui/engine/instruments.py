@@ -31,7 +31,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .steps import op_status_lines
+from .steps import (dio_channel_index, dio_name, dio_pattern_value,
+                    op_status_lines)
 
 # equipment YAML key -> instrument abbreviation used by the op catalog
 _INSTRUMENT_KEYS = {
@@ -204,7 +205,7 @@ class RealGateway:
 
     # ------------------------------------------------------- op steps
     KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "power",
-                      "flash", "generic")
+                      "flash", "generic", "dio_read", "dio_out")
 
     def execute_op(self, name: str, params: dict | None) -> GatewayOutcome:
         """Standard operation step against the real rack."""
@@ -249,6 +250,10 @@ class RealGateway:
                 return self._op_power(p)
             if t == "flash":
                 return self._op_flash(p)
+            if t == "dio_out":
+                return self._op_dio_out(p)
+            if t == "dio_read":
+                return self._op_dio_read(p)
         except DriverUnavailable as exc:
             return GatewayOutcome("Error", lines=[str(exc)])
         except self._err_base() as exc:
@@ -296,6 +301,43 @@ class RealGateway:
         return GatewayOutcome(
             "Done",
             lines=[f"drive {sig}={level} -> DIO {channel} written"])
+
+    def _op_dio_out(self, p: dict) -> GatewayOutcome:
+        """M7: drive the U2355A DIO bank (digital output)."""
+        channels = str(p.get("channels") or "DIO01-DIO08")
+        pattern = str(p.get("pattern") or "0x00")
+        value = dio_pattern_value(pattern, channels)
+        drv = self._driver("DAQ")
+        drv.dio_write(channels, value)
+        return GatewayOutcome(
+            "Done",
+            lines=[f"U2355A DIO write {channels} = {pattern} "
+                   f"(0x{value:02X}) -> written"])
+
+    def _op_dio_read(self, p: dict) -> GatewayOutcome:
+        """M7: read the U2355A DIO bank once (reference levels only)."""
+        rows = list(p.get("control_io") or [])
+        channels = ",".join(sorted({
+            dio_name(str(row.get("dio"))) for row in rows
+            if dio_name(str(row.get("dio")))}))
+        if not channels:
+            channels = "DIO01-DIO24"
+        drv = self._driver("DAQ")
+        result = drv.dio_read(channels)
+        value = int(getattr(result, "value", 0) or 0)
+        lines = []
+        for row in rows:
+            net = str(row.get("net") or "")
+            dio = str(row.get("dio") or "")
+            index = dio_channel_index(dio)
+            if not net or not dio or index is None:
+                continue
+            level = "HIGH" if (value >> index) & 1 else "LOW"
+            lines.append(f"Control IO {net}: {dio} = {level}")
+        if not lines:
+            lines.append("Control IO: no allocated control net (read "
+                         "the full bank)")
+        return GatewayOutcome("Done", lines=lines)
 
     def _op_power(self, p: dict) -> GatewayOutcome:
         mod = self._require_module()

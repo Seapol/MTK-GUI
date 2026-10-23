@@ -1,0 +1,244 @@
+{
+  "schema": "mtkgui.ict.netparse.base_rules.v1",
+  "rules_version": "2.0",
+  "regex": {
+    "power": "^(?!.+INTB)(?:V(DD|CC|IN|OUT|PRE|SYS|BAT|BUS|AUX|CORE|IO|A|D)([0-9_].*)?|[0-9]+([.][0-9]+)?V([0-9A-Z_]*)?|P[35][V_][0-9A-Z_]*|(DCDC|DC)_([0-9]+([.][0-9]+)?V)([0-9A-Z_]*)?|[0-9A-Z_]*V(OUT|REF|SW|PWR|FB)[0-9A-Z_]*|[0-9A-Z_]+_(1V0|1V2|1V5|1V8|2V5|3V3|5V|12V|24V)([0-9A-Z_]*)?)$",
+    "gnd": "^(GND\\w*|AGND\\w*|DGND\\w*|PGND\\w*|VSS\\w*)$",
+    "se_clock": "^(CLK\\w*|OSC\\w*|XTAL\\w*|MCLK\\w*|\\d+MH?Z\\w*)$",
+    "exclude": "(?i)(DIFF|RESET|ENABLE|UART|WAKE|I2C|SPI|JTAG|DBGIF|DATA|ADC|_EN(_|$)|_(P|N)$|^\\$?N?\\d+$)",
+    "diff_pair": "^\\w+_(P|N)$"
+  },
+  "tokens": {
+    "power": [
+      "PSW",
+      "PWR",
+      "VBAT",
+      "VIN",
+      "VDDA",
+      "VDDDIG",
+      "VDDXTAL",
+      "VIO",
+      "VDD",
+      "AVDD",
+      "DVDD",
+      "IOVDD",
+      "V[0-9]+"
+    ],
+    "clock": [
+      "CLKOUT",
+      "CLKIN",
+      "CLK_OUT",
+      "CLK_IN",
+      "AUXCLKIN",
+      "AUXCLKOUT",
+      "AUXCLK",
+      "CLK",
+      "OSCI",
+      "OSCO",
+      "OSC",
+      "XTAL",
+      "EXTAL",
+      "MCLK",
+      "SCKI",
+      "REFCLK",
+      "SUSCLK",
+      "OSCI",
+      "OSCO",
+      "OSC",
+      "XTAL",
+      "EXTAL",
+      "CLK",
+      "XTAL",
+      "OSC"
+    ],
+    "control_io": [
+      "BOOT",
+      "BOOTMOD",
+      "CS",
+      "CSB",
+      "CSN",
+      "CS_N",
+      "EN",
+      "ENABLE",
+      "MODE",
+      "RESET",
+      "RST"
+    ],
+    "interface": [
+      "I2C",
+      "SCL",
+      "SDA",
+      "SPI",
+      "QSPI",
+      "UART",
+      "TX",
+      "RX",
+      "CAN",
+      "USB",
+      "SD",
+      "SDHC",
+      "USDHC",
+      "EMMC",
+      "UFS",
+      "PCIE",
+      "ETH",
+      "ENET",
+      "RGMII",
+      "MII",
+      "SGMII",
+      "SAI",
+      "ESAI",
+      "I2S",
+      "PSI5",
+      "MIPI",
+      "DBGIF",
+      "JTAG",
+      "SWD",
+      "SWCLK",
+      "TCK",
+      "1588",
+      "TRACE",
+      "PHY",
+      "SERDES",
+      "LINK",
+      "SPDIF",
+      "MLB",
+      "SIM"
+    ],
+    "mux": [
+      "GPIO",
+      "ALT",
+      "MUX",
+      "IOMUX",
+      "REUSE",
+      "FMUX"
+    ]
+  },
+  "clock_exclusions": {
+    "iface_anchor": [
+      "SPI",
+      "QSPI",
+      "ESAI",
+      "SAI",
+      "I2S",
+      "MLB",
+      "SIM"
+    ],
+    "iface2": [
+      "ENET",
+      "MIPI",
+      "PCIE"
+    ]
+  },
+  "device_roles": {
+    "clock_gen": [
+      "SI5332",
+      "SI5211",
+      "SI5221",
+      "SI5341",
+      "SI5381",
+      "8N4DV85",
+      "8N4Q001"
+    ],
+    "interface": [
+      "SJA1124",
+      "TJA1230",
+      "TJA1044",
+      "TJA1051",
+      "TJA1462",
+      "SGMII",
+      "88E1512",
+      "88E1543",
+      "DP83867",
+      "KSZ9031",
+      "KSZ8795"
+    ],
+    "fpga": [
+      "FPGA",
+      "XC7",
+      "XCU",
+      "AG25",
+      "AG32",
+      "CYCLONE",
+      "A2F",
+      "ARTIX",
+      "KINTEX",
+      "VIRTEX"
+    ],
+    "load": [
+      "IMX93",
+      "IMX8",
+      "S32",
+      "MT[0-9]{4}",
+      "STM32",
+      "GD32"
+    ],
+    "control_chip": [
+      "CPLD",
+      "EC",
+      "SIO",
+      "BMC",
+      "PCA95",
+      "TCA95",
+      "M051",
+      "N76",
+      "PIC",
+      "ATTINY",
+      "STM32F0",
+      "MSP430",
+      "XILINX_CPLD",
+      "LATTICE"
+    ]
+  },
+  "clock_nominal_freq": [
+    {
+      "pattern": "OSC32K|SUSCLK|RTC|32K",
+      "hz": 32768.0
+    }
+  ],
+  "isolation": {
+    "active_roles": [
+      "clock_gen",
+      "control_chip",
+      "fpga",
+      "interface",
+      "load"
+    ],
+    "active_categories": [
+      "dcdc",
+      "fpga",
+      "ldo",
+      "main_mcu",
+      "memory",
+      "pmic",
+      "transceiver"
+    ],
+    "passive_prefixes": [
+      "BTN",
+      "C",
+      "D",
+      "FB",
+      "FER",
+      "FERRITE",
+      "FL",
+      "J",
+      "KEY",
+      "L",
+      "R",
+      "SJ",
+      "SW",
+      "TEST",
+      "TP"
+    ]
+  },
+  "thresholds": {
+    "conflict_high": 3
+  },
+  "capacity_defaults": {
+    "power_pts": 80,
+    "rails_up": 12,
+    "clock_lf": 1,
+    "clock_hf": 2,
+    "ctrl_io": 24
+  }
+}

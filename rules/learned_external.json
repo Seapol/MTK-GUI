@@ -1,0 +1,39 @@
+{
+  "schema": "mtkgui.ict.netparse.rules.v1",
+  "version": "1.0",
+  "applies_to": ["all"],
+  "tokens": {
+    "add": {
+      "power": ["TELEM"],
+      "clock": [],
+      "control_io": [],
+      "interface": [],
+      "mux": []
+    },
+    "remove": {
+      "clock": [],
+      "control_io": [],
+      "power": [],
+      "interface": ["MLB"]
+    },
+    "reweight": {}
+  },
+  "device_roles": {
+    "add": {}
+  },
+  "clock_nominal_freq": {
+    "add": {}
+  },
+  "entries": [
+    {
+      "id": "r1",
+      "pattern": "^NAV_SER_VO$",
+      "class": "control_io",
+      "sub_class": "",
+      "reason": "servo actuator enable (owner confirmed)",
+      "source": "synthetic foreign-style project",
+      "date": "2026-10-22",
+      "version": "1.0"
+    }
+  ]
+}

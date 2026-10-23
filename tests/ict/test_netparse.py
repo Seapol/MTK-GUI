@@ -197,7 +197,8 @@ def test_result_to_csv_rows():
     text = result_to_csv(result)
     lines = text.splitlines()
     assert lines[0] == ("net,category,test_point,alternatives,members,"
-                        "sub_class,reason,priority,rank,confidence")
+                        "sub_class,reason,priority,rank,confidence,"
+                        "isolated,active_drivers")
     assert any(line.startswith("5V_SDA_PSW,Power,") for line in lines[1:])
     assert any(",Filtered," in line and "differential" in line
                for line in lines[1:])

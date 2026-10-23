@@ -192,4 +192,5 @@ def test_payload_fields_confidence_rank_test_selected():
     assert entry["test_selected"] is True
     assert payload["bridge_report"] == {}
     csv_text = result_to_csv(result, library=_CONFLICT_LIBRARY)
-    assert csv_text.splitlines()[0].endswith(",confidence")
+    assert csv_text.splitlines()[0].endswith(
+        ",confidence,isolated,active_drivers")

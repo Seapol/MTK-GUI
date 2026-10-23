@@ -117,6 +117,13 @@ class NetRecord:
     #: generates notes)
     note: str = ""
     meta: dict | None = None    # B1.5 audit (conflict scores, ...)
+    #: M7: DIO-write isolation assessment (control-IO nets only).
+    #: True = passive-only, False = active IO source found,
+    #: None = cannot confirm; ``isolation_checked`` separates "not
+    #: assessed" from a real None verdict.
+    isolated: bool | None = None
+    active_drivers: list[str] = field(default_factory=list)
+    isolation_checked: bool = False
 
 
 @dataclass

@@ -107,7 +107,101 @@ OP_STEPS: dict[str, dict] = {
         "type": "flash", "slot": "fat", "mode": "auto"},
     "Flash OOBE Firmware": {
         "type": "flash", "slot": "oobe", "mode": "auto"},
+    # M7: U2355A DIO bank standard operations (digital input / output).
+    # Read is reference-only (no judgement); Write drives the bank and
+    # is guarded by the isolation preflight in the runner.
+    "U2355A DIO Read": {
+        "type": "dio_read"},
+    "U2355A DIO Write": {
+        "type": "dio_out", "channels": "DIO01-DIO08", "pattern": "0x00"},
 }
+
+
+#: trailing channel number of a DIO channel name (``DIO07`` -> 7)
+_DIO_NUM_RE = re.compile(r"(\d+)\s*$")
+#: one DIO channel token, with or without the instrument prefix
+#: (``DIO01`` / ``U2355A DIO01``) and an optional ``-`` range
+_DIO_TOKEN_RE = re.compile(
+    r"(?:U2355A\s+)?DIO\s*\d+(?:\s*-\s*(?:U2355A\s+)?DIO\s*\d+)?", re.I)
+
+
+def dio_name(channel: str) -> str:
+    """Canonical DIO channel name (``U2355A DIO07`` -> ``DIO07``)."""
+    match = re.search(r"DIO\s*(\d+)", str(channel or ""), re.I)
+    return f"DIO{int(match.group(1)):02d}" if match else ""
+
+
+def dio_channel_index(channel: str) -> int | None:
+    """Zero-based bank bit of a DIO channel name (None when unnamed)."""
+    match = _DIO_NUM_RE.search(str(channel or ""))
+    return int(match.group(1)) - 1 if match else None
+
+
+def expand_dio_channels(channels: str) -> list[str]:
+    """``DIO01-DIO08`` / ``U2355A DIO01-DIO08`` / ``DIO01,DIO02`` ->
+    canonical channel name list (``DIO01`` ...)."""
+    text = str(channels or "").strip()
+    if not text:
+        return []
+    tokens = _DIO_TOKEN_RE.findall(text) or re.split(r"[,;]+", text)
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        parts = re.split(r"\s*-\s*", token.strip())
+        if len(parts) == 2:
+            first = dio_channel_index(parts[0])
+            last = dio_channel_index(parts[1])
+            if first is not None and last is not None and first <= last:
+                for num in range(first + 1, last + 2):
+                    name = f"DIO{num:02d}"
+                    if name not in seen:
+                        seen.add(name)
+                        out.append(name)
+                continue
+        name = dio_name(token)
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def dio_pattern_value(pattern: str, channels: str = "") -> int:
+    """Parse a U2355A DIO pattern -> integer bit mask.
+
+    Accepts HEX (``0x3C``), a per-channel list (``DIO01=1,DIO02=0``)
+    or a plain 0/1 level list in *channels* order.
+    """
+    text = str(pattern or "").strip()
+    if not text:
+        return 0
+    if text.lower().startswith("0x"):
+        try:
+            return int(text, 16)
+        except ValueError:
+            return 0
+    tokens = [t for t in re.split(r"[,;\s]+", text) if t]
+    if tokens and all("=" in t for t in tokens):
+        value = 0
+        for token in tokens:
+            channel, _, level = token.partition("=")
+            index = dio_channel_index(channel)
+            if index is not None and \
+                    str(level).strip().upper() in ("1", "H", "HIGH", "ON"):
+                value |= 1 << index
+        return value
+    if tokens and all(t in ("0", "1") for t in tokens):
+        order = expand_dio_channels(channels)
+        value = 0
+        for pos, bit in enumerate(tokens):
+            index = (dio_channel_index(order[pos]) if pos < len(order)
+                     else pos)
+            if bit == "1" and index is not None:
+                value |= 1 << index
+        return value
+    try:
+        return int(text, 0)
+    except ValueError:
+        return 0
 
 
 def op_step(name: str, params: dict | None = None) -> tuple:
@@ -132,6 +226,11 @@ def op_summary(params: dict | None) -> str:
     if t == "power" and "voltage" in (params or {}):
         return (f"{params['voltage']:g}V/"
                 f"{params.get('current', 0):g}A")
+    if t == "dio_out":
+        return (f"{(params or {}).get('channels', '')} = "
+                f"{(params or {}).get('pattern', '')}")
+    if t == "dio_read":
+        return "24 ch Control IO"
     return ""
 
 
@@ -160,6 +259,11 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
                     f"{p.get('current', 0.0):.2f} A -> output ON, "
                     f"readback OK"]
         return ["N5747A output OFF"]
+    if t == "dio_read":
+        return ["U2355A DIO bank read (reference levels only)"]
+    if t == "dio_out":
+        return [f"U2355A DIO {p.get('channels', '')} = "
+                f"{p.get('pattern', '')} -> written"]
     return [f"{name} executed"]
 
 
@@ -172,6 +276,8 @@ def op_instrument_abbr(params: dict | None) -> str:
         return "DAQM"   # fixture control board sits on DAQM907A DIO
     if t == "flash":
         return "JLINK"
+    if t in ("dio_read", "dio_out"):
+        return "DAQ"    # U2355A USB DAQ
     return "DAQM"
 
 

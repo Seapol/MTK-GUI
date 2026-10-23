@@ -29,7 +29,7 @@ RESULT_SCHEMA = "mtkgui.ict.netparse.v4"
 
 _CSV_HEADER = ("net", "category", "test_point", "alternatives",
                "members", "sub_class", "reason", "priority", "rank",
-               "confidence")
+               "confidence", "isolated", "active_drivers")
 
 _CLASSES = ("power", "clock", "control_io")
 
@@ -54,6 +54,10 @@ def _net_entry(rec, test_selected: bool | None = None) -> dict:
         # v4: input-rail evidence + free-text note (GUI/user hint)
         entry["input_rail"] = rec.input_rail
         entry["note"] = rec.note
+    if getattr(rec, "isolation_checked", False):
+        # M7: DIO-write guard evidence (control-IO nets only)
+        entry["isolated"] = rec.isolated
+        entry["active_drivers"] = list(rec.active_drivers)
     if rec.meta:
         entry["members_meta"] = dict(rec.meta)
     return entry
@@ -271,7 +275,12 @@ def result_to_csv(result: ParseNetsResult,
             " ".join(entry["members"]),
             sub_class, reason, _priority_text(rec),
             str(rec.priority.get("rank", "")) if rec.priority else "",
-            rec.confidence))
+            rec.confidence,
+            # M7: DIO-write guard evidence (empty for non-control nets)
+            ("" if "isolated" not in entry
+             else ("true" if entry["isolated"] else
+                   ("false" if entry["isolated"] is False else "unknown"))),
+            " ".join(entry.get("active_drivers") or [])))
 
     for rec in working.power:
         if rec.name not in relaxed["power"]:
@@ -294,5 +303,5 @@ def result_to_csv(result: ParseNetsResult,
         _row(rec, "GND", rec.sub_class)
     for name, reason in result.filtered:
         writer.writerow((name, "Filtered", "", "", "", "", reason,
-                         "", "", ""))
+                         "", "", "", "", ""))
     return buffer.getvalue()

@@ -423,6 +423,14 @@ def _evidence_block(rec, category: str, nominal: str,
         lines.append(f"- nominal: {nominal}")
     if rec.note:
         lines.append(f"- note: {rec.note}")
+    if getattr(rec, "isolation_checked", False):
+        # M7: DIO-write guard evidence (control-IO nets only; the
+        # Test Plan xlsx keeps its locked 2-column contract)
+        iso = ("true" if rec.isolated else
+               ("false" if rec.isolated is False else "unknown"))
+        lines.append(f"- isolated: {iso}")
+        lines.append("- active_drivers: "
+                     + (", ".join(rec.active_drivers) or "(none)"))
     return lines
 
 

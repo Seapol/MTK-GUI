@@ -670,6 +670,24 @@ class StepsEditorDialog(QDialog):
 
                 mode.currentTextChanged.connect(_on_mode)
                 param_form.addRow(manual_box)
+            elif t == "dio_out":
+                channels = QLineEdit(str(
+                    params.get("channels")
+                    or OP_STEPS.get(op_combo.currentText().strip(),
+                                    {}).get("channels") or "DIO01-DIO08"))
+                channels.setPlaceholderText("e.g. DIO01-DIO08")
+                pattern = QLineEdit(str(
+                    params.get("pattern")
+                    or OP_STEPS.get(op_combo.currentText().strip(),
+                                    {}).get("pattern") or "0x00"))
+                pattern.setPlaceholderText("hex (0x3C) or DIO01=1,DIO03=0")
+                fields["channels"], fields["pattern"] = channels, pattern
+                param_form.addRow("Channels:", channels)
+                param_form.addRow("Pattern:", pattern)
+            elif t == "dio_read":
+                param_form.addRow(QLabel(
+                    "Reads the full U2355A DIO bank and reports each "
+                    "allocated Control IO net level (reference only)."))
             else:
                 param_form.addRow(
                     QLabel("Custom operation: no parameters."))
@@ -741,6 +759,15 @@ class StepsEditorDialog(QDialog):
                 new_params["message"] = fields["message"].text().strip()
                 new_params["message_timeout_s"] = \
                     fields["message_timeout_s"].value()
+        elif t == "dio_out":
+            new_params = {
+                "type": "dio_out",
+                "channels": fields["channels"].text().strip()
+                or "DIO01-DIO08",
+                "pattern": fields["pattern"].text().strip() or "0x00",
+            }
+        elif t == "dio_read":
+            new_params = {"type": "dio_read"}
         else:
             new_params = None
         if self._kind == "ict":
