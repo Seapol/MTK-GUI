@@ -49,6 +49,8 @@ from mtkgui.ict.netparse import (
     CATEGORY_CONTROL_IO_LABEL,
     CATEGORY_GPIO,
 )
+from mtkgui.ict.netparse.confidence import clock_freq_hz
+from mtkgui.ict.netparse.priority import nominal_volts_of
 from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
@@ -77,6 +79,59 @@ DISPLAY_TO_CATEGORY = {
     "SE Clock": CATEGORY_CLOCK,
     CATEGORY_CONTROL_IO_LABEL: CATEGORY_GPIO,
 }
+
+
+def _positive_float(value) -> float | None:
+    """*value* as a strictly positive float, else None (tolerant)."""
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def parsed_nominal(category: str, rec) -> dict:
+    """M8 W2: the parsed nominal of one net, as testable_nets fields.
+
+    Power -> ``nominal_v`` (record nominal, else the net-name heuristic);
+    Clock -> ``nominal_khz`` (``clock_freq_hz``).  Noise-free: an unknown
+    nominal yields an empty dict, so the row stays user-editable.
+    """
+    if category == "Power":
+        volts = _positive_float(getattr(rec, "nominal", None))
+        if volts is None:
+            volts = _positive_float(nominal_volts_of(rec.name))
+        return {"nominal_v": volts} if volts is not None else {}
+    if category == "Clock":
+        hz = _positive_float(clock_freq_hz(rec.name))
+        return {"nominal_khz": hz / 1000.0} if hz is not None else {}
+    return {}
+
+
+def testable_net_entry(rec, category: str, *, filtered: bool = False,
+                       auto_generated: bool = False,
+                       override: bool = False) -> dict:
+    """One ``imported.testable_nets`` entry for a parsed net record.
+
+    Carries the M7 isolation evidence (``isolated`` / ``active_drivers``)
+    so the 3-tier DIO-write preflight still works after a YAML reload,
+    and the M8 parsed nominal (``nominal_v`` / ``nominal_khz``) so Auto
+    fills the clock / power limits without a name heuristic.
+    """
+    members = (list(rec.members) if not filtered
+               else [t for t in rec.members
+                     if "." in t or t.upper().startswith("TP")])
+    entry = {"category": category,
+             "members": members or list(rec.members),
+             "isolated": getattr(rec, "isolated", None),
+             "active_drivers": list(
+                 getattr(rec, "active_drivers", []) or [])}
+    entry.update(parsed_nominal(category, rec))
+    if auto_generated:
+        entry["auto_generated"] = True
+    if override:
+        entry["category_override"] = True
+    return entry
 
 
 class YamlBuildPage(QWidget):
@@ -548,29 +603,17 @@ class YamlBuildPage(QWidget):
                     if overrides.get(rec.name) == "Filtered":
                         continue        # moved to Filtered Nets
                     chosen = overrides.get(rec.name, cat)
-                    testable[rec.name] = {
-                        "category": DISPLAY_TO_CATEGORY.get(chosen, chosen),
-                        "members": list(rec.members),
-                        # M7: DIO-write isolation evidence (control IO)
-                        **({"isolated": rec.isolated,
-                            "active_drivers": list(rec.active_drivers)}
-                           if getattr(rec, "isolation_checked", False)
-                           else {}),
-                        **({"auto_generated": True}
-                           if dialog.nets_panel._auto_generated.get(
-                               rec.name) else {}),
-                        **({"category_override": True}
-                           if rec.name in overrides else {})}
+                    testable[rec.name] = testable_net_entry(
+                        rec, DISPLAY_TO_CATEGORY.get(chosen, chosen),
+                        auto_generated=bool(
+                            dialog.nets_panel._auto_generated.get(rec.name)),
+                        override=rec.name in overrides)
             for rec in result.filtered_records:
                 cat = overrides.get(rec.name)
                 if cat and cat != "Filtered":
-                    members = [t for t in rec.members
-                               if "." in t
-                               or t.upper().startswith("TP")]
-                    testable[rec.name] = {
-                        "category": DISPLAY_TO_CATEGORY.get(cat, cat),
-                        "members": members or list(rec.members),
-                        "category_override": True}
+                    testable[rec.name] = testable_net_entry(
+                        rec, DISPLAY_TO_CATEGORY.get(cat, cat),
+                        filtered=True, override=True)
             self.model.imported["testable_nets"] = testable
             # item 24: rules persistence (the channel assignment lives
             # in the Channel Allocation page only; the power tree draft

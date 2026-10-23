@@ -1812,8 +1812,11 @@ class MainWindow(QMainWindow):
             # what Auto can - previously filled Expected / Min / Max
             # cells (manual corrections) win over the fresh derivation
             previous = list(page.ict_steps)
-            rows = auto_fill_limits(generate_sequence(
-                model.allocated_testable()))
+            # M8: the parsed nominal (nominal_v / nominal_khz) carried in
+            # imported.testable_nets wins over the net-name heuristic
+            testable = model.imported.get("testable_nets") or {}
+            rows = auto_fill_limits(
+                generate_sequence(model.allocated_testable()), testable)
             rows = merge_saved_limits(rows, previous)
             # the canonical skeleton (standard operations + the derived
             # DAQ AI rail capture after Power On DUT) is built here: the

@@ -182,25 +182,44 @@ def generate_sequence(testable: dict) -> list[tuple]:
     return rows
 
 
-def auto_fill_limits(rows: list[tuple]) -> list[tuple]:
+def _stored_number(value) -> float | None:
+    """M8: a stored ``nominal_v`` / ``nominal_khz`` as a positive float."""
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def auto_fill_limits(rows: list[tuple],
+                     testable: dict | None = None) -> list[tuple]:
     """Fill Expected / Min / Max from the parsed nominal values (the
     Auto semantics, table-free): Min = Expected * (1 - tolerance),
     Max = Expected * (1 + tolerance); power voltage +/- 5 % (0.001 V
-    precision), clock +/- 50 ppm (0.1 Hz precision).  The nominal is
-    parsed from the net name (P3V3 -> 3.3 V, CLK_24M -> 24 MHz).
-    Rows without a parseable nominal stay untouched."""
+    precision), clock +/- 50 ppm (0.1 Hz precision).
+
+    The nominal comes from the ``imported.testable_nets`` entry when the
+    parse knows one (``nominal_v`` / ``nominal_khz`` - M8), else it is
+    parsed from the net name (P3V3 -> 3.3 V, CLK_24M -> 24 MHz).  Rows
+    with no known nominal stay untouched (user-editable limits).
+    """
+    testable = testable or {}
     out: list[tuple] = []
     for step in rows:
         kind, name, unit, _expected, _lo, _hi = step
         method = (name.split(" - ")[0] if " - " in name else name)
         net = name.split(" - ", 1)[1] if " - " in name else ""
+        info = testable.get(net) or {}
         nominal = tol = fmt = None
         if method == "Power Voltage":
-            nominal, tol, fmt = (expected_voltage(net),
-                                 POWER_TOL, _fmt_power)
+            nominal = (_stored_number(info.get("nominal_v"))
+                       or expected_voltage(net))
+            tol, fmt = POWER_TOL, _fmt_power
         elif method == "Clock Hz":
-            nominal, tol, fmt = (expected_hz(net),
-                                 CLOCK_TOL_PPM * 1e-6, _fmt_clock)
+            khz = _stored_number(info.get("nominal_khz"))
+            nominal = (khz * 1000.0 if khz is not None
+                       else expected_hz(net))
+            tol, fmt = CLOCK_TOL_PPM * 1e-6, _fmt_clock
         if nominal is None or tol is None:
             out.append(step)
             continue
@@ -215,6 +234,26 @@ def _filled(text) -> str:
     placeholder)."""
     value = str(text).strip()
     return "" if value in ("", "—", "--") else value
+
+
+_SKELETON_OP_NAMES = frozenset(
+    ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST)
+
+
+def _drop_repeated_skeleton_ops(rows: list[tuple]) -> list[tuple]:
+    """One row per canonical operation: a rebuild that passes the saved
+    skeleton ops through ``standard_ict_sequence`` keeps their saved
+    parameters (``by_name``) but the same rows also land in the "rest"
+    block - keep the first occurrence only."""
+    seen: set[str] = set()
+    out: list[tuple] = []
+    for step in rows:
+        if step and step[0] == "op" and step[1] in _SKELETON_OP_NAMES:
+            if step[1] in seen:
+                continue
+            seen.add(step[1])
+        out.append(step)
+    return out
 
 
 def merge_saved_limits(rows: list[tuple],
@@ -246,9 +285,17 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
                  parent: QWidget | None = None) -> None:
         self._net_provider = net_provider
         self._rail_count = int(rail_count)
-        steps = (list(initial_tests) if initial_tests
-                 else auto_fill_limits(generate_sequence(
-                     net_provider() if net_provider else {})))
+        # M8 W3: same canonical pipeline as the Load-current-yaml path -
+        # Auto-filled limits, saved manual limits / user ops preserved,
+        # then the standard-operation skeleton (Power On DUT + rails
+        # capture BEFORE the voltage / clock tests)
+        previous = list(initial_tests or [])
+        testable = net_provider() if net_provider else {}
+        base = auto_fill_limits(generate_sequence(testable), testable)
+        base = merge_saved_limits(base, previous)
+        base.extend(s for s in previous if s and s[0] == "op")
+        steps = _drop_repeated_skeleton_ops(
+            standard_ict_sequence(base, self._rail_count))
         n = len(steps)
         super().__init__(
             "ict", steps, [True] * n, [100] * n, [5000] * n, parent)

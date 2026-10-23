@@ -232,11 +232,15 @@ def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
     page._open_block("ict_workflow")
     assert len(fired) == 1
     # the whole editor state travels back (steps / enables / waits /
-    # timeouts); the default seed holds test rows only
+    # timeouts); the canonical seed wraps the test rows in the
+    # standard-operation skeleton (M8 W3)
     steps, enables, waits, timeouts = fired[0]
-    assert steps and all(r[0] == "test" for r in steps)   # tests only
+    assert steps
+    assert any(r[0] == "op" for r in steps)
     assert len(enables) == len(waits) == len(timeouts) == len(steps)
     names = [r[1] for r in steps]
+    assert "Init Instruments" in names
+    assert "Power On DUT" in names
     assert any(n.startswith("R-GND") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
     # no navigation any more (the main window navigates on the signal)

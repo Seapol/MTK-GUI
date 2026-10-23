@@ -37,20 +37,27 @@ def make_dialog():
 
 
 def test_generation_order_impedance_voltage_clock(qapp):
-    """The generated sequence: per power net impedance then voltage,
-    then the clock nets - one test per row, no standard operations."""
+    """The seed is the canonical sequence: per power net impedance then
+    voltage, then the clock nets, wrapped in the standard-operation
+    skeleton (R-GND before Power On DUT, voltage after it)."""
     dlg = make_dialog()
     try:
         rows = dlg.result_data()[0]
         names = [r[1] for r in rows]
         assert names == [
+            "Init Instruments", "Fixture Clamp Down", "Fixture Lock",
+            "Fixture E-Stop Healthy",
             "R-GND - 1V8_CORE", "R-GND - 3V3",
+            "Power On DUT",
             "Power Voltage - 1V8_CORE", "Power Voltage - 3V3",
             "Clock Hz - CLK_24M",
+            "Power Off DUT", "Fixture Unlock", "Fixture Release",
+            "Reset Instruments",
         ]
-        assert all(r[0] == "test" for r in rows)   # tests only
+        assert names.index("R-GND - 3V3") < names.index("Power On DUT") \
+            < names.index("Power Voltage - 3V3")
         units = [r[2] for r in rows]
-        assert units == ["Ω", "Ω", "V", "V", "Hz"]
+        assert units[4:10] == ["Ω", "Ω", "—", "V", "V", "Hz"]
     finally:
         dlg.deleteLater()
 
@@ -58,16 +65,19 @@ def test_generation_order_impedance_voltage_clock(qapp):
 def test_move_up_down_and_duplicate(qapp):
     dlg = make_dialog()
     try:
-        dlg.select_row(2)                          # Power Voltage - 1V8
+        idx = next(i for i, r in enumerate(dlg._steps)
+                   if r[1] == "Power Voltage - 1V8_CORE")
+        dlg.select_row(idx)
         dlg._on_move_up()
-        assert dlg._steps[1][1] == "Power Voltage - 1V8_CORE"
+        assert dlg._steps[idx - 1][1] == "Power Voltage - 1V8_CORE"
         dlg._on_move_down()
-        assert dlg._steps[2][1] == "Power Voltage - 1V8_CORE"
+        assert dlg._steps[idx][1] == "Power Voltage - 1V8_CORE"
+        before = len(dlg.result_data()[0])
         dlg._on_duplicate()
-        assert len(dlg.result_data()[0]) == 6
-        assert dlg._steps[3][1] == "Power Voltage - 1V8_CORE"
+        assert len(dlg.result_data()[0]) == before + 1
+        assert dlg._steps[idx + 1][1] == "Power Voltage - 1V8_CORE"
         dlg._on_remove()
-        assert len(dlg.result_data()[0]) == 5
+        assert len(dlg.result_data()[0]) == before
     finally:
         dlg.deleteLater()
 
@@ -77,16 +87,17 @@ def test_rapid_moves_stay_clamped_and_ordered(qapp):
     and the shared list stays in sync with result_data()."""
     dlg = make_dialog()
     try:
-        dlg.select_row(2)
-        dlg._on_move_up()
-        dlg._on_move_up()
-        dlg._on_move_up()                          # rapid repeated clicks
+        name = "Power Voltage - 1V8_CORE"
+        idx = next(i for i, r in enumerate(dlg._steps) if r[1] == name)
+        dlg.select_row(idx)
+        for _ in range(idx + 2):
+            dlg._on_move_up()                      # rapid repeated clicks
         assert dlg.list_widget.currentRow() == 0   # clamped at the top
-        assert dlg._steps[0][1] == "Power Voltage - 1V8_CORE"
+        assert dlg._steps[0][1] == name
         assert len(dlg.result_data()[0]) == dlg.list_widget.count()
         labels = [dlg.list_widget.item(r).text()
                   for r in range(dlg.list_widget.count())]
-        assert "Power Voltage - 1V8_CORE" in labels[0]
+        assert name in labels[0]
     finally:
         dlg.deleteLater()
 
