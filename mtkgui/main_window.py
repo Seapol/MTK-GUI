@@ -861,9 +861,6 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(
             "Console Background Color…", self.choose_background)
-        view_menu.addAction(
-            "Reset Background (Black)",
-            lambda: self.apply_background(QColor(DEFAULT_BACKGROUND)))
         # selectable GUI colour themes (whole application restyled)
         theme_menu = view_menu.addMenu("GUI Theme")
         self._theme_group = QActionGroup(self)
