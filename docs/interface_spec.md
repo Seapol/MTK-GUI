@@ -1428,6 +1428,80 @@ later runs.
   appended after `confidence`), the JSON export (same keys per net) and
   the Test Plan evidence markdown (`- isolated:` / `- active_drivers:`).
 
+### 35. M10 - Real SharePoint sign-in + REST upload
+
+Owner: `mtkgui/engine/sharepoint_site.py` (new),
+`mtkgui/engine/uploader.py` (`SharePointRestTransport`),
+`mtkgui/gui/sharepoint_upload_dialog.py` (sign-in window + wiring).
+`FakeSharePoint`, the virtual-mode paths, the CSV/plan naming, the
+existing `HttpSharePoint` behaviour and the report/pack logic are
+unchanged.
+
+#### Link parsing
+
+```python
+@dataclass(frozen=True) SharePointSite: site, folder_path, raw
+parse_sharepoint_link(link) -> SharePointSite
+    # https://<host>/:f:/r/teams/<...>?d=...&csf=1&web=1   (modern)
+    # https://<host>/:f:/teams/<...>?d=...                  (classic)
+    # https://<host>/teams/<...>                            (direct)
+    # path URL-decoded, query stripped; a sub-folder link is the
+    # upload root; ValueError on non-http(s) / empty input
+join_folder(folder_path, relative) -> server-relative path
+host_of(site) -> netloc
+session_cookies(items, host) -> [cookie dict]      # FedAuth / rtFa
+class SharePointSession: site, folder_path, user, link, signed_in_at,
+                         cookies; jar(); save(path) / load(path)
+    # persisted as <state>/session.json; load() -> None unless signed in
+```
+
+#### REST transport (same seam as `HttpSharePoint` / `FakeSharePoint`)
+
+```python
+class SharePointRestTransport(site_url, cookie_jar=None, *,
+                              folder_path="", timeout=30.0, opener=None)
+    head(path="")        # GET  _api/web/GetFolderByServerRelativeUrl(
+                         #      '<folder_path>')            reachability
+    mkdirs(path="")      # POST .../Folders/add('<name>') per segment;
+                         #      409 (already exists) is OK; cache
+    exists(path)         # GET  _api/web/GetFileByServerRelativeUrl(...)
+    put(path, data)      # POST .../Files/add(url='<basename>',
+                         #      overwrite=true)  -> cloud URL
+    current_user()       # GET  _api/web/currentuser -> d.Title /
+                         #      d.LoginName ("" when absent)
+    _digest_value()      # GET  _api/contextinfo ->
+                         #      d.GetContextWebInformation.FormDigestValue
+                         #      sent as X-RequestDigest (cached)
+```
+
+Status mapping: 200/201 -> success; 401/403 -> `TransportError`
+("not signed in / access denied"); 404 -> `TransportError` (bad link /
+path); 429/5xx -> `ConnectionError` (retryable); `URLError` ->
+`ConnectionError`. Absolute probe paths (the engine `precheck` passes
+`site_url`) mean "the transport root".
+
+#### GUI wiring (`SharePointUploadDialog`)
+
+- New button **Connect & Sign in…** (hidden/disabled in virtual mode)
+  opens `SharePointSignInDialog` (QtWebEngine, Chrome UA, persistent
+  profile at `<state>/webprofile/`). Success = a `FedAuth` / `rtFa`
+  cookie on the site host; the dialog shows `Signed in — close this
+  window`.
+- `adopt_sign_in(parsed, cookies)`: resolves the display name through
+  `_api/web/currentuser` (falls back to `signed-in user`), persists
+  `<state>/session.json`, sets
+  `Signed in as <name> — SharePoint test-data upload ready`, logs the
+  Event-Log line and runs Test Connection once.
+- `test_connection()`: real mode without a signed-in session returns
+  `["not signed in — click Connect & Sign in… first"]`; with one it
+  probes through the REST transport. Virtual mode keeps the
+  FakeSharePoint path unchanged.
+- `_transport()`: virtual -> `FakeSharePoint`; signed-in session ->
+  `SharePointRestTransport(site, session.jar(), folder_path=...)`;
+  otherwise the legacy `HttpSharePoint(site_url, token=...)`.
+- `session` is a constructor kwarg (tests / embedders) and overrides the
+  persisted `session.json`; `config_path` / `state_dir` stay injectable.
+
 ## Conflict Prevention Rule
 
 If two modules need new cross-module data field, update this interface spec first.

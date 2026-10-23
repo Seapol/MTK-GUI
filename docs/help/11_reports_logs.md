@@ -113,6 +113,38 @@ reports/
 **Note:** keep `reports/` inside the project directory so the archive
 and audit trail can reference the same paths.
 
+## SharePoint Upload (Report menu)
+
+`Report > SharePoint Upload...` moves a local folder (reports, logs,
+archives) to the project SharePoint folder - either as a real-time
+mirror (new / changed files only) or as a timestamped zip once per
+period (day / week / bi-weekly / month / quarter / half-year / year).
+Virtual mode uses the built-in `FakeSharePoint` transport and marks
+every result `(virtual)`; the site is never contacted.
+
+Real mode talks to the NXP tenant over the SharePoint REST API with
+the operator's own browser session:
+
+1. Paste the folder share link (modern `.../:f:/r/teams/...` or the
+   classic `.../:f:/teams/...` form; a link to a project sub-folder is
+   accepted - it simply becomes the upload root) into **Site link**.
+2. Press **Connect & Sign in...**. An embedded login window opens; sign
+   in with your corporate account (MFA included). MTK GUI stores no
+   password - only the resulting `FedAuth` / `rtFa` session cookies,
+   under `mtkgui/config/sharepoint_state/` on this OS user's profile.
+3. The dialog confirms `Signed in as <name> - SharePoint test-data
+   upload ready` and runs **Test Connection** once. It reports OK only
+   when the folder is reachable and writable; a 401/403 means the
+   session expired (sign in again), a 404 means the link is wrong.
+4. Pick the local folder and the mode, then **Sync Now** /
+   **Pack & Upload Now** (or let the 30 s driver work while the dialog
+   is open). Uploads use `Files/add(overwrite=true)`; failures stay in
+   the local outbox and are retried on the next sweep.
+
+The **Token** field stays for legacy token-based sites; when no session
+is present the dialog keeps that path and never silently uploads with a
+stale session.
+
 ## Event Log (LogPanelWidget)
 
 The bottom **log panel** is a pure sink — it emits nothing back to the

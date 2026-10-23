@@ -23,6 +23,7 @@ real split.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -42,18 +43,34 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from mtkgui.engine.sharepoint_site import (
+    SharePointSession,
+    host_of,
+    parse_sharepoint_link,
+    session_cookies,
+)
 from mtkgui.engine.uploader import (
     MODE_PACKAGED,
     MODE_SYNC,
     PERIODS,
     FakeSharePoint,
     HttpSharePoint,
+    SharePointRestTransport,
     SharePointUploader,
+    TransportError,
 )
 
 #: persisted config (virtual_fault.json pattern: module config dir
 #: first, then the working directory)
 CONFIG_NAME = "sharepoint_upload.json"
+
+#: signed-in session file inside the SharePoint state dir
+SESSION_NAME = "session.json"
+
+#: Chrome user agent - some tenants reject the stock Qt WebEngine UA
+CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+             "AppleWebKit/537.36 (KHTML, like Gecko) "
+             "Chrome/124.0.0.0 Safari/537.36")
 
 
 def candidate_config_paths():
@@ -97,6 +114,104 @@ PERIOD_LABELS = {
 }
 
 
+class SharePointSignInDialog(QDialog):
+    """Embedded login window (QtWebEngine) for the real NXP site.
+
+    The operator signs in with their own corporate account (MFA
+    included) in a normal browser window; MTK GUI only captures the
+    resulting FedAuth / rtFa session cookies - the password never
+    reaches the application.  The web profile (cookie store) persists
+    under ``sharepoint_state/webprofile`` so the tenant session
+    survives a dialog close.
+
+    ``view_factory`` lets tests inject a stub view (no QtWebEngine
+    process needed); :meth:`add_cookie` is the single success-detection
+    entry point for both the live cookie store and the tests.
+    """
+
+    def __init__(self, parent=None, *, site_url: str = "", profile_dir=None,
+                 view_factory=None):
+        super().__init__(parent)
+        self.setWindowTitle("SharePoint Sign-in")
+        self.setModal(True)
+        self.resize(900, 680)
+        self.site_url = str(site_url or "")
+        self.profile_dir = Path(profile_dir) if profile_dir else None
+        self.host = host_of(self.site_url)
+        self.signed_in = False
+        self.session_cookies: list[dict] = []
+
+        root = QVBoxLayout(self)
+        self.url_label = QLineEdit()
+        self.url_label.setReadOnly(True)
+        self.url_label.setPlaceholderText("sign-in page…")
+        root.addWidget(self.url_label)
+        self.view = (view_factory() if view_factory is not None
+                     else self._make_view())
+        root.addWidget(self.view, 1)
+        self.status = QLabel("Sign in with your NXP account (MFA included)."
+                             " MTK GUI stores no password.")
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    # ------------------------------------------------------- web view
+    def _make_view(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        profile = QWebEngineProfile("mtkgui-sharepoint", self)
+        if self.profile_dir is not None:
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+            profile.setPersistentStoragePath(str(self.profile_dir))
+            profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy
+                .ForcePersistentCookies)
+        profile.setHttpUserAgent(CHROME_UA)
+        page = QWebEnginePage(profile, self)
+        view = QWebEngineView(self)
+        view.setPage(page)
+        store = profile.cookieStore()
+        store.cookieAdded.connect(self._on_qt_cookie)
+        store.loadAllCookies()
+        view.urlChanged.connect(
+            lambda url: self.url_label.setText(url.toString()))
+        view.load(QUrl(self.site_url))
+        return view
+
+    def _on_qt_cookie(self, cookie):
+        """Qt cookie store -> the plain dict :meth:`add_cookie` wants."""
+        def text(data) -> str:
+            return bytes(data).decode("utf-8", "ignore")
+
+        self.add_cookie({"name": text(cookie.name().data()),
+                         "value": text(cookie.value().data()),
+                         "domain": cookie.domain(),
+                         "path": cookie.path() or "/",
+                         "secure": cookie.isSecure()})
+
+    # ------------------------------------------------- signed-in state
+    def add_cookie(self, cookie: dict) -> bool:
+        """Keep a session cookie for the site host; the first FedAuth /
+        rtFa cookie marks the sign-in as complete."""
+        kept = session_cookies([cookie], self.host)
+        if not kept:
+            return False
+        current = kept[0]
+        self.session_cookies = [
+            c for c in self.session_cookies
+            if (c.get("name"), c.get("path")) !=
+            (current.get("name"), current.get("path"))]
+        self.session_cookies.append(current)
+        if not self.signed_in:
+            self.signed_in = True
+            self.status.setStyleSheet("color:#1d7a3c;")
+            self.status.setText("Signed in — close this window")
+        return True
+
+
 class SharePointUploadDialog(QDialog):
     """Configure / test / drive the SharePoint upload (Report menu)."""
 
@@ -110,14 +225,22 @@ class SharePointUploadDialog(QDialog):
 
     def __init__(self, parent=None, *, virtual: bool = False,
                  config_path=None, uploader: SharePointUploader | None = None,
-                 state_dir=None):
+                 state_dir=None, session: SharePointSession | None = None):
         super().__init__(parent)
         self.setWindowTitle("SharePoint Upload")
         self.setModal(True)
         self.virtual = bool(virtual)
         self._config_path = (Path(config_path) if config_path else None)
         self._state_dir = (Path(state_dir) if state_dir else None)
+        self._state_root = (self._state_dir or
+                            Path(__file__).resolve().parents[1] / "config"
+                            / "sharepoint_state")
         self._uploader = uploader
+        # signed-in session: injected (tests / embedders) or restored
+        # from the persisted session.json; virtual mode never signs in
+        self._session = session if session is not None else (
+            None if self.virtual else
+            SharePointSession.load(self._state_root / SESSION_NAME))
         self.resize(640, 520)
 
         root = QVBoxLayout(self)
@@ -131,8 +254,19 @@ class SharePointUploadDialog(QDialog):
         form.addRow("Site link:", self.site_edit)
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token_edit.setPlaceholderText("bearer token (optional)")
+        self.token_edit.setPlaceholderText("bearer token (optional, legacy)")
         form.addRow("Token:", self.token_edit)
+        sign_row = QHBoxLayout()
+        self.btn_signin = QPushButton("Connect & Sign in…")
+        self.btn_signin.clicked.connect(self.connect_and_sign_in)
+        self.btn_signin.setEnabled(not self.virtual)
+        sign_row.addWidget(self.btn_signin)
+        self.signin_status = QLabel(
+            "virtual mode: no sign-in needed" if self.virtual
+            else "not signed in")
+        self.signin_status.setWordWrap(True)
+        sign_row.addWidget(self.signin_status, 1)
+        form.addRow(sign_row)
         test_row = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
         self.btn_test.clicked.connect(self.test_connection)
@@ -224,6 +358,7 @@ class SharePointUploadDialog(QDialog):
         else:
             saved = load_upload_config()
         self._apply_section(saved)
+        self._apply_session()
 
     # ---------------------------------------------------------- plumbing
     def _make_timer(self):
@@ -254,6 +389,15 @@ class SharePointUploadDialog(QDialog):
             self.rb_sync.setChecked(True)
         self._sync_mode_widgets()
 
+    def _apply_session(self) -> None:
+        """Show the persisted session (if any) as the sign-in status."""
+        if self.virtual or not (self._session and self._session.cookies):
+            return
+        self.signin_status.setStyleSheet("color:#1d7a3c;")
+        self.signin_status.setText(
+            f"Signed in as {self._session.user or 'signed-in user'} — "
+            "SharePoint test-data upload ready")
+
     def current_section(self) -> dict:
         """The ``sharepoint`` section built from the current fields."""
         return {
@@ -281,22 +425,99 @@ class SharePointUploadDialog(QDialog):
         from mtkgui.engine.uploader import UploadConfig
         section = self.current_section()
         folder = section["local_folder"]
-        state = (self._state_dir or
-                 Path(__file__).resolve().parents[1] / "config"
-                 / "sharepoint_state")
+        state = self._state_root
         outbox = Path(folder) if folder else state / "sharepoint_outbox"
         cfg = UploadConfig.from_config({"sharepoint": section})
         if self._uploader is not None:
             uploader = self._uploader
         else:
-            transport = (FakeSharePoint() if self.virtual else
-                         HttpSharePoint(section["site_url"],
-                                        token=section["token"],
-                                        timeout=8.0))
             uploader = SharePointUploader(
-                outbox, state_dir=state, transport=transport)
+                outbox, state_dir=state, transport=self._transport())
         uploader.apply_config(cfg)
         return uploader
+
+    def _transport(self):
+        """Fake (virtual) / signed-in REST (real) / legacy token."""
+        if self.virtual:
+            return FakeSharePoint()
+        rest = self._rest_transport()
+        if rest is not None:
+            return rest
+        section = self.current_section()
+        return HttpSharePoint(section["site_url"], token=section["token"],
+                              timeout=8.0)
+
+    def _rest_transport(self) -> SharePointRestTransport | None:
+        """The REST transport for the signed-in session (None when the
+        operator has not signed in - legacy token mode stays)."""
+        if self.virtual or not (self._session and self._session.cookies):
+            return None
+        link = self.site_edit.text().strip() or self._session.link
+        site, folder = self._session.site, self._session.folder_path
+        if link:
+            try:
+                parsed = parse_sharepoint_link(link)
+                site = site or parsed.site
+                folder = parsed.folder_path or folder
+            except ValueError:
+                pass
+        if not site:
+            return None
+        return SharePointRestTransport(site, self._session.jar(),
+                                       folder_path=folder, timeout=8.0)
+
+    # --------------------------------------------------------- sign-in
+    def connect_and_sign_in(self):
+        """Open the embedded login window and capture the tenant
+        session (FedAuth / rtFa cookies).  No password is stored."""
+        if self.virtual:
+            return None
+        link = self.site_edit.text().strip()
+        if not link:
+            self._warn("Enter the SharePoint site link first.")
+            return None
+        try:
+            parsed = parse_sharepoint_link(link)
+        except ValueError as exc:
+            self._warn(f"Invalid SharePoint link: {exc}")
+            return None
+        dlg = SharePointSignInDialog(
+            self, site_url=parsed.site,
+            profile_dir=self._state_root / "webprofile")
+        dlg.exec()
+        if not (dlg.signed_in and dlg.session_cookies):
+            self._log("sharepoint sign-in: cancelled / not completed")
+            return None
+        return self.adopt_sign_in(parsed, dlg.session_cookies)
+
+    def adopt_sign_in(self, parsed, cookies: list[dict]):
+        """Persist the captured session, resolve the user name over REST
+        and run Test Connection once."""
+        site = parsed.site
+        user = ""
+        try:
+            user = SharePointRestTransport(
+                site, SharePointSession(site=site,
+                                        cookies=list(cookies)).jar(),
+                folder_path=parsed.folder_path,
+                timeout=8.0).current_user().strip()
+        except (TransportError, ConnectionError):
+            user = ""
+        session = SharePointSession(
+            site=site, folder_path=parsed.folder_path,
+            user=user or "signed-in user",
+            link=self.site_edit.text().strip(),
+            signed_in_at=datetime.now().isoformat(timespec="seconds"),
+            cookies=list(cookies))
+        session.save(self._state_root / SESSION_NAME)
+        self._session = session
+        self.signin_status.setStyleSheet("color:#1d7a3c;")
+        self.signin_status.setText(
+            f"Signed in as {session.user} — SharePoint test-data upload "
+            "ready")
+        self._log(f"sharepoint sign-in: {session.user} ({site})")
+        self.test_connection()
+        return session
 
     def _log(self, message: str) -> None:
         stamp = self._uploader.now() if self._uploader else None
@@ -307,9 +528,18 @@ class SharePointUploadDialog(QDialog):
 
     # --------------------------------------------------------- actions
     def test_connection(self) -> list[str]:
-        """Connectivity + permission + writable probe (honest result)."""
+        """Connectivity + permission + writable probe (honest result).
+
+        Real mode needs a signed-in session: without one the honest
+        answer is "not signed in", never a silent legacy fallback."""
         self.conn_status.setText("testing…")
-        problems = self._build_uploader().precheck()
+        if not self.virtual and not (self._session and self._session.cookies):
+            problems = ["not signed in — click Connect & Sign in… first"]
+        else:
+            try:
+                problems = self._build_uploader().precheck()
+            except TransportError as exc:
+                problems = [str(exc)]
         if problems:
             self.conn_status.setStyleSheet("color:#d35400;")
             self.conn_status.setText("FAIL: " + "; ".join(problems))

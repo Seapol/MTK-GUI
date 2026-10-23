@@ -26,6 +26,7 @@ Zero changes to the test flow, reports, metrics engine or archive.
 from __future__ import annotations
 
 import fnmatch
+import http.cookiejar
 import json
 import time
 import urllib.error
@@ -34,8 +35,10 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from mtkgui.engine.archive import file_sha256  # reuse P2-7 hashing
+from mtkgui.engine.sharepoint_site import join_folder  # M10 link roots
 
 # executable / dangerous payloads never leave the station
 BLACKLIST_SUFFIXES = {".exe", ".bat", ".cmd", ".sh", ".dll", ".msi"}
@@ -205,6 +208,175 @@ class HttpSharePoint:
     def put(self, path: str, data: bytes) -> str:
         self._request("PUT", f"{self.site_url}/{path}", data)
         return f"{self.site_url}/{path}"
+
+
+def _is_absolute(value) -> bool:
+    return str(value or "").lower().startswith(("http://", "https://"))
+
+
+class SharePointRestTransport:
+    """Real transport (M10): SharePoint REST ``_api`` uploads signed
+    with the operator's browser session cookies (FedAuth / rtFa).
+
+    Same seam as :class:`FakeSharePoint` / :class:`HttpSharePoint`:
+    ``head(path)``, ``put(path, data)``, ``mkdirs(path)`` plus
+    ``exists(path)`` for the overwrite=skip policy.  ``TransportError``
+    aborts without retry (401/403 not signed in, 404 bad link/path),
+    ``ConnectionError`` is retryable (429/5xx, network down).
+    Absolute probe paths (the engine precheck passes the configured
+    site URL) are ignored: the transport always probes its own
+    ``folder_path`` - the share link IS the upload root.
+    """
+
+    USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0.0.0 Safari/537.36")
+
+    def __init__(self, site_url: str, cookie_jar=None, *,
+                 folder_path: str = "", timeout: float = 30.0,
+                 opener=None):
+        self.site_url = str(site_url or "").rstrip("/")
+        self.folder_path = str(folder_path or "")
+        self.timeout = float(timeout)
+        self._digest = ""
+        self._known_dirs: set[str] = set()
+        if opener is not None:
+            self._opener = opener
+        else:
+            jar = (cookie_jar if cookie_jar is not None
+                   else http.cookiejar.CookieJar())
+            self._opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(jar))
+
+    # ------------------------------------------------------ plumbing
+    def _api(self, tail: str) -> str:
+        return f"{self.site_url}/_api/{tail}"
+
+    def _folder_url(self, relative: str = "") -> str:
+        folder = join_folder(self.folder_path, relative)
+        return self._api(
+            "web/GetFolderByServerRelativeUrl("
+            f"'{quote(folder, safe='/')}')")
+
+    @staticmethod
+    def _relative(path) -> str:
+        """Relative path; absolute URLs (precheck probe) mean "the
+        transport root"."""
+        return "" if _is_absolute(path) else str(path or "")
+
+    def _status_error(self, code: int, url: str) -> Exception:
+        if code in (401, 403):
+            return TransportError(
+                f"not signed in / access denied (http {code}): {url}")
+        if code == 404:
+            return TransportError(
+                f"not found - check the site link / folder "
+                f"(http 404): {url}")
+        if code == 429 or 500 <= code <= 599:
+            return ConnectionError(f"sharepoint busy (http {code}): {url}")
+        return TransportError(f"http {code}: {url}")
+
+    def _request(self, method: str, url: str, data: bytes | None = None,
+                 headers: dict | None = None,
+                 allow: tuple[int, ...] = ()) -> tuple[int, bytes]:
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Accept", "application/json;odata=verbose")
+        req.add_header("User-Agent", self.USER_AGENT)
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
+        try:
+            with self._opener.open(req, timeout=self.timeout) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                body = resp.read() or b""
+        except urllib.error.HTTPError as exc:
+            code = int(getattr(exc, "code", 0) or 0)
+            if code in allow:
+                return code, b""
+            raise self._status_error(code, url) from exc
+        except urllib.error.URLError as exc:
+            raise ConnectionError(
+                f"sharepoint unreachable: {url} "
+                f"({getattr(exc, 'reason', exc)})") from exc
+        return status, body
+
+    @staticmethod
+    def _json(body: bytes) -> dict:
+        try:
+            data = json.loads(body.decode("utf-8", "replace") or "{}")
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _digest_value(self, refresh: bool = False) -> str:
+        """Form digest from ``_api/contextinfo`` (``X-RequestDigest``)."""
+        if self._digest and not refresh:
+            return self._digest
+        _, body = self._request("GET", self._api("contextinfo"))
+        info = (self._json(body).get("d") or {}).get(
+            "GetContextWebInformation") or {}
+        value = str(info.get("FormDigestValue") or "")
+        if not value:
+            raise TransportError(
+                "sharepoint contextinfo returned no form digest - the "
+                "session may have expired")
+        self._digest = value
+        return value
+
+    # --------------------------------------------------------- seam
+    def head(self, path="") -> None:
+        """Reachability probe: the upload-root folder must be listed."""
+        self._request("GET", self._folder_url(self._relative(path)))
+
+    def mkdirs(self, path="") -> None:
+        """Create every missing folder segment under the upload root
+        (``Folders/add``); an already-existing folder (http 409) is
+        fine.  An empty path only ensures the root is reachable."""
+        relative = self._relative(path).strip("/")
+        if not relative:
+            self.head("")
+            return
+        parent = ""
+        for part in [p for p in relative.split("/") if p]:
+            parent = f"{parent}/{part}" if parent else part
+            if parent in self._known_dirs:
+                continue
+            url = self._folder_url(parent.rsplit("/", 1)[0]
+                                   if "/" in parent else "") \
+                + f"/Folders/add('{quote(part)}')"
+            self._request("POST", url, headers={
+                "X-RequestDigest": self._digest_value()}, allow=(409,))
+            self._known_dirs.add(parent)
+
+    def exists(self, path) -> bool:
+        relative = self._relative(path)
+        if not relative:
+            return False
+        url = self._api(
+            "web/GetFileByServerRelativeUrl("
+            f"'{quote(join_folder(self.folder_path, relative), safe='/')}')")
+        try:
+            self._request("GET", url)
+            return True
+        except TransportError:
+            return False
+
+    def put(self, path, data: bytes) -> str:
+        relative = str(path or "").strip("/")
+        parent, _, name = relative.rpartition("/")
+        if parent:
+            self.mkdirs(parent)
+        url = (self._folder_url(parent)
+               + f"/Files/add(url='{quote(name)}',overwrite=true)")
+        self._request("POST", url, data=data, headers={
+            "Content-Type": "application/octet-stream",
+            "X-RequestDigest": self._digest_value()})
+        return f"{self.site_url}{join_folder(self.folder_path, relative)}"
+
+    def current_user(self) -> str:
+        """Display name of the signed-in user (``Title`` -> ``LoginName``)."""
+        _, body = self._request("GET", self._api("web/currentuser"))
+        data = self._json(body).get("d") or {}
+        return str(data.get("Title") or data.get("LoginName") or "")
 
 
 # ============================================================== results

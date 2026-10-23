@@ -143,6 +143,13 @@ covers the file formats).
   range (day / week / month / year / batch) and read Yield, average
   cycle time, UPH/UPD, CpK and the error ranking. *Dialog:
   Statistics window.*
+- **SharePoint Upload...** - opens the SharePoint upload dialog: site
+  share link, local folder, real-time sync vs timestamped packaged
+  upload, and **Connect & Sign in...** for the real tenant session
+  (embedded login window, MFA included; no password is stored). Test
+  Connection probes reachability and write permission with that
+  session. Virtual mode uses the fake transport. *Dialog: SharePoint
+  Upload window.*
 
 ## Help Menu
 
