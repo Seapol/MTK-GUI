@@ -45,6 +45,14 @@ from PySide6.QtWidgets import (
 
 from . import project_config
 from .equipment_page import EquipmentPage
+from .gui.event_log_levels import (
+    DETAILED,
+    IMPORTANT,
+    SIMPLIFIED,
+    resolve_level,
+    should_display,
+    strip_leading_stamp,
+)
 from .gui.progress_dialog import busy_progress
 from .permissions import (
     FIXTURE_ATE,
@@ -137,6 +145,52 @@ def _colorize_verdicts(escaped_text):
                 f'font-weight:bold;">{word}</span>')
 
     return _VERDICT_RE.sub(_span, escaped_text)
+
+
+#: QSettings key of the Event Log display level (M11)
+EVENT_LOG_LEVEL_KEY = "event_log/level"
+#: tooltip of the (disabled) Event Log entries on Operator accounts
+OPERATOR_EVENT_LOG_TIP = "Operator accounts use the simplified event log"
+
+
+def load_event_log_level(role, settings=None):
+    """Display level of the Event Log for ``role`` (M11 F3).
+
+    Operator accounts ALWAYS get the simplified log - their Settings
+    entries are disabled, so Detailed can never be enabled for them.
+    A Supervisor keeps the persisted choice; without a saved value the
+    detailed log is the default.
+
+    Args:
+        role: ``ROLE_OPERATOR`` or ``ROLE_SUPERVISOR``.
+        settings: Optional QSettings instance (tests inject a temp
+                  file instead of the user preferences).
+
+    Returns:
+        ``"simplified"`` or ``"detailed"``.
+    """
+    if role == ROLE_OPERATOR:
+        return SIMPLIFIED
+    if settings is None:
+        settings = QSettings(APP_ORG, APP_NAME)
+    saved = str(settings.value(EVENT_LOG_LEVEL_KEY, "") or "").strip().lower()
+    return saved if saved in (SIMPLIFIED, DETAILED) else DETAILED
+
+
+def save_event_log_level(level, settings=None):
+    """Persist the Supervisor's Event Log choice (next login keeps it).
+
+    Args:
+        level: ``"simplified"`` or ``"detailed"``.
+        settings: Optional QSettings instance (tests inject a temp
+                  file instead of the user preferences).
+    """
+    if settings is None:
+        settings = QSettings(APP_ORG, APP_NAME)
+    settings.setValue(
+        EVENT_LOG_LEVEL_KEY,
+        level if level in (SIMPLIFIED, DETAILED) else DETAILED)
+    settings.sync()
 
 
 class StatusLed(QLabel):
@@ -408,6 +462,10 @@ class MainWindow(QMainWindow):
         # configuration, IO control and fixture-linked entries
         self.fixture_type = fixture
         self.fault_config = load_fault_config()
+        # Event Log display level (M11): role default, only a supervisor
+        # may switch it (persisted under event_log/level); it must exist
+        # before _build_ui writes the first log lines
+        self._event_log_level = load_event_log_level(role)
 
         # path of the currently loaded / saved project YAML (None = new)
         self._project_path = None
@@ -551,9 +609,8 @@ class MainWindow(QMainWindow):
         # allocation tables are EMBEDDED in the Yaml Build page below
         # the block cards (yaml_build_page.channel_alloc); its task
         # log funnels through the page's own task_log signal below
-        self.yaml_build_page.task_log.connect(
-            lambda level, msg:
-                self._append_event_log(f"[{level}] {msg}"))
+        # (M11: ONE connection only - a second wiring doubled every
+        # Event-Log line)
 
         # navigation: merged "Build ICT Test Work Flow Sequence" card
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
@@ -707,7 +764,7 @@ class MainWindow(QMainWindow):
             f"GUI version: {self.gui_version}")
         if self.gui_version_warning:
             self._append_event_log(
-                f"WARNING: {self.gui_version_warning}")
+                f"WARNING: {self.gui_version_warning}", level="WARNING")
         self._append_event_log(
             f"Build: {self.version_info.display()} "
             f"(source: {self.version_info.source})")
@@ -910,6 +967,24 @@ class MainWindow(QMainWindow):
         # Virtual mode only (supervisor): random fault-injection config
         self.act_fault_inject = settings_menu.addAction(
             "Virtual Fault Injection...", self._open_fault_dialog)
+        # M11: Event Log display level - exclusive pair, the choice is
+        # persisted and re-applied on the next login.  Operators keep
+        # the entries VISIBLE but disabled (simplified only).
+        settings_menu.addSeparator()
+        self._event_log_group = QActionGroup(self)
+        self._event_log_group.setExclusive(True)
+        self.act_event_log_simplified = settings_menu.addAction(
+            "Event Log: Simplified")
+        self.act_event_log_simplified.setCheckable(True)
+        self._event_log_group.addAction(self.act_event_log_simplified)
+        self.act_event_log_simplified.triggered.connect(
+            lambda _checked=False: self._set_event_log_level(SIMPLIFIED))
+        self.act_event_log_detailed = settings_menu.addAction(
+            "Event Log: Detailed")
+        self.act_event_log_detailed.setCheckable(True)
+        self._event_log_group.addAction(self.act_event_log_detailed)
+        self.act_event_log_detailed.triggered.connect(
+            lambda _checked=False: self._set_event_log_level(DETAILED))
         # the Test Work Flow page queries this in its pre-test phase
         self.workflow_page.sn_format = lambda: dict(self.sn_config)
 
@@ -1241,7 +1316,8 @@ class MainWindow(QMainWindow):
                 raise OSError("run history is not writable")
         except Exception as exc:                # noqa: BLE001
             self._append_event_log(
-                f"WARNING: statistics record not saved: {exc}")
+                f"WARNING: statistics record not saved: {exc}",
+                level=IMPORTANT)
         from mtkgui.engine.report import BatchSummary, DutReport
         report = DutReport.from_session(self.workflow_page)
         self._session_reports.append(report)
@@ -1336,9 +1412,10 @@ class MainWindow(QMainWindow):
         from .gui.sharepoint_upload_dialog import SharePointUploadDialog
         dlg = SharePointUploadDialog(
             self, virtual=self.workflow_page.virtual_mode)
+        # M11: the dialog stamps its own lines - the level marks the
+        # upload result as an important event (shown in Simplified too)
         dlg.action_logged.connect(
-            lambda msg: self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] {msg}"))
+            lambda msg: self._append_event_log(msg, level=IMPORTANT))
         dlg.exec()
 
     def _open_statistics(self):
@@ -1384,20 +1461,30 @@ class MainWindow(QMainWindow):
         self.workflow_page.set_mode(self.mode)
         self.workflow_page.set_virtual_fault(self.fault_config)
         self.workflow_page.multi_console.set_virtual_mode(virtual)
+        # M11 F3: Event Log level follows the role (Operator always
+        # simplified); the two Settings entries stay visible but are
+        # supervisor-only, so an Operator can never enable Detailed
+        operator = self.role != ROLE_SUPERVISOR
+        self._event_log_level = load_event_log_level(self.role)
+        for act in (self.act_event_log_simplified,
+                    self.act_event_log_detailed):
+            act.setEnabled(not operator)
+            act.setToolTip(OPERATOR_EVENT_LOG_TIP if operator else "")
+        self._sync_event_log_menu()
         # Virtual mode only simulates the ICT instruments - FCT always
         # runs on real hardware: one fixed notice per login (same
         # pattern as the Manual-fixture notice)
         self._virtual_notice_pending = virtual
         if virtual:
             self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] Mode: Virtual - only ICT "
-                "instrument measurements are simulated; FCT always "
-                "runs on real hardware")
+                "Mode: Virtual - only ICT instrument measurements are "
+                "simulated; FCT always runs on real hardware",
+                level=IMPORTANT)
             if self.isVisible():
                 QTimer.singleShot(0, self, qt_safe(self._show_virtual_notice))
         self._apply_fixture_mode()
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Logged in: {self.role}")
+            f"Logged in: {self.role}", level=IMPORTANT)
 
     def _apply_fixture_mode(self):
         """Fixture-type linkage (spec item 5): Manual mode globally
@@ -1411,8 +1498,8 @@ class MainWindow(QMainWindow):
         self._manual_notice_pending = manual
         if manual:
             self._append_event_log(
-                f"[{datetime.now():%H:%M:%S}] Fixture: Manual mode - "
-                "fixture hardware / IO control disabled")
+                "Fixture: Manual mode - fixture hardware / IO control "
+                "disabled", level=IMPORTANT)
             if self.isVisible():
                 QTimer.singleShot(0, self, qt_safe(self._show_manual_notice))
 
@@ -1484,9 +1571,37 @@ class MainWindow(QMainWindow):
                                 f"Failed to save configuration: {exc}")
         self.workflow_page.set_virtual_fault(cfg)
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Virtual Fault Injection "
-            f"updated (fail {cfg['test_fail_ratio']:.2f} %, "
-            f"equipment error {cfg['equipment_error_ratio']:.2f} %)")
+            "Virtual Fault Injection updated "
+            f"(fail {cfg['test_fail_ratio']:.2f} %, "
+            f"equipment error {cfg['equipment_error_ratio']:.2f} %)",
+            level=IMPORTANT)
+
+    def _set_event_log_level(self, level):
+        """Settings > Event Log: Simplified / Detailed (M11 F3).
+
+        Supervisor-only: the choice is persisted so the next login
+        keeps it.  An Operator trigger (programmatic or a stale menu)
+        only re-syncs the menu to the forced simplified state.
+
+        Args:
+            level: ``"simplified"`` or ``"detailed"``.
+        """
+        if self.role != ROLE_SUPERVISOR:
+            self._sync_event_log_menu()
+            return
+        self._event_log_level = (
+            level if level in (SIMPLIFIED, DETAILED) else DETAILED)
+        save_event_log_level(self._event_log_level)
+        self._sync_event_log_menu()
+        self._append_event_log(
+            f"Event log level: {self._event_log_level.capitalize()}",
+            level=IMPORTANT)
+
+    def _sync_event_log_menu(self):
+        """Check the Settings action matching the active level."""
+        simplified = self._event_log_level == SIMPLIFIED
+        self.act_event_log_simplified.setChecked(simplified)
+        self.act_event_log_detailed.setChecked(not simplified)
 
     def _open_permissions_dialog(self):
         """Settings > Operator Permissions (supervisor only)."""
@@ -1784,8 +1899,8 @@ class MainWindow(QMainWindow):
         self._fill_ict_sequence(steps, enables, waits, timeouts)
         self._goto_test_workflow()
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] ICT test sequence applied: "
-            f"{len(steps)} steps")
+            f"ICT test sequence applied: {len(steps)} steps",
+            level=IMPORTANT)
         # apply to yaml: the same save dialog as the preview Apply
         self._on_yaml_apply_committed()
 
@@ -1797,8 +1912,8 @@ class MainWindow(QMainWindow):
         page.load_fct_cases(cases)
         self._goto_test_workflow()
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] FCT test sequence applied: "
-            f"{len(cases)} cases")
+            f"FCT test sequence applied: {len(cases)} cases",
+            level=IMPORTANT)
         self._on_yaml_apply_committed()
 
     def _load_current_yaml(self):
@@ -2162,18 +2277,34 @@ class MainWindow(QMainWindow):
             self._event_log_path = None
             self._event_log_file = None
 
-    def _append_event_log(self, text):
+    def _append_event_log(self, text, level="INFO"):
         """Show a line in the Event Log and mirror it into the session
-        auto-save file.  Every entry carries the DATE-TIME stamp (user
-        direction: no User / identity prefix); PASS / FAIL / Error
-        verdicts are highlighted in their own color so the matching
-        log lines are easy to find."""
+        auto-save file.
+
+        M11: exactly ONE ``YYYY-MM-DD HH:MM:SS`` stamp per line (an
+        embedded LEADING stamp from the caller / producer signal is
+        stripped first), and the entry carries a level.  The UI honours
+        the Simplified / Detailed filter; the auto-save file ALWAYS
+        records every line (full audit), regardless of the UI level.
+        PASS / FAIL / Error verdicts are highlighted in their own color.
+
+        Args:
+            text: The message; a leading ``[YYYY-MM-DD HH:MM:SS]`` or
+                  ``[HH:MM:SS]`` prefix and a leading ``[LEVEL]`` tag
+                  are tolerated.
+            level: Producer level (DEBUG / INFO / WARNING / ERROR) or
+                   the display classes TEST / IMPORTANT.
+        """
         from html import escape
+        entry = strip_leading_stamp(text)
+        entry_level = resolve_level(entry, level)
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        plain = f"{stamp} {text}"
-        colored = _colorize_verdicts(escape(text))
-        self.event_log.appendHtml(
-            f'<span style="color:#9ca3af;">{stamp}</span> {colored}')
+        plain = f"{stamp} {entry}"
+        if should_display(entry_level,
+                          self._event_log_level == DETAILED):
+            colored = _colorize_verdicts(escape(entry))
+            self.event_log.appendHtml(
+                f'<span style="color:#9ca3af;">{stamp}</span> {colored}')
         if self._event_log_file is not None:
             try:
                 self._event_log_file.write(plain + "\n")
@@ -2332,7 +2463,7 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             "Virtual mode: simulated instruments ready - connect on "
             "the Equipment page; the status-bar LEDs follow that "
-            "state.")
+            "state.", level=IMPORTANT)
 
     def _on_instrument_error(self, abbr):
         """Virtual equipment fault: red light, auto-recover after 2.5 s."""

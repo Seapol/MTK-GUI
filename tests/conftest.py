@@ -26,6 +26,24 @@ def _qapp_session():
 
 
 @pytest.fixture(autouse=True)
+def _reset_event_log_level_preference():
+    """M11: the Event Log display level is a USER preference persisted
+    in QSettings.  Every test starts from the role defaults (no saved
+    choice) and the key is cleared again afterwards, so a menu-switch
+    test can never leak into the next test or depend on the developer's
+    real GUI settings."""
+    from PySide6.QtCore import QSettings
+
+    from mtkgui.style import APP_NAME, APP_ORG
+    settings = QSettings(APP_ORG, APP_NAME)
+    settings.remove("event_log/level")
+    settings.sync()
+    yield
+    settings.remove("event_log/level")
+    settings.sync()
+
+
+@pytest.fixture(autouse=True)
 def _drain_deferred_deletes():
     """Flush pending deleteLater()s and zero-timeout timers at every
     test boundary.
