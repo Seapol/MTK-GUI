@@ -9,9 +9,27 @@ spans / fenced code, bold, images, everything else as paragraphs.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
-HELP_ROOT = Path(__file__).resolve().parents[2] / "docs" / "help"
+
+def _help_root() -> Path:
+    """docs/help inside the frozen bundle (``_MEIPASS``) or the repo.
+
+    The PyInstaller onedir build ships ``docs/help`` into
+    ``_internal/docs/help`` (see MTK_GUI_windows.spec), which is what
+    ``sys._MEIPASS`` points at; the source tree keeps the dev fallback.
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS",
+                            Path(__file__).resolve().parents[2]))
+        cand = base / "docs" / "help"
+        if cand.is_dir():
+            return cand
+    return Path(__file__).resolve().parents[2] / "docs" / "help"
+
+
+HELP_ROOT = _help_root()
 
 #: ordered chapter list (key, menu label, section file). The Help menu
 #: mounts one action per chapter so a click opens that web page.

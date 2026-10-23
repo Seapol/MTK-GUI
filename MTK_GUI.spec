@@ -12,6 +12,7 @@ datas = [
     ('config/12345_FRDM-IMX93_Nets_revA.xlsx', 'config'),
     ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
+    ('docs/help', 'docs/help'),
 ]
 
 a = Analysis(

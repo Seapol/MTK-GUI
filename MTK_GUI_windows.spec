@@ -11,10 +11,14 @@ plans live in yaml_plan/ OUTSIDE the package and are NOT shipped):
 * config/*.xlsx (sample netlists)  -> _internal/config
 * yaml_plan/examples               -> _internal/yaml_plan/examples
 * resources (logo / version.json)  -> _internal/resources
+* docs/help (14 guide chapters, images, version history)
+                                   -> _internal/docs/help
 
 In a frozen onedir bundle the mtkgui modules live in _internal/, so
 the bundled folders land where permissions.py / quick_commands.py
-look first (candidate_paths() -> pkg_root/config).
+look first (candidate_paths() -> pkg_root/config).  help_content.py
+resolves HELP_ROOT through sys._MEIPASS, i.e. the same _internal/
+folder, so Help > User Guide is not empty on the deployment.
 """
 
 from PyInstaller.utils.hooks import collect_submodules
@@ -28,6 +32,7 @@ datas = [
     ('config/12345_FRDM-IMX93_Nets_revA.xlsx', 'config'),
     ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
+    ('docs/help', 'docs/help'),
 ]
 
 a = Analysis(
