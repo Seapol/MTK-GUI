@@ -129,6 +129,15 @@ class BlockConfigDialog(QDialog):
             self.panel.task_log.connect(self._panel_log)
             self.panel.task_progress.connect(self._panel_progress)
             lay.addWidget(self.panel)
+            # M10-FIX2 F3: the Design Input content is compact - give the
+            # dialog a sane, short initial size instead of letting an
+            # oversized hint leave a dead band above OK/Cancel.  The
+            # property keeps the app-wide DialogCenterer from inflating
+            # it to 1.5x sizeHint on first show (it honours
+            # _dlg_enlarged as "size already chosen").
+            self.setProperty("_dlg_enlarged", True)
+            self.setMinimumSize(560, 0)
+            self.resize(600, 540)
         elif module_key == "instruments":
             # T9: the simplified Configure Instruments panel - the
             # instrument parameters stay on the Equipment page
@@ -188,6 +197,12 @@ class BlockConfigDialog(QDialog):
             self.nets_panel.task_log.connect(self._panel_log)
             self.nets_panel.task_progress.connect(self._panel_progress)
             lay.addWidget(self.nets_panel)
+            # M10-FIX2 F1: the tables stretch inside a sane initial size
+            # instead of forcing a tall empty block above the buttons;
+            # _dlg_enlarged stops the DialogCenterer from inflating the
+            # dialog to 1.5x its (tall, empty-table) sizeHint
+            self.setProperty("_dlg_enlarged", True)
+            self.resize(1060, 780)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)

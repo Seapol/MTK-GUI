@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontDialog,
     QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 from serial.tools import list_ports
 
@@ -507,13 +507,13 @@ class ChannelRow(QFrame):
             self.combo_port = _CompactPortCombo()
             self.combo_port.setToolTip("Serial port device")
             self._fill_ports()
-            # M0 layout: the collapsed widget takes HALF its natural
-            # width (COMxx names are short) and no longer stretches;
-            # the popup still expands to the longest entry, and the
-            # freed space flows to the widgets on the right
-            hint = self.combo_port.sizeHint().width()
-            self.combo_port.setMaximumWidth(max(90, hint // 2))
-            layout.addWidget(self.combo_port)
+            # M10-FIX2 F5: the device path can be long (/dev/cu.BLTH -
+            # n/a) and must render untruncated - the combo takes the
+            # row slack, the baud box keeps its fixed width
+            self.combo_port.setMinimumWidth(180)
+            self.combo_port.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                          QSizePolicy.Policy.Fixed)
+            layout.addWidget(self.combo_port, 1)
 
             self.combo_baud = QComboBox()
             self.combo_baud.setEditable(True)

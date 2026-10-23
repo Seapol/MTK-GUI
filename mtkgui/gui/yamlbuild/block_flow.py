@@ -139,8 +139,10 @@ class BlockCard(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         # compact single-row card (user direction 2026-10-13): the
         # five cards share ONE row - width comes from the row layout
-        # (evenly divided), the fonts shrink accordingly
-        self.setMinimumWidth(96)
+        # (evenly divided).  M10-FIX2 F6: the old 96 px minimum made
+        # titles wrap twice / clip in a narrow window; 120 px keeps
+        # every title on 1-2 clean lines.
+        self.setMinimumWidth(120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(46)

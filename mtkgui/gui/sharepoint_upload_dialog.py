@@ -241,7 +241,11 @@ class SharePointUploadDialog(QDialog):
         self._session = session if session is not None else (
             None if self.virtual else
             SharePointSession.load(self._state_root / SESSION_NAME))
-        self.resize(640, 520)
+        # M10-FIX2 F4: a bounded dialog - the audit view (and the
+        # DialogCenterer's 1.5x first-show enlargement) used to inflate
+        # it past 900x1000 and detach Close from the content
+        self.resize(720, 560)
+        self.setMaximumSize(720, 680)
 
         root = QVBoxLayout(self)
 

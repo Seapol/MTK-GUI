@@ -124,8 +124,9 @@ class StepsEditorDialog(QDialog):
             buttons.rejected.connect(self.reject)
             layout.addWidget(buttons)
 
-            # 1.5x of the previous 520x460: wide list + roomy edit dialogs
-            self.resize(1170, 690)
+            # M10-FIX2 F8: the list + button column + preview need ~1000
+            # px, not 1170 - measured with the 96317 ICT sequence
+            self.resize(1000, 690)
 
     def _make_add_menu(self):
         """Dropdown for the Add button: every supported step type."""

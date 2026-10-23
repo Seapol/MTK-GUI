@@ -540,6 +540,10 @@ class MainWindow(QMainWindow):
         self.yaml_build_page = YamlBuildPage()
         _startup_mark("ui: YamlBuildPage built")
         self.tabs.addTab(self.yaml_build_page, "Yaml Build")
+        # M10-FIX2 F7: make the tab switch immediate on the press and
+        # idempotent - a first click that lands while a page is still
+        # settling no longer gets swallowed (same index is a no-op)
+        self.tabs.tabBarClicked.connect(self._on_tab_clicked)
 
         # NOTE: the dedicated Channel Allocation tab is GONE (user
         # direction 2026-10-13: single-page vertical workflow) - the
@@ -839,6 +843,18 @@ class MainWindow(QMainWindow):
 
         # No YAML loaded yet -> clear ICT/FCT tables to 1 empty row each
         self.workflow_page.clear_tables()
+
+    def _on_tab_clicked(self, index: int) -> None:
+        """M10-FIX2 F7: apply the tab click immediately and idempotently.
+
+        ``QTabWidget`` switches on the mouse release; if the first
+        press lands while the page is still settling (layout / focus
+        hand-off) the switch can be lost.  Setting the index on the
+        press makes it deterministic; clicking the current tab is a
+        no-op.
+        """
+        if index >= 0 and index != self.tabs.currentIndex():
+            self.tabs.setCurrentIndex(index)
 
     def _build_menus(self):
         # macOS: keep the menus inside the window - the native macOS menu

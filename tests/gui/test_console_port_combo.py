@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""M0 console port-dropdown width tests: compact collapsed width for
-SER rows, full-width popup, SSH row untouched, selection intact."""
+"""M0/M10-FIX2 console port-dropdown width tests: the SER port combo
+takes the row slack (no truncation), the popup still widens to the
+longest item, SSH rows are untouched, selection is intact."""
 from __future__ import annotations
 
 import pytest
@@ -43,20 +44,21 @@ def test_serial_combo_is_compact_type(ser_row):
     assert ser_row.combo_port.isEditable()      # manual entry preserved
 
 
-def test_collapsed_width_halved(ser_row, qapp):
-    """Collapsed width == 50% of the natural (uncapped) size hint that
-    the same items would produce."""
-    reference = QComboBox()               # natural size, no cap
-    reference.setEditable(True)           # same shape as the real combo
-    reference.addItems([ser_row.combo_port.itemText(i)
-                        for i in range(ser_row.combo_port.count())])
-    natural = reference.sizeHint().width()
-    expected = max(90, natural // 2)
-    assert ser_row.combo_port.maximumWidth() == expected
-    if natural > 90:
-        # the 50% rule really bites when the natural width is large
-        # (long COM descriptions): collapsed <= 50% + floor
-        assert ser_row.combo_port.maximumWidth() <= natural // 2 + 90
+def test_port_combo_takes_the_row_slack(ser_row, qapp):
+    """M10-FIX2 F5: the device combo is no longer capped to half its
+    hint - a long path (/dev/cu.BLTH - n/a) must render untruncated,
+    so the combo takes the row slack while the baud box stays fixed."""
+    from PySide6.QtWidgets import QSizePolicy
+    combo = ser_row.combo_port
+    assert combo.maximumWidth() == 16777215      # QWIDGETSIZE_MAX
+    assert combo.minimumWidth() >= 180
+    assert combo.sizePolicy().horizontalPolicy() \
+        == QSizePolicy.Policy.Expanding
+    assert ser_row.combo_baud.maximumWidth() == 100
+    ser_row.resize(900, 40)
+    ser_row.show()
+    QApplication.processEvents()
+    assert combo.width() > combo.minimumWidth()
 
 
 def test_popup_expands_to_longest_item(ser_row, qapp):

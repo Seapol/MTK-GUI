@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -162,15 +163,21 @@ class ParseNetsPanel(QWidget):
         self.table.setHorizontalHeaderLabels(
             ["Net", "Test Points", "Category", "Do Not Test",
              "Confidence", "Input Rail", "Sub-class"])
+        # M10-FIX2 F2: explicit default column widths - the EMPTY table
+        # must already be readable (ResizeToContents collapsed Net to
+        # ~25 px and left a ~260 px gap before the next column)
         self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents)
-        # the slack goes to the TEST POINTS column (user direction:
-        # a Net-stretch starved the other columns)
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+            QHeaderView.ResizeMode.Interactive)
+        # the last section absorbs the leftover width so the empty table
+        # has no blank header band on the right
+        self.table.horizontalHeader().setStretchLastSection(True)
+        for column, width in enumerate((180, 240, 90, 90, 90, 90, 100)):
+            self.table.setColumnWidth(column, width)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setMinimumHeight(220)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                 QSizePolicy.Policy.Expanding)
+        self.table.setMinimumHeight(120)
         lay.addWidget(self.table, 1)
 
         # ------------------------------ table 2: Filtered Nets (user
@@ -185,15 +192,19 @@ class ParseNetsPanel(QWidget):
         self.table_filtered = QTableWidget(0, 3)
         self.table_filtered.setHorizontalHeaderLabels(
             ["Net", "Reason", "Category"])
+        # M10-FIX2 F2: readable default widths in the empty state too
         self.table_filtered.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents)
-        # the slack goes to the REASON column (user direction)
-        self.table_filtered.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+            QHeaderView.ResizeMode.Interactive)
+        self.table_filtered.horizontalHeader().setStretchLastSection(True)
+        for column, width in enumerate((300, 300, 100)):
+            self.table_filtered.setColumnWidth(column, width)
         self.table_filtered.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table_filtered.setMaximumHeight(160)
-        lay.addWidget(self.table_filtered)
+        self.table_filtered.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                          QSizePolicy.Policy.Expanding)
+        self.table_filtered.setMinimumHeight(90)
+        self.table_filtered.setMaximumHeight(200)
+        lay.addWidget(self.table_filtered, 1)
 
         # GND integrity resident hint (core-algorithm standard 5.2):
         # advisory only - never blocks the parse

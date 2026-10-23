@@ -74,18 +74,28 @@ def test_rules_editor_button_exists_and_persists(qapp, panel,
 
 # ------------------------------------------------- parsed nets behaviour
 def test_table_column_width_policy(panel):
-    """Column width policy (user direction): the Net column is
-    content-sized (NOT stretched) and the slack goes to Test Points /
-    Reason - a stretched Net column starved the other columns."""
+    """Column width policy (M10-FIX2 F2): every column is Interactive
+    with explicit, readable default widths - the empty table used to
+    collapse the Net column to ~25 px and leave a ~260 px gap.  The
+    widths after a parse are still content-driven
+    (resizeColumnsToContents)."""
     from PySide6.QtWidgets import QHeaderView
     hdr = panel.table.horizontalHeader()
-    assert hdr.sectionResizeMode(0) == \
-        QHeaderView.ResizeMode.ResizeToContents
-    assert hdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    for column in range(panel.table.columnCount()):
+        assert hdr.sectionResizeMode(column) == \
+            QHeaderView.ResizeMode.Interactive
+    assert [panel.table.columnWidth(i) for i in range(6)] == \
+        [180, 240, 90, 90, 90, 90]
+    assert hdr.stretchLastSection() is True
+    assert panel.table.columnWidth(6) >= 100
     fhdr = panel.table_filtered.horizontalHeader()
-    assert fhdr.sectionResizeMode(0) == \
-        QHeaderView.ResizeMode.ResizeToContents
-    assert fhdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    for column in range(panel.table_filtered.columnCount()):
+        assert fhdr.sectionResizeMode(column) == \
+            QHeaderView.ResizeMode.Interactive
+    assert [panel.table_filtered.columnWidth(i) for i in range(2)] == \
+        [300, 300]
+    assert fhdr.stretchLastSection() is True
+    assert panel.table_filtered.columnWidth(2) >= 100
 
 
 def test_parsed_nets_single_table_no_alloc_tables(panel):
