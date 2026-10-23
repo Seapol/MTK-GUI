@@ -45,7 +45,7 @@ from mtkgui.gui.yamlbuild.channel_allocation import (
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.ict.netparse import parse_testable_nets
 
-MAX_GPIO_ROWS = 16          # DAQM907A DIO pool
+MAX_GPIO_ROWS = 24          # U2355A DIO pool (Control IO)
 MAX_RAMP_RAILS = 10         # rails in the power-up sequence
 
 

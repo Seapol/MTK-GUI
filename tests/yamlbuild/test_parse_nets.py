@@ -292,6 +292,57 @@ def test_panel_invalid_net_reports_reason(panel, monkeypatch):
     assert shown and "no nets found" in shown[0][2]
 
 
+# ------------------------------------------------ BOM library (M6 W1)
+BOM_HEADER = "Reference Designator,Name,Number,Description,Quantity\n"
+
+
+def test_bom_library_feeds_parse_and_matches_headless(panel, tmp_path):
+    """design_input.bom_file -> GUI parse equals the same headless
+    parse with the BOM library (single-source parity), and the merge
+    summary is shown + mirrored to the Event Log."""
+    from mtkgui.ict.netparse.bom import load_bom_library
+    bom = tmp_path / "bom.csv"
+    bom.write_text(BOM_HEADER +
+                   "U1,750-1,745-1,IC MCU ARM,1\n"
+                   "U2,150-1,745-2,IC VREG LDO 3.3V,1\n",
+                   encoding="utf-8")
+    model = YamlBuildModel()
+    model.set_params("design_input", {"bom_file": str(bom)})
+    panel.set_yaml_model(model)
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    logs = []
+    panel.task_log.connect(lambda lvl, msg: logs.append((lvl, msg)))
+    panel.parse_nets()
+
+    library, _report, _bom = load_bom_library(str(bom))
+    expected = parse_testable_nets(NET_SAMPLE, library=library)
+    rank_result(expected)
+    got = panel.result
+    assert [r.name for r in got.power] == [r.name for r in expected.power]
+    assert [r.name for r in got.clock] == \
+        [r.name for r in expected.clock]
+    assert [r.name for r in got.gpio] == [r.name for r in expected.gpio]
+    assert "2 records" in panel.lbl_bom.text()
+    assert any("BOM library loaded" in msg for _lvl, msg in logs)
+
+
+def test_bad_bom_is_warning_and_parse_continues(panel, tmp_path):
+    """A broken BOM never blocks the NET-only parse."""
+    bad = tmp_path / "bad.csv"
+    bad.write_text("a,b\n1,2\n", encoding="utf-8")
+    model = YamlBuildModel()
+    model.set_params("design_input", {"bom_file": str(bad)})
+    panel.set_yaml_model(model)
+    panel.set_net_source(NET_SAMPLE, "board.net")
+    logs = []
+    panel.task_log.connect(lambda lvl, msg: logs.append((lvl, msg)))
+    panel.parse_nets()
+    assert panel.result is not None
+    assert panel.lbl_bom.text() == "BOM: ignored (import failed)"
+    assert any(lvl == "WARNING" and "BOM ignored" in msg
+               for lvl, msg in logs)
+
+
 # ------------------------------------------- block03 dialog integration
 def test_block03_dialog_embeds_parse_panel(qapp):
     """The parse_ict dialog hosts the Parse Nets panel; the raw NET

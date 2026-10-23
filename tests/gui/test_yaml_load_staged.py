@@ -188,7 +188,7 @@ def test_lazy_render_collect_matches_data(window, tmp_path, qapp):
         for i in range(120)
     }
     saved = {"gpio": [{"net": f"GPIO_{i:03d}",
-                       "dio_channel": f"DAQM907A DIO{i % 16 + 1:02d}"}
+                       "dio_channel": f"U2355A DIO{i % 24 + 1:02d}"}
                       for i in range(0, 120, 10)]}
     model.set_channel_allocation({"power": [], "clock": [], **saved})
     page.refresh_from_model()
@@ -198,7 +198,7 @@ def test_lazy_render_collect_matches_data(window, tmp_path, qapp):
     collected = {r["net"]: r for r in table.collect()}
     for i in range(0, 120, 10):
         row = collected[f"GPIO_{i:03d}"]
-        assert row["dio_channel"] == f"DAQM907A DIO{i % 16 + 1:02d}"
+        assert row["dio_channel"] == f"U2355A DIO{i % 24 + 1:02d}"
     # widget count stays below the FULL render count (120 rows x 2
     # dropdown columns = 240 combos; the lazy window only covers the
     # visible rows +- the margin - the 652-row 96624 plan measured

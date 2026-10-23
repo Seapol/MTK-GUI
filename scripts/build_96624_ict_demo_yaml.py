@@ -13,7 +13,7 @@ ICT-only demo (no FCT), Virtual mode (no physical instruments):
       - Clock: the 3 SE clock channels (DAQM907A TOT 0-100 kHz +
         U2355A CTR0/CTR1) filled in LOW-SPEED-first order (the
         32.768 kHz RTC crystal nets win the totalizer);
-      - GPIO: the 16 DAQM907A DIO channels;
+      - GPIO: the 24 U2355A DIO channels (Control IO);
   * clock measurement targets 32.768 kHz (low-speed), every clock row
     gets Expected=32768.0 Hz with +/-50 ppm limits;
   * ICT-only: fct_build disabled and the Overall Flow FCT stage off;
@@ -85,7 +85,7 @@ def _clock_rank(net: str) -> int:
         return 1            # crystal pins (lower speed than comm clocks)
     return 2
 
-MAX_GPIO_ROWS = 16          # DAQM907A DIO pool
+MAX_GPIO_ROWS = 24          # U2355A DIO pool (Control IO)
 
 
 def best_test_point(members):
@@ -153,7 +153,7 @@ def build_allocation(testable: dict) -> ChannelAllocationData:
             pass                        # 3 clock channels = full
     alloc.clock = clocks
 
-    # gpio: 16 DAQM907A DIO channels
+    # gpio: 24 U2355A DIO channels
     gpio = rows_from_testable(testable, "gpio")[:MAX_GPIO_ROWS]
     dio = iter(GPIO_DIO_CHANNELS)
     for row in gpio:

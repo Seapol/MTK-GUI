@@ -19,8 +19,8 @@ The M1 chip-model exclusion table stays as the NO-LIBRARY fallback -
 without a library the M1 behaviour is unchanged.
 
 Boundary (M4 PART 5): these roles drive NET classification only; the
-GUI ``designinput.components.dev_category`` (main_mcu / pmic / dcdc /
-ldo / transceiver) drives board-level views.  Both stay - the only
+BOM-derived ``ComponentLibrary.dev_category`` (main_mcu / pmic / dcdc
+/ ldo / transceiver) drives board-level views.  Both stay - the only
 shared input is the BOM-derived library dict.
 """
 from __future__ import annotations

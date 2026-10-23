@@ -1216,6 +1216,60 @@ no apply-first round-trip. With no project YAML the buttons warn
 `No project YAML is loaded.`; with no NET source either they warn
 `No parsed ICT data yet ...`.
 
+### 31.3 BOM input contract (M6 W1)
+
+Block 01 `Design Input` offers `Import BOM…` next to `Import SPF` /
+`Import NET` (file filter `BOM (*.csv *.xlsx)`).  The optional BOM is
+persisted as `design_input.bom_file` (`""` when none) and survives
+Apply / Load round-trips.
+
+- Single source of truth: `mtkgui/ict/netparse/bom.py` (headless, no
+  Qt) implements CSV/XLSX parsing (`parse_bom`), the component library
+  (`build_library`), the BOM merge (`merge_bom` / `BomMergeReport`) and
+  `load_bom_library(path)`.  Both the GUI and the headless CLI
+  (`--library`) consume it - one import path, no duplicate logic.
+- Fail soft: an unreadable / invalid BOM raises only an Event-Log
+  `WARNING`; NET-only parsing always continues (same non-blocking
+  contract as the optional BOM in M1).
+- Parse Nets (block 02): when `bom_file` is present the panel builds
+  the library through `load_bom_library` and passes it to
+  `parse_testable_nets(library=...)`, so the GUI result equals the
+  CLI `--library` result on the same inputs.  A one-line merge summary
+  (`records, DNP, conflicts, warnings`) is shown in the dialog and
+  mirrored to the Event Log.
+- `design_input.bom_file` is exported/imported through the existing
+  model and Excel exchange (schema field, no separate storage).
+
+### 31.4 Control IO DIO resource and capacity (M6 W2)
+
+Control IO (GPIO) tests use the U2355A 24-ch TTL DIO through the
+level shifters: `GPIO_DIO_CHANNELS = U2355A DIO01..DIO24`.  The
+DAQM907A 16-ch open-drain DIO is FIXTURE-reserved (press / inpos /
+presence / estop) and is never offered as a GPIO pool.  The engine
+executor is unchanged (`"gpio"` rows route to the U2355A DIO,
+`"fixture dio"` rows to the DAQM907A).
+
+Capacity rule: Control IO allocation takes the top
+`GPIO_CHANNEL_CAPACITY` (24) nets in parse rank / confidence order.
+Excess nets stay fully classified (category, confidence) but get no
+DIO channel - they are capacity overflow, not a validation error.
+The Channel Allocation validation line reports it, e.g.
+`gpio=24 (+4 over capacity)`.
+
+### 31.5 Retired dead code (M6 W3)
+
+The unmounted `mtkgui/gui/designinput/` package was removed; its live
+BOM pieces moved to `mtkgui/ict/netparse/bom.py` (section 31.3).
+The candidate power-tree draft derivation that lived there
+(`derive_candidate_tree`: DNP-regulator exclusion, stage model 0-3,
+`input_rail` stage-0 evidence, PDF-only rail warning) has no live
+consumer in the GUI: the Power-Tree Editor in `yamlbuild/power_alloc.py`
+owns the power tree today (`PowerTree.build` from bridges +
+`assign_stages` + pruning).  Its netparse equivalents (`device_roles.py`
+device-role evidence, `bridge.py` passive bridges, `priority.py` rank)
+remain; the draft-derivation idea is documented here before the delete
+so the capability is not silently dropped.
+
 ### 32. Equipment <-> Yaml Build Sync Contract (NEW — owned by V4.0-B4, `mtkgui/gui/yamlbuild/sync.py`)
 
 Mandatory bidirectional parameter inheritance between the Equipment

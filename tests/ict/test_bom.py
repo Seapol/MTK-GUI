@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.designinput.bom import (
-    BomRecord,
-    parse_bom,
-    split_refdes,
-)
-from mtkgui.gui.designinput.components import (
+from mtkgui.ict.netparse.bom import (
     CATEGORY_DCDC,
     CATEGORY_LDO,
     CATEGORY_MAIN_MCU,
     CATEGORY_OTHER,
     CATEGORY_PMIC,
+    BomRecord,
     build_library,
     merge_bom,
+    parse_bom,
+    split_refdes,
 )
 
 HEADER = ("Reference Designator,Name,Number,Description,Quantity\n")
@@ -90,7 +88,7 @@ def test_parse_bom_rejects_empty_records(tmp_path):
 def test_merge_overrides_pn_and_recategorizes():
     library = build_library([("U1", "UNKNOWN"), ("R1", "10K")])
     assert library.category_of("U1") == CATEGORY_OTHER
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "MIMXRT798S", "IC MCU ARM")]))
     assert library.by_refdes("U1").part_number == "MIMXRT798S"
@@ -102,7 +100,7 @@ def test_merge_overrides_pn_and_recategorizes():
 
 def test_merge_adds_bom_only_devices_at_tail():
     library = build_library([("U1", "MIMXRT798S")])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U2", "PF1500", "IC POWER MANAGEMENT"),
         BomRecord("U3", "TPS62840", "IC VREG DC-DC BUCK CONV")]))
@@ -115,7 +113,7 @@ def test_merge_adds_bom_only_devices_at_tail():
 def test_merge_description_ldo_and_dnp_or():
     library = build_library([("U1", "UNKNOWN")])
     library.by_refdes("U1").dnp = True
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "315-81174", "IC VREG LDO 3.3V")]))
     assert library.category_of("U1") == CATEGORY_LDO
@@ -125,7 +123,7 @@ def test_merge_description_ldo_and_dnp_or():
 
 def test_merge_never_drops_schematic_devices():
     library = build_library([("U1", "MIMXRT798S"), ("U9", "KEEPME")])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     merge_bom(library, BomData(records=[BomRecord("U1", "MIMXRT798S")]))
     assert library.by_refdes("U9") is not None
 
@@ -134,7 +132,7 @@ def test_merge_empty_bom_is_noop():
     library = build_library([("U1", "MIMXRT798S")])
     before = [(r.refdes, r.part_number, r.dev_category)
               for r in library.records]
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData())
     assert report.records == 0 and report.added == 0
     assert [(r.refdes, r.part_number, r.dev_category)
@@ -143,7 +141,7 @@ def test_merge_empty_bom_is_noop():
 
 def test_description_memory_not_promoted_to_main():
     library = build_library([])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     merge_bom(library, BomData(records=[
         BomRecord("U1", "344-02626",
                   "IC MCU SEMPERFLASH 1GB 166MHz SDR")]))
@@ -185,7 +183,7 @@ def test_parse_bom_xlsx(tmp_path):
 
 def test_merge_conflict_only_when_old_pn_exists():
     library = build_library([("U1", "")])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "MIMXRT798S", "IC MCU ARM")]))
     assert report.updated == 1
@@ -194,7 +192,7 @@ def test_merge_conflict_only_when_old_pn_exists():
 
 def test_merge_duplicate_bom_refdes_last_wins():
     library = build_library([])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "OLD", "", dnp=True),
         BomRecord("U1", "NEW", "IC MCU ARM")]))
@@ -207,7 +205,7 @@ def test_merge_duplicate_bom_refdes_last_wins():
 def test_merge_recategorize_to_other_syncs_unclassified():
     library = build_library([("U1", "MIMXRT798S")])
     assert "U1" not in library.unclassified
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "150-79489", "CAP CER 10pF 50V")]))
     assert library.category_of("U1") == CATEGORY_OTHER
@@ -218,7 +216,7 @@ def test_merge_recategorize_to_other_syncs_unclassified():
 def test_merge_part_number_beats_description():
     """The ordering code wins over the description fallback."""
     library = build_library([])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     merge_bom(library, BomData(records=[
         BomRecord("U1", "TPS62840", "IC VREG LDO 3.3V")]))
     assert library.category_of("U1") == CATEGORY_DCDC
@@ -226,7 +224,7 @@ def test_merge_part_number_beats_description():
 
 def test_merge_report_counts():
     library = build_library([("U1", "OLD"), ("U9", "KEEP")])
-    from mtkgui.gui.designinput.bom import BomData
+    from mtkgui.ict.netparse.bom import BomData
     report = merge_bom(library, BomData(records=[
         BomRecord("U1", "MIMXRT798S", "IC MCU ARM"),
         BomRecord("U2", "PF1500", "IC POWER MANAGEMENT"),

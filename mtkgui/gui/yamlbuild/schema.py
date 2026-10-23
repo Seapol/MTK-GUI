@@ -156,6 +156,9 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("net_file", "NET File",
            remarks="relative path + file name of the imported NET "
                    "(load only, parsed by the Parse Nets module)"),
+        _f("bom_file", "BOM File",
+           remarks="optional CSV/XLSX BOM (RefDes -> MPN/DNP); feeds "
+                   "the Parse Nets device-role / input-rail evidence"),
     ),
     "instruments": (
         # NOTE: the VISA addresses are OWNED by the Equipment page

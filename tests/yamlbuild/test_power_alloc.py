@@ -210,17 +210,17 @@ def test_se_clock_sequential_allocation_and_dnt():
     assert by_net["CLK2"]["status"] == DONT_TEST
 
 
-def test_gpio_allocation_daqm907a_dio_only():
-    assert len(GPIO_DIO_CHANNELS) == 16
-    assert all(ch.startswith("DAQM907A DIO")
+def test_gpio_allocation_u2355a_dio_only():
+    assert len(GPIO_DIO_CHANNELS) == 24
+    assert all(ch.startswith("U2355A DIO")
                for ch in GPIO_DIO_CHANNELS)
-    nets = [f"GPIO{n}" for n in range(20)]
+    nets = [f"GPIO{n}" for n in range(28)]
     rows = allocate_channels(nets, GPIO_DIO_CHANNELS)
     assigned = [r for r in rows if r["status"] == ASSIGNED]
     not_test = [r for r in rows if r["status"] == DONT_TEST]
-    assert len(assigned) == 16                  # DIO exhausted at 16
+    assert len(assigned) == 24                  # DIO exhausted at 24
     assert len(not_test) == 4
-    assert all(r["channel"].startswith("DAQM907A DIO")
+    assert all(r["channel"].startswith("U2355A DIO")
                for r in assigned)
 
 

@@ -2,13 +2,16 @@
 """Design Input panel (P3-B2 T7): the unified file-entry + meta form.
 
 Replaces the deprecated standalone "Design data import" popup: all
-file entry lives on this panel only, with exactly two import buttons:
+file entry lives on this panel only, with three import buttons:
 
 * **Import SPF…** - reads the file bytes AND auto-parses the project
   info: Core ID from the SPF file name, Project Name from the SPF
   first-page title (both editable afterwards);
 * **Import NET…** - reads the file bytes ONLY (no parse, no structure
-  analysis; the formal net parsing happens in the Parse Nets module).
+  analysis; the formal net parsing happens in the Parse Nets module);
+* **Import BOM…** - optional CSV/XLSX Bill Of Materials; its
+  RefDes -> MPN/DNP evidence feeds the Parse Nets classification.
+  A BOM failure is a WARNING only (NET-only parsing keeps working).
 
 Meta fields: Product ID (= Core ID), Project Part # (= Project Name),
 SW / HW Version (manual, report metadata only) and the fixed Batch #
@@ -93,6 +96,9 @@ class DesignInputPanel(QWidget):
         self.spf_text: str = ""      # SPF raw text (import step)
         self.net_path: str = ""      # imported NET file (LOAD ONLY)
         self.net_text: str = ""      # NET raw bytes (never parsed here)
+        self.bom_path: str = ""      # optional BOM file (CSV / XLSX)
+        self.bom_records: int = 0    # parsed BOM record count
+        self.bom_dnp: int = 0        # parsed BOM DNP count
 
         # item 21: adaptive flat layout - the panel grows with the
         # dialog in both directions, fields stretch proportionally
@@ -115,16 +121,25 @@ class DesignInputPanel(QWidget):
             "Import an Allegro netlist: LOAD ONLY (raw bytes, no "
             "parse).  The formal net parsing runs in the Parse Nets "
             "for ICT module.")
+        self.btn_import_bom = QPushButton("Import BOM…")
+        self.btn_import_bom.setToolTip(
+            "Import an optional Bill Of Materials (*.csv / *.xlsx): "
+            "RefDes -> part number / DNP evidence for the Parse Nets "
+            "classification.  Import failures are logged as a WARNING "
+            "and never block NET-only parsing.")
         buttons.addWidget(self.btn_import_spf)
         buttons.addWidget(self.btn_import_net)
+        buttons.addWidget(self.btn_import_bom)
         buttons.addStretch(1)
         lay.addLayout(buttons)
 
         # file captions: relative path + file name
         self.lbl_spf = QLabel("SPF: (not imported)")
         self.lbl_net = QLabel("NET: (not imported)")
+        self.lbl_bom = QLabel("BOM: (not imported)")
         lay.addWidget(self.lbl_spf)
         lay.addWidget(self.lbl_net)
+        lay.addWidget(self.lbl_bom)
 
         # --------------------------------------------------- meta form
         # item 21: flat, evenly spaced Qt form layout - uniform row
@@ -167,6 +182,7 @@ class DesignInputPanel(QWidget):
 
         self.btn_import_spf.clicked.connect(self._import_spf)
         self.btn_import_net.clicked.connect(self._import_net)
+        self.btn_import_bom.clicked.connect(self._import_bom)
 
     # ------------------------------------------------------------ import
     def _import_spf(self) -> None:
@@ -268,6 +284,40 @@ class DesignInputPanel(QWidget):
             "(load only - parsed by the Parse Nets module)")
         self.content_changed.emit()
 
+    def _import_bom(self) -> None:
+        """IMPORT an optional BOM (CSV / XLSX).
+
+        The BOM is parsed immediately for the status label, but a
+        failure is a WARNING only - it never blocks NET-only parsing
+        (M1 "GUI optional BOM, non-blocking" contract)."""
+        from PySide6.QtWidgets import QFileDialog
+        from mtkgui.ict.netparse.bom import parse_bom
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import BOM", "", "BOM (*.csv *.xlsx)")
+        if not path:
+            return
+        self.task_log.emit("INFO", f"BOM import started: {Path(path).name}")
+        try:
+            bom = parse_bom(path)
+        except (OSError, ValueError) as exc:
+            self.bom_path = ""
+            self.bom_records = self.bom_dnp = 0
+            self.lbl_bom.setText("BOM: (not imported)")
+            reason = f"BOM import failed: {exc}"
+            self.task_log.emit("WARNING", reason)
+            return
+        self.bom_path = path
+        self.bom_records = len(bom.records)
+        self.bom_dnp = sum(1 for rec in bom.records if rec.dnp)
+        self.lbl_bom.setText(
+            f"BOM: imported ({self.bom_records} records, "
+            f"{self.bom_dnp} DNP) - {_rel_path(path)}")
+        self.task_log.emit(
+            "INFO",
+            f"BOM import done: {Path(path).name} "
+            f"({self.bom_records} records, {self.bom_dnp} DNP)")
+        self.content_changed.emit()
+
     # ------------------------------------------------------------- batch
     def _on_batch_activated(self, index: int) -> None:
         """Customized / Deviation (DRQ) resolve through small dialogs;
@@ -359,6 +409,7 @@ class DesignInputPanel(QWidget):
             "batch": self.batch_value(),
             "spf_file": _rel_path(self.spf_path) if self.spf_path else "",
             "net_file": _rel_path(self.net_path) if self.net_path else "",
+            "bom_file": _stored_path(self.bom_path),
         }
 
     def set_values(self, params: dict) -> None:
@@ -386,6 +437,29 @@ class DesignInputPanel(QWidget):
         self.lbl_net.setText(
             f"NET: {self.net_path}" if self.net_path
             else "NET: (not imported)")
+        self.bom_path = str(params.get("bom_file") or "")
+        self._reload_bom_label()
+
+    def _reload_bom_label(self) -> None:
+        """Restore the BOM caption after a project load: parse the
+        stored path for the record / DNP counts; a missing or broken
+        file shows the path only (never blocks the load)."""
+        if not self.bom_path:
+            self.bom_records = self.bom_dnp = 0
+            self.lbl_bom.setText("BOM: (not imported)")
+            return
+        try:
+            from mtkgui.ict.netparse.bom import parse_bom
+            bom = parse_bom(self.bom_path)
+        except (OSError, ValueError):
+            self.bom_records = self.bom_dnp = 0
+            self.lbl_bom.setText(f"BOM: {self.bom_path} (not readable)")
+            return
+        self.bom_records = len(bom.records)
+        self.bom_dnp = sum(1 for rec in bom.records if rec.dnp)
+        self.lbl_bom.setText(
+            f"BOM: imported ({self.bom_records} records, "
+            f"{self.bom_dnp} DNP) - {_rel_path(self.bom_path)}")
 
 
 def _rel_path(path: str) -> str:
@@ -399,3 +473,15 @@ def _rel_path(path: str) -> str:
         return f"{rel.as_posix()} ({p.name})"
     except ValueError:
         return str(p)
+
+
+def _stored_path(path: str) -> str:
+    """Persistable path: repo-relative when inside the working tree,
+    absolute otherwise (the display caption is NOT reusable)."""
+    if not path:
+        return ""
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(p.resolve())

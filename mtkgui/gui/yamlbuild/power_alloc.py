@@ -37,12 +37,18 @@ NODE_ISLAND = "island"
 #: to this range; the automatic build keeps its BFS result)
 MAX_STAGE = 6
 
-#: U2355A DIO is reserved for fixture IO - GPIO tests may ONLY use
-#: the DAQM907A DIO 16-ch open-drain resource (42 V / 400 mA)
+#: Control IO / GPIO tests use the U2355A 24-ch TTL DIO (through the
+#: level shifters) - the fixed rack definition.  The DAQM907A 16-ch
+#: open-drain DIO is FIXTURE-reserved (press / inpos / presence /
+#: estop only) and is never a GPIO test pool.
 GPIO_DIO_CHANNELS: tuple[str, ...] = tuple(
-    f"DAQM907A DIO{n:02d}" for n in range(1, 17))
+    f"U2355A DIO{n:02d}" for n in range(1, 25))
+#: hardware capacity of the Control IO test pool: nets beyond this
+#: stay classified but get NO DIO channel (capacity overflow, not
+#: tested - the user may re-assign in the GUI)
+GPIO_CHANNEL_CAPACITY: int = len(GPIO_DIO_CHANNELS)
 #: SE clock capture pool (rack reality: DAQM907A totalizer + the two
-#: U2355A counters; the U2355A DIO stays fixture-reserved).  Each
+#: U2355A counters; the U2355A DIO serves the DUT Control IO).  Each
 #: resource carries a fixed frequency band (user direction):
 #: DAQM907A TOT 0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz.
 CLOCK_CHANNELS: tuple[str, ...] = (

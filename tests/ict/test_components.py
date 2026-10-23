@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtkgui.gui.designinput.components import (
+from mtkgui.ict.netparse.bom import (
     CATEGORY_DCDC,
     CATEGORY_LDO,
     CATEGORY_MAIN_MCU,

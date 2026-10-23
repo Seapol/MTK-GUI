@@ -91,7 +91,7 @@ def test_row_auto_validation_ok_nok():
         se_clock_hz="DAQM907A TOT").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
-                        dio_channel="DAQM907A DIO01")
+                        dio_channel="U2355A DIO01")
     # the DIO channel is the only GPIO attribute needed anymore
     assert gpio.is_configured("gpio") is True
     assert not AllocatedRow(
@@ -187,8 +187,8 @@ def test_resource_pools_exclusive(page):
     """Every dropdown contains ONLY the resources of its own
     instrument - unrelated instruments never appear (Power:
     DAQM908A-only for Impedance / Voltage, U2355A-only for Power
-    rails; Clock: DAQM907A TOT + U2355A counters; GPIO: DAQM907A DIO
-    only, the fixture-reserved U2355A DIO is never offered)."""
+    rails; Clock: DAQM907A TOT + U2355A counters; GPIO: U2355A DIO
+    only, the fixture-reserved DAQM907A DIO is never offered)."""
     def items(table, col):
         combo = table.cellWidget(0, col)
         return [combo.itemText(i) for i in range(combo.count())
@@ -203,19 +203,19 @@ def test_resource_pools_exclusive(page):
     clock = items(page.table_clock.table, 2)
     assert clock == ["DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
     dio = items(page.table_gpio.table, 2)
-    assert dio == [f"DAQM907A DIO{n:02d}" for n in range(1, 17)]
+    assert dio == [f"U2355A DIO{n:02d}" for n in range(1, 25)]
 
 
 def test_gpio_dio_pool(page):
-    """The GPIO DIO Channel combo offers exactly the 16 DAQM907A DIO
-    resources - the U2355A DIO is NOT offered (fixture-reserved)."""
+    """The GPIO DIO Channel combo offers exactly the 24 U2355A DIO
+    resources - the DAQM907A DIO is NOT offered (fixture-reserved)."""
     table = page.table_gpio.table
     assert table.columnCount() == 3
     combo = table.cellWidget(0, 2)
     items = [combo.itemText(i) for i in range(combo.count())]
-    assert items == [UNSET, *(f"DAQM907A DIO{n:02d}"
-                              for n in range(1, 17))]
-    assert not any("U2355A" in t for t in items)
+    assert items == [UNSET, *(f"U2355A DIO{n:02d}"
+                              for n in range(1, 25))]
+    assert not any("DAQM907A" in t for t in items)
 
 
 def test_clock_resource_and_band_mapping(page):
@@ -297,10 +297,34 @@ def test_auto_allocate_top_down(page):
     clock = page.table_clock.rows()[0]
     assert clock.se_clock_hz == "DAQM907A TOT"
     assert clock.band == "0 ~ 100 kHz"
-    # the GPIO DIO channels are NOT auto-assigned (user direction:
-    # manual configuration only)
+    # Control IO is auto-assigned from the U2355A DIO pool (W2)
     gpio = page.table_gpio.rows()[0]
-    assert gpio.dio_channel == UNSET
+    assert gpio.dio_channel == "U2355A DIO01"
+
+
+def test_auto_allocate_gpio_capacity_overflow(qapp):
+    """28 Control IO nets: the top 24 win a U2355A DIO channel, the 4
+    excess nets stay classified but unassigned (capacity overflow, not
+    a validation error) and the summary reports it."""
+    model = YamlBuildModelForTest()
+    model.imported["testable_nets"] = {
+        f"GPIO_{i:02d}": {"category": "GPIO", "members": [f"U1.{i}"]}
+        for i in range(28)}
+    w = ChannelAllocationPage()
+    w.set_model(model)
+    try:
+        w.auto_allocate()
+        rows = w.table_gpio.rows()
+        assert len(rows) == 28
+        assert [r.dio_channel for r in rows[:24]] == \
+            [f"U2355A DIO{n:02d}" for n in range(1, 25)]
+        assert all(r.dio_channel == UNSET for r in rows[24:])
+        text = w.lbl_summary.text()
+        assert "gpio=24" in text
+        assert "(+4 over capacity)" in text
+        assert "validation: OK" in text
+    finally:
+        w.deleteLater()
 
 
 def test_auto_allocate_pool_exhausted(page, monkeypatch):

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Guard: user-facing GUI strings must be 100% English.
 
-Tokenizes every ``.py`` file under ``mtkgui/gui/`` (including
-``designinput/``) plus ``mtkgui/permissions.py`` and
+Tokenizes every ``.py`` file under ``mtkgui/gui/`` plus
+``mtkgui/permissions.py`` and
 ``mtkgui/at_commands.py`` and fails on any non-docstring STRING token
 that contains CJK characters (U+4E00-U+9FFF).  Docstrings (the first
 statement of a module / class / def - identified here as STRING tokens

@@ -143,6 +143,11 @@ class ParseNetsPanel(QWidget):
         self.lbl_summary = QLabel("no parse yet")
         row.addWidget(self.lbl_summary, 1)
         lay.addLayout(row)
+        # optional BOM evidence summary (M6 W1): the library is built
+        # from design_input.bom_file with the same pipeline as the CLI
+        self.lbl_bom = QLabel("BOM: (not imported)")
+        self.lbl_bom.setObjectName("muted")
+        lay.addWidget(self.lbl_bom)
 
         # ------------------------------ table 1: Parsed Nets (user
         # direction: the SE Clock / GPIO allocation tables are GONE -
@@ -574,6 +579,38 @@ class ParseNetsPanel(QWidget):
         self._net_text = text or ""
         self._net_name = file_name or ""
 
+    def _bom_library(self) -> dict | None:
+        """Build the netparse library from ``design_input.bom_file``.
+
+        Same :func:`mtkgui.ict.netparse.bom.load_bom_library` entry
+        point the CLI uses (GUI == CLI parity).  A missing / broken
+        BOM is a WARNING only - the NET-only parse keeps running.
+        """
+        model = self.yaml_model
+        bom_file = ""
+        if model is not None:
+            bom_file = str((model.get_params("design_input") or {})
+                           .get("bom_file") or "").strip()
+        if not bom_file:
+            self.lbl_bom.setText("BOM: (not imported)")
+            return None
+        try:
+            from mtkgui.ict.netparse.bom import load_bom_library
+            library, report, bom = load_bom_library(bom_file)
+        except (OSError, ValueError) as exc:
+            self.lbl_bom.setText("BOM: ignored (import failed)")
+            self.task_log.emit(
+                "WARNING",
+                f"BOM ignored: {exc} - parsing the NET without BOM "
+                "evidence")
+            return None
+        summary = (f"{len(bom.records)} records, {report.dnp} DNP, "
+                   f"{len(report.conflicts)} conflicts, "
+                   f"{len(bom.warnings)} warnings")
+        self.lbl_bom.setText(f"BOM: {summary}")
+        self.task_log.emit("INFO", f"BOM library loaded: {summary}")
+        return library
+
     def parse_nets(self) -> None:
         """Run the formal parse with per-step progress + Event-Log
         detail (core-algorithm standard section 6: every pipeline
@@ -606,7 +643,9 @@ class ParseNetsPanel(QWidget):
             self.task_progress.emit(25, "parse nets: cleaning")
             self.task_log.emit("INFO", "netlist cleaning done")
             self.task_progress.emit(40, "parse nets: parsing")
-            result = parse_testable_nets(text, rules=self.net_rules)
+            library = self._bom_library()
+            result = parse_testable_nets(text, rules=self.net_rules,
+                                         library=library)
             # GUI == CLI ordering (user rule M3): rank BEFORE the
             # preview / testable_nets / channel_allocation materialise
             # so input rails come first - never the netlist (name) order

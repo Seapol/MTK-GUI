@@ -276,9 +276,10 @@ the resource is implicit in the channel name.
 
 - `Net` - net name (read-only).
 - `Test point` - member-pin dropdown.
-- `DIO Channel` - one of the 16 DAQM907A digital channels
-  (`DAQM907A DIO01` - `DAQM907A DIO16`). The U2355A DIO stays
-  reserved for the fixture control.
+- `DIO Channel` - one of the 24 U2355A digital channels
+  (`U2355A DIO01` - `U2355A DIO24`). The DAQM907A DIO stays
+  reserved for the fixture control (press / inpos / presence /
+  estop).
 
 There are no `Digital Input` / `Digital Output` columns - the
 drive / read / toggle behavior comes from the test definitions, not
@@ -298,7 +299,8 @@ from the allocation.
 
 ### Auto Allocation
 
-`Auto` fills the **Power** and **Clock** tables top-down:
+`Auto` fills the **Power**, **Clock** and **Control IO** tables
+top-down:
 
 1. **Test point**: the best probe pin of the net (a `TP` pin
    preferred, else the first member pin).
@@ -308,11 +310,11 @@ from the allocation.
    `Power rails`.
 3. **Clock rows**: sequential `SE Clock Hz` resources; the
    `Frequency band` auto-fills from the hardware mapping.
-4. Beyond the pool capacity the row stays unset - that net cannot
+4. **Control IO rows**: the top 24 nets in parse rank order take
+   `U2355A DIO01` - `U2355A DIO24`; excess nets stay classified but
+   unallocated (capacity overflow, e.g. `gpio=24 (+4 over capacity)`).
+5. Beyond the pool capacity the row stays unset - that net cannot
    be tested; adjust the affected rows manually afterwards.
-
-**Note:** the GPIO DIO channels are deliberately NOT auto-assigned -
-configure them manually.
 
 ### Row Validation
 
@@ -322,8 +324,9 @@ A row is OK when every configurable cell of its kind is set:
 - clock: `Test point` + `SE Clock Hz` (the band auto-fills)
 - gpio: `Test point` + `DIO Channel`
 
-The bottom summary shows `validation: OK` only when every row of
-every table is complete; otherwise it reads
+The bottom summary shows `validation: OK` only when every Power /
+Clock row and the first 24 Control IO rows are complete (later
+Control IO nets are expected capacity overflow); otherwise it reads
 `NOK (incomplete rows)`.
 
 ### Do-Not-Test Rules
@@ -348,7 +351,7 @@ and turns the summary line red:
 
 - The conflict check runs per resource pool: DAQM908A (the
   `R-GND` + `Voltage` pool), `U2355A AI` (the `Power rails`
-  pool), `SE Clock` and `DAQM907A DIO`.
+  pool), `SE Clock` and `U2355A DIO`.
 - One net using the same channel for `R-GND` AND `Voltage` is
   the normal Auto behavior - NOT a conflict.
 - The summary line shows the conflicts in red as soon as they

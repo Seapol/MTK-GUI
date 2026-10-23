@@ -97,7 +97,8 @@ def test_schema_design_input_fields():
     deprecated design-data fields are gone."""
     names = [f.name for f in MODULE_FIELDS["design_input"]]
     assert names == ["product_id", "part_number", "sw_version",
-                     "hw_version", "batch", "spf_file", "net_file"]
+                     "hw_version", "batch", "spf_file", "net_file",
+                     "bom_file"]
     assert "design_data" not in names
     batch = next(f for f in MODULE_FIELDS["design_input"]
                  if f.name == "batch")
@@ -179,6 +180,59 @@ def test_net_import_empty_reports_reason(panel, tmp_path,
     panel._import_net()
     assert shown and "NET import failed" in shown[0][2]
     assert panel.net_path == ""
+
+
+# ----------------------------------------------------------- BOM import
+BOM_HEADER = "Reference Designator,Name,Number,Description,Quantity\n"
+
+
+def test_bom_import_fills_label_and_values(panel, tmp_path,
+                                           monkeypatch):
+    """Import BOM (CSV/XLSX filter) fills the status label, the path
+    and the persisted design_input.bom_file; reload keeps them."""
+    bom = tmp_path / "bom.csv"
+    bom.write_text(BOM_HEADER +
+                   "U1,750-1,745-1,IC MCU ARM,1\n"
+                   "R1,150-1,745-2,CAP CER,0\n", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(
+        QFileDialog_PATCH,
+        staticmethod(lambda _p, _t, _d, flt:
+                     captured.update(filter=flt)
+                     or (str(bom), "")))
+    panel._import_bom()
+    assert captured["filter"] == "BOM (*.csv *.xlsx)"
+    assert "imported" in panel.lbl_bom.text()
+    assert "2 records" in panel.lbl_bom.text()
+    assert "1 DNP" in panel.lbl_bom.text()
+    v = panel.values()
+    assert v["bom_file"] == str(bom.resolve())
+    fresh = DesignInputPanel()
+    try:
+        fresh.set_values(v)
+        assert fresh.bom_path == panel.bom_path
+        assert fresh.values()["bom_file"] == v["bom_file"]
+        assert "2 records" in fresh.lbl_bom.text()
+    finally:
+        fresh.deleteLater()
+
+
+def test_bom_import_failure_is_warning_only(panel, tmp_path,
+                                            monkeypatch):
+    """An invalid BOM raises a WARNING and resets the label - it never
+    blocks NET-only parsing or raises to the UI."""
+    bad = tmp_path / "bad.csv"
+    bad.write_text("a,b\n1,2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        QFileDialog_PATCH,
+        staticmethod(lambda *a, **k: (str(bad), "")))
+    logs = []
+    panel.task_log.connect(lambda lvl, msg: logs.append((lvl, msg)))
+    panel._import_bom()
+    assert panel.bom_path == ""
+    assert panel.lbl_bom.text() == "BOM: (not imported)"
+    assert any(lvl == "WARNING" and "BOM import failed" in msg
+               for lvl, msg in logs)
 
 
 # -------------------------------------------------------------- batch
@@ -277,8 +331,9 @@ def test_block_dialog_embeds_panel(qapp):
         assert dlg.form.rowCount() == 0     # no duplicate generic form
         assert not hasattr(dlg, "import_result")
         buttons = [dlg.panel.btn_import_spf.text(),
-                   dlg.panel.btn_import_net.text()]
-        assert buttons == ["Import SPF…", "Import NET…"]
+                   dlg.panel.btn_import_net.text(),
+                   dlg.panel.btn_import_bom.text()]
+        assert buttons == ["Import SPF…", "Import NET…", "Import BOM…"]
     finally:
         dlg.deleteLater()
 

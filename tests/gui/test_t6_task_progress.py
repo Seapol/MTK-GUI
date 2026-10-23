@@ -214,39 +214,3 @@ def test_global_task_progress_state_machine(qapp):
     assert host.status_progress.value() == 0
     assert "next: task" in host.status_progress.format()
     host.deleteLater()          # cancels the pending auto-reset timer
-
-
-# --------------------------------------------- design input parse bridge
-def test_design_input_parse_progress_signal(qapp, monkeypatch):
-    """The Design-Input page mirrors parse progress on the global
-    signal (same state machine when wired into the window)."""
-    from tests.designinput.test_page import (  # noqa: E402
-        NET_SAMPLE,
-        SPF_SAMPLE,
-    )
-    from mtkgui.gui.designinput.page import DesignInputPage
-    p = DesignInputPage()
-    try:
-        seen = []
-        p.parse_progress.connect(lambda pct, lbl: seen.append((pct, lbl)))
-        import tempfile
-        from pathlib import Path
-        tmp = Path(tempfile.mkdtemp())
-        spf = tmp / "s.spf"
-        spf.write_text(SPF_SAMPLE, encoding="utf-8")
-        net = tmp / "b.net"
-        net.write_text(NET_SAMPLE, encoding="utf-8")
-        monkeypatch.setattr(
-            "mtkgui.gui.designinput.page.QFileDialog.getOpenFileName",
-            staticmethod(lambda *a, **k: (str(spf), "")))
-        p._browse_schematic()
-        monkeypatch.setattr(
-            "mtkgui.gui.designinput.page.QFileDialog.getOpenFileName",
-            staticmethod(lambda *a, **k: (str(net), "")))
-        p._browse_net()
-        p._parse_nets()
-        assert seen[0][0] <= 5
-        assert seen[-1] == (100, "parse: done")
-        assert any(pct == 55 for pct, _lbl in seen)
-    finally:
-        p.deleteLater()

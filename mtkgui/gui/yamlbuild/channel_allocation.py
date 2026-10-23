@@ -11,10 +11,11 @@ source) populate three independent tables:
   one of the two U2355A counters) / Frequency band (read-only,
   hardware-derived: DAQM907A 0 ~ 100 kHz, U2355A 0.1 Hz ~ 6 MHz) -
   no Instrument / Channel / Status columns;
-* **Control IO nets** - Net / Test point / DIO Channel (one of the 16
-  DAQM907A DIO resources; the U2355A DIO stays fixture-reserved) -
-  no Instrument / Channel / Status / Digital Input / Digital Output
-  columns.
+* **Control IO nets** - Net / Test point / DIO Channel (one of the 24
+  U2355A DIO resources for the DUT Control IO; the DAQM907A DIO stays
+  fixture-reserved) - no Instrument / Channel / Status / Digital
+  Input / Digital Output columns.  Nets beyond the 24-channel capacity
+  stay classified but get no channel (capacity overflow, not tested).
 
 Rules (11.4): every configurable cell is dropdown-only (no free
 text); the configuration persists to the project YAML; empty /
@@ -51,6 +52,7 @@ from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
     CLOCK_CHANNELS,
     DAQM908A_SENSE_CHANNELS,
+    GPIO_CHANNEL_CAPACITY,
     GPIO_DIO_CHANNELS,
     U2355A_AI_CHANNELS,
 )
@@ -59,7 +61,7 @@ from mtkgui.gui.yamlbuild.power_alloc import (
 UNSET = "—"
 
 #: fixed GPIO attributes (legacy row defaults - the GPIO tab itself
-#: now picks a DAQM907A DIO channel directly)
+#: now picks a U2355A DIO channel directly)
 GPIO_DI = "HighZ"
 GPIO_DO = "No Output"
 
@@ -90,7 +92,7 @@ CLOCK_COLUMNS = (
 )
 #: GPIO tab (user direction): NO Instrument / Channel / Status /
 #: Digital Input / Digital Output columns - the DIO Channel cell
-#: picks one of the 16 DAQM907A DIO resources (the U2355A DIO stays
+#: picks one of the 24 U2355A DIO resources (the DAQM907A DIO stays
 #: reserved for the fixture control)
 GPIO_COLUMNS = (
     ("net", "Net", None),
@@ -723,7 +725,7 @@ class ChannelAllocationPage(QWidget):
                 "DAQM908A")
         collect(self.table_power, ("power_rails",), "U2355A AI")
         collect(self.table_clock, ("se_clock_hz",), "SE Clock")
-        collect(self.table_gpio, ("dio_channel",), "DAQM907A DIO")
+        collect(self.table_gpio, ("dio_channel",), "U2355A DIO")
         return conflicts
 
     @staticmethod
@@ -740,18 +742,20 @@ class ChannelAllocationPage(QWidget):
     def auto_allocate(self) -> None:
         """Auto allocation (user direction 2026-10-13: triggered by
         the "Auto-Channel Allocation" workflow card): assign the
-        Power / Clock tables top-down - the best test point, then
-        sequential channel resources.  The Impedance and Voltage
-        cells share the SAME DAQM908A channel; Power rails draw from
-        the U2355A AI pool; SE Clock from its pool.  Rows beyond the
-        pool capacity stay unset (cannot be tested) and are adjusted
-        manually afterwards.  The GPIO DIO channels are NOT touched -
-        the user configures them manually."""
+        Power / Clock / Control IO tables top-down - the best test
+        point, then sequential channel resources.  The Impedance and
+        Voltage cells share the SAME DAQM908A channel; Power rails draw
+        from the U2355A AI pool; SE Clock from its pool; Control IO
+        takes the top 24 nets (parse rank order) on the U2355A DIO
+        pool.  Rows beyond a pool capacity stay unset (cannot be
+        tested) and are adjusted manually afterwards."""
         for kind, table in (("power", self.table_power),
-                            ("clock", self.table_clock)):
+                            ("clock", self.table_clock),
+                            ("gpio", self.table_gpio)):
             sense = iter(DAQM908A_SENSE_CHANNELS)
             rails = iter(U2355A_AI_CHANNELS)
             clocks = iter(CLOCK_CHANNELS)
+            dios = iter(GPIO_DIO_CHANNELS)
             rows = table.rows()
             for row in rows:
                 if row.test_point in ("", UNSET):
@@ -763,29 +767,52 @@ class ChannelAllocationPage(QWidget):
                         row.impedance = channel
                         row.voltage = channel   # SAME channel both
                         row.power_rails = next(rails)
-                    else:
+                    elif kind == "clock":
                         row.se_clock_hz = next(clocks)
                         row.band = CLOCK_BANDS.get(row.se_clock_hz,
                                                    UNSET)
+                    else:
+                        row.dio_channel = next(dios)
                 except StopIteration:
                     # pool exhausted: this net cannot be tested
                     if kind == "power":
                         row.impedance = UNSET
                         row.voltage = UNSET
                         row.power_rails = UNSET
-                    else:
+                    elif kind == "clock":
                         row.se_clock_hz = UNSET
                         row.band = UNSET
+                    else:
+                        row.dio_channel = UNSET
             table.load_rows(rows)
         self._update_summary()
+
+    @staticmethod
+    def _configured_ok(data: ChannelAllocationData) -> bool:
+        """Capacity-aware validation: every Power / Clock row and the
+        first :data:`GPIO_CHANNEL_CAPACITY` Control IO rows must be
+        configured.  Later Control IO nets are EXPECTED overflow (kept
+        classified, no channel - not a validation error)."""
+        for kind in ("power", "clock"):
+            if any(not row.is_configured(kind)
+                   for row in getattr(data, kind)):
+                return False
+        return all(row.is_configured("gpio")
+                   for row in data.gpio[:GPIO_CHANNEL_CAPACITY])
 
     def _update_summary(self) -> None:
         data = ChannelAllocationData.from_dict(self.collect())
         counts = {kind: len(getattr(data, kind))
                   for kind, _cols in TABLE_SPECS}
-        ok = data.all_ok()
+        gpio_assigned = sum(
+            1 for row in data.gpio if row.dio_channel not in ("", UNSET))
+        overflow = max(0, len(data.gpio) - GPIO_CHANNEL_CAPACITY)
+        gpio_text = f"gpio={gpio_assigned}"
+        if overflow:
+            gpio_text += f" (+{overflow} over capacity)"
+        ok = self._configured_ok(data)
         text = (f"rows: power={counts['power']} "
-                f"clock={counts['clock']} gpio={counts['gpio']} - "
+                f"clock={counts['clock']} {gpio_text} - "
                 "validation: "
                 + (STATUS_OK if ok else "NOK (incomplete rows)"))
         conflicts = self._channel_conflicts()
