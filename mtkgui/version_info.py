@@ -32,7 +32,23 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_ROOT = Path(__file__).resolve().parent.parent
+
+def _frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _exe_dir() -> Path:
+    """Folder containing the running executable (frozen onedir/onefile).
+
+    The packaging step writes ``_build_version.txt`` BESIDE the exe
+    (``MTK_GUI.exe``), not into PyInstaller's ``_internal/`` bundle -
+    so a frozen build must look here, never at the module path.
+    """
+    return Path(sys.executable).resolve().parent
+
+
+#: app root: beside the exe when frozen, the dev checkout otherwise
+APP_ROOT = _exe_dir() if _frozen() else Path(__file__).resolve().parent.parent
 BUILD_VERSION_FILE = "_build_version.txt"
 ENV_VERSION = "MTKGUI_VERSION"
 _GIT_TIMEOUT_S = 3.0
@@ -164,8 +180,10 @@ def resolve(runner=None) -> VersionInfo:
     if env_version:
         return VersionInfo(tag=env_version, branch="", commit="",
                            dirty=False, source="env")
-    # 2. frozen-build version file beside the app root
-    marker = APP_ROOT / BUILD_VERSION_FILE
+    # 2. frozen-build version file beside the app root (beside the exe
+    #    in a frozen build, the dev checkout root otherwise)
+    root = _exe_dir() if _frozen() else APP_ROOT
+    marker = root / BUILD_VERSION_FILE
     try:
         if marker.is_file():
             file_version = marker.read_text(

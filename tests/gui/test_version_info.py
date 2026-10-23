@@ -159,6 +159,52 @@ def test_resolve_env_beats_file(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# frozen builds (M10-FIX4 F3): the marker lives BESIDE the exe
+# ---------------------------------------------------------------------------
+
+
+def test_frozen_marker_beside_exe(tmp_path, monkeypatch):
+    """A frozen build resolves _build_version.txt from the folder that
+    contains the executable, not PyInstaller's _internal bundle."""
+    from mtkgui import version_info as vi
+    exe = tmp_path / "MTK_GUI.exe"
+    exe.write_bytes(b"")
+    (tmp_path / vi.BUILD_VERSION_FILE).write_text(
+        "v4.2.0\n", encoding="utf-8")
+    monkeypatch.setattr(vi.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(vi.sys, "executable", str(exe))
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.source == "file"
+    assert info.tag == "v4.2.0"
+    assert info.display() == "v4.2.0"
+
+
+def test_frozen_without_marker_skips_git(tmp_path, monkeypatch):
+    """No marker beside the exe -> static version (a frozen build must
+    never spawn git / fall back to the dev checkout root)."""
+    from mtkgui import version_info as vi
+    exe = tmp_path / "MTK_GUI.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setattr(vi.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(vi.sys, "executable", str(exe))
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.source == "static"
+    assert info.tag == __version__
+
+
+def test_dev_mode_still_uses_module_root(tmp_path, monkeypatch):
+    """Dev (not frozen) keeps the module-root behaviour (APP_ROOT)."""
+    from mtkgui import version_info as vi
+    monkeypatch.delattr(vi.sys, "frozen", raising=False)
+    monkeypatch.setattr(vi, "APP_ROOT", tmp_path)
+    (tmp_path / vi.BUILD_VERSION_FILE).write_text(
+        "v4.3.0-dev\n", encoding="utf-8")
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.source == "file"
+    assert info.tag == "v4.3.0-dev"
+
+
+# ---------------------------------------------------------------------------
 # cache
 # ---------------------------------------------------------------------------
 

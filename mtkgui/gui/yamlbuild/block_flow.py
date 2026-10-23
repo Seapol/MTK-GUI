@@ -108,6 +108,13 @@ _MARK_COLOR = {MARK_STAR: "#f59e0b", MARK_CHECK: "#22c55e"}
 _TITLE_CSS = "font-weight: bold; font-size: 11px;"
 _STATE_CSS = "font-weight: bold; font-size: 10px;"
 
+#: M10-FIX4 F4: minimum TOTAL flow width that keeps all five cards
+#: readable in the real splitter - every title stays on at most TWO
+#: wrapped lines (measured with the app font: 137 px card labels).
+#: Without it the QSplitter compressed the left pane to ~490 px, the
+#: cards landed ~80 px wide and titles 04 / 05 clipped.
+MIN_FLOW_WIDTH = 880
+
 
 class BlockCard(QFrame):
     """One workflow block: click opens the config dialog, right click
@@ -322,6 +329,9 @@ class BlockFlowWidget(QWidget):
     def __init__(self, parent=None) -> None:
         """Create the flow widget with all fixed blocks."""
         super().__init__(parent)
+        # M10-FIX4 F4: the splitter may never compress the row below a
+        # width where the card titles stop being readable
+        self.setMinimumWidth(MIN_FLOW_WIDTH)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Fixed)
         self._cards: dict[str, BlockCard] = {}

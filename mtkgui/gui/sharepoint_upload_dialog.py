@@ -72,6 +72,12 @@ CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
              "AppleWebKit/537.36 (KHTML, like Gecko) "
              "Chrome/124.0.0.0 Safari/537.36")
 
+#: M10-FIX4 F2: effective site for the virtual (FakeSharePoint)
+#: transport when the operator left the Site link empty - the field
+#: only DISPLAYS a placeholder, so the uploader must not treat the
+#: empty text as "not configured" in virtual mode.
+VIRTUAL_SITE = "https://virtual.sharepoint.local/ict-reports"
+
 
 def candidate_config_paths():
     here = Path(__file__).resolve().parents[1] / "config" / CONFIG_NAME
@@ -428,6 +434,11 @@ class SharePointUploadDialog(QDialog):
         source folder (they would be re-synced / re-packed)."""
         from mtkgui.engine.uploader import UploadConfig
         section = self.current_section()
+        # M10-FIX4 F2: virtual mode accepts the displayed placeholder as
+        # the effective site, so an empty field still packs / uploads
+        # through FakeSharePoint (saved config keeps the empty text).
+        if self.virtual and not section["site_url"]:
+            section["site_url"] = VIRTUAL_SITE
         folder = section["local_folder"]
         state = self._state_root
         outbox = Path(folder) if folder else state / "sharepoint_outbox"
@@ -564,9 +575,14 @@ class SharePointUploadDialog(QDialog):
             return []
         results = self._build_uploader().sync_folder(folder)
         up = sum(1 for r in results if r.status == "UPLOADED")
-        bad = sum(1 for r in results if r.status in ("FAILED",))
-        self._log(f"sharepoint sync: {len(results)} files, "
-                  f"{up} uploaded, {bad} failed (kept in outbox)")
+        bad = [r for r in results if r.status in ("FAILED",)]
+        line = (f"sharepoint sync: {len(results)} files, "
+                f"{up} uploaded, {len(bad)} failed (kept in outbox)")
+        if bad:
+            # M10-FIX4 F2: never a bare counter - name the real reason
+            line += (f" - upload failed: "
+                     f"{bad[0].detail or 'unknown reason'}")
+        self._log(line)
         return results
 
     def pack_now(self) -> tuple:
@@ -579,8 +595,15 @@ class SharePointUploadDialog(QDialog):
             self._log(f"sharepoint pack: {folder} is empty - "
                       "nothing to upload")
         else:
-            self._log(f"sharepoint pack: {zpath.name} -> "
-                      f"{result.status}")
+            line = (f"sharepoint pack: {zpath.name} -> "
+                    f"{result.status}")
+            if result.status == "FAILED":
+                # M10-FIX4 F2: surface WHY it failed (missing site
+                # link / not configured / transport error), never a
+                # bare "-> FAILED"
+                line += (f" - upload failed: "
+                         f"{result.detail or 'unknown reason'}")
+            self._log(line)
         return result, zpath
 
     def save_config(self) -> Path:

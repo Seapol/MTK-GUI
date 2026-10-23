@@ -181,6 +181,68 @@ def test_pack_now_uploads_zip(qapp, tmp_path):
         dlg.deleteLater()
 
 
+# -------------------------------------------------------------------------
+# M10-FIX4 F2: virtual mode + empty Site link (placeholder only)
+# -------------------------------------------------------------------------
+
+
+def test_virtual_pack_with_empty_site_succeeds(qapp, tmp_path):
+    """Virtual mode: the Site link field only shows a placeholder, so an
+    empty value must still pack + upload through FakeSharePoint and
+    Test Connection must pass (M10-FIX4 F2)."""
+    dlg = make_dialog(qapp, tmp_path)
+    try:
+        src = tmp_path / "reports"
+        src.mkdir()
+        (src / "a.csv").write_text("1,2,3")
+        assert dlg.site_edit.text() == ""          # placeholder only
+        dlg.folder_edit.setText(str(src))
+        dlg.rb_packaged.setChecked(True)
+        logs = []
+        dlg.action_logged.connect(logs.append)
+        assert dlg.test_connection() == []
+        result, zpath = dlg.pack_now()
+        assert result is not None and result.status == "UPLOADED"
+        assert zpath is not None and zpath.exists()
+        assert any("UPLOADED" in line for line in logs)
+        # the saved config still stores the EMPTY field (no fake leak)
+        path = dlg.save_config()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["sharepoint"]["site_url"] == ""
+    finally:
+        dlg.deleteLater()
+
+
+def test_pack_failure_surfaces_reason(qapp, tmp_path):
+    """A failed pack/upload names the real reason in the status log,
+    never a bare '-> FAILED' (M10-FIX4 F2)."""
+    outbox = tmp_path / "outbox"
+    outbox.mkdir(exist_ok=True)
+    fake = FakeSharePoint()
+    fake.online = False
+    uploader = SharePointUploader(outbox, state_dir=tmp_path / "state",
+                                  transport=fake)
+    dlg = SharePointUploadDialog(
+        None, virtual=True, config_path=tmp_path / "sp_cfg.json",
+        state_dir=tmp_path / "state", uploader=uploader)
+    try:
+        src = tmp_path / "reports"
+        src.mkdir()
+        (src / "a.csv").write_text("1,2,3")
+        dlg.folder_edit.setText(str(src))
+        dlg.rb_packaged.setChecked(True)
+        logs = []
+        dlg.action_logged.connect(logs.append)
+        result, _zpath = dlg.pack_now()
+        assert result is not None and result.status == "FAILED"
+        failed_lines = [ln for ln in logs if "-> FAILED" in ln]
+        assert failed_lines
+        assert "upload failed:" in failed_lines[0]
+        assert "network down" in failed_lines[0]
+    finally:
+        dlg.deleteLater()
+
+
 def test_menu_action_wired(qapp, tmp_path, monkeypatch):
     """Report > SharePoint Upload… opens the dialog (exec spied, never
     blocks the test)."""

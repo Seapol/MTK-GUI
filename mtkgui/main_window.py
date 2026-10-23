@@ -1227,6 +1227,21 @@ class MainWindow(QMainWindow):
         the event loop so the finished-run UI never freezes."""
         if not summary.get("counted"):
             return
+        # M10-FIX4 F1: persist the finished unit into the statistics
+        # history BEFORE any counter reset (Close Yaml).  Statistics
+        # must never break a run: a failure only logs a WARNING.
+        try:
+            from mtkgui.gui.statistics_store import (
+                append_run,
+                record_from_page,
+            )
+            page = self.workflow_page
+            runs = getattr(page, "cycle_times", None) or []
+            if runs and append_run(record_from_page(page)) is None:
+                raise OSError("run history is not writable")
+        except Exception as exc:                # noqa: BLE001
+            self._append_event_log(
+                f"WARNING: statistics record not saved: {exc}")
         from mtkgui.engine.report import BatchSummary, DutReport
         report = DutReport.from_session(self.workflow_page)
         self._session_reports.append(report)
@@ -1327,14 +1342,13 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _open_statistics(self):
-        """Report > Statistics: quality-statistics dialog placeholder
-        (Yield / Avg Cycle Time / UPH / CpK / Error List, shipped with
-        V4.0 phase B3 on top of the P2-5 metrics engine)."""
-        QMessageBox.information(
-            self, "Statistics",
-            "Quality statistics (Yield, Avg Cycle Time, UPH/UPD, CpK, "
-            "Error List) ship with V4.0 phase B3 "
-            "(feature/report-backend).")
+        """Report > Statistics: quality statistics dashboard (Yield /
+        Avg Cycle Time / UPH / CpK / failure classification) fed from
+        the live session or the append-only run history
+        (config/statistics/runs.json), M10-FIX4 F1."""
+        from .gui.statistics_dialog import StatisticsDialog
+        dlg = StatisticsDialog(self.workflow_page, self)
+        dlg.exec()
 
     # -------------------------------------------------------- permissions
     def apply_permissions(self):
