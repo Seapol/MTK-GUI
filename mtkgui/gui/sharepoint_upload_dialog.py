@@ -23,6 +23,7 @@ real split.
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -236,6 +237,10 @@ class SharePointUploadDialog(QDialog):
     #: auto-drive interval while the dialog is open
     TICK_MS = 30_000
 
+    #: M13-FIX F3: after a failed automatic pack never auto-retry for at
+    #: least this long (seconds) - a 30 s retry storm is not acceptable
+    AUTO_PACK_BACKOFF_S = 300.0
+
     def __init__(self, parent=None, *, virtual: bool = False,
                  config_path=None, uploader: SharePointUploader | None = None,
                  state_dir=None, session: SharePointSession | None = None):
@@ -248,7 +253,16 @@ class SharePointUploadDialog(QDialog):
         self._state_root = (self._state_dir or
                             Path(__file__).resolve().parents[1] / "config"
                             / "sharepoint_state")
+        # M13-FIX F2: one uploader per dialog session (injected instances
+        # are never replaced); rebuilt only when the effective section
+        # changes, so a successful pack suppresses the 30 s tick.
         self._uploader = uploader
+        self._uploader_injected = uploader is not None
+        self._uploader_sig = None
+        # last successful pack (epoch), restored from the config file
+        self._last_pack_ts = 0.0
+        # F3: until this epoch an auto pack is suppressed after a failure
+        self._auto_pack_backoff_until = 0.0
         # signed-in session: injected (tests / embedders) or restored
         # from the persisted session.json; virtual mode never signs in
         self._session = session if session is not None else (
@@ -396,6 +410,7 @@ class SharePointUploadDialog(QDialog):
         self.site_edit.setText(str(section.get("site_url") or ""))
         self.token_edit.setText(str(section.get("token") or ""))
         self.folder_edit.setText(str(section.get("local_folder") or ""))
+        self._last_pack_ts = float(section.get("last_pack_ts") or 0.0)
         mode = str(section.get("upload_mode") or MODE_SYNC)
         idx = self.period_combo.findData(
             str(section.get("pack_period") or "weekly"))
@@ -425,6 +440,9 @@ class SharePointUploadDialog(QDialog):
             "upload_mode": (MODE_PACKAGED if self.rb_packaged.isChecked()
                             else MODE_SYNC),
             "pack_period": self.period_combo.currentData() or "weekly",
+            # M13-FIX F1: part of the ``sharepoint.*`` section so it
+            # round-trips through UploadConfig.to_config()
+            "last_pack_ts": float(self._last_pack_ts),
         }
 
     def _browse(self):
@@ -435,10 +453,14 @@ class SharePointUploadDialog(QDialog):
             self.folder_edit.setText(chosen)
 
     def _build_uploader(self) -> SharePointUploader:
-        """A fresh uploader wired to the CURRENT fields (engine keeps
-        ledger / dedup state per dialog session).  Ledger + archive
-        zips live in a DEDICATED state dir - never inside the user's
-        source folder (they would be re-synced / re-packed)."""
+        """The dialog's ONE uploader, wired to the CURRENT fields (the
+        engine keeps ledger / dedup state per dialog session).  Ledger +
+        archive zips live in a DEDICATED state dir - never inside the
+        user's source folder (they would be re-synced / re-packed).
+
+        M13-FIX F2: the instance is cached and reused by every 30 s tick;
+        a new one is built only when the effective section (site /
+        token / folder / mode / period / sign-in state) changes."""
         from mtkgui.engine.uploader import UploadConfig
         section = self.current_section()
         # M10-FIX4 F2: virtual mode accepts the displayed placeholder as
@@ -449,14 +471,31 @@ class SharePointUploadDialog(QDialog):
         folder = section["local_folder"]
         state = self._state_root
         outbox = Path(folder) if folder else state / "sharepoint_outbox"
-        cfg = UploadConfig.from_config({"sharepoint": section})
-        if self._uploader is not None:
+        sig = self._signature(section)
+        if self._uploader is not None and (
+                self._uploader_injected or sig == self._uploader_sig):
             uploader = self._uploader
         else:
             uploader = SharePointUploader(
                 outbox, state_dir=state, transport=self._transport())
+            self._uploader = uploader
+            self._uploader_sig = sig
+            # a deliberate field change (or sign-in) grants one fresh
+            # auto attempt instead of inheriting the failure backoff
+            self._auto_pack_backoff_until = 0.0
+        cfg = UploadConfig.from_config({"sharepoint": section})
+        # the in-session pack moment wins over the (possibly stale)
+        # on-disk value - otherwise apply_config would reset it to 0
+        cfg.last_pack_ts = max(cfg.last_pack_ts, self._last_pack_ts)
         uploader.apply_config(cfg)
         return uploader
+
+    def _signature(self, section: dict) -> tuple:
+        """The effective section that decides whether to rebuild."""
+        return (section.get("site_url"), section.get("token"),
+                section.get("local_folder"), section.get("upload_mode"),
+                section.get("pack_period"),
+                bool(self._session and self._session.cookies))
 
     def _transport(self):
         """Fake (virtual) / signed-in REST (real) / legacy token."""
@@ -593,11 +632,19 @@ class SharePointUploadDialog(QDialog):
         return results
 
     def pack_now(self) -> tuple:
+        """Pack + upload immediately (manual button, or a due auto tick).
+
+        M13-FIX F1: the pack moment is persisted only on SUCCESS so the
+        period survives a GUI restart; a failed pack keeps the previous
+        marker (the engine's unconditional mark_packed is undone here)
+        and arms the F3 backoff."""
         folder = self.folder_edit.text().strip()
         if not folder:
             self._warn("Select a local folder first.")
             return None, None
-        result, zpath = self._build_uploader().pack_and_upload(folder)
+        uploader = self._build_uploader()
+        previous_ts = float(uploader.config.last_pack_ts or 0.0)
+        result, zpath = uploader.pack_and_upload(folder)
         if result is None:
             self._log(f"sharepoint pack: {folder} is empty - "
                       "nothing to upload")
@@ -611,7 +658,28 @@ class SharePointUploadDialog(QDialog):
                 line += (f" - upload failed: "
                          f"{result.detail or 'unknown reason'}")
             self._log(line)
+        if result is None or result.status in ("UPLOADED", "DEDUPED"):
+            # an empty folder has nothing to upload - still advance the
+            # period so the tick does not re-pack it every 30 s
+            self._persist_pack_state(
+                float(uploader.config.last_pack_ts or 0.0))
+        else:
+            uploader.config.last_pack_ts = previous_ts
+            self._auto_pack_backoff_until = (time.time()
+                                             + self.AUTO_PACK_BACKOFF_S)
         return result, zpath
+
+    def _persist_pack_state(self, ts: float) -> None:
+        """Write ``sharepoint.last_pack_ts`` to the dialog's config file
+        (round-trips through UploadConfig.from_config / to_config)."""
+        self._last_pack_ts = float(ts or 0.0)
+        if not self._last_pack_ts:
+            return
+        section = self.current_section()
+        if self._config_path is None:
+            save_upload_config(section)
+        else:
+            _save_to(section, self._config_path)
 
     def save_config(self) -> Path:
         section = self.current_section()
@@ -628,8 +696,19 @@ class SharePointUploadDialog(QDialog):
             return
         if self.rb_sync.isChecked():
             self.sync_now()
-        elif self._build_uploader().pack_due():
-            self.pack_now()
+            return
+        if not self._auto_pack_allowed():
+            return
+        if not self._build_uploader().pack_due():
+            return
+        self.pack_now()
+
+    def _auto_pack_allowed(self) -> bool:
+        """M13-FIX F3: never auto-pack without a real sign-in, and never
+        auto-retry sooner than the failure backoff allows (D2 storm)."""
+        if not self.virtual and not (self._session and self._session.cookies):
+            return False
+        return time.time() >= self._auto_pack_backoff_until
 
     def _warn(self, message: str):
         from PySide6.QtWidgets import QMessageBox
