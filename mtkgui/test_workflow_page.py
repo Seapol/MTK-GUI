@@ -102,6 +102,7 @@ from .engine import (
 )
 from .engine.rails import DURATION_S
 from .gui.steps_editor import StepsEditorDialog as _SequenceEditorDialog
+from .gui.test_case_viewer import TestCaseViewer
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
 from .style import gui_theme_color, saved_theme, text_for_card
@@ -706,6 +707,8 @@ class TestWorkFlowPage(QWidget):
         # currently executing row (highlighted + auto-scrolled into view)
         self._active_table = None
         self._active_row = -1
+        # M12: detachable Test Case Viewer (created on first open)
+        self._case_viewer = None
         # virtual serial number counter (Auto-SN)
         self._sn_counter = 0
         # account permissions (defaults = supervisor until apply_permissions)
@@ -813,10 +816,18 @@ class TestWorkFlowPage(QWidget):
 
         root = QVBoxLayout(self)
 
+        header_row = QHBoxLayout()
         title = QLabel("Test Work Flow")
         title.setObjectName("strong")
         title.setStyleSheet("font-size: 16px;")
-        root.addWidget(title)
+        header_row.addWidget(title)
+        header_row.addStretch(1)
+        self.btn_case_viewer = QPushButton("Test Case Viewer")
+        self.btn_case_viewer.setToolTip(
+            "Open all ICT/FCT test cases in a resizable window")
+        self.btn_case_viewer.clicked.connect(self.open_test_case_viewer)
+        header_row.addWidget(self.btn_case_viewer)
+        root.addLayout(header_row)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -871,6 +882,14 @@ class TestWorkFlowPage(QWidget):
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
         _startup_mark("twf: page layout done")
+
+    def open_test_case_viewer(self):
+        """M12: open the detachable viewer (one merged ICT + FCT table)."""
+        if self._case_viewer is None:
+            self._case_viewer = TestCaseViewer(self, self.window())
+        self._case_viewer.show()
+        self._case_viewer.raise_()
+        self._case_viewer.activateWindow()
 
     # ------------------------------------------------------- permissions
     def apply_permissions(self, perm, supervisor):
@@ -2395,6 +2414,9 @@ class TestWorkFlowPage(QWidget):
             self._highlight_row(self.ict, row)
         elif kind == "fct":
             self._highlight_row(self.fct, row)
+        viewer = self._case_viewer
+        if viewer is not None and viewer.isVisible():
+            viewer.highlight_step(kind, row)
 
     def _render_step(self, kind, row, status, measured, duration):
         """Render one engine step result into its table cell(s) — the
