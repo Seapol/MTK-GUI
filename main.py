@@ -9,7 +9,16 @@ from pathlib import Path
 
 import mtkgui.startup_timing as _timing
 
-_timing.mark("entry (pyinstaller bootloader done)")
+# QtWebEngine MUST be loaded before QApplication is created (M13):
+# the SharePoint sign-in window builds QWebEngineProfile /
+# QWebEnginePage / QWebEngineView at runtime, and PySide6 6.10.3
+# segfaults (SIGSEGV) when the WebEngine modules are first imported
+# after the Cocoa platform plug-in is live.  The dialog keeps its own
+# lazy import, so this unconditional pre-QApplication load is the fix;
+# it must stay outside any try/except that could silently skip it.
+import PySide6.QtWebEngineWidgets  # noqa: F401
+
+_timing.mark("QtWebEngine loaded")
 
 
 def _app_icon_path():

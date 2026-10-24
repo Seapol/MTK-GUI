@@ -70,6 +70,15 @@ The exe name is controlled by `name=` in the spec file. The shipped
 > - `COLLECT(name='MTK_GUI')` determines the output folder name → `dist\MTK_GUI\`
 > - `EXE(icon='resources/app_icon.ico')` sets the exe / taskbar icon; the
 >   icon ships inside `resources`, so no extra step is needed (added 2026-10-21)
+> - **QtWebEngine must ship with the bundle** (2026-10-24 M13):
+>   `MTK_GUI_windows.spec` declares `PySide6.QtWebEngineWidgets` /
+>   `PySide6.QtWebEngineCore` hiddenimports, so the PySide6 PyInstaller
+>   hook collects `QtWebEngineProcess.exe` and the `qtwebengine_*`
+>   resources automatically. After the build, confirm
+>   `QtWebEngineProcess.exe` exists under `dist\MTK_GUI\_internal\` —
+>   missing it crashes the app when `Report > SharePoint Upload… >
+>   Connect & Sign in…` opens the sign-in window. Never add these two
+>   modules to `excludes`.
 > - **No manual edit is needed** — build directly (2026-10-15 correction:
 >   an earlier revision of this guide told builders to rename `name` to
 >   `mtk`, which never matched the actual product; that section is retired).

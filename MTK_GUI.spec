@@ -3,6 +3,16 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = []
 hiddenimports += collect_submodules('serial')
+# QtWebEngine (M13): the SharePoint sign-in window creates
+# QWebEngineProfile / QWebEnginePage / QWebEngineView at runtime, so the
+# WebEngine modules must be traced into the frozen bundle.  The PySide6
+# PyInstaller hook then collects the QtWebEngine binaries
+# (QtWebEngineProcess helper, qtwebengine_* resources) and plugins.
+# QtWebEngineQuick is not used by this widgets-only app.
+hiddenimports += [
+    'PySide6.QtWebEngineWidgets',
+    'PySide6.QtWebEngineCore',
+]
 
 # only the runtime-needed data files (the user's own YAML plans live
 # in yaml_plan/ OUTSIDE the package and are NOT shipped)

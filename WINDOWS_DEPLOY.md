@@ -70,6 +70,13 @@ exe 的名字由 spec 文件里的 `name=` 决定，仓库自带的
 > - `COLLECT(name='MTK_GUI')` 决定输出文件夹名 → `dist\MTK_GUI\`
 > - `EXE(icon='resources/app_icon.ico')` 决定 exe / 任务栏图标，图标文件随
 >   `resources` 一起打包，无需额外步骤（2026-10-21 新增）
+> - **QtWebEngine 必须随包**（2026-10-24 M13）：`MTK_GUI_windows.spec` 已声明
+>   `PySide6.QtWebEngineWidgets` / `PySide6.QtWebEngineCore` 的 hiddenimports，
+>   PyInstaller 的 PySide6 hook 会自动收集 `QtWebEngineProcess.exe` 与
+>   `qtwebengine_*` 资源。打包后请确认 `dist\MTK_GUI\_internal\` 下存在
+>   `QtWebEngineProcess.exe`——缺失会导致 `Report > SharePoint Upload… >
+>   Connect & Sign in…` 打开登录窗口时直接崩溃。请勿把这两个模块加入
+>   `excludes`。
 > - **无需任何手工修改**，直接打包即可（2026-10-15 修正：旧版文档
 >   曾教手工把 name 改成 `mtk`，与实际产物不一致，已废弃）。
 

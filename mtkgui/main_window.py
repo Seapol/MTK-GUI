@@ -447,6 +447,10 @@ class MainWindow(QMainWindow):
             centerer = DialogCenterer(app)
             app.installEventFilter(centerer)
             app.setProperty("_dialog_centerer", True)
+            # Python reference (not a Qt property): M13 suspends this
+            # filter while the WebEngine sign-in window is on screen
+            app._dialog_centerer = centerer
+            self._dialog_centerer = centerer
 
         self.bg_color = DEFAULT_BACKGROUND
         self.theme = THEMES[theme_for(self.bg_color)]
@@ -1416,7 +1420,37 @@ class MainWindow(QMainWindow):
         # upload result as an important event (shown in Simplified too)
         dlg.action_logged.connect(
             lambda msg: self._append_event_log(msg, level=IMPORTANT))
-        dlg.exec()
+        # M13: PySide 6.10.3 segfaults (SIGSEGV in sbk_o_eventFilter ->
+        # PySide::getWrapperForQObject) when a Python QApplication
+        # event filter is installed while a QWebEngineView is alive -
+        # i.e. the embedded SharePoint sign-in window.  Suspend the
+        # app-wide Python filters for the dialog lifetime; they are
+        # restored when it closes.
+        suspended = self._suspend_app_filters()
+        try:
+            dlg.exec()
+        finally:
+            self._restore_app_filters(suspended)
+
+    # ------------------------------------------------- event filters
+    def _suspend_app_filters(self):
+        """Remove the app-wide Python event filters (combo-wheel guard +
+        dialog centerer) and return them so they can be restored."""
+        app = QApplication.instance()
+        filters = [self._wheel_guard,
+                   getattr(app, "_dialog_centerer",
+                           getattr(self, "_dialog_centerer", None))]
+        installed = []
+        for f in filters:
+            if f is not None:
+                app.removeEventFilter(f)
+                installed.append(f)
+        return installed
+
+    def _restore_app_filters(self, filters):
+        app = QApplication.instance()
+        for f in filters:
+            app.installEventFilter(f)
 
     def _open_statistics(self):
         """Report > Statistics: quality statistics dashboard (Yield /

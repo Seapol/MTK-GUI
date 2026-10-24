@@ -179,6 +179,13 @@ class SharePointSignInDialog(QDialog):
         page = QWebEnginePage(profile, self)
         view = QWebEngineView(self)
         view.setPage(page)
+        # M13: the profile must outlive the page.  Created as a child of
+        # this dialog the profile was destroyed BEFORE the page/view ->
+        # "Release of profile requested but WebEnginePage still not
+        # deleted" followed by a SIGSEGV when the dialog closed.  Parent
+        # it to the view so it is released last (page -> view ->
+        # profile).
+        profile.setParent(view)
         store = profile.cookieStore()
         store.cookieAdded.connect(self._on_qt_cookie)
         store.loadAllCookies()
