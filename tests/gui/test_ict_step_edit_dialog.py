@@ -99,7 +99,8 @@ def test_unit_map_covers_all_methods(qapp):
     try:
         assert dlg.ICT_METHOD_UNITS["R-GND"] == "Ω"
         assert dlg.ICT_METHOD_UNITS["Power Voltage"] == "V"
-        assert dlg.ICT_METHOD_UNITS["Clock Hz"] == "Hz"
+        # M19g: clock limits are edited/displayed in kHz
+        assert dlg.ICT_METHOD_UNITS["Clock Hz"] == "kHz"
         # the plain Delay wait step reuses the per-step Wait (ms) field
         assert dlg.ICT_METHOD_UNITS["delay"] == "ms"
     finally:

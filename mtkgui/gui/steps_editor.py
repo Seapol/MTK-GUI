@@ -149,7 +149,7 @@ class StepsEditorDialog(QDialog):
                 ("Voltage — power rail level (measurement)",
                  ("Power Voltage", "New Test", "V", "—", "—", "—")),
                 ("Clock Hz — clock frequency (measurement)",
-                 ("Clock Hz", "New Test", "Hz", "—", "—", "—")),
+                 ("Clock Hz", "New Test", "kHz", "—", "—", "—")),
                 ("Delay — plain wait (ms)",
                  ("delay", "Delay", "ms", "—", "—", "—")),
             ]
@@ -345,7 +345,9 @@ class StepsEditorDialog(QDialog):
     ICT_METHOD_UNITS = {
         METHOD_R_GND: "Ω",
         "Power Voltage": "V",
-        "Clock Hz": "Hz",
+        # M19g: clock limits are edited/displayed in kHz (32768 Hz =
+        # 32.768 kHz, 4 MHz = 4000.000 kHz); the stored step stays Hz
+        "Clock Hz": "kHz",
         "DAQ AI": "V",
         "test": "—",
         "op": "—",
@@ -466,9 +468,24 @@ class StepsEditorDialog(QDialog):
                 spin.setValue(spin.minimum())   # the "—" state
             return spin
 
-        measured_spin = _numeric(measured)
-        lo_spin = _numeric(lo)
-        hi_spin = _numeric(hi)
+        # M19g: Clock Hz rows open in kHz (3 decimals) and are saved
+        # back as Hz - the display/editing unit is kHz, the stored
+        # step and the runner keep Hz at full precision.  The internal
+        # kind comes from the Test Method combo (a legacy "test" row
+        # gets its real method from _kind_label), so a clock step that
+        # arrived as ("test", "Clock Hz - x", ...) still scales.
+        def _clock_scale():
+            return 1000.0 if (kind_combo.currentData() or "") == "Clock Hz" else 1.0
+
+        def _to_display(value: str, scale: float):
+            try:
+                return float(value) / scale
+            except (TypeError, ValueError):
+                return value          # "—" stays the dash state
+
+        measured_spin = _numeric(_to_display(measured, _clock_scale()))
+        lo_spin = _numeric(_to_display(lo, _clock_scale()))
+        hi_spin = _numeric(_to_display(hi, _clock_scale()))
         form.addRow("Test Method:", kind_combo)
         form.addRow("Net:", net_combo)
         form.addRow("Enable:", enable_cb)
@@ -549,12 +566,23 @@ class StepsEditorDialog(QDialog):
             # e.g. the R-GND Expected / Max) always saves "—"
             if not spin.isEnabled() or spin.value() <= spin.minimum():
                 return "—"
+            if _clock_scale() > 1:
+                # M19g: the kHz spinner holds Hz/1000 - store the full
+                # Hz value (double precision, 3 decimals) so 32768.1 Hz
+                # does not lose its fraction through the kHz display
+                return f"{spin.value() * _clock_scale():.3f}"
             return f"{spin.value():.{spin.decimals()}f}"
 
+        # M19g: the clock row's Unit field shows "kHz" (user direction)
+        # but the stored step keeps unit "Hz" and Hz values - the
+        # runner / instruments / test-workflow table all stay Hz
+        stored_unit = unit_edit.text().strip() or "—"
+        if _clock_scale() > 1:
+            stored_unit = "Hz"
         self._steps[r] = (
             kind_combo.currentData() or kind_combo.currentText(),
             net_combo.currentText().strip() or name,
-            unit_edit.text().strip() or "—",
+            stored_unit,
             _num_text(measured_spin),
             _num_text(lo_spin),
             _num_text(hi_spin),

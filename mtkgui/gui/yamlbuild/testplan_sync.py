@@ -343,11 +343,11 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             lower = _number(row.get("Lower limit (kHz)"))
             upper = _number(row.get("Upper limit (kHz)"))
             if nominal_khz is not None:
-                alloc["nominal_khz"] = f"{nominal_khz:.4f}"
+                alloc["nominal_khz"] = f"{nominal_khz:.3f}"
             if lower is not None:
-                alloc["lower_khz"] = f"{lower:.4f}"
+                alloc["lower_khz"] = f"{lower:.3f}"
             if upper is not None:
-                alloc["upper_khz"] = f"{upper:.4f}"
+                alloc["upper_khz"] = f"{upper:.3f}"
             clock_alloc.append(alloc)
             clock_alloc_by_net[net] = alloc
             report.append(f"added clock channel row {net}")
@@ -359,11 +359,11 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             lower = _number(row.get("Lower limit (kHz)"))
             upper = _number(row.get("Upper limit (kHz)"))
             if nominal_khz is not None:
-                alloc["nominal_khz"] = f"{nominal_khz:.4f}"
+                alloc["nominal_khz"] = f"{nominal_khz:.3f}"
             if lower is not None:
-                alloc["lower_khz"] = f"{lower:.4f}"
+                alloc["lower_khz"] = f"{lower:.3f}"
             if upper is not None:
-                alloc["upper_khz"] = f"{upper:.4f}"
+                alloc["upper_khz"] = f"{upper:.3f}"
             report.append(f"overwrote clock channel row {net}")
         else:
             report.append(f"kept clock channel row {net}")

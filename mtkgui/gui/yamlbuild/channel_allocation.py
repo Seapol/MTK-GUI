@@ -291,9 +291,9 @@ def rows_from_testable(testable: dict, kind: str) -> list[AllocatedRow]:
         elif kind == "clock":
             khz = _stored_num(info.get("nominal_khz"))
             if khz is not None:
-                row.nominal_khz = f"{khz:.4f}"
-                row.lower_khz = f"{khz * (1 - CLOCK_TOL_PPM * 1e-6):.4f}"
-                row.upper_khz = f"{khz * (1 + CLOCK_TOL_PPM * 1e-6):.4f}"
+                row.nominal_khz = f"{khz:.3f}"
+                row.lower_khz = f"{khz * (1 - CLOCK_TOL_PPM * 1e-6):.3f}"
+                row.upper_khz = f"{khz * (1 + CLOCK_TOL_PPM * 1e-6):.3f}"
         else:
             row.op_type = OP_CHOICES[0]
         rows.append(row)
@@ -597,7 +597,8 @@ class _NetTable(QWidget):
             if key in NUMERIC_COLUMNS:
                 spin = QDoubleSpinBox()
                 spin.setRange(0.0, 1e7)
-                spin.setDecimals(4 if key.endswith("_khz") else 3)
+                # M19g: kHz and V limits both keep 3 decimals
+                spin.setDecimals(3)
                 spin.setSpecialValueText(UNSET)   # 0 shows the dash
                 try:
                     spin.setValue(float(getattr(row, key) or 0))
@@ -643,8 +644,8 @@ class _NetTable(QWidget):
         if value <= 0:
             setattr(row, key, UNSET)
         else:
-            decimals = 4 if key.endswith("_khz") else 3
-            setattr(row, key, f"{value:.{decimals}f}")
+            # M19g: 3 decimals everywhere (V and kHz limits)
+            setattr(row, key, f"{value:.3f}")
         # M19d: typing / changing a Nominal auto-fills the default
         # limits (power +/- 5 %, clock +/- 50 ppm) when they are blank -
         # the operator edits any of them afterwards and that wins
