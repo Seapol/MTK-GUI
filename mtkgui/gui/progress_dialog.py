@@ -63,6 +63,14 @@ class ProgressDialog(QProgressDialog):
             return True
         if time.monotonic() - self._started < self._delay:
             return False
+        self.force_show()
+        return True
+
+    def force_show(self) -> None:
+        """Show the dialog unconditionally (M17 delivery guarantee:
+        any operation lasting past the delay MUST show the bar)."""
+        if self._shown:
+            return
         self._shown = True
         # push the buffered stage BEFORE showing: with minimumDuration
         # at 0 Qt would otherwise pop the empty dialog on the first
@@ -72,7 +80,6 @@ class ProgressDialog(QProgressDialog):
         super().setMinimumDuration(0)
         super().show()
         QApplication.processEvents()
-        return True
 
     # ------------------------------------------------------------ stages
     def set_stage(self, value: int, label: str) -> None:
@@ -102,12 +109,20 @@ def busy_progress(owner: QWidget | None, title: str,
 
     Yields a ``stage(value, label)`` callback for optional coarse
     stages; the finally block always hides the dialog, so a failure
-    can never leave a window stranded."""
+    can never leave a window stranded.  M17: a one-shot timer
+    force-shows the dialog once the run passed the delay, so a task
+    that emits no stages still gets a foreground bar (user direction:
+    any operation lasting > 300 ms must show one)."""
     dlg = ProgressDialog(owner, title, 0, 0, delay=delay)
     dlg.show_delayed()
+    show_timer = QTimer(dlg)
+    show_timer.setSingleShot(True)
+    show_timer.timeout.connect(dlg.force_show)
+    show_timer.start(int(delay * 1000))
     try:
         yield dlg.set_stage
     finally:
+        show_timer.stop()
         dlg.close_done()
 
 
@@ -163,6 +178,7 @@ class ProgressBridge(QObject):
         self._delay = max(0.0, float(delay))
         self._dlg: ProgressDialog | None = None
         self._timer: QTimer | None = None
+        self._show_timer: QTimer | None = None
 
     # ------------------------------------------------------------ slot
     def stage(self, percent: int, label: str) -> None:
@@ -172,6 +188,7 @@ class ProgressBridge(QObject):
         if value <= 0:
             self._close()
             self._ensure_dlg()
+            self._arm_show_timer()
             self._dlg.set_stage(0, text)
         elif value >= 100:
             if self._dlg is not None:
@@ -179,6 +196,7 @@ class ProgressBridge(QObject):
             self._close()
         else:
             self._ensure_dlg()
+            self._arm_show_timer()
             self._dlg.set_stage(value, text)
 
     # ---------------------------------------------------------- helpers
@@ -190,6 +208,21 @@ class ProgressBridge(QObject):
                                    0, 100, delay=self._delay)
         self._arm_timer()
 
+    def _arm_show_timer(self) -> None:
+        """Arm the one-shot force-show (M17): a task that emits no
+        further stages (e.g. the threaded SPF extraction) still gets
+        the foreground bar once the delay elapsed."""
+        if self._show_timer is None:
+            self._show_timer = QTimer(self)
+            self._show_timer.setSingleShot(True)
+            self._show_timer.timeout.connect(self._show_now)
+        self._show_timer.start(int(self._delay * 1000))
+
+    def _show_now(self) -> None:
+        self._show_timer = None      # one-shot (already fired)
+        if self._dlg is not None:
+            self._dlg.force_show()
+
     def _arm_timer(self) -> None:
         if self._timer is None:
             self._timer = QTimer(self)
@@ -198,6 +231,9 @@ class ProgressBridge(QObject):
         self._timer.start(int(self.STALE_S * 1000))
 
     def _close(self) -> None:
+        if self._show_timer is not None:
+            self._show_timer.stop()
+            self._show_timer = None
         if self._timer is not None:
             self._timer.stop()
         if self._dlg is not None:
