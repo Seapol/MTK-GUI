@@ -646,17 +646,22 @@ class _NetTable(QWidget):
         else:
             # M19g: 3 decimals everywhere (V and kHz limits)
             setattr(row, key, f"{value:.3f}")
-        # M19d: typing / changing a Nominal auto-fills the default
-        # limits (power +/- 5 %, clock +/- 50 ppm) when they are blank -
-        # the operator edits any of them afterwards and that wins
+        # M19d/h: typing / changing a Nominal re-computes the default
+        # limits (power +/- 5 %, clock +/- 50 ppm) EVERY time - a stale
+        # limit from an earlier nominal (e.g. 1.0 V -> 0.95/1.05 left
+        # behind after the nominal is changed to 12.0 V) must not
+        # survive; the operator edits lower/upper afterwards and wins
         if key in ("nominal_v", "nominal_khz") and value > 0:
-            self._autofill_limits(row_index, key, value)
+            self._autofill_limits(row_index, key, value, force=True)
         self._update_status(row_index, key)
 
     def _autofill_limits(self, row_index: int, key: str,
-                         value: float) -> None:
-        """Fill lower/upper from the nominal when both are unset
-        (mirror the rows_from_testable Auto defaults)."""
+                         value: float, force: bool = False) -> None:
+        """Fill lower/upper from the nominal.  force=True (M19h: the
+        operator changed the Nominal) recomputes BOTH limits even when
+        they are filled, so a limit that belonged to the previous
+        nominal is never left behind; force=False keeps the M19d
+        "only when blank" behaviour for the seeded Auto defaults."""
         if row_index >= len(self._rows):
             return
         row = self._rows[row_index]
@@ -664,11 +669,12 @@ class _NetTable(QWidget):
             lo_key, hi_key, tol, dec = \
                 "lower_v", "upper_v", POWER_TOL, 3
         else:
+            # M19g: kHz limits keep 3 decimals (was 4)
             lo_key, hi_key, tol, dec = \
-                "lower_khz", "upper_khz", CLOCK_TOL_PPM * 1e-6, 4
+                "lower_khz", "upper_khz", CLOCK_TOL_PPM * 1e-6, 3
         keys = [k for k, _l, *_r in self.columns]
         for k, sign in ((lo_key, -1), (hi_key, 1)):
-            if not _filled(str(getattr(row, k) or "")):
+            if force or not _filled(str(getattr(row, k) or "")):
                 setattr(row, k, f"{value * (1 + tol * sign):.{dec}f}")
                 if k in keys:
                     w = self.table.cellWidget(row_index, keys.index(k))
