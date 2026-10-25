@@ -70,7 +70,7 @@ block 07) -> Apply and Save path:
     (Host source -> DUT sink, GUI confirm);
   * setup power_mode = none (the board is already powered on the bench).
 
-The YAML is written under yaml_plan/examples/imx93frdm/ and verified by
+The YAML is written under yaml_plan/examples/frdm-imx93/ and verified by
 loading it back through project_config (the same loader the GUI uses).
 """
 from __future__ import annotations
@@ -98,7 +98,7 @@ DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: standalone console row in the yaml (NOT inside preflight.sh), so the
 #: shipped script never needs editing.
 DUT_KERNEL_VERSION = "6.6.36-lts-next"
-OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
+OUT_DIR = ROOT / "yaml_plan" / "examples" / "frdm-imx93"
 OUT_NAME = "FRDM-IMX93_FCT_Demo_v1.0.5.yaml"
 # headless SFTP landing file (the run script archives it per serial no.)
 SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat_result.json")

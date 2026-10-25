@@ -9,7 +9,7 @@ image is re-provisioned automatically.
 ## Layout convention
 
 - Demo / this folder:
-  `yaml_plan/examples/imx93frdm/dut_scripts/linux/` (shipped inside the
+  `yaml_plan/examples/frdm-imx93/dut_scripts/linux/` (shipped inside the
   `examples` package data).
 - Per-product convention:
   `config/<product>/dut_scripts/linux/`.
@@ -24,7 +24,7 @@ part of these assets.
 |---|---|---|
 | `load_rf_drivers.sh` | Load the NXP/u-blox Wi-Fi (`moal`) + BT (`btnxpuart`) drivers, bring interfaces up, then start the A2DP sink (pipewire/wireplumber + NoInputNoOutput agent), make the DUT discoverable and trust the Host (merged from the former `start_bt_audio.sh`) | `RF drivers loaded OK` (final; `BT_AUDIO_READY` after the sink part) |
 | `connect_wifi.sh` | Put Wi-Fi in station mode and connect to the factory router AP (Host on the same LAN) | `WIFI_CONNECTED_OK <ip/prefix>` / `WIFI_CONNECT_FAIL` |
-| `FCT_SETUP.md` | Board FCT setup checklist | — |
+| `fct_setup.md` | Board FCT setup checklist | — |
 
 ## Runtime parameters (no per-board hard-coding)
 
