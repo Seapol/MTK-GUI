@@ -25,9 +25,12 @@ from mtkgui.gui.yamlbuild.channel_allocation import (  # noqa: E402
 )
 
 TESTABLE = {
-    "3V3": {"category": "Power", "members": ["U1.5", "U2.VOUT"]},
-    "1V8_CORE": {"category": "Power", "members": ["U1.2"]},
-    "CLK_24M": {"category": "Clock", "members": ["U1.10"]},
+    "3V3": {"category": "Power", "members": ["U1.5", "U2.VOUT"],
+            "nominal_v": 3.3},
+    "1V8_CORE": {"category": "Power", "members": ["U1.2"],
+                 "nominal_v": 1.8},
+    "CLK_24M": {"category": "Clock", "members": ["U1.10"],
+                "nominal_khz": 24000.0},
     "GPIO_LED1": {"category": "GPIO", "members": ["U1.20"]},
 }
 
@@ -71,31 +74,42 @@ def test_rows_from_testable_categories():
 
 
 def test_row_auto_validation_ok_nok():
-    """A row is OK only when every required cell is configured (the
-    Power row needs NO instrument / channel / status anymore)."""
+    """A row is OK only when every required cell is configured (M19:
+    the Power row needs R-GND / Voltage AND the test limits; the
+    power_rails cell is OPTIONAL - the U2355A AI pool is 12 channels
+    while a board can carry 55+ rails)."""
     row = AllocatedRow(net="3V3")
     assert not row.is_configured("power")           # nothing set
     row.test_point = "U1.5"
     assert not row.is_configured("power")           # pools missing
     row.impedance = "DAQM908A #1 CH101"
-    row.power_rails = "U2355A AI01"
     row.voltage = "DAQM908A #2 CH201"
+    assert not row.is_configured("power")           # limits missing
+    row.nominal_v = "3.300"
+    row.lower_v = "3.135"
+    row.upper_v = "3.465"
+    # power_rails is NOT required (over-capacity rails stay untested)
     assert row.is_configured("power") is True
 
     clock = AllocatedRow(net="CLK_24M", test_point="U1.10",
                          se_clock_hz="DAQM907A TOT",
-                         band="0 ~ 100 kHz")
+                         band="0 ~ 100 kHz",
+                         nominal_khz="24000.0000",
+                         lower_khz="23998.8000",
+                         upper_khz="24001.2000")
     assert clock.is_configured("clock") is True
     assert not AllocatedRow(
         net="CLK_24M", test_point="U1.10",
-        se_clock_hz="DAQM907A TOT").is_configured("clock")
+        se_clock_hz="DAQM907A TOT",
+        band="0 ~ 100 kHz").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
-                        dio_channel="U2355A DIO01")
-    # the DIO channel is the only GPIO attribute needed anymore
+                        dio_channel="U2355A DIO01",
+                        op_type="U2355A DIO Read")
     assert gpio.is_configured("gpio") is True
     assert not AllocatedRow(
-        net="GPIO_LED1", test_point="U1.20").is_configured("gpio")
+        net="GPIO_LED1", test_point="U1.20",
+        dio_channel="U2355A DIO01").is_configured("gpio")
 
 
 def test_power_columns_drop_instrument_channel_status():
@@ -105,7 +119,8 @@ def test_power_columns_drop_instrument_channel_status():
     from mtkgui.gui.yamlbuild.channel_allocation import POWER_COLUMNS
     keys = [k for k, _l, _c in POWER_COLUMNS]
     assert keys == ["net", "test_point", "impedance",
-                    "power_rails", "voltage"]
+                    "power_rails", "voltage",
+                    "nominal_v", "lower_v", "upper_v"]
     from mtkgui.gui.yamlbuild.power_alloc import (
         DAQM908A_SENSE_CHANNELS,
         U2355A_AI_CHANNELS,
@@ -160,15 +175,20 @@ def test_tables_populated_from_parse_result(page):
 
 
 def test_config_cells_are_dropdown_only(page):
-    """Every configurable cell is a QComboBox (no free text); the
-    Power table has no Status column (Net stays read-only)."""
+    """Every configurable cell is a dropdown (channel / test point /
+    operation) or a numeric spin box (nominal / limits - M19), no
+    free text; the Power table has no Status column (Net read-only)."""
+    from PySide6.QtWidgets import QDoubleSpinBox
     table = page.table_power.table
     for r in range(table.rowCount()):
         for c in range(1, table.columnCount()):
             widget = table.cellWidget(r, c)
-            assert isinstance(widget, QComboBox), (r, c)
+            if c in (5, 6, 7):                       # nominal / limits
+                assert isinstance(widget, QDoubleSpinBox), (r, c)
+            else:
+                assert isinstance(widget, QComboBox), (r, c)
     assert table.cellWidget(0, 0) is None           # net read-only
-    assert table.columnCount() == 5                 # no status column
+    assert table.columnCount() == 8                 # no status column
 
 
 def test_no_status_instrument_channel_columns(page):
@@ -210,12 +230,26 @@ def test_gpio_dio_pool(page):
     """The GPIO DIO Channel combo offers exactly the 24 U2355A DIO
     resources - the DAQM907A DIO is NOT offered (fixture-reserved)."""
     table = page.table_gpio.table
-    assert table.columnCount() == 3
+    assert table.columnCount() == 5
     combo = table.cellWidget(0, 2)
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items == [UNSET, *(f"U2355A DIO{n:02d}"
                               for n in range(1, 25))]
     assert not any("DAQM907A" in t for t in items)
+    # the Operation column offers High Z (default) / IO Read / IO
+    # Write (M19b); the UNSET placeholder mirrors the other dropdowns
+    op = table.cellWidget(0, 3)
+    assert [op.itemText(i) for i in range(op.count())] == \
+        [UNSET, "High Z (Not Tested)", "U2355A DIO Read",
+         "U2355A DIO Write"]
+    # every Control IO row DEFAULTS to High Z = not tested (M19b);
+    # the Drive level cell stays disabled + UNSET for such a row
+    assert page.table_gpio.rows()[0].op_type == "High Z (Not Tested)"
+    drive = table.cellWidget(0, 4)
+    assert not drive.isEnabled()
+    assert drive.currentText() == UNSET
+    assert [drive.itemText(i) for i in range(drive.count())] == \
+        [UNSET, "High", "Low"]
 
 
 def test_clock_resource_and_band_mapping(page):
@@ -223,7 +257,7 @@ def test_clock_resource_and_band_mapping(page):
     Frequency band is read-only and hardware-derived: DAQM907A TOT
     0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz."""
     table = page.table_clock.table
-    assert table.columnCount() == 4
+    assert table.columnCount() == 7
     combo = table.cellWidget(0, 2)
     assert [combo.itemText(i) for i in range(combo.count())] == \
         [UNSET, "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
@@ -293,6 +327,8 @@ def test_auto_allocate_top_down(page):
     assert power[1].voltage == "DAQM908A #1 CH102"
     assert power[1].power_rails == "U2355A AI02"
     assert power[0].test_point == "U1.5"             # first member
+    # M19: the parse nominal seeds the limits -> the row is complete
+    assert power[0].nominal_v == "3.300"
     assert page.table_power.row_status(power[0]) == "OK"
     clock = page.table_clock.rows()[0]
     assert clock.se_clock_hz == "DAQM907A TOT"

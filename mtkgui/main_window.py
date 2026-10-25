@@ -2111,7 +2111,8 @@ class MainWindow(QMainWindow):
                     stage(25, "Load current yaml: building ICT tests")
                     rows = canonical_ict_sequence(
                         testable, previous,
-                        daq_ai_rail_count(model.channel_allocation))
+                        daq_ai_rail_count(model.channel_allocation),
+                        allocation=model.channel_allocation)
                     self._fill_ict_sequence(rows)
                     loaded.append(f"ICT {len(rows)} tests")
                 if fct_ready:

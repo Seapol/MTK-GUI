@@ -491,6 +491,7 @@ class YamlBuildPage(QWidget):
             initial_tests=initial,
             rail_count=daq_ai_rail_count(
                 self.model.channel_allocation),
+            allocation=self.model.channel_allocation,
             parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # the WHOLE editor state travels back (steps + enables +

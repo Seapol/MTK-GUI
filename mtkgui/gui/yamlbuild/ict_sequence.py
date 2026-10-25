@@ -16,7 +16,8 @@ import re
 
 from PySide6.QtWidgets import QLabel, QWidget
 
-from ...engine.steps import METHOD_R_GND, op_step
+from ...engine.steps import (METHOD_R_GND, dio_channel_index,
+                               dio_name, op_step)
 from ..steps_editor import StepsEditorDialog
 
 #: Test Method -> unit (mirrors the Test Work Flow step edit dialog)
@@ -165,17 +166,52 @@ def _fmt_clock(value: float) -> str:
 DIO_AUTO_OP_NAMES = ("U2355A DIO Read", "U2355A DIO Write")
 
 
-def generate_sequence(testable: dict) -> list[tuple]:
+def _dio_write_params(allocation: dict | None) -> dict | None:
+    """M19b: the U2355A DIO Write step parameters derived from the 03
+    allocation - the channels of every Control IO net armed as DIO
+    Write and the drive mask (High = 1, Low = 0).  Returns None when
+    no net is armed."""
+    nets: list[tuple[str, str]] = []
+    for row in (allocation or {}).get("gpio") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("op_type") != "U2355A DIO Write":
+            continue
+        channel = str(row.get("dio_channel") or "")
+        if channel in ("", "—"):
+            continue
+        nets.append((dio_name(channel),
+                     str(row.get("drive_level") or "")))
+    if not nets:
+        return None
+    channels = ",".join(ch for ch, _level in nets)
+    mask = 0
+    for channel, level in nets:
+        index = dio_channel_index(channel)
+        if index is None:
+            continue
+        if level == "High":
+            mask |= (1 << index)
+    return {"type": "dio_out", "channels": channels,
+            "pattern": f"0x{mask:02X}"}
+
+
+def generate_sequence(testable: dict,
+                      allocation: dict | None = None) -> list[tuple]:
     """The automatic sequence rows (module level so the Load-current-
     yaml flow reuses it without instantiating the dialog): per power
     net one R-GND and one Power Voltage test, per clock net one Clock
     Hz test - R-GND -> power rails (voltage) -> clock.
 
-    When the parse result holds at least one GPIO net, the two U2355A
-    DIO operations are appended after the clock rows (M9 W1): every
-    allocated control net is read / written inside the ICT run without
-    a manual Add.  The Expected / Min / Max cells stay unset ("—");
-    combine with :func:`auto_fill_limits` for the fully derived rows."""
+    Control-IO operations (M19b): the 03 allocation decides - a DIO
+    Read step is appended when at least one Control IO net is armed as
+    Read, a DIO Write step (with the drive channels + High/Low mask)
+    when at least one net is armed as Write.  The default High Z
+    (NOT TESTED) rows generate NO operation.  Without an allocation
+    (legacy) the two U2355A DIO operations are appended when the parse
+    result holds at least one GPIO net (M9 W1).  The Expected / Min /
+    Max cells stay unset ("—"); combine with :func:`auto_fill_limits`
+    for the fully derived rows."""
     testable = testable or {}
     rows: list[tuple] = []
     for method in METHOD_ORDER:
@@ -189,8 +225,17 @@ def generate_sequence(testable: dict) -> list[tuple]:
                 method, f"{method} - {net}")
             rows.append(("test", label,
                          METHOD_UNITS[method], "—", "—", "—"))
-    if any((info or {}).get("category") == "GPIO"
-           for info in testable.values()):
+    dio_rows = (allocation or {}).get("gpio") or []
+    has_read = any(isinstance(r, dict)
+                   and r.get("op_type") == "U2355A DIO Read"
+                   for r in dio_rows)
+    write_params = _dio_write_params(allocation)
+    if has_read:
+        rows.append(op_step("U2355A DIO Read"))
+    if write_params is not None:
+        rows.append(op_step("U2355A DIO Write", write_params))
+    if allocation is None and             any((info or {}).get("category") == "GPIO"
+                for info in testable.values()):
         rows.extend(op_step(name) for name in DIO_AUTO_OP_NAMES)
     return rows
 
@@ -327,8 +372,60 @@ def merge_saved_ops(rows: list[tuple],
     return out
 
 
+def _allocation_by_net(allocation: dict | None) -> dict:
+    """Flatten the 03 Channel Allocation rows into {net: row} (M19)."""
+    by_net: dict = {}
+    for kind in ("power", "clock", "gpio"):
+        for row in (allocation or {}).get(kind) or []:
+            if isinstance(row, dict) and row.get("net"):
+                by_net.setdefault(row["net"], row)
+    return by_net
+
+
+def apply_allocation_limits(rows: list[tuple],
+                            allocation: dict | None) -> list[tuple]:
+    """Override Expected / Min / Max from the 03 Channel Allocation
+    rows (M19: the allocation page is the single edit point for
+    nominal / limits; the 04 sequence inherits them).  Power voltage
+    and clock rows matched by net name; unknown nets pass through."""
+    by_net = _allocation_by_net(allocation)
+    if not by_net:
+        return rows
+    out: list[tuple] = []
+    for step in rows:
+        if not step or step[0] == "op":
+            out.append(step)
+            continue
+        kind, name, unit, exp, lo, hi = step[:6]
+        method = name.split(" - ", 1)[0] if " - " in name else name
+        net = name.split(" - ", 1)[1] if " - " in name else ""
+        row = by_net.get(net)
+        if row is None:
+            out.append(step)
+            continue
+        if method == "Power Voltage" and _filled(
+                str(row.get("nominal_v") or "")):
+            exp = row["nominal_v"]
+            lo = _filled(str(row.get("lower_v") or "")) or exp
+            hi = _filled(str(row.get("upper_v") or "")) or exp
+        elif method == "Clock Hz" and _filled(
+                str(row.get("nominal_khz") or "")):
+            khz = float(row["nominal_khz"])
+            lo_khz = _stored_number(row.get("lower_khz")) or khz
+            hi_khz = _stored_number(row.get("upper_khz")) or khz
+            exp = _fmt_clock(khz * 1000.0)
+            lo = _fmt_clock(lo_khz * 1000.0)
+            hi = _fmt_clock(hi_khz * 1000.0)
+        else:
+            out.append(step)
+            continue
+        out.append((kind, name, unit, exp, lo, hi, *step[6:]))
+    return out
+
+
 def canonical_ict_sequence(testable: dict, previous_steps=None,
-                           rail_count: int = 0) -> list[tuple]:
+                           rail_count: int = 0,
+                           allocation: dict | None = None) -> list[tuple]:
     """The ONE canonical ICT seed shared by the 04 Build dialog and the
     Load-current-yaml path (M8 W3 / M9 W1):
 
@@ -340,7 +437,11 @@ def canonical_ict_sequence(testable: dict, previous_steps=None,
     """
     testable = testable or {}
     previous = list(previous_steps or [])
-    rows = auto_fill_limits(generate_sequence(testable), testable)
+    rows = auto_fill_limits(generate_sequence(testable, allocation),
+                            testable)
+    # M19: the 03 allocation nominal / limits win over the name
+    # heuristic, but a manually edited 04 value still wins over both
+    rows = apply_allocation_limits(rows, allocation)
     rows = merge_saved_limits(rows, previous)
     rows = merge_saved_ops(rows, previous)
     return _drop_repeated_skeleton_ops(
@@ -354,9 +455,11 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
     step editor (single sequence edit source)."""
 
     def __init__(self, net_provider, initial_tests=None, rail_count=0,
+                 allocation=None,
                  parent: QWidget | None = None) -> None:
         self._net_provider = net_provider
         self._rail_count = int(rail_count)
+        self._allocation = allocation
         # M9 W1: ONE canonical pipeline shared with the Load-current-yaml
         # path - Auto-filled limits plus the DIO operations when GPIO nets
         # are present, saved manual limits / user operation parameters
@@ -365,7 +468,8 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         previous = list(initial_tests or [])
         testable = net_provider() if net_provider else {}
         steps = canonical_ict_sequence(
-            testable, previous, self._rail_count)
+            testable, previous, self._rail_count,
+            allocation=self._allocation)
         n = len(steps)
         super().__init__(
             "ict", steps, [True] * n, [100] * n, [5000] * n, parent)

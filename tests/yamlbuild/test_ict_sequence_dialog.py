@@ -36,6 +36,60 @@ def make_dialog():
     return IctWorkFlowSequenceDialog(lambda: dict(TESTABLE))
 
 
+def _dio_rows(read_nets=(), write_nets=()):
+    """Allocation GPIO rows: default High Z, armed Read / Write nets."""
+    rows = []
+    for net in ("GPIO_LED1",):
+        rows.append({"net": net, "test_point": "U1.20",
+                     "dio_channel": "U2355A DIO01",
+                     "op_type": ("U2355A DIO Read"
+                                 if net in read_nets
+                                 else "U2355A DIO Write"
+                                 if net in write_nets
+                                 else "High Z (Not Tested)"),
+                     "drive_level": "High" if net in write_nets else "—"})
+    return rows
+
+
+def test_allocation_drives_dio_ops(qapp):
+    """M19b: the 04 sequence DIO operations follow the 03 allocation -
+    High Z (NOT TESTED) rows generate NO operation; a Read net appends
+    the read step; a Write net appends the write step carrying its DIO
+    channels and the High/Low drive mask."""
+    from mtkgui.gui.yamlbuild.ict_sequence import generate_sequence
+
+    # default High Z -> no DIO operation at all
+    seq = generate_sequence(TESTABLE,
+                            {"gpio": _dio_rows()})
+    dio = [r for r in seq if r[0] == "op" and "DIO" in str(r[1])]
+    assert dio == []
+
+    # armed Read -> exactly the read step
+    seq = generate_sequence(TESTABLE,
+                            {"gpio": _dio_rows(read_nets=("GPIO_LED1",))})
+    dio = [r for r in seq if r[0] == "op" and "DIO" in str(r[1])]
+    assert [r[1] for r in dio] == ["U2355A DIO Read"]
+
+    # armed Write High on DIO01 -> write step with drive mask
+    seq = generate_sequence(TESTABLE,
+                            {"gpio": _dio_rows(write_nets=("GPIO_LED1",))})
+    write = next(r for r in seq if r[1] == "U2355A DIO Write")
+    assert write[6]["type"] == "dio_out"
+    assert write[6]["channels"] == "DIO01"
+    assert write[6]["pattern"] == "0x01"      # DIO01 = bit0 = High
+
+
+def test_allocation_legacy_fallback_appends_both_ops(qapp):
+    """Without an allocation (legacy flow) the two auto DIO operations
+    are still appended when the parse result holds a GPIO net."""
+    from mtkgui.gui.yamlbuild.ict_sequence import generate_sequence
+
+    seq = generate_sequence(TESTABLE, None)
+    names = [r[1] for r in seq if r[0] == "op"]
+    assert "U2355A DIO Read" in names
+    assert "U2355A DIO Write" in names
+
+
 def test_generation_order_impedance_voltage_clock(qapp):
     """The seed is the canonical sequence: per power net impedance then
     voltage, then the clock nets, then the auto-appended DIO operations

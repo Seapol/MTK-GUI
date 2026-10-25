@@ -199,11 +199,11 @@ def test_lazy_render_collect_matches_data(window, tmp_path, qapp):
     for i in range(0, 120, 10):
         row = collected[f"GPIO_{i:03d}"]
         assert row["dio_channel"] == f"U2355A DIO{i % 24 + 1:02d}"
-    # widget count stays below the FULL render count (120 rows x 2
-    # dropdown columns = 240 combos; the lazy window only covers the
-    # visible rows +- the margin - the 652-row 96624 plan measured
-    # 148 widgets vs 1956 at full render)
+    # widget count stays below the FULL render count (120 rows x 4
+    # dropdown columns = 480 combos - M19b added the Drive level cell;
+    # the lazy window only covers the visible rows +- the margin - the
+    # 652-row 96624 plan measured 148 widgets vs 1956 at full render)
     widgets = sum(table.table.cellWidget(r, c) is not None
                   for r in range(table.table.rowCount())
                   for c in range(table.table.columnCount()))
-    assert 0 < widgets < 120 * 2
+    assert 0 < widgets < 120 * 4
