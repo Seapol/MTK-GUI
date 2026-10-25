@@ -31,6 +31,10 @@ yaml_plan/examples/**/fat_result.json
 # yaml plan workspace: runtime/demo products only (not versioned)
 yaml_plan/*
 mtkgui/config/yamlbuild_state.json
+# per-station runtime state (SharePoint cookies / statistics) - never ship
+mtkgui/config/sharepoint_state/
+mtkgui/config/statistics/
+mtkgui/config/sharepoint_upload.json
 
 # macOS
 .DS_Store
