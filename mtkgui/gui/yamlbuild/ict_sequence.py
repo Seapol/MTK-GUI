@@ -118,6 +118,10 @@ METHOD_ORDER = (METHOD_R_GND, "Power Voltage", "Clock Hz")
 #: clock +/- 50 ppm (= 0.005 %)
 POWER_TOL = 0.05
 CLOCK_TOL_PPM = 50.0
+#: R-GND min limit default (user direction 2026-10-25): 30 ohm - a
+#: low-impedance rail-to-ground short would draw excessive current and
+#: heat up the board, so the measured impedance must stay ABOVE it
+R_GND_MIN_OHM = 30.0
 
 _V_RE = re.compile(r"(\d+)V(\d+)")            # 3V3 / 1V8 / 1V05
 #: plain form: "V" NOT followed by a digit.  A "\b" boundary rejected
@@ -403,7 +407,13 @@ def apply_allocation_limits(rows: list[tuple],
         if row is None:
             out.append(step)
             continue
-        if method == "Power Voltage" and _filled(
+        if method == "R-GND" and _filled(
+                str(row.get("r_gnd_min_ohm") or "")):
+            # R-GND carries only a MIN limit (no nominal / no max)
+            lo = row["r_gnd_min_ohm"]
+            hi = "—"
+            exp = "—"
+        elif method == "Power Voltage" and _filled(
                 str(row.get("nominal_v") or "")):
             exp = row["nominal_v"]
             lo = _filled(str(row.get("lower_v") or "")) or exp

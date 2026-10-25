@@ -52,6 +52,7 @@ from mtkgui.gui.yamlbuild.instrument_status import (
 from mtkgui.gui.yamlbuild.ict_sequence import (
     CLOCK_TOL_PPM,
     POWER_TOL,
+    R_GND_MIN_OHM,
 )
 from mtkgui.ict.netparse.isolation import assess_net
 from mtkgui.gui.yamlbuild.power_alloc import (
@@ -89,7 +90,7 @@ DRIVE_LEVELS = ("High", "Low")
 #: numeric (user-editable) columns - rendered as spin boxes, their
 #: values feed the 04 ICT sequence Expected / Min / Max (M19)
 NUMERIC_COLUMNS = frozenset({
-    "nominal_v", "lower_v", "upper_v",
+    "r_gnd_min_ohm", "nominal_v", "lower_v", "upper_v",
     "nominal_khz", "lower_khz", "upper_khz"})
 
 #: column layout per table kind: (key, label, choices or None).
@@ -102,21 +103,22 @@ NUMERIC_COLUMNS = frozenset({
 POWER_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("impedance", "R-GND", DAQM908A_SENSE_CHANNELS),
-    ("power_rails", "Power rails", U2355A_AI_CHANNELS),
-    ("voltage", "Voltage", DAQM908A_SENSE_CHANNELS),
+    ("r_gnd_min_ohm", "R-GND Min limit (ohm)", None),
     ("nominal_v", "Nominal (V)", None),
     ("lower_v", "Lower limit (V)", None),
     ("upper_v", "Upper limit (V)", None),
+    ("impedance", "R-GND", DAQM908A_SENSE_CHANNELS),
+    ("power_rails", "Power rails", U2355A_AI_CHANNELS),
+    ("voltage", "Voltage", DAQM908A_SENSE_CHANNELS),
 )
 CLOCK_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
-    ("se_clock_hz", "SE Clock Hz", CLOCK_CHANNELS),
-    ("band", "Frequency band", None),
     ("nominal_khz", "Nominal (kHz)", None),
     ("lower_khz", "Lower limit (kHz)", None),
     ("upper_khz", "Upper limit (kHz)", None),
+    ("se_clock_hz", "SE Clock Hz", CLOCK_CHANNELS),
+    ("band", "Frequency band", None),
 )
 #: GPIO tab (user direction): NO Instrument / Channel / Status /
 #: Digital Input / Digital Output columns - the DIO Channel cell
@@ -173,6 +175,9 @@ class AllocatedRow:
     digital_output: str = GPIO_DO
     # M19: user-editable test limits (03 page) inherited by the 04
     # sequence; op_type = Control-IO operation (IO Read / IO Write)
+    # M19c: R-GND min limit (ohm) - default 30, mirrored by the ICT
+    # plan export (r_gnd_min_ohm) and the 04 R-GND row Min cell
+    r_gnd_min_ohm: str = UNSET
     nominal_v: str = UNSET
     lower_v: str = UNSET
     upper_v: str = UNSET
@@ -195,6 +200,7 @@ class AllocatedRow:
             "dio_channel": self.dio_channel,
             "digital_input": self.digital_input,
             "digital_output": self.digital_output,
+            "r_gnd_min_ohm": self.r_gnd_min_ohm,
             "nominal_v": self.nominal_v,
             "lower_v": self.lower_v,
             "upper_v": self.upper_v,
@@ -213,6 +219,7 @@ class AllocatedRow:
                     "impedance", "power_rails", "voltage",
                     "se_clock_hz", "band", "dio_channel",
                     "digital_input", "digital_output",
+                    "r_gnd_min_ohm",
                     "nominal_v", "lower_v", "upper_v",
                     "nominal_khz", "lower_khz", "upper_khz",
                     "op_type", "drive_level"):
@@ -243,7 +250,8 @@ class AllocatedRow:
                     and self.dio_channel not in ("", UNSET)
                     and self.drive_level not in ("", UNSET))
         required = {
-            "power": ("test_point", "impedance", "voltage",
+            "power": ("test_point", "r_gnd_min_ohm",
+                      "impedance", "voltage",
                       "nominal_v", "lower_v", "upper_v"),
             "clock": ("test_point", "se_clock_hz", "band",
                       "nominal_khz", "lower_khz", "upper_khz"),
@@ -271,6 +279,9 @@ def rows_from_testable(testable: dict, kind: str) -> list[AllocatedRow]:
         # nominal_khz, tolerance defaults power +/- 5 %, clock +/- 50
         # ppm) - the operator edits them here and 04 inherits them
         if kind == "power":
+            # M19c: every power row carries the R-GND min limit, default
+            # 30 ohm (low-impedance shorts / heat guard)
+            row.r_gnd_min_ohm = f"{R_GND_MIN_OHM:.3f}"
             nom = _stored_num(info.get("nominal_v"))
             if nom is not None:
                 row.nominal_v = f"{nom:.3f}"

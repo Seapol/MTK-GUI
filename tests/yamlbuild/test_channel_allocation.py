@@ -85,6 +85,7 @@ def test_row_auto_validation_ok_nok():
     row.impedance = "DAQM908A #1 CH101"
     row.voltage = "DAQM908A #2 CH201"
     assert not row.is_configured("power")           # limits missing
+    row.r_gnd_min_ohm = "30.000"
     row.nominal_v = "3.300"
     row.lower_v = "3.135"
     row.upper_v = "3.465"
@@ -118,9 +119,9 @@ def test_power_columns_drop_instrument_channel_status():
     Power rails pool the 12 offered U2355A AI channels."""
     from mtkgui.gui.yamlbuild.channel_allocation import POWER_COLUMNS
     keys = [k for k, _l, _c in POWER_COLUMNS]
-    assert keys == ["net", "test_point", "impedance",
-                    "power_rails", "voltage",
-                    "nominal_v", "lower_v", "upper_v"]
+    assert keys == ["net", "test_point",
+                    "r_gnd_min_ohm", "nominal_v", "lower_v", "upper_v",
+                    "impedance", "power_rails", "voltage"]
     from mtkgui.gui.yamlbuild.power_alloc import (
         DAQM908A_SENSE_CHANNELS,
         U2355A_AI_CHANNELS,
@@ -183,12 +184,12 @@ def test_config_cells_are_dropdown_only(page):
     for r in range(table.rowCount()):
         for c in range(1, table.columnCount()):
             widget = table.cellWidget(r, c)
-            if c in (5, 6, 7):                       # nominal / limits
+            if c in (2, 3, 4, 5):    # R-GND Min / nominal / limits
                 assert isinstance(widget, QDoubleSpinBox), (r, c)
             else:
                 assert isinstance(widget, QComboBox), (r, c)
     assert table.cellWidget(0, 0) is None           # net read-only
-    assert table.columnCount() == 8                 # no status column
+    assert table.columnCount() == 9                 # no status column
 
 
 def test_no_status_instrument_channel_columns(page):
@@ -215,12 +216,12 @@ def test_resource_pools_exclusive(page):
                 if combo.itemText(i) != UNSET]
 
     power = page.table_power.table
-    for col in (2, 4):                       # Impedance / Voltage
+    for col in (6, 8):                       # Impedance / Voltage
         pool = items(power, col)
         assert pool and all(p.startswith("DAQM908A") for p in pool)
-    rails = items(power, 3)
+    rails = items(power, 7)
     assert rails and all(p.startswith("U2355A") for p in rails)
-    clock = items(page.table_clock.table, 2)
+    clock = items(page.table_clock.table, 5)
     assert clock == ["DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
     dio = items(page.table_gpio.table, 2)
     assert dio == [f"U2355A DIO{n:02d}" for n in range(1, 25)]
@@ -258,18 +259,18 @@ def test_clock_resource_and_band_mapping(page):
     0 ~ 100 kHz, the U2355A counters 0.1 Hz ~ 6 MHz."""
     table = page.table_clock.table
     assert table.columnCount() == 7
-    combo = table.cellWidget(0, 2)
+    combo = table.cellWidget(0, 5)
     assert [combo.itemText(i) for i in range(combo.count())] == \
         [UNSET, "DAQM907A TOT", "U2355A CTR0", "U2355A CTR1"]
     # band is a read-only item, initially unconfigured
-    assert table.cellWidget(0, 3) is None
-    assert table.item(0, 3).text() == UNSET
+    assert table.cellWidget(0, 6) is None
+    assert table.item(0, 6).text() == UNSET
     combo.setCurrentText("DAQM907A TOT")
-    assert table.item(0, 3).text() == "0 ~ 100 kHz"
+    assert table.item(0, 6).text() == "0 ~ 100 kHz"
     combo.setCurrentText("U2355A CTR1")
-    assert table.item(0, 3).text() == "0.1 Hz ~ 6 MHz"
+    assert table.item(0, 6).text() == "0.1 Hz ~ 6 MHz"
     # the band item is read-only
-    assert not (table.item(0, 3).flags()
+    assert not (table.item(0, 6).flags()
                 & __import__("PySide6.QtCore", fromlist=["Qt"])
                 .Qt.ItemFlag.ItemIsEditable)
 
@@ -278,9 +279,9 @@ def test_power_pool_dropdowns(page):
     """Power Impedance / Voltage combos offer the DAQM908A sense
     channels, Power rails the 12 U2355A AI channels."""
     table = page.table_power.table
-    impedance = table.cellWidget(0, 2)
-    rails = table.cellWidget(0, 3)
-    voltage = table.cellWidget(0, 4)
+    impedance = table.cellWidget(0, 6)
+    rails = table.cellWidget(0, 7)
+    voltage = table.cellWidget(0, 8)
     assert impedance.itemText(0) == UNSET
     assert impedance.itemText(1) == "DAQM908A #1 CH101"
     assert impedance.findText("DAQM908A #2 CH240") >= 0
@@ -298,7 +299,7 @@ def test_legacy_band_value_resets(page):
     row = page.table_clock.rows()[0]
     assert row.band == UNSET
     # choosing a resource fills the hardware band
-    page.table_clock.table.cellWidget(0, 2).setCurrentText(
+    page.table_clock.table.cellWidget(0, 5).setCurrentText(
         "U2355A CTR0")
     assert page.table_clock.rows()[0].band == "0.1 Hz ~ 6 MHz"
 
@@ -447,8 +448,8 @@ def test_save_persists_tables_into_model(page):
 def test_save_and_model_round_trip(page):
     """collect -> model -> fresh page keeps the configuration."""
     table = page.table_power.table
-    for c, value in ((1, "U1.5"), (2, "DAQM908A #1 CH101"),
-                     (3, "U2355A AI01"), (4, "DAQM908A #2 CH201")):
+    for c, value in ((1, "U1.5"), (6, "DAQM908A #1 CH101"),
+                     (7, "U2355A AI01"), (8, "DAQM908A #2 CH201")):
         table.cellWidget(0, c).setCurrentText(value)
     page.save_to_model()
     assert page.model.channel_allocation["power"][0]["impedance"] == \
