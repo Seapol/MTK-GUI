@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from mtkgui.startup_timing import begin, end
+
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -232,6 +234,7 @@ class DesignInputPanel(QWidget):
             "Allegro Smart PDF (*.pdf);;All files (*.*)")
         if not path:
             return
+        begin("yamlbuild: import SPF")
         self.task_progress.emit(0, "spf import: reading file")
         self.task_log.emit("INFO",
                            f"SPF import started: {Path(path).name}")
@@ -264,6 +267,7 @@ class DesignInputPanel(QWidget):
 
     def _spf_fail(self, reason: str) -> None:
         """Shared failure path (direct read + worker extraction)."""
+        end("yamlbuild: import SPF")
         self.btn_import_spf.setEnabled(True)
         self.task_log.emit("ERROR", reason)
         self.task_progress.emit(0, "spf import: idle")
@@ -272,6 +276,7 @@ class DesignInputPanel(QWidget):
     def _spf_apply(self, text: str, path: str) -> None:
         """Shared success path: fill the meta form from the extracted
         text (main thread; the worker text was already validated)."""
+        end("yamlbuild: import SPF")
         self.btn_import_spf.setEnabled(True)
         self.task_progress.emit(50, "spf import: extracting project info")
         core_id = core_id_from_filename(Path(path).name)
@@ -313,6 +318,7 @@ class DesignInputPanel(QWidget):
             self, "Import NET", "", "Netlist (*.net *.net.txt *.txt)")
         if not path:
             return
+        begin("yamlbuild: import NET")
         self.task_progress.emit(0, "net import: reading file")
         self.task_log.emit("INFO",
                            f"NET import started: {Path(path).name}")
@@ -325,6 +331,7 @@ class DesignInputPanel(QWidget):
             self.task_log.emit("ERROR", reason)
             self.task_progress.emit(0, "net import: idle")
             QMessageBox.critical(self, "NET Import Failed", reason)
+            end("yamlbuild: import NET")
             return
         self.net_path = path
         self.net_text = text            # load only - never parsed here
@@ -335,6 +342,7 @@ class DesignInputPanel(QWidget):
             f"NET import done: {Path(path).name} "
             "(load only - parsed by the Parse Nets module)")
         self.content_changed.emit()
+        end("yamlbuild: import NET")
 
     def _import_bom(self) -> None:
         """IMPORT an optional BOM (CSV / XLSX).
@@ -348,6 +356,7 @@ class DesignInputPanel(QWidget):
             self, "Import BOM", "", "BOM (*.csv *.xlsx)")
         if not path:
             return
+        begin("yamlbuild: import BOM")
         self.task_log.emit("INFO", f"BOM import started: {Path(path).name}")
         try:
             bom = parse_bom(path)
@@ -357,6 +366,7 @@ class DesignInputPanel(QWidget):
             self.lbl_bom.setText("BOM: (not imported)")
             reason = f"BOM import failed: {exc}"
             self.task_log.emit("WARNING", reason)
+            end("yamlbuild: import BOM")
             return
         self.bom_path = path
         self.bom_records = len(bom.records)
@@ -369,6 +379,7 @@ class DesignInputPanel(QWidget):
             f"BOM import done: {Path(path).name} "
             f"({self.bom_records} records, {self.bom_dnp} DNP)")
         self.content_changed.emit()
+        end("yamlbuild: import BOM")
 
     # ------------------------------------------------------------- batch
     def _on_batch_activated(self, index: int) -> None:

@@ -105,6 +105,7 @@ from .gui.steps_editor import StepsEditorDialog as _SequenceEditorDialog
 from .gui.test_case_viewer import TestCaseViewer
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
+from .startup_timing import begin, end
 from .style import gui_theme_color, saved_theme, text_for_card
 from .virtual_hardware import VirtualRack
 from .widgets.console_widget import ERROR_COLOR
@@ -2781,6 +2782,7 @@ class TestWorkFlowPage(QWidget):
         self._next_serial()
         if not self._pretest():
             return
+        begin("testflow: run")
         self._set_phase("Init...")
         self._interrupted = False
         # debug session starts clean (P3-B2 / item 15)
@@ -2882,6 +2884,7 @@ class TestWorkFlowPage(QWidget):
         if self._restart_pending:
             self._restart_pending = False
             QTimer.singleShot(0, self, qt_safe(self.start_run))
+        end("testflow: run")
 
     def clear_results(self, keep_log: bool = False):
         """Blank the last run: statuses / durations / verdict / stats.

@@ -56,6 +56,7 @@ from mtkgui.ict.netparse import (
     select_test_points,
 )
 from mtkgui.gui.progress_dialog import ProgressDialog, guarded_run
+from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.path_risk import (
     DEFAULT_THRESHOLDS,
     LEVEL_HIGH,
@@ -682,6 +683,7 @@ class ParseNetsPanel(QWidget):
         self.task_log.emit(
             "INFO",
             f"parse nets started: {name or 'loaded NET file'}")
+        begin("yamlbuild: parse nets for ICT")
         try:
             # Step 1: format auto-detection (SPF / NET header features)
             self.task_progress.emit(10, "parse nets: detecting format")
@@ -708,6 +710,7 @@ class ParseNetsPanel(QWidget):
             self.task_progress.emit(0, "parse nets: idle")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Parse Nets Failed", str(exc))
+            end("yamlbuild: parse nets for ICT")
             return
         self.task_log.emit("INFO", "netlist parse done")
         # Step 3: classification
@@ -746,6 +749,7 @@ class ParseNetsPanel(QWidget):
             self.task_log.emit(
                 "WARNING", f"net {net_name} filtered: {reason}")
         self.nets_parsed.emit(result)
+        end("yamlbuild: parse nets for ICT")
 
     def _update_gnd_risk(self, result: ParseNetsResult) -> None:
         """GND integrity advisory (core-algorithm standard 5.2): a

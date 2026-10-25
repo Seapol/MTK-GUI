@@ -53,6 +53,7 @@ from mtkgui.ict.netparse.confidence import clock_freq_hz
 from mtkgui.ict.netparse.priority import nominal_volts_of
 from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
 from mtkgui.gui.progress_dialog import ProgressBridge
+from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -740,11 +741,13 @@ class YamlBuildPage(QWidget):
             self, "Export to Excel", default, "Excel (*.xlsx)")
         if not path:
             return
+        begin("yamlbuild: export excel")
         try:
             rows = export_to_excel(self.model, path)
         except OSError as exc:
             self._tlog("ERROR", f"Excel export failed: {exc}")
             QMessageBox.critical(self, "Export Failed", str(exc))
+            end("yamlbuild: export excel")
             return
         # short task: one Event-Log line only (no progress machinery)
         self._tlog("INFO", f"Excel export done: {rows} rows -> "
@@ -752,6 +755,7 @@ class YamlBuildPage(QWidget):
         QMessageBox.information(
             self, "Export to Excel",
             f"Exported {rows} rows to {path}")
+        end("yamlbuild: export excel")
 
     def _import_excel(self) -> None:
         """Import a workbook with full-workbook validation (invalid
@@ -762,6 +766,7 @@ class YamlBuildPage(QWidget):
             self, "Import from Excel", "", "Excel (*.xlsx)")
         if not path:
             return
+        begin("yamlbuild: import excel")
         self._task(0, "import: reading workbook")
         self._tlog("INFO", f"Excel import started: {Path(path).name}")
         self._task(40, "import: validating + applying rows")
@@ -777,6 +782,7 @@ class YamlBuildPage(QWidget):
                 + "\n".join(report.errors[:20])
                 + (f"\n... and {len(report.errors) - 20} more"
                    if len(report.errors) > 20 else ""))
+            end("yamlbuild: import excel")
             return
         self._after_model_change()      # parse -> project view refresh
         self._task(100, "import: done")
@@ -785,6 +791,7 @@ class YamlBuildPage(QWidget):
         QMessageBox.information(
             self, "Import from Excel",
             f"Applied {report.imported} parameters from {path}")
+        end("yamlbuild: import excel")
 
     # ------------------------------------------------------- publishing
     def _publish(self, kind: str) -> None:
@@ -813,6 +820,7 @@ class YamlBuildPage(QWidget):
                 "Fix the validation errors first:\n"
                 + "\n".join(errors[:15]))
             return
+        begin("yamlbuild: publish")
         self._task(0, f"{kind}: publishing")
         self._tlog("INFO", f"{kind} publish started "
                            f"(project {self.model.project_key()})")
@@ -825,6 +833,7 @@ class YamlBuildPage(QWidget):
             self._task(0, "publish: idle")
             QMessageBox.critical(self, f"{kind.capitalize()} Failed",
                                  str(exc))
+            end("yamlbuild: publish")
             return
         archived = archive_copy(path, Path.cwd(),
                                 self.model.project_key())
@@ -838,6 +847,7 @@ class YamlBuildPage(QWidget):
             f"Archive copy: {archived}\n"
             f"Plan version: {self.model.plan_version}\n"
             f"Build version: {get_version_info().suffix()}")
+        end("yamlbuild: publish")
 
     def compare_with(self, other_path: str) -> str:
         """Unified diff of the last published file against another
