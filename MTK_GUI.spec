@@ -13,6 +13,10 @@ hiddenimports += [
     'PySide6.QtWebEngineWidgets',
     'PySide6.QtWebEngineCore',
 ]
+# Credentials layer (mtkgui/engine/credentials.py): the OS keyring backend
+# must be traced explicitly, otherwise a frozen build raises
+# CredentialUnavailable when a channel/login stores its password.
+hiddenimports += ['keyring.backends.macOS']
 
 # only the runtime-needed data files (the user's own YAML plans live
 # in yaml_plan/ OUTSIDE the package and are NOT shipped)

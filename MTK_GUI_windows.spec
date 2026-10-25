@@ -35,6 +35,10 @@ hiddenimports += [
     'PySide6.QtWebEngineWidgets',
     'PySide6.QtWebEngineCore',
 ]
+# Credentials layer (mtkgui/engine/credentials.py): the OS keyring backend
+# must be traced explicitly, otherwise a frozen build raises
+# CredentialUnavailable when a channel/login stores its password.
+hiddenimports += ['keyring.backends.Windows']
 
 datas = [
     ('config/permissions.json', 'config'),
@@ -58,6 +62,19 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# Run-artifact guard (spec audit fix): real-board runs drop fat_result.json
+# (and other .json dumps) plus the _run_work/ and reports/ run folders into
+# the example tree.  Those are gitignored runtime products that must never
+# ship in the Windows package, so drop them from the collected TOC here as
+# a safety net on top of the source-tree cleanup.  PyInstaller 6 TOC entries
+# are (dest_name, src_name, typecode), so the bundle-relative path is d[0].
+a.datas = [d for d in a.datas
+           if not (d[0].startswith("yaml_plan/examples")
+                   and (d[0].endswith(".json")
+                        or "/_run_work/" in d[0]
+                        or "/reports/" in d[0]))]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
