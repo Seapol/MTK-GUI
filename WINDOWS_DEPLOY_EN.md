@@ -163,7 +163,7 @@ That is correct (since 2026-10-14): the version number is unified to THE single 
 The spec references the following files; they must be pulled with the code (already in the git repo):
 - `config/permissions.json`
 - `config/FRDM-IMX93_Nets.xlsx`
-- `config/12345_FRDM-IMX93_Nets_revA.xlsx`
+- `config/Nets_Template.xlsx`
 - `yaml_plan/examples`
 - `resources`
 

@@ -43,7 +43,7 @@ hiddenimports += ['keyring.backends.Windows']
 datas = [
     ('config/permissions.json', 'config'),
     ('config/FRDM-IMX93_Nets.xlsx', 'config'),
-    ('config/12345_FRDM-IMX93_Nets_revA.xlsx', 'config'),
+    ('config/Nets_Template.xlsx', 'config'),
     ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
     ('docs/help', 'docs/help'),

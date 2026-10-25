@@ -156,7 +156,7 @@ MTK_GUI\         <- 整个文件夹一起拷，缺一不可
 spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库里）：
 - `config/permissions.json`
 - `config/FRDM-IMX93_Nets.xlsx`
-- `config/12345_FRDM-IMX93_Nets_revA.xlsx`
+- `config/Nets_Template.xlsx`
 - `yaml_plan/examples`
 - `resources`
 
