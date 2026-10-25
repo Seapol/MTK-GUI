@@ -232,18 +232,25 @@ def test_capture_only_empty_session_fails():
 # --------------------------------------------------------- yaml v1.0.5 guard
 def _v105_test_commands():
     from pathlib import Path
-    yml = (Path(__file__).resolve().parents[2] / "yaml_plan" / "examples"
-           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.5.yaml")
+    yml = (Path(__file__).resolve().parents[2] / "projects" / "FRDM-IMX93"
+           / "FRDM-IMX93_94611_Demo-FCT_rev_1.0.5_Draft.yaml")
     if not yml.exists():                     # generator not run yet
-        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.5.yaml not generated yet")
+        pytest.skip("FRDM-IMX93_94611_Demo-FCT_rev_1.0.5_Draft.yaml "
+                    "not available yet")
     data = yaml.safe_load(yml.read_text(encoding="utf-8"))
     node = data.get("fct_test_config")
     if not isinstance(node, dict) or "test_commands" not in (
             node.get("console") or {}):
         # published form: the config travels as the embedded string in
         # modules.fct_build.params.fct_test_config_yaml
-        emb = (data.get("modules", {}).get("fct_build", {})
+        emb = ((data.get("modules") or {}).get("fct_build", {})
                .get("params", {}).get("fct_test_config_yaml", ""))
+        if not emb:
+            # project plan: the build state keeps the config under
+            # yaml_build_state.modules (no top-level modules section)
+            emb = (((data.get("yaml_build_state") or {}).get("modules")
+                    or {}).get("fct_build", {}).get("params", {})
+                   .get("fct_test_config_yaml", ""))
         parsed = yaml.safe_load(emb) if emb else None
         if isinstance(parsed, dict) and "fct_test_config" in parsed:
             parsed = parsed["fct_test_config"]
@@ -253,16 +260,23 @@ def _v105_test_commands():
 
 def _v105_post_rf():
     from pathlib import Path
-    yml = (Path(__file__).resolve().parents[2] / "yaml_plan" / "examples"
-           / "imx93frdm" / "FRDM-IMX93_FCT_Demo_v1.0.5.yaml")
+    yml = (Path(__file__).resolve().parents[2] / "projects" / "FRDM-IMX93"
+           / "FRDM-IMX93_94611_Demo-FCT_rev_1.0.5_Draft.yaml")
     if not yml.exists():
-        pytest.skip("FRDM-IMX93_FCT_Demo_v1.0.5.yaml not generated yet")
+        pytest.skip("FRDM-IMX93_94611_Demo-FCT_rev_1.0.5_Draft.yaml "
+                    "not available yet")
     data = yaml.safe_load(yml.read_text(encoding="utf-8"))
     node = data.get("fct_test_config")
     if not isinstance(node, dict) or "test_commands" not in (
             node.get("console") or {}):
-        emb = (data.get("modules", {}).get("fct_build", {})
+        emb = ((data.get("modules") or {}).get("fct_build", {})
                .get("params", {}).get("fct_test_config_yaml", ""))
+        if not emb:
+            # project plan: the build state keeps the config under
+            # yaml_build_state.modules (no top-level modules section)
+            emb = (((data.get("yaml_build_state") or {}).get("modules")
+                    or {}).get("fct_build", {}).get("params", {})
+                   .get("fct_test_config_yaml", ""))
         parsed = yaml.safe_load(emb) if emb else None
         if isinstance(parsed, dict) and "fct_test_config" in parsed:
             parsed = parsed["fct_test_config"]
