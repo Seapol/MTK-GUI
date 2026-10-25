@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtWidgets import (
     QApplication,
     QColorDialog,
+    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -412,15 +413,19 @@ class _ToolsBatchWorker(QThread):
 
 class _ComboWheelGuard(QObject):
     """App-wide guard (user direction): the mouse wheel must NOT
-    change a CLOSED dropdown - scrolling over a combo changed the
-    selection by accident.  Wheel events are swallowed (and propagate
-    to the surrounding scroll area); the popup list itself keeps its
-    wheel scrolling."""
+    change a CLOSED dropdown OR a numeric spin box - scrolling over
+    either changed the value / selection by accident (e.g. over the
+    Channel Allocation Nominal / Limit cells or the run-interval /
+    failure-rate boxes).  Wheel events are swallowed for both; the
+    popup list of a combo keeps its own wheel scrolling."""
 
     def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.Wheel \
-                and isinstance(obj, QComboBox) \
-                and not obj.view().isVisible():
+        if event.type() != QEvent.Type.Wheel:
+            return False
+        if isinstance(obj, QComboBox) and not obj.view().isVisible():
+            event.ignore()
+            return True
+        if isinstance(obj, QAbstractSpinBox):
             event.ignore()
             return True
         return False
