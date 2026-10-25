@@ -52,6 +52,7 @@ from mtkgui.ict.netparse import (
 from mtkgui.ict.netparse.confidence import clock_freq_hz
 from mtkgui.ict.netparse.priority import nominal_volts_of
 from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
+from mtkgui.gui.progress_dialog import ProgressBridge
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
@@ -276,6 +277,13 @@ class YamlBuildPage(QWidget):
         root.addWidget(splitter, 1)
         # NOTE: the page-level hint label was removed (user direction
         # 2026-10-13) - the card tooltips carry the guidance instead.
+
+        # M15: every page long-task (SPF import / Excel import / YAML
+        # publish / ...) drives a FOREGROUND modal progress dialog
+        # instead of the status bar (user direction 2026-10-25: front
+        # progress bar, no status-bar progress bar, no frozen window)
+        self._task_bridge = ProgressBridge(self, "Working...")
+        self.task_progress.connect(self._task_bridge.stage)
 
         # restore the persisted state of the current project, then
         # paint both panes from the model

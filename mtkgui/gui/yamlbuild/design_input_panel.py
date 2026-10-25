@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -51,6 +51,37 @@ from mtkgui.gui.yamlbuild.schema import (
 from mtkgui.gui.yamlbuild.spf_title import extract_spf_project_name
 
 MAX_DRQ_NUMBERS = 3
+
+
+class SpfExtractWorker(QThread):
+    """Extract the Smart-PDF text OFF the GUI thread (M15, user
+    direction 2026-10-25: a frozen main window is not acceptable).
+
+    A 7-10 MB Allegro Smart PDF takes ~1 s to rasterize and extract
+    through QtPdf; running it in the GUI thread freezes the dialog
+    and the page.  The worker emits the raw text; the panel finishes
+    the (cheap) project-info extraction and form fill on the main
+    thread via ``done`` / ``failed``.
+    """
+
+    done = Signal(str, str)      # (text, path)
+    failed = Signal(str)         # human-readable reason
+
+    def __init__(self, path: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._path = str(path)
+
+    def run(self) -> None:
+        try:
+            from mtkgui.gui.yamlbuild.parser import extract_pdf_text
+            text = extract_pdf_text(self._path)
+            if not text.strip():
+                raise ValueError(
+                    "no extractable text in the PDF (scanned or "
+                    "vector-only drawing)")
+            self.done.emit(text, self._path)
+        except Exception as exc:                 # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
 class DrqDialog(QDialog):
@@ -188,7 +219,11 @@ class DesignInputPanel(QWidget):
     def _import_spf(self) -> None:
         """IMPORT + auto-parse an SPF file: bytes in memory, Core ID
         from the file name, Project Name from the first-page title.
-        No silent fail - every error reports the exact reason."""
+
+        M15: the Smart-PDF text extraction runs in a worker thread so
+        a ~1 s extraction never freezes the dialog; the foreground
+        progress dialog is driven through ``task_progress`` (0/15/50/
+        100).  Non-PDF files are read directly (fast)."""
         from PySide6.QtWidgets import QFileDialog
         # item 21: SPF import accepts ONLY Allegro Smart PDF - the
         # txt / .spf text fallback is removed
@@ -200,26 +235,44 @@ class DesignInputPanel(QWidget):
         self.task_progress.emit(0, "spf import: reading file")
         self.task_log.emit("INFO",
                            f"SPF import started: {Path(path).name}")
+        if Path(path).suffix.lower() == ".pdf":
+            # heavy extraction off the GUI thread (M15); the
+            # completion / failure slots continue on the main thread
+            self.btn_import_spf.setEnabled(False)
+            self.task_progress.emit(15, "spf import: extracting text")
+            self._spf_worker = SpfExtractWorker(path, self)
+            self._spf_worker.done.connect(self._on_spf_text)
+            self._spf_worker.failed.connect(self._on_spf_failed)
+            self._spf_worker.start()
+            return
         try:
-            if Path(path).suffix.lower() == ".pdf":
-                # real Smart-PDF drawing: extract the text through the
-                # bundled QtPdf module (a PDF is NOT plain text)
-                from mtkgui.gui.yamlbuild.parser import extract_pdf_text
-                text = extract_pdf_text(path)
-                if not text.strip():
-                    raise ValueError(
-                        "no extractable text in the PDF (scanned or "
-                        "vector-only drawing)")
-            else:
-                text = read_text_any_encoding(path)
+            text = read_text_any_encoding(path)
             if not text.strip():
                 raise ValueError("the file is empty (0 content bytes)")
         except (OSError, UnicodeDecodeError, ValueError) as exc:
-            reason = f"SPF import failed: {exc}"
-            self.task_log.emit("ERROR", reason)
-            self.task_progress.emit(0, "spf import: idle")
-            QMessageBox.critical(self, "SPF Import Failed", reason)
+            self._spf_fail(f"SPF import failed: {exc}")
             return
+        self._spf_apply(text, path)
+
+    def _on_spf_text(self, text: str, path: str) -> None:
+        """Worker done: finish the (cheap) project-info extraction."""
+        self._spf_apply(text, path)
+
+    def _on_spf_failed(self, reason: str) -> None:
+        """Worker failed: exact reason, never a silent fail."""
+        self._spf_fail(f"SPF import failed: {reason}")
+
+    def _spf_fail(self, reason: str) -> None:
+        """Shared failure path (direct read + worker extraction)."""
+        self.btn_import_spf.setEnabled(True)
+        self.task_log.emit("ERROR", reason)
+        self.task_progress.emit(0, "spf import: idle")
+        QMessageBox.critical(self, "SPF Import Failed", reason)
+
+    def _spf_apply(self, text: str, path: str) -> None:
+        """Shared success path: fill the meta form from the extracted
+        text (main thread; the worker text was already validated)."""
+        self.btn_import_spf.setEnabled(True)
         self.task_progress.emit(50, "spf import: extracting project info")
         core_id = core_id_from_filename(Path(path).name)
         title = ""
@@ -252,7 +305,6 @@ class DesignInputPanel(QWidget):
             f"(Core ID: {core_id or '-'}, Project Name: "
             f"{title or '-'})")
         self.content_changed.emit()
-
     def _import_net(self) -> None:
         """IMPORT a NET file: LOAD ONLY - raw bytes into memory, no
         parse, no structure analysis, no data generation."""

@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QMessageBox,
@@ -131,3 +131,75 @@ def guarded_run(owner: QWidget | None, button, title: str, fn) -> object:
     finally:
         if button is not None:
             button.setEnabled(was_enabled)
+
+
+class ProgressBridge(QObject):
+    """Route a ``task_progress`` signal stream to a FOREGROUND modal
+    dialog instead of the status bar (M15, user direction 2026-10-25:
+    "front progress bar, no status-bar progress bar, no frozen main
+    window").
+
+    Pages connect their ``task_progress`` signal to
+    ``bridge.stage``; the bridge owns one delayed, application-modal
+    :class:`ProgressDialog` for the duration of a task:
+
+    * ``percent <= 0`` starts a new task (closes any stale dialog);
+    * ``percent >= 100`` ends it (dialog closed immediately);
+    * a task that emits stages but no terminal event self-closes
+      after :attr:`STALE_S` of silence, so an exception path can
+      never leave a modal dialog stranded.
+
+    Every stage pumps the event loop, so the main window repaints
+    instead of freezing during the synchronous page actions.
+    """
+
+    #: seconds without any stage before a still-open dialog self-closes
+    STALE_S = 30.0
+
+    def __init__(self, owner: QWidget | None, title: str = "Working…",
+                 delay: float = SHOW_DELAY_S) -> None:
+        super().__init__(owner)
+        self._title = str(title)
+        self._delay = max(0.0, float(delay))
+        self._dlg: ProgressDialog | None = None
+        self._timer: QTimer | None = None
+
+    # ------------------------------------------------------------ slot
+    def stage(self, percent: int, label: str) -> None:
+        """Drive the modal dialog from one progress event."""
+        value = int(percent)
+        text = str(label) or self._title
+        if value <= 0:
+            self._close()
+            self._ensure_dlg()
+            self._dlg.set_stage(0, text)
+        elif value >= 100:
+            if self._dlg is not None:
+                self._dlg.set_stage(100, text)
+            self._close()
+        else:
+            self._ensure_dlg()
+            self._dlg.set_stage(value, text)
+
+    # ---------------------------------------------------------- helpers
+    def _ensure_dlg(self) -> None:
+        if self._dlg is not None:
+            self._arm_timer()
+            return
+        self._dlg = ProgressDialog(self.parent(), self._title,
+                                   0, 100, delay=self._delay)
+        self._arm_timer()
+
+    def _arm_timer(self) -> None:
+        if self._timer is None:
+            self._timer = QTimer(self)
+            self._timer.setSingleShot(True)
+            self._timer.timeout.connect(self._close)
+        self._timer.start(int(self.STALE_S * 1000))
+
+    def _close(self) -> None:
+        if self._timer is not None:
+            self._timer.stop()
+        if self._dlg is not None:
+            self._dlg.close_done()
+            self._dlg = None

@@ -985,9 +985,10 @@ class MainWindow(QMainWindow):
         # instrument connection lights: synced from the Equipment page
         self._equipment_page.instrument_connection_changed.connect(
             self._on_instrument_connection)
-        # long-task progress + Event-Log detail from the Yaml Build
-        # page (Excel import / publish, T6): global status bar + log
-        yb.task_progress.connect(self._on_task_progress)
+        # Event-Log detail from the Yaml Build page (T6); the long-task
+        # progress now drives the page's own FOREGROUND dialog
+        # (ProgressBridge, M15) - the status-bar progress bar no longer
+        # receives page tasks (user direction 2026-10-25)
         yb.task_log.connect(
             lambda level, msg:
                 self._append_event_log(f"[{level}] {msg}"))
