@@ -23,13 +23,39 @@ if _FROZEN:
     except Exception:  # pragma: no cover - probe must never break startup
         _LOG = None
 
+#: optional progress callback (M14 F4): ``fn(stage_name, elapsed_s)``.
+#: Registered by the startup progress window; None = no listener.
+_PROGRESS_HANDLER = None
+
+
+def set_progress_handler(handler) -> None:
+    """Register / clear the startup progress callback (M14 F4).
+
+    Args:
+        handler: ``fn(stage_name: str, elapsed_s: float)`` or ``None``.
+    """
+    global _PROGRESS_HANDLER
+    _PROGRESS_HANDLER = handler
+
 
 def mark(label: str) -> None:
-    """Append ``<elapsed>  <label>`` to the frozen-build timing log."""
-    if not _FROZEN or _LOG is None:
-        return
-    try:
-        with open(_LOG, "a", encoding="utf-8") as fh:
-            fh.write(f"{time.perf_counter() - _T0:8.3f}s  {label}\n")
-    except OSError:
-        pass
+    """Append ``<elapsed>  <label>`` to the frozen-build timing log and
+    forward the stage to the optional progress handler.
+
+    The timing-log behaviour is unchanged (frozen builds only); the
+    progress hook is purely additional.
+    """
+    elapsed = time.perf_counter() - _T0
+    if _FROZEN and _LOG is not None:
+        try:
+            with open(_LOG, "a", encoding="utf-8") as fh:
+                fh.write(f"{elapsed:8.3f}s  {label}\n")
+        except OSError:
+            pass
+    handler = _PROGRESS_HANDLER
+    if handler is not None:
+        try:
+            handler(label, elapsed)
+        except Exception:  # pragma: no cover - never break startup
+            pass
+

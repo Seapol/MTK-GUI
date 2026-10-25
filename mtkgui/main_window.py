@@ -479,13 +479,25 @@ class MainWindow(QMainWindow):
         self._report_jobs: set = set()
         self._last_batch = None
 
+        # M14 F1: apply the GUI theme BEFORE any widget is created.  A
+        # global setStyleSheet re-polishes every already-built widget
+        # (18 s on the Windows frozen build); applying it first lets the
+        # widgets adopt the stylesheet incrementally while they are
+        # created.
+        # M14 F2 state: the secondary pages are built lazily after the
+        # window is shown (see _build_secondary_ui).
+        self._secondary_built = False
+        self._secondary_scheduled = False
+        self._can_yaml_build = True
+        self._can_equipment_config = True
+        self._manual_fixture = False
+        self.apply_gui_theme(saved_theme())
+        _startup_mark("ui: theme applied")
+
         self._build_ui()
         _startup_mark("ui: _build_ui done")
         self._build_menus()
         _startup_mark("ui: _build_menus done")
-        # restore the GUI colour theme chosen in a previous session
-        self.apply_gui_theme(saved_theme())
-        _startup_mark("ui: theme applied")
         self.apply_permissions()
         _startup_mark("ui: permissions applied")
 
@@ -524,17 +536,24 @@ class MainWindow(QMainWindow):
         """Lock the post-polish vertical minimums (window height floor
         + Event Log pane floor) - scheduled after the first layout
         pass, see the setCentralWidget comment."""
-        log = self.event_log
+        # M14 F1: the theme is applied before the UI exists, so its
+        # scheduled first pass can run while _build_ui is still in
+        # flight (the startup progress handler pumps events).  Nothing
+        # to lock until the Event Log exists; paint / show re-lock it.
+        log = getattr(self, "event_log", None)
+        if log is None:
+            return
         # recompute the 9-row floor with the CURRENT font (the
         # construction-time value predates the global stylesheet, so
         # its metrics can be far smaller than the polished reality)
         fm = QFontMetrics(log.font())
         rows = (fm.lineSpacing() * 6 + 2 * log.frameWidth() + 6) * 1.5
         log.setMinimumHeight(max(log.minimumHeight(), int(rows)))
-        if self._log_group is not None:
-            self._log_group.setMinimumHeight(
-                max(self._log_group.minimumHeight(),
-                    self._log_group.minimumSizeHint().height()))
+        log_group = getattr(self, "_log_group", None)
+        if log_group is not None:
+            log_group.setMinimumHeight(
+                max(log_group.minimumHeight(),
+                    log_group.minimumSizeHint().height()))
         # monotonic: the floor may grow (fonts, polished styles) but
         # never shrink back below an already-proven requirement
         self.setMinimumHeight(max(self.minimumHeight(),
@@ -559,6 +578,11 @@ class MainWindow(QMainWindow):
         metrics, not a construction-time snapshot."""
         super().showEvent(event)
         QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
+        # M14 F2: build the secondary tabs exactly once, after the
+        # window is actually on screen (QTimer.singleShot(0) runs on
+        # the first event-loop turn, i.e. before any user input is
+        # processed - every menu action reaching those pages is safe).
+        self._ensure_secondary_ui_deferred()
         # the Manual-fixture notice pops once the project UI is visible
         if getattr(self, "_manual_notice_pending", False):
             self._manual_notice_pending = False
@@ -595,14 +619,14 @@ class MainWindow(QMainWindow):
         _startup_mark("ui: TestWorkFlowPage built")
         self.tabs.addTab(self.workflow_page, "Test Work Flow")
 
-        self.equipment_page = EquipmentPage()
-        _startup_mark("ui: EquipmentPage built")
-        self.tabs.addTab(self.equipment_page, "Equipment")
-
-        # V4.0: Yaml Build tab, fixed at the rightmost position
-        self.yaml_build_page = YamlBuildPage()
-        _startup_mark("ui: YamlBuildPage built")
-        self.tabs.addTab(self.yaml_build_page, "Yaml Build")
+        # M14 F2: Equipment / Yaml Build are only built after the
+        # window is shown (_build_secondary_ui).  Empty placeholders
+        # keep the fixed tab order (0 workflow, 1 equipment, 2 yaml)
+        # visible from the first paint.
+        self._equipment_placeholder = QWidget()
+        self.tabs.addTab(self._equipment_placeholder, "Equipment")
+        self._yaml_build_placeholder = QWidget()
+        self.tabs.addTab(self._yaml_build_placeholder, "Yaml Build")
         # M10-FIX2 F7: make the tab switch immediate on the press and
         # idempotent - a first click that lands while a page is still
         # settling no longer gets swallowed (same index is a no-op)
@@ -616,62 +640,16 @@ class MainWindow(QMainWindow):
         # (M11: ONE connection only - a second wiring doubled every
         # Event-Log line)
 
-        # navigation: merged "Build ICT Test Work Flow Sequence" card
-        # -> Test Work Flow tab, cursor on the ICT Test Cases table
-        self.yaml_build_page.test_workflow_requested.connect(
-            self._goto_test_workflow)
-        # the page-level "Close Yaml" / "Load current yaml" buttons
-        # run the SAME slots as the File menu actions
-        self.yaml_build_page.close_yaml_requested.connect(
-            self.close_yaml)
-        self.yaml_build_page.load_yaml_requested.connect(
-            self._load_current_yaml)
+        # M14 F2: every Yaml Build / Equipment signal wiring lives in
+        # _build_secondary_ui (the pages do not exist yet).  Only the
+        # workflow-side hooks are set up here.
         # Power Rails config (Test Work Flow properties) -> Yaml Build
         # model: the configured rails land in the YAML preview / Apply
         self.workflow_page.rail_config_changed.connect(
             self._sync_rails_to_yaml)
-        # the step edit dialog offers the nets PER TEST METHOD from
-        # the Yaml Build model (parse result = single data source)
-        self.workflow_page.net_catalog_provider = (
-            lambda: self.yaml_build_page.model.imported.get(
-                "testable_nets") or {})
         # M7: control-IO rows (net <-> U2355A DIO channel + isolation
         # verdict) consumed by the U2355A DIO Read/Write operations
         self.workflow_page.control_io_provider = self._control_io_rows
-        # bidirectional sync (user direction 2026-10-14): the Build ICT
-        # dialog seeds from the CURRENT ICT result rows (page -> dialog);
-        # on OK the whole sequence flows back through ict_sequence_ready
-        self.yaml_build_page.current_ict_cases_provider = \
-            self.workflow_page.current_ict_case_tuples
-        # single sequence source (task): double-clicking a result row
-        # asks the ONE Build dialog to open - the page owns no editor
-        # any more (block-04 card and row double-click share the path)
-        self.workflow_page.ict_build_requested.connect(
-            self.yaml_build_page.open_ict_sequence)
-        self.workflow_page.fct_build_requested.connect(
-            self.yaml_build_page.open_fct_sequence)
-        # the DAQ AI Net cell is read-only: its count comes from the
-        # Channel Allocation tables (U2355A AI power rails)
-        self.workflow_page.daq_ai_rail_count_provider = (
-            lambda: len(self._rails_from_allocation(
-                self.yaml_build_page.model.channel_allocation)))
-        # block-04 sequence builder accepted: merge the standard
-        # operations on the Test Work Flow page, then apply to yaml
-        self.yaml_build_page.ict_sequence_ready.connect(
-            self._on_ict_sequence_ready)
-        # P3-B5: block-07 FCT config accepted -> replace the FCT Test
-        # Cases table with the generated sequence, then apply to yaml
-        self.yaml_build_page.fct_sequence_ready.connect(
-            self._on_fct_sequence_ready)
-        # reverse sync (user direction 2026-10-14): the Build FCT
-        # dialog seeds its console commands from the CURRENT FCT Test
-        # Cases rows whenever it opens (page -> dialog; on OK the
-        # generated cases flow back through fct_sequence_ready)
-        self.yaml_build_page.current_fct_cases_provider = \
-            self.workflow_page.current_fct_case_dicts
-        # valid Apply on the Yaml Build page -> offer the file save
-        self.yaml_build_page.yaml_apply_committed.connect(
-            self._on_yaml_apply_committed)
 
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
@@ -826,11 +804,8 @@ class MainWindow(QMainWindow):
         self.status_date.setStyleSheet("padding: 0 6px;")
         sb.addPermanentWidget(self.status_date)
 
-        # instrument connection lights: synced from the Equipment page
-        # connect / disconnect (user report: the LEDs were force-set
-        # green everywhere and never reflected the real state)
-        self.equipment_page.instrument_connection_changed.connect(
-            self._on_instrument_connection)
+        # instrument connection lights are wired to the Equipment page
+        # in _build_secondary_ui (M14 F2)
         # wire run progress to the status bar progress bar
         self.workflow_page.run_progress.connect(self._update_run_progress)
         # background phases (console connect, ...) -> busy progress bar
@@ -845,17 +820,11 @@ class MainWindow(QMainWindow):
             lambda: self._on_run_report_auto(
                 getattr(self.workflow_page, "last_run_summary", {})))
         # long-task progress + Event-Log detail from the Yaml Build
-        # page (Excel import / publish, T6): global status bar + log
-        self.yaml_build_page.task_progress.connect(self._on_task_progress)
-        self.yaml_build_page.task_log.connect(
-            lambda level, msg:
-                self._append_event_log(f"[{level}] {msg}"))
+        # page (Excel import / publish, T6) are wired in
+        # _build_secondary_ui (M14 F2)
         if self.mode == "Virtual":
             # simulated instruments come up shortly after the GUI starts
             QTimer.singleShot(800, self, qt_safe(self._connect_virtual_instruments))
-        # restore the power-rails capture from the persisted Yaml Build
-        # model state (channel allocation / previous rail config)
-        QTimer.singleShot(0, self, qt_safe(self._sync_rails_to_workflow))
 
         # --- assemble the splitter: top | middle (tabs) | bottom --------
         self.splitter.addWidget(top)
@@ -905,6 +874,141 @@ class MainWindow(QMainWindow):
 
         # No YAML loaded yet -> clear ICT/FCT tables to 1 empty row each
         self.workflow_page.clear_tables()
+
+    # ------------------------------------------- M14 F2 lazy pages
+    def _ensure_secondary_ui_deferred(self) -> None:
+        """Schedule the one-shot secondary-page build (showEvent)."""
+        if self._secondary_built or self._secondary_scheduled:
+            return
+        self._secondary_scheduled = True
+        QTimer.singleShot(0, self, qt_safe(self._build_secondary_ui))
+
+    def _ensure_secondary_ui(self) -> None:
+        """Build the secondary pages on demand (tests / early access).
+
+        In the running application ``showEvent`` schedules the build,
+        so nothing here runs during MainWindow construction; property
+        access before that (test suite) builds them immediately.
+        """
+        if not self._secondary_built:
+            self._build_secondary_ui()
+
+    @property
+    def equipment_page(self):
+        """Equipment tab page (built lazily, M14 F2)."""
+        self._ensure_secondary_ui()
+        return self._equipment_page
+
+    @property
+    def yaml_build_page(self):
+        """Yaml Build tab page (built lazily, M14 F2)."""
+        self._ensure_secondary_ui()
+        return self._yaml_build_page
+
+    def _replace_secondary_tab(self, placeholder, page, title: str) -> None:
+        """Swap a placeholder tab for the real page, keeping the index
+        (and therefore the fixed tab order) and visibility."""
+        idx = self.tabs.indexOf(placeholder)
+        visible = self.tabs.isTabVisible(idx) if idx >= 0 else True
+        if idx >= 0:
+            self.tabs.removeTab(idx)
+            self.tabs.insertTab(idx, page, title)
+        else:  # pragma: no cover - defensive
+            self.tabs.addTab(page, title)
+        self.tabs.setTabVisible(self.tabs.indexOf(page), visible)
+        placeholder.deleteLater()
+
+    def _build_secondary_ui(self) -> None:
+        """Build the Equipment / Yaml Build tabs after the window is up.
+
+        M14 F2: these two pages cost ~4.4 s on the Windows build and the
+        operator only sees the Test Work Flow tab first.  All signal
+        wiring that touches them lives here; the workflow-side lambdas
+        (net catalog / DAQ AI rail count) are evaluated at CALL time and
+        are re-bound once the pages exist.
+        """
+        if self._secondary_built:
+            return
+        self._secondary_built = True
+        self._secondary_scheduled = False
+
+        self._equipment_page = EquipmentPage()
+        _startup_mark("ui: EquipmentPage built")
+        self._replace_secondary_tab(
+            self._equipment_placeholder, self._equipment_page,
+            "Equipment")
+
+        self._yaml_build_page = YamlBuildPage()
+        _startup_mark("ui: YamlBuildPage built")
+        self._replace_secondary_tab(
+            self._yaml_build_placeholder, self._yaml_build_page,
+            "Yaml Build")
+
+        yb = self._yaml_build_page
+        # navigation: merged "Build ICT Test Work Flow Sequence" card
+        # -> Test Work Flow tab, cursor on the ICT Test Cases table
+        yb.test_workflow_requested.connect(self._goto_test_workflow)
+        # the page-level "Close Yaml" / "Load current yaml" buttons
+        # run the SAME slots as the File menu actions
+        yb.close_yaml_requested.connect(self.close_yaml)
+        yb.load_yaml_requested.connect(self._load_current_yaml)
+        # the step edit dialog offers the nets PER TEST METHOD from
+        # the Yaml Build model (parse result = single data source)
+        self.workflow_page.net_catalog_provider = (
+            lambda: yb.model.imported.get("testable_nets") or {})
+        # the DAQ AI Net cell is read-only: its count comes from the
+        # Channel Allocation tables (U2355A AI power rails)
+        self.workflow_page.daq_ai_rail_count_provider = (
+            lambda: len(self._rails_from_allocation(
+                yb.model.channel_allocation)))
+        # bidirectional sync (user direction 2026-10-14): the Build ICT
+        # dialog seeds from the CURRENT ICT result rows (page -> dialog);
+        # on OK the whole sequence flows back through ict_sequence_ready
+        yb.current_ict_cases_provider = \
+            self.workflow_page.current_ict_case_tuples
+        # single sequence source (task): double-clicking a result row
+        # asks the ONE Build dialog to open
+        self.workflow_page.ict_build_requested.connect(yb.open_ict_sequence)
+        self.workflow_page.fct_build_requested.connect(yb.open_fct_sequence)
+        # block-04 sequence builder accepted: merge the standard
+        # operations on the Test Work Flow page, then apply to yaml
+        yb.ict_sequence_ready.connect(self._on_ict_sequence_ready)
+        # P3-B5: block-07 FCT config accepted -> replace the FCT Test
+        # Cases table with the generated sequence, then apply to yaml
+        yb.fct_sequence_ready.connect(self._on_fct_sequence_ready)
+        # reverse sync: the Build FCT dialog seeds its console commands
+        # from the CURRENT FCT Test Cases rows whenever it opens
+        yb.current_fct_cases_provider = \
+            self.workflow_page.current_fct_case_dicts
+        # valid Apply on the Yaml Build page -> offer the file save
+        yb.yaml_apply_committed.connect(self._on_yaml_apply_committed)
+        # instrument connection lights: synced from the Equipment page
+        self._equipment_page.instrument_connection_changed.connect(
+            self._on_instrument_connection)
+        # long-task progress + Event-Log detail from the Yaml Build
+        # page (Excel import / publish, T6): global status bar + log
+        yb.task_progress.connect(self._on_task_progress)
+        yb.task_log.connect(
+            lambda level, msg:
+                self._append_event_log(f"[{level}] {msg}"))
+
+        self._apply_page_permissions()
+        # restore the power-rails capture from the persisted Yaml Build
+        # model state (channel allocation / previous rail config)
+        QTimer.singleShot(0, self, qt_safe(self._sync_rails_to_workflow))
+
+    def _apply_page_permissions(self) -> None:
+        """Apply the role / mode / fixture state to the secondary pages
+        (called once they exist; M14 F2)."""
+        idx = self.tabs.indexOf(self._yaml_build_page)
+        if idx >= 0:
+            self.tabs.setTabVisible(idx, self._can_yaml_build)
+        self._yaml_build_page.set_edit_allowed(self._can_yaml_build)
+        self._yaml_build_page.channel_alloc.set_edit_allowed(
+            self._can_yaml_build)
+        self._equipment_page.set_config_allowed(self._can_equipment_config)
+        self._equipment_page.set_mode(self.mode)
+        self._equipment_page.set_manual_fixture(self._manual_fixture)
 
     def _on_tab_clicked(self, index: int) -> None:
         """M10-FIX2 F7: apply the tab click immediately and idempotently.
@@ -1474,21 +1578,14 @@ class MainWindow(QMainWindow):
         self.act_permissions.setVisible(supervisor)
         self.workflow_page.apply_permissions(perm, supervisor)
         # Yaml Build page (the YAML config editor): operator accounts
-        # can view the generated YAML but not edit / apply it (T5)
-        can_yaml_build = supervisor or perm.get("edit_yaml_build", False)
-        idx_yaml = self.tabs.indexOf(self.yaml_build_page)
-        if idx_yaml >= 0:
-            self.tabs.setTabVisible(idx_yaml, can_yaml_build)
-        self.yaml_build_page.set_edit_allowed(can_yaml_build)
-        # T10 Channel Allocation (embedded in the Yaml Build page):
-        # operators view only (dropdown cells disabled)
-        self.yaml_build_page.channel_alloc.set_edit_allowed(
-            can_yaml_build)
-        self.equipment_page.set_config_allowed(
-            supervisor or perm.get("equipment_config", False))
-        # Real / Virtual mode drives the equipment dialogs' mode-aware
-        # notes and the instrument dialog's connect / test behavior
-        self.equipment_page.set_mode(self.mode)
+        # can view the generated YAML but not edit / apply it (T5);
+        # T10 Channel Allocation (embedded there): operators view only.
+        # M14 F2: stored here, applied by _apply_page_permissions once
+        # the lazy pages exist.
+        self._can_yaml_build = supervisor or perm.get(
+            "edit_yaml_build", False)
+        self._can_equipment_config = supervisor or perm.get(
+            "equipment_config", False)
         # Virtual mode (supervisor only): fault-injection menu + pages
         virtual = supervisor and self.mode == "Virtual"
         self.act_fault_inject.setEnabled(virtual)
@@ -1517,6 +1614,9 @@ class MainWindow(QMainWindow):
             if self.isVisible():
                 QTimer.singleShot(0, self, qt_safe(self._show_virtual_notice))
         self._apply_fixture_mode()
+        # account switch (pages already built) re-applies the page bits
+        if self._secondary_built:
+            self._apply_page_permissions()
         self._append_event_log(
             f"Logged in: {self.role}", level=IMPORTANT)
 
@@ -1526,7 +1626,9 @@ class MainWindow(QMainWindow):
         and fixture-linked operation; a fixed friendly notice pops up
         once per login (non-blocking, manually closable)."""
         manual = self.fixture_type == FIXTURE_MANUAL
-        self.equipment_page.set_manual_fixture(manual)
+        # M14 F2: remembered here, pushed into the lazy Equipment page
+        # by _apply_page_permissions
+        self._manual_fixture = manual
         # notice pops once the window becomes visible (showEvent); a
         # pending flag survives mode switches without leaking timers
         self._manual_notice_pending = manual

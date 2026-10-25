@@ -71,8 +71,19 @@ def main():
     role, mode, fixture = result
     _timing.mark(f"login done (role={role}, mode={mode}, fixture={fixture})")
 
-    window = MainWindow(role, mode, fixture)
-    _timing.mark("MainWindow constructed")
+    from mtkgui.gui.startup_progress import StartupProgress
+    progress = StartupProgress()
+    progress.show()
+    _timing.set_progress_handler(progress.handle_stage)
+    try:
+        window = MainWindow(role, mode, fixture)
+        _timing.mark("MainWindow constructed")
+    finally:
+        # the progress window ALWAYS goes away, even if construction
+        # raised (M14 F4)
+        _timing.set_progress_handler(None)
+        progress.close()
+        progress.deleteLater()
     window.show()
     _timing.mark("window shown")
     sys.exit(app.exec())
