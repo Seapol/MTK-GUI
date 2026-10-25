@@ -57,7 +57,6 @@ from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
-from mtkgui.gui.yamlbuild.preview import YamlPreviewWidget
 from mtkgui.gui.yamlbuild.publish import (
     archive_copy,
     compare_plans,
@@ -182,51 +181,14 @@ class YamlBuildPage(QWidget):
         # the preview pane is created BEFORE the top button row: its
         # Apply button is reparented into that row (item 16; user
         # direction: no Edit mode - the editor is directly editable)
-        self.yaml_preview = YamlPreviewWidget()
 
-        # --- top fixed button row (item 16: Build Draft / Release Final
-        # YAML buttons removed - the redundant YAML entry is gone; the
-        # Excel buttons sit LEFT of the Apply button, all three
-        # share one uniform adaptive width = the longest label among
-        # them; the row lives ABOVE the YAML Preview pane (user
-        # direction)) ----------
-        buttons = QHBoxLayout()
-        buttons.setSpacing(8)
-        self.btn_import_excel = QPushButton("Import from Excel")
-        self.btn_export_excel = QPushButton("Export to Excel")
-        self.btn_close_yaml = QPushButton("Close Yaml")
-        self.btn_load_yaml = QPushButton("Load current yaml")
-        # the Apply button is created by the preview pane (its
-        # validation + permission gate stay there) and is reparented
-        self._action_buttons = (
-            self.btn_import_excel, self.btn_export_excel,
-            self.yaml_preview.btn_apply,
-            self.btn_close_yaml, self.btn_load_yaml)
-        for btn in self._action_buttons:
-            btn.setFixedHeight(34)
-            buttons.addWidget(btn, 0)   # uniform width, no stretching
-        buttons.addStretch(1)
-        self._sync_action_button_widths()
-        # standard tooltips (rule 6.1; GUI language = English)
-        self.btn_import_excel.setToolTip(
-            "Bulk-import the flow configuration workbook and fill "
-            "back every module parameter and state")
-        self.btn_export_excel.setToolTip(
-            "Export all flow module parameters to a standard Excel "
-            "archive file")
-
-        self.btn_import_excel.clicked.connect(self._import_excel)
-        self.btn_export_excel.clicked.connect(self._export_excel)
-        self.btn_close_yaml.clicked.connect(
-            self.close_yaml_requested.emit)
-        self.btn_load_yaml.clicked.connect(
-            self.load_yaml_requested.emit)
-        # account permissions (defaults = supervisor until set_edit_allowed)
+        # account permissions (defaults = supervisor until
+        # set_edit_allowed); the former Yaml Preview pane + its five
+        # buttons are gone (M19d) - the actions live in the File menu
         self._edit_allowed = True
 
-        # --- dual-pane body: block flow (left) | YAML preview (right) --
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        # --- single-pane body: block flow (top) | Channel Allocation
+        # (below); the YAML preview pane was removed (M19d)
         self.block_flow = BlockFlowWidget()
         self.block_flow.configure_requested.connect(self._open_block)
         self.block_flow.enable_requested.connect(self._set_enabled)
@@ -247,35 +209,13 @@ class YamlBuildPage(QWidget):
         left_lay.setSpacing(6)
         left_lay.addWidget(self.block_flow, 0)      # natural height only
         left_lay.addWidget(self.channel_alloc, 1)   # tables take the rest
-        splitter.addWidget(left)
+        root.addWidget(left, 1)
         # model injected AFTER the widget is parented (PySide shiboken
         # GC bug workaround - see ChannelAllocationPage.__init__)
         self.channel_alloc.set_model(self.model)
         # (level, message) Event-Log mirror: the page funnels the
         # allocation table logs into its own task_log stream
         self.channel_alloc.task_log.connect(self.task_log)
-        self.yaml_preview.bind_model(self.model)
-        # YAML -> diagram: a valid hand edit refreshes the block
-        # cards (enable states) and persists; the preview text itself
-        # keeps the operator's version while editing
-        self.yaml_preview.edits_applied.connect(self._on_preview_edited)
-        # valid Apply committed -> the main window offers the file save
-        self.yaml_preview.edits_applied.connect(
-            self.yaml_apply_committed)
-        # right pane: the action button row sits directly ABOVE the
-        # YAML Preview (user direction)
-        from PySide6.QtWidgets import QWidget as _QWidget
-        right = _QWidget()
-        right_lay = QVBoxLayout(right)
-        right_lay.setContentsMargins(0, 0, 0, 0)
-        right_lay.setSpacing(6)
-        right_lay.addLayout(buttons)
-        right_lay.addWidget(self.yaml_preview)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 7)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([700, 300])   # default 7 : 3 (user direction)
-        root.addWidget(splitter, 1)
         # NOTE: the page-level hint label was removed (user direction
         # 2026-10-13) - the card tooltips carry the guidance instead.
 
@@ -303,7 +243,6 @@ class YamlBuildPage(QWidget):
         self.block_flow.set_module_mark(
             "channel_alloc", self.model.marks.get(
                 "channel_alloc", MARK_NONE))
-        self.yaml_preview.set_model_text(self.model)
         # the embedded Channel Allocation tables mirror the model
         # (parse result + saved configuration, kept configs preserved)
         self.channel_alloc.refresh_from_model()
@@ -315,10 +254,8 @@ class YamlBuildPage(QWidget):
         self.channel_alloc.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def clear_preview(self) -> None:
-        """Blank the YAML preview pane (File > Close Yaml: the GUI
-        holds no yaml any more, the pane must not keep showing the
-        stale document)."""
-        self.yaml_preview.editor.setPlainText("")
+        """No-op since M19d - the YAML preview pane is gone; kept for
+        defensive callers (File > Close Yaml clears the model itself)."""
 
     def _load_persisted(self) -> None:
         """Restore this project's persisted state (restart-safe)."""
@@ -682,19 +619,6 @@ class YamlBuildPage(QWidget):
         the rails module's capture parameters; the preview refreshes."""
         self.model.set_power_rails(seq)
         self._persist()
-        self.yaml_preview.set_model_text(self.model)
-
-    def _on_preview_edited(self) -> None:
-        """Slot for valid hand edits from the YAML preview: refresh
-        the block cards (enable states) and persist.  The preview
-        text is NOT repainted here - the operator's text stays until
-        the next unmodified sync."""
-        self._persist()
-        for key in STAGE_KEYS:
-            self.block_flow.set_state(key, self.model.is_enabled(key))
-        # a hand-edited channel_allocation section must re-mirror
-        # into the embedded tables (kept configurations preserved)
-        self.channel_alloc.refresh_from_model()
 
     # ------------------------------------------------- long-task helpers
     def _task(self, percent: int, label: str) -> None:
@@ -712,22 +636,6 @@ class YamlBuildPage(QWidget):
         Apply button follow the permission; the editor stays
         read-only for operators."""
         self._edit_allowed = bool(allowed)
-        for btn in self._action_buttons:
-            btn.setEnabled(self._edit_allowed)
-        self.yaml_preview.set_edit_allowed(self._edit_allowed)
-
-    def _sync_action_button_widths(self) -> None:
-        """Item 16: the three top toolbar buttons (Import from Excel /
-        Export to Excel / Apply) share one uniform adaptive width
-        = the widest label among them.  Neat, aligned, equal in
-        size."""
-        if not hasattr(self, "_action_buttons"):
-            return
-        widest = max(btn.sizeHint().width()
-                     for btn in self._action_buttons)
-        width = widest + 8   # small symmetric margin
-        for btn in self._action_buttons:
-            btn.setFixedWidth(width)
 
     def _export_excel(self) -> None:
         """Export all module parameters / thresholds / sequence /

@@ -102,20 +102,8 @@ def test_resolution_adaptation(page, qapp, width, height):
     pane keeps its 6:4 ratio, cards never overlap or clip, and no
     horizontal overflow appears."""
     _activate(page, width, height)
-    # dual-pane ratio (stretch factors 7:3); the right pane now
-    # carries the action button row (Import/Export/Apply ABOVE the
-    # preview), whose minimum width pulls the ratio slightly below
-    # 0.55 at the smaller resolutions, and the LEFT pane embeds the
-    # Channel Allocation tables (2026-10-13) whose minimum width pulls
-    # it up again - accepted bound 0.35-0.70
-    split = None
-    for child in page.children():
-        if type(child).__name__ == "QSplitter":
-            split = child
-    assert split is not None
-    sizes = split.sizes()
-    ratio = sizes[0] / max(1, sum(sizes))
-    assert 0.35 <= ratio <= 0.70, f"pane ratio {ratio:.2f} at {width}x{height}"
+    # single-pane page since M19d (no splitter, no preview pane) - the
+    # Channel Allocation tables are embedded below the block cards
     # no child of the page extends beyond the page rect
     page_rect = page.rect()
     for child in page.findChildren(type(page.block_flow)):
@@ -132,25 +120,6 @@ def test_resolution_adaptation(page, qapp, width, height):
         for b in rects[i + 1:]:
             assert not a.intersects(b), (
                 f"card overlap at {width}x{height}")
-
-
-@pytest.mark.parametrize("width,height", RESOLUTIONS)
-def test_button_bar_uniform(page, qapp, width, height):
-    """The four action buttons keep a fixed height, share one row,
-    never overlap and stay inside the page at every resolution."""
-    _activate(page, width, height)
-    rects = [btn.geometry() for btn in page._action_buttons]
-    heights = {r.height() for r in rects}
-    assert len(heights) == 1                   # fixed, uniform height
-    assert next(iter(heights)) >= 34           # never squeezed below
-    ys = {r.y() for r in rects}
-    assert len(ys) == 1                        # one aligned row
-    xs = [r.x() for r in rects]
-    assert xs == sorted(xs)                    # stable order
-    for i, a in enumerate(rects):
-        for b in rects[i + 1:]:
-            assert not a.intersects(b)
-        assert a.right() <= page.rect().width()
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +169,6 @@ def test_tab_switch_and_restart_stability(page, qapp):
     layout byte-stable (no first-load shift, no re-render collapse)."""
     _activate(page, 1600, 900)
     before = {k: r for k, r in _card_rects(page).items()}
-    before_buttons = [b.geometry() for b in page._action_buttons]
 
     for _ in range(5):
         page.setVisible(False)
@@ -212,7 +180,6 @@ def test_tab_switch_and_restart_stability(page, qapp):
 
     after = _card_rects(page)
     assert after == before, "card geometry shifted after tab switching"
-    assert [b.geometry() for b in page._action_buttons] == before_buttons
 
     # restart simulation: a fresh page with the same size lays out
     # identically (first-load == steady state)

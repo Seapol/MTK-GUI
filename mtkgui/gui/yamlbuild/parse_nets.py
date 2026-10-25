@@ -265,43 +265,14 @@ class ParseNetsPanel(QWidget):
 
         self.btn_parse.clicked.connect(self._on_parse_clicked)
 
-        # ------------------------------------------------ item 24 tools
-        # risk thresholds (the rules dialog button sits next to Parse)
-        tools = QHBoxLayout()
-        self.btn_risk_thresholds = QPushButton("Risk Thresholds")
-        self.btn_risk_thresholds.setToolTip(
-            "Configure the test path complexity score thresholds "
-            "(Medium / High lower bounds). The warning is advisory "
-            "only and never blocks a channel assignment")
-        tools.addWidget(self.btn_risk_thresholds)
-        # M5 ICT Test Plan output files + YAML bidirectional sync
-        self.btn_export_plan = QPushButton("Export ICT Test Plan")
-        self.btn_export_plan.setToolTip(
-            "Write the six-sheet ICT Test Plan workbook (Power / "
-            "SE-Clock / Control IO / GND / Others) plus its evidence "
-            "markdown")
-        tools.addWidget(self.btn_export_plan)
-        self.btn_import_yaml = QPushButton("Import to YAML")
-        self.btn_import_yaml.setToolTip(
-            "Import an ICT Test Plan workbook into the project YAML: "
-            "existing YAML values always win, blank cells are filled, "
-            "new nets are appended (never deleted)")
-        tools.addWidget(self.btn_import_yaml)
-        self.btn_export_yaml = QPushButton("Export from YAML")
-        self.btn_export_yaml.setToolTip(
-            "Re-export the ICT Test Plan workbook + evidence from the "
-            "project YAML (YAML production values win, blanks are "
-            "filled by the algorithm)")
-        tools.addWidget(self.btn_export_yaml)
-        tools.addStretch(1)
-        lay.addLayout(tools)
+        # M19e: the former item-24 tool buttons (Risk Thresholds /
+        # Export ICT Test Plan / Import to YAML / Export from YAML)
+        # are GONE - the Test Plan sync lives in the File menu
+        # (Export ICT Test plan from Yaml to Excel / Import ICT Test
+        # from Excel to Yaml); the handlers stay on this panel so the
+        # menu can reuse them (guarded_run accepts a None button)
 
         self.btn_rules.clicked.connect(self._edit_rules)
-        self.btn_risk_thresholds.clicked.connect(
-            self._edit_risk_thresholds)
-        self.btn_export_plan.clicked.connect(self.export_test_plan)
-        self.btn_import_yaml.clicked.connect(self.import_to_yaml)
-        self.btn_export_yaml.clicked.connect(self.export_from_yaml)
 
     # ------------------------------------------------- ICT Test Plan sync
     def set_yaml_model(self, model) -> None:
@@ -398,7 +369,7 @@ class ParseNetsPanel(QWidget):
             stage(100, "Export ICT Test Plan: done")
             return rows, sections
 
-        written = guarded_run(self, self.btn_export_plan,
+        written = guarded_run(self, None,
                               "Export ICT Test Plan", work)
         if written is None:
             return
@@ -426,8 +397,7 @@ class ParseNetsPanel(QWidget):
             stage(100, "Import to YAML: done")
             return True
 
-        if guarded_run(self, self.btn_import_yaml, "Import to YAML",
-                       work) is not True:
+        if guarded_run(self, None, "Import to YAML", work) is not True:
             return
         self._log_report("import to YAML",
                          self.yaml_model.testplan_sync_report)
@@ -453,8 +423,7 @@ class ParseNetsPanel(QWidget):
             stage(100, "Export from YAML: done")
             return True
 
-        if guarded_run(self, self.btn_export_yaml, "Export from YAML",
-                       work) is not True:
+        if guarded_run(self, None, "Export from YAML", work) is not True:
             return
         self._log_report("export from YAML",
                          self.yaml_model.testplan_sync_report)

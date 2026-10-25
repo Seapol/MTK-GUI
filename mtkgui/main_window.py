@@ -1012,6 +1012,10 @@ class MainWindow(QMainWindow):
         self._yaml_build_page.set_edit_allowed(self._can_yaml_build)
         self._yaml_build_page.channel_alloc.set_edit_allowed(
             self._can_yaml_build)
+        self.act_import_excel.setEnabled(self._can_yaml_build)
+        self.act_export_excel.setEnabled(self._can_yaml_build)
+        self.act_export_ict_plan.setEnabled(self._can_yaml_build)
+        self.act_import_ict_plan.setEnabled(self._can_yaml_build)
         self._equipment_page.set_config_allowed(self._can_equipment_config)
         self._equipment_page.set_mode(self.mode)
         self._equipment_page.set_manual_fixture(self._manual_fixture)
@@ -1041,6 +1045,20 @@ class MainWindow(QMainWindow):
             "Save as Yaml…", self.save_yaml_as)
         self.act_close_yaml = file_menu.addAction(
             "Close Yaml", self.close_yaml)
+        # M19d: the Yaml Build page buttons are gone - Excel import /
+        # export live here (permission-gated like the old buttons)
+        self.act_import_excel = file_menu.addAction(
+            "Import from Excel…", self._import_excel_menu)
+        self.act_export_excel = file_menu.addAction(
+            "Export to Excel…", self._export_excel_menu)
+        # M19e: ICT Test Plan workbook <-> YAML sync (was the four
+        # Parse-Nets buttons)
+        self.act_export_ict_plan = file_menu.addAction(
+            "Export ICT Test plan from Yaml to Excel",
+            self._export_ict_plan_menu)
+        self.act_import_ict_plan = file_menu.addAction(
+            "Import ICT Test from Excel to Yaml",
+            self._import_ict_plan_menu)
         file_menu.addSeparator()
         self.act_switch = file_menu.addAction(
             "Switch Account…", self.switch_account)
@@ -2085,9 +2103,6 @@ class MainWindow(QMainWindow):
         # M10-FIX3 F3: the derivation blocks the GUI on a big project -
         # drive a delayed foreground progress dialog and disable the
         # triggering page button for the whole run
-        btn = self.yaml_build_page.btn_load_yaml
-        was_enabled = btn.isEnabled()
-        btn.setEnabled(False)
         try:
             with busy_progress(self, "Load current yaml…") as stage:
                 # the power-rails capture set feeds the DAQ AI test row
@@ -2158,7 +2173,7 @@ class MainWindow(QMainWindow):
                     self._auto_save_project()
                 stage(100, "Load current yaml: done")
         finally:
-            btn.setEnabled(was_enabled)
+            pass
 
     def _auto_save_project(self):
         """Dialog-free project save after Load current yaml: the
@@ -2294,6 +2309,108 @@ class MainWindow(QMainWindow):
             self._save_yaml_to(self._project_path)
         elif clicked is btn_new:
             self.save_yaml_as()
+
+    def _import_excel_menu(self):
+        """File > Import from Excel… (the page button is gone, M19d)."""
+        self.yaml_build_page._import_excel()
+
+    def _export_excel_menu(self):
+        """File > Export to Excel… (the page button is gone, M19d)."""
+        self.yaml_build_page._export_excel()
+
+    def _export_ict_plan_menu(self):
+        """File > Export ICT Test plan from Yaml to Excel: write the
+        workbook + evidence markdown from the CURRENT project YAML
+        (user direction 2026-10-25; the four Parse-Nets buttons are
+        gone)."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
+        model = self.yaml_build_page.model
+        if not (model.imported or {}).get("testable_nets"):
+            QMessageBox.warning(
+                self, "Export ICT Test plan",
+                "No parsed ICT data in the project YAML - parse the "
+                "nets first.")
+            return
+        default = (f"ICT Test Plan for "
+                   f"{self.yaml_build_page._project_name()}.xlsx")
+        path, _selected = QFileDialog.getSaveFileName(
+            self, "Export ICT Test plan from Yaml to Excel",
+            default, "Excel (*.xlsx)")
+        if not path:
+            return
+        md_path = str(Path(path).with_name(
+            Path(path).stem + "_evidence.md"))
+        from mtkgui.gui.progress_dialog import guarded_run
+
+        def work(stage):
+            stage(0, "Export ICT Test plan: writing workbook")
+            yaml_to_testplan(model, path, md_path)
+            stage(100, "Export ICT Test plan: done")
+            return True
+
+        if guarded_run(self, None, "Export ICT Test plan",
+                       work) is not True:
+            return
+        report = list(getattr(model, "testplan_sync_report", None)
+                      or [])
+        for line in report:
+            self._append_event_log(f"export ICT Test plan: {line}")
+
+    def _import_ict_plan_menu(self):
+        """File > Import ICT Test from Excel to Yaml.
+
+        Guides the user to NEW or OVERWRITE the project YAML; an
+        overwrite replaces ONLY the ICT portion (power rails / channel
+        allocation / clocks / control IO / DNT) - every other YAML
+        section stays untouched (user direction 2026-10-25)."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from mtkgui.gui.progress_dialog import guarded_run
+        from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
+        path, _selected = QFileDialog.getOpenFileName(
+            self, "Import ICT Test from Excel to Yaml",
+            "", "Excel (*.xlsx)")
+        if not path:
+            return
+        model = self.yaml_build_page.model
+        if not self._project_path:
+            answer = QMessageBox.question(
+                self, "Import ICT Test",
+                "No project YAML is loaded.\n\nCreate a NEW YAML from "
+                "this Test Plan?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            mode = "new"
+        else:
+            answer = QMessageBox.question(
+                self, "Import ICT Test",
+                "Overwrite the ICT portion of the current YAML?\n\n"
+                "Only the ICT section (power / clocks / control IO / "
+                "limits / channels) is replaced - all other sections "
+                "stay unchanged.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            mode = "overwrite"
+
+        def work(stage):
+            stage(0, "Import ICT Test: reading workbook")
+            testplan_to_yaml(model, path, None, None, overwrite=True)
+            stage(100, "Import ICT Test: done")
+            return True
+
+        if guarded_run(self, None, "Import ICT Test", work) is not True:
+            return
+        report = list(getattr(model, "testplan_sync_report", None)
+                      or [])
+        for line in report:
+            self._append_event_log(f"import ICT Test: {line}")
+        self.yaml_build_page.refresh_all()
+        if mode == "new":
+            self.save_yaml_as()
+        else:
+            self._save_yaml_to(self._project_path)
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file.

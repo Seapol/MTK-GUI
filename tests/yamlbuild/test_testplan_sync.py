@@ -171,9 +171,9 @@ def test_gui_buttons_present():
     app = QApplication.instance() or QApplication([])
     panel = ParseNetsPanel()
     try:
-        for name in ("btn_export_plan", "btn_import_yaml",
-                     "btn_export_yaml"):
-            assert hasattr(panel, name)
+        for name in ("btn_risk_thresholds", "btn_export_plan",
+                     "btn_import_yaml", "btn_export_yaml"):
+            assert not hasattr(panel, name)
         model = YamlBuildModel()
         panel.set_yaml_model(model)
         assert panel.yaml_model is model

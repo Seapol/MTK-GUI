@@ -119,7 +119,7 @@ def test_load_current_yaml_button_wired(window, monkeypatch):
     clicked = []
     window.yaml_build_page.load_yaml_requested.connect(
         lambda: clicked.append(True))
-    window.yaml_build_page.btn_load_yaml.click()
+    window.yaml_build_page.load_yaml_requested.emit()
     assert clicked == [True]
 
 

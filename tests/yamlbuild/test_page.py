@@ -36,16 +36,14 @@ def test_page_assembly(page):
     """Item 16: the top toolbar carries the two Excel buttons plus the
     Edit/Apply toggle (Build Draft / Release Final removed), the
     twelve M0 blocks and a live preview pane."""
-    assert page.btn_import_excel.text() == "Import from Excel"
-    assert page.btn_export_excel.text() == "Export to Excel"
+    assert not hasattr(page, "btn_import_excel")
+    assert not hasattr(page, "btn_export_excel")
     assert not hasattr(page, "btn_build_draft")
     assert not hasattr(page, "btn_release_final")
-    assert page.yaml_preview.btn_apply in page._action_buttons
+    assert not hasattr(page, "yaml_preview")
     assert len(page.block_flow._cards) == 5
     assert "ict_workflow" in page.block_flow._cards
     assert "channel_alloc" in page.block_flow._cards
-    assert page.yaml_preview.editor.toPlainText().startswith(
-        "yaml_build:")
 
 
 def test_flow_arrows_between_cards(page):
@@ -75,13 +73,9 @@ def test_enable_disable_syncs_both_panes(page):
     page._set_enabled("clocks", False)
     assert page.block_flow._cards["ict_workflow"].state_label.text() \
         == "Enabled"                       # rails / gpios still on
-    preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    assert "clocks" not in preview["yaml_build"]["modules"]
     assert page.model.get_params("clocks")             # retained
 
     page._set_enabled("clocks", True)
-    preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    assert "clocks" in preview["yaml_build"]["modules"]
 
     for key in ("rails", "clocks", "gpios"):
         page._set_enabled(key, False)
@@ -102,60 +96,13 @@ def test_config_dialog_apply_updates_preview(page):
         "sequence": "VDD:0.0",
     })
     page._after_model_change()
-    preview = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    assert preview["yaml_build"]["modules"]["rails"][
-        "on_voltage_v"] == 12.0
+    assert page.model.get_params("rails")["on_voltage_v"] == "12.0"
 
 
-def test_yaml_edit_apply_updates_blocks(page):
-    """A valid hand edit of the YAML preview flows into the model
-    and the block cards (YAML -> diagram direction)."""
-    from tests.yamlbuild.conftest import fill_required
-    page.model.enable_all()
-    fill_required(page.model)   # required fields must be non-empty
-    page._after_model_change()   # repaint the preview from the model
-    text = page.yaml_preview.editor.toPlainText()
-    doc = yaml.safe_load(text)
-    doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 555
-    page.yaml_preview.editor.setPlainText(
-        yaml.safe_dump(doc, sort_keys=False))
-    page.yaml_preview.btn_apply.click()           # Apply: validate+persist
-    # the edit was validated and applied into the model
-    assert page.model.get_params("rails")["on_delay_ms"] == "555"
 
 
-def test_invalid_yaml_edit_rejected(page):
-    """An invalid hand edit never enters the model."""
-    def semantic(model_dict: dict) -> dict:
-        """Content snapshot without the volatile save timestamp."""
-        return {k: v for k, v in model_dict.items() if k != "saved_at"}
-
-    page.model.enable_all()
-    before = semantic(page.model.to_dict())
-    page.yaml_preview.editor.setPlainText("yaml_build: [broken")
-    page.yaml_preview.btn_apply.click()           # Apply -> FAIL
-    assert not page.yaml_preview.error_bar.isHidden()
-    assert "broken" in page.yaml_preview.editor.toPlainText()
-    assert page.yaml_preview.btn_apply.text() == "Apply to Yaml"
-    assert semantic(page.model.to_dict()) == before
 
 
-def test_yaml_apply_committed_forwarded(page):
-    """A valid Apply on the preview forwards the committed signal -
-    the main window uses it to offer the file save."""
-    from tests.yamlbuild.conftest import fill_required
-    page.model.enable_all()
-    fill_required(page.model)
-    page._after_model_change()
-    seen = []
-    page.yaml_apply_committed.connect(lambda: seen.append(True))
-    doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    doc["yaml_build"]["modules"]["rails"]["on_delay_ms"] = 123
-    page.yaml_preview.editor.setPlainText(
-        yaml.safe_dump(doc, sort_keys=False))
-    page.yaml_preview.btn_apply.click()
-    assert seen == [True]
-    assert page.model.get_params("rails")["on_delay_ms"] == "123"
 
 
 def test_persistence_round_trip(page):
@@ -174,24 +121,6 @@ def test_persistence_round_trip(page):
         "clocks")["clocks"] == "CLK1:32768:0.1"
 
 
-def test_yaml_hand_edit_disables_block_card(page):
-    """YAML -> diagram: disabling a module by hand edit updates the
-    block card visual (enable badge) and persists."""
-    from tests.yamlbuild.conftest import fill_required
-    page.model.enable_all()
-    fill_required(page.model)
-    page._after_model_change()
-    page.yaml_preview.btn_apply.click()
-    doc = yaml.safe_load(page.yaml_preview.editor.toPlainText())
-    doc["yaml_build"]["modules"]["clocks"]["enabled"] = False
-    doc["yaml_build"]["modules"]["rails"]["enabled"] = False
-    doc["yaml_build"]["modules"]["gpios"]["enabled"] = False
-    page.yaml_preview.editor.setPlainText(
-        yaml.safe_dump(doc, sort_keys=False))
-    page.yaml_preview.btn_apply.click()
-    assert page.block_flow._cards["ict_workflow"].state_label.text() \
-        == "Disabled"
-    assert page.model.is_enabled("clocks") is False
 
 
 def test_block_cards_carry_sequence_badges(page):
@@ -275,37 +204,21 @@ def test_channel_alloc_card_runs_auto_allocation(page):
     assert page.model.marks.get("channel_alloc") == "star"
 
 
-def test_close_and_load_buttons_emit_requests(page):
-    """The top button row carries "Close Yaml" and "Load current
-    yaml" right of "Apply to Yaml"; clicking emits the request
-    signals the main window routes to its File-menu slots."""
-    assert page.btn_close_yaml.text() == "Close Yaml"
-    assert page.btn_load_yaml.text() == "Load current yaml"
+def test_close_and_load_request_signals(page):
+    """M19d/e: the buttons are gone - the page still emits the
+    request signals the File menu routes through."""
     closed, load_requested = [], []
     page.close_yaml_requested.connect(lambda: closed.append(True))
     page.load_yaml_requested.connect(lambda: load_requested.append(True))
-    page.btn_close_yaml.click()
-    page.btn_load_yaml.click()
+    page.close_yaml_requested.emit()
+    page.load_yaml_requested.emit()
     assert closed == [True]
     assert load_requested == [True]
 
 
-def test_clear_preview_blanks_pane(page):
-    """Close Yaml must clear the Yaml Preview (user direction)."""
-    page.yaml_preview.editor.setPlainText("yaml_build: plan_version: 1.0.0")
-    page.clear_preview()
-    assert page.yaml_preview.editor.toPlainText() == ""
-
-
-def test_standard_button_tooltips(page):
-    """The top toolbar buttons carry the fixed English tooltips
-    (rule 6.1, exact wording; GUI language = English)."""
-    assert page.btn_import_excel.toolTip() == \
-        ("Bulk-import the flow configuration workbook and fill "
-         "back every module parameter and state")
-    assert page.btn_export_excel.toolTip() == \
-        ("Export all flow module parameters to a standard Excel "
-         "archive file")
+def test_clear_preview_is_noop(page):
+    """M19d: clear_preview is a defensive no-op (the pane is gone)."""
+    page.clear_preview()      # must not raise
 
 
 def test_module_cards_have_tooltips_even_disabled(page):

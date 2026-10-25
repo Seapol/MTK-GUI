@@ -53,6 +53,7 @@ from mtkgui.gui.yamlbuild.ict_sequence import (
     CLOCK_TOL_PPM,
     POWER_TOL,
     R_GND_MIN_OHM,
+    _filled,
 )
 from mtkgui.ict.netparse.isolation import assess_net
 from mtkgui.gui.yamlbuild.power_alloc import (
@@ -644,7 +645,34 @@ class _NetTable(QWidget):
         else:
             decimals = 4 if key.endswith("_khz") else 3
             setattr(row, key, f"{value:.{decimals}f}")
+        # M19d: typing / changing a Nominal auto-fills the default
+        # limits (power +/- 5 %, clock +/- 50 ppm) when they are blank -
+        # the operator edits any of them afterwards and that wins
+        if key in ("nominal_v", "nominal_khz") and value > 0:
+            self._autofill_limits(row_index, key, value)
         self._update_status(row_index, key)
+
+    def _autofill_limits(self, row_index: int, key: str,
+                         value: float) -> None:
+        """Fill lower/upper from the nominal when both are unset
+        (mirror the rows_from_testable Auto defaults)."""
+        if row_index >= len(self._rows):
+            return
+        row = self._rows[row_index]
+        if key == "nominal_v":
+            lo_key, hi_key, tol, dec = \
+                "lower_v", "upper_v", POWER_TOL, 3
+        else:
+            lo_key, hi_key, tol, dec = \
+                "lower_khz", "upper_khz", CLOCK_TOL_PPM * 1e-6, 4
+        keys = [k for k, _l, *_r in self.columns]
+        for k, sign in ((lo_key, -1), (hi_key, 1)):
+            if not _filled(str(getattr(row, k) or "")):
+                setattr(row, k, f"{value * (1 + tol * sign):.{dec}f}")
+                if k in keys:
+                    w = self.table.cellWidget(row_index, keys.index(k))
+                    if w is not None:
+                        w.setValue(float(getattr(row, k) or 0))
 
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
         """A dropdown changed: store the value + recompute Status.

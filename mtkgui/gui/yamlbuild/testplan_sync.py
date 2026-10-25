@@ -170,19 +170,25 @@ def _ensure_testable(model: YamlBuildModel, net: str, category: str,
 # ------------------------------------------------------ xlsx -> YAML
 def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
                      md_path: str | None = None,
-                     result: ParseNetsResult | None = None
-                     ) -> YamlBuildModel:
+                     result: ParseNetsResult | None = None,
+                     overwrite: bool = False) -> YamlBuildModel:
     """Import the Test Plan workbook into the project YAML (PART 2).
 
-    Only blank YAML cells are filled and new nets are appended - an
-    existing YAML value is never overwritten (production truth wins).
+    Merge mode (default): only blank YAML cells are filled and new nets
+    are appended - an existing YAML value is never overwritten
+    (production truth wins).
+    Overwrite mode (``overwrite=True``, File > Import ICT Test from
+    Excel to Yaml): the workbook values REPLACE the ICT portion of the
+    project YAML (power rails / channel allocation / clocks / control
+    IO / DNT); every other YAML section (equipment, workflow, FCT, ...)
+    stays untouched - user direction 2026-10-25.
     *result* (when supplied) enriches the stored snapshot with the
     confidence / provenance / sub-class evidence the workbook
     deliberately omits.
 
     Returns:
         The same *model* (``model.testplan_sync_report`` carries the
-        kept / filled / added decision list).
+        kept / filled / overwritten / added decision list).
     """
     report: list[str] = []
     if not xlsx_path:
@@ -230,6 +236,10 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             rails.append(rail)
             rail_by_name[net] = rail
             report.append(f"added power rail {net}")
+        elif overwrite and nominal is not None:
+            rail["nominal_v"] = nominal
+            report.append(
+                f"overwrote power rail {net} nominal_v={nominal:g}")
         elif rail.get("nominal_v") in (None, "", 0) and nominal is not None:
             rail["nominal_v"] = nominal
             report.append(f"filled power rail {net} nominal_v={nominal:g}")
@@ -240,6 +250,14 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         if alloc is None:
             alloc = {"net": net, "test_point": test_point or UNSET,
                      "impedance": UNSET,
+                     "r_gnd_min_ohm": str(row.get(
+                         "R-GND Min limit (ohm)") or "") or UNSET,
+                     "nominal_v": str(row.get("Nominal (V)") or "")
+                     or UNSET,
+                     "lower_v": str(row.get("Lower limit (V)") or "")
+                     or UNSET,
+                     "upper_v": str(row.get("Upper limit (V)") or "")
+                     or UNSET,
                      "power_rails": str(row.get("DAQ AI Channel") or "")
                      or UNSET,
                      "voltage": str(row.get("R-V Channel") or "")
@@ -247,11 +265,28 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             power_alloc.append(alloc)
             alloc_by_net[net] = alloc
             report.append(f"added power channel row {net}")
+        elif overwrite:
+            for key, column in (
+                    ("test_point", "Test Point(s)"),
+                    ("r_gnd_min_ohm", "R-GND Min limit (ohm)"),
+                    ("nominal_v", "Nominal (V)"),
+                    ("lower_v", "Lower limit (V)"),
+                    ("upper_v", "Upper limit (V)"),
+                    ("voltage", "R-V Channel"),
+                    ("power_rails", "DAQ AI Channel")):
+                value = str(row.get(column) or "").strip()
+                alloc[key] = value or UNSET
+            report.append(f"overwrote power channel row {net}")
         else:
             filled = False
-            for key, column in (("test_point", "Test Point(s)"),
-                                ("voltage", "R-V Channel"),
-                                ("power_rails", "DAQ AI Channel")):
+            for key, column in (
+                    ("test_point", "Test Point(s)"),
+                    ("r_gnd_min_ohm", "R-GND Min limit (ohm)"),
+                    ("nominal_v", "Nominal (V)"),
+                    ("lower_v", "Lower limit (V)"),
+                    ("upper_v", "Upper limit (V)"),
+                    ("voltage", "R-V Channel"),
+                    ("power_rails", "DAQ AI Channel")):
                 value = str(row.get(column) or "").strip()
                 current = str(alloc.get(key) or "").strip()
                 if current in ("", UNSET) and value:
@@ -271,13 +306,28 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         test_point = _first_token(row.get("Test Point(s)"))
         entry = clock_by_net.get(net)
         if entry is None:
+            lower = _number(row.get("Lower limit (kHz)"))
+            upper = _number(row.get("Upper limit (kHz)"))
             entry = {"net": net,
                      "freq_hz": (khz * 1000.0) if khz is not None else "",
-                     "lower_hz": "", "upper_hz": "",
+                     "lower_hz": (lower * 1000.0
+                                  if lower is not None else ""),
+                     "upper_hz": (upper * 1000.0
+                                  if upper is not None else ""),
                      "test_point": test_point}
             clocks.append(entry)
             clock_by_net[net] = entry
             report.append(f"added clock {net}")
+        elif overwrite and khz is not None:
+            entry["freq_hz"] = khz * 1000.0
+            lower = _number(row.get("Lower limit (kHz)"))
+            upper = _number(row.get("Upper limit (kHz)"))
+            entry["lower_hz"] = (lower * 1000.0
+                                 if lower is not None else "")
+            entry["upper_hz"] = (upper * 1000.0
+                                 if upper is not None else "")
+            entry["test_point"] = test_point
+            report.append(f"overwrote clock {net} freq_hz={khz * 1000.0:g}")
         elif entry.get("freq_hz") in (None, "", 0) and khz is not None:
             entry["freq_hz"] = khz * 1000.0
             report.append(f"filled clock {net} freq_hz={khz * 1000.0:g}")
@@ -289,9 +339,32 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             alloc = {"net": net, "test_point": test_point or UNSET,
                      "se_clock_hz": str(row.get("FREQ Channel") or "")
                      or UNSET, "band": UNSET}
+            nominal_khz = _number(row.get("Nominal (kHz)"))
+            lower = _number(row.get("Lower limit (kHz)"))
+            upper = _number(row.get("Upper limit (kHz)"))
+            if nominal_khz is not None:
+                alloc["nominal_khz"] = f"{nominal_khz:.4f}"
+            if lower is not None:
+                alloc["lower_khz"] = f"{lower:.4f}"
+            if upper is not None:
+                alloc["upper_khz"] = f"{upper:.4f}"
             clock_alloc.append(alloc)
             clock_alloc_by_net[net] = alloc
             report.append(f"added clock channel row {net}")
+        elif overwrite:
+            alloc["test_point"] = test_point or UNSET
+            alloc["se_clock_hz"] = (str(row.get("FREQ Channel") or "")
+                                    or UNSET)
+            nominal_khz = _number(row.get("Nominal (kHz)"))
+            lower = _number(row.get("Lower limit (kHz)"))
+            upper = _number(row.get("Upper limit (kHz)"))
+            if nominal_khz is not None:
+                alloc["nominal_khz"] = f"{nominal_khz:.4f}"
+            if lower is not None:
+                alloc["lower_khz"] = f"{lower:.4f}"
+            if upper is not None:
+                alloc["upper_khz"] = f"{upper:.4f}"
+            report.append(f"overwrote clock channel row {net}")
         else:
             report.append(f"kept clock channel row {net}")
         _ensure_testable(model, net, "Clock",
@@ -309,6 +382,9 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             gpios.append(entry)
             gpio_by_net[net] = entry
             report.append(f"added control IO {net}")
+        elif overwrite:
+            entry["test_point"] = test_point
+            report.append(f"overwrote control IO {net}")
         else:
             report.append(f"kept control IO {net}")
         alloc = gpio_alloc_by_net.get(net)
@@ -318,6 +394,9 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
             gpio_alloc.append(alloc)
             gpio_alloc_by_net[net] = alloc
             report.append(f"added control IO channel row {net}")
+        elif overwrite:
+            alloc["test_point"] = test_point or UNSET
+            report.append(f"overwrote control IO channel row {net}")
         else:
             report.append(f"kept control IO channel row {net}")
         _ensure_testable(model, net, "GPIO",
