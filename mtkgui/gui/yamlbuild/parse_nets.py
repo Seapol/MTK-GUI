@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -55,7 +55,11 @@ from mtkgui.ict.netparse import (
     rank_result,
     select_test_points,
 )
-from mtkgui.gui.progress_dialog import ProgressDialog, guarded_run
+from mtkgui.gui.progress_dialog import (
+    SHOW_DELAY_S,
+    ProgressDialog,
+    guarded_run,
+)
 from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.path_risk import (
     DEFAULT_THRESHOLDS,
@@ -76,6 +80,49 @@ CATEGORY_FILTERED = "Filtered"
 #: nets of these categories default to Do Not Test (user direction:
 #: control IO is testable, others are not)
 DNT_DEFAULT_CATEGORIES = (CATEGORY_OTHERS, "GND")
+
+
+#: rows rendered before the main loop pumps the event loop once
+#: (M18: a big project - 29420 parses ~600 rows - froze the window for
+#: seconds; chunked pumping keeps the progress dialog alive)
+RENDER_CHUNK = 40
+
+
+class _ParseWorker(QThread):
+    """Run the heavy parse (BOM library + netlist parse + rank) OFF the
+    GUI thread (M18): the synchronous path froze the window for ~0.75 s
+    in dev and ~7 s in the packaged build.  The Qt widgets are only
+    touched on the main thread (``done`` / ``failed`` slots)."""
+
+    done = Signal(object, object, str)     # result, library, bom_summary
+    failed = Signal(str)
+
+    def __init__(self, parent: QWidget | None, text: str, rules: dict | None,
+                 bom_file: str) -> None:
+        super().__init__(parent)
+        self._text = str(text)
+        self._rules = rules
+        self._bom_file = str(bom_file or "").strip()
+
+    def run(self) -> None:
+        try:
+            library = None
+            summary = ""
+            if self._bom_file:
+                from mtkgui.ict.netparse.bom import load_bom_library
+                library, report, bom = load_bom_library(self._bom_file)
+                summary = (f"{len(bom.records)} records, "
+                           f"{report.dnp} DNP, "
+                           f"{len(report.conflicts)} conflicts, "
+                           f"{len(bom.warnings)} warnings")
+            from mtkgui.ict.netparse.parser import parse_testable_nets
+            from mtkgui.ict.netparse import rank_result
+            result = parse_testable_nets(
+                self._text, rules=self._rules, library=library)
+            rank_result(result)
+            self.done.emit(result, library, summary)
+        except (OSError, ValueError) as exc:
+            self.failed.emit(str(exc))
 
 
 class ParseNetsPanel(QWidget):
@@ -646,22 +693,136 @@ class ParseNetsPanel(QWidget):
         return library
 
     def _on_parse_clicked(self) -> None:
-        """Button path (M10-FIX3 F2): drive a determinate foreground
-        dialog from the existing ``task_progress`` signal and disable
-        the trigger button for the whole run - re-enabled on success,
-        failure and exception alike."""
-        dlg = ProgressDialog(self, "Parse Nets for ICT", 0, 100)
-        self.task_progress.connect(dlg.set_stage)
+        """Button path (M10-FIX3 F2 + M18): drive a determinate
+        foreground dialog from the existing ``task_progress`` signal and
+        disable the trigger button for the whole run.
+
+        M18: the BOM read + netlist parse + rank now run in a
+        :class:`_ParseWorker` thread and the table rendering pumps the
+        event loop in chunks - the main window keeps repainting and the
+        dialog stays visible (a 29420-class project froze the window for
+        ~7 s in the packaged build; any run past SHOW_DELAY_S must show
+        the bar)."""
+        text = self._net_text or ""
+        name = self._net_name or "loaded NET file"
+        if not text.strip():
+            reason = ("no NET file loaded - import a NET file on the "
+                      "Design Input page first")
+            self.task_log.emit("ERROR", f"parse nets failed: {reason}")
+            self.task_progress.emit(0, "parse nets: idle")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Parse Nets", reason)
+            return
+        self._parse_dlg = ProgressDialog(self, "Parse Nets for ICT",
+                                         0, 100)
+        self.task_progress.connect(self._parse_dlg.set_stage)
+        # M17 delivery guarantee: force-show once the run passes the
+        # delay even when no stage arrives in between (the worker runs
+        # off the GUI thread with no progress events).
+        self._parse_show_timer = QTimer(self._parse_dlg)
+        self._parse_show_timer.setSingleShot(True)
+        self._parse_show_timer.timeout.connect(
+            self._parse_dlg.force_show)
+        self._parse_show_timer.start(int(SHOW_DELAY_S * 1000))
         self.btn_parse.setEnabled(False)
+        self.task_progress.emit(0, "parse nets: reading raw data")
+        self.task_log.emit(
+            "INFO", f"parse nets started: {name or 'loaded NET file'}")
+        begin("yamlbuild: parse nets for ICT")
+        # Step 1: format auto-detection (SPF / NET header features) -
+        # cheap, stays on the GUI thread
+        self.task_progress.emit(10, "parse nets: detecting format")
         try:
-            self.parse_nets()
+            fmt = detect_netlist_format(text)
+        except ValueError as exc:
+            self._on_parse_failed(str(exc))
+            return
+        fmt_label = {"spf": "SPF", "pstxnet": "PSTXNET"}.get(
+            fmt, "NET (fallback)" if fmt != "net" else "NET")
+        self.task_log.emit(
+            "INFO", f"netlist format detected: {fmt_label}")
+        self.task_progress.emit(25, "parse nets: cleaning")
+        self.task_log.emit("INFO", "netlist cleaning done")
+        self.task_progress.emit(40, "parse nets: parsing")
+        bom_file = ""
+        if self.yaml_model is not None:
+            bom_file = str((self.yaml_model.get_params("design_input")
+                            or {}).get("bom_file") or "").strip()
+        self._parse_worker = _ParseWorker(
+            self, text, rules=self.net_rules, bom_file=bom_file)
+        self._parse_worker.done.connect(self._on_parse_done)
+        self._parse_worker.failed.connect(self._on_parse_failed)
+        self._parse_worker.start()
+
+    # ------------------------------------------------------- parse done
+    def _on_parse_done(self, result, library, bom_summary: str) -> None:
+        """Main-thread continuation: label, SPF cross-check, table
+        render (chunked), risk scores - then finish."""
+        try:
+            if bom_summary:
+                self.lbl_bom.setText(f"BOM: {bom_summary}")
+                self.task_log.emit(
+                    "INFO", f"BOM library loaded: {bom_summary}")
+            self.task_log.emit("INFO", "netlist parse done")
+            # Step 3: classification
+            self.task_progress.emit(55, "parse nets: classifying nets")
+            self.task_log.emit("INFO", "net classification done")
+            self.result = result
+            # Task 6: any net present in NET but NOT in the imported SPF
+            # is an Allegro auto-generated random net -> Control IO,
+            # locked Do Not Test (tag persists in YAML)
+            spf_nets = getattr(self, "spf_nets", None) or set()
+            if spf_nets:
+                for rec in (*result.power, *result.clock,
+                            *result.gpio):
+                    if rec.name not in spf_nets:
+                        self._auto_generated[rec.name] = True
+                        self.task_log.emit(
+                            "WARNING",
+                            f"net {rec.name}: not found in SPF - "
+                            "Allegro auto-generated net, locked Do Not "
+                            "Test")
+            # Step 4: test-point selection + preview (chunked render)
+            self.task_progress.emit(
+                70, "parse nets: selecting test points")
+            self.task_log.emit(
+                "INFO", "test point selection done")
+            self._fill_preview(result)
+            self._fill_filtered(result)
+            # Step 5: path risk (advisory scores for the non-DNT nets)
+            self.task_progress.emit(
+                85, "parse nets: scoring path risk")
+            self.task_log.emit("INFO", "path risk calculation done")
+            self._evaluate_risk(result)
+            self._update_gnd_risk(result)
+            self.task_progress.emit(100, "parse nets: done")
+            self.task_log.emit(
+                "INFO", f"parse nets done: {result.summary()}")
         finally:
-            try:
-                self.task_progress.disconnect(dlg.set_stage)
-            except (RuntimeError, TypeError):
-                pass
-            dlg.close_done()
-            self.btn_parse.setEnabled(True)
+            self._on_parse_finish()
+
+    def _on_parse_failed(self, message: str) -> None:
+        self.task_log.emit("ERROR", f"parse nets failed: {message}")
+        self.task_progress.emit(0, "parse nets: idle")
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.critical(self, "Parse Nets Failed", message)
+        self._on_parse_finish()
+
+    def _on_parse_finish(self) -> None:
+        """Shared cleanup on success / failure / exception."""
+        end("yamlbuild: parse nets for ICT")
+        if self._parse_show_timer is not None:
+            self._parse_show_timer.stop()
+            self._parse_show_timer = None
+        try:
+            self.task_progress.disconnect(self._parse_dlg.set_stage)
+        except (RuntimeError, TypeError):
+            pass
+        if self._parse_dlg is not None:
+            self._parse_dlg.close_done()
+            self._parse_dlg = None
+        self._parse_worker = None
+        self.btn_parse.setEnabled(True)
 
     def parse_nets(self) -> None:
         """Run the formal parse with per-step progress + Event-Log
@@ -856,6 +1017,13 @@ class ParseNetsPanel(QWidget):
                 lambda checked, name=rec.name: self._dnt_set(
                     name, checked))
             self.table.setCellWidget(row, 3, dnt)
+            # M18: chunked render - pump so the foreground dialog stays
+            # alive and the window repaints on a big project
+            if (row + 1) % RENDER_CHUNK == 0:
+                self.task_progress.emit(
+                    70, f"parse nets: rendering table "
+                    f"({row + 1}/{len(rows)})")
+                QApplication.processEvents()
             # M4 PART 6: read-only netparse facts (confidence /
             # input_rail marker / GND or Others sub-class)
             for col, text in ((4, rec.confidence or ""),
@@ -922,4 +1090,10 @@ class ParseNetsPanel(QWidget):
                 lambda value, net=name:
                     self._filtered_category_changed(net, value))
             self.table_filtered.setCellWidget(row, 2, combo)
+            # M18: chunked render (see _fill_preview)
+            if (row + 1) % RENDER_CHUNK == 0:
+                self.task_progress.emit(
+                    70, f"parse nets: rendering filtered "
+                    f"({row + 1}/{len(rows)})")
+                QApplication.processEvents()
         self.table_filtered.resizeColumnsToContents()
