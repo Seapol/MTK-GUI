@@ -492,24 +492,34 @@ def sync_product_identity(config, workflow_page,
                           yaml_build_model=None) -> None:
     """Product Information <- Design Input identity (the single
     part-number source, user direction 2026-10-14), with the legacy
-    ``product`` section as the fallback.  The serial number stays
+    ``product`` section and the published ``plan`` section as
+    fallbacks.  A published plan yaml (plan.core_id / plan.part_number,
+    no yaml_build_state / product sections) therefore auto-fills the
+    Product Information fields on load.  The serial number stays
     untouched (per-unit manual input)."""
     params = {}
     if yaml_build_model is not None:
         params = yaml_build_model.get_params("design_input") or {}
     product = config.get("product", {}) if isinstance(config, dict) \
         else {}
+    plan = (config.get("plan") or {}) if isinstance(config, dict) \
+        else {}
 
-    def pick(design_key: str, product_key: str) -> str:
+    def pick(design_key: str, product_key: str, plan_key: str) -> str:
         value = str(params.get(design_key) or "").strip()
         if value:
             return value
         legacy = product.get(product_key)
-        return "" if legacy is None else str(legacy)
+        if legacy is not None and str(legacy).strip():
+            return str(legacy)
+        planned = plan.get(plan_key)
+        return "" if planned is None else str(planned)
 
-    part = pick("part_number", "part_number")
-    core = pick("product_id", "core_id")
-    batch = str(params.get("batch") or product.get("batch") or "")
+    part = pick("part_number", "part_number", "part_number")
+    core = pick("product_id", "core_id", "core_id")
+    batch = str(params.get("batch")
+                or product.get("batch")
+                or plan.get("batch") or "")
     workflow_page.part_edit.setText(part)
     workflow_page.core_edit.setText(core)
     workflow_page.batch_edit.setText("" if batch == "freebatch"
