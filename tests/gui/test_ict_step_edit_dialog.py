@@ -154,8 +154,8 @@ def test_remove_last_row_allowed(qapp):
 
 
 def test_edit_ict_step_round_trip(qapp, monkeypatch):
-    """The dialog writes the chosen net, the auto unit and the numeric
-    limits back into the step tuple (exec mocked to OK)."""
+    """M19f: a Voltage row saves 3 decimals; the R-GND row saves an
+    integer Min with Expected/Max locked to "—" (exec mocked to OK)."""
     dlg = make_dialog(None)
     try:
         captured = {}
@@ -166,21 +166,19 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
                 QDoubleSpinBox,
                 QLineEdit,
             )
-            combos = dialog_self.findChildren(QComboBox)
-            # the step edit dialog is the second window-level combo
-            # group: find the one with the Test Method items
             step_dlg = dialog_self
-            combos = [c for c in combos
+            combos = [c for c in step_dlg.findChildren(QComboBox)
                       if c.count() and c.itemText(0) in
-                      ("op", "test", "R-GND")]
-            kind_combo = None
-            for c in combos:
-                if c.currentText() in ("test", "op") or \
-                        c.itemText(0) == "op":
-                    kind_combo = c
-                    break
-            assert kind_combo is not None
-            kind_combo.setCurrentText("R-GND")
+                      ("R-GND", "Voltage", "DAQ AI Sequences",
+                       "Clock Hz", "delay")]
+            # M19f: the Test Method combo offers the concrete labels
+            kind_combo = next(c for c in combos
+                              if c.currentText() in
+                              ("R-GND", "Voltage", "DAQ AI Sequences",
+                               "Clock Hz", "delay"))
+            # row 0 is a legacy "test" / Power Voltage row -> switch the
+            # Test Method to the Voltage label first
+            kind_combo.setCurrentText("Voltage")
             # net combo: the combo whose items contain a catalog net
             net_combo = next(c for c in
                              step_dlg.findChildren(QComboBox)
@@ -193,7 +191,6 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             spins[-3].setValue(2.0)
             spins[-2].setValue(1.2)
             spins[-1].setValue(2.4)
-            from PySide6.QtWidgets import QLineEdit
             captured["unit"] = next(
                 e.text() for e in step_dlg.findChildren(QLineEdit)
                 if e.isReadOnly())
@@ -203,10 +200,50 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             "mtkgui.test_workflow_page.QDialog.exec", fake_exec)
         assert dlg._edit_ict_step(0) is True
         kind, name, unit, measured, lo, hi = dlg._steps[0][:6]
-        assert kind == "R-GND"
+        # M19f: Voltage keeps 3 decimals for Expected / Min / Max
+        assert kind == "Power Voltage", kind
         assert name == "3V3"
-        assert unit == "Ω" and captured["unit"] == "Ω"
-        assert measured == "2"
-        assert lo == "1.2" and hi == "2.4"
+        assert unit == "V" and captured["unit"] == "V"
+        assert measured == "2.000"
+        assert lo == "1.200" and hi == "2.400"
+
+        # M19f: the R-GND row saves an INTEGER Min; Expected / Max are
+        # locked to "—" even if the caller set a numeric value
+        def fake_exec_rgnd(dialog_self):
+            from PySide6.QtWidgets import (
+                QComboBox,
+                QDoubleSpinBox,
+            )
+            step_dlg = dialog_self
+            combos = [c for c in step_dlg.findChildren(QComboBox)
+                      if c.count() and c.itemText(0) in
+                      ("R-GND", "Voltage", "DAQ AI Sequences",
+                       "Clock Hz", "delay")]
+            kind_combo = next(c for c in combos
+                              if c.currentText() in
+                              ("R-GND", "Voltage", "DAQ AI Sequences",
+                               "Clock Hz", "delay"))
+            kind_combo.setCurrentText("R-GND")
+            net_combo = next(c for c in
+                             step_dlg.findChildren(QComboBox)
+                             if "3V3" in [c.itemText(i) for i in
+                                          range(c.count())])
+            net_combo.setCurrentText("3V3")
+            spins = [s for s in
+                     step_dlg.findChildren(QDoubleSpinBox)]
+            # Expected stays locked at "—" (a numeric set would count
+            # as a bound and clamp the Min below it - correct policy)
+            spins[-2].setValue(30.0)     # Min: integer
+            spins[-1].setValue(2.4)      # ignored: Max locked
+            return step_dlg.DialogCode.Accepted
+
+        monkeypatch.setattr(
+            "mtkgui.test_workflow_page.QDialog.exec", fake_exec_rgnd)
+        assert dlg._edit_ict_step(0) is True
+        kind, name, unit, measured, lo, hi = dlg._steps[0][:6]
+        assert kind == "R-GND", kind
+        assert measured == "—", measured
+        assert lo == "30", lo
+        assert hi == "—", hi
     finally:
         dlg.deleteLater()

@@ -54,10 +54,15 @@ def _open(page, qapp):
 
 # --------------------------------------------------------------- open
 def test_button_opens_viewer(page, qapp):
-    assert page.btn_case_viewer.text() == "Test Case Viewer"
-    assert page.btn_case_viewer.toolTip() == \
-        "Open all ICT/FCT test cases in a resizable window"
-    page.btn_case_viewer.click()
+    # M19f: a checkbox on the right of the page title, ON by default;
+    # it arms the auto-open at each Run (open_test_case_viewer is the
+    # entry the Run path calls)
+    assert page.chk_case_viewer.text() == "Test Case Viewer"
+    assert page.chk_case_viewer.isChecked()
+    assert page.chk_case_viewer.toolTip() == \
+        "Auto-open the ICT/FCT case viewer at each Run start and " \
+        "close it when the Run finishes"
+    page.open_test_case_viewer()
     qapp.processEvents()
     viewer = page._case_viewer
     assert viewer is not None and viewer.isVisible()

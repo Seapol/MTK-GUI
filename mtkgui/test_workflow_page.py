@@ -823,11 +823,15 @@ class TestWorkFlowPage(QWidget):
         title.setStyleSheet("font-size: 16px;")
         header_row.addWidget(title)
         header_row.addStretch(1)
-        self.btn_case_viewer = QPushButton("Test Case Viewer")
-        self.btn_case_viewer.setToolTip(
-            "Open all ICT/FCT test cases in a resizable window")
-        self.btn_case_viewer.clicked.connect(self.open_test_case_viewer)
-        header_row.addWidget(self.btn_case_viewer)
+        # M19f: a CHECKBOX on the right of the page title (default ON):
+        # each Run auto-opens the merged ICT/FCT case viewer and closes
+        # it when the Run finishes; unchecking disables the auto-open
+        self.chk_case_viewer = QCheckBox("Test Case Viewer")
+        self.chk_case_viewer.setChecked(True)
+        self.chk_case_viewer.setToolTip(
+            "Auto-open the ICT/FCT case viewer at each Run start and "
+            "close it when the Run finishes")
+        header_row.addWidget(self.chk_case_viewer)
         root.addLayout(header_row)
 
         scroll = QScrollArea()
@@ -2797,6 +2801,9 @@ class TestWorkFlowPage(QWidget):
         self.btn_stop.setEnabled(True)
         # long run skips product information input
         self.product_group.setEnabled(False)
+        # M19f: auto-open the case viewer when the checkbox is on
+        if self.chk_case_viewer.isChecked():
+            self.open_test_case_viewer()
         self._runner.start(self.longrun_spin.value())
 
     def stop_run(self):
@@ -2855,6 +2862,9 @@ class TestWorkFlowPage(QWidget):
         self._temp_bp = None
         self._update_debug_buttons()
         self.product_group.setEnabled(True)
+        # M19f: auto-close the case viewer when the run ends
+        if self._case_viewer is not None and self._case_viewer.isVisible():
+            self._case_viewer.close()
         # remaining (not yet executed) test items -> blank
         for step in summary["remaining"]:
             kind = step[0]

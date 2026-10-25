@@ -139,8 +139,17 @@ class StepsEditorDialog(QDialog):
             types += [
                 ("Operation: Custom",
                  ("op", "New Operation", "—", "—", "—", "—")),
-                ("Test (measurement)",
-                 ("test", "New Test", "—", "—", "—", "—")),
+                # M19f: the generic "Test (measurement)" is gone - the
+                # concrete measurement methods are offered instead
+                ("R-GND — rail-to-ground impedance (measurement)",
+                 (METHOD_R_GND, "New Test", "Ω", "—", "—", "—")),
+                ("DAQ AI Sequences — power-rails up sequence "
+                 "(measurement)",
+                 ("DAQ AI", "New Test", "V", "—", "—", "—")),
+                ("Voltage — power rail level (measurement)",
+                 ("Power Voltage", "New Test", "V", "—", "—", "—")),
+                ("Clock Hz — clock frequency (measurement)",
+                 ("Clock Hz", "New Test", "Hz", "—", "—", "—")),
                 ("Delay — plain wait (ms)",
                  ("delay", "Delay", "ms", "—", "—", "—")),
             ]
@@ -342,6 +351,32 @@ class StepsEditorDialog(QDialog):
         "op": "—",
         "delay": "ms",
     }
+    #: M19f: Test Method combo shows concrete method LABELS; each item
+    #: carries the internal step kind as userData (R-GND / Power
+    #: Voltage / DAQ AI / Clock Hz stay the stored kinds, so the
+    #: runner / reports / 04 bridge keep working unchanged)
+    ICT_KIND_ITEMS = (
+        ("R-GND", METHOD_R_GND),
+        ("Voltage", "Power Voltage"),
+        ("DAQ AI Sequences", "DAQ AI"),
+        ("Clock Hz", "Clock Hz"),
+        ("delay", "delay"),
+    )
+
+    @staticmethod
+    def _kind_label(kind: str, name: str) -> str:
+        """Map a stored kind to its combo label.  A legacy generic
+        'test' row is classified by its NAME prefix (R-GND - x /
+        Power Voltage - x / Clock Hz - x / DAQ AI - x)."""
+        for label, internal in StepsEditorDialog.ICT_KIND_ITEMS:
+            if kind == internal:
+                return label
+        if kind == "test" and name:
+            for label, internal in StepsEditorDialog.ICT_KIND_ITEMS:
+                if name == internal or name.startswith(internal):
+                    return label
+        return StepsEditorDialog.ICT_KIND_ITEMS[0][0]  # fallback R-GND
+
     ICT_METHOD_NET_CATEGORY = {
         METHOD_R_GND: "Power",
         "Power Voltage": "Power",
@@ -388,10 +423,9 @@ class StepsEditorDialog(QDialog):
         # holds the EXPECTED value: Min = Expected * (1 - tol), Max =
         # Expected * (1 + tol) - user direction)
         kind_combo = QComboBox()
-        kind_combo.addItems(
-            ["op", "test", "delay", METHOD_R_GND, "Power Voltage",
-             "Clock Hz", "DAQ AI"])
-        kind_combo.setCurrentText(kind)
+        for label, internal in self.ICT_KIND_ITEMS:
+            kind_combo.addItem(label, internal)
+        kind_combo.setCurrentText(self._kind_label(kind, name))
         unit_edit = QLineEdit(unit)
         unit_edit.setReadOnly(True)
         enable_cb = QCheckBox()
@@ -417,10 +451,13 @@ class StepsEditorDialog(QDialog):
         # read-only (no free net)
         net_combo.setEnabled(kind != "DAQ AI")
 
-        def _numeric(value: str) -> QDoubleSpinBox:
+        def _numeric(value: str, decimals: int = 3) -> QDoubleSpinBox:
+            # M19f: limits keep 3 decimals and a 0.001 step (V and kHz);
+            # the R-GND Min cell switches to 0 decimals / step 1
             spin = QDoubleSpinBox()
             spin.setRange(-1e9, 1e9)
-            spin.setDecimals(4)
+            spin.setDecimals(decimals)
+            spin.setSingleStep(10 ** -decimals)
             spin.setSpecialValueText("—")
             spin.setMinimum(-1e9)
             try:
@@ -442,15 +479,26 @@ class StepsEditorDialog(QDialog):
         form.addRow("Min:", lo_spin)
         form.addRow("Max:", hi_spin)
 
-        def _sync_unit(method: str) -> None:
-            # the Unit follows the Test Method (read-only display)
+        def _clamp_bounds() -> None:
+            """M19f: Min must never exceed Expected, Max must never be
+            below Expected (both clamp to Expected while it is set)."""
+            exp = measured_spin.value()
+            if exp > measured_spin.minimum():
+                if lo_spin.value() > exp:
+                    lo_spin.setValue(exp)
+                if hi_spin.value() < exp:
+                    hi_spin.setValue(exp)
+
+        def _sync_unit(method_label: str) -> None:
+            # M19f: the stored kind (combo userData) drives unit + policy
+            internal = kind_combo.currentData() or ""
             unit_edit.setText(
-                self.ICT_METHOD_UNITS.get(method, "—"))
+                self.ICT_METHOD_UNITS.get(internal, "—"))
             # the Net choices follow the method too (keep the old
             # name selectable when it drops out of the category)
             current = net_combo.currentText()
-            fresh = self._net_choices(method)
-            if current and current not in fresh and method != "DAQ AI":
+            fresh = self._net_choices(internal)
+            if current and current not in fresh and internal != "DAQ AI":
                 fresh.insert(0, current)
             net_combo.blockSignals(True)
             net_combo.clear()
@@ -459,10 +507,33 @@ class StepsEditorDialog(QDialog):
                 net_combo.setCurrentText(current)
             net_combo.blockSignals(False)
             # DAQ AI Net is derived + read-only; other methods editable
-            net_combo.setEnabled(method != "DAQ AI")
+            net_combo.setEnabled(internal != "DAQ AI")
+            # M19f: numeric policy per method - R-GND keeps ONLY a Min
+            # (integer ohm; Expected/Max carry no value and are locked);
+            # everything else stays 3 decimals / 0.001 step
+            if internal == METHOD_R_GND:
+                lo_spin.setDecimals(0)
+                lo_spin.setSingleStep(1)
+                measured_spin.setEnabled(False)
+                measured_spin.setValue(measured_spin.minimum())
+                hi_spin.setEnabled(False)
+                hi_spin.setValue(hi_spin.minimum())
+            else:
+                lo_spin.setDecimals(3)
+                lo_spin.setSingleStep(0.001)
+                measured_spin.setEnabled(True)
+                hi_spin.setEnabled(True)
 
-        _sync_unit(kind)
+        _sync_unit(kind_combo.currentText())
         kind_combo.currentTextChanged.connect(_sync_unit)
+        # M19f: Min <= Expected <= Max enforced live
+        measured_spin.valueChanged.connect(lambda _v: _clamp_bounds())
+        lo_spin.valueChanged.connect(lambda v: _clamp_bounds()
+                                     if measured_spin.value()
+                                     > measured_spin.minimum() else None)
+        hi_spin.valueChanged.connect(lambda v: _clamp_bounds()
+                                     if measured_spin.value()
+                                     > measured_spin.minimum() else None)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -473,13 +544,15 @@ class StepsEditorDialog(QDialog):
             return False
 
         def _num_text(spin: QDoubleSpinBox) -> str:
-            if spin.value() <= spin.minimum():
+            # M19f: keep the decimals of the cell (3 for V/kHz, 0 for
+            # the R-GND Min), never trimmed; a locked cell (disabled,
+            # e.g. the R-GND Expected / Max) always saves "—"
+            if not spin.isEnabled() or spin.value() <= spin.minimum():
                 return "—"
-            text = f"{spin.value():.4f}".rstrip("0").rstrip(".")
-            return text
+            return f"{spin.value():.{spin.decimals()}f}"
 
         self._steps[r] = (
-            kind_combo.currentText(),
+            kind_combo.currentData() or kind_combo.currentText(),
             net_combo.currentText().strip() or name,
             unit_edit.text().strip() or "—",
             _num_text(measured_spin),
