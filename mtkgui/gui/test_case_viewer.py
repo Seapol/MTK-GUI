@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from mtkgui.gui.dialog_sizing import fit_dialog
 from mtkgui.style import saved_theme
 
 #: one merged table - ICT first, then FCT
@@ -60,10 +61,9 @@ class TestCaseViewer(QDialog):
         self._highlight_row = -1
 
         self.setWindowTitle("Test Case Viewer")
-        self.resize(1080, 680)
+        fit_dialog(self, 1080, 680)
         self.setMinimumSize(760, 440)
         self.setSizeGripEnabled(True)
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.setModal(False)
 
         layout = QVBoxLayout(self)

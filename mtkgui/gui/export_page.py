@@ -154,8 +154,14 @@ class ExportPage(QWidget):
     def _pick(self, path: Path, filt: str) -> Path | None:
         if not self.interactive:
             return path
-        chosen, _ = QFileDialog.getSaveFileName(self, "Export report",
-                                                str(path), filt)
+        from mtkgui.startup_timing import begin as _t_begin
+        from mtkgui.startup_timing import end as _t_end
+        _t_begin("export: file pick", category="ui", wait=True)
+        try:
+            chosen, _ = QFileDialog.getSaveFileName(self, "Export report",
+                                                    str(path), filt)
+        finally:
+            _t_end("export: file pick")
         return Path(chosen) if chosen else None
 
     def export_html(self) -> Path | None:

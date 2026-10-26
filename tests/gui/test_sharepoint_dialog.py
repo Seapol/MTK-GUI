@@ -244,24 +244,26 @@ def test_pack_failure_surfaces_reason(qapp, tmp_path):
 
 
 def test_menu_action_wired(qapp, tmp_path, monkeypatch):
-    """Report > SharePoint Upload… opens the dialog (exec spied, never
-    blocks the test)."""
-    from PySide6.QtWidgets import QDialog
-    opened = []
-
-    def fake_exec(self):
-        opened.append(self.windowTitle())
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    """Report > SharePoint Upload… is present but temporarily DISABLED
+    (M15, 2026-10-27); the handler shows a notice instead of opening
+    the dialog."""
+    from PySide6.QtWidgets import QMessageBox
     from mtkgui.main_window import MainWindow
     MainWindow.__test__ = False
     win = MainWindow(role="Supervisor", mode="Virtual", fixture="ATE")
     try:
+        action = win.report_menu.actions()[-1]
+        assert action.text() == "SharePoint Upload…"
+        assert not action.isEnabled()  # M15: temporarily disabled
+        assert "Temporarily disabled" in action.toolTip()
+        notices = []
+        monkeypatch.setattr(
+            QMessageBox, "information",
+            staticmethod(
+                lambda *args, **kwargs: notices.append(args[2] or "")
+                or QMessageBox.StandardButton.Ok))
         win._open_sharepoint_upload()
-        assert opened == ["SharePoint Upload"]
-        assert win.report_menu.actions()[-1].text() == \
-            "SharePoint Upload…"
+        assert notices and "temporarily disabled" in notices[0].lower()
     finally:
         win.close()
         win.deleteLater()

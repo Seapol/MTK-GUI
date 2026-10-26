@@ -18,12 +18,14 @@ Project file and account handling.
   project YAML into the whole application (test tables, rails,
   consoles, instrument parameters, channel allocation). The run
   gate blocks any run until a project is loaded. Large plans load
-  through a staged chain: the status-bar progress bar tracks the
-  stages, Run Control and the double-click table editing are
-  disabled until the load completes, and a project already loaded
-  is closed automatically FIRST (switching projects never blends
-  two test projects). A run still active blocks the load with a
-  hint - stop it first. *Dialog: file open dialog.*
+  through a staged chain tracked by a **modal progress dialog**
+  (`Loading project…`, stages at 5 % / 25 % / 45 % / 95 % / 100 %);
+  the same stages also mirror on the global status bar. Run Control
+  and the double-click table editing are disabled until the load
+  completes, and a project already loaded is closed automatically
+  FIRST (switching projects never blends two test projects). A run
+  still active blocks the load with a hint - stop it first. *Dialog:
+  file open dialog + progress dialog.*
 - **Apply and Save Yaml** - commits the current page state into the
   project YAML model and saves it to the loaded file. Saving a
   project without usable test items asks for confirmation first.

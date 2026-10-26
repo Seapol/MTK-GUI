@@ -14,6 +14,7 @@ import re
 
 from PySide6.QtWidgets import QDialog, QWidget
 
+from mtkgui.gui.dialog_sizing import enable_dialog_controls
 from mtkgui.ict.netparse.learn import BUCKETS, learn_rules, read_net_names
 from mtkgui.ict.netparse.rules import (DEFAULT_RULES, RULE_SLOTS,
                                        validate_rules)
@@ -52,6 +53,7 @@ class NetRulesEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit Net Classification Rules")
         self.setMinimumWidth(520)
+        enable_dialog_controls(self)
         lay = QVBoxLayout(self)
         head = QLabel(
             "Priority: manual override > SPF pin attribute > custom "

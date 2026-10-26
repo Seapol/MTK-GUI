@@ -32,6 +32,7 @@ from ..serial_params import BAUDRATES, BYTESIZE_MAP, STOPBITS_MAP, PARITY_MAP
 from ..serial_worker import SerialWorker
 from ..ssh_worker import SshWorker
 from ..style import APP_NAME, APP_ORG
+from ..gui.dialog_sizing import enable_dialog_controls
 from ..virtual_dut import VirtualDutWorker, load_dut_profile
 from ..theme import (
     DEFAULT_BACKGROUND,
@@ -72,6 +73,7 @@ class SerialConfigDialog(QDialog):
     def __init__(self, parent, params=None):
         super().__init__(parent)
         self.setWindowTitle("Serial Connection Settings")
+        enable_dialog_controls(self)
         params = dict(DEFAULT_SERIAL_PARAMS)
         if params is not None:
             params.update(params or {})
@@ -161,6 +163,7 @@ class SshConfigDialog(QDialog):
     def __init__(self, parent, params=None):
         super().__init__(parent)
         self.setWindowTitle("SSH Connection Settings")
+        enable_dialog_controls(self)
         params = dict(DEFAULT_SSH_PARAMS)
         params.update(params or {})
 
@@ -248,6 +251,7 @@ class ConsoleWindow(QDialog):
         self.console = console
         self.setWindowTitle(f"{label} Console")
         self.setMinimumSize(1200, 800)
+        enable_dialog_controls(self)
 
         layout = QVBoxLayout(self)
 

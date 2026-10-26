@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 
 from mtkgui.gui import statistics_store as store
 from mtkgui.gui.charts import BarChart, LineChart, PieChart
+from mtkgui.gui.dialog_sizing import fit_dialog
 
 #: BarChart switches from per-unit to per-batch means above this count
 BATCH_THRESHOLD = 50
@@ -94,7 +95,7 @@ class StatisticsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Statistics")
         self.setModal(True)
-        self.resize(960, 720)
+        fit_dialog(self, 960, 720)
         self.page = page
         self.runs_path = runs_path
         #: records of the last refresh (test / embedder hook)

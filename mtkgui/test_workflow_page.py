@@ -102,6 +102,7 @@ from .engine import (
 )
 from .engine.rails import DURATION_S
 from .gui.steps_editor import StepsEditorDialog as _SequenceEditorDialog
+from .gui.dialog_sizing import fit_dialog
 from .gui.test_case_viewer import TestCaseViewer
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
@@ -1705,7 +1706,7 @@ class TestWorkFlowPage(QWidget):
         blocking exec()."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Power Rails — Properties")
-        dlg.resize(980, 760)
+        fit_dialog(dlg, 980, 760)
         outer = QVBoxLayout(dlg)
         tabs = QTabWidget()
         outer.addWidget(tabs)

@@ -505,3 +505,64 @@ def test_yaml_effective_section_round_trip():
     # required-field errors (empty defaults) - the allocation data
     # itself must be restored regardless
     assert fresh.channel_allocation["power"][0]["channel"] == "CH01"
+
+
+# ---------------------------------- no-rebuild guard (fix 2026-10-26)
+def test_refresh_is_noop_when_model_unchanged(page, monkeypatch):
+    """Tab re-entry with unchanged data must NOT rebuild the tables -
+    the 800-row projects (652 GPIO rows) froze the UI for seconds on
+    every tab switch (user report 2026-10-26).  The ``page`` fixture
+    already built the tables via ``set_model``, so any further refresh
+    with unchanged data must be a no-op."""
+    from mtkgui.gui.yamlbuild.channel_allocation import _NetTable
+    calls = {"load_rows": 0}
+    _orig = _NetTable.load_rows
+
+    def counting(self, rows):
+        calls["load_rows"] += 1
+        _orig(self, rows)
+
+    monkeypatch.setattr(_NetTable, "load_rows", counting)
+    page.refresh_from_model()            # unchanged -> no-op
+    assert calls["load_rows"] == 0
+    page.refresh_from_model()            # still unchanged -> no-op
+    assert calls["load_rows"] == 0
+
+
+def test_refresh_rebuilds_when_data_changed(page, monkeypatch):
+    """A real parse result / config replacement must still rebuild."""
+    from mtkgui.gui.yamlbuild.channel_allocation import _NetTable
+    calls = {"load_rows": 0}
+    _orig = _NetTable.load_rows
+
+    def counting(self, rows):
+        calls["load_rows"] += 1
+        _orig(self, rows)
+
+    monkeypatch.setattr(_NetTable, "load_rows", counting)
+    page.refresh_from_model()
+    assert calls["load_rows"] == 0       # unchanged -> no-op
+    model = page.model
+    alloc = dict(model.channel_allocation)
+    alloc["power"] = [{"net": "3V3", "channel": "M908A1_101"}]
+    model.channel_allocation = alloc     # the model payload changed
+    page.refresh_from_model()
+    assert calls["load_rows"] == 3       # full rebuild
+
+
+def test_save_to_model_is_noop_when_unchanged(page):
+    """Leaving the tab with no edits must not write the model / disk
+    again - the old code deep-copied + JSON-wrote the FULL 800-row
+    model on EVERY tab-leave (fix 2026-10-26)."""
+    writes = {"n": 0}
+    _orig = page.model.set_channel_allocation
+
+    def counting(data):
+        writes["n"] += 1
+        _orig(data)
+
+    page.model.set_channel_allocation = counting
+    page.save_to_model()                 # first save: persists
+    assert writes["n"] == 1
+    page.save_to_model()                 # unchanged: no-op
+    assert writes["n"] == 1

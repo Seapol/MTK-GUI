@@ -56,3 +56,74 @@ as its current release.
   refusal; netparse `isolated` / `active_drivers` evidence in CSV,
   JSON and the Test Plan evidence markdown; the old 24-channel
   walking GPIO template row removed from the Test Work Flow page.
+- **M8** (2026-10-26, `develop`) - Yaml Build page hang fix: the
+  Channel Allocation tables refresh through a content fingerprint
+  (`sha1` of the testable nets + allocation state), so re-entering
+  the page no longer rebuilds all three tables unconditionally (800
+  nets: 0.43 s full rebuild -> ~0.005 s on an unchanged model, with
+  3 regression tests); `save_to_model` skips the write when the data
+  is unchanged and re-renders only the visible rows on a hit.
+- **M9** (2026-10-26, `develop`) - `File > Load Yaml…` now shows a
+  **modal progress dialog** (`Loading project…`, staged 5 / 25 / 45 /
+  95 / 100 %), mirroring the same stages on the global status bar, so
+  large project loads (e.g. the 537 KB / 800-net 96624 plan) no
+  longer look frozen.
+- **M10** (2026-10-26, `develop`) - SharePoint sign-in bypass for
+  tenants that reject the embedded login (e.g. AD account validation
+  failures): `Open in System Browser` signs in outside the app and
+  `Import Browser Session...` imports the `FedAuth` / `rtFa` cookies
+  copied from the browser (F12 > Application > Cookies) with a site
+  host check, followed by an automatic Test Connection. New dialog
+  strings (`not signed in - use Connect & Sign in, or sign in in your
+  own browser then Import Browser Session`) and 6 new unit tests.
+- **M11** (2026-10-26, `develop`) - modal progress dialog for
+  `Parse Nets for ICT` (progress bridge) and for the Auto-Channel
+  Allocation card (four phases: power 33 % -> clock 33 % -> control
+  IO 33 % -> validating 100 %); failures are caught and surfaced as
+  an error dialog instead of a frozen GUI.
+- **M12** (2026-10-26, `develop`) - every dialog of the application
+  (21 QDialogs) re-checked for sizing and window controls: oversized
+  dialogs are clamped to the work area (DialogCenterer cap 92% ->
+  85%) and all dialogs gain **minimize / maximize** buttons plus a
+  size grip (`mtkgui/gui/dialog_sizing.py`: `fit_dialog` /
+  `enable_dialog_controls`), so bottom button rows stay reachable on
+  high-DPI displays.
+- **M13** (2026-10-26, `develop`) - startup splash
+  (`mtkgui/splash.py`, tkinter launch window before the heavy
+  PySide6 / QtWebEngine imports) was added, then **removed on request
+  (2026-10-27)** - it flashed by too quickly on cold starts and the
+  login window follows almost immediately; the timing marks
+  (`splash shown` / `splash closed`) were removed with it.
+- **M14** (2026-10-26, `develop`) - SharePoint browser-session
+  workflow completed: `Open in System Browser…` now opens the site AND
+  the `Import Browser Session…` dialog in one click (paste `FedAuth` /
+  `rtFa` from F12 > Application > Cookies). An automatic Edge
+  debug-port handover was implemented and then **verified blocked** on
+  this company Edge (v156): `--remote-debugging-port` is ignored on
+  the real profile (anti-debug protection), cookies are app-bound
+  encrypted so a copied profile cannot decrypt them, and the
+  `RemoteDebuggingAllowed` policies are locked - documented in the
+  Help, the paste path stays as the working one on managed hosts.
+- **M15** (2026-10-27, `develop`) - SharePoint Upload **temporarily
+  disabled** (user direction): the `Report > SharePoint Upload…` menu
+  item is greyed out with a tooltip, and the handler shows a notice
+  instead of opening the dialog (double guard). The dialog, engine,
+  state and Help guide stay intact; re-enable with
+  `sp_upload_action.setEnabled(True)` in `main_window.py`.
+- **M16** (2026-10-27, `develop`) - timing log upgraded from
+  startup-only to **full-lifecycle performance logging**: session
+  header per process run (time / pid / frozen / python version);
+  **wall-clock timestamp column** per event (correlate slow deltas
+  with the clock); category column derived from the label prefix
+  (`ui:`, `twf:`, `testflow:`, `yamlbuild:`, `io:`, `page:` …) with
+  explicit override; `[WAIT]` markers + waited-time on spans that wait
+  for the OPERATOR; per-thread begin/end pairing (worker threads no
+  longer cross-pair into false mismatches). Instrumentation now covers
+  the runtime, not just startup: page switches, staged YAML load,
+  YAML save (file pick + write), Auto-Channel Allocation, DIO-write
+  isolation confirm, Parse-Nets Excel export / import (file pick), the
+  Export page file pick, and the SPF / NET / BOM import file picks -
+  every wait-on-user action is marked `[WAIT]`. `MTK_TIMING=0` still
+  disables the file. 9 unit tests.
+
+

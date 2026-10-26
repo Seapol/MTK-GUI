@@ -123,7 +123,10 @@ def test_non_virtual_without_session_requires_sign_in(qapp, tmp_path):
     dlg = make_dialog(tmp_path, virtual=False)
     try:
         assert dlg.btn_signin.isEnabled()
-        assert dlg.signin_status.text() == "not signed in"
+        assert dlg.signin_status.text() == \
+            ("not signed in — sign in in your own browser, then "
+             "Import Browser Session (no password, no embedded "
+             "login)")
         dlg.site_edit.setText(LINK)
         problems = dlg.test_connection()
         assert problems == ["not signed in — click Connect & Sign in… first"]

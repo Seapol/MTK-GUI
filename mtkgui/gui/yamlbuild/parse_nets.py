@@ -357,8 +357,12 @@ class ParseNetsPanel(QWidget):
             return
         project = self._project_name()
         default = f"ICT Test Plan for {project}.xlsx"
-        path, _selected = QFileDialog.getSaveFileName(
-            self, "Export ICT Test Plan", default, "Excel (*.xlsx)")
+        begin("parse: export testplan pick", category="ui", wait=True)
+        try:
+            path, _selected = QFileDialog.getSaveFileName(
+                self, "Export ICT Test Plan", default, "Excel (*.xlsx)")
+        finally:
+            end("parse: export testplan pick")
         if not path:
             return
 
@@ -386,8 +390,12 @@ class ParseNetsPanel(QWidget):
         from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
         if not self._sync_allowed("Import to YAML"):
             return
-        path, _selected = QFileDialog.getOpenFileName(
-            self, "Import to YAML", "", "Excel (*.xlsx)")
+        begin("parse: import to yaml pick", category="ui", wait=True)
+        try:
+            path, _selected = QFileDialog.getOpenFileName(
+                self, "Import to YAML", "", "Excel (*.xlsx)")
+        finally:
+            end("parse: import to yaml pick")
         if not path:
             return
 
@@ -410,8 +418,12 @@ class ParseNetsPanel(QWidget):
         if not self._sync_allowed("Export from YAML"):
             return
         default = f"ICT Test Plan for {self._project_name()}.xlsx"
-        path, _selected = QFileDialog.getSaveFileName(
-            self, "Export from YAML", default, "Excel (*.xlsx)")
+        begin("parse: export from yaml pick", category="ui", wait=True)
+        try:
+            path, _selected = QFileDialog.getSaveFileName(
+                self, "Export from YAML", default, "Excel (*.xlsx)")
+        finally:
+            end("parse: export from yaml pick")
         if not path:
             return
         md_path = str(Path(path).with_name(

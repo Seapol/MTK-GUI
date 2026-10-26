@@ -54,7 +54,8 @@ from .gui.event_log_levels import (
     should_display,
     strip_leading_stamp,
 )
-from .gui.progress_dialog import busy_progress
+from .gui.dialog_sizing import fit_dialog
+from .gui.progress_dialog import ProgressDialog, busy_progress
 from .permissions import (
     FIXTURE_ATE,
     FIXTURE_MANUAL,
@@ -67,7 +68,11 @@ from .permissions import (
     save_permissions,
 )
 from .qt_guard import qt_safe
-from .startup_timing import mark as _startup_mark
+from .startup_timing import (
+    begin as _startup_begin,
+    end as _startup_end,
+    mark as _startup_mark,
+)
 from .test_workflow_page import TestWorkFlowPage
 from .version_info import get_version_info
 from .yaml_build_page import YamlBuildPage
@@ -335,7 +340,7 @@ class DialogCenterer(QObject):
                         target_w = min(int(hint.width() * 1.5),
                                        int(avail.width() * 0.92))
                         target_h = min(int(hint.height() * 1.5),
-                                       int(avail.height() * 0.92))
+                                       int(avail.height() * 0.85))
                         if (obj.width() < target_w
                                 or obj.height() < target_h):
                             obj.resize(max(obj.width(), target_w),
@@ -1030,6 +1035,9 @@ class MainWindow(QMainWindow):
         no-op.
         """
         if index >= 0 and index != self.tabs.currentIndex():
+            _startup_mark(
+                f"page switch -> {self.tabs.tabText(index)}",
+                category="page")
             self.tabs.setCurrentIndex(index)
 
     def _build_menus(self):
@@ -1195,8 +1203,18 @@ class MainWindow(QMainWindow):
         self.report_menu.addAction("Report Folder…",
                                    self._open_report_folder_settings)
         self.report_menu.addAction("Statistics", self._open_statistics)
-        self.report_menu.addAction("SharePoint Upload…",
-                                   self._open_sharepoint_upload)
+        # 2026-10-27 user direction: SharePoint upload is temporarily
+        # DISABLED for the general operator (the browser-session import
+        # flow is too involved for the shop floor).  Keep the handler;
+        # re-enable with setEnabled(True) once a simpler path is
+        # approved by IT.
+        self.sp_upload_action = self.report_menu.addAction(
+            "SharePoint Upload…", self._open_sharepoint_upload)
+        self.sp_upload_action.setEnabled(False)
+        self.sp_upload_action.setToolTip(
+            "Temporarily disabled (2026-10-27): SharePoint upload is "
+            "turned off for the general operator. Re-enable in "
+            "main_window.py when a simpler path is approved.")
 
         # ------------------------------------------------ V4.0: Help menu
         # Help stays the rightmost menu of the fixed final order; the
@@ -1346,7 +1364,7 @@ class MainWindow(QMainWindow):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(dlg.accept)
         lay.addWidget(buttons)
-        dlg.resize(460, 360)
+        fit_dialog(dlg, 460, 360)
         dlg.exec()
 
     def _generate_dut_report_files(self, report) -> None:
@@ -1540,7 +1558,20 @@ class MainWindow(QMainWindow):
         local folder + upload mode (real-time sync / packaged upload
         with a period).  Virtual mode drives the FakeSharePoint
         transport (demo), Real mode talks HTTP to the configured site.
-        The 30 s auto-drive runs while the dialog is open."""
+        The 30 s auto-drive runs while the dialog is open.
+
+        Temporarily disabled (2026-10-27) - the guard below keeps the
+        handler from opening even if the menu item is re-enabled by
+        another path."""
+        if not (getattr(self, "sp_upload_action", None)
+                and self.sp_upload_action.isEnabled()):
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "SharePoint Upload",
+                "SharePoint upload is temporarily disabled for the "
+                "general operator (2026-10-27).\n\nRe-enable it in "
+                "main_window.py when a simpler path is approved.")
+            return
         from .gui.sharepoint_upload_dialog import SharePointUploadDialog
         dlg = SharePointUploadDialog(
             self, virtual=self.workflow_page.virtual_mode)
@@ -1809,11 +1840,17 @@ class MainWindow(QMainWindow):
     def load_yaml(self):
         """File > Load Yaml: pick a project YAML file and apply it.
 
-        The load runs as a QTimer-driven stage chain with the status
-        bar progress bar (the big ICT plans froze the GUI for ~15 s in
-        the old synchronous path) - see _begin_yaml_load."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load Yaml", "", "YAML files (*.yaml *.yml)")
+        The load runs as a QTimer-driven stage chain in FRONT of a
+        foreground modal progress dialog (2026-10-26: the big ICT plans
+        used to show only a status-bar progress; the front dialog keeps
+        the window responsive and visible) - see _begin_yaml_load."""
+        _startup_begin("load yaml: file pick", category="ui",
+                       wait=True)
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Load Yaml", "", "YAML files (*.yaml *.yml)")
+        finally:
+            _startup_end("load yaml: file pick")
         if not path:
             return
         if self.workflow_page._runner.state != "idle":
@@ -1833,13 +1870,19 @@ class MainWindow(QMainWindow):
            the manual File > Close Yaml keeps its confirm dialog);
         2. Run Control (Run/Stop, Long Run, Interval) and the
            double-click table editing are disabled while loading;
-        3. the status-bar progress bar tracks the stages;
+        3. a FOREGROUND modal progress dialog tracks the stages
+           (2026-10-26: front progress bar replaces the status-bar-only
+           progress for big plans like 96624);
         4. every control is restored once the load completes."""
         if getattr(self, "_yaml_loading", False):
             return
         self._yaml_loading = True
         self._yaml_config = None
         self._yaml_plan_errors = None
+        _startup_begin("yaml load", category="io")
+        self._yaml_load_dlg = ProgressDialog(
+            self, "Loading project…", 0, 100, delay=0.3)
+        self._yaml_load_dlg.show_delayed()
         self._yaml_load_queue = [
             ("Close previous project", 5,
              lambda: self._reset_to_factory(auto=True)
@@ -1876,6 +1919,10 @@ class MainWindow(QMainWindow):
         self.status_progress.setRange(0, 100)
         self.status_progress.setValue(value)
         self.status_progress.setFormat(f"Loading project: {label}")
+        # the FOREGROUND modal dialog carries the same stage (2026-10-26)
+        dlg = getattr(self, "_yaml_load_dlg", None)
+        if dlg is not None:
+            dlg.set_stage(value, f"Loading project: {label}")
 
     def _yaml_loading_ui(self, loading: bool) -> None:
         """Disable / restore Run Control + table editing during the
@@ -1924,6 +1971,7 @@ class MainWindow(QMainWindow):
 
     def _yaml_done(self) -> None:
         self._yaml_loading = False
+        _startup_end("yaml load")
         self._yaml_loading_ui(False)
         # the plan-branch identity sync + warnings happen here, after
         # the UI is restored (a modal warning box must not sit inside
@@ -1940,6 +1988,11 @@ class MainWindow(QMainWindow):
         self.status_progress.setRange(0, 1)
         self.status_progress.setValue(0)
         self.status_progress.setFormat("Idle")
+        # close the front progress dialog on EVERY exit path
+        dlg = getattr(self, "_yaml_load_dlg", None)
+        if dlg is not None:
+            self._yaml_load_dlg = None
+            dlg.close_done()
         self._yaml_config = None
         self._yaml_plan_errors = None
 
@@ -2008,6 +2061,7 @@ class MainWindow(QMainWindow):
         """Merged 'Build ICT Test Work Flow Sequence' card: switch to
         the Test Work Flow tab and focus the ICT Test Cases table
         (cursor on the first case row)."""
+        _startup_mark("page switch -> Test Work Flow", category="page")
         self.tabs.setCurrentWidget(self.workflow_page)
         table = self.workflow_page.ict
         table.setFocus()
@@ -2444,40 +2498,49 @@ class MainWindow(QMainWindow):
         The suggested name follows
         ProductPartNumber_CoreID_Batch_rev1.0.yaml."""
         config = self._build_project_config()
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save as Yaml",
-            project_config.default_filename(config),
-            "YAML files (*.yaml *.yml)")
+        _startup_begin("save yaml: file pick", category="ui",
+                       wait=True)
+        try:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save as Yaml",
+                project_config.default_filename(config),
+                "YAML files (*.yaml *.yml)")
+        finally:
+            _startup_end("save yaml: file pick")
         if not path:
             return
         self._save_yaml_to(path)
 
     def _save_yaml_to(self, path):
-        # user direction 2026-10-14: each stage may legally be empty,
-        # but a YAML with NO test items at all (ICT and FCT both
-        # empty) is warned about at save time (working files may still
-        # be checkpointed on purpose)
-        ict_n, fct_n = self.workflow_page.test_item_counts()
-        if not ict_n and not fct_n:
-            answer = QMessageBox.question(
-                self, "No Test Items",
-                "The YAML contains no usable test items (ICT and FCT "
-                "are both empty).\n\nSave anyway?")
-            if answer != QMessageBox.StandardButton.Yes:
-                self._append_event_log(
-                    f"[{datetime.now():%H:%M:%S}] Yaml save cancelled: "
-                    "no test items")
-                return
-        config = self._build_project_config()
+        _startup_begin("save yaml: write", category="io")
         try:
-            project_config.save_config(config, path)
-        except OSError as exc:
-            QMessageBox.critical(self, "Save Failed", str(exc))
-            return
-        self._project_path = path
-        self.workflow_page.set_project_file(path)
-        self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Yaml saved: {path}")
+            # user direction 2026-10-14: each stage may legally be empty,
+            # but a YAML with NO test items at all (ICT and FCT both
+            # empty) is warned about at save time (working files may still
+            # be checkpointed on purpose)
+            ict_n, fct_n = self.workflow_page.test_item_counts()
+            if not ict_n and not fct_n:
+                answer = QMessageBox.question(
+                    self, "No Test Items",
+                    "The YAML contains no usable test items (ICT and FCT "
+                    "are both empty).\n\nSave anyway?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    self._append_event_log(
+                        f"[{datetime.now():%H:%M:%S}] Yaml save "
+                        "cancelled: no test items")
+                    return
+            config = self._build_project_config()
+            try:
+                project_config.save_config(config, path)
+            except OSError as exc:
+                QMessageBox.critical(self, "Save Failed", str(exc))
+                return
+            self._project_path = path
+            self.workflow_page.set_project_file(path)
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Yaml saved: {path}")
+        finally:
+            _startup_end("save yaml: write")
 
     # ------------------------------------------------------------ theme
     def apply_gui_theme(self, name):

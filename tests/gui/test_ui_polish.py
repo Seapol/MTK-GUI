@@ -56,8 +56,15 @@ def test_parsed_nets_default_column_widths(qapp):
 def test_parse_nets_dialog_initial_size(qapp):
     dlg = BlockConfigDialog("parse_ict", {})
     try:
-        assert (dlg.width(), dlg.height()) == (1060, 780)
+        assert dlg.width() == 1060
+        # 2026-10-26 (fit_dialog): the height is clamped to the
+        # screen's available area so the button row stays visible -
+        # 780 on a tall screen, less on short / offscreen ones
+        assert 0 < dlg.height() <= 780
         assert dlg.property("_dlg_enlarged") is True
+        # min / max enabled on every config dialog (2026-10-26)
+        assert dlg.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint
+        assert dlg.windowFlags() & Qt.WindowType.WindowMinimizeButtonHint
         assert dlg.nets_panel.table.minimumHeight() <= 120
         assert dlg.nets_panel.table.sizePolicy().verticalPolicy() \
             == dlg.nets_panel.table.sizePolicy().Policy.Expanding
@@ -84,7 +91,11 @@ def test_sharepoint_dialog_is_bounded(qapp, tmp_path):
         state_dir=tmp_path / "state")
     try:
         assert (dlg.width(), dlg.height()) == (720, 560)
-        assert (dlg.maximumWidth(), dlg.maximumHeight()) == (720, 680)
+        # 2026-10-26: the hard maximum size is gone so the dialog can
+        # be maximized - fit_dialog keeps the default height and clamps
+        # it to the screen instead
+        assert dlg.maximumHeight() > 10000  # QWIDGETSIZE_MAX (no cap)
+        assert dlg.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint
         # long status lines wrap instead of inflating the size hint
         assert dlg.conn_status.wordWrap() is True
         assert dlg.signin_status.wordWrap() is True

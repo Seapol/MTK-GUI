@@ -65,11 +65,16 @@ def main():
     # startup login: Supervisor (password) or Operator; must pick one.
     # Returns (role, mode, fixture_type); Virtual mode is supervisor-
     # only, fixture type is ATE (default) / Manual per login.
+    # The login prompt is WAIT (human time) - never confused with
+    # program time in the performance log.
+    _timing.begin("login", category="wait", wait=True)
     result = LoginDialog.login(None, allow_cancel=False)
     if result is None:
+        _timing.end("login", note="cancelled - exiting")
         sys.exit(0)
     role, mode, fixture = result
-    _timing.mark(f"login done (role={role}, mode={mode}, fixture={fixture})")
+    _timing.end("login",
+                note=f"operator signed in ({role}, {mode}, {fixture})")
 
     from mtkgui.gui.startup_progress import StartupProgress
     progress = StartupProgress()

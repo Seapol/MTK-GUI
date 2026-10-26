@@ -115,6 +115,12 @@ and audit trail can reference the same paths.
 
 ## SharePoint Upload (Report menu)
 
+> **TEMPORARILY DISABLED** (2026-10-27): the menu item is greyed out
+> for the general operator - the browser-session sign-in flow is too
+> involved for the shop floor. The dialog, engine and this guide stay
+> intact; re-enable `sp_upload_action.setEnabled(True)` in
+> `main_window.py` when a simpler path is approved by IT.
+
 `Report > SharePoint Upload...` moves a local folder (reports, logs,
 archives) to the project SharePoint folder - either as a real-time
 mirror (new / changed files only) or as a timestamped zip once per
@@ -123,27 +129,49 @@ Virtual mode uses the built-in `FakeSharePoint` transport and marks
 every result `(virtual)`; the site is never contacted.
 
 Real mode talks to the NXP tenant over the SharePoint REST API with
-the operator's own browser session:
+the operator's own browser session. The sign-in paths, fastest first:
 
 1. Paste the folder share link (modern `.../:f:/r/teams/...` or the
    classic `.../:f:/teams/...` form; a link to a project sub-folder is
    accepted - it simply becomes the upload root) into **Site link**.
-2. Press **Connect & Sign in...**. An embedded login window opens; sign
-   in with your corporate account (MFA included). MTK GUI stores no
-   password - only the resulting `FedAuth` / `rtFa` session cookies,
-   under `mtkgui/config/sharepoint_state/` on this OS user's profile.
-3. The dialog confirms `Signed in as <name> - SharePoint test-data
-   upload ready` and runs **Test Connection** once. It reports OK only
-   when the folder is reachable and writable; a 401/403 means the
-   session expired (sign in again), a 404 means the link is wrong.
-4. Pick the local folder and the mode, then **Sync Now** /
-   **Pack & Upload Now** (or let the 30 s driver work while the dialog
-   is open). Uploads use `Files/add(overwrite=true)`; failures stay in
-   the local outbox and are retried on the next sweep.
+2. **Open in System Browser…** - one click opens the site in your own
+   browser AND the import dialog: sign in there if needed (MFA /
+   organizational policy all handled by the browser), then press
+   F12 > Application > Cookies, copy the `FedAuth` and `rtFa` cookie
+   lines for the site and paste them into the import dialog.
+3. **Import Browser Session…** - the same paste path when you are
+   already signed in (browser still open): the dialog validates the
+   cookies against the site host, runs **Test Connection**
+   automatically and confirms
+   `Signed in as <name> - SharePoint test-data upload ready`.
+4. **Connect & Sign in...** - an embedded login window opens; sign in
+   with your corporate account (MFA included). Some corporate tenants
+   reject the embedded window (e.g. AD account validation failures).
 
-The **Token** field stays for legacy token-based sites; when no session
-is present the dialog keeps that path and never silently uploads with a
+Why is there no fully automatic handover? An automatic Edge debug-port
+import was researched and implemented, then verified against this
+company Edge (v156): the browser **ignores** `--remote-debugging-port`
+on the real profile (2025 anti-debug protection), the cookie values
+are app-bound encrypted (a copied profile cannot decrypt them), and
+the `RemoteDebuggingAllowed` policies are locked by the company. The
+browser-session paste path above is the working one on managed hosts.
+
+MTK GUI stores no password - only the resulting `FedAuth` / `rtFa`
+session cookies, under `mtkgui/config/sharepoint_state/` on this OS
+user's profile. Test Connection reports OK only when the folder is
+reachable and writable; a 401/403 means the session expired (sign in
+again or import a fresh browser session), a 404 means the link is
+wrong. Until a session is present the dialog shows
+`not signed in - sign in in your own browser, then Import Browser
+Session (no password, no embedded login)` and never uploads with a
 stale session.
+
+Then pick the local folder and the mode and press **Sync Now** /
+**Pack & Upload Now** (or let the 30 s driver work while the dialog is
+open). Uploads use `Files/add(overwrite=true)`; failures stay in the
+local outbox and are retried on the next sweep.
+
+The **Token** field stays for legacy token-based sites.
 
 ## Event Log (LogPanelWidget)
 

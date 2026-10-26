@@ -131,7 +131,9 @@ The status bar is a flat row, left to right:
 - `User: <os-login-name>`.
 - A global progress bar: shows `Idle` when no task runs, live
   0-100 percent while running, fills full and auto-resets when the
-  job finishes.
+  job finishes. Long-running stages (project load, net parse, auto
+  channel allocation) additionally show a **modal progress dialog**
+  that mirrors the same stages.
 - Instrument connection LEDs: `DAQM`
   (DAQ973A + 2x DAQM908A + DAQM907A), `DAQ` (U2355A),
   `PSU` (N5747A) - green connected, gray disconnected, red error.

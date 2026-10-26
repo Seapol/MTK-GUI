@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -46,10 +47,13 @@ from PySide6.QtWidgets import (
 
 from mtkgui.engine.sharepoint_site import (
     SharePointSession,
+    SharePointSite,
     host_of,
+    parse_browser_cookies,
     parse_sharepoint_link,
     session_cookies,
 )
+from mtkgui.gui.dialog_sizing import fit_dialog
 from mtkgui.engine.uploader import (
     MODE_PACKAGED,
     MODE_SYNC,
@@ -141,7 +145,7 @@ class SharePointSignInDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("SharePoint Sign-in")
         self.setModal(True)
-        self.resize(900, 680)
+        fit_dialog(self, 900, 680)
         self.site_url = str(site_url or "")
         self.profile_dir = Path(profile_dir) if profile_dir else None
         self.host = host_of(self.site_url)
@@ -226,6 +230,57 @@ class SharePointSignInDialog(QDialog):
         return True
 
 
+class ImportBrowserSessionDialog(QDialog):
+    """Paste a browser-exported session (FedAuth / rtFa) to SKIP the
+    embedded login window (2026-10-26 user direction: the embedded
+    sign-in fails with MSIS3173 at the AD FS level, so the operator
+    signs in in their OWN browser first and imports the session here).
+
+    The GUI only accepts the two session cookies - no password, no
+    token, no web engine involved.
+    """
+
+    def __init__(self, parent=None, *, site_url: str = "") -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Import Browser Session")
+        self.setModal(True)
+        fit_dialog(self, 640, 480)
+        self.site_url = str(site_url or "")
+        root = QVBoxLayout(self)
+        hint = QLabel(
+            "Sign in with your NXP account in your OWN browser first "
+            "(Edge/Chrome, MFA included), then import the session here.\n\n"
+            "How to get the cookies (no add-on needed):\n"
+            "1. Open the site link in Edge and sign in - you must be "
+            "able to browse the document library.\n"
+            "2. Press F12 -> Application -> Cookies -> select the site "
+            "domain (e.g. nxp1.sharepoint.com).\n"
+            "3. Copy the FedAuth and rtFa rows (name and value).\n"
+            "4. Paste them below - either one name=value line per row, "
+            "or a Cookie-Editor 'Export' JSON array.\n\n"
+            "Both FedAuth and rtFa are required. The session expires "
+            "after a while - when uploads start failing, sign in again "
+            "in the browser and re-import here.")
+        hint.setWordWrap(True)
+        hint.setObjectName("muted")
+        root.addWidget(hint)
+        self.edit = QPlainTextEdit()
+        self.edit.setPlaceholderText(
+            "FedAuth=xxxxx\nrtFa=yyyyy\n\nor paste the Cookie-Editor "
+            "JSON array here")
+        root.addWidget(self.edit, 1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def pasted_text(self) -> str:
+        """The pasted cookie text (or an empty string)."""
+        return self.edit.toPlainText().strip()
+
+
 class SharePointUploadDialog(QDialog):
     """Configure / test / drive the SharePoint upload (Report menu)."""
 
@@ -268,11 +323,13 @@ class SharePointUploadDialog(QDialog):
         self._session = session if session is not None else (
             None if self.virtual else
             SharePointSession.load(self._state_root / SESSION_NAME))
-        # M10-FIX2 F4: a bounded dialog - the audit view (and the
-        # DialogCenterer's 1.5x first-show enlargement) used to inflate
-        # it past 900x1000 and detach Close from the content
-        self.resize(720, 560)
-        self.setMaximumSize(720, 680)
+        # M10-FIX2 F4: the audit view (and the DialogCenterer's 1.5x
+        # first-show enlargement) used to inflate the dialog past
+        # 900x1000 and detach Close from the content.  fit_dialog now
+        # clamps the height to the screen and lets the user maximize
+        # (2026-10-26) - the hard maximum size is gone, the bottom
+        # button row stays reachable in every state.
+        fit_dialog(self, 720, 560)
 
         root = QVBoxLayout(self)
 
@@ -294,10 +351,49 @@ class SharePointUploadDialog(QDialog):
         sign_row.addWidget(self.btn_signin)
         self.signin_status = QLabel(
             "virtual mode: no sign-in needed" if self.virtual
-            else "not signed in")
+            else "not signed in — sign in in your own browser, then "
+                 "Import Browser Session (no password, no embedded "
+                 "login)")
         self.signin_status.setWordWrap(True)
         sign_row.addWidget(self.signin_status, 1)
         form.addRow(sign_row)
+        # 2026-10-26: the embedded login can be rejected by the tenant
+        # (e.g. AD FS MSIS3173).  The browser-session path reuses the
+        # operator's OWN browser login: Open in System Browser +
+        # Import Browser Session (F12 copy / paste of FedAuth + rtFa).
+        # NOTE: an automatic Edge debug-port handover was researched
+        # and is BLOCKED on managed Edge 156 hosts (remote-debugging
+        # port ignored on the real profile, App-Bound cookie
+        # encryption, policies locked) - paste import is the working
+        # path.
+        browser_row = QHBoxLayout()
+        self.btn_open_browser = QPushButton("Open in System Browser…")
+        self.btn_open_browser.setToolTip(
+            "Open the SharePoint site link in your own browser and "
+            "start the session import in one step - sign in there, "
+            "then paste the FedAuth / rtFa cookies in the import "
+            "dialog.")
+        self.btn_open_browser.setEnabled(not self.virtual)
+        self.btn_open_browser.clicked.connect(self._open_in_system_browser)
+        browser_row.addWidget(self.btn_open_browser)
+        self.btn_import_session = QPushButton("Import Browser Session…")
+        self.btn_import_session.setToolTip(
+            "Skip the embedded login: sign in in your own browser, "
+            "then paste the FedAuth / rtFa session cookies here.")
+        self.btn_import_session.setEnabled(not self.virtual)
+        self.btn_import_session.clicked.connect(self._import_browser_session)
+        browser_row.addWidget(self.btn_import_session)
+        browser_row.addStretch(1)
+        form.addRow(browser_row)
+        self.signin_hint = QLabel(
+            "Tip: sign in in your own browser (Edge/Chrome) - the GUI "
+            "only needs the FedAuth / rtFa session cookies, no "
+            "password. Press F12 > Application > Cookies in the "
+            "browser, copy both cookie lines for the site and paste "
+            "them here.")
+        self.signin_hint.setObjectName("muted")
+        self.signin_hint.setWordWrap(True)
+        form.addRow(self.signin_hint)
         test_row = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
         self.btn_test.clicked.connect(self.test_connection)
@@ -526,6 +622,87 @@ class SharePointUploadDialog(QDialog):
             return None
         return SharePointRestTransport(site, self._session.jar(),
                                        folder_path=folder, timeout=8.0)
+
+    # ------------------------------------------- browser-session path
+    def _open_in_system_browser(self):
+        """Open the configured site link in the system default browser
+        and immediately open the session-import dialog: sign in in the
+        browser, then paste the FedAuth / rtFa cookies.  This is the
+        working browser-session path on managed Edge hosts (an
+        automatic CDP handover is blocked by Edge 156 protections)."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        link = self.site_edit.text().strip() or (
+            self._session.link if self._session else "")
+        site = ""
+        if link:
+            try:
+                site = parse_sharepoint_link(link).site
+            except ValueError:
+                site = ""
+        if not link:
+            self._warn("Enter the SharePoint site link first - the "
+                       "browser needs an address to open.")
+            return
+        if not QDesktopServices.openUrl(QUrl(link)):
+            self._warn("Could not open the system browser - open this "
+                       f"link manually:\n\n{link}")
+        else:
+            self._log(f"sharepoint: opened site link in system browser: "
+                      f"{link}")
+        if site:
+            self._import_browser_session()
+
+    def _import_browser_session(self):
+        """Skip the embedded login: import the operator's OWN-browser
+        session (FedAuth / rtFa cookies), persist it, then run Test
+        Connection once (adopt_sign_in does the resolution + save)."""
+        if self.virtual:
+            return
+        link = self.site_edit.text().strip()
+        site, folder = "", ""
+        if link:
+            try:
+                parsed = parse_sharepoint_link(link)
+                site, folder = parsed.site, parsed.folder_path
+            except ValueError:
+                site = ""
+        if not site and self._session and self._session.site:
+            site = self._session.site
+            folder = self._session.folder_path or folder
+            link = link or self._session.link
+        if not site:
+            self._warn("Enter the SharePoint site link first - the "
+                       "import needs the site domain to match the "
+                       "browser cookies.")
+            return
+        dlg = ImportBrowserSessionDialog(self, site_url=site)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self._log("sharepoint: browser-session import cancelled")
+            return
+        cookies, errors = parse_browser_cookies(dlg.pasted_text(), site)
+        if not cookies:
+            QMessageBox.warning(
+                self, "Import Browser Session",
+                "No usable SharePoint session was imported.\n\n"
+                + "\n".join(errors)
+                + "\n\nTip: sign in in your own browser first. If the "
+                  "browser ITSELF reports 'An error occurred' "
+                  "(MSIS3173 / AD account validation failed), the "
+                  "account, password or company policy needs IT "
+                  "support - no GUI import can help.")
+            return
+        if errors:
+            QMessageBox.warning(
+                self, "Import Browser Session",
+                "Session imported, but check:\n\n" + "\n".join(errors))
+        session = self.adopt_sign_in(
+            SharePointSite(site=site, folder_path=folder, raw=link),
+            cookies)
+        if session is not None:
+            self._log(f"sharepoint: imported browser session for "
+                      f"{site} ({session.user or 'signed-in user'})")
+        return session
 
     # --------------------------------------------------------- sign-in
     def connect_and_sign_in(self):

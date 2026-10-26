@@ -36,6 +36,7 @@ import threading
 import time
 from pathlib import Path
 
+from mtkgui.gui.dialog_sizing import enable_dialog_controls
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -329,6 +330,7 @@ class VirtualDutDialog(QDialog):
     def __init__(self, cfg, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Virtual DUT (Simulated Console Device)")
+        enable_dialog_controls(self)
         self._cfg = sanitize_profile(cfg)
 
         layout = QVBoxLayout(self)

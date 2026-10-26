@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.ict.netparse import read_text_any_encoding
+from mtkgui.gui.dialog_sizing import enable_dialog_controls
 from mtkgui.gui.yamlbuild.parser import core_id_from_filename
 from mtkgui.gui.yamlbuild.schema import (
     BATCH_CUSTOMIZED_PREFIX,
@@ -93,6 +94,7 @@ class DrqDialog(QDialog):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Deviation (DRQ) Numbers")
+        enable_dialog_controls(self)
         form = QFormLayout(self)
         self.edits: list[QLineEdit] = []
         values = list(values or [])[:MAX_DRQ_NUMBERS]
@@ -229,9 +231,13 @@ class DesignInputPanel(QWidget):
         from PySide6.QtWidgets import QFileDialog
         # item 21: SPF import accepts ONLY Allegro Smart PDF - the
         # txt / .spf text fallback is removed
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import SPF", "",
-            "Allegro Smart PDF (*.pdf);;All files (*.*)")
+        begin("yamlbuild: import SPF pick", category="ui", wait=True)
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Import SPF", "",
+                "Allegro Smart PDF (*.pdf);;All files (*.*)")
+        finally:
+            end("yamlbuild: import SPF pick")
         if not path:
             return
         begin("yamlbuild: import SPF")
@@ -314,8 +320,12 @@ class DesignInputPanel(QWidget):
         """IMPORT a NET file: LOAD ONLY - raw bytes into memory, no
         parse, no structure analysis, no data generation."""
         from PySide6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import NET", "", "Netlist (*.net *.net.txt *.txt)")
+        begin("yamlbuild: import NET pick", category="ui", wait=True)
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Import NET", "", "Netlist (*.net *.net.txt *.txt)")
+        finally:
+            end("yamlbuild: import NET pick")
         if not path:
             return
         begin("yamlbuild: import NET")
@@ -352,8 +362,12 @@ class DesignInputPanel(QWidget):
         (M1 "GUI optional BOM, non-blocking" contract)."""
         from PySide6.QtWidgets import QFileDialog
         from mtkgui.ict.netparse.bom import parse_bom
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import BOM", "", "BOM (*.csv *.xlsx)")
+        begin("yamlbuild: import BOM pick", category="ui", wait=True)
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Import BOM", "", "BOM (*.csv *.xlsx)")
+        finally:
+            end("yamlbuild: import BOM pick")
         if not path:
             return
         begin("yamlbuild: import BOM")

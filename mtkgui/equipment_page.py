@@ -58,6 +58,7 @@ import random
 
 from .permissions import MANUAL_FIXTURE_NOTICE, MODE_VIRTUAL
 from .qt_guard import qt_safe
+from mtkgui.gui.dialog_sizing import enable_dialog_controls, fit_dialog
 
 # ---------------------------------------------------------------- palette
 BLUE = "#2563eb"
@@ -1512,6 +1513,7 @@ class _BlockConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - Configuration")
         self.setMinimumWidth(650)
+        enable_dialog_controls(self)
         self._editor = editor
         root = QVBoxLayout(self)
 
@@ -1578,6 +1580,7 @@ class _DeviceEditDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"{device} - Configuration")
         self.setMinimumWidth(520)
+        enable_dialog_controls(self)
         self._spec = spec
         root = QVBoxLayout(self)
 
@@ -1626,7 +1629,7 @@ class _DeviceTableDialog(QDialog):
                  config=None):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - Configuration")
-        self.resize(900, 570)
+        fit_dialog(self, 900, 570)
         self._rows = rows
         self._block_key = block_key
         # local copy - written back to the page config on close
@@ -1716,7 +1719,7 @@ class _InstrumentDialog(QDialog):
         # persisted connection / parameter configuration (YAML-backed)
         self._config = dict(config or {})
         self.setWindowTitle(f"{title} - Configuration")
-        self.resize(920, 720)
+        fit_dialog(self, 920, 720)
         root = QVBoxLayout(self)
 
         # 1 ---------------------------------------------------- information

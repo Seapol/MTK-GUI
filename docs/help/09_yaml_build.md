@@ -121,8 +121,9 @@ first`.
   the system defaults; an explicitly empty pattern suppresses the
   name-based default for that category. Saving re-runs the parse
   immediately.
-- `Parse Nets for ICT` - runs the formal parse with live progress
-  on the global status bar and Event-Log detail per step: format
+- `Parse Nets for ICT` - runs the formal parse inside a **modal
+  progress dialog** (stages on the dialog, mirrored on the global
+  status bar) with Event-Log detail per step: format
   auto-detection (SPF / PSTXNET / NET), cleaning, parsing,
   classification, test-point selection and path-risk scoring.
 - `Risk Thresholds` - configure the test path complexity score
@@ -361,7 +362,12 @@ code change.
 ### Auto Allocation
 
 `Auto` fills the **Power**, **Clock** and **Control IO** tables
-top-down:
+top-down. It is a long operation on big projects (hundreds of nets),
+so the `03 · Auto-Channel Allocation` card opens a **modal progress
+dialog** that reports the four phases - power (33 %) -> clock (33 %)
+-> control IO (33 %) -> validating (100 %) - and pumps the event
+loop while it runs; any failure is caught and shown as an error
+dialog instead of leaving the GUI unresponsive:
 
 1. **Test point**: the best probe pin of the net (a `TP` pin
    preferred, else the first member pin).

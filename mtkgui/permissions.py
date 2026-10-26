@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from mtkgui.gui import identity
 from .gui_version import load_gui_version
+from mtkgui.gui.dialog_sizing import enable_dialog_controls, fit_dialog
 from .style import GUI_THEMES, saved_theme
 
 ROLE_SUPERVISOR = "Supervisor"
@@ -254,7 +255,7 @@ class LoginDialog(QDialog):
         # rules drive width / height (Windows / macOS high-DPI safe:
         # logical px minimums, widgets grow with the window)
         self.setMinimumSize(480, 540)
-        self.resize(480, 540)
+        fit_dialog(self, 480, 540)
         self.setSizeGripEnabled(True)
 
         outer = QVBoxLayout(self)
@@ -589,6 +590,7 @@ class PermissionsDialog(QDialog):
     def __init__(self, perm, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Operator Permissions")
+        enable_dialog_controls(self)
         layout = QVBoxLayout(self)
 
         note = QLabel(

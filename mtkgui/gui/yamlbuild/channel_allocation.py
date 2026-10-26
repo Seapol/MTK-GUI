@@ -25,9 +25,11 @@ test engine and scheduling logic are untouched.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import Qt, QEvent, Signal
+from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -793,6 +795,11 @@ class ChannelAllocationPage(QWidget):
         super().__init__(parent)
         self.model = None
         self._edit_allowed = True
+        # content fingerprint of the last (re)build source - a tab
+        # re-entry with unchanged model data skips the full rebuild
+        # (fix 2026-10-26: 800-row projects froze the UI for seconds on
+        # every tab switch)
+        self._refresh_fp: str | None = None
 
         lay = QVBoxLayout(self)
         # NOTE: the former "Auto" / "Apply to YAML" buttons are GONE
@@ -896,6 +903,16 @@ class ChannelAllocationPage(QWidget):
             isolated, drivers = assess_net(members, library)
         except Exception:
             isolated, drivers = None, []
+        from mtkgui.startup_timing import begin as _t_begin
+        from mtkgui.startup_timing import end as _t_end
+        _t_begin("dio write: isolation confirm", category="ui",
+                 wait=True)
+        try:
+            self._confirm_dio_write(net, members, isolated, drivers)
+        finally:
+            _t_end("dio write: isolation confirm")
+
+    def _confirm_dio_write(self, net, members, isolated, drivers):
         box = QMessageBox(self)
         if isolated is False:
             box.setIcon(QMessageBox.Icon.Warning)
@@ -987,9 +1004,55 @@ class ChannelAllocationPage(QWidget):
                         widget.setEnabled(self._edit_allowed)
 
     # ---------------------------------------------------------- data flow
+    def _source_fingerprint(self) -> str | None:
+        """Content fingerprint of the two model sources that drive the
+        tables (``testable_nets`` + ``channel_allocation``).
+
+        Stable for equal data, so a tab re-entry with no real change
+        skips the full rebuild.  Returns None on a fingerprint failure
+        (non-JSON payload) to keep the conservative rebuild path.
+        """
+        testable = (self.model.imported.get("testable_nets")
+                    if self.model else None) or {}
+        alloc = (self.model.channel_allocation
+                 if self.model else None) or {}
+        try:
+            h = hashlib.sha1()
+            h.update(json.dumps(testable, sort_keys=True, default=str,
+                                ensure_ascii=False).encode("utf-8"))
+            h.update(b"|")
+            h.update(json.dumps(alloc, sort_keys=True, default=str,
+                                ensure_ascii=False).encode("utf-8"))
+            return h.hexdigest()
+        except (TypeError, ValueError):
+            return None
+
     def refresh_from_model(self) -> None:
         """Sync the tables with the current T8 parse result, keeping
-        the saved configuration of unchanged nets."""
+        the saved configuration of unchanged nets.
+
+        Tab re-entry with UNCHANGED model data returns immediately:
+        rebuilding the three tables on real projects (800 rows / 652
+        GPIO rows) deleted and re-created thousands of widgets on EVERY
+        tab switch and froze the UI for seconds (user report
+        2026-10-26)."""
+        fp = self._source_fingerprint()
+        if fp is not None and fp == self._refresh_fp:
+            # unchanged data: NO rebuild (the 800-row freeze fix).
+            # Still, the dropdown widgets render lazily for the visible
+            # window only - a data load while the tab was hidden left
+            # them un-rendered, so a SHOW tops the visible rows up
+            # (deferred one event-loop beat: the table paints its text
+            # items first, then the combos appear - no freeze on the
+            # first entry either).
+            def _top_up_visible_rows():
+                for table in (self.table_power, self.table_clock,
+                              self.table_gpio):
+                    table._render_window()
+
+            QTimer.singleShot(0, self, _top_up_visible_rows)
+            return
+        self._refresh_fp = fp
         data = ChannelAllocationData.from_dict(
             (self.model.channel_allocation if self.model else {}))
         testable = (self.model.imported.get("testable_nets")
@@ -1026,20 +1089,28 @@ class ChannelAllocationPage(QWidget):
 
     def save_to_model(self) -> None:
         """Persist the tables into the model (project YAML channel)
-        and the restart-safe project store."""
-        if self.model is not None:
-            self.model.set_channel_allocation(self.collect())
-            self.task_log.emit(
-                "INFO",
-                "channel allocation saved: "
-                f"{self._summary_text()}")
-            try:
-                from mtkgui.gui.yamlbuild.store import \
-                    save_project_state
-                save_project_state(self.model.project_key(),
-                                   self.model.to_dict())
-            except Exception:     # persistence must never break the GUI
-                pass
+        and the restart-safe project store.
+
+        Unchanged data is a no-op: on the 800-row projects every
+        tab-leave used to deep-copy + JSON-write the FULL model and
+        froze the UI on the way out as well (fix 2026-10-26)."""
+        if self.model is None:
+            return
+        collected = self.collect()
+        if (self.model.channel_allocation or {}) == collected:
+            return      # unchanged: no model write, no disk write
+        self.model.set_channel_allocation(collected)
+        self.task_log.emit(
+            "INFO",
+            "channel allocation saved: "
+            f"{self._summary_text()}")
+        try:
+            from mtkgui.gui.yamlbuild.store import \
+                save_project_state
+            save_project_state(self.model.project_key(),
+                               self.model.to_dict())
+        except Exception:     # persistence must never break the GUI
+            pass
 
     # ------------------------------------------------------------ auto
     def _channel_conflicts(self) -> list[tuple[str, str, list[str]]]:
@@ -1094,51 +1165,74 @@ class ChannelAllocationPage(QWidget):
         from the U2355A AI pool; SE Clock from its pool; Control IO
         takes the top 24 nets (parse rank order) on the U2355A DIO
         pool.  Rows beyond a pool capacity stay unset (cannot be
-        tested) and are adjusted manually afterwards."""
-        for kind, table in (("power", self.table_power),
-                            ("clock", self.table_clock),
-                            ("gpio", self.table_gpio)):
-            sense = iter(DAQM908A_SENSE_CHANNELS)
-            rails = iter(U2355A_AI_CHANNELS)
-            clocks = iter(CLOCK_CHANNELS)
-            dios = iter(GPIO_DIO_CHANNELS)
-            rows = table.rows()
-            for row in rows:
-                if row.test_point in ("", UNSET):
-                    row.test_point = self._best_test_point(
-                        self._net_members(row.net))
-                if kind == "power":
-                    # M19: R-GND / Voltage use the 80-channel DAQM908A
-                    # sense pool INDEPENDENTLY of the 12-channel U2355A
-                    # AI (power-rails) pool - a 55-rail board previously
-                    # stopped at 12 because the rails iterator exhausted
+        tested) and are adjusted manually afterwards.
+
+        The run is wrapped in a FOREGROUND modal progress dialog
+        (2026-10-26): rebuilding the 800-row tables for a big project
+        like 96624 took seconds of frozen GUI before; the front bar
+        stages power / clock / gpio / validation and keeps the window
+        repainting."""
+        from mtkgui.gui.progress_dialog import guarded_run
+        from mtkgui.startup_timing import begin as _t_begin
+        from mtkgui.startup_timing import end as _t_end
+
+        _t_begin("yamlbuild: auto allocate", category="io")
+
+        def _run(stage):
+            for idx, (kind, table) in enumerate(
+                    (("power", self.table_power),
+                     ("clock", self.table_clock),
+                     ("gpio", self.table_gpio))):
+                stage(idx * 33,
+                      f"Auto assign: allocating {kind} channels")
+                sense = iter(DAQM908A_SENSE_CHANNELS)
+                rails = iter(U2355A_AI_CHANNELS)
+                clocks = iter(CLOCK_CHANNELS)
+                dios = iter(GPIO_DIO_CHANNELS)
+                rows = table.rows()
+                for row in rows:
+                    if row.test_point in ("", UNSET):
+                        row.test_point = self._best_test_point(
+                            self._net_members(row.net))
+                    if kind == "power":
+                        # M19: R-GND / Voltage use the 80-channel
+                        # DAQM908A sense pool INDEPENDENTLY of the
+                        # 12-channel U2355A AI (power-rails) pool - a
+                        # 55-rail board previously stopped at 12 because
+                        # the rails iterator exhausted
+                        try:
+                            channel = next(sense)
+                            row.impedance = channel
+                            row.voltage = channel  # SAME channel both
+                        except StopIteration:
+                            row.impedance = UNSET
+                            row.voltage = UNSET
                     try:
-                        channel = next(sense)
-                        row.impedance = channel
-                        row.voltage = channel   # SAME channel both
+                        if kind == "power":
+                            row.power_rails = next(rails)
+                        elif kind == "clock":
+                            row.se_clock_hz = next(clocks)
+                            row.band = CLOCK_BANDS.get(row.se_clock_hz,
+                                                       UNSET)
+                        else:
+                            row.dio_channel = next(dios)
                     except StopIteration:
-                        row.impedance = UNSET
-                        row.voltage = UNSET
-                try:
-                    if kind == "power":
-                        row.power_rails = next(rails)
-                    elif kind == "clock":
-                        row.se_clock_hz = next(clocks)
-                        row.band = CLOCK_BANDS.get(row.se_clock_hz,
-                                                   UNSET)
-                    else:
-                        row.dio_channel = next(dios)
-                except StopIteration:
-                    # pool exhausted: this net cannot be tested
-                    if kind == "power":
-                        row.power_rails = UNSET
-                    elif kind == "clock":
-                        row.se_clock_hz = UNSET
-                        row.band = UNSET
-                    else:
-                        row.dio_channel = UNSET
-            table.load_rows(rows)
-        self._update_summary()
+                        # pool exhausted: this net cannot be tested
+                        if kind == "power":
+                            row.power_rails = UNSET
+                        elif kind == "clock":
+                            row.se_clock_hz = UNSET
+                            row.band = UNSET
+                        else:
+                            row.dio_channel = UNSET
+                table.load_rows(rows)
+            stage(100, "Auto assign: validating")
+            self._update_summary()
+
+        try:
+            guarded_run(self, None, "Auto assign…", _run)
+        finally:
+            _t_end("yamlbuild: auto allocate")
 
     @staticmethod
     def _configured_ok(data: ChannelAllocationData) -> bool:

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .dialog_sizing import fit_dialog
 from ..engine import (
     FCT_METHODS,
     METHOD_R_GND,
@@ -125,8 +126,10 @@ class StepsEditorDialog(QDialog):
             layout.addWidget(buttons)
 
             # M10-FIX2 F8: the list + button column + preview need ~1000
-            # px, not 1170 - measured with the 96317 ICT sequence
-            self.resize(1000, 690)
+            # px, not 1170 - measured with the 96317 ICT sequence;
+            # fit_dialog clamps the height to the screen and enables
+            # min / max (2026-10-26)
+            fit_dialog(self, 1000, 690)
 
     def _make_add_menu(self):
         """Dropdown for the Add button: every supported step type."""

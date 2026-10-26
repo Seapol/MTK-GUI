@@ -7,9 +7,12 @@ import pytest
 from mtkgui.engine.sharepoint_site import (
     SharePointSession,
     join_folder,
+    parse_browser_cookies,
     parse_sharepoint_link,
     session_cookies,
 )
+
+SITE = "https://nxp1.sharepoint.com"
 
 MODERN = ("https://nxp1.sharepoint.com/:f:/r/teams/ext158/BTD/Shared"
           "%20Documents/MTK%20Test%20Data?d=w1234&csf=1&web=1&e=abcd")
@@ -108,3 +111,58 @@ def test_load_missing_or_empty_session(tmp_path):
     assert not empty.signed_in
     empty.save(tmp_path / "empty.json")
     assert SharePointSession.load(tmp_path / "empty.json") is None
+
+
+# ---------------------------------------------------------- browser import
+BROWSER_JSON = """[
+  {"name":"FedAuth","value":"FA_ABC","domain":".nxp1.sharepoint.com",
+   "path":"/","secure":true,"session":true},
+  {"name":"rtFa","value":"RT_XYZ","domain":".nxp1.sharepoint.com",
+   "path":"/","secure":true,"session":true},
+  {"name":"bogus","value":"nope","domain":".nxp1.sharepoint.com",
+   "path":"/","secure":true},
+  {"name":"_EDGE_S","value":"x","domain":".msedge.net",
+   "path":"/","secure":true}
+]"""
+
+
+def test_browser_cookies_json_array_keeps_session_pair():
+    cookies, errors = parse_browser_cookies(BROWSER_JSON, SITE)
+    assert [c["name"] for c in cookies] == ["FedAuth", "rtFa"]
+    assert not errors
+
+
+def test_browser_cookies_name_value_lines_fallback():
+    cookies, errors = parse_browser_cookies("FedAuth=FA_LINE\nrtFa=RT_LINE",
+                                            SITE)
+    assert [c["name"] for c in cookies] == ["FedAuth", "rtFa"]
+    assert not errors
+    assert cookies[0]["domain"] == "nxp1.sharepoint.com"
+    assert cookies[0]["secure"] is True
+
+
+def test_browser_cookies_missing_rtfa_reports_requirement():
+    cookies, errors = parse_browser_cookies("FedAuth=ONLY", SITE)
+    assert [c["name"] for c in cookies] == ["FedAuth"]
+    assert any("rtFa" in m for m in errors)
+
+
+def test_browser_cookies_empty_or_no_site():
+    cookies, errors = parse_browser_cookies("  ", SITE)
+    assert not cookies and errors
+    cookies, errors = parse_browser_cookies("FedAuth=X", "")
+    assert not cookies and any("site link" in m for m in errors)
+
+
+def test_browser_cookies_wrong_domain_dropped():
+    cookies, errors = parse_browser_cookies(
+        '[{"name":"FedAuth","value":"X","domain":"evil.com",'
+        '"path":"/","secure":true}]', SITE)
+    assert not cookies
+    assert any("No FedAuth / rtFa" in m for m in errors)
+
+
+def test_browser_cookies_non_array_json_rejected():
+    cookies, errors = parse_browser_cookies('{"name":"FedAuth"}', SITE)
+    assert not cookies
+    assert any("not a cookie array" in m for m in errors)

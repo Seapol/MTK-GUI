@@ -33,6 +33,7 @@ from mtkgui.gui.yamlbuild.schema import (
     T_TEXT,
     fields_for,
 )
+from mtkgui.gui.dialog_sizing import fit_dialog
 from mtkgui.gui.yamlbuild.stages import STAGE_BY_KEY
 
 
@@ -137,7 +138,7 @@ class BlockConfigDialog(QDialog):
             # _dlg_enlarged as "size already chosen").
             self.setProperty("_dlg_enlarged", True)
             self.setMinimumSize(560, 0)
-            self.resize(600, 540)
+            fit_dialog(self, 600, 540)
         elif module_key == "instruments":
             # T9: the simplified Configure Instruments panel - the
             # instrument parameters stay on the Equipment page
@@ -199,10 +200,11 @@ class BlockConfigDialog(QDialog):
             lay.addWidget(self.nets_panel)
             # M10-FIX2 F1: the tables stretch inside a sane initial size
             # instead of forcing a tall empty block above the buttons;
-            # _dlg_enlarged stops the DialogCenterer from inflating the
-            # dialog to 1.5x its (tall, empty-table) sizeHint
-            self.setProperty("_dlg_enlarged", True)
-            self.resize(1060, 780)
+            # fit_dialog marks _dlg_enlarged so the DialogCenterer only
+            # centers it and never inflates it to the screen height
+            # (2026-10-26: the button row used to fall behind the
+            # taskbar on big builders).
+            fit_dialog(self, 1060, 780)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)

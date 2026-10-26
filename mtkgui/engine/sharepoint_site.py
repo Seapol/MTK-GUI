@@ -27,6 +27,97 @@ from urllib.parse import unquote, urlsplit
 #: cookies the SharePoint / AAD sign-in leaves on the site host
 SESSION_COOKIE_NAMES: tuple[str, ...] = ("FedAuth", "rtFa")
 
+
+def parse_browser_cookies(text: str,
+                          site_url: str = "") -> tuple[list[dict], list[str]]:
+    """Parse cookies exported from the operator's OWN browser (Edge /
+    Chrome) into the session-cookie list the GUI accepts, so the
+    embedded sign-in window can be skipped entirely.
+
+    Accepted input formats:
+
+      * Cookie-Editor / EditThisCookie JSON export - a JSON array of
+        cookie objects with ``name`` / ``value`` / ``domain`` / ``path``
+        / ``secure`` fields (any extra fields are ignored);
+      * manual ``name=value`` lines - one cookie per line, the site
+        host is used as the cookie domain (handy when copying FedAuth /
+        rtFa straight from DevTools -> Application -> Cookies).
+
+    Only the SharePoint session cookies (``FedAuth`` / ``rtFa``) whose
+    domain matches ``site_url`` are kept - everything else is dropped.
+
+    Returns ``(cookies, errors)``: ``errors`` carries human-readable
+    problems (empty paste / not JSON / no site link / a session cookie
+    missing) so the GUI can explain what to fix instead of failing
+    silently.
+    """
+    errors: list[str] = []
+    text = (text or "").strip()
+    if not text:
+        return [], ["Nothing to import - paste the cookies first."]
+    host = host_of(site_url)
+    if not host:
+        return [], ["No SharePoint site link - enter the site link in the "
+                    "SharePoint Connection box first."]
+
+    entries: list[dict] = []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        # fall back to manual name=value lines (one cookie per line)
+        for ln in text.splitlines():
+            ln = ln.strip()
+            if not ln or ln.startswith("#"):
+                continue
+            if "=" not in ln:
+                continue
+            name, _, value = ln.partition("=")
+            name = name.strip().strip('"')
+            value = value.strip().strip('"')
+            if name and value:
+                entries.append({"name": name, "value": value,
+                                "domain": host, "path": "/",
+                                "secure": True})
+    else:
+        if not isinstance(data, list):
+            return [], ["The pasted text is not a cookie array - export "
+                        "the cookies as a JSON list (Cookie-Editor "
+                        "'Export') or paste one name=value line per row."]
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            value = str(item.get("value") or "")
+            domain = str(item.get("domain") or "").strip().lstrip(".")
+            path = str(item.get("path") or "/") or "/"
+            secure = bool(item.get("secure", False))
+            if not name:
+                continue
+            entries.append({"name": name, "value": value,
+                            "domain": domain, "path": path,
+                            "secure": secure})
+
+    kept: list[dict] = []
+    for entry in entries:
+        # session_cookies() keeps FedAuth / rtFa whose domain matches
+        # the site host (domain-only matching, host_only_domain and
+        # session flags are irrelevant to the REST transport)
+        kept.extend(session_cookies([entry], host))
+    names = {c["name"] for c in kept}
+    if not kept:
+        errors.append(
+            f"No FedAuth / rtFa session cookie found for {host}. Check "
+            "that the site link matches the browser domain you copied "
+            "the cookies from.")
+    else:
+        for need in SESSION_COOKIE_NAMES:
+            if need not in names:
+                errors.append(
+                    f"Missing the {need} session cookie - SharePoint "
+                    "needs BOTH FedAuth and rtFa. Copy both from the "
+                    "browser (DevTools -> Application -> Cookies).")
+    return kept, errors
+
 #: share-link markers: modern (``:f:/r/``) first, then the classic form
 _SHARE_MARKERS: tuple[str, ...] = ("/:f:/r/", "/:f:/")
 

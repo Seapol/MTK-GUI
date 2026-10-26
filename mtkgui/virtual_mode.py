@@ -19,6 +19,7 @@ import json
 import sys
 from pathlib import Path
 
+from mtkgui.gui.dialog_sizing import enable_dialog_controls
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -72,6 +73,7 @@ class VirtualFaultDialog(QDialog):
     def __init__(self, cfg, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Virtual Fault Injection")
+        enable_dialog_controls(self)
         form = QFormLayout(self)
 
         note = QLabel(
