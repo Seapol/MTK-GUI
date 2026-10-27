@@ -1,6 +1,6 @@
 project:
   software: mtk-gui v1.0.0.0
-  revision: 1.0.0
+  revision: 1.0.6
   created: '2026-10-17T23:33:36'
 product:
   part_number: FRDM-IMX93
@@ -619,7 +619,7 @@ test_workflow:
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 2.0
-  - name: 'fat.py: setup confirm (wait): ''done'' (expected)'
+  - name: 'fat.py: started (wait): ''Running as root'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -631,14 +631,14 @@ test_workflow:
         depends: []
         expect_fail: []
         expect_pass: []
-        name: 'fat.py: setup confirm (wait)'
+        name: 'fat.py: started (wait)'
         on_fail: abort
         params:
           capture_enabled: false
           capture_is_expected: true
           case_sensitive: true
           expect_pass_is_regex: false
-          expect_pass_re: Confirm DUT setup is complete and start FAT
+          expect_pass_re: Running as root
           fct_console: true
           kind: wait
           send_enabled: false
@@ -647,7 +647,7 @@ test_workflow:
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 60.0
-  - name: 'fat.py: setup confirm: ''done'' (expected)'
+  - name: 'fat.py: started: ''done'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -659,7 +659,7 @@ test_workflow:
         depends: []
         expect_fail: []
         expect_pass: []
-        name: 'fat.py: setup confirm'
+        name: 'fat.py: started'
         on_fail: abort
         params:
           capture_enabled: true
@@ -667,8 +667,8 @@ test_workflow:
           capture_is_expected: true
           capture_timeout: 30.0
           case_sensitive: true
-          confirm_enabled: true
-          confirm_message: 'fat.py setup check: earphone plugged in, HDMI monitor on, RGB LED visible - setup complete?'
+          confirm_enabled: false
+          confirm_message: ''
           expect_fail_is_regex: false
           expect_fail_re: ''
           expect_pass_is_regex: false
@@ -676,11 +676,11 @@ test_workflow:
           fct_console: true
           kind: send
           parse_summary: false
-          send: y
-          send_enabled: true
+          send: ''
+          send_enabled: false
           send_timeout: 4.0
           wait_enabled: true
-          wait_pattern: Confirm DUT setup is complete and start FAT
+          wait_pattern: Running as root
           wait_timeout: 60.0
         resource: ''
         retries: 0
@@ -753,7 +753,7 @@ test_workflow:
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 30.0
-  - name: 'fat.py: HDMI visual (wait): ''done'' (expected)'
+  - name: 'fat.py: HDMI visual (wait): ''visual command completed'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -772,7 +772,7 @@ test_workflow:
           capture_is_expected: true
           case_sensitive: true
           expect_pass_is_regex: false
-          expect_pass_re: Is HDMI output visible on the monitor
+          expect_pass_re: visual command completed
           fct_console: true
           kind: wait
           send_enabled: false
@@ -801,26 +801,26 @@ test_workflow:
           capture_is_expected: true
           capture_timeout: 30.0
           case_sensitive: true
-          confirm_enabled: true
-          confirm_message: 'HDMI: look at the monitor - is the DUT output visible?'
+          confirm_enabled: false
+          confirm_message: ''
           expect_fail_is_regex: false
           expect_fail_re: ''
           expect_pass_is_regex: false
-          expect_pass_re: Operator confirmed HDMI output
+          expect_pass_re: visual command completed
           fct_console: true
           kind: send
           parse_summary: false
-          send: y
-          send_enabled: true
+          send: ''
+          send_enabled: false
           send_timeout: 4.0
           wait_enabled: true
-          wait_pattern: Is HDMI output visible on the monitor
+          wait_pattern: visual command completed
           wait_timeout: 300.0
         resource: ''
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 30.0
-  - name: 'fat.py: RGB LED start (wait): ''done'' (expected)'
+  - name: 'fat.py: RGB LED start (wait): ''Display RED'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -839,7 +839,7 @@ test_workflow:
           capture_is_expected: true
           case_sensitive: true
           expect_pass_is_regex: false
-          expect_pass_re: Press any key to start the RGB LED test
+          expect_pass_re: Display RED
           fct_console: true
           kind: wait
           send_enabled: false
@@ -868,8 +868,8 @@ test_workflow:
           capture_is_expected: true
           capture_timeout: 20.0
           case_sensitive: true
-          confirm_enabled: true
-          confirm_message: 'RGB LED: get ready to watch the on-board LED - press Yes to start the color cycle'
+          confirm_enabled: false
+          confirm_message: ''
           expect_fail_is_regex: false
           expect_fail_re: ''
           expect_pass_is_regex: false
@@ -878,16 +878,16 @@ test_workflow:
           kind: send
           parse_summary: false
           send: ''
-          send_enabled: true
+          send_enabled: false
           send_timeout: 4.0
           wait_enabled: true
-          wait_pattern: Press any key to start the RGB LED test
+          wait_pattern: Display RED
           wait_timeout: 300.0
         resource: ''
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 20.0
-  - name: 'fat.py: RGB LED colors (wait): ''done'' (expected)'
+  - name: 'fat.py: RGB LED colors (wait): ''completed without operator confirmation'' (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -906,7 +906,7 @@ test_workflow:
           capture_is_expected: true
           case_sensitive: true
           expect_pass_is_regex: false
-          expect_pass_re: Did the RGB LED display RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE correctly
+          expect_pass_re: RGB LED sequence completed without operator confirmation
           fct_console: true
           kind: wait
           send_enabled: false
@@ -935,20 +935,20 @@ test_workflow:
           capture_is_expected: true
           capture_timeout: 30.0
           case_sensitive: true
-          confirm_enabled: true
-          confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE) look correct?'
+          confirm_enabled: false
+          confirm_message: ''
           expect_fail_is_regex: false
           expect_fail_re: ''
           expect_pass_is_regex: false
-          expect_pass_re: Operator confirmed all RGB LED colors
+          expect_pass_re: RGB LED sequence completed without operator confirmation
           fct_console: true
           kind: send
           parse_summary: false
-          send: y
-          send_enabled: true
+          send: ''
+          send_enabled: false
           send_timeout: 4.0
           wait_enabled: true
-          wait_pattern: Did the RGB LED display RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE correctly
+          wait_pattern: RGB LED sequence completed without operator confirmation
           wait_timeout: 300.0
         resource: ''
         retries: 0
@@ -1571,7 +1571,7 @@ test_workflow:
     - exception
     - refused
 yaml_build_state:
-  plan_version: 1.0.0
+  plan_version: 1.0.6
   saved_at: '2026-10-17T23:33:36'
   imported:
     net:
@@ -1713,9 +1713,9 @@ yaml_build_state:
           \      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
           \ ''\n    - kind: send\n      name: 'fat.py: setup confirm'\n      transport: serial\n      enabled: true\n    \
           \  wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send: y\n      expect_pass:\
-          \ Confirm DUT setup is complete and start FAT\n      expect_fail: Running as root\n      expect_pass_is_regex: false\n\
+          \ Running as root\n      expect_fail: ''\n      expect_pass_is_regex: false\n\
           \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: true\n      confirm_message: 'fat.py setup check: earphone\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: 'fat.py setup check: earphone\
           \ plugged in, HDMI monitor on,\n        RGB LED visible - setup complete?'\n      dialog_style: yesno\n      send_yes:\
           \ y\n      send_no: n\n      timeout: 30.0\n      wait_timeout: 60.0\n      send_timeout: 4.0\n      retries: 0\n\
           \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd:\
@@ -1729,27 +1729,25 @@ yaml_build_state:
           \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
           \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
           \ 'fat.py: HDMI visual'\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: y\n      expect_pass: Is HDMI output visible on the monitor\n \
-          \     expect_fail: Operator confirmed HDMI output\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
+          \ true\n      capture_enabled: true\n      send: y\n      expect_pass: visual command completed\n \
+          \     expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
           \ false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: true\n      confirm_message: 'HDMI: look at the monitor - is the DUT output visible?'\n\
+          \ ''\n      confirm_enabled: false\n      confirm_message: 'HDMI: look at the monitor - is the DUT output visible?'\n\
           \      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 30.0\n      wait_timeout: 300.0\n\
           \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
           \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
           \ 'fat.py: RGB LED start'\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: ''\n      expect_pass: Press any key to start the RGB LED test\n\
-          \      expect_fail: '[RGB LED] Display RED'\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \ true\n      capture_enabled: true\n      send: ''\n      expect_pass: Display RED\n\
+          \      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
           \      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: true\n      confirm_message: 'RGB LED: get ready to watch the on-board LED - press\
+          \ ''\n      confirm_enabled: false\n      confirm_message: 'RGB LED: get ready to watch the on-board LED - press\
           \ Yes to\n        start the color cycle'\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n     \
           \ timeout: 20.0\n      wait_timeout: 300.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n     \
           \ action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
           \ ''\n    - kind: send\n      name: 'fat.py: RGB LED colors'\n      transport: serial\n      enabled: true\n   \
           \   wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send: y\n      expect_pass:\
-          \ Did the RGB LED display RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE\n        correctly\n      expect_fail: Operator\
-          \ confirmed all RGB LED colors\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive:\
-          \ true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ true\n      confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE)\n        look\
+          \ RGB LED sequence completed without operator confirmation\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive:\
+          \ true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE)\n        look\
           \ correct?'\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 30.0\n      wait_timeout:\
           \ 300.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n     \
           \ remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n   \
