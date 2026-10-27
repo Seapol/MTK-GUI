@@ -1278,7 +1278,7 @@ test_workflow:
           action: sftp_get
           fct_console: true
           kind: sftp_get
-          local: /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/imx93frdm/_run_work/fat_result.json
+          local: '{{dut_report}}/fat_result.json'
           remote: /root/fat_result.json
         resource: ''
         retries: 1
@@ -1302,7 +1302,7 @@ test_workflow:
           action: sftp_get
           fct_console: true
           kind: sftp_get
-          local: /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/imx93frdm/_run_work/fat.log
+          local: '{{dut_report}}/fat.log'
           remote: /root/fat.log
         resource: ''
         retries: 1

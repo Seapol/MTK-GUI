@@ -514,3 +514,77 @@ def test_iperf_missing_server_ip_is_error(monkeypatch):
     ctx.channels = {"ser1": object()}      # a console channel exists
     out = fe._execute_once(step, ctx)
     assert out.verdict == VERDICT_ERROR
+
+
+# ---------------------------------------------------- SFTP transfer rows
+class _SftpChannel:
+    """Fake SSH channel exposing the SFTP surface fct_exec uses."""
+
+    def __init__(self):
+        self.downloaded = []
+        self.removed = []
+
+    def get_file(self, remote, local):
+        self.downloaded.append((remote, local))
+
+    def put_file(self, local, remote):
+        self.uploaded = (local, remote)
+
+    def remove_file(self, remote):
+        self.removed.append(remote)
+
+
+class _PlainChannel:
+    """Channel WITHOUT the SFTP surface (e.g. a serial console)."""
+
+
+def _sftp_step(kind, local, remote):
+    return FctStep(name=f"sftp {kind}", step_type="MESSAGE_CHECK",
+                   channel="ser1",
+                   params={"kind": kind, "action": kind, "local": local,
+                           "remote": remote}, timeout_s=5)
+
+
+def test_sftp_get_fetches_into_dut_report_and_removes_remote(tmp_path):
+    chan = _SftpChannel()
+    ctx = FctContext(channels={"ser1": chan}, station_id="S", user="u",
+                     dut_report=str(tmp_path))
+    out = execute_fct_step(
+        _sftp_step("sftp_get", "{{dut_report}}/fat_result.json",
+                   "/root/fat_result.json"), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert chan.downloaded == [("/root/fat_result.json",
+                                str(tmp_path / "fat_result.json"))]
+    assert chan.removed == ["/root/fat_result.json"]
+    assert "DUT file removed" in out.reason
+
+
+def test_sftp_get_without_dut_report_token_uses_local_as_is(tmp_path):
+    chan = _SftpChannel()
+    ctx = FctContext(channels={"ser1": chan}, station_id="S", user="u")
+    out = execute_fct_step(
+        _sftp_step("sftp_get", str(tmp_path / "plain.json"),
+                   "/root/plain.json"), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert chan.removed == ["/root/plain.json"]
+
+
+def test_sftp_get_fails_when_channel_has_no_sftp():
+    ctx = FctContext(channels={"ser1": _PlainChannel()},
+                     station_id="S", user="u", dut_report="C:\\tmp")
+    out = execute_fct_step(
+        _sftp_step("sftp_get", "{{dut_report}}/fat.json", "/root/fat.json"),
+        ctx)
+    assert out.verdict == VERDICT_ERROR
+    assert "no SFTP get_file" in out.reason
+
+
+def test_sftp_put_passes_over_sftp_channel(tmp_path):
+    chan = _SftpChannel()
+    ctx = FctContext(channels={"ser1": chan}, station_id="S", user="u",
+                     dut_report=str(tmp_path))
+    out = execute_fct_step(
+        _sftp_step("sftp_put", "{{dut_report}}/script.sh",
+                   "/root/script.sh"), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert chan.uploaded == (str(tmp_path / "script.sh"), "/root/script.sh")

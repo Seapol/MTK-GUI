@@ -433,9 +433,25 @@ class SshFctChannel:
         return target
 
     def get_file(self, remote_path: str, local_path: str) -> str:
-        """SFTP download from the DUT (read-back verification)."""
+        """SFTP download from the DUT (read-back verification).  The
+        local parent directory is created on demand so downloads can
+        land directly in the DUT Report folder."""
+        import os
+        parent = os.path.dirname(os.path.abspath(local_path))
+        os.makedirs(parent, exist_ok=True)
         self._ensure_sftp().get(remote_path, local_path)
         return local_path
+
+    def remove_file(self, remote_path: str) -> None:
+        """SFTP delete on the DUT (post-fetch cleanup - 2026-10-27:
+        after fat.log / fat_result.json are fetched into DUT Report,
+        remove them on the DUT so stale results never leak into the
+        next run).  Removing an already-absent file is fine."""
+        try:
+            self._ensure_sftp().remove(remote_path)
+        except IOError:
+            pass                      # already gone - goal achieved
+        self._pending = [f"[sftp] removed {remote_path}"]
 
     # -------------------------------------------- whole-directory deployment
     def _sftp_mkdirs(self, sftp, remote_path: str) -> None:

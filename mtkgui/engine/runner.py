@@ -30,6 +30,7 @@ import time
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..qt_guard import qt_safe
+from ..report_paths import dut_folder
 from .failures import FailureKind, classify_exception, failure_log_line
 from .policies import normalize_retry_count, policy_abort_reason, rollup
 from .rails import ai_wave_review
@@ -1018,7 +1019,8 @@ class TestRunner(QObject):
                          keyword_pass=list(getattr(
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
-                             env, "fct_keyword_fail", ()) or ()))
+                             env, "fct_keyword_fail", ()) or ()),
+                         dut_report=str(dut_folder()))
         ch_key = step.channel
         if ch_key:
             mc = getattr(env, "multi_console", None)
@@ -1923,7 +1925,8 @@ class TestRunner(QObject):
                          keyword_pass=list(getattr(
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
-                             env, "fct_keyword_fail", ()) or ()))
+                             env, "fct_keyword_fail", ()) or ()),
+                         dut_report=str(dut_folder()))
         # bind console channel (if any teardown needs it)
         needs_console = any(
             FctStep.from_dict(

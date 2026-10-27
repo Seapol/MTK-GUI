@@ -13,6 +13,7 @@ human answer) — no instrument/ICT logic.
 """
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -81,6 +82,9 @@ class FctContext:
     run_op: object = None
     keyword_pass: list = field(default_factory=list)
     keyword_fail: list = field(default_factory=list)
+    #: DUT Report folder (str) for the ``{{dut_report}}`` template
+    #: token in sftp_get / sftp_put local paths. Empty = no replacement.
+    dut_report: str = ""
 
     def log(self, message: str) -> None:
         line = f"[{self.station_id}] [{self.user}] {message}"
@@ -490,6 +494,13 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
 
     if step.step_type == STEP_MESSAGE_CHECK:
         channel = ctx.channel_for(step)
+        # SSH file-transfer rows (sftp_put / sftp_get) run over the SSH
+        # channel's SFTP endpoint.  A successful sftp_get ALSO removes
+        # the DUT-side file so stale results can never leak into the
+        # next run (2026-10-27 user direction: fetch fat_result.json /
+        # fat.log into DUT Report, then clear them on the DUT).
+        if step.params.get("kind") in ("sftp_put", "sftp_get"):
+            return _run_sftp(step, ctx, channel)
         if channel is None:
             # channel-less message check = the operator-confirmed row
             # (MessageOK semantics through the confirm hook)
@@ -631,6 +642,46 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
 
     return FctOutcome(VERDICT_ERROR, f"unknown step_type "
                       f"{step.step_type!r}")
+
+
+def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
+    """sftp_put / sftp_get over an SSH channel exposing put_file /
+    get_file (and remove_file for the post-fetch DUT cleanup)."""
+    p = step.params
+    kind = str(p.get("kind") or p.get("action") or "")
+    local = str(p.get("local") or "")
+    remote = str(p.get("remote") or "")
+    if ctx.dut_report:
+        local = local.replace("{{dut_report}}", ctx.dut_report)
+    local = os.path.normpath(local)   # one spelling on every platform
+    try:
+        if kind == "sftp_put":
+            if not hasattr(channel, "put_file"):
+                return FctOutcome(VERDICT_ERROR,
+                                  "channel has no SFTP put_file")
+            channel.put_file(local, remote)
+            return FctOutcome(VERDICT_PASS, f"put {local} -> {remote}")
+        if kind == "sftp_get":
+            if not hasattr(channel, "get_file"):
+                return FctOutcome(VERDICT_ERROR,
+                                  "channel has no SFTP get_file")
+            parent = os.path.dirname(os.path.abspath(local))
+            os.makedirs(parent, exist_ok=True)
+            channel.get_file(remote, local)
+            if hasattr(channel, "remove_file"):
+                try:
+                    channel.remove_file(remote)
+                except Exception as exc:              # noqa: BLE001
+                    return FctOutcome(
+                        VERDICT_PASS,
+                        f"get {remote} -> {local}; DUT cleanup warn: {exc}")
+                return FctOutcome(VERDICT_PASS,
+                                  f"get {remote} -> {local}; "
+                                  f"DUT file removed")
+            return FctOutcome(VERDICT_PASS, f"get {remote} -> {local}")
+        return FctOutcome(VERDICT_ERROR, f"unknown sftp kind {kind!r}")
+    except Exception as exc:                            # noqa: BLE001
+        return FctOutcome(VERDICT_FAIL, f"sftp error: {exc}")
 
 
 def attempt_retry(step: FctStep, ctx: FctContext) -> bool:
