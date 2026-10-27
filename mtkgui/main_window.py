@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 
 from . import project_config
 from .equipment_page import EquipmentPage
+from .gui.shell import resolve_tenant_base
 from .gui.event_log_levels import (
     DETAILED,
     IMPORTANT,
@@ -2234,7 +2235,9 @@ class MainWindow(QMainWindow):
         derived configuration lands under ./projects/ with the standard
         name (Part#_CoreID_Batch_rev_<plan version>_Draft.yaml) so the
         Run gate cannot hit right after a Load."""
-        out_dir = Path.cwd() / "projects"
+        # M19: the auto-save lands in the resolved projects workspace
+        # (env override -> exe-side -> built-in bundle -> CWD fallback)
+        out_dir = Path(resolve_tenant_base())
         path = out_dir / project_config.default_filename(
             self._build_project_config())
         try:

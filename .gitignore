@@ -83,3 +83,7 @@ temp/
 
 # TRAE workspace local config (index filter only, not for versioning)
 .trae/
+
+# PyInstaller workpath (build_windows.ps1)
+.build_tmp/
+

@@ -19,6 +19,7 @@ code; later P2 stages mount business pages purely via ``register_page``.
 from __future__ import annotations
 
 import os
+import sys
 
 from typing import Callable, Optional
 
@@ -63,6 +64,34 @@ from .status_bar import StatusBarWidget
 from .theme import StyleSpec, build_stylesheet
 
 APP_TITLE = "MTK-GUI TestFlow"
+
+
+def resolve_tenant_base() -> str:
+    """Projects workspace the GUI reads/writes, in priority order:
+
+    1. ``MTKGUI_TENANT_BASE`` env (absolute or relative) - explicit
+       override, highest priority.
+    2. Frozen bundle: a ``projects/`` folder next to the exe (user
+       deployment, writable, overrides the built-in copy).
+    3. Frozen bundle: the built-in ``_internal/projects`` shipped with
+       the package (M19: projects travel with the exe; read-only by
+       default but writable wherever the exe sits outside Program
+       Files).
+    4. Source tree / dev fallback: ``projects`` under the CWD.
+    """
+    env = os.environ.get("MTKGUI_TENANT_BASE")
+    if env:
+        return env
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        side = os.path.join(exe_dir, "projects")
+        if os.path.isdir(side):
+            return side
+        meipass = getattr(sys, "_MEIPASS", "") or ""
+        bundled = os.path.join(meipass, "projects")
+        if os.path.isdir(bundled):
+            return bundled
+    return "projects"
 
 
 class PlaceholderPage(QWidget):
@@ -271,8 +300,9 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _default_tenant_base() -> str:
-        import os
-        return os.environ.get("MTKGUI_TENANT_BASE", "projects")
+        """See module-level resolve_tenant_base() - same priority
+        chain, kept as a static method for callers on self."""
+        return resolve_tenant_base()
 
     # P3-1: tenant application -----------------------------------------
     def apply_tenant(self, ctx) -> None:

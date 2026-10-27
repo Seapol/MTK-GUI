@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from mtkgui.gui.log_panel import LogPanelWidget
-from mtkgui.gui.shell import MainWindow, PlaceholderPage
+from mtkgui.gui.shell import MainWindow, PlaceholderPage, resolve_tenant_base
 from mtkgui.gui.theme import StyleSpec, build_stylesheet
 from mtkgui.gui.status_bar import StatusBarWidget
 
@@ -25,6 +25,48 @@ def test_spec_is_frozen(qapp):
     spec = StyleSpec()
     with pytest.raises(Exception):
         spec.ACCENT = "#fff"  # type: ignore[misc]
+
+
+# --------------------------------------------------- tenant base (M19)
+def test_tenant_base_env_wins(monkeypatch):
+    monkeypatch.setenv("MTKGUI_TENANT_BASE", r"D:\deploy\projects")
+    assert resolve_tenant_base() == r"D:\deploy\projects"
+
+
+def test_tenant_base_dev_fallback(monkeypatch):
+    monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
+    monkeypatch.delattr("sys.frozen", raising=False)
+    assert resolve_tenant_base() == "projects"
+
+
+def test_tenant_base_frozen_prefers_exe_side(monkeypatch, tmp_path):
+    """Frozen: a projects/ folder next to the exe overrides the
+    bundled _internal copy (user deployment, writable)."""
+    monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    exe = tmp_path / "MTK_GUI.exe"
+    side = tmp_path / "projects"
+    side.mkdir()
+    (side / ".marker").write_text("x", encoding="utf-8")
+    monkeypatch.setattr("sys.executable", str(exe))
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path / "_internal"),
+                        raising=False)
+    got = resolve_tenant_base()
+    assert got == str(side)
+
+
+def test_tenant_base_frozen_falls_back_to_bundle(monkeypatch, tmp_path):
+    """Frozen with no exe-side projects: use the built-in bundle copy."""
+    monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    exe = tmp_path / "MTK_GUI.exe"
+    internal = tmp_path / "_internal"
+    bundled = internal / "projects"
+    bundled.mkdir(parents=True)
+    (bundled / ".marker").write_text("x", encoding="utf-8")
+    monkeypatch.setattr("sys.executable", str(exe))
+    monkeypatch.setattr("sys._MEIPASS", str(internal), raising=False)
+    assert resolve_tenant_base() == str(bundled)
 
 
 # --------------------------------------------------------------- status bar

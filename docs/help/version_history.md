@@ -125,5 +125,42 @@ as its current release.
   Export page file pick, and the SPF / NET / BOM import file picks -
   every wait-on-user action is marked `[WAIT]`. `MTK_TIMING=0` still
   disables the file. 9 unit tests.
+- **M17** (2026-10-27, `develop`) - Help **User Guide** chapters 15
+  and 16 added: `15 · Example Build of ICT Test Case` (96317 /
+  FRDM-IMXRT700: SPF / NET / BOM import -> Parse Nets -> limits
+  review -> channel allocation -> build sequence -> save YAML ->
+  export test-plan Excel for design review) and `16 · Example Build
+  of FCT Test Case` (FRDM-IMX93: load the demo YAML -> Console /
+  Wi-Fi / Bluetooth / Sequence editor -> DUT-side Linux script list
+  (`/root/preflight.sh`, `/root/load_rf_drivers.sh`, `/root/fat.py`,
+  `fat_result.json`, `fat.log`, `iperf3`) and the scp / sftp copy
+  steps). Both chapters are driven by live GUI walks with 15 new
+  screenshots (`images/18_01..18_10`, `19_01..19_05`); the chapter
+  mount list (`help_content.py` `CHAPTERS`) grows from fourteen to
+  sixteen chapters.
+- **M18** (2026-10-27, `develop`) - FCT SFTP result round-trip: the
+  GUI FCT executor (`fct_exec.py`) now handles `sftp_get` / `sftp_put`
+  rows (previously only the CLI demo runner did), supports the
+  `{{dut_report}}` token in the SFTP local path (resolved to the
+  `DUT Report` folder at run start), creates the local parent
+  directory on demand, and **removes the DUT-side file after a
+  successful fetch** - so `fat_result.json` / `fat.log` land in DUT
+  Report every run and stale results can never leak into the next
+  test. The FRDM-IMX93 demo YAML's "Retrieve fat_result.json (SFTP)"
+  and "Retrieve fat.log (SFTP)" rows now point at
+  `{{dut_report}}/...` instead of the macOS absolute path. 4 new unit
+  tests (`test_fct_exec.py`).
+- **M19** (2026-10-27, `develop`) - Packaging: **projects travel with
+  the exe**. The Windows bundle now ships the whole `projects/` tree
+  into `_internal\projects` (runtime products are stripped: `*.pyc`,
+  `__pycache__`, `_run_work`, `reports`, `fat_result.json`,
+  `fat.log`), and `resolve_tenant_base()` picks the projects workspace
+  as `MTKGUI_TENANT_BASE` env -> `projects/` next to the exe ->
+  built-in `_internal\projects` -> CWD `projects`; the post-Load
+  auto-save follows the same workspace. **Output directory is now
+  configurable**: `build_windows.ps1 -OutDir <path>` packages
+  anywhere (`-SkipProjects` excludes the projects data, `-KeepRunning`
+  skips the GUI auto-stop).
+
 
 
