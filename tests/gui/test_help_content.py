@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Module C help tests: the 14 User Guide chapters exist, the
+"""Module C help tests: the 16 User Guide chapters exist, the
 markdown-lite renderer produces HTML with screenshots, the FAQ covers
 the known-issues list, every main-window tab is documented somewhere
 (freshness guard), the Help menu mounts a single User Guide entry that
 opens the all-in-one guide web page, and the About body carries
 version + branch."""
 from __future__ import annotations
+
+from pathlib import Path
 
 from mtkgui.gui.help_content import (
     CHAPTERS,
@@ -20,7 +22,7 @@ from mtkgui.gui.help_content import (
     topic_temp_path,
 )
 
-#: the 14 chapter files (one per Help menu entry)
+#: the 16 chapter files (one per Help menu entry)
 EXPECTED_FILES = tuple(f for _k, _l, f in CHAPTERS)
 
 
@@ -29,8 +31,9 @@ def test_all_chapters_exist():
         assert (HELP_ROOT / name).is_file(), name
     # 2026-10-14: Channel Allocation merged into the Yaml Build
     # chapter, Cluster removed, Instruments + Station Equipment added
-    assert len(HELP_TOPICS) == 14
-    assert len(CHAPTERS) == 14
+    # 2026-10-27: chapters 15 (Example ICT) and 16 (Example FCT) added
+    assert len(HELP_TOPICS) == 16
+    assert len(CHAPTERS) == 16
 
 
 def test_markdown_lite_renders_structures():
@@ -143,7 +146,7 @@ def test_help_menu_mounts_guide_and_opens_browser(qapp, monkeypatch):
     # _open_help renders the all-in-one guide and opens the browser
     window._open_help()
     assert len(opened) == 1
-    assert opened[0].toLocalFile() == str(guide_temp_path())
+    assert Path(opened[0].toLocalFile()) == guide_temp_path()
     page = guide_temp_path()
     assert page.is_file()
     html = page.read_text(encoding="utf-8")

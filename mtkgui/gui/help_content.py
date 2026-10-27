@@ -38,6 +38,9 @@ HELP_ROOT = _help_root()
 #: chapters 3 (Menus Reference), 6 (Instruments), 7 (Station
 #: Equipment) and 8 (Hardware BoM) were added - fourteen chapters in
 #: total.
+#: 2026-10-27: chapters 15 (Example Build of ICT Test Case) and 16
+#: (Example Build of FCT Test Case) added - sixteen chapters in
+#: total.
 CHAPTERS = [
     ("user_guide", "1. Overview", "01_overview.md"),
     ("getting_started", "2. Getting Started", "02_getting_started.md"),
@@ -55,6 +58,10 @@ CHAPTERS = [
     ("case_editor_config", "13. Case Editor & Config",
      "13_case_editor_config.md"),
     ("faq", "14. FAQ / Troubleshooting", "14_faq.md"),
+    ("example_ict", "15. Example Build of ICT Test Case",
+     "15_example_ict.md"),
+    ("example_fct", "16. Example Build of FCT Test Case",
+     "16_example_fct.md"),
 ]
 
 #: menu key -> section file (kept for direct lookups by key)

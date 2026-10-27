@@ -1,0 +1,1700 @@
+project:
+  software: mtk-gui v1.0.0.0
+  revision: 1.0.0
+  created: '2026-10-27T09:32:51'
+product:
+  part_number: ''
+  core_id: ''
+  batch: freebatch
+equipment:
+  probes:
+    title: Flash / Debug Probes
+    table:
+    - item: J-Link
+      role: ARM flash / debug
+      status: USB
+    - item: PE Micro
+      role: NXP flash / debug
+      status: USB
+    - item: Lauterbach
+      role: TRACE32 debug / trace
+      status: USB
+    - item: CMSIS-DAP
+      role: CMSIS standard probe
+      status: USB HID
+    - item: MCU-LINK
+      role: NXP MCU probe
+      status: USB HID
+    - item: OpenSDA
+      role: NXP OpenSDA
+      status: USB
+  host:
+    title: HOST PC
+    fields:
+      Platform: Common Test Platform
+      Test SW: mtk-gui v1.0.0.0
+      OS: Windows 11 Pro x64
+      Functions: ICT / FCT / Flash / Reports / Cloud
+  peripherals:
+    title: Test Peripherals
+    table:
+    - item: PC Wi-Fi
+      role: RF connectivity
+      status: Not connected
+    - item: PC Bluetooth
+      role: RF connectivity
+      status: Not connected
+    - item: Ethernet Router
+      role: LAN / iperf throughput
+      status: Not connected
+    - item: Media Converter
+      role: T1 / T1S media
+      status: Not connected
+    - item: Display
+      role: DSI-MIPI check
+      status: Not connected
+    - item: Camera
+      role: CSI-MIPI check
+      status: Not connected
+    - item: Microphone / Earphone
+      role: Audio path check
+      status: Not connected
+    - item: Speaker
+      role: Audio output check
+      status: Not connected
+  daq973a:
+    title: DAQ973A Mainframe
+    fields:
+      Model: Keysight DAQ973A, 3 slots
+      Built-in DMM: 6.5-digit (22-bit), DCV 0.003%
+      Interfaces: GPIB + LAN (LXI) + USB
+      Scan speed: up to 450 ch/s
+      Frequency function: 3 Hz - 300 kHz
+      Status: Available
+  m908a_1:
+    title: 'DAQM908A #1'
+    fields:
+      Module: DAQM908A 40-ch SE multiplexer
+      Slot: Slot 1
+      Channels: CH101 - CH140
+      Test points: TP_P1 - TP_P40
+      Reuse: 2-wire Ω then DCV
+      Status: Available
+  m908a_2:
+    title: 'DAQM908A #2'
+    fields:
+      Module: DAQM908A 40-ch SE multiplexer
+      Slot: Slot 2
+      Channels: CH201 - CH240
+      Test points: TP_P41 - TP_P80
+      Reuse: 2-wire Ω then DCV
+      Status: Available
+  m907a:
+    title: DAQM907A
+    fields:
+      Module: DAQM907A multifunction
+      Slot: Slot 3
+      Totalizer: 26-bit, 0 - 100 kHz -> CLK1
+      Analog outputs: 2 x 16-bit, ±12 V, 15 mA/ch
+      DIO: 16-ch open-drain, 42 V / 400 mA
+      Status: Available
+  u2355a:
+    title: U2355A
+    fields:
+      Model: Keysight U2355A USB DAQ
+      Analog input: 16-bit, ±10 V, 250 kSa/s aggregate
+      Counters: 2 x 0.1 Hz - 6 MHz
+      Digital IO: 24 TTL channels
+      AO (backup): 2 x 12-bit ±10 V
+      Status: Available
+  u_ai:
+    title: U2355A - Analog Inputs
+    fields:
+      Resource: AI x16 (max)
+      Used: 12 critical rails
+      Rate: ≈20 kSa/s/ch -> CSV
+      Range: ±10 V, 16-bit
+      Tap: parallel at power net points
+  u_ctr:
+    title: U2355A - Counters + DIO
+    fields:
+      Counters: 'CTR0 / CTR1: 0.1 Hz - 6 MHz'
+      CLK2 / CLK3: 4 MHz / 6 MHz
+      Digital IO: 24 ch -> DUT GPIO
+      Level match: level shifter 1.8 / 3.3 / 5 V
+      AO backup: 2 ch ±10 V, 12-bit
+  psu:
+    title: N5747A DC Power Supply
+    fields:
+      Model: Keysight N5747A
+      Output: 60 V / 12.5 A / 750 W
+      Remote sense: 4-wire ±S at the load
+      Interfaces: LAN (LXI) + USB + GPIB
+      J1: analog program + RI/FLT inhibit
+      Status: Available
+  psu_detail:
+    title: N5747A - Output & Sense
+    fields:
+      Output: ±OUT -> VIN+ / VIN−
+      Remote sense: ±S -> 4-wire at the load
+      Readback: V/I readback ≈1% (trend only)
+      J1: analog program + RI/FLT hardware inhibit
+      Voltages: 5 / 12 / 24 / 48 V profiles
+  fixture:
+    title: Fixture Probe Board
+    fields:
+      Board: Probe board with star ground plane
+      Probe pins: 128 pinhole pins
+      Power net points: TP_P1 - TP_P80
+      Grounding: single-point star plane
+      IO board: ATE fixture control board
+  control_board:
+    title: ATE Fixture Control Board
+    fields:
+      Board: ATE fixture control board
+      Driven by: DAQM907A Port 1/2 open-drain
+      Pull-up: external; 42 V / 400 mA
+      Channels: 16 (4 used)
+  cell_press:
+    title: '[OUT] Press Cylinder'
+    fields:
+      Signal: digital output
+      High: press / clamp down
+      Low: release
+  cell_inpos:
+    title: '[IN] Cylinder In-Position'
+    fields:
+      Signal: digital input
+      High: locked
+      Low: unlocked
+  cell_presence:
+    title: '[IN] DUT Presence'
+    fields:
+      Signal: digital input, active-low
+      High: absence
+      Low: presence
+  cell_estop:
+    title: '[IN] E-Stop Healthy'
+    fields:
+      Signal: digital input, active-low
+      High: unhealthy / triggered
+      Low: healthy
+  dut:
+    title: DUT Board
+    fields:
+      DUT: DUT board via fixture probes
+      Probe pads: '>32 mils (typical 40 mils)'
+      Power nets: TP_P1 - TP_P80
+      GPIO nets: TP_GPIO0 - TP_GPIO23
+      Reference: stress / strain gauge
+  grp_power:
+    title: Power Nets TP_P1-P80
+    fields:
+      Group: Power nets TP_P1 - TP_P80
+      Subset: 12 critical rails for up-sequence
+      Tests: 2-wire Ω + DCV via DAQ973A
+      Up-sequence: 12 ch via U2355A -> CSV + waveform
+      Judgment: ±0.1% via DAQ973A
+      Ω threshold: R_min = V_rail / I_allow, 1.5 Ω tol
+  grp_clocks:
+    title: Clock Nets
+    fields:
+      CLK1: 32.768 kHz -> 907A totalizer
+      CLK2: 4 MHz -> U2355A CTR0
+      CLK3: 6 MHz -> U2355A CTR1
+  grp_adc:
+    title: ADC Input
+    fields:
+      Inputs: TP_ADC0 / TP_ADC1
+      Stimulus: 907A AO0 / AO1, ±12 V 16-bit
+      Test: DUT ADC readback
+  grp_vin:
+    title: Main Power Input
+    fields:
+      Inputs: VIN+ / VIN−
+      Voltages: 5 / 12 / 24 / 48 V
+      Sense: 4-wire remote at the load
+  grp_gnd:
+    title: GND Probes
+    fields:
+      Probes: GND x2
+      Connection: -> star ground plane
+  grp_gpio:
+    title: GPIO Nets
+    fields:
+      Nets: TP_GPIO0 - TP_GPIO23 (24 ch)
+      Driven by: U2355A DIO via level shifter
+      Tests: drive HI/LO, read back, toggle
+console: []
+test_workflow:
+  overall_flow:
+  - stage: ICT
+    description: 'In-Circuit Test: 80 power nets R-GND -> voltage -> RTC/CLKOUT1/CLKOUT2 clocks'
+    enable: true
+  - stage: FCT
+    description: 'Functional Test: LED -> Serial Console (Linux) -> Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE'
+    enable: true
+  stop_if_failure: true
+  stop_if_any_short: true
+  auto_sn: false
+  retry: 0
+  ict_test_cases: []
+  power_rails_up_sequence:
+    instrument: Keysight U2355A analog input
+    channels: 0
+    duration_s: 6.5
+    pre_trigger_s: -0.5
+    post_trigger_s: 6.0
+    sample_rate_hz: 200
+    judgment: record only - no pass/fail
+    rails: []
+  fct_test_cases: []
+  fct_keywords:
+    pass:
+    - pass
+    - passed
+    - success
+    - succeed
+    - ok
+    - done
+    - complete
+    fail:
+    - fail
+    - failed
+    - failure
+    - error
+    - timeout
+    - abort
+    - exception
+    - refused
+yaml_build_state:
+  plan_version: 1.0.0
+  saved_at: '2026-10-27T09:32:51'
+  imported:
+    net:
+      file: C:/MTK All-in-One/MTK-GUI/projects/96317/NET-96317_A.net
+      raw: "Allegro Report\r\nC:/Work/5-Project/98_FRDM-RT700/2-pcb/FabOutput/LAY-96317_A.brd\r\nThu Apr 09 17:21:38 2026\r\
+        \n\r\nNet Name,Net Pins\r\n5V_SDA_PSW,C48.1 D43.A U17.C2 U17.D1 U17.D2\r\n5V_USB0_OTG,C230.1 C364.1 D42.A L25.2 R379.1\
+        \ SJ314.1 TP89.1 U45.C2 U45.D1 U45.D2\r\n154_RST,U68.56 U82.W2\r\nAGND,C186.2 C190.2 C193.2 R2174.1 U82.AC4\r\nAUD_INT,SJ382.2\
+        \ U29.E3\r\nBOOT_ISP0,R155.1 R156.2 SW10.2\r\nBOOT_ISP1,R157.2 R158.1 SW10.1\r\nBRG_I2C0_SCL,R116.2 U8.A12 U13.5\r\
+        \nBRG_I2C0_SDA,R91.2 U8.E7 U13.4\r\nBT_154_RST,U68.67 U82.H5\r\nBT_154_WAKE_OUT,U68.76 U82.B25\r\nBT_DEV_WAKE,U68.55\
+        \ U82.E6\r\nBT_RST,U68.62 U82.E18\r\nBT_UART_CTS,SJ71.2 SJ100.2 SJ413.1\r\nBT_UART_RTS,SJ72.2 SJ99.2 SJ410.1\r\nBT_UART_RXD,SJ70.2\
+        \ SJ97.2 SJ411.1 SJ461.2\r\nBT_UART_TXD,SJ69.2 SJ98.2 SJ412.1 SJ460.2\r\nCCC_INTB_1V8,SJ269.1 U82.C20\r\nCCC_INTB_3V3,R609.2\
+        \ R1364.1 U2.8 U73.6\r\nCODEC_1V8,C96.1 C303.1 C310.1 C312.1 SJ216.2 U29.C6 U29.D6 U29.G2 U29.G4\r\nCODEC_I2C3_SCL,SJ60.2\
+        \ U29.F1\r\nCODEC_I2C3_SDA,SJ61.2 U29.E2\r\nCORTEX7,J18.7 TP20.1\r\nCORTEX9,J18.9 TP19.1\r\nCPCA,C94.1 U29.B6\r\n\
+        CPCB,C94.2 U29.B7\r\nCPVOUTN,C93.1 U29.A7\r\nCPVOUTP,C92.1 U29.A6\r\nDBGIF_DETECT,R130.1 U8.E9\r\nDBGIF_ISP0_CTRL,R128.1\
+        \ U8.C13\r\nDBGIF_ISP1_CTRL,TP15.1 U8.B8\r\nDBGIF_ISP2_CTRL,TP14.1 U8.E13\r\nDBGIF_RESET,U8.E6 U70.3\r\nDBGIF_RESET_TXEN,R122.1\
+        \ U8.C12 U70.5\r\nDBGIF_TCK_SWCLK,U8.L12 U14.2\r\nDBGIF_TDI,U8.F5 U14.3\r\nDBGIF_TDO_SWO,U8.F8 U16.3\r\nDBGIF_TMS_SWDIO,U8.B11\
+        \ U19.3\r\nDBGIF_TMS_SWDIO_TXEN,R147.1 U8.F13 U19.5\r\nDBGIF_VREF,C11.1 R54.2 R55.1 U8.L1\r\nDCDC_1V0,C384.1 C385.1\
+        \ C386.1 C387.1 L715.2 R3052.1 R3054.1 R3055.1 SJ374.2 SJ375.2 SJ414.1 TP87.1\r\nDCDC_1V8,C379.1 C380.1 C645.1 C646.1\
+        \ JP5.3 L30.2 R544.1 R2914.1 R3040.1 TP88.1 U75.1 U77.1 U78.1 U79.1\r\nDCDC_3V3,C242.1 C249.1 C633.1 J53.2 JP11.3\
+        \ JP58.1 L1.2 L19.1 Q19.2 R292.1 R1398.1 TP37.1 U74.5\r\nDC_5V_IN,C642.1 F1.1 J45.1 R33.1 TP72.1\r\nDMIC_CLK,SJ210.1\
+        \ U66.4 U67.4 U82.Y6\r\nDMIC_DATA01,R493.2 SJ211.2 U82.Y5\r\nDMIC_DATA23,R494.2 SJ212.2 SJ377.2\r\nDMIC_DATA45,SJ213.2\
+        \ SJ378.2\r\nDMIC_DATA67,SJ214.2 U82.AD6\r\nDMIC_I2C3_SCL,J7.13 SJ62.2\r\nDMIC_I2C3_SDA,J7.14 SJ63.2\r\nFC3_I2C3_SCL,R876.2\
+        \ SJ56.1 SJ60.1 SJ62.1 U82.AC23\r\nFC3_I2C3_SDA,R877.2 SJ57.1 SJ61.1 SJ63.1 U82.AD24\r\nFXIO_D0,J53.18 SJ201.2 U82.P25\r\
+        \nFXIO_D1,J53.7 SJ200.2 U82.M23\r\nFXIO_D2,J53.5 SJ415.1 U82.P23\r\nFXIO_D3,J53.20 SJ416.1 U82.L24\r\nFXIO_D4,J53.17\
+        \ SJ417.1 U82.M24\r\nFXIO_D5,J53.6 SJ418.1 U82.N23\r\nFXIO_D6,J53.15 SJ199.2 U82.K25\r\nFXIO_D7,J53.16 SJ198.2 SJ439.1\
+        \ U82.K24\r\nFXIO_D8,J53.13 SJ197.2 U82.J23\r\nFXIO_D9,J53.14 SJ196.2 U82.M25\r\nFXIO_D10,J53.11 U82.K23\r\nFXIO_D11,J53.12\
+        \ U82.H25\r\nFXIO_D12,J53.9 U82.H24\r\nFXIO_D13,J53.10 U82.H23\r\nFXIO_D14,J53.19 SJ203.2 SJ446.2 U82.K22\r\nFXIO_D15,J53.8\
+        \ SJ202.2 SJ445.2 U82.K21\r\nGND,C2.2 C3.2 C"
+    testable_nets:
+      DC_5V_IN:
+        category: Power
+        members:
+        - C642.1
+        - F1.1
+        - J45.1
+        - R33.1
+        - TP72.1
+        isolated: null
+        active_drivers: []
+        nominal_v: 5.0
+      5V_SDA_PSW:
+        category: Power
+        members:
+        - C48.1
+        - D43.A
+        - U17.C2
+        - U17.D1
+        - U17.D2
+        isolated: null
+        active_drivers: []
+        nominal_v: 5.0
+      5V_USB0_OTG:
+        category: Power
+        members:
+        - C230.1
+        - C364.1
+        - D42.A
+        - L25.2
+        - R379.1
+        - SJ314.1
+        - TP89.1
+        - U45.C2
+        - U45.D1
+        - U45.D2
+        isolated: null
+        active_drivers: []
+        nominal_v: 5.0
+      DCDC_3V3:
+        category: Power
+        members:
+        - C242.1
+        - C249.1
+        - C633.1
+        - J53.2
+        - JP11.3
+        - JP58.1
+        - L1.2
+        - L19.1
+        - Q19.2
+        - R292.1
+        - R1398.1
+        - TP37.1
+        - U74.5
+        isolated: null
+        active_drivers: []
+        nominal_v: 3.3
+      CODEC_1V8:
+        category: Power
+        members:
+        - C96.1
+        - C303.1
+        - C310.1
+        - C312.1
+        - SJ216.2
+        - U29.C6
+        - U29.D6
+        - U29.G2
+        - U29.G4
+        isolated: null
+        active_drivers: []
+        nominal_v: 1.8
+      DCDC_1V8:
+        category: Power
+        members:
+        - C379.1
+        - C380.1
+        - C645.1
+        - C646.1
+        - JP5.3
+        - L30.2
+        - R544.1
+        - R2914.1
+        - R3040.1
+        - TP88.1
+        - U75.1
+        - U77.1
+        - U78.1
+        - U79.1
+        isolated: null
+        active_drivers: []
+        nominal_v: 1.8
+      DCDC_1V0:
+        category: Power
+        members:
+        - C384.1
+        - C385.1
+        - C386.1
+        - C387.1
+        - L715.2
+        - R3052.1
+        - R3054.1
+        - R3055.1
+        - SJ374.2
+        - SJ375.2
+        - SJ414.1
+        - TP87.1
+        isolated: null
+        active_drivers: []
+        nominal_v: 1.0
+      CPVOUTN:
+        category: Power
+        members:
+        - C93.1
+        - U29.A7
+        isolated: null
+        active_drivers: []
+      CPVOUTP:
+        category: Power
+        members:
+        - C92.1
+        - U29.A6
+        isolated: null
+        active_drivers: []
+      DBGIF_VREF:
+        category: Power
+        members:
+        - C11.1
+        - R54.2
+        - R55.1
+        - U8.L1
+        isolated: null
+        active_drivers: []
+      DMIC_CLK:
+        category: Clock
+        members:
+        - SJ210.1
+        - U66.4
+        - U67.4
+        - U82.Y6
+        isolated: null
+        active_drivers: []
+        nominal_khz: 3072.0
+      154_RST:
+        category: GPIO
+        members:
+        - U68.56
+        - U82.W2
+        isolated: false
+        active_drivers:
+        - U68
+        - U82
+      BT_154_RST:
+        category: GPIO
+        members:
+        - U68.67
+        - U82.H5
+        isolated: false
+        active_drivers:
+        - U68
+        - U82
+      BT_RST:
+        category: GPIO
+        members:
+        - U68.62
+        - U82.E18
+        isolated: false
+        active_drivers:
+        - U68
+        - U82
+      BOOT_ISP0:
+        category: GPIO
+        members:
+        - R155.1
+        - R156.2
+        - SW10.2
+        isolated: true
+        active_drivers: []
+      BOOT_ISP1:
+        category: GPIO
+        members:
+        - R157.2
+        - R158.1
+        - SW10.1
+        isolated: true
+        active_drivers: []
+      AUD_INT:
+        category: GPIO
+        members:
+        - SJ382.2
+        - U29.E3
+        isolated: null
+        active_drivers: []
+      CCC_INTB_1V8:
+        category: GPIO
+        members:
+        - SJ269.1
+        - U82.C20
+        isolated: null
+        active_drivers: []
+      CCC_INTB_3V3:
+        category: GPIO
+        members:
+        - R609.2
+        - R1364.1
+        - U2.8
+        - U73.6
+        isolated: null
+        active_drivers: []
+      CORTEX7:
+        category: GPIO
+        members:
+        - J18.7
+        - TP20.1
+        isolated: null
+        active_drivers: []
+      CORTEX9:
+        category: GPIO
+        members:
+        - J18.9
+        - TP19.1
+        isolated: null
+        active_drivers: []
+      CPCA:
+        category: GPIO
+        members:
+        - C94.1
+        - U29.B6
+        isolated: null
+        active_drivers: []
+      CPCB:
+        category: GPIO
+        members:
+        - C94.2
+        - U29.B7
+        isolated: null
+        active_drivers: []
+      FXIO_D0:
+        category: GPIO
+        members:
+        - J53.18
+        - SJ201.2
+        - U82.P25
+        isolated: null
+        active_drivers: []
+      FXIO_D1:
+        category: GPIO
+        members:
+        - J53.7
+        - SJ200.2
+        - U82.M23
+        isolated: null
+        active_drivers: []
+      FXIO_D2:
+        category: GPIO
+        members:
+        - J53.5
+        - SJ415.1
+        - U82.P23
+        isolated: null
+        active_drivers: []
+      FXIO_D3:
+        category: GPIO
+        members:
+        - J53.20
+        - SJ416.1
+        - U82.L24
+        isolated: null
+        active_drivers: []
+      FXIO_D4:
+        category: GPIO
+        members:
+        - J53.17
+        - SJ417.1
+        - U82.M24
+        isolated: null
+        active_drivers: []
+      FXIO_D5:
+        category: GPIO
+        members:
+        - J53.6
+        - SJ418.1
+        - U82.N23
+        isolated: null
+        active_drivers: []
+      FXIO_D6:
+        category: GPIO
+        members:
+        - J53.15
+        - SJ199.2
+        - U82.K25
+        isolated: null
+        active_drivers: []
+      FXIO_D7:
+        category: GPIO
+        members:
+        - J53.16
+        - SJ198.2
+        - SJ439.1
+        - U82.K24
+        isolated: null
+        active_drivers: []
+      FXIO_D8:
+        category: GPIO
+        members:
+        - J53.13
+        - SJ197.2
+        - U82.J23
+        isolated: null
+        active_drivers: []
+      FXIO_D9:
+        category: GPIO
+        members:
+        - J53.14
+        - SJ196.2
+        - U82.M25
+        isolated: null
+        active_drivers: []
+      FXIO_D10:
+        category: GPIO
+        members:
+        - J53.11
+        - U82.K23
+        isolated: null
+        active_drivers: []
+      FXIO_D11:
+        category: GPIO
+        members:
+        - J53.12
+        - U82.H25
+        isolated: null
+        active_drivers: []
+      FXIO_D12:
+        category: GPIO
+        members:
+        - J53.9
+        - U82.H24
+        isolated: null
+        active_drivers: []
+      FXIO_D13:
+        category: GPIO
+        members:
+        - J53.10
+        - U82.H23
+        isolated: null
+        active_drivers: []
+      FXIO_D14:
+        category: GPIO
+        members:
+        - J53.19
+        - SJ203.2
+        - SJ446.2
+        - U82.K22
+        isolated: null
+        active_drivers: []
+      FXIO_D15:
+        category: GPIO
+        members:
+        - J53.8
+        - SJ202.2
+        - SJ445.2
+        - U82.K21
+        isolated: null
+        active_drivers: []
+  channel_allocation:
+    power:
+    - net: DC_5V_IN
+      test_point: TP72.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH101'
+      power_rails: U2355A AI01
+      voltage: 'DAQM908A #1 CH101'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '5.000'
+      lower_v: '4.750'
+      upper_v: '5.250'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: 5V_SDA_PSW
+      test_point: C48.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH102'
+      power_rails: U2355A AI02
+      voltage: 'DAQM908A #1 CH102'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '5.000'
+      lower_v: '4.750'
+      upper_v: '5.250'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: 5V_USB0_OTG
+      test_point: TP89.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH103'
+      power_rails: U2355A AI03
+      voltage: 'DAQM908A #1 CH103'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '5.000'
+      lower_v: '4.750'
+      upper_v: '5.250'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: DCDC_3V3
+      test_point: TP37.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH104'
+      power_rails: U2355A AI04
+      voltage: 'DAQM908A #1 CH104'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '3.300'
+      lower_v: '3.135'
+      upper_v: '3.465'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: CODEC_1V8
+      test_point: C96.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH105'
+      power_rails: U2355A AI05
+      voltage: 'DAQM908A #1 CH105'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '1.800'
+      lower_v: '1.710'
+      upper_v: '1.890'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: DCDC_1V8
+      test_point: TP88.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH106'
+      power_rails: U2355A AI06
+      voltage: 'DAQM908A #1 CH106'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '1.800'
+      lower_v: '1.710'
+      upper_v: '1.890'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: DCDC_1V0
+      test_point: TP87.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH107'
+      power_rails: U2355A AI07
+      voltage: 'DAQM908A #1 CH107'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: '1.000'
+      lower_v: '0.950'
+      upper_v: '1.050'
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: CPVOUTN
+      test_point: C93.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH108'
+      power_rails: U2355A AI08
+      voltage: 'DAQM908A #1 CH108'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: CPVOUTP
+      test_point: C92.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH109'
+      power_rails: U2355A AI09
+      voltage: 'DAQM908A #1 CH109'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    - net: DBGIF_VREF
+      test_point: C11.1
+      instrument: —
+      channel: —
+      impedance: 'DAQM908A #1 CH110'
+      power_rails: U2355A AI10
+      voltage: 'DAQM908A #1 CH110'
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: '30.000'
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: —
+      drive_level: —
+    clock:
+    - net: DMIC_CLK
+      test_point: SJ210.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: DAQM907A TOT
+      band: 0 ~ 100 kHz
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: '3072.000'
+      lower_khz: '3071.846'
+      upper_khz: '3072.154'
+      op_type: —
+      drive_level: —
+    gpio:
+    - net: 154_RST
+      test_point: U68.56
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO01
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: BT_154_RST
+      test_point: U68.67
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO02
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: BT_RST
+      test_point: U68.62
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO03
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: BOOT_ISP0
+      test_point: R155.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO04
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: BOOT_ISP1
+      test_point: R157.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO05
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: AUD_INT
+      test_point: SJ382.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO06
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CCC_INTB_1V8
+      test_point: SJ269.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO07
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CCC_INTB_3V3
+      test_point: R609.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO08
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CORTEX7
+      test_point: TP20.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO09
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CORTEX9
+      test_point: TP19.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO10
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CPCA
+      test_point: C94.1
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO11
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: CPCB
+      test_point: C94.2
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO12
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D0
+      test_point: J53.18
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO13
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D1
+      test_point: J53.7
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO14
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D2
+      test_point: J53.5
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO15
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D3
+      test_point: J53.20
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO16
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D4
+      test_point: J53.17
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO17
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D5
+      test_point: J53.6
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO18
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D6
+      test_point: J53.15
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO19
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D7
+      test_point: J53.16
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO20
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D8
+      test_point: J53.13
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO21
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D9
+      test_point: J53.14
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO22
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D10
+      test_point: J53.11
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO23
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D11
+      test_point: J53.12
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: U2355A DIO24
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D12
+      test_point: J53.9
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D13
+      test_point: J53.10
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D14
+      test_point: J53.19
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    - net: FXIO_D15
+      test_point: J53.8
+      instrument: —
+      channel: —
+      impedance: —
+      power_rails: —
+      voltage: —
+      se_clock_hz: —
+      band: —
+      dio_channel: —
+      digital_input: HighZ
+      digital_output: No Output
+      r_gnd_min_ohm: —
+      nominal_v: —
+      lower_v: —
+      upper_v: —
+      nominal_khz: —
+      lower_khz: —
+      upper_khz: —
+      op_type: High Z (Not Tested)
+      drive_level: —
+    column_widths:
+      power:
+      - 236
+      - 202
+      - 202
+      - 202
+      - 202
+      - 202
+      - 202
+      - 202
+      - 202
+      clock:
+      - 120
+      - 90
+      - 86
+      - 86
+      - 86
+      - 86
+      - 86
+      gpio:
+      - 154
+      - 121
+      - 121
+      - 121
+      - 121
+  power_rails_up_sequence: {}
+  net_classification_rules: {}
+  se_clock_allocation: []
+  gpio_allocation: []
+  path_risk:
+    thresholds:
+      medium_min: 4
+      high_min: 7
+    scores:
+      154_RST:
+        score: 0
+        level: Low
+        warning: false
+      5V_SDA_PSW:
+        score: 0
+        level: Low
+        warning: false
+      5V_USB0_OTG:
+        score: 0
+        level: Low
+        warning: false
+      BOOT_ISP0:
+        score: 0
+        level: Low
+        warning: false
+      BOOT_ISP1:
+        score: 0
+        level: Low
+        warning: false
+      BT_154_RST:
+        score: 0
+        level: Low
+        warning: false
+      BT_RST:
+        score: 0
+        level: Low
+        warning: false
+      CODEC_1V8:
+        score: 0
+        level: Low
+        warning: false
+      CPVOUTN:
+        score: 0
+        level: Low
+        warning: false
+      CPVOUTP:
+        score: 0
+        level: Low
+        warning: false
+      DBGIF_VREF:
+        score: 0
+        level: Low
+        warning: false
+      DCDC_1V0:
+        score: 0
+        level: Low
+        warning: false
+      DCDC_1V8:
+        score: 0
+        level: Low
+        warning: false
+      DCDC_3V3:
+        score: 0
+        level: Low
+        warning: false
+      DC_5V_IN:
+        score: 0
+        level: Low
+        warning: false
+      DMIC_CLK:
+        score: 0
+        level: Low
+        warning: false
+  ict_test_plan: {}
+  marks:
+    design_input: star
+    parse_ict: star
+    channel_alloc: star
+  modules:
+    design_input:
+      enabled: true
+      params:
+        product_id: '96317'
+        part_number: FRDM-IMXRT700
+        sw_version: ''
+        hw_version: ''
+        batch: EVT (Proto-1)
+        spf_file: C:\MTK All-in-One\MTK-GUI\projects\96317\SPF-96317_a.pdf
+        net_file: C:\MTK All-in-One\MTK-GUI\projects\96317\NET-96317_A.net
+        bom_file: C:\MTK All-in-One\MTK-GUI\projects\96317\BOM-750-96317.xlsx
+    parse_ict:
+      enabled: true
+      params:
+        netlist_file: ''
+        power_dont_test: 'AGND
+
+          AUD_INT
+
+          CCC_INTB_1V8
+
+          CCC_INTB_3V3
+
+          CORTEX7
+
+          CORTEX9
+
+          CPCA
+
+          CPCB
+
+          FXIO_D0
+
+          FXIO_D1
+
+          FXIO_D10
+
+          FXIO_D11
+
+          FXIO_D12
+
+          FXIO_D13
+
+          FXIO_D14
+
+          FXIO_D15
+
+          FXIO_D2
+
+          FXIO_D3
+
+          FXIO_D4
+
+          FXIO_D5
+
+          FXIO_D6
+
+          FXIO_D7
+
+          FXIO_D8
+
+          FXIO_D9
+
+          GND'
+    instruments:
+      enabled: true
+      params:
+        psu_visa: ''
+        daq_visa: ''
+        dmm_visa: ''
+        channel_alloc: ''
+        self_test: 'true'
+    rails:
+      enabled: true
+      params:
+        on_voltage_v: '5.0'
+        current_limit_a: '1.0'
+        on_delay_ms: '100'
+        off_delay_ms: '200'
+        off_protection: 'true'
+        sequence: ''
+        voltage_tolerance_pct: '0.1'
+        impedance_min_ohm: '1.5'
+        sample_rate_hz: '1000'
+        pre_trigger_s: '-0.5'
+        post_trigger_s: '6.0'
+        anomaly_policy: stop
+    clocks:
+      enabled: true
+      params:
+        clocks: ''
+        stabilize_ms: '100'
+        drift_check: 'true'
+        multi_domain_check: 'false'
+    gpios:
+      enabled: true
+      params:
+        groups: ''
+        level_threshold_v: '1.5'
+        exception_check: 'true'
+    fct_build:
+      enabled: true
+      params:
+        flow_steps: ''
+        yield_threshold_pct: '98.0'
+        exception_branch: stop
+        case_link: ''
+        fct_test_config_yaml: ''
+        fct_sequence_cases_yaml: ''
