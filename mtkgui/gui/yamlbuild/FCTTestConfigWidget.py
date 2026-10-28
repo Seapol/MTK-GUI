@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-"""FCTTestConfigWidget — P3-B5 block 07 panel (three tabs).
+"""FCTTestConfigWidget — P3-B5 block 07 panel (four tabs).
 
 Edits the `fct_test_config` product-YAML node (Console / Wi-Fi /
-Bluetooth) for the "Build FCT Test Work Flow Sequence" module:
+Bluetooth / Sequence) for the "Build FCT Test Work Flow Sequence"
+module:
 
-* Console tab   — port (serial device dropdown) + baudrate and the
-  test_commands table (one row = one test: Name / Console transport /
-  WaitFor / SendTo / Capture / Retry, each with its own timeout); rows
-  are add/remove/duplicate/reorder;
+* Console tab   — Host PC Serial/SSH connection config ONLY: port
+  (serial device dropdown), baudrate, SSH host / username (M22c);
 * Wi-Fi tab     — base parameters (interface / driver load command)
   plus three independently enabled sub-tests, each with its own
   timeout (default 15 s): 1. Scan/RSSI (both DUT kinds), 2. Connect &
@@ -16,7 +15,12 @@ Bluetooth) for the "Build FCT Test Work Flow Sequence" module:
 * Bluetooth tab — three independently enabled sub-tests, each with
   its own timeout: 1. RSSI discovery (both DUT kinds), 2. Pair &
   connect with optional L2CAP ping (Linux only), 3. Tone/music over
-  A2DP with GUI confirm (Linux only, Host source -> DUT sink).
+  A2DP with GUI confirm (Linux only, Host source -> DUT sink);
+* Sequence tab  — the step editor: the console test-commands table
+  (one row = one test: Name / Console transport / WaitFor / SendTo /
+  Capture / Retry, each with its own timeout; rows are add / remove /
+  duplicate / reorder) plus the standard-operation / flash / Delay
+  steps that run BEFORE that body (M22c).
 
 The power / fixture spine (``setup:`` node: power_mode, use_fixture,
 manual_on_message, manual_off_message) has NO editor tab any more: the
@@ -64,6 +68,7 @@ from mtkgui.engine.fct_test_config import (
     DIALOG_OK,
     DIALOG_YESNO,
     KIND_MESSAGE,
+    ConsoleCfg,
     ConsoleCommand,
     FctSetupCfg,
     FctTestConfig,
@@ -161,6 +166,9 @@ class FCTTestConfigPanel(QWidget):
         self.setMinimumWidth(1100)
         self._legacy: dict = {}             # preserved module params
         self._setup_cfg = FctSetupCfg()     # power/fixture spine (no tab)
+        #: full console node loaded from the YAML (connection fields +
+        #: command table are edited; the rest is re-emitted untouched)
+        self._console_cfg = ConsoleCfg()
         self._guard = False
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -249,31 +257,63 @@ class FCTTestConfigPanel(QWidget):
 
     # ----------------------------------------------------------- sequence
     def _build_sequence_tab(self) -> QWidget:
-        """Standard-operation / flash / Delay steps (shared step editor).
+        """Step editor: the console test-command table + the standard
+        operation steps (M22c page split).
 
-        The Console / Wi-Fi / Bluetooth tabs generate the FCT test body;
-        this tab adds the production-side steps (Init Instruments,
-        Fixture, Power, Flash FAT / OOBE Firmware, Delay) that run
-        BEFORE that body - one single sequence edit source (the page's
-        FCT table is a read-only result view)."""
+        The Console tab keeps ONLY the Host PC Serial/SSH connection
+        config; the FCT body commands (Wait->Send->Capture rows, SFTP
+        transfers, host CLI rows, operator dialogs) moved here.  The
+        standard operations (Init Instruments, Fixture, Power, Flash FAT
+        / OOBE Firmware, Delay) run BEFORE that body - one single
+        sequence edit source (the page's FCT table is a read-only
+        result view)."""
         from mtkgui.gui.steps_editor import StepsEditorDialog
         w = QWidget()
         lay = QVBoxLayout(w)
-        hint = QLabel(
+        cmd_hint = QLabel(
+            "Console test commands: one row = one Wait -> Send -> Capture "
+            "test (Console = serial / ssh / (message)); double-click a row "
+            "to edit its patterns, timeouts and SFTP payload.")
+        cmd_hint.setWordWrap(True)
+        cmd_hint.setStyleSheet("color: #6b7280;")
+        lay.addWidget(cmd_hint)
+        lay.addWidget(QLabel("Console test commands:"))
+        self.cmd_table = QTableWidget(0, 7)
+        self.cmd_table.setHorizontalHeaderLabels(
+            ["Name", "Console", "WaitFor", "SendTo",
+             "Capture", "Timeout(s)", "Retry"])
+        self.cmd_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.cmd_table.setColumnWidth(0, 120)  # Name
+        self.cmd_table.setColumnWidth(1, 80)   # Console
+        self.cmd_table.setColumnWidth(5, 70)   # Timeout (capture)
+        self.cmd_table.setColumnWidth(6, 60)   # Retry
+        self.cmd_table.setMinimumHeight(150)
+        lay.addWidget(self.cmd_table, 3)
+        self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
+        lay.addLayout(self._cmd_row_buttons())
+
+        seq_hint = QLabel(
             "Standard operations (Init Instruments, Fixture, Power, Flash "
             "FAT / OOBE Firmware) and Delay steps added here run BEFORE "
             "the console / Wi-Fi / Bluetooth body built by the other "
             "tabs.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #6b7280;")
-        lay.addWidget(hint)
+        seq_hint.setWordWrap(True)
+        seq_hint.setStyleSheet("color: #6b7280;")
+        lay.addWidget(seq_hint)
+        lay.addWidget(QLabel("Standard operation steps:"))
         self.seq_editor = StepsEditorDialog(
             "fct", [], [], [], [], kinds=[], op_params=[], embedded=True)
-        lay.addWidget(self.seq_editor)
+        lay.addWidget(self.seq_editor, 4)
         return w
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:
+        """Host PC Serial/SSH connection config ONLY (M22c).
+
+        Enable / Port / Baudrate / SSH endpoint.  The test-command table
+        and its row buttons live in the Sequence tab.
+        """
         w = QWidget()
         lay = QVBoxLayout(w)
         self.console_enabled = QCheckBox("Enable Console FCT")
@@ -288,22 +328,22 @@ class FCTTestConfigPanel(QWidget):
         self.console_baud = QComboBox()
         self.console_baud.addItems([str(b) for b in BAUDRATES])
         form.addRow("Baudrate:", self.console_baud)
+        self.console_ssh_host = QLineEdit()
+        self.console_ssh_host.setPlaceholderText(
+            "DUT SSH endpoint (used by ssh / SFTP rows), e.g. 192.168.1.20")
+        form.addRow("SSH host:", self.console_ssh_host)
+        self.console_ssh_user = QLineEdit()
+        self.console_ssh_user.setPlaceholderText("root")
+        form.addRow("SSH username:", self.console_ssh_user)
         lay.addLayout(form)
-
-        lay.addWidget(QLabel("Test commands:"))
-        self.cmd_table = QTableWidget(0, 7)
-        self.cmd_table.setHorizontalHeaderLabels(
-            ["Name", "Console", "WaitFor", "SendTo",
-             "Capture", "Timeout(s)", "Retry"])
-        self.cmd_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch)
-        self.cmd_table.setColumnWidth(0, 120)  # Name
-        self.cmd_table.setColumnWidth(1, 80)   # Console
-        self.cmd_table.setColumnWidth(5, 70)   # Timeout (capture)
-        self.cmd_table.setColumnWidth(6, 60)   # Retry
-        lay.addWidget(self.cmd_table)
-        self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
-        lay.addLayout(self._cmd_row_buttons())
+        hint = QLabel(
+            "Connection settings only.  The console test commands "
+            "(Wait->Send->Capture, SFTP, host CLI, operator dialogs) are "
+            "edited in the Sequence tab.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #6b7280;")
+        lay.addWidget(hint)
+        lay.addStretch(1)
         return w
 
     def _insert_row(self, cmd: ConsoleCommand) -> None:
@@ -1419,7 +1459,14 @@ class FCTTestConfigPanel(QWidget):
         try:
             self.dut_type.setCurrentText(cfg.dut_type)
             c = cfg.console
+            # keep the full loaded console node: the panel only edits the
+            # connection fields + the command table; the remaining keys
+            # (newline, inter-command delay, deploy_scripts, serial_deploy,
+            # post_rf_commands) must round-trip untouched (M22c)
+            self._console_cfg = copy.deepcopy(c)
             self.console_enabled.setChecked(c.enabled)
+            self.console_ssh_host.setText(c.ssh_host)
+            self.console_ssh_user.setText(c.ssh_username)
             if c.port:
                 if self.console_port.findText(c.port) < 0:
                     self.console_port.addItem(c.port)
@@ -1568,14 +1615,15 @@ class FCTTestConfigPanel(QWidget):
             ConsoleCommand,
             WifiCfg,
         )
-        cfg.console = ConsoleCfg(
-            enabled=self.console_enabled.isChecked(),
-            port=self.console_port.currentText().strip(),
-            baudrate=int(self.console_baud.currentText()),
-            test_commands=[
-                self._get_row_cmd(r)
-                for r in range(self.cmd_table.rowCount())],
-        )
+        cfg.console = copy.deepcopy(self._console_cfg)
+        cfg.console.enabled = self.console_enabled.isChecked()
+        cfg.console.port = self.console_port.currentText().strip()
+        cfg.console.baudrate = int(self.console_baud.currentText())
+        cfg.console.ssh_host = self.console_ssh_host.text().strip()
+        cfg.console.ssh_username = self.console_ssh_user.text().strip()
+        cfg.console.test_commands = [
+            self._get_row_cmd(r)
+            for r in range(self.cmd_table.rowCount())]
         cfg.wifi = WifiCfg(
             enabled=self.wifi_enabled.isChecked(),
             interface=self.wifi_interface.text().strip(),

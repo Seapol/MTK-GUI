@@ -414,3 +414,80 @@ def test_message_row_survives_bare_metal_switch(qapp):
         out["fct_test_config_yaml"])["fct_test_config"])
     assert cfg.console.test_commands[1].kind == "message"
     assert cfg.validate() == []
+
+
+# ----------------------------------------- Console/Sequence split (M22c)
+def test_console_tab_is_connection_config_only(qapp):
+    """The Console tab carries ONLY the Host PC Serial/SSH connection
+    fields; the test-commands table + row buttons moved to Sequence."""
+    from PySide6.QtWidgets import QLineEdit, QTableWidget
+
+    panel = FCTTestConfigPanel()
+    labels = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
+    assert labels == ["Console", "Wi-Fi", "Bluetooth", "Sequence"]
+    console = panel.tabs.widget(labels.index("Console"))
+    seq = panel.tabs.widget(labels.index("Sequence"))
+    # no data table left on the Console page
+    assert console.findChildren(QTableWidget) == []
+    assert panel.cmd_table in seq.findChildren(QTableWidget)
+    # connection config lives on the Console page (serial + ssh)
+    console_edits = console.findChildren(QLineEdit)
+    assert panel.console_ssh_host in console_edits
+    assert panel.console_ssh_user in console_edits
+    # the row buttons moved with the table
+    seq_buttons = {b.text() for b in seq.findChildren(QPushButton)}
+    assert {"Add row", "Remove selected", "Duplicate", "Edit",
+            "Move Up", "Move Down"} <= seq_buttons
+
+
+CONSOLE_EXTRAS_YAML = """
+fct_test_config:
+  dut_type: linux
+  console:
+    enabled: true
+    port: "/dev/cu.test"
+    baudrate: 115200
+    newline: crlf
+    inter_cmd_delay_ms: 250
+    ssh_host: 192.168.1.20
+    ssh_username: root
+    deploy_scripts: true
+    scripts_local_dir: assets
+    scripts_remote_dir: /root
+    test_commands:
+      - {name: Pull report, transport: ssh, kind: sftp_get,
+         wait_enabled: false, send_enabled: true, capture_enabled: false,
+         remote: "/root/fat_result.json",
+         local: "{{dut_report}}/fat_result.json"}
+    post_rf_commands:
+      - {name: Stop iperf3, transport: serial, kind: host,
+         wait_enabled: false, send_enabled: true, capture_enabled: false,
+         host_cmd: "pkill -f iperf3"}
+  wifi: {enabled: false}
+  bluetooth: {enabled: false}
+"""
+
+
+def test_ssh_endpoint_and_console_extras_round_trip(qapp):
+    """Console connection fields are editable; every other console key
+    (newline / delay / deploy / post_rf teardown rows) round-trips
+    untouched - the page split must not lose data."""
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
+    assert panel.console_ssh_host.text() == "192.168.1.20"
+    assert panel.console_ssh_user.text() == "root"
+    panel.console_ssh_host.setText("192.168.1.21")
+    out = panel.values()
+    console = yaml.safe_load(
+        out["fct_test_config_yaml"])["fct_test_config"]["console"]
+    assert console["ssh_host"] == "192.168.1.21"
+    assert console["ssh_username"] == "root"
+    assert console["newline"] == "crlf"
+    assert console["inter_cmd_delay_ms"] == 250
+    assert console["deploy_scripts"] is True
+    assert console["scripts_local_dir"] == "assets"
+    assert console["scripts_remote_dir"] == "/root"
+    assert console["test_commands"][0]["kind"] == "sftp_get"
+    assert console["test_commands"][0]["remote"] == "/root/fat_result.json"
+    assert console["post_rf_commands"][0]["host_cmd"] == "pkill -f iperf3"
+
