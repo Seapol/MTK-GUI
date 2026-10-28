@@ -180,6 +180,43 @@ def test_fct_console_regex_flag_is_honoured():
     assert execute_fct_step(step_lit, ctx2).verdict == VERDICT_FAIL
 
 
+# ------------------------------------------- M22h wait -> send clean bytes
+def test_console_line_is_payload_plus_one_newline():
+    """The shared console writer emits the payload and ONE '\n' - a
+    leading byte (or '\r\n') would make the DUT's input() read an
+    empty answer."""
+    from mtkgui.engine.fct_exec import console_line
+    assert console_line("y") == "y\n"
+    assert console_line("") == "\n"
+    assert not console_line("y").startswith(("\r", "\n"))
+
+
+def test_console_confirm_then_send_is_exactly_y_newline():
+    """Wait matched -> operator Yes -> mock serial receives EXACTLY
+    b'y\\n' with NO leading bytes (M22h earphone regression)."""
+    ctx, channels = make_virtual_context(
+        {"ser1": [r"Did you hear the 1000 Hz tone from the 3.5 mm "
+                  r"earphone?"]})
+    step = _console_step(
+        send="y", send_enabled=True, confirm_enabled=True,
+        confirm_message="MQS audio: did you hear the tone?",
+        expect_pass_re=r"Did you hear the \d+ Hz tone",
+        expect_pass_is_regex=True, capture_is_expected=True)
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert channels["ser1"].written == ["y\n"]
+
+
+def test_console_wait_only_row_never_writes_bytes():
+    """A wait-only row must NOT leave a bare newline in the tty queue
+    (the bf4723b rule): the mock serial receives nothing at all."""
+    ctx, channels = make_virtual_context({"ser1": ["login:"]})
+    step = _console_step(kind="wait", expect_pass_re="login:",
+                         capture_is_expected=True)
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    assert channels["ser1"].written == []
+
+
 def test_skip_marker():
     ctx, _ = make_virtual_context()
     step = FctStep(name="s", step_type="MESSAGE_CHECK", channel="ser1",

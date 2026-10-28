@@ -33,6 +33,17 @@ VERDICT_ERROR = "ERROR"
 VERDICT_SKIP = "SKIP"
 
 
+def console_line(payload: str) -> str:
+    """The ONE console line payload: ``text`` + a single ``\\n``.
+
+    No leading byte and no ``\\r``: a Linux DUT tty in canonical mode
+    maps CR to NL (ICRNL), so ``"y\\r\\n"`` is delivered as TWO line
+    breaks - the answer line and an empty line that the DUT script's
+    next ``input()`` consumes as an empty answer (M22h earphone bug).
+    Every FCT console write must go through this helper."""
+    return str(payload) + "\n"
+
+
 @dataclass
 class FctOutcome:
     """One step verdict (B4 §1.5)."""
@@ -558,7 +569,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 if step.params.get("send_enabled", True) and \
                         _send_text.strip():
                     ctx.log(f"console send: {_send_text!r}")
-                    channel.write(_send_text + "\n")
+                    channel.write(console_line(_send_text))
                 else:
                     ctx.log("console send skipped "
                             f"(send_enabled={step.params.get('send_enabled', True)}, "

@@ -344,7 +344,7 @@ def test_yesno_yes_sends_y_and_passes(msg_env):
     _run_message(msg_env, "MessageYesNo",
                  {"send_yes": "y", "send_no": "n",
                   "message_timeout_s": 4.0})
-    assert msg_env.multi_console.sent == [("VCOM0", b"y\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 
@@ -352,7 +352,7 @@ def test_yesno_no_sends_n_and_passes(msg_env):
     msg_env._answers = ["no"]
     _run_message(msg_env, "MessageYesNo", {"send_yes": "y",
                                            "send_no": "n"})
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 
@@ -383,7 +383,7 @@ def test_gostop_go_sends_y_and_passes(msg_env):
     msg_env._answers = ["go"]
     _run_message(msg_env, "MessageGoStop",
                  {"send_yes": "y", "send_no": "n"}, abort_spy=stops)
-    assert msg_env.multi_console.sent == [("VCOM0", b"y\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
     assert stops == []                     # the run continues
 
@@ -393,7 +393,7 @@ def test_gostop_stop_sends_n_fails_and_stops_run(msg_env):
     msg_env._answers = ["stop"]
     _run_message(msg_env, "MessageGoStop",
                  {"send_yes": "y", "send_no": "n"}, abort_spy=stops)
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "FAIL"
     assert stops == ["operator"]           # the run stops (teardown runs)
 
@@ -556,7 +556,7 @@ def test_console_message_ok_notice_sends_nothing(msg_env):
 def test_console_message_yesno_no_always_passes(msg_env):
     runner, w = _console_answer_runner(msg_env, "MessageYesNotoConsole", ["no"])
     runner._fct_console_message_answer(w)
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 
@@ -566,7 +566,7 @@ def test_console_message_gostop_stop_sends_n_fails_and_stops(msg_env):
                                        ["stop"])
     runner.abort = lambda trigger="operator": stops.append(trigger)
     runner._fct_console_message_answer(w)
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\r\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "FAIL"
     assert stops == ["operator"]
 

@@ -937,7 +937,11 @@ class TestRunner(QObject):
             self.env._log(f"FCT {name}: no connected serial console - "
                           f"payload {payload!r} NOT sent")
             return
-        mc.write_to_channel(key, (payload + "\r\n").encode("utf-8"))
+        # ONE '\n' terminator, no leading byte (M22h): a pty with
+        # ICRNL turns "\r\n" into two line breaks and the DUT's next
+        # input() would consume the empty one.
+        from .fct_exec import console_line
+        mc.write_to_channel(key, console_line(payload).encode("utf-8"))
         self.env._log(f"FCT {name}: sent {payload!r} to the DUT console")
 
     def _fct_message_action(self, kind: str, name: str, answer: str,
