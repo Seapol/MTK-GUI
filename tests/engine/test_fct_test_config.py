@@ -11,6 +11,7 @@ from mtkgui.engine.fct_test_config import (
     BluetoothCfg,
     ConsoleCfg,
     ConsoleCommand,
+    FctSetupCfg,
     FctTestConfig,
     WifiCfg,
     build_fct_steps,
@@ -877,7 +878,8 @@ def test_setup_manual_wraps_on_and_off_prompts():
     names = [s.name for s in steps]
     assert "Connect the power adapter" in names[0]
     assert names[-1].startswith("FCT finished")
-    assert "FCT done." in names
+    # M22: the spine no longer auto-appends a closing "FCT done." row
+    assert "FCT done." not in names
     # no standard op rows in manual mode
     assert all(not s.params.get("op") for s in steps)
 
@@ -889,14 +891,56 @@ def test_setup_psu_uses_power_on_off_ops():
     assert "Power Off DUT" in names
     on = names.index("Power On DUT")
     off = names.index("Power Off DUT")
-    done = names.index("FCT done.")
-    assert on < names.index("Body test") < done < off
+    assert on < names.index("Body test") < off
 
 
 def test_setup_none_adds_no_power_action():
     steps = wrap_fct_setup(_setup_cfg(POWER_NONE), _body())
     names = [s.name for s in steps]
-    assert names == ["Body test", "FCT done."]
+    assert names == ["Body test"]
+
+
+def test_wrap_never_auto_appends_fct_done():
+    """M22: the loader/build never adds a closing row by itself."""
+    for mode in (POWER_NONE, POWER_MANUAL, POWER_PSU):
+        names = [s.name for s in wrap_fct_setup(_setup_cfg(mode), _body())]
+        assert "FCT done." not in names
+
+
+def test_wrap_dedupes_identical_phantom_rows():
+    """M22: legacy YAMLs with the old auto row load as ONE row."""
+    body = [_FctStep(name="FCT done.", step_type="MESSAGE_CHECK"),
+            _FctStep(name="FCT done.", step_type="MESSAGE_CHECK")]
+    steps = wrap_fct_setup(_setup_cfg(POWER_NONE), body)
+    assert [s.name for s in steps] == ["FCT done."]
+
+
+def test_sequence_roundtrip_is_deterministic():
+    """M22: load(build(cfg)) -> build again yields the same cases
+    (names + full step markers) - no phantom rows, no drift."""
+    from mtkgui.gui.yamlbuild.fct_build import (
+        FctSequence,
+        to_project_fct_cases,
+    )
+    cfg = FctTestConfig()
+    cfg.setup = FctSetupCfg(power_mode=POWER_NONE)
+    cfg.console.enabled = True
+    cfg.console.test_commands = [
+        ConsoleCommand(kind="send", name="Cmd", wait_enabled=True,
+                       send_enabled=True, capture_enabled=False,
+                       expect_pass="ready", send="run", timeout=5.0,
+                       wait_timeout=5.0)]
+
+    def _cases(c):
+        steps = wrap_fct_setup(c, build_fct_steps(c))
+        return to_project_fct_cases(FctSequence(name="x", steps=steps))
+
+    first = _cases(cfg)
+    again = _cases(FctTestConfig.from_dict(
+        cfg.to_yaml_node()["fct_test_config"]))
+    assert [c["name"] for c in first] == [c["name"] for c in again]
+    assert ([c["op_params"]["fct_step"] for c in first]
+            == [c["op_params"]["fct_step"] for c in again])
 
 
 def test_setup_fixture_order_with_psu():

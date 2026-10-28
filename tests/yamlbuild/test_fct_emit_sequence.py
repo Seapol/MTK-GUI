@@ -52,7 +52,7 @@ def test_all_disabled_config_is_valid_ict_only(page):
 
 def test_enabled_wifi_wraps_manual_power_spine(page):
     # default setup is manual adapter/USB power: on-prompt, body,
-    # "FCT done.", off-prompt
+    # off-prompt; M22: no auto-appended closing "FCT done." row
     cfg = {"fct_test_config": {
         "dut_type": "linux",
         "wifi": {"enabled": True, "mode": "rssi_only", "ssid": "DUT-AP"}}}
@@ -60,11 +60,9 @@ def test_enabled_wifi_wraps_manual_power_spine(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
     names = [c["name"] for c in cases]
-    assert "FCT done." in names
+    assert "FCT done." not in names
     assert "Connect the power adapter" in names[0]
     assert "Disconnect the power adapter" in names[-1]
-    done_idx = names.index("FCT done.")
-    assert done_idx < len(names) - 1
 
 
 def test_psu_power_uses_power_on_off_ops(page):

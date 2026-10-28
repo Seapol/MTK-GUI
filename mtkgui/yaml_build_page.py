@@ -275,8 +275,9 @@ class YamlBuildPage(QWidget):
 
         Parses ``fct_test_config_yaml``, builds the ordered FctStep list
         (console commands + Wi-Fi + Bluetooth) and maps it to the
-        project-YAML case shape; a final "FCT done" operator dialog
-        closes a non-empty sequence.
+        project-YAML case shape.  No closing row is auto-appended (M22):
+        a closing operator dialog belongs to the project's
+        ``post_rf_commands`` and stays visible/editable there.
 
         A project may contain ICT only, FCT only, or both - an FCT
         config with every tab disabled is valid and yields zero cases.

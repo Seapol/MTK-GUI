@@ -1438,13 +1438,38 @@ def _fct_op_step(name: str) -> "FctStep":
                    params={"op": name})
 
 
+def _dedupe_steps(steps: list) -> list:
+    """Drop EXACT duplicate steps (same name + type + params).
+
+    A phantom row must never survive a load/save (M22): two identical
+    "FCT done." rows used to be emitted by two independent auto-append
+    sites.  Order is preserved, the FIRST occurrence wins."""
+    seen: set = set()
+    out: list = []
+    for step in steps:
+        key = (step.name, step.step_type,
+               repr(sorted((step.params or {}).items())))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(step)
+    return out
+
+
 def wrap_fct_setup(cfg: FctTestConfig, body: list,
                    channel_key: str = "ser1") -> list:
     """Wrap the generated FCT test body with the production spine.
 
     Order: optional fixture clamp/lock/E-Stop -> power on (rack PSU op OR
-    a manual adapter/USB MessageGoStop OR nothing) -> body -> "FCT
-    done." -> power off / manual remove prompt -> fixture unlock/release.
+    a manual adapter/USB MessageGoStop OR nothing) -> body -> power off /
+    manual remove prompt -> fixture unlock/release.
+
+    M22: the spine NEVER auto-appends a closing "FCT done." row any
+    more - that duplicate was re-created on every overwrite and the
+    operator could not delete it.  A closing dialog belongs to the
+    project ``post_rf_commands`` (visible/editable) only.  Exact
+    duplicate steps are removed so a legacy YAML that still carries the
+    old auto row loads as ONE row.
 
     FCT uses NO DAQ; the ATE fixture (when present) is driven through the
     U2355A DIO resource on the real rack (the op names are shared with
@@ -1468,7 +1493,5 @@ def wrap_fct_setup(cfg: FctTestConfig, body: list,
         post.insert(0, FctStep(name=s.manual_off_message,
                                step_type=STEP_GUI_CONFIRM, timeout_s=0.0))
     # power_mode == POWER_NONE: no power action
-    done = FctStep(name="FCT done.", step_type=STEP_MESSAGE_CHECK,
-                   expect_pass=["done"], timeout_s=0.0)
-    return pre + list(body) + [done] + post
+    return _dedupe_steps(pre + list(body) + post)
 
