@@ -216,14 +216,19 @@ def test_cli_run_channel_keyword_and_command_evidence():
 def test_cli_run_host_subprocess_joint_judgement():
     """Host CLI: positive keyword + exit code 0 -> PASS; a non-zero
     exit flips the verdict to FAIL even with a positive keyword."""
+    import sys
+    win = sys.platform == "win32"
     step = FctStep(name="host", step_type="CLI_RUN",
                    command="echo success", expect_pass=["success"],
                    timeout_s=10, params={"host_cli": True})
     ctx = FctContext(station_id="S", user="u")
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
 
+    # print a positive keyword then exit non-zero (platform shell syntax)
+    bad_cmd = ("echo success & exit 3" if win
+               else "echo success; exit 3")
     bad = FctStep(name="host", step_type="CLI_RUN",
-                  command="echo success; exit 3", expect_pass=["success"],
+                  command=bad_cmd, expect_pass=["success"],
                   timeout_s=10, params={"host_cli": True})
     out = execute_fct_step(bad, ctx)
     assert out.verdict == VERDICT_FAIL and "exit code" in out.reason

@@ -693,6 +693,12 @@ class ConsoleCfg:
     deploy_scripts: bool = False
     scripts_local_dir: str = ""     # Host asset folder (rel to yaml/pkg)
     scripts_remote_dir: str = "/root"   # DUT target directory
+    # Serial asset provisioning (no SSH needed): right after the console
+    # login, push the listed files to a freshly flashed DUT that has none
+    # of them; an archive entry may add "unzip": target dir.  Local paths
+    # resolve relative to the project folder.
+    serial_deploy: bool = False
+    serial_deploy_files: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -704,6 +710,8 @@ class ConsoleCfg:
             "deploy_scripts": bool(self.deploy_scripts),
             "scripts_local_dir": self.scripts_local_dir,
             "scripts_remote_dir": self.scripts_remote_dir,
+            "serial_deploy": bool(self.serial_deploy),
+            "serial_deploy_files": [dict(f) for f in self.serial_deploy_files],
             "test_commands": [c.to_dict() for c in self.test_commands],
             "post_rf_commands": [c.to_dict()
                                  for c in self.post_rf_commands],
@@ -994,6 +1002,10 @@ class FctTestConfig:
                     console.get("scripts_local_dir", "")),
                 scripts_remote_dir=str(
                     console.get("scripts_remote_dir", "/root")),
+                serial_deploy=bool(console.get("serial_deploy", False)),
+                serial_deploy_files=[
+                    dict(f) for f in
+                    (console.get("serial_deploy_files") or [])],
                 test_commands=[
                     ConsoleCommand._from_dict_v2(c)
                     for c in (console.get("test_commands") or [])],
@@ -1244,6 +1256,24 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
     return steps
 
 
+def _serial_deploy_step(c: "ConsoleCfg", channel_key: str) -> "FctStep":
+    """Build the serial asset-deploy step (params.fct_serial_push) that
+    runs right after the console login.  Files are the configured
+    {local, remote, optional unzip} entries."""
+    files: list = []
+    for spec in c.serial_deploy_files:
+        entry = {"local": str(spec.get("local", "")),
+                 "remote": str(spec.get("remote", ""))}
+        if spec.get("unzip"):
+            entry["unzip"] = str(spec["unzip"])
+        files.append(entry)
+    return FctStep(
+        name="Deploy test assets to DUT",
+        step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+        timeout_s=300.0,
+        params={"fct_serial_push": {"files": files}})
+
+
 def build_fct_steps(cfg: FctTestConfig,
                     channel_key: str = "ser1") -> list:
     """FctTestConfig -> ordered list[FctStep] for the work flow.
@@ -1266,6 +1296,11 @@ def build_fct_steps(cfg: FctTestConfig,
         # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
         for cmd in c.test_commands:
             steps.extend(_console_row_steps(cmd, channel_key))
+            # Serial asset provisioning right after the login (a fresh
+            # DUT has no scripts / board-test package; no SSH yet).
+            if c.serial_deploy and "login" in str(
+                    getattr(cmd, "name", "")).lower():
+                steps.append(_serial_deploy_step(c, channel_key))
     # Linux DUT only: load the Wi-Fi/BT RF drivers once (editable BSP
     # command; the driver script itself is a BSP deliverable) before any
     # RF sub-test runs.

@@ -85,6 +85,15 @@ class FctContext:
     #: DUT Report folder (str) for the ``{{dut_report}}`` template
     #: token in sftp_get / sftp_put local paths. Empty = no replacement.
     dut_report: str = ""
+    #: project folder name under the projects workspace (e.g.
+    #: "FRDM-IMX93") - serial-push local files resolve relative to it.
+    #: Empty = local paths must be absolute.
+    project_base: str = ""
+    #: optional callable(title) -> context manager yielding a
+    #: stage(value, label) callback (the GUI binds busy_progress); used
+    #: to show a foreground bar for the long serial asset deploy. None
+    #: in headless runs (the transfer proceeds without a dialog).
+    progress_factory: object = None
 
     def log(self, message: str) -> None:
         line = f"[{self.station_id}] [{self.user}] {message}"
@@ -343,27 +352,39 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     command set, run it, log every command line, map the verdict.
     a2dp_sink routes the operator question through the confirm hook."""
     from .fct_test_runner import BT_MAC_CMDS, WIFI_MAC_CMDS
-    from .rf_adapters import BluetoothAdapter, WifiAdapter
+    from .rf_adapters import BluetoothAdapter, WifiAdapter, PlatformBackendMissing
     cfg = dict(step.params.get("fct_rf") or {})
     runner = runner_for(ctx)
-    if family == "wifi":
-        # B5 rssi_only on a station-mode Linux DUT: the RSSI is read
-        # ON THE DUT over the console (iw dev <interface> link) - a
-        # host-side scan cannot see a station interface
-        if step.params.get("rssi_via") == "dut_console" \
-                and cfg.get("mode") == "rssi_only":
-            return _wifi_rssi_dut_console(step, cfg, ctx)
-        # B5 config key `ssid` -> adapter key `expected_ssid`
-        rf = dict(cfg)
-        rf.setdefault("expected_ssid", rf.get("ssid", ""))
-        rf_cfg = {"wifi": dict(rf, cmds={"mac": dict(WIFI_MAC_CMDS)})}
-        out = WifiAdapter(rf_cfg, runner).run_test()
-    else:
-        rf_cfg = {"bluetooth": dict(
-            cfg, cmds={"mac": dict(BT_MAC_CMDS)})}
-        adapter = BluetoothAdapter(rf_cfg, runner,
-                                   human_confirm=ctx.human_confirm)
-        out = adapter.run_test()
+    try:
+        if family == "wifi":
+            # B5 rssi_only on a station-mode Linux DUT: the RSSI is read
+            # ON THE DUT over the console (iw dev <interface> link) - a
+            # host-side scan cannot see a station interface
+            if step.params.get("rssi_via") == "dut_console" \
+                    and cfg.get("mode") == "rssi_only":
+                return _wifi_rssi_dut_console(step, cfg, ctx)
+            # B5 config key `ssid` -> adapter key `expected_ssid`
+            rf = dict(cfg)
+            rf.setdefault("expected_ssid", rf.get("ssid", ""))
+            rf_cfg = {"wifi": dict(rf, cmds={"mac": dict(WIFI_MAC_CMDS)})}
+            out = WifiAdapter(rf_cfg, runner).run_test()
+        else:
+            rf_cfg = {"bluetooth": dict(
+                cfg, cmds={"mac": dict(BT_MAC_CMDS)})}
+            adapter = BluetoothAdapter(rf_cfg, runner,
+                                       human_confirm=ctx.human_confirm)
+            out = adapter.run_test()
+    except PlatformBackendMissing as exc:
+        import sys
+        if sys.platform == "win32":
+            hint = (
+                "Windows has no built-in classic-Bluetooth RSSI command; "
+                "install a command-line scanner (e.g. BluetoothCL) and add "
+                "a 'windows' backend, or run this RF step on macOS.")
+        else:
+            hint = "configure a command backend for this platform."
+        ctx.log(f"{family} RF unavailable: {exc}")
+        return FctOutcome(VERDICT_ERROR, f"{exc}. {hint}")
     for line in out.get("lines", [])[:20]:
         ctx.log(f"{family}: {line}")
     ctx.log(f"{family} items: {out.get('items')}")
@@ -528,8 +549,20 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                     return FctOutcome(VERDICT_FAIL,
                                       "operator answered No")
             if "send" in step.params:
-                ctx.log(f"console send: {step.params.get('send')!r}")
-                channel.write(str(step.params.get("send") or "") + "\n")
+                # Respect send_enabled and NEVER emit a bare newline for
+                # send:'' rows: an empty line left in the tty input queue
+                # is consumed by the DUT script's later input() (bug
+                # 2026-10-28: the MQS Yes/No dialog was still open while
+                # fat.py read that stray newline and ran on).
+                _send_text = str(step.params.get("send") or "")
+                if step.params.get("send_enabled", True) and \
+                        _send_text.strip():
+                    ctx.log(f"console send: {_send_text!r}")
+                    channel.write(_send_text + "\n")
+                else:
+                    ctx.log("console send skipped "
+                            f"(send_enabled={step.params.get('send_enabled', True)}, "
+                            f"send={_send_text!r})")
             return _regex_capture(channel, step, ctx)
         if not pass_kw and not fail_kw:
             return FctOutcome(VERDICT_FAIL, "no keywords configured")
@@ -557,6 +590,11 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # B5 addendum: DUT-side connectivity / throughput / BT data-path
         # steps (run over the console via the dut_* primitives)
         channel = ctx.channels.get(step.channel)
+        # Serial asset provisioning: push local scripts / the board-test
+        # package to a freshly flashed DUT that has none of them, verify
+        # by MD5 and unzip archives (long operation -> foreground bar).
+        if step.params.get("fct_serial_push"):
+            return _run_serial_push(step, ctx, channel)
         # host CLI row: run a command ON THE HOST PC (test station
         # shell, e.g. start/stop the local iperf3 server); PASS =
         # exit code 0.  No DUT console involved.
@@ -642,6 +680,89 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
 
     return FctOutcome(VERDICT_ERROR, f"unknown step_type "
                       f"{step.step_type!r}")
+
+
+def _resolve_deploy_local(ctx: FctContext, local: str) -> str:
+    """Resolve a deploy local path: absolute as-is; otherwise relative
+    to the project folder under the projects workspace (``project_base``)
+    or the CWD when no project base is bound."""
+    if os.path.isabs(local):
+        return os.path.normpath(local)
+    if ctx.project_base:
+        from ..gui.shell import resolve_tenant_base
+        return os.path.normpath(os.path.join(
+            resolve_tenant_base(), ctx.project_base, local))
+    return os.path.normpath(local)
+
+
+def _run_serial_push(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
+    """Serial-console asset deployment (params.fct_serial_push):
+
+    ``files`` is a list of {local, remote, optional unzip}; local paths
+    are relative to the project folder.  A foreground progress dialog
+    (when the GUI bound one) covers the transfer; every file is
+    MD5-verified on the DUT.
+    """
+    from .serial_push import PushError, push_bundle
+
+    if channel is None:
+        return FctOutcome(VERDICT_ERROR,
+                          "serial push: no console channel bound")
+    spec = step.params.get("fct_serial_push") or {}
+    files: list = []
+    total = 0
+    missing: list = []
+    for item in spec.get("files", []):
+        local = _resolve_deploy_local(ctx, str(item.get("local", "")))
+        entry = {"local": local, "remote": str(item.get("remote", ""))}
+        if item.get("unzip"):
+            entry["unzip"] = str(item["unzip"])
+        files.append(entry)
+        if os.path.isfile(local):
+            total += os.path.getsize(local)
+        else:
+            missing.append(local)
+    if not files:
+        return FctOutcome(VERDICT_ERROR, "serial push: no files configured")
+    if missing:
+        return FctOutcome(VERDICT_ERROR,
+                          "serial push: local file(s) missing: "
+                          + "; ".join(missing))
+
+    # overall progress across files (push_bundle reports per-file)
+    state = {"offset": 0, "current": "", "size": 0}
+
+    def _make_progress(stage):
+        def progress(done, size, name):
+            if name != state["current"]:
+                if state["current"]:
+                    state["offset"] += state["size"]
+                state["current"], state["size"] = name, size
+            overall = state["offset"] + done
+            if stage is not None and total:
+                pct = min(99, int(overall * 100 / total))
+                stage(pct, f"Deploying {name} ({pct}%)")
+        return progress
+
+    try:
+        if ctx.progress_factory is not None:
+            with ctx.progress_factory("Deploying test assets to DUT") as stage:
+                results = push_bundle(
+                    channel, files, log=ctx.log,
+                    progress=_make_progress(stage))
+        else:
+            results = push_bundle(channel, files, log=ctx.log)
+    except PushError as exc:
+        return FctOutcome(VERDICT_FAIL, f"serial push: {exc}")
+    except Exception as exc:                    # noqa: BLE001
+        return FctOutcome(VERDICT_ERROR, f"serial push: {exc}")
+
+    deployed = ", ".join(os.path.basename(r["remote"]) for r in results)
+    unzipped = [r for r in results if r.get("unzip")]
+    detail = f"deployed {len(results)} file(s) [{deployed}]"
+    if unzipped:
+        detail += "; unzipped to " + ", ".join(r["unzip"] for r in unzipped)
+    return FctOutcome(VERDICT_PASS, detail)
 
 
 def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:

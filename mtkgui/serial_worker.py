@@ -75,6 +75,22 @@ class SerialWorker(QThread):
             self._running = False
             self.connection_changed.emit(False)
 
+    def set_baudrate(self, baudrate: int) -> bool:
+        """Reconfigure the open link speed (UI thread).  Used by the FCT
+        deploy step to temporarily raise the console to a high baud for
+        the asset transfer, then restore the production rate.  Returns
+        True when the port accepted the new speed."""
+        if not self._ser or not self._ser.is_open:
+            return False
+        with self._write_lock:
+            try:
+                self._ser.baudrate = int(baudrate)  # reconfigures port
+                self.baudrate = int(baudrate)
+                return True
+            except Exception as exc:  # noqa: BLE001 - report, don't crash
+                self.error_occurred.emit(f"Serial baud error: {exc}")
+                return False
+
     def write(self, data: bytes) -> int:
         """Called from the UI thread. Returns bytes written, or -1."""
         if not self._ser or not self._ser.is_open:

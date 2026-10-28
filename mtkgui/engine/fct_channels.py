@@ -197,6 +197,15 @@ class ConsoleBufferChannel:
         payload = data if isinstance(data, bytes) else str(data).encode()
         self._mc.write_to_channel(self._key, payload)
 
+    def set_baudrate(self, baudrate) -> bool:
+        """Reconfigure the underlying multi-console link speed (FCT
+        deploy).  Returns True when the worker accepted it; a channel
+        whose mc lacks the API (virtual / tests) reports False."""
+        setter = getattr(self._mc, "set_channel_baud", None)
+        if not callable(setter):
+            return False
+        return bool(setter(self._key, baudrate))
+
     def read_lines(self, max_lines: int = 100,
                    timeout_s: float = 0.0) -> list:
         if self._pump is not None:

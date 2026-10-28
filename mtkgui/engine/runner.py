@@ -1011,6 +1011,21 @@ class TestRunner(QObject):
                              identity.get_user())
         except Exception:                    # noqa: BLE001 - headless
             pass
+        def _project_base():
+            getter = getattr(env, "product_info", None)
+            if callable(getter):
+                try:
+                    return str(getter().get("part", "") or "")
+                except Exception:                 # noqa: BLE001 - headless
+                    return ""
+            return ""
+
+        def _progress_factory(title):
+            # foreground modal bar for the long serial asset deploy
+            from ..gui.progress_dialog import busy_progress
+            owner = env if hasattr(env, "isWidgetType") else None
+            return busy_progress(owner, str(title))
+
         ctx = FctContext(station_id=station, user=user,
                          log_sink=env._log,
                          run_op=lambda op_name, op_params:
@@ -1020,7 +1035,9 @@ class TestRunner(QObject):
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
                              env, "fct_keyword_fail", ()) or ()),
-                         dut_report=str(dut_folder()))
+                         dut_report=str(dut_folder()),
+                         project_base=_project_base(),
+                         progress_factory=_progress_factory)
         ch_key = step.channel
         if ch_key:
             mc = getattr(env, "multi_console", None)

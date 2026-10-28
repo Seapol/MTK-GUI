@@ -216,6 +216,10 @@ def test_console_stale_output_does_not_judge():
 
 
 # ------------------------------------------------------------- orchestrator
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="host Bluetooth RSSI uses the macOS toolchain (blueutil/"
+           "system_profiler); Windows has no built-in classic-BT backend")
 def test_fct_runner_full_cycle_pass():
     cfg = frdm_config()
     script = {
@@ -361,9 +365,12 @@ def test_fct_exec_host_cli_branch(monkeypatch):
                        "cmd": "iperf3 -s -D",
                        "cmd_windows": "start /B iperf3 -s"}})
     out = fct_exec.execute_fct_step(step, ctx)
+    import sys
+    expected_cmd = ("start /B iperf3 -s" if sys.platform == "win32"
+                    else "iperf3 -s -D")
     assert out.verdict == "PASS"
-    assert out.reason.startswith("iperf3 -s -D -> rc=0")
-    assert seen["cmd"] == "iperf3 -s -D"        # non-Windows: host_cmd
+    assert out.reason.startswith(f"{expected_cmd} -> rc=0")
+    assert seen["cmd"] == expected_cmd   # platform-specific host_cmd
     assert seen["timeout"] == 15.0
 
     monkeypatch.setattr(fct_exec, "runner_for",

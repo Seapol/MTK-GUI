@@ -1,6 +1,6 @@
 project:
   software: mtk-gui v1.0.0.0
-  revision: 1.0.7
+  revision: 1.0.8
   created: '2026-10-17T23:33:36'
 product:
   part_number: FRDM-IMX93
@@ -237,10 +237,12 @@ console:
 test_workflow:
   overall_flow:
   - stage: ICT
-    description: 'In-Circuit Test: 80 power nets impedance -> voltage -> RTC/CLKOUT1/CLKOUT2 clocks'
+    description: 'In-Circuit Test: 80 power nets impedance -> voltage -> RTC/CLKOUT1/CLKOUT2
+      clocks'
     enable: true
   - stage: FCT
-    description: 'Functional Test: LED -> Serial Console (Linux) -> Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE'
+    description: 'Functional Test: LED -> Serial Console (Linux) -> Wi-Fi -> Bluetooth
+      -> Flash FAT -> Flash OOBE'
     enable: true
   stop_if_failure: false
   stop_if_any_short: true
@@ -351,6 +353,38 @@ test_workflow:
         retries: 1
         step_type: MESSAGE_CHECK
         timeout_s: 30
+  - name: 'Deploy test assets to DUT: ''done'' (expected)'
+    kind: CapturefromConsole
+    enable: true
+    wait_ms: 100
+    timeout_ms: 300000
+    op_params:
+      fct_step:
+        channel: ser1
+        command: ''
+        depends: []
+        expect_fail: []
+        expect_pass: []
+        name: Deploy test assets to DUT
+        on_fail: abort
+        params:
+          fct_serial_push:
+            files:
+            - local: scripts/connect_wifi.sh
+              remote: /root/connect_wifi.sh
+            - local: scripts/load_rf_drivers.sh
+              remote: /root/load_rf_drivers.sh
+            - local: scripts/preflight.sh
+              remote: /root/preflight.sh
+            - local: scripts/FCT_SETUP.md
+              remote: /root/FCT_SETUP.md
+            - local: frdm_imx93_board_test.zip
+              remote: /root/frdm_imx93_board_test.zip
+              unzip: /root
+        resource: ''
+        retries: 0
+        step_type: EXTERNAL_TOOL
+        timeout_s: 300
   - name: 'Preflight: kernel version (wait): ''done'' (expected)'
     kind: CapturefromConsole
     enable: true
@@ -609,7 +643,8 @@ test_workflow:
           fct_console: true
           kind: send
           parse_summary: false
-          send: cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 | tee /root/fat.log
+          send: cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json
+            2>&1 | tee /root/fat.log
           send_enabled: true
           send_timeout: 4.0
           wait_enabled: true
@@ -735,7 +770,8 @@ test_workflow:
           capture_timeout: 30.0
           case_sensitive: true
           confirm_enabled: true
-          confirm_message: 'MQS audio: listen to the 3.5 mm earphone - did you hear the 1000 Hz tone?'
+          confirm_message: 'MQS audio: listen to the 3.5 mm earphone - did you hear
+            the 1000 Hz tone?'
           expect_fail_is_regex: false
           expect_fail_re: ''
           expect_pass_is_regex: false
@@ -887,7 +923,8 @@ test_workflow:
         retries: 0
         step_type: MESSAGE_CHECK
         timeout_s: 60
-  - name: 'fat.py: RGB LED colors (wait): ''completed without operator confirmation'' (expected)'
+  - name: 'fat.py: RGB LED colors (wait): ''completed without operator confirmation''
+      (expected)'
     kind: CapturefromConsole
     enable: true
     wait_ms: 100
@@ -1049,7 +1086,8 @@ test_workflow:
           fct_console: true
           kind: send
           parse_summary: false
-          send: mkdir -p /var/run/sshd; /usr/sbin/sshd 2>/dev/null; netstat -tln 2>/dev/null | grep -q ':22 ' && echo SSHD_"STARTED"
+          send: mkdir -p /var/run/sshd; /usr/sbin/sshd 2>/dev/null; netstat -tln 2>/dev/null
+            | grep -q ':22 ' && echo SSHD_"STARTED"
           send_enabled: true
           send_timeout: 4.0
           wait_enabled: true
@@ -1571,7 +1609,7 @@ test_workflow:
     - exception
     - refused
 yaml_build_state:
-  plan_version: 1.0.7
+  plan_version: 1.0.8
   saved_at: '2026-10-17T23:33:36'
   imported:
     net:
@@ -1664,178 +1702,279 @@ yaml_build_state:
         yield_threshold_pct: '98.0'
         exception_branch: stop
         case_link: ''
-        fct_test_config_yaml: "fct_test_config:\n  dut_type: linux\n  console:\n    enabled: true\n    port: /dev/cu.usbmodem53930099631\n\
-          \    baudrate: 115200\n    newline: lf\n    inter_cmd_delay_ms: 120\n    ssh_host: 192.168.10.129\n    ssh_username:\
-          \ root\n    deploy_scripts: false\n    scripts_local_dir: ''\n    scripts_remote_dir: /root\n    test_commands:\n\
-          \    - kind: message\n      name: Power on DUT\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: true\n      capture_enabled: false\n      send: y / n\n      expect_pass: ''\n    \
-          \  expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive:\
-          \ true\n      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: gostop\n      send_yes: y\n      send_no: n\n      timeout:\
-          \ 4.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n\
-          \      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n\
-          \    - kind: send\n      name: Console login\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ true\n      send_enabled: true\n      capture_enabled: true\n      send: 'root\n\n\n        '\n      expect_pass:\
-          \ 'imx93frdm login:'\n      expect_fail: root@imx93frdm\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes: y\n  \
-          \    send_no: n\n      timeout: 15\n      wait_timeout: 30\n      send_timeout: 4.0\n      retries: 1\n    \
-          \  extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd:\
-          \ ''\n      host_cmd_windows: ''\n    - kind: send\n      name: 'Preflight: kernel version'\n      transport: serial\n\
-          \      enabled: true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send:\
-          \ uname -r\n      expect_pass: root@imx93frdm\n      expect_fail: 6.6.36-lts-next\n      expect_pass_is_regex: true\n\
-          \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n\
-          \      send_yes: y\n      send_no: n\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n \
-          \     retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n\
-          \      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name: Preflight (fat.py / ALSA / HDMI)\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
-          \ true\n      send: sh /root/preflight.sh\n      expect_pass: root@imx93frdm\n      expect_fail: PREFLIGHT_PASS\n\
-          \      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 30\n      wait_timeout: 20\n\
-          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
-          \ Load RF drivers\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled: true\n\
-          \      capture_enabled: true\n      send: /root/load_rf_drivers.sh\n      expect_pass: root@imx93frdm\n      expect_fail:\
-          \ RF drivers loaded OK\n      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n      case_sensitive:\
-          \ true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout:\
-          \ 30.0\n      wait_timeout: 20\n      send_timeout: 4.0\n      retries: 1\n      extract: ''\n      action: ''\n\
-          \      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n\
-          \    - kind: send\n      name: Start fat.py (interactive)\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ true\n      send_enabled: true\n      capture_enabled: true\n      send: cd /root/frdm_imx93_board_test && python3\
-          \ -u fat.py --json /root/fat_result.json\n        2>&1 | tee /root/fat.log\n      expect_pass: root@imx93frdm\n\
-          \      expect_fail: FRDM-i.MX93 DUT\n      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n\
-          \      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes: y\n      send_no:\
-          \ n\n      timeout: 15\n      wait_timeout: 15\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n\
-          \      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n    - kind: send\n      name: 'fat.py: setup confirm'\n      transport: serial\n      enabled: true\n    \
-          \  wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send: y\n      expect_pass:\
-          \ Running as root\n      expect_fail: ''\n      expect_pass_is_regex: false\n\
-          \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: 'fat.py setup check: earphone\
-          \ plugged in, HDMI monitor on,\n        RGB LED visible - setup complete?'\n      dialog_style: yesno\n      send_yes:\
-          \ y\n      send_no: n\n      timeout: 15\n      wait_timeout: 15\n      send_timeout: 4.0\n      retries: 0\n\
-          \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd:\
-          \ ''\n      host_cmd_windows: ''\n    - kind: send\n      name: 'fat.py: MQS earphone tone'\n      transport: serial\n\
-          \      enabled: true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send:\
-          \ y\n      expect_pass: Did you hear the \\d+ Hz tone from the 3\\.5 mm earphone\\?\n      expect_fail: operator\
-          \ confirmed tone heard\n      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n      case_sensitive:\
-          \ true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ true\n      confirm_message: 'MQS audio: listen to the 3.5 mm earphone - did you hear the\n        1000 Hz tone?'\n\
-          \      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout: 120\n\
-          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
-          \ 'fat.py: HDMI visual'\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: y\n      expect_pass: visual command completed\n \
+        fct_test_config_yaml: "fct_test_config:\n  dut_type: linux\n  console:\n \
+          \   enabled: true\n    port: /dev/cu.usbmodem53930099631\n    baudrate:\
+          \ 115200\n    newline: lf\n    inter_cmd_delay_ms: 120\n    ssh_host: 192.168.10.129\n\
+          \    ssh_username: root\n    deploy_scripts: false\n    scripts_local_dir:\
+          \ ''\n    scripts_remote_dir: /root\n    test_commands:\n    - kind: message\n\
+          \      name: Power on DUT\n      transport: serial\n      enabled: true\n\
+          \      wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
+          \ false\n      send: y / n\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: gostop\n      send_yes: y\n      send_no: n\n\
+          \      timeout: 4.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n\
+          \      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n\
+          \      remote: ''\n      parse_summary: false\n      host_cmd: ''\n    \
+          \  host_cmd_windows: ''\n    - kind: send\n      name: Console login\n \
+          \     transport: serial\n      enabled: true\n      wait_enabled: true\n\
+          \      send_enabled: true\n      capture_enabled: true\n      send: 'root\n\
+          \n\n        '\n      expect_pass: 'imx93frdm login:'\n      expect_fail:\
+          \ root@imx93frdm\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 15\n      wait_timeout: 30\n     \
+          \ send_timeout: 4.0\n      retries: 1\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
+          \ 'Preflight: kernel version'\n      transport: serial\n      enabled: true\n\
+          \      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: uname -r\n      expect_pass: root@imx93frdm\n      expect_fail:\
+          \ 6.6.36-lts-next\n      expect_pass_is_regex: true\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 10.0\n      wait_timeout: 10.0\n \
+          \     send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
+          \ Preflight (fat.py / ALSA / HDMI)\n      transport: serial\n      enabled:\
+          \ true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: sh /root/preflight.sh\n      expect_pass: root@imx93frdm\n\
+          \      expect_fail: PREFLIGHT_PASS\n      expect_pass_is_regex: true\n \
+          \     expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
+          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 30\n      wait_timeout: 20\n     \
+          \ send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
+          \ Load RF drivers\n      transport: serial\n      enabled: true\n      wait_enabled:\
+          \ true\n      send_enabled: true\n      capture_enabled: true\n      send:\
+          \ /root/load_rf_drivers.sh\n      expect_pass: root@imx93frdm\n      expect_fail:\
+          \ RF drivers loaded OK\n      expect_pass_is_regex: true\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 30.0\n      wait_timeout: 20\n   \
+          \   send_timeout: 4.0\n      retries: 1\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
+          \ Start fat.py (interactive)\n      transport: serial\n      enabled: true\n\
+          \      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: cd /root/frdm_imx93_board_test && python3 -u fat.py\
+          \ --json /root/fat_result.json\n        2>&1 | tee /root/fat.log\n     \
+          \ expect_pass: root@imx93frdm\n      expect_fail: FRDM-i.MX93 DUT\n    \
+          \  expect_pass_is_regex: true\n      expect_fail_is_regex: false\n     \
+          \ case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n \
+          \     timeout: 15\n      wait_timeout: 15\n      send_timeout: 4.0\n   \
+          \   retries: 0\n      extract: ''\n      action: ''\n      local: ''\n \
+          \     remote: ''\n      parse_summary: false\n      host_cmd: ''\n     \
+          \ host_cmd_windows: ''\n    - kind: send\n      name: 'fat.py: setup confirm'\n\
+          \      transport: serial\n      enabled: true\n      wait_enabled: true\n\
+          \      send_enabled: true\n      capture_enabled: true\n      send: y\n\
+          \      expect_pass: Running as root\n      expect_fail: ''\n      expect_pass_is_regex:\
+          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
+          \      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
+          \ ''\n      confirm_enabled: false\n      confirm_message: 'fat.py setup\
+          \ check: earphone plugged in, HDMI monitor on,\n        RGB LED visible\
+          \ - setup complete?'\n      dialog_style: yesno\n      send_yes: y\n   \
+          \   send_no: n\n      timeout: 15\n      wait_timeout: 15\n      send_timeout:\
+          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
+          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
+          \      host_cmd_windows: ''\n    - kind: send\n      name: 'fat.py: MQS\
+          \ earphone tone'\n      transport: serial\n      enabled: true\n      wait_enabled:\
+          \ true\n      send_enabled: true\n      capture_enabled: true\n      send:\
+          \ y\n      expect_pass: Did you hear the \\d+ Hz tone from the 3\\.5 mm\
+          \ earphone\\?\n      expect_fail: operator confirmed tone heard\n      expect_pass_is_regex:\
+          \ true\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
+          \      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
+          \ ''\n      confirm_enabled: true\n      confirm_message: 'MQS audio: listen\
+          \ to the 3.5 mm earphone - did you hear the\n        1000 Hz tone?'\n  \
+          \    dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout:\
+          \ 20\n      wait_timeout: 120\n      send_timeout: 4.0\n      retries: 0\n\
+          \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
+          \ ''\n    - kind: send\n      name: 'fat.py: HDMI visual'\n      transport:\
+          \ serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
+          \ true\n      capture_enabled: true\n      send: y\n      expect_pass: visual\
+          \ command completed\n      expect_fail: ''\n      expect_pass_is_regex:\
+          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
+          \      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
+          \ ''\n      confirm_enabled: false\n      confirm_message: 'HDMI: look at\
+          \ the monitor - is the DUT output visible?'\n      dialog_style: yesno\n\
+          \      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout:\
+          \ 90\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
+          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n\
+          \      name: 'fat.py: RGB LED start'\n      transport: serial\n      enabled:\
+          \ true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: ''\n      expect_pass: Display RED\n      expect_fail:\
+          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ 'RGB LED: get ready to watch the on-board LED - press Yes to\n       \
+          \ start the color cycle'\n      dialog_style: yesno\n      send_yes: y\n\
+          \      send_no: n\n      timeout: 15\n      wait_timeout: 60\n      send_timeout:\
+          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
+          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
+          \      host_cmd_windows: ''\n    - kind: send\n      name: 'fat.py: RGB\
+          \ LED colors'\n      transport: serial\n      enabled: true\n      wait_enabled:\
+          \ true\n      send_enabled: true\n      capture_enabled: true\n      send:\
+          \ y\n      expect_pass: RGB LED sequence completed without operator confirmation\n\
+          \      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE)\n\
+          \        look correct?'\n      dialog_style: yesno\n      send_yes: y\n\
+          \      send_no: n\n      timeout: 20\n      wait_timeout: 60.0\n      send_timeout:\
+          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
+          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
+          \      host_cmd_windows: ''\n    - kind: send\n      name: fat.py summary\n\
+          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
+          \      send_enabled: false\n      capture_enabled: true\n      send: ''\n\
+          \      expect_pass: ''\n      expect_fail: 'Overall result:'\n      expect_pass_is_regex:\
+          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
+          \      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
+          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
+          \ yesno\n      send_yes: y\n      send_no: n\n      timeout: 360\n     \
+          \ wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract:\
+          \ ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
+          \ true\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n\
+          \      name: Start sshd\n      transport: serial\n      enabled: true\n\
+          \      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: mkdir -p /var/run/sshd; /usr/sbin/sshd 2>/dev/null;\
+          \ netstat -tln 2>/dev/null\n        | grep -q ':22 ' && echo SSHD_\"STARTED\"\
+          \n      expect_pass: root@imx93frdm\n      expect_fail: SSHD_STARTED\n \
+          \     expect_pass_is_regex: true\n      expect_fail_is_regex: false\n  \
+          \    case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n \
+          \     timeout: 20\n      wait_timeout: 15\n      send_timeout: 4.0\n   \
+          \   retries: 0\n      extract: ''\n      action: ''\n      local: ''\n \
+          \     remote: ''\n      parse_summary: false\n      host_cmd: ''\n     \
+          \ host_cmd_windows: ''\n    - kind: send\n      name: Wi-Fi connect to router\n\
+          \      transport: serial\n      enabled: true\n      wait_enabled: true\n\
+          \      send_enabled: true\n      capture_enabled: true\n      send: WIFI_SSID='{{ssid}}'\
+          \ WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh\n      expect_pass:\
+          \ root@imx93frdm\n      expect_fail: WIFI_CONNECTED_OK\n      expect_pass_is_regex:\
+          \ true\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
+          \      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
+          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
+          \ yesno\n      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout:\
+          \ 15\n      send_timeout: 4.0\n      retries: 1\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
+          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n\
+          \      name: DUT Wi-Fi IP check\n      transport: serial\n      enabled:\
+          \ true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: ip -4 addr show mlan0\n      expect_pass: root@imx93frdm\n\
+          \      expect_fail: inet\n      expect_pass_is_regex: true\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 15\n      wait_timeout: 10\n     \
+          \ send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
+          \ Ping Host (pre-SFTP)\n      transport: serial\n      enabled: true\n \
+          \     wait_enabled: true\n      send_enabled: true\n      capture_enabled:\
+          \ true\n      send: ping -I mlan0 -c 4 {{host_ip}}\n      expect_pass: root@imx93frdm\n\
+          \      expect_fail: 0% packet loss\n      expect_pass_is_regex: true\n \
+          \     expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
+          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 15.0\n      wait_timeout: 10.0\n \
+          \     send_timeout: 4.0\n      retries: 1\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: sftp_get\n  \
+          \    name: Retrieve fat_result.json (SFTP)\n      transport: ssh\n     \
+          \ enabled: true\n      wait_enabled: false\n      send_enabled: false\n\
+          \      capture_enabled: false\n      send: ''\n      expect_pass: ''\n \
           \     expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: 'HDMI: look at the monitor - is the DUT output visible?'\n\
-          \      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout: 90\n\
-          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
-          \ 'fat.py: RGB LED start'\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: ''\n      expect_pass: Display RED\n\
-          \      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: 'RGB LED: get ready to watch the on-board LED - press\
-          \ Yes to\n        start the color cycle'\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n     \
-          \ timeout: 15\n      wait_timeout: 60\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n     \
-          \ action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n    - kind: send\n      name: 'fat.py: RGB LED colors'\n      transport: serial\n      enabled: true\n   \
-          \   wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n      send: y\n      expect_pass:\
-          \ RGB LED sequence completed without operator confirmation\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive:\
-          \ true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: 'RGB LED: did all 7 colors (RED/GREEN/BLUE/YELLOW/CYAN/MAGENTA/WHITE)\n        look\
-          \ correct?'\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout:\
-          \ 60.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n     \
-          \ remote: ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n   \
-          \   name: fat.py summary\n      transport: serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ false\n      capture_enabled: true\n      send: ''\n      expect_pass: ''\n      expect_fail: 'Overall result:'\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 360\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: true\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name: Start\
-          \ sshd\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled: true\n     \
-          \ capture_enabled: true\n      send: mkdir -p /var/run/sshd; /usr/sbin/sshd 2>/dev/null; netstat -tln 2>/dev/null\n\
-          \        | grep -q ':22 ' && echo SSHD_\"STARTED\"\n      expect_pass: root@imx93frdm\n      expect_fail: SSHD_STARTED\n\
-          \      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout: 15\n\
-          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name:\
-          \ Wi-Fi connect to router\n      transport: serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh\n\
-          \      expect_pass: root@imx93frdm\n      expect_fail: WIFI_CONNECTED_OK\n      expect_pass_is_regex: true\n   \
-          \   expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n\
-          \      send_yes: y\n      send_no: n\n      timeout: 20\n      wait_timeout: 15\n      send_timeout: 4.0\n \
-          \     retries: 1\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n\
-          \      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name: DUT Wi-Fi IP check\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n\
-          \      send: ip -4 addr show mlan0\n      expect_pass: root@imx93frdm\n      expect_fail: inet\n      expect_pass_is_regex:\
-          \ true\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n\
-          \      send_yes: y\n      send_no: n\n      timeout: 15\n      wait_timeout: 10\n      send_timeout: 4.0\n \
-          \     retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n\
-          \      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: send\n      name: Ping Host (pre-SFTP)\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: true\n      send_enabled: true\n      capture_enabled: true\n\
-          \      send: ping -I mlan0 -c 4 {{host_ip}}\n      expect_pass: root@imx93frdm\n      expect_fail: 0% packet loss\n\
-          \      expect_pass_is_regex: true\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 15.0\n      wait_timeout: 10.0\n\
-          \      send_timeout: 4.0\n      retries: 1\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    - kind: sftp_get\n      name:\
-          \ Retrieve fat_result.json (SFTP)\n      transport: ssh\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ false\n      capture_enabled: false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n\
-          \      send_yes: y\n      send_no: n\n      timeout: 6.0\n      wait_timeout: 10.0\n      send_timeout: 20.0\n \
-          \     retries: 1\n      extract: ''\n      action: sftp_get\n      local: /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/frdm-imx93/_run_work/fat_result.json\n\
-          \      remote: /root/fat_result.json\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n\
-          \    - kind: sftp_get\n      name: Retrieve fat.log (SFTP)\n      transport: ssh\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: false\n      capture_enabled: false\n      send: ''\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 6.0\n      wait_timeout: 10.0\n\
-          \      send_timeout: 30.0\n      retries: 1\n      extract: ''\n      action: sftp_get\n      local: /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/frdm-imx93/_run_work/fat.log\n\
-          \      remote: /root/fat.log\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows: ''\n    -\
-          \ kind: host\n      name: Start iperf3 server (Host CLI)\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: false\n      capture_enabled: false\n      send: ''\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
-          \ false\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n      timeout: 15.0\n      wait_timeout: 10.0\n\
-          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: iperf3 -s -D\n      host_cmd_windows: start /B iperf3 -s\n   \
-          \ post_rf_commands:\n    - kind: send\n      name: Shutdown DUT\n      transport: serial\n      enabled: true\n\
-          \      wait_enabled: true\n      send_enabled: true\n      capture_enabled: false\n      send: shutdown now\n  \
-          \    expect_pass: root@imx93frdm\n      expect_fail: ''\n      expect_pass_is_regex: true\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes: y\n  \
-          \    send_no: n\n      timeout: 6.0\n      wait_timeout: 30.0\n      send_timeout: 4.0\n      retries: 0\n     \
-          \ extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd:\
-          \ ''\n      host_cmd_windows: ''\n    - kind: host\n      name: Stop iperf3 server (Host CLI)\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled: false\n      capture_enabled: false\n\
-          \      send: ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes: y\n  \
-          \    send_no: n\n      timeout: 15.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n    \
-          \  extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary: false\n      host_cmd:\
-          \ pkill -x iperf3 || true\n      host_cmd_windows: taskkill /IM iperf3.exe /F & ver > nul\n    - kind: message\n\
-          \      name: FCT done.\n      transport: serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ false\n      capture_enabled: false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected: false\n     \
-          \ capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message: ''\n    \
-          \  dialog_style: ok\n      send_yes: y\n      send_no: n\n      timeout: 0.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n  wifi:\n    enabled: true\n    interface: mlan0\n    driver_load_cmd:\
-          \ ''\n    scan_enabled: true\n    ap_ssid: ChinaNet-4zEc-5G\n    ap_password: dgu3vcgs\n    ap_ip: ''\n    host_ip:\
-          \ ''\n    rssi_min: -70\n    scan_timeout: 15.0\n    scan_via: dut_console\n    ping_enabled: true\n    ping_count:\
-          \ 20\n    ping_timeout: 15.0\n    iperf_enabled: true\n    iperf_tool: iperf3\n    iperf_min_mbps: 1.0\n    iperf_server_ip:\
-          \ ''\n    iperf_duration: 10\n    iperf_timeout: 45.0\n  bluetooth:\n    enabled: true\n    rssi_enabled: true\n\
-          \    expected_name: FRDM-IMX93-DUT\n    expected_addr: b8:f4:4f:59:51:a0\n    scan_retries: 3\n    rssi_min: -75\n\
-          \    rssi_timeout: 25.0\n    pair_enabled: true\n    pair_timeout: 40.0\n    l2ping_count: 10\n    tone_enabled:\
-          \ true\n    audio_confirm: true\n    tone_timeout: 50.0\n  setup:\n    power_mode: none\n    use_fixture: false\n\
-          \    manual_on_message: ''\n    manual_off_message: ''\n"
+          \ false\n      case_sensitive: true\n      capture_is_expected: true\n \
+          \     capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 6.0\n      wait_timeout: 10.0\n  \
+          \    send_timeout: 20.0\n      retries: 1\n      extract: ''\n      action:\
+          \ sftp_get\n      local: /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/frdm-imx93/_run_work/fat_result.json\n\
+          \      remote: /root/fat_result.json\n      parse_summary: false\n     \
+          \ host_cmd: ''\n      host_cmd_windows: ''\n    - kind: sftp_get\n     \
+          \ name: Retrieve fat.log (SFTP)\n      transport: ssh\n      enabled: true\n\
+          \      wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
+          \ false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: true\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n \
+          \     timeout: 6.0\n      wait_timeout: 10.0\n      send_timeout: 30.0\n\
+          \      retries: 1\n      extract: ''\n      action: sftp_get\n      local:\
+          \ /Users/seapolshenmacpro16/GitHub/Repos/mtk-gui/yaml_plan/examples/frdm-imx93/_run_work/fat.log\n\
+          \      remote: /root/fat.log\n      parse_summary: false\n      host_cmd:\
+          \ ''\n      host_cmd_windows: ''\n    - kind: host\n      name: Start iperf3\
+          \ server (Host CLI)\n      transport: serial\n      enabled: true\n    \
+          \  wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
+          \ false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n \
+          \     timeout: 15.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n\
+          \      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n\
+          \      remote: ''\n      parse_summary: false\n      host_cmd: iperf3 -s\
+          \ -D\n      host_cmd_windows: start /B iperf3 -s\n    post_rf_commands:\n\
+          \    - kind: send\n      name: Shutdown DUT\n      transport: serial\n \
+          \     enabled: true\n      wait_enabled: true\n      send_enabled: true\n\
+          \      capture_enabled: false\n      send: shutdown now\n      expect_pass:\
+          \ root@imx93frdm\n      expect_fail: ''\n      expect_pass_is_regex: true\n\
+          \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:\
+          \ true\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 6.0\n      wait_timeout: 30.0\n  \
+          \    send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    - kind: host\n      name:\
+          \ Stop iperf3 server (Host CLI)\n      transport: serial\n      enabled:\
+          \ true\n      wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
+          \ false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
+          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
+          \ ''\n      dialog_style: yesno\n      send_yes: y\n      send_no: n\n \
+          \     timeout: 15.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n\
+          \      retries: 0\n      extract: ''\n      action: ''\n      local: ''\n\
+          \      remote: ''\n      parse_summary: false\n      host_cmd: pkill -x\
+          \ iperf3 || true\n      host_cmd_windows: taskkill /IM iperf3.exe /F & ver\
+          \ > nul\n    - kind: message\n      name: FCT done.\n      transport: serial\n\
+          \      enabled: true\n      wait_enabled: false\n      send_enabled: false\n\
+          \      capture_enabled: false\n      send: ''\n      expect_pass: ''\n \
+          \     expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
+          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
+          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
+          \ false\n      confirm_message: ''\n      dialog_style: ok\n      send_yes:\
+          \ y\n      send_no: n\n      timeout: 0.0\n      wait_timeout: 10.0\n  \
+          \    send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:\
+          \ ''\n      local: ''\n      remote: ''\n      parse_summary: false\n  \
+          \    host_cmd: ''\n      host_cmd_windows: ''\n    serial_deploy: true\n\
+          \    serial_deploy_files:\n    - local: scripts/connect_wifi.sh\n      remote:\
+          \ /root/connect_wifi.sh\n    - local: scripts/load_rf_drivers.sh\n     \
+          \ remote: /root/load_rf_drivers.sh\n    - local: scripts/preflight.sh\n\
+          \      remote: /root/preflight.sh\n    - local: scripts/FCT_SETUP.md\n \
+          \     remote: /root/FCT_SETUP.md\n    - local: frdm_imx93_board_test.zip\n\
+          \      remote: /root/frdm_imx93_board_test.zip\n      unzip: /root\n  wifi:\n\
+          \    enabled: true\n    interface: mlan0\n    driver_load_cmd: ''\n    scan_enabled:\
+          \ true\n    ap_ssid: ChinaNet-4zEc-5G\n    ap_password: dgu3vcgs\n    ap_ip:\
+          \ ''\n    host_ip: ''\n    rssi_min: -70\n    scan_timeout: 15.0\n    scan_via:\
+          \ dut_console\n    ping_enabled: true\n    ping_count: 20\n    ping_timeout:\
+          \ 15.0\n    iperf_enabled: true\n    iperf_tool: iperf3\n    iperf_min_mbps:\
+          \ 1.0\n    iperf_server_ip: ''\n    iperf_duration: 10\n    iperf_timeout:\
+          \ 45.0\n  bluetooth:\n    enabled: true\n    rssi_enabled: true\n    expected_name:\
+          \ FRDM-IMX93-DUT\n    expected_addr: b8:f4:4f:59:51:a0\n    scan_retries:\
+          \ 3\n    rssi_min: -75\n    rssi_timeout: 25.0\n    pair_enabled: true\n\
+          \    pair_timeout: 40.0\n    l2ping_count: 10\n    tone_enabled: true\n\
+          \    audio_confirm: true\n    tone_timeout: 50.0\n  setup:\n    power_mode:\
+          \ none\n    use_fixture: false\n    manual_on_message: ''\n    manual_off_message:\
+          \ ''\n"

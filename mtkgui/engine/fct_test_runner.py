@@ -1023,7 +1023,10 @@ class FctTestRunner:
             return None
         local = c.scripts_local_dir or ""
         if local and not os.path.isabs(local) and self.scripts_base_dir:
-            local = os.path.join(self.scripts_base_dir, local)
+            # normpath: YAML relative paths use forward slashes on every
+            # OS; normalize so Windows gets native separators.
+            local = os.path.normpath(
+                os.path.join(self.scripts_base_dir, local))
         remote = (c.scripts_remote_dir or "").rstrip("/")
         t0 = time.time()
         try:

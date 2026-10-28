@@ -1221,6 +1221,17 @@ class MultiConsoleWidget(QGroupBox):
         channel = self.channels.get(key)
         return bytes(channel["read_buffer"]) if channel else b""
 
+    def set_channel_baud(self, key, baudrate):
+        """Reconfigure an open channel's link speed (FCT deploy).
+        Returns True when the worker accepted the new baud."""
+        channel = self.channels.get(key)
+        if not channel:
+            return False
+        worker = channel["worker"]
+        if not worker or not worker.isRunning():
+            return False
+        return bool(worker.set_baudrate(baudrate))
+
     def clear_read_buffer(self, key):
         channel = self.channels.get(key)
         if channel:
