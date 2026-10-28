@@ -16,9 +16,13 @@ Bluetooth) for the "Build FCT Test Work Flow Sequence" module:
 * Bluetooth tab — three independently enabled sub-tests, each with
   its own timeout: 1. RSSI discovery (both DUT kinds), 2. Pair &
   connect with optional L2CAP ping (Linux only), 3. Tone/music over
-  A2DP with GUI confirm (Linux only, Host source -> DUT sink);
-* Setup tab     — FCT power source (manual prompts / PSU / none) and
-  ATE fixture DIO usage.
+  A2DP with GUI confirm (Linux only, Host source -> DUT sink).
+
+The power / fixture spine (``setup:`` node: power_mode, use_fixture,
+manual_on_message, manual_off_message) has NO editor tab any more: the
+keys are still parsed on load and re-emitted untouched on save, so old
+YAMLs keep their behaviour (MessageGoStop prompts, U2355A fixture ops).
+A YAML without a ``setup:`` node gets the engine defaults.
 
 `values()` returns the legacy module params preserved plus
 ``fct_test_config_yaml`` — the full node as YAML text — so the
@@ -61,6 +65,7 @@ from mtkgui.engine.fct_test_config import (
     DIALOG_YESNO,
     KIND_MESSAGE,
     ConsoleCommand,
+    FctSetupCfg,
     FctTestConfig,
 )
 
@@ -155,6 +160,7 @@ class FCTTestConfigPanel(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(1100)
         self._legacy: dict = {}             # preserved module params
+        self._setup_cfg = FctSetupCfg()     # power/fixture spine (no tab)
         self._guard = False
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -162,7 +168,6 @@ class FCTTestConfigPanel(QWidget):
         self.tabs.addTab(self._build_console_tab(), "Console")
         self.tabs.addTab(self._build_wifi_tab(), "Wi-Fi")
         self.tabs.addTab(self._build_bt_tab(), "Bluetooth")
-        self.tabs.addTab(self._build_setup_tab(), "Setup")
         # Sequence tab (task: single sequence source): the shared step
         # editor adds the standard operations / flash operations / Delay
         # steps that run BEFORE the console / Wi-Fi / Bluetooth body
@@ -241,57 +246,6 @@ class FCTTestConfigPanel(QWidget):
                         cmd.local = cmd.remote = ""
                     self._save_row_cmd(r, cmd)
             cb.blockSignals(False)
-
-    # ------------------------------------------------------------ setup
-    def _build_setup_tab(self) -> QWidget:
-        """FCT fixture / power wrapper. FCT uses NO DAQ; the DUT is
-        powered by the rack PSU (Power On/Off ops) or a wall adapter /
-        USB cable the operator connects when prompted (MessageGoStop);
-        the optional ATE fixture is driven through U2355A DIO."""
-        from mtkgui.engine.fct_test_config import (
-            DEFAULT_MANUAL_OFF_MSG,
-            DEFAULT_MANUAL_ON_MSG,
-            POWER_MANUAL,
-            POWER_NONE,
-            POWER_PSU,
-        )
-        w = QWidget()
-        form = QFormLayout(w)
-        self.setup_power = QComboBox()
-        self._POWER_MANUAL = POWER_MANUAL
-        self.setup_power.addItem(
-            "Manual adapter/USB (operator prompt)", POWER_MANUAL)
-        self.setup_power.addItem("Rack PSU (N5747A Power On/Off)", POWER_PSU)
-        self.setup_power.addItem("Already powered (no power action)",
-                                 POWER_NONE)
-        self.setup_power.currentIndexChanged.connect(
-            self._on_setup_power_changed)
-        form.addRow("DUT power:", self.setup_power)
-
-        self.setup_fixture = QCheckBox(
-            "Use ATE fixture (clamp/lock, driven by U2355A DIO)")
-        form.addRow("Fixture:", self.setup_fixture)
-
-        self.setup_on_msg = QLineEdit(DEFAULT_MANUAL_ON_MSG)
-        form.addRow("Power-on prompt:", self.setup_on_msg)
-        self.setup_off_msg = QLineEdit(DEFAULT_MANUAL_OFF_MSG)
-        form.addRow("Power-off prompt:", self.setup_off_msg)
-
-        hint = QLabel(
-            "FCT needs no DAQ. With manual power a MessageGoStop asks the "
-            "operator to connect/remove the adapter or USB cable. The rack "
-            "PSU choice adds the same Power On/Off operations as ICT.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #6b7280;")
-        form.addRow(hint)
-        form.addRow(QLabel(""))
-        return w
-
-    def _on_setup_power_changed(self, _idx: int) -> None:
-        """The manual prompt texts are editable only in manual mode."""
-        manual = self.setup_power.currentData() == self._POWER_MANUAL
-        self.setup_on_msg.setEnabled(manual)
-        self.setup_off_msg.setEnabled(manual)
 
     # ----------------------------------------------------------- sequence
     def _build_sequence_tab(self) -> QWidget:
@@ -1581,13 +1535,10 @@ class FCTTestConfigPanel(QWidget):
             self.bt_tone_timeout.setValue(int(b.tone_timeout))
             self._sync_wifi_groups()
             self._sync_bt_groups()
-            s = cfg.setup
-            idx = self.setup_power.findData(s.power_mode)
-            self.setup_power.setCurrentIndex(idx if idx >= 0 else 0)
-            self.setup_fixture.setChecked(s.use_fixture)
-            self.setup_on_msg.setText(s.manual_on_message)
-            self.setup_off_msg.setText(s.manual_off_message)
-            self._on_setup_power_changed(self.setup_power.currentIndex())
+            # setup: there is no editor tab any more - keep the node that
+            # was loaded so an old YAML round-trips with its power/fixture
+            # behaviour intact
+            self._setup_cfg = copy.deepcopy(cfg.setup)
         finally:
             self._guard = False
         # Sequence tab: restore the stored standard-op / flash / Delay
@@ -1662,13 +1613,8 @@ class FCTTestConfigPanel(QWidget):
             audio_confirm=self.bt_audio_confirm.isChecked(),
             tone_timeout=float(self.bt_tone_timeout.value()),
         )
-        from mtkgui.engine.fct_test_config import FctSetupCfg
-        cfg.setup = FctSetupCfg(
-            power_mode=self.setup_power.currentData(),
-            use_fixture=self.setup_fixture.isChecked(),
-            manual_on_message=self.setup_on_msg.text().strip(),
-            manual_off_message=self.setup_off_msg.text().strip(),
-        )
+        # setup: emitted verbatim from what was loaded (no editor tab)
+        cfg.setup = copy.deepcopy(self._setup_cfg)
         errors = cfg.validate()
         if errors:
             # the dialog shows the error list from the schema pass; the

@@ -13,7 +13,7 @@ production products.
 
 - Load the FRDM-IMX93 demo FCT project.
 - Walk through the FCT sequence editor (Console / Wi-Fi / Bluetooth /
-  Setup / Sequence tabs).
+  Sequence tabs).
 - Understand the DUT-side Linux scripts the sequence calls into.
 - Copy the scripts from the host PC to the DUT Linux rootfs.
 - Save the YAML and export the plan for review.
@@ -47,8 +47,8 @@ The project loads and the product metadata is filled automatically:
 ## Step 2 - Build the FCT sequence (Block 05 · Build FCT)
 
 Go to the **Yaml Build** tab and click the **05 · Build FCT Test Work
-Flow Sequence** card. The FCT editor opens with five tabs:
-`Console` / `Wi-Fi` / `Bluetooth` / `Setup` / `Sequence`.
+Flow Sequence** card. The FCT editor opens with four tabs:
+`Console` / `Wi-Fi` / `Bluetooth` / `Sequence`.
 
 ### Console tab - the serial message chain
 
@@ -92,7 +92,7 @@ Steps 8-11 are **operator dialogs**: the GUI asks the operator to
 confirm what is heard / seen (tone, HDMI picture, RGB colours) - the
 test waits up to 300 s per dialog.
 
-### Setup / Sequence tabs - standard operations
+### Sequence tab - standard operations
 
 The **Sequence** tab holds the standard operations that run BEFORE the
 console / Wi-Fi / Bluetooth body: `Init Instruments`, `Fixture`,

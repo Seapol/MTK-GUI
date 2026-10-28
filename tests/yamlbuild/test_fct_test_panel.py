@@ -306,30 +306,41 @@ def test_sftp_row_clears_wait_and_capture(qapp):
 
 
 
-def test_setup_tab_round_trips_power_and_fixture(qapp):
-    """P3-B5: the Setup tab (power source + ATE fixture) persists into
-    fct_test_config_yaml and restores."""
+def test_setup_fields_round_trip_without_editor_tab(qapp):
+    """M22g: the Setup tab is gone (4 tabs left). The `setup:` node is
+    still parsed and re-emitted verbatim, so an old YAML keeps its
+    power / fixture spine (MessageGoStop prompts, U2355A fixture ops)."""
     panel = FCTTestConfigPanel()
+    labels = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
+    assert labels == ["Console", "Wi-Fi", "Bluetooth", "Sequence"]
+    assert not hasattr(panel, "setup_power")
     text = yaml.safe_dump({"fct_test_config": {
         "dut_type": "linux",
         "setup": {"power_mode": "psu", "use_fixture": True,
                   "manual_on_message": "plug it",
                   "manual_off_message": "unplug it"}}}, sort_keys=False)
     panel.set_values({"fct_test_config_yaml": text})
-    assert panel.setup_power.currentData() == "psu"
-    assert panel.setup_fixture.isChecked() is True
-    # psu mode disables the manual prompt editors
-    assert not panel.setup_on_msg.isEnabled()
 
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
-    setup = node["fct_test_config"]["setup"]
-    assert setup["power_mode"] == "psu"
-    assert setup["use_fixture"] is True
+    assert node["fct_test_config"]["setup"] == {
+        "power_mode": "psu", "use_fixture": True,
+        "manual_on_message": "plug it",
+        "manual_off_message": "unplug it"}
 
-    # switching to manual enables the prompt editors and keeps text
-    panel.setup_power.setCurrentIndex(0)   # manual is item 0
-    assert panel.setup_on_msg.isEnabled()
+
+def test_setup_defaults_when_yaml_has_no_setup_node(qapp):
+    """A YAML without a `setup:` node still gets the engine defaults
+    (manual power + default prompts), so nothing goes silently missing."""
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml":
+                      "fct_test_config:\n  dut_type: linux\n"})
+    out = panel.values()
+    setup = yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"][
+        "setup"]
+    assert setup["power_mode"] == "manual"
+    assert setup["use_fixture"] is False
+    assert setup["manual_on_message"]
 
 
 # --------------------------------------------------- message rows (P3-B7)
