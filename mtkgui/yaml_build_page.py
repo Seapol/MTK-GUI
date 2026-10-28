@@ -169,6 +169,10 @@ class YamlBuildPage(QWidget):
     #: generated FCT case dicts (name/kind/enable/wait_ms/timeout_ms/
     #: op_params.fct_step) for the Test Work Flow page's FCT table
     fct_sequence_ready = Signal(list)
+    #: M22b: the block-07 dialog's in-place "Apply & Save yaml" ran -
+    #: the main window refreshes the sequence views and saves the
+    #: project yaml WITHOUT closing the dialog (no save prompt)
+    fct_sequence_applied = Signal(list)
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -365,6 +369,27 @@ class YamlBuildPage(QWidget):
                 current.get("fct_test_config_yaml"), cases)
         return current
 
+    def _apply_save_fct_params(self, params: dict):
+        """M22b: the block-07 dialog's "Apply & Save yaml" callback.
+
+        Commits the dialog values into the model, rebuilds the FCT case
+        list and broadcasts ``fct_sequence_applied`` - the main window
+        repaints the Test Work Flow table and saves the project yaml on
+        that one signal, so no save path can leave a stale view behind.
+
+        Returns an error string (the dialog shows it and stays open) or
+        None when the configuration applied cleanly.
+        """
+        self.model.set_params("fct_build", params)
+        cases, errors = self._emit_fct_sequence(params)
+        if errors:
+            self._tlog("ERROR", "FCT config invalid: "
+                                + "; ".join(errors))
+            return "\n".join(errors[:10])
+        self._set_mark("fct_build", MARK_STAR)
+        self.fct_sequence_applied.emit(cases)
+        return None
+
     def open_ict_sequence(self) -> None:
         """Open the "Build ICT Test Work Flow Sequence" dialog.
 
@@ -452,7 +477,8 @@ class YamlBuildPage(QWidget):
             self._fct_build_params_with_live_cases("fct_build"),
             self,
             log_sink=self.task_log.emit,
-            progress_sink=self.task_progress.emit)
+            progress_sink=self.task_progress.emit,
+            apply_save_cb=self._apply_save_fct_params)
         if params is None:
             return
         self.model.set_params("fct_build", params)

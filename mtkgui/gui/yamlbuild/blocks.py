@@ -87,7 +87,8 @@ class BlockConfigDialog(QDialog):
                  parent: QWidget | None = None,
                  net_source: tuple[str, str] | None = None,
                  panel_state: dict | None = None,
-                 yaml_model=None) -> None:
+                 yaml_model=None,
+                 apply_save_cb=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -102,11 +103,18 @@ class BlockConfigDialog(QDialog):
                               overrides, SPF net names).
             yaml_model:       Block 02 only - the project YamlBuildModel
                               the Test Plan sync writes into (M5).
+            apply_save_cb:    Block 07 only - callable(values) invoked by
+                              the "Apply & Save yaml" button; it applies
+                              the sequence to every view and saves the
+                              project yaml in place, returning an error
+                              string (None = saved).  The dialog stays
+                              open so the operator can keep editing.
         """
         super().__init__(parent)
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
+        self._apply_save_cb = apply_save_cb
         # navigation target requested by an embedded panel (e.g. the
         # Parse Nets "Open Power Tree Editor" button); the page reads
         # this after the dialog accepts
@@ -210,6 +218,20 @@ class BlockConfigDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
+        # M22b: block 07 gets an in-place "Apply & Save yaml" action -
+        # it writes the project yaml and refreshes every view that reads
+        # the sequence WITHOUT closing the dialog (the old flow only
+        # saved after OK, so the tables stayed stale until a reopen).
+        self.btn_apply_save = None
+        if module_key == "fct_build" and self._apply_save_cb is not None:
+            self.btn_apply_save = buttons.addButton(
+                "Apply & Save yaml",
+                QDialogButtonBox.ButtonRole.ActionRole)
+            self.btn_apply_save.setToolTip(
+                "Apply the current FCT configuration, refresh the sequence "
+                "/ Test Work Flow tables and save the project yaml in "
+                "place - the dialog stays open")
+            self.btn_apply_save.clicked.connect(self._on_apply_save)
         lay.addWidget(buttons)
 
     # ------------------------------------------------- panel log mirror
@@ -277,8 +299,9 @@ class BlockConfigDialog(QDialog):
         return editor.text().strip()
 
     # ------------------------------------------------------------- save
-    def _on_accept(self) -> None:
-        """Validate all fields; accept only when clean."""
+    def _collect(self) -> dict | None:
+        """Read + validate every field; None when the input is invalid
+        (the error list is shown in the dialog)."""
         if self.panel is not None:
             # Design Input: the embedded panel owns the values
             self._edited = dict(self.panel.values())
@@ -302,12 +325,32 @@ class BlockConfigDialog(QDialog):
             QMessageBox.warning(
                 self, "Validation",
                 "Please fix the highlighted fields before saving.")
+            return None
+        return dict(self._edited)
+
+    def _on_accept(self) -> None:
+        """Validate all fields; accept only when clean."""
+        if self._collect() is None:
             return
         if self.nets_panel is not None:
             # M5 commit gate: a workbook import may write the
             # production YAML only after the block was applied
             self.nets_panel.mark_applied()
         self.accept()
+
+    def _on_apply_save(self) -> None:
+        """M22b: apply in place + save the project yaml + refresh every
+        view reading the sequence - the dialog stays open."""
+        values = self._collect()
+        if values is None:
+            return
+        error = self._apply_save_cb(values)
+        if error:
+            self.error_label.setText(str(error))
+            return
+        self.error_label.setText("")
+        self.task_log.emit("info",
+                           "FCT sequence applied and yaml saved")
 
     def values(self) -> dict:
         """Return the validated parameter set (after accept).

@@ -987,6 +987,9 @@ class MainWindow(QMainWindow):
         # P3-B5: block-07 FCT config accepted -> replace the FCT Test
         # Cases table with the generated sequence, then apply to yaml
         yb.fct_sequence_ready.connect(self._on_fct_sequence_ready)
+        # M22b: the block-07 dialog's in-place "Apply & Save yaml" -
+        # repaint every sequence view and save the project yaml at once
+        yb.fct_sequence_applied.connect(self._on_fct_sequence_applied)
         # reverse sync: the Build FCT dialog seeds its console commands
         # from the CURRENT FCT Test Cases rows whenever it opens
         yb.current_fct_cases_provider = \
@@ -2131,6 +2134,41 @@ class MainWindow(QMainWindow):
             level=IMPORTANT)
         self._on_yaml_apply_committed()
 
+    def _on_fct_sequence_applied(self, cases):
+        """M22b: block-07 "Apply & Save yaml" inside the dialog.
+
+        ONE path: repaint the Test Work Flow FCT table + the Yaml Build
+        page from the model, then save the project yaml in place (no
+        overwrite prompt - the operator asked for exactly that).  The
+        dialog stays open, so its own sequence table is already current.
+        """
+        self.workflow_page.load_fct_cases(cases)
+        self.yaml_build_page.refresh_all()
+        self._append_event_log(
+            f"FCT test sequence applied: {len(cases)} cases",
+            level=IMPORTANT)
+        if self._project_path:
+            self._save_yaml_to(self._project_path)
+        else:
+            # never nest a save-file dialog inside the block-07 dialog:
+            # with no project file yet the standard-name auto-save is
+            # the dialog-free equivalent (same rule as Load current yaml)
+            self._auto_save_project()
+
+    def _refresh_sequence_views(self):
+        """M22b: repaint every view that reads the FCT sequence from the
+        Yaml Build model.  Called by the single save path
+        (``_save_yaml_to``) so a save can never leave a stale table."""
+        model = self.yaml_build_page.model
+        fct_params = model.get_params("fct_build") or {}
+        if model.is_enabled("fct_build") and str(
+                fct_params.get("fct_test_config_yaml") or "").strip():
+            cases, errors = self.yaml_build_page._emit_fct_sequence(
+                fct_params)
+            if not errors:
+                self.workflow_page.load_fct_cases(cases)
+        self.yaml_build_page.refresh_all()
+
     def _load_current_yaml(self):
         """Load current yaml (user direction 2026-10-13): derive the
         ICT / FCT sequences from the CURRENT Yaml Build model and push
@@ -2542,6 +2580,9 @@ class MainWindow(QMainWindow):
             self.workflow_page.set_project_file(path)
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Yaml saved: {path}")
+            # M22b: the ONE save path also repaints every view that reads
+            # the sequence - no caller can bypass the refresh
+            self._refresh_sequence_views()
         finally:
             _startup_end("save yaml: write")
 
