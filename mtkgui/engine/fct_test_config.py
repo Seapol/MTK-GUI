@@ -75,6 +75,7 @@ from ..gui.yamlbuild.fct_build import (
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     FctStep,
+    dedupe_steps,
 )
 
 BAUDRATES = (9600, 19200, 38400, 57600, 115200)
@@ -1215,12 +1216,12 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
         "capture_enabled": cmd.capture_enabled,
         "wait_pattern": cmd.expect_pass,
         "wait_timeout": float(cmd.wait_timeout),
+        "wait_is_regex": bool(cmd.expect_pass_is_regex),
         "send_timeout": float(cmd.send_timeout),
         "capture_timeout": float(cmd.timeout),
         "capture_end_line": end_line,
         "capture_is_expected": is_expected,
         "case_sensitive": cmd.case_sensitive,
-        "confirm_enabled": bool(cmd.confirm_enabled),
         "confirm_message": str(cmd.confirm_message or ""),
         "expect_pass_re": pass_pat,
         "expect_fail_re": neg_pat,
@@ -1231,28 +1232,28 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
     if cmd.send_enabled and (cmd.send or cmd.kind == "send"):
         params["send"] = cmd.send
     base_name = cmd.name or cmd.send or "Console step"
-    # a row that both waits and sends becomes two ordered steps:
-    # a pre-send WaitFor then the Send+Capture step
-    if (not is_wait_only and cmd.wait_enabled
-            and cmd.expect_pass):
-        steps.append(FctStep(
-            name=f"{base_name} (wait)",
-            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-            timeout_s=float(cmd.wait_timeout),
-            retries=int(cmd.retries),
-            params={"fct_console": True, "kind": "wait",
-                    "wait_enabled": True, "send_enabled": False,
-                    "capture_enabled": False,
-                    "expect_pass_re": cmd.expect_pass,
-                    "expect_pass_is_regex":
-                        cmd.expect_pass_is_regex,
-                    "capture_is_expected": True,
-                    "case_sensitive": cmd.case_sensitive}))
+    # ONE step per console row (unified model 2026-10-28): the old
+    # "(wait)" pre-step + main step split is gone; wait / send /
+    # capture are stages of the SAME interact step, so the yaml, the
+    # step editor and the Test Work Flow table all show one row.
     steps.append(FctStep(
         name=base_name,
         step_type=STEP_MESSAGE_CHECK, channel=channel_key,
         timeout_s=float(cmd.timeout), retries=int(cmd.retries),
         params=params))
+    # An operator confirmation is an EXPLICIT dialog step placed right
+    # after the row (model item 3: nothing pops implicitly any more).
+    if bool(getattr(cmd, "confirm_enabled", False)):
+        steps.append(FctStep(
+            name=f"Confirm: {base_name}",
+            step_type=STEP_GUI_CONFIRM, channel="",
+            timeout_s=0.0,
+            params={"style": DIALOG_YESNO, "console_dialog": True,
+                    "message": str(cmd.confirm_message or base_name),
+                    "wait_pattern": "", "wait_timeout": 0.0,
+                    "send_yes": cmd.send_yes or "y",
+                    "send_no": cmd.send_no or "n",
+                    "message_timeout_s": float(cmd.timeout or 4.0)}))
     return steps
 
 
@@ -1439,21 +1440,10 @@ def _fct_op_step(name: str) -> "FctStep":
 
 
 def _dedupe_steps(steps: list) -> list:
-    """Drop EXACT duplicate steps (same name + type + params).
-
-    A phantom row must never survive a load/save (M22): two identical
-    "FCT done." rows used to be emitted by two independent auto-append
-    sites.  Order is preserved, the FIRST occurrence wins."""
-    seen: set = set()
-    out: list = []
-    for step in steps:
-        key = (step.name, step.step_type,
-               repr(sorted((step.params or {}).items())))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(step)
-    return out
+    """Drop EXACT duplicate steps (one shared implementation with
+    ``fct_build.dedupe_steps`` so a phantom row can never survive a
+    load/save, M22/M26)."""
+    return dedupe_steps(steps)
 
 
 def wrap_fct_setup(cfg: FctTestConfig, body: list,

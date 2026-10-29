@@ -67,6 +67,7 @@ from mtkgui.engine.fct_test_config import (
     DIALOG_GOSTOP,
     DIALOG_OK,
     DIALOG_YESNO,
+    KIND_HOST,
     KIND_MESSAGE,
     ConsoleCfg,
     ConsoleCommand,
@@ -271,17 +272,19 @@ class FCTTestConfigPanel(QWidget):
         w = QWidget()
         lay = QVBoxLayout(w)
         cmd_hint = QLabel(
-            "Console test commands: one row = one Wait -> Send -> Capture "
-            "test (Console = serial / ssh / (message)); double-click a row "
-            "to edit its patterns, timeouts and SFTP payload.")
+            "Console test commands: one row = one step. Type shows the "
+            "explicit kind - interact (Wait -> Send -> Capture), action "
+            "(SFTP transfer / Host CLI) or dialog (operator prompt); "
+            "double-click a row to edit its patterns, timeouts, transfer "
+            "paths / host command or dialog text.")
         cmd_hint.setWordWrap(True)
         cmd_hint.setStyleSheet("color: #6b7280;")
         lay.addWidget(cmd_hint)
         lay.addWidget(QLabel("Console test commands:"))
-        self.cmd_table = QTableWidget(0, 7)
+        self.cmd_table = QTableWidget(0, 8)
         self.cmd_table.setHorizontalHeaderLabels(
             ["Name", "Console", "WaitFor", "SendTo",
-             "Capture", "Timeout(s)", "Retry"])
+             "Capture", "Timeout(s)", "Retry", "Type"])
         self.cmd_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
         self.cmd_table.setColumnWidth(0, 120)  # Name
@@ -370,6 +373,10 @@ class FCTTestConfigPanel(QWidget):
         rb = QComboBox()
         rb.addItems(["no", "yes"])
         self.cmd_table.setCellWidget(r, 6, rb)
+        # Type column (unified model): explicit interact / action / dialog
+        type_item = QTableWidgetItem("interact")
+        type_item.setFlags(type_item.flags() & ~Qt.ItemIsEditable)
+        self.cmd_table.setItem(r, 7, type_item)
         self._save_row_cmd(r, cmd)
         # bare-metal DUT: the new row's Console combo is serial only
         self._refresh_console_transport_options()
@@ -507,7 +514,7 @@ class FCTTestConfigPanel(QWidget):
             self._save_row_cmd(r2, copy.deepcopy(c1))
             return
         # fallback: swap text cells
-        for col in (0, 2, 3, 4, 5):
+        for col in (0, 2, 3, 4, 5, 7):
             item1 = self.cmd_table.item(r1, col)
             item2 = self.cmd_table.item(r2, col)
             text1 = item1.text() if item1 else ""
@@ -840,6 +847,52 @@ class FCTTestConfigPanel(QWidget):
                 cmd.kind = "send"
             self._save_row_cmd(row, cmd)
 
+    def _edit_host_cmd_cell(self, row: int, cmd: ConsoleCommand) -> None:
+        """Host CLI action editor: the shell command run ON THE HOST PC
+        (plus its timeout) - the counterpart of a console row's SendTo."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                        QTextEdit, QLabel, QPushButton,
+                                        QSpinBox)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Host CLI editor")
+        dlg.setMinimumWidth(700)
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.raise_()
+        dlg.activateWindow()
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Command run on the Host PC (test station shell).\n"
+            "PASS = exit code 0. {{placeholders}} are rendered at run time."))
+        edit = QTextEdit()
+        edit.setMinimumHeight(120)
+        edit.setPlainText(cmd.host_cmd)
+        lay.addWidget(edit)
+        t_row = QHBoxLayout()
+        t_row.addWidget(QLabel("Timeout (seconds, min 1):"))
+        t_spin = QSpinBox()
+        t_spin.setRange(1, 3600)
+        t_spin.setValue(int(cmd.timeout or 30))
+        t_row.addWidget(t_spin)
+        t_row.addStretch(1)
+        lay.addLayout(t_row)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(dlg.reject)
+        ok = QPushButton("OK")
+        ok.clicked.connect(dlg.accept)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        lay.addLayout(btns)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        cmd.host_cmd = edit.toPlainText().strip()
+        cmd.timeout = float(t_spin.value())
+        cmd.wait_enabled = False
+        cmd.capture_enabled = False
+        cmd.send_enabled = bool(cmd.host_cmd)
+        self._save_row_cmd(row, cmd)
+
     def _edit_sendto_cell(self, row: int, col: int) -> None:
         """SendTo editor: shell command (serial/ssh) or SFTP transfer (ssh only)."""
         if self._is_message_row(row):
@@ -853,6 +906,11 @@ class FCTTestConfigPanel(QWidget):
         transport = self.cmd_table.cellWidget(row, 1).currentText()
         current_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
         cmd = self._row_cmd(row)
+        if cmd is not None and cmd.kind == KIND_HOST:
+            # ACTION row (host_cli): edit the command run on the Host PC
+            # and its timeout - never convert it into a console send row
+            self._edit_host_cmd_cell(row, cmd)
+            return
         if cmd is not None:
             send_is_off = not cmd.send_enabled
         else:
@@ -1290,9 +1348,18 @@ class FCTTestConfigPanel(QWidget):
         else:
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
 
+    def _row_type(self, cmd: ConsoleCommand) -> str:
+        """Explicit unified type of one row (interact / action / dialog)."""
+        if cmd.kind == KIND_MESSAGE:
+            return "dialog"
+        if cmd.kind in ("sftp_put", "sftp_get", KIND_HOST):
+            return "action"
+        return "interact"
+
     def _render_row_cmd(self, r: int, cmd: ConsoleCommand) -> None:
         """Refresh the visible summary cells/dropdowns from cmd."""
         self._set_cell(r, 0, cmd.name)
+        self._set_cell(r, 7, self._row_type(cmd), editable=False)
         if cmd.kind == KIND_MESSAGE:
             # Console-domain operator-dialog row (user direction
             # 2026-10-18): it WAITS the expected console message (col 2),
@@ -1304,8 +1371,12 @@ class FCTTestConfigPanel(QWidget):
                            else "(off)", editable=False)
             if cmd.dialog_style == DIALOG_OK:
                 self._set_cell(r, 3, "(off)", editable=False)
+                # wait stage when configured, else the dialog's own
+                # timeout (legacy rows carry no wait stage)
                 self._set_cell(r, 5, f"W:{int(cmd.wait_timeout)}s"
-                               if cmd.wait_enabled else "-",
+                               if cmd.wait_enabled
+                               else (f"T:{int(cmd.timeout)}s"
+                                     if cmd.timeout > 0 else "-"),
                                editable=False)
             else:
                 self._set_cell(r, 3, f"{cmd.send_yes} / {cmd.send_no}",
@@ -1321,28 +1392,51 @@ class FCTTestConfigPanel(QWidget):
                 cmd.dialog_style, _DIALOG_LABELS[DIALOG_YESNO]),
                 editable=False)
         else:
-            self._set_cell(r, 2, cmd.expect_pass if cmd.wait_enabled
-                           else "(off)")
-            if not cmd.send_enabled:
-                send_text = "(off)"
-            elif cmd.kind == "sftp_put":
-                send_text = f"[PUT] {cmd.local} -> {cmd.remote}"
-            elif cmd.kind == "sftp_get":
-                send_text = f"[GET] {cmd.remote} -> {cmd.local}"
+            if self._row_type(cmd) == "action":
+                # ACTION row: show the action name + its params instead
+                # of the dead Wait/Send/Capture stage columns
+                if cmd.kind == "sftp_put":
+                    self._set_cell(r, 2, "action: sftp_put",
+                                   editable=False)
+                    self._set_cell(r, 3, f"{cmd.local} -> {cmd.remote}")
+                elif cmd.kind == "sftp_get":
+                    self._set_cell(r, 2, "action: sftp_get",
+                                   editable=False)
+                    self._set_cell(r, 3, f"{cmd.remote} -> {cmd.local}")
+                else:                       # host CLI (runs on the PC)
+                    self._set_cell(r, 2, "action: host_cli",
+                                   editable=False)
+                    self._set_cell(r, 3, cmd.host_cmd or "(off)")
+                self._set_cell(r, 4, "remove_after=yes"
+                               if cmd.kind == "sftp_get" else "(n/a)",
+                               editable=False)
+                timeout = (cmd.send_timeout if cmd.kind != KIND_HOST
+                           else cmd.timeout)
+                self._set_cell(r, 5, f"S:{int(timeout or 0)}s",
+                               editable=False)
             else:
-                send_text = cmd.send
-            self._set_cell(r, 3, send_text)
-            self._set_cell(r, 4, cmd.expect_fail if cmd.capture_enabled
-                           else "(off)")
-            parts = []
-            if cmd.wait_enabled:
-                parts.append(f"W:{int(cmd.wait_timeout)}s")
-            if cmd.send_enabled:
-                parts.append(f"S:{int(cmd.send_timeout)}s")
-            if cmd.capture_enabled:
-                parts.append(f"C:{int(cmd.timeout)}s")
-            self._set_cell(r, 5, " ".join(parts) if parts else "-",
-                           editable=False)
+                self._set_cell(r, 2, cmd.expect_pass if cmd.wait_enabled
+                               else "(off)")
+                if not cmd.send_enabled:
+                    send_text = "(off)"
+                elif cmd.kind == "sftp_put":
+                    send_text = f"[PUT] {cmd.local} -> {cmd.remote}"
+                elif cmd.kind == "sftp_get":
+                    send_text = f"[GET] {cmd.remote} -> {cmd.local}"
+                else:
+                    send_text = cmd.send
+                self._set_cell(r, 3, send_text)
+                self._set_cell(r, 4, cmd.expect_fail if cmd.capture_enabled
+                               else "(off)")
+                parts = []
+                if cmd.wait_enabled:
+                    parts.append(f"W:{int(cmd.wait_timeout)}s")
+                if cmd.send_enabled:
+                    parts.append(f"S:{int(cmd.send_timeout)}s")
+                if cmd.capture_enabled:
+                    parts.append(f"C:{int(cmd.timeout)}s")
+                self._set_cell(r, 5, " ".join(parts) if parts else "-",
+                               editable=False)
         cb = self.cmd_table.cellWidget(r, 1)
         if cb is not None:
             # programmatic sync: no _on_console_changed round-trip
@@ -1418,7 +1512,29 @@ class FCTTestConfigPanel(QWidget):
         local = ""
         remote = ""
 
-        if sendto.startswith("[PUT] "):
+        if waitfor.startswith("action: "):
+            # ACTION row (unified model): the WaitFor cell carries the
+            # action name, the SendTo cell its params
+            act = waitfor[len("action: "):].strip()
+            if act in ("sftp_put", "sftp_get"):
+                kind = act
+                send = ""
+                rest = sendto
+                if " -> " in rest:
+                    left, right = rest.split(" -> ", 1)
+                else:
+                    left = right = ""
+                if act == "sftp_put":
+                    local, remote = left, right
+                else:
+                    remote, local = left, right
+            elif act == "host_cli":
+                return ConsoleCommand(
+                    kind=KIND_HOST, name=name, transport=transport,
+                    wait_enabled=False, send_enabled=True,
+                    capture_enabled=False, host_cmd=sendto, retries=retries)
+            waitfor = ""
+        elif sendto.startswith("[PUT] "):
             kind = "sftp_put"
             send = ""
             rest = sendto[6:]
@@ -1476,8 +1592,7 @@ class FCTTestConfigPanel(QWidget):
             for cmd in c.test_commands:
                 r = self.cmd_table.rowCount()
                 self.cmd_table.insertRow(r)
-                from PySide6.QtCore import Qt as _Qt
-                # Name
+                # Name cell (holds the full command as UserRole data)
                 self.cmd_table.setItem(r, 0, QTableWidgetItem(cmd.name))
                 # Console = dropdown (serial/ssh rows or "(message)")
                 cb = QComboBox()
@@ -1488,60 +1603,13 @@ class FCTTestConfigPanel(QWidget):
                 self.cmd_table.setCellWidget(r, 1, cb)
                 cb.currentTextChanged.connect(
                     lambda _t, row=r: self._on_console_changed(row))
-                if cmd.kind == KIND_MESSAGE:
-                    # message row: greyed summary cells, the dialog
-                    # style in the Capture column, one row timeout
-                    style_lbl = _DIALOG_LABELS.get(
-                        cmd.dialog_style, _DIALOG_LABELS[DIALOG_YESNO])
-                    for col, cell in ((2, "(message)"),
-                                      (3, "(message)"),
-                                      (4, style_lbl),
-                                      (5, f"T:{int(cmd.timeout)}s")):
-                        it = QTableWidgetItem(cell)
-                        it.setFlags(it.flags() & ~_Qt.ItemIsEditable)
-                        self.cmd_table.setItem(r, col, it)
-                else:
-                    # WaitFor
-                    wait_text = (cmd.expect_pass if cmd.wait_enabled
-                                 else "(off)")
-                    self.cmd_table.setItem(r, 2,
-                                           QTableWidgetItem(wait_text))
-                    # SendTo: encode sftp ops as [PUT]/[GET]
-                    if not cmd.send_enabled:
-                        sendto_text = "(off)"
-                    elif cmd.kind == "sftp_put":
-                        sendto_text = f"[PUT] {cmd.local} -> {cmd.remote}"
-                    elif cmd.kind == "sftp_get":
-                        sendto_text = f"[GET] {cmd.remote} -> {cmd.local}"
-                    else:
-                        sendto_text = cmd.send
-                    self.cmd_table.setItem(r, 3,
-                                           QTableWidgetItem(sendto_text))
-                    # Capture
-                    cap_text = (cmd.expect_fail if cmd.capture_enabled
-                                else "(off)")
-                    self.cmd_table.setItem(r, 4,
-                                           QTableWidgetItem(cap_text))
-                    # Timeout (shows enabled stages only; read-only)
-                    parts = []
-                    if cmd.wait_enabled:
-                        parts.append(f"W:{int(cmd.wait_timeout)}s")
-                    if cmd.send_enabled:
-                        parts.append(f"S:{int(cmd.send_timeout)}s")
-                    if cmd.capture_enabled:
-                        parts.append(f"C:{int(cmd.timeout)}s")
-                    timeout_text = " ".join(parts) if parts else "-"
-                    timeout_item = QTableWidgetItem(timeout_text)
-                    timeout_item.setFlags(
-                        timeout_item.flags() & ~_Qt.ItemIsEditable)
-                    self.cmd_table.setItem(r, 5, timeout_item)
                 # Retry = dropdown
                 rb = QComboBox()
                 rb.addItems(["no", "yes"])
-                rb.setCurrentText("yes" if cmd.retries > 0 else "no")
                 self.cmd_table.setCellWidget(r, 6, rb)
-                # persist the full command (advanced attrs) on the row
-                self.cmd_table.item(r, 0).setData(_CMD_ROLE, cmd)
+                # one renderer for load / edit / swap: the row always
+                # shows the unified type + action params (M26)
+                self._save_row_cmd(r, cmd)
             # apply the serial-only / serial+ssh transport options for
             # the restored dut_type after all rows are built
             self._refresh_console_transport_options()

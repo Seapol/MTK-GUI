@@ -448,12 +448,14 @@ def test_bare_metal_serial_three_stage_steps():
     assert ver.params["expect_pass_re"] == r"FW v\d+"
     cap = by_name["Boot log capture"]
     assert "send" not in cap.params
-    # interactive Button/LED row: a pre-send Wait step then the send/capture
-    btn_wait = by_name["Button 1 / LED (wait)"]
+    # interactive Button/LED row: ONE interact step carrying all three
+    # stages (WaitFor -> Send -> Capture); the old "(wait)" pre-step is
+    # gone (unified model 2026-10-28)
+    assert "Button 1 / LED (wait)" not in by_name
     btn = by_name["Button 1 / LED"]
-    assert btn_wait.params["kind"] == "wait"
-    assert "send" not in btn_wait.params
-    assert btn_wait.params["expect_pass_re"] == "PRESS BUTTON 1 THEN CONFIRM"
+    assert btn.params["wait_enabled"] is True
+    assert btn.params["wait_pattern"] == "PRESS BUTTON 1 THEN CONFIRM"
+    assert btn.params["wait_is_regex"] is False
     assert btn.params["send"] == "y"
     assert btn.params["expect_pass_re"] == "LED1 OK"
     # every console step is bound to the serial channel, none are ssh/sftp
@@ -737,8 +739,10 @@ def test_confirm_defaults_off_and_survive_default_load():
     assert restored.to_dict() == cfg.to_dict()
 
 
-def test_build_steps_confirm_on_main_step_only():
-    """One dialog per interactive row: the (wait) pre-step never asks."""
+def test_build_steps_confirm_is_an_explicit_dialog_step():
+    """Unified model: a row's confirmation is its OWN visible dialog
+    step placed right after the interact row - never an implicit popup
+    and never a marker hidden in the row's params."""
     cmd = _cmd(name="Earphone", kind="send", send="y",
                wait_enabled=True, send_enabled=True, capture_enabled=True,
                expect_pass="tone?", expect_fail="heard",
@@ -746,11 +750,15 @@ def test_build_steps_confirm_on_main_step_only():
     cfg = frdm_config()
     cfg.console.test_commands = [cmd]
     steps = build_fct_steps(cfg)
-    wait_step = next(s for s in steps if s.name == "Earphone (wait)")
+    names = [s.name for s in steps]
+    assert "Earphone (wait)" not in names
     main = next(s for s in steps if s.name == "Earphone")
-    assert main.params["confirm_enabled"] is True
-    assert main.params["confirm_message"] == "Did you hear it?"
-    assert not wait_step.params.get("confirm_enabled")
+    assert "confirm_enabled" not in main.params
+    dlg = next(s for s in steps if s.name == "Confirm: Earphone")
+    assert dlg.params["console_dialog"] is True
+    assert dlg.params["style"] == "yesno"
+    assert dlg.params["message"] == "Did you hear it?"
+    assert names.index("Earphone") < names.index("Confirm: Earphone")
 
 
 def test_pipeline_confirm_no_stops_before_send():

@@ -630,3 +630,127 @@ def test_sftp_put_passes_over_sftp_channel(tmp_path):
                    "/root/script.sh"), ctx)
     assert out.verdict == VERDICT_PASS
     assert chan.uploaded == (str(tmp_path / "script.sh"), "/root/script.sh")
+
+
+def test_sftp_get_action_args_may_keep_the_remote_file(tmp_path):
+    """Unified action registry: ``remove_remote_file`` is a per-step arg;
+    a project opts out without touching the executor (default = the
+    historic remove-after-fetch behaviour)."""
+    chan = _SftpChannel()
+    ctx = FctContext(channels={"ser1": chan}, station_id="S", user="u",
+                     dut_report=str(tmp_path))
+    step = _sftp_step("sftp_get", "{{dut_report}}/sub/fat.json",
+                      "/root/fat.json")
+    step.params["args"] = {"remove_remote_file": False}
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert chan.removed == []
+    assert (tmp_path / "sub" / "fat.json").parent.is_dir()
+
+
+def test_sftp_get_action_args_may_skip_local_dir_creation(tmp_path):
+    chan = _SftpChannel()
+    ctx = FctContext(channels={"ser1": chan}, station_id="S", user="u")
+    missing = tmp_path / "no-such-dir" / "fat.json"
+    step = _sftp_step("sftp_get", str(missing), "/root/fat.json")
+    step.params["args"] = {"create_local_dir": False}
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert not missing.parent.exists()
+
+
+# ------------------------------------------ unified model (2026-10-28)
+def test_one_interact_step_waits_then_sends_then_captures():
+    """ONE step = ONE row: the WaitFor stage runs BEFORE the answer is
+    written, then the send, then the capture (no '(wait)' pre-step)."""
+    from mtkgui.engine.fct_channels import VirtualFctChannel
+    ctx, _ = make_virtual_context()
+    ch = VirtualFctChannel()
+    ctx.channels["ser1"] = ch
+    ch.inject_output("PRESS BUTTON 1 THEN CONFIRM")
+
+    def _on_log(msg):
+        if "console send" in msg:
+            ch.inject_output("LED1 OK")
+
+    ctx.log_sink = _on_log
+    step = FctStep(name="Button 1 / LED", step_type="MESSAGE_CHECK",
+                   channel="ser1", timeout_s=2,
+                   params={"fct_console": True, "kind": "send",
+                           "wait_enabled": True,
+                           "wait_pattern": "PRESS BUTTON 1 THEN CONFIRM",
+                           "wait_timeout": 2.0, "wait_is_regex": False,
+                           "send_enabled": True, "send": "y",
+                           "capture_enabled": True,
+                           "expect_pass_re": "LED1 OK",
+                           "capture_is_expected": True})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    # exactly the configured terminator, no leading stray byte
+    assert ch.written == ["y\n"]
+
+
+def test_interact_step_does_not_send_when_the_wait_times_out():
+    """The answer must never be written when the awaited prompt did not
+    arrive (it would leak into the DUT's next input())."""
+    from mtkgui.engine.fct_channels import VirtualFctChannel
+    ctx, _ = make_virtual_context()
+    ch = VirtualFctChannel()             # silence: prompt never arrives
+    ctx.channels["ser1"] = ch
+    step = FctStep(name="Button 1 / LED", step_type="MESSAGE_CHECK",
+                   channel="ser1", timeout_s=0.3,
+                   params={"fct_console": True, "kind": "send",
+                           "wait_enabled": True,
+                           "wait_pattern": "PRESS BUTTON 1 THEN CONFIRM",
+                           "wait_timeout": 0.3,
+                           "send_enabled": True, "send": "y",
+                           "capture_enabled": False})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert ch.written == []
+
+
+def test_legacy_confirm_marker_never_pops_a_dialog():
+    """Unified model item 3: only an explicit ``dialog`` step pops a
+    dialog.  A stale params.confirm_enabled marker runs dialog-free."""
+    ctx, _ = make_virtual_context({"ser1": ["OK"]})
+
+    def _no_dialog(_step):
+        raise AssertionError("implicit dialog popped")
+
+    ctx.human_confirm = _no_dialog
+    step = FctStep(name="legacy", step_type="MESSAGE_CHECK", channel="ser1",
+                   timeout_s=2,
+                   params={"fct_console": True, "kind": "send",
+                           "confirm_enabled": True,
+                           "wait_enabled": False, "send_enabled": False,
+                           "capture_enabled": False,
+                           "expect_pass_re": "OK",
+                           "capture_is_expected": True})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+
+
+def test_explicit_dialog_step_pops_exactly_once():
+    """An explicit console_dialog step is the ONLY path that asks the
+    operator (the runner-owned hook delivers the answer)."""
+    from mtkgui.engine.fct_channels import VirtualFctChannel
+    ctx, _ = make_virtual_context()
+    ch = VirtualFctChannel()
+    ctx.channels["ser1"] = ch
+    asked: list = []
+
+    def _answer(step):
+        asked.append(step.name)
+        return True
+
+    ctx.human_confirm = _answer
+    step = FctStep(name="Confirm: Earphone", step_type="GUI_CONFIRM",
+                   channel="ser1", timeout_s=0.0,
+                   params={"style": "yesno", "console_dialog": True,
+                           "message": "Did you hear it?",
+                           "wait_pattern": "", "wait_timeout": 0.0,
+                           "send_yes": "y", "send_no": "n"})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert asked == ["Confirm: Earphone"]

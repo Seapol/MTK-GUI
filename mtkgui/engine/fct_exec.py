@@ -275,6 +275,28 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
             time.sleep(0.02)
 
 
+def _console_wait(channel, step: FctStep, ctx: FctContext,
+                  pattern: str) -> FctOutcome:
+    """WaitFor stage of an interact / dialog step (unified model).
+
+    Bounded by ``params.wait_timeout`` (never blocks forever); the
+    pattern honours the row's Regex / Case sensitivity flags.  A
+    non-PASS verdict means the awaited prompt never arrived, so the
+    caller must NOT send the answer."""
+    p = step.params
+    wait_step = FctStep(
+        name=f"{step.name} (wait)", step_type=STEP_MESSAGE_CHECK,
+        channel=step.channel,
+        timeout_s=float(p.get("wait_timeout") or step.timeout_s or 30.0),
+        params={"fct_console": True, "kind": "wait",
+                "expect_pass_re": pattern,
+                "expect_pass_is_regex": bool(p.get("wait_is_regex")),
+                "capture_is_expected": True,
+                "case_sensitive": bool(p.get("case_sensitive", True))})
+    ctx.log(f"{step.name}: waiting for console message '{pattern}'")
+    return _regex_capture(channel, wait_step, ctx)
+
+
 def _console_dialog(step: FctStep, ctx: FctContext) -> FctOutcome:
     """A Console-domain operator dialog (MessageOKtoConsole /
     MessageYesNotoConsole / MessageGoStoptoConsole, user direction
@@ -291,18 +313,7 @@ def _console_dialog(step: FctStep, ctx: FctContext) -> FctOutcome:
         if channel is None:
             return FctOutcome(VERDICT_ERROR,
                               f"channel '{step.channel}' not bound")
-        wait_step = FctStep(
-            name=f"{step.name} (wait)", step_type=STEP_MESSAGE_CHECK,
-            channel=step.channel,
-            timeout_s=float(p.get("wait_timeout") or step.timeout_s
-                            or 30.0),
-            params={"fct_console": True, "kind": "wait",
-                    "expect_pass_re": pattern,
-                    "expect_pass_is_regex": bool(p.get("wait_is_regex")),
-                    "capture_is_expected": True,
-                    "case_sensitive": bool(p.get("case_sensitive", True))})
-        ctx.log(f"{step.name}: waiting for console message '{pattern}'")
-        outcome = _regex_capture(channel, wait_step, ctx)
+        outcome = _console_wait(channel, step, ctx, pattern)
         if outcome.verdict != VERDICT_PASS:
             return FctOutcome(outcome.verdict,
                               f"wait for '{pattern}': {outcome.reason}",
@@ -549,16 +560,22 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # log contains 'timeout'/'error' words -> false negatives)
         if step.params.get("fct_console"):
             if step.params.get("confirm_enabled"):
-                # operator MessageYesNo between Wait and Send
-                # (interactive DUT prompts, e.g. fat.py questions)
-                if ctx.human_confirm is None:
-                    return FctOutcome(VERDICT_ERROR,
-                                      "no confirm hook bound")
-                go = bool(ctx.human_confirm(step))
-                ctx.log(f"human answer {'GO' if go else 'STOP'}")
-                if not go:
-                    return FctOutcome(VERDICT_FAIL,
-                                      "operator answered No")
+                # LEGACY marker (published before the unified model):
+                # the implicit popup is gone - such a row must be
+                # normalized into an explicit `dialog` step at load
+                # (fct_build.normalize_fct_steps).  Never pop silently.
+                ctx.log("legacy implicit confirm ignored - use an "
+                        "explicit dialog step")
+            # ONE step, three stages (unified model 2026-10-28):
+            # WaitFor (when configured) -> Send -> Capture.  The old
+            # split "(wait)" pre-step is gone, so the wait stage runs
+            # here before the answer is written.
+            wait_pattern = str(step.params.get("wait_pattern") or "")
+            if (str(step.params.get("kind") or "") != "wait"
+                    and step.params.get("wait_enabled") and wait_pattern):
+                outcome = _console_wait(channel, step, ctx, wait_pattern)
+                if outcome.verdict != VERDICT_PASS:
+                    return outcome
             if "send" in step.params:
                 # Respect send_enabled and NEVER emit a bare newline for
                 # send:'' rows: an empty line left in the tty input queue
@@ -618,8 +635,14 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             if not cmd.strip():
                 return FctOutcome(VERDICT_ERROR,
                                   "host CLI row: no command configured")
+            # action-registry args: a project may pin the working dir
+            # (cwd) and the timeout per step; defaults = historic
+            # behaviour (process CWD, step timeout)
+            from ..gui.yamlbuild.fct_build import action_args
+            args = action_args(step)
             res = runner_for(ctx).run(
-                cmd, timeout_s=float(step.timeout_s or 30.0))
+                cmd, timeout_s=float(step.timeout_s or 30.0),
+                cwd=str(args.get("cwd") or ""))
             verdict = VERDICT_PASS if res.exit_code == 0 else VERDICT_FAIL
             tail = " | ".join(l.strip() for l in res.lines[-3:]
                               if l.strip())
@@ -778,8 +801,15 @@ def _run_serial_push(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
 
 def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     """sftp_put / sftp_get over an SSH channel exposing put_file /
-    get_file (and remove_file for the post-fetch DUT cleanup)."""
+    get_file (and remove_file for the post-fetch DUT cleanup).
+
+    Behaviour is driven by the action registry args
+    (``fct_build.action_args``): ``remove_remote_file`` and
+    ``create_local_dir`` default to the historic True; a project can
+    override either per step without touching the executor."""
+    from ..gui.yamlbuild.fct_build import action_args
     p = step.params
+    args = action_args(step)
     kind = str(p.get("kind") or p.get("action") or "")
     local = str(p.get("local") or "")
     remote = str(p.get("remote") or "")
@@ -797,10 +827,12 @@ def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
             if not hasattr(channel, "get_file"):
                 return FctOutcome(VERDICT_ERROR,
                                   "channel has no SFTP get_file")
-            parent = os.path.dirname(os.path.abspath(local))
-            os.makedirs(parent, exist_ok=True)
+            if args.get("create_local_dir", True):
+                parent = os.path.dirname(os.path.abspath(local))
+                os.makedirs(parent, exist_ok=True)
             channel.get_file(remote, local)
-            if hasattr(channel, "remove_file"):
+            if args.get("remove_remote_file", True) \
+                    and hasattr(channel, "remove_file"):
                 try:
                     channel.remove_file(remote)
                 except Exception as exc:              # noqa: BLE001

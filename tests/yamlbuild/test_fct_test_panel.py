@@ -291,10 +291,13 @@ def test_sftp_row_clears_wait_and_capture(qapp):
     r = panel.cmd_table.rowCount()
     panel.cmd_table.insertRow(r)
     panel._save_row_cmd(r, cmd)
-    # rendered cells show (off) for Wait/Capture and only S timeout
-    assert panel.cmd_table.item(r, 2).text() == "(off)"
-    assert panel.cmd_table.item(r, 4).text() == "(off)"
+    # unified model: an SSH transfer is an ACTION row - the action name
+    # and its params replace the dead Wait/Send/Capture stage cells
+    assert panel.cmd_table.item(r, 2).text() == "action: sftp_put"
+    assert panel.cmd_table.item(r, 3).text() == "load.sh -> /root/load.sh"
+    assert panel.cmd_table.item(r, 4).text() == "(n/a)"
     assert panel.cmd_table.item(r, 5).text() == "S:30s"
+    assert panel.cmd_table.item(r, 7).text() == "action"
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
     restored = FctTestConfig.from_dict(
@@ -366,12 +369,15 @@ def test_message_rows_render_and_round_trip(qapp):
     panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
     t = panel.cmd_table
     # message rows: combo "(message)", style in the Capture column,
-    # one row timeout
+    # answer stage timeout (legacy rows carry no wait stage)
     assert t.cellWidget(1, 1).currentText() == "(message)"
     assert t.item(1, 4).text() == "Yes-No dialog"
-    assert t.item(1, 5).text() == "T:30s"
+    assert t.item(1, 5).text() == "S:30s"
     assert t.item(2, 4).text() == "OK dialog"
     assert t.item(2, 5).text() == "T:10s"
+    # the row model is explicit: a message row IS a dialog step
+    assert t.item(1, 7).text() == "dialog"
+    assert t.item(0, 7).text() == "interact"
     cmd = panel._row_cmd(1)
     assert cmd.kind == "message" and cmd.dialog_style == "yesno"
     # values() keeps the message rows (no data loss on OK)
@@ -490,4 +496,59 @@ def test_ssh_endpoint_and_console_extras_round_trip(qapp):
     assert console["test_commands"][0]["kind"] == "sftp_get"
     assert console["test_commands"][0]["remote"] == "/root/fat_result.json"
     assert console["post_rf_commands"][0]["host_cmd"] == "pkill -f iperf3"
+
+
+# ------------------------------------------- unified row types (M26)
+HOST_ROW_YAML = """
+fct_test_config:
+  dut_type: linux
+  console:
+    enabled: true
+    port: "/dev/cu.test"
+    baudrate: 115200
+    test_commands:
+      - {name: Start iperf3, transport: serial, kind: host,
+         wait_enabled: false, send_enabled: true, capture_enabled: false,
+         timeout: 20, host_cmd: "iperf3 -s -1"}
+  wifi: {enabled: false}
+  bluetooth: {enabled: false}
+"""
+
+
+def test_sftp_row_is_an_action_with_editable_params(qapp):
+    """ONE row = ONE step with an explicit type: an SSH transfer row is
+    an ACTION showing its action name + params (not dead stage cells)."""
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
+    t = panel.cmd_table
+    assert t.item(0, 7).text() == "action"
+    assert t.item(0, 2).text() == "action: sftp_get"
+    assert t.item(0, 3).text() == ("/root/fat_result.json -> "
+                                   "{{dut_report}}/fat_result.json")
+    assert t.item(0, 4).text() == "remove_after=yes"
+    out = panel.values()
+    cmd = FctTestConfig.from_dict(yaml.safe_load(
+        out["fct_test_config_yaml"])["fct_test_config"]
+    ).console.test_commands[0]
+    assert cmd.kind == "sftp_get"
+    assert cmd.local == "{{dut_report}}/fat_result.json"
+    assert cmd.remote == "/root/fat_result.json"
+
+
+def test_host_cli_row_is_an_action_and_round_trips(qapp):
+    """A 'host' row is an ACTION with its command visible/editable and
+    kept as a host row on save (never converted to a console send)."""
+    panel = FCTTestConfigPanel()
+    panel.set_values({"fct_test_config_yaml": HOST_ROW_YAML})
+    t = panel.cmd_table
+    assert t.item(0, 7).text() == "action"
+    assert t.item(0, 2).text() == "action: host_cli"
+    assert t.item(0, 3).text() == "iperf3 -s -1"
+    out = panel.values()
+    cmd = FctTestConfig.from_dict(yaml.safe_load(
+        out["fct_test_config_yaml"])["fct_test_config"]
+    ).console.test_commands[0]
+    assert cmd.kind == "host"
+    assert cmd.host_cmd == "iperf3 -s -1"
+    assert cmd.timeout == 20
 

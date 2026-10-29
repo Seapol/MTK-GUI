@@ -22,8 +22,15 @@ from mtkgui.gui.yamlbuild.fct_build import (
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     STEP_TYPES,
+    TYPE_ACTION,
+    TYPE_DIALOG,
+    TYPE_INTERACT,
+    action_args,
     build_fct_sequence,
     from_project_fct_cases,
+    normalize_fct_cases,
+    normalize_fct_steps,
+    step_kind,
     to_project_fct_cases,
 )
 
@@ -74,10 +81,18 @@ def test_sequence_validation_duplicates_and_defaults():
                            expect_pass=["Mbits/sec"], retries=1)]),
 ])
 def test_yaml_round_trip_identity(seq):
-    """to_yaml -> from_yaml reproduces the sequence field-by-field."""
+    """to_yaml -> from_yaml is lossless and STABLE.
+
+    The unified model adds the derived ``type`` / ``action`` / ``args``
+    keys on the first save; the round trip must then be deterministic
+    (load -> save -> load yields the identical model, model item 5).
+    """
     back = FctSequence.from_yaml(seq.to_yaml())
     assert back.validate() == []
-    assert back.to_dict() == seq.to_dict()
+    again = FctSequence.from_yaml(back.to_yaml())
+    assert again.to_dict() == back.to_dict()
+    # and the derived unified keys are present on every step
+    assert all("type" in d for d in back.to_dict()["steps"])
 
 
 def test_from_yaml_missing_section_reports_invalid():
@@ -226,3 +241,145 @@ def test_gui_confirm_style_maps_to_message_kinds():
     kinds = [c["kind"] for c in to_project_fct_cases(seq)]
     assert kinds == ["MessageOK", "MessageYesNo",
                      "MessageGoStop", "MessageGoStop"]
+
+
+# ------------------------------------------- unified step model (2026-10-28)
+def test_step_kind_is_explicit_for_every_row():
+    """ONE step = ONE row with an explicit type: interact / action /
+    dialog.  The dialogs are explicit; nothing is implied."""
+    interact = FctStep(name="A", step_type=STEP_MESSAGE_CHECK,
+                       params={"fct_console": True})
+    action = FctStep(name="B", step_type=STEP_MESSAGE_CHECK,
+                     params={"kind": "sftp_get", "action": "sftp_get"})
+    dialog = FctStep(name="C", step_type=STEP_GUI_CONFIRM,
+                     params={"style": "yesno", "console_dialog": True})
+    assert step_kind(interact) == TYPE_INTERACT
+    assert step_kind(action) == TYPE_ACTION
+    assert step_kind(dialog) == TYPE_DIALOG
+    for step, kind in ((interact, TYPE_INTERACT), (action, TYPE_ACTION),
+                       (dialog, TYPE_DIALOG)):
+        d = step.to_dict()
+        assert d["type"] == kind
+        assert "step_type" in d          # legacy routing key kept
+        assert FctStep.from_dict(d).step_type == step.step_type
+
+
+def test_action_args_defaults_and_per_step_override():
+    """The action registry keeps the historic behaviour when no args
+    are configured; a project may override any subset per step."""
+    step = FctStep(name="Get fat", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1",
+                   params={"kind": "sftp_get", "action": "sftp_get",
+                           "local": "{{dut_report}}/fat_result.json",
+                           "remote": "/root/fat_result.json"})
+    assert step_kind(step) == TYPE_ACTION
+    assert step.to_dict()["action"] == "sftp_get"
+    # defaults = current behaviour
+    defaults = action_args(step)
+    assert defaults["remove_remote_file"] is True
+    assert defaults["create_local_dir"] is True
+    # per-step override merges over the defaults (missing = default)
+    step.params["args"] = {"remove_remote_file": False}
+    effective = action_args(step)
+    assert effective["remove_remote_file"] is False
+    assert effective["create_local_dir"] is True
+    d = step.to_dict()
+    assert d["args"]["remove_remote_file"] is False
+    back = FctStep.from_dict(d)
+    assert back.params["action"] == "sftp_get"
+    assert back.params["args"]["remove_remote_file"] is False
+    assert back.step_type == STEP_MESSAGE_CHECK     # executor routing kept
+
+
+def test_legacy_wait_pre_step_merges_into_one_row():
+    """A published '(wait)' pre-step + its main step collapse to ONE
+    interact step carrying the WaitFor stage (no 2-row model)."""
+    wait = FctStep(name="Earphone (wait)", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=10,
+                   params={"fct_console": True, "kind": "wait",
+                           "expect_pass_re": "tone?"})
+    main = FctStep(name="Earphone", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=5,
+                   params={"fct_console": True, "kind": "send",
+                           "expect_pass_re": "heard", "send": "y"})
+    out = normalize_fct_steps([wait, main])
+    assert [s.name for s in out] == ["Earphone"]
+    assert out[0].channel == "ser1"
+    assert out[0].params["wait_enabled"] is True
+    assert out[0].params["wait_pattern"] == "tone?"
+    assert out[0].params["wait_timeout"] == 10.0
+    assert out[0].params["send"] == "y"
+    # deterministic: a second normalization changes nothing
+    assert [s.to_dict() for s in normalize_fct_steps(out)] == \
+        [s.to_dict() for s in out]
+
+
+def test_legacy_confirm_marker_becomes_explicit_dialog_step():
+    """An implicit params.confirm_enabled marker is migrated into a
+    VISIBLE dialog step right after the row (model item 3)."""
+    step = FctStep(name="Earphone", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=5,
+                   params={"fct_console": True, "confirm_enabled": True,
+                           "confirm_message": "Did you hear it?",
+                           "send": "y"})
+    out = normalize_fct_steps([step])
+    assert [s.name for s in out] == ["Earphone", "Confirm: Earphone"]
+    assert "confirm_enabled" not in out[0].params
+    dlg = out[1]
+    assert step_kind(dlg) == TYPE_DIALOG
+    assert dlg.step_type == STEP_GUI_CONFIRM
+    assert dlg.params["console_dialog"] is True
+    assert dlg.params["message"] == "Did you hear it?"
+    assert [s.to_dict() for s in normalize_fct_steps(out)] == \
+        [s.to_dict() for s in out]
+
+
+def test_normalize_fct_cases_collapses_legacy_rows_without_data_loss():
+    """The legacy case list (one '(wait)' case + one main case) loads as
+    ONE case; manual rows without a marker are untouched."""
+    wait = FctStep(name="Earphone (wait)", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=10,
+                   params={"fct_console": True, "kind": "wait",
+                           "expect_pass_re": "tone?"})
+    main = FctStep(name="Earphone", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=5,
+                   params={"fct_console": True, "kind": "send",
+                           "send": "y", "expect_pass_re": "heard"})
+    cases = [
+        {"name": "Earphone (wait)", "kind": "CapturefromConsole",
+         "op_params": {"fct_step": wait.to_dict()}},
+        {"name": "Earphone", "kind": "CapturefromConsole",
+         "op_params": {"fct_step": main.to_dict()}},
+        {"name": "Manual dialog", "kind": "MessageOK",
+         "op_params": None},
+    ]
+    out = normalize_fct_cases(cases)
+    assert [c["name"] for c in out] == ["Earphone", "Manual dialog"]
+    marker = out[0]["op_params"]["fct_step"]
+    assert marker["params"]["wait_pattern"] == "tone?"
+    assert marker["params"]["wait_enabled"] is True
+    assert marker["params"]["send"] == "y"
+    # round-trip deterministic: normalizing the output again is a no-op
+    assert normalize_fct_cases(out) == out
+
+
+def test_sequence_from_dict_normalizes_and_saves_the_explicit_type():
+    """Loading a legacy sequence yields the unified model; saving it
+    emits the explicit `type` (and the round trip is stable)."""
+    legacy = {"name": "s", "steps": [
+        {"name": "Earphone (wait)", "step_type": "MESSAGE_CHECK",
+         "channel": "ser1", "timeout_s": 10,
+         "params": {"fct_console": True, "kind": "wait",
+                    "expect_pass_re": "tone?"}},
+        {"name": "Earphone", "step_type": "MESSAGE_CHECK",
+         "channel": "ser1", "timeout_s": 5,
+         "params": {"fct_console": True, "confirm_enabled": True,
+                    "confirm_message": "Did you hear it?", "send": "y"}},
+    ]}
+    seq = FctSequence.from_dict(legacy)
+    names = [s.name for s in seq.steps]
+    assert names == ["Earphone", "Confirm: Earphone"]
+    saved = seq.to_dict()
+    assert [d["type"] for d in saved["steps"]] == ["interact", "dialog"]
+    again = FctSequence.from_dict(saved)
+    assert again.to_dict() == saved

@@ -2262,6 +2262,12 @@ class TestWorkFlowPage(QWidget):
         the sequence built in block 07 — they are kept and appended
         after the generated cases, so a sequence rebuild no longer
         wipes them."""
+        # unified model (M26): LEGACY published rows ((wait) pre-steps,
+        # implicit confirm markers) normalize into ONE row per FCT step
+        # before they reach the table, so the table and the runner see
+        # exactly the same steps.
+        from mtkgui.gui.yamlbuild.fct_build import normalize_fct_cases
+        cases = normalize_fct_cases(list(cases))
         generated = {str(c.get("name", "")) for c in cases}
         kept: list = []
         for i, kind in enumerate(self.fct_kinds):

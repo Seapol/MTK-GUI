@@ -49,6 +49,36 @@ ON_FAIL_ABORT = "abort"
 ON_FAIL_CONTINUE = "continue"
 ON_FAIL_POLICIES = (ON_FAIL_ABORT, ON_FAIL_CONTINUE)
 
+# ---------------------------------------------------------------------------
+# unified step model (owner-approved 2026-10-28)
+# ---------------------------------------------------------------------------
+#: every step carries ONE explicit kind:
+#:   interact = serial/ssh Wait -> Send -> Capture step
+#:   action   = built-in action with per-step configurable args
+#:   dialog   = explicit operator dialog (only these pop a dialog)
+TYPE_INTERACT = "interact"
+TYPE_ACTION = "action"
+TYPE_DIALOG = "dialog"
+STEP_KINDS = (TYPE_INTERACT, TYPE_ACTION, TYPE_DIALOG)
+
+#: built-in actions and their DEFAULT args.  A step overrides any subset
+#: in ``params["args"]``; a missing arg keeps the historic behaviour, so
+#: every old YAML runs exactly as before (fully backward compatible).
+ACTION_DEFAULTS = {
+    "sftp_get": {"remove_remote_file": True, "create_local_dir": True,
+                 "timeout_s": 30.0, "retries": 0},
+    "sftp_put": {"timeout_s": 30.0, "retries": 0},
+    "host_cli": {"timeout_s": 30.0, "retries": 0, "cwd": "", "shell": ""},
+    "power_on": {"timeout_s": 0.0},
+    "power_off": {"timeout_s": 0.0},
+    "dialog": {"style": "ok", "send_yes": "y", "send_no": "n",
+               "answer_timeout_s": 0.0},
+    "serial_push": {"timeout_s": 300.0},
+    "rf": {"timeout_s": 30.0},
+    "op": {"timeout_s": 0.0},
+}
+ACTION_NAMES = tuple(ACTION_DEFAULTS)
+
 #: sequence-level configurable keyword tables (spec §5.3) — the
 #: positive / negative match lists a later execution phase applies
 #: (case-insensitive substring match, negative-wins rule)
@@ -95,23 +125,52 @@ class FctStep:
     params: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        """YAML-safe plain dict (full field set, stable order)."""
-        return {
+        """YAML-safe plain dict (full field set, stable order).
+
+        Carries the EXPLICIT unified ``type`` (interact / action /
+        dialog) plus the action name and its resolved args for action
+        steps.  ``step_type`` stays for backward compatibility with
+        markers published before the unified model.
+        """
+        kind = step_kind(self)
+        out = {
             "name": self.name, "step_type": self.step_type,
-            "channel": self.channel, "command": self.command,
+            "type": kind, "channel": self.channel,
+            "command": self.command,
             "expect_pass": list(self.expect_pass),
             "expect_fail": list(self.expect_fail),
             "timeout_s": float(self.timeout_s), "retries": int(self.retries),
             "on_fail": self.on_fail, "depends": list(self.depends),
             "resource": self.resource, "params": dict(self.params),
         }
+        if kind == TYPE_ACTION:
+            out["action"] = action_name(self)
+            out["args"] = action_args(self)
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> "FctStep":
-        """Restore a step (tolerant: missing keys keep defaults)."""
+        """Restore a step (tolerant: missing keys keep defaults).
+
+        Accepts both the legacy dicts (``step_type`` only) and the
+        unified ones (``type`` + ``action`` + ``args``); the unified
+        values are folded back into the legacy ``step_type`` the
+        executor routes on, and the args into ``params['args']``.
+        """
+        data = dict(data or {})
+        kind = str(data.get("type", "") or "")
+        params = dict(data.get("params") or {})
+        if kind == TYPE_ACTION and data.get("action"):
+            params.setdefault("action", str(data["action"]))
+            args = data.get("args")
+            if isinstance(args, dict) and args:
+                params["args"] = dict(args)
+        step_type = str(data.get("step_type", ""))
+        if kind:
+            step_type = _legacy_type_for(kind, step_type, params)
         return cls(
             name=str(data.get("name", "")),
-            step_type=str(data.get("step_type", "")),
+            step_type=step_type,
             channel=str(data.get("channel", "")),
             command=str(data.get("command", "")),
             expect_pass=[str(k) for k in (data.get("expect_pass") or [])],
@@ -121,7 +180,7 @@ class FctStep:
             on_fail=str(data.get("on_fail", ON_FAIL_ABORT)),
             depends=[str(d) for d in (data.get("depends") or [])],
             resource=str(data.get("resource", "")),
-            params=dict(data.get("params") or {}),
+            params=params,
         )
 
     def validate(self, sibling_names: set | None = None) -> list:
@@ -148,6 +207,229 @@ class FctStep:
                 errors.append(f"step {self.name!r}: unknown dependency "
                               f"{dep!r}")
         return errors
+
+
+# ---------------------------------------------------------------------------
+# unified model helpers (type / action / args / legacy normalization)
+# ---------------------------------------------------------------------------
+def step_kind(step) -> str:
+    """The explicit unified kind of one step: interact / action / dialog.
+
+    `dialog` wins first (an operator popup), then any built-in action
+    payload, then the legacy GUI-confirm type; everything else is a
+    normal serial/ssh ``interact`` step."""
+    p = dict(getattr(step, "params", None) or {})
+    if p.get("console_dialog") or p.get("style") is not None:
+        return TYPE_DIALOG
+    if (p.get("action") in ("sftp_get", "sftp_put")
+            or p.get("kind") in ("sftp_get", "sftp_put")
+            or p.get("fct_host_cmd") is not None
+            or p.get("fct_serial_push") is not None
+            or p.get("fct_rf") is not None
+            or p.get("fct_wifi_iperf") is not None
+            or p.get("fct_bt_l2ping") is not None
+            or p.get("op")):
+        return TYPE_ACTION
+    if getattr(step, "step_type", "") == STEP_GUI_CONFIRM:
+        return TYPE_DIALOG
+    return TYPE_INTERACT
+
+
+def action_name(step) -> str:
+    """The registry name of an action step (''-free fallback: 'op')."""
+    p = dict(getattr(step, "params", None) or {})
+    action = str(p.get("action", "") or "")
+    if action in ("sftp_get", "sftp_put"):
+        return action
+    if p.get("fct_host_cmd") is not None:
+        return "host_cli"
+    if p.get("fct_serial_push") is not None:
+        return "serial_push"
+    if (p.get("fct_rf") is not None or p.get("fct_wifi_iperf") is not None
+            or p.get("fct_bt_l2ping") is not None):
+        return "rf"
+    op = str(p.get("op", "") or "")
+    if op:
+        low = op.lower()
+        if "power on" in low:
+            return "power_on"
+        if "power off" in low:
+            return "power_off"
+        return "op"
+    if p.get("console_dialog") or p.get("style") is not None:
+        return "dialog"
+    return action or "op"
+
+
+def action_args(step) -> dict:
+    """The EFFECTIVE args of an action step: registry defaults overlaid
+    by ``params['args']``; timeout / retries fall back to the step's own
+    fields (which is exactly the historic behaviour)."""
+    args = dict(ACTION_DEFAULTS.get(action_name(step)) or {})
+    override = (getattr(step, "params", None) or {}).get("args")
+    if isinstance(override, dict):
+        args.update(override)
+    if not args.get("timeout_s"):
+        args["timeout_s"] = float(getattr(step, "timeout_s", 0.0) or 0.0)
+    if args.get("retries") in (None, 0):
+        args["retries"] = int(getattr(step, "retries", 0) or 0)
+    return args
+
+
+def _legacy_type_for(kind: str, step_type: str, params: dict) -> str:
+    """Fold a unified ``type`` back into the executor's step_type.
+
+    A marker that already carries a valid legacy ``step_type`` keeps it
+    (that is the executor's routing key), so re-loading a unified dict
+    never changes execution."""
+    if step_type in STEP_TYPES:
+        return step_type
+    if kind == TYPE_DIALOG:
+        return STEP_GUI_CONFIRM
+    if kind == TYPE_ACTION:
+        if params.get("action") in ("sftp_get", "sftp_put"):
+            return STEP_MESSAGE_CHECK
+        return STEP_EXTERNAL_TOOL
+    return STEP_MESSAGE_CHECK
+
+
+def normalize_fct_steps(steps: list) -> list:
+    """Normalize LEGACY steps into the unified model, losslessly.
+
+    * a ``'<name> (wait)'`` pre-step is merged into the following step
+      (its pattern / timeout become that step's wait stage) so ONE row
+      per test survives;
+    * an implicit ``params.confirm_enabled`` becomes an explicit
+      ``dialog`` step placed right after it (nothing pops implicitly);
+    * exact duplicates are dropped, order preserved (M22 guarantee).
+    """
+    merged: list = []
+    pending = None
+    for step in list(steps or []):
+        if str(getattr(step, "name", "")).endswith(" (wait)"):
+            pending = step
+            continue
+        if pending is not None:
+            wp = dict(getattr(pending, "params", None) or {})
+            p = dict(getattr(step, "params", None) or {})
+            p.setdefault("wait_enabled", True)
+            p.setdefault("wait_pattern", str(wp.get("expect_pass_re", "") or ""))
+            p.setdefault("wait_timeout",
+                         float(getattr(pending, "timeout_s", 10.0) or 10.0))
+            step.params = p
+            pending = None
+        merged.append(step)
+    if pending is not None:
+        p = dict(getattr(pending, "params", None) or {})
+        p["kind"] = "wait"
+        pending.name = str(pending.name)[:-len(" (wait)")] or pending.name
+        pending.params = p
+        merged.append(pending)
+    out: list = []
+    for step in merged:
+        p = dict(getattr(step, "params", None) or {})
+        if p.pop("confirm_enabled", False):
+            step.params = p
+            out.append(step)
+            out.append(FctStep(
+                name=f"Confirm: {step.name}",
+                step_type=STEP_GUI_CONFIRM,
+                timeout_s=0.0,
+                params={"style": "yesno", "console_dialog": True,
+                        "message": str(p.get("confirm_message") or step.name),
+                        "wait_pattern": "", "wait_timeout": 0.0,
+                        "message_timeout_s": 4.0}))
+            continue
+        out.append(step)
+    return dedupe_steps(out)
+
+
+def dedupe_steps(steps: list) -> list:
+    """Drop EXACT duplicates (name + type + params), first one wins."""
+    seen: set = set()
+    out: list = []
+    for step in steps or []:
+        key = (getattr(step, "name", ""), step_kind(step),
+               repr(sorted((getattr(step, "params", None) or {}).items())))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(step)
+    return out
+
+
+def normalize_fct_cases(cases: list) -> list:
+    """Normalize a legacy ``fct_test_cases`` list, one row per step.
+
+    Rows carrying an ``op_params.fct_step`` marker are re-written from
+    their normalized step: a ``(wait)`` case merges into the next marker
+    case (so one FCT test = one row), an implicit ``confirm_enabled``
+    marker gains an explicit dialog row right after it, and exact
+    duplicates are dropped.  Rows without a marker (manual standard ops)
+    pass through untouched."""
+    cases = list(cases or [])
+    if not any(((c.get("op_params") or {}) if isinstance(c, dict) else {})
+               .get("fct_step") for c in cases):
+        return cases
+    out: list = []
+    pending = None                    # (case, step) of a '(wait)' row
+    seen: set = set()
+    for c in cases:
+        marker = ((c.get("op_params") or {}) if isinstance(c, dict) else {})
+        raw = marker.get("fct_step") if isinstance(marker, dict) else None
+        if not (isinstance(raw, dict) and raw):
+            out.append(c)             # manual row: untouched
+            continue
+        step = FctStep.from_dict(raw)
+        if str(step.name).endswith(" (wait)"):
+            pending = (c, step)
+            continue                  # merged into the next marker row
+        if pending is not None:
+            wp = dict(pending[1].params or {})
+            p = dict(step.params or {})
+            p.setdefault("wait_enabled", True)
+            p.setdefault("wait_pattern",
+                         str(wp.get("expect_pass_re", "") or ""))
+            p.setdefault("wait_timeout",
+                         float(pending[1].timeout_s or 10.0))
+            step.params = p
+            pending = None
+        dlg = None
+        p = dict(step.params or {})
+        if p.pop("confirm_enabled", False):
+            step.params = p
+            dlg = FctStep(
+                name=f"Confirm: {step.name}", step_type=STEP_GUI_CONFIRM,
+                timeout_s=0.0,
+                params={"style": "yesno", "console_dialog": True,
+                        "message": str(p.get("confirm_message") or step.name),
+                        "wait_pattern": "", "wait_timeout": 0.0,
+                        "message_timeout_s": 4.0})
+        rows = [step] + ([dlg] if dlg is not None else [])
+        for s in rows:
+            key = (s.name, step_kind(s),
+                   repr(sorted((s.params or {}).items())))
+            if key in seen:
+                continue
+            seen.add(key)
+            c2 = dict(c)
+            c2["op_params"] = dict(marker)
+            c2["op_params"]["fct_step"] = s.to_dict()
+            c2["name"] = s.name           # one row = one step name
+            out.append(c2)
+    if pending is not None:
+        # trailing '(wait)' row: keep it as a stand-alone wait step
+        _c, step = pending
+        p = dict(step.params or {})
+        p["kind"] = "wait"
+        step.name = str(step.name)[:-len(" (wait)")] or step.name
+        step.params = p
+        c2 = dict(_c)
+        c2["op_params"] = dict(_c.get("op_params") or {})
+        c2["op_params"]["fct_step"] = step.to_dict()
+        c2["name"] = step.name
+        out.append(c2)
+    return out
 
 
 @dataclass
@@ -204,8 +486,9 @@ class FctSequence:
             keyword_fail=[str(k) for k in
                           ((data or {}).get("keyword_fail")
                            or DEFAULT_KEYWORD_FAIL)],
-            steps=[FctStep.from_dict(d)
-                   for d in ((data or {}).get("steps") or [])],
+            steps=normalize_fct_steps(
+                [FctStep.from_dict(d)
+                 for d in ((data or {}).get("steps") or [])]),
         )
 
     @classmethod
@@ -279,13 +562,6 @@ def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
 # ---------------------------------------------------------------------------
 # mapping to the EXISTING project YAML fct_test_cases shape (spec §5.6)
 # ---------------------------------------------------------------------------
-def _kw_name(prefix: str, keywords: list) -> str:
-    """Step name carrying the keywords the engine's name parser reads
-    (`'<kw1> ...' (expected)` convention)."""
-    kws = " ".join(keywords) if keywords else "done"
-    return f"{prefix}: '{kws}' (expected)"
-
-
 def to_project_fct_cases(sequence: FctSequence) -> list:
     """FctSequence -> the EXISTING `test_workflow.fct_test_cases` list
     shape (kind / name / enable / wait_ms / timeout_ms / op_params) —
@@ -293,12 +569,13 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
     cases: list = []
     for s in sequence.steps:
         kind = _KIND_MAP.get(s.step_type, "MessageOK")
+        # the row name IS the step name (unified model): the keywords
+        # travel in the step marker, never in the visible name
         name = s.name
         op_params = None
         if s.step_type == STEP_MESSAGE_CHECK:
             if s.channel:
                 kind = "CapturefromConsole"
-                name = _kw_name(s.name, s.expect_pass)
             else:
                 kind = "MessageOK"
         elif s.step_type == STEP_GUI_CONFIRM:
@@ -317,7 +594,6 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
                     style, "MessageGoStop")
         elif s.step_type == STEP_CLI_RUN:
             kind = "SendtoCLI"
-            name = _kw_name(f"{s.name}: '{s.command}'", s.expect_pass)
         elif s.step_type == STEP_EXTERNAL_TOOL:
             family = str(s.params.get("tool_family", "")).lower()
             if s.params.get("fct_host_cmd") is not None:

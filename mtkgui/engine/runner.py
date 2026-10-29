@@ -1189,20 +1189,12 @@ class TestRunner(QObject):
         elif (step.step_type == "MESSAGE_CHECK" and step.channel
                 and step.params.get("fct_console")
                 and step.params.get("confirm_enabled")):
-            # interactive console row (Wait -> MessageYesNo -> Send):
-            # bind the operator dialog before the answer is sent
-            if interactive:
-                _msg = str(step.params.get("confirm_message")
-                           or f"Confirm: {step.name}")
-
-                def _ask(_s, _m=_msg):
-                    return env._fct_message_dialog(
-                        "MessageYesNo", _m) == "yes"
-            else:                            # run_demo: simulated GO
-                def _ask(_s):
-                    env._log("human answer GO (simulated)")
-                    return True
-            ctx.human_confirm = _ask
+            # LEGACY marker: implicit popups are gone (unified model
+            # 2026-10-28).  Such a row is normalized into an explicit
+            # dialog step when the case list is loaded; if a stale
+            # marker still arrives the step runs WITHOUT a popup.
+            env._log("legacy implicit confirm ignored - use an explicit "
+                     "dialog step")
         outcome = execute_fct_step(step, ctx)
         status = {VERDICT_PASS: StepStatus.PASS,
                   VERDICT_FAIL: StepStatus.FAIL,
