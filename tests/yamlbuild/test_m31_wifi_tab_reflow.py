@@ -144,7 +144,6 @@ def test_wifi_conn_test_prefront_and_complete(qapp, monkeypatch):
     "Connecting...", then the worker ends at 100%."""
     _install_probe_mocks(monkeypatch, dbm=-55, replies=3)
     panel = FCTTestConfigPanel()
-    panel.wifi_enabled.setChecked(True)
     panel.wifi_ap_ip.setText("192.168.1.1")
     panel._on_wifi_conn_test()
     assert panel.wifi_conn_progress.isVisibleTo(panel.wifi_tab)

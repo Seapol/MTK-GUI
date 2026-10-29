@@ -93,10 +93,13 @@ def test_parse_failure_returns_error(page):
 
 
 def test_validation_failure_returns_error(page):
-    # console enabled but no serial port -> validation error
+    # a serial console row with no port -> validation error (M36: no
+    # master switch, the configured row itself activates the console)
     cfg = {"fct_test_config": {
         "dut_type": "linux",
-        "console": {"enabled": True, "port": ""}}}
+        "console": {"port": "", "test_commands": [
+            {"name": "Kernel check", "kind": "send", "send": "uname -a",
+             "timeout": 5}]}}}
     text = yaml.safe_dump(cfg, sort_keys=False)
     cases, errors = page._emit_fct_sequence(_params(text))
     assert cases is None

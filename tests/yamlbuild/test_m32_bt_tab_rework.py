@@ -191,7 +191,7 @@ def test_bt_subtest_steps_pair_script(monkeypatch):
     cfg = FctTestConfig(
         dut_type="linux",
         bluetooth=BluetoothCfg(
-            enabled=True, rssi_enabled=True, expected_name="DUT-BT",
+            rssi_enabled=True, expected_name="DUT-BT",
             pair_enabled=True, l2ping_count=0,
             bt_pair_script="/root/bt_conn.sh"))
     steps = build_fct_steps(cfg, channel_key="ser1")

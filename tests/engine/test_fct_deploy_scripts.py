@@ -16,7 +16,7 @@ from mtkgui.engine.fct_test_runner import FctTestRunner
 
 
 def _linux_cfg(**console_kw):
-    kw = dict(enabled=True, port="/dev/ttyDUT", ssh_host="192.168.10.10",
+    kw = dict(port="/dev/ttyDUT", ssh_host="192.168.10.10",
               deploy_scripts=True, scripts_local_dir="dut_scripts/linux",
               scripts_remote_dir="/root")
     kw.update(console_kw)
@@ -54,7 +54,7 @@ def test_validate_deploy_requires_ssh_host():
 def test_validate_bare_metal_rejects_deploy():
     cfg = FctTestConfig(
         dut_type="bare_metal",
-        console=ConsoleCfg(enabled=True, port="/dev/ttyDUT",
+        console=ConsoleCfg(port="/dev/ttyDUT",
                            deploy_scripts=True,
                            scripts_local_dir="dut_scripts/linux"))
     errs = cfg.validate()
@@ -146,8 +146,7 @@ def test_deploy_missing_folder_fails(tmp_path):
 
 def test_run_stops_when_deploy_fails(tmp_path):
     # deploy FAIL must abort before any console/RF step runs
-    cfg = _linux_cfg(scripts_local_dir=str(tmp_path / "missing"),
-                     enabled=False)
+    cfg = _linux_cfg(scripts_local_dir=str(tmp_path / "missing"))
     out = FctTestRunner(cfg).run(_NoSftpChannel(), host_runner=None)
     assert out["overall"] == "FAIL"
     assert len(out["results"]) == 1

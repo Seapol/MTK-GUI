@@ -686,10 +686,10 @@ class FctTestRunner:
         """
         results: list = []
         c = self.cfg.console
-        # M33 / M35: a Flash_GUI or Delay row never touches the DUT
-        # console, so it runs even when the console is disabled or no
-        # serial port is bound.
-        console_ready = bool(c.enabled) and serial is not None
+        # M33 / M35 / M36: a Flash_GUI or Delay row never touches the DUT
+        # console, so it runs even when no serial port is bound.  There is
+        # no console master switch any more - the bound port decides.
+        console_ready = serial is not None
         for cmd in c.test_commands:
             if (not console_ready
                     and getattr(cmd, "kind", "") not in ("flash_gui",
@@ -1016,7 +1016,7 @@ class FctTestRunner:
         are Linux only. Ping PASSes on >=1 reply; iperf on >= min Mbps."""
         results: list = []
         w = self.cfg.wifi
-        if not w.enabled:
+        if not w.any_enabled:
             return results
         from .rf_adapters import WifiAdapter
 
@@ -1161,7 +1161,7 @@ class FctTestRunner:
         A2DP Tone/Music (Linux only), each through the B4 adapter."""
         results: list = []
         b = self.cfg.bluetooth
-        if not b.enabled:
+        if not b.any_enabled:
             return results
         if host_runner is None:
             self.log("Bluetooth skipped: no host runner bound")
@@ -1306,7 +1306,7 @@ class FctTestRunner:
                 w = self.cfg.wifi
                 console_cmds = {c.send
                                 for c in self.cfg.console.test_commands}
-                if (w.enabled and w.driver_load_cmd
+                if (w.any_enabled and w.driver_load_cmd
                         and serial is not None
                         and w.driver_load_cmd not in console_cmds):
                     t0 = time.time()

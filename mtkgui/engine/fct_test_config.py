@@ -17,8 +17,7 @@ YAML shape (product YAML `fct_test_config:` node):
 
     fct_test_config:
       dut_type: "linux"
-      console:
-        enabled: true
+      console:                     # present = configured (no master switch)
         port: "/dev/cu.usbmodem53930099631"
         baudrate: 115200
         login_sequence:            # wait_for / send pairs
@@ -26,8 +25,7 @@ YAML shape (product YAML `fct_test_config:` node):
         test_commands:             # name/send/expect/timeout rows
           - {name: Kernel check, send: "uname -a",
              expect_pass: "Linux imx93frdm", timeout: 5}
-      wifi:
-        enabled: true
+      wifi:                        # sub-test flags = single source of truth
         interface: "mlan0"          # DUT wireless interface
         driver_load_cmd: ""        # optional DUT-side driver script
         # 1. Scan / RSSI  (both Linux and bare-metal/RTOS DUTs)
@@ -50,8 +48,7 @@ YAML shape (product YAML `fct_test_config:` node):
         iperf_server_ip: ""        # empty = auto-detect Host LAN IP
         iperf_duration: 10
         iperf_timeout: 15
-      bluetooth:
-        enabled: true
+      bluetooth:                   # sub-test flags = single source of truth
         # 1. RSSI discovery (both Linux and bare-metal/RTOS DUTs)
         rssi_enabled: true
         expected_name: "FRDM-IMX93-DUT"
@@ -168,6 +165,11 @@ KIND_DELAY = "delay"            # M35: plain wait row - fixed sleep of
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST,
                  KIND_DELAY)
+
+#: row kinds that never open the serial console (M36 validation): a
+#: console section made only of these needs no port
+_NO_SERIAL_KINDS = (KIND_HOST, KIND_OP, KIND_WIFI_TEST, KIND_BT_TEST,
+                    KIND_FLASH_GUI, KIND_DELAY)
 
 #: the labels of the merged "FCT test step" Type column (m30 / m30b /
 #: m33).  Each label maps to a ConsoleCommand (or a standard operation)
@@ -1007,7 +1009,8 @@ def console_command_for_label(label: str,
 
 @dataclass
 class ConsoleCfg:
-    enabled: bool = False
+    """Host PC console settings + command rows (M36: no master switch -
+    the configured port / rows are the single source of truth)."""
     port: str = ""
     baudrate: int = 115200
     newline: str = "lf"             # lf | crlf (send line ending)
@@ -1040,7 +1043,7 @@ class ConsoleCfg:
 
     def to_dict(self) -> dict:
         return {
-            "enabled": self.enabled, "port": self.port,
+            "port": self.port,
             "baudrate": int(self.baudrate),
             "newline": self.newline,
             "inter_cmd_delay_ms": int(self.inter_cmd_delay_ms),
@@ -1075,13 +1078,17 @@ class WifiCfg:
 
     ``interface`` / ``driver_load_cmd`` are base parameters (the driver
     load is a BSP deliverable; MTK only sends the editable command over
-    the console). Each sub-test carries its own timeout (default 15 s)."""
-    enabled: bool = False
+    the console). Each sub-test carries its own timeout (default 15 s).
+
+    M36: no master ``enabled`` switch - the sub-test flags (scan / ping /
+    iperf) are the single source of truth; a legacy YAML ``enabled`` key
+    is ignored on load."""
     # base parameters
     interface: str = "mlan0"
     driver_load_cmd: str = ""
-    # 1) scan / RSSI (both DUT kinds)
-    scan_enabled: bool = True
+    # 1) scan / RSSI (both DUT kinds); M36: opt-in like every other
+    # sub-test (the retired master switch used to keep it inert)
+    scan_enabled: bool = False
     # Hotspot AP the station-mode DUT joins (factory router OR phone
     # hotspot): {{ssid}} / {{password}} in console rows. Deployment
     # variables - never hard-coded in code / DUT scripts.
@@ -1108,7 +1115,6 @@ class WifiCfg:
 
     def to_dict(self) -> dict:
         return {
-            "enabled": self.enabled,
             "interface": self.interface,
             "driver_load_cmd": self.driver_load_cmd,
             "scan_enabled": self.scan_enabled,
@@ -1130,6 +1136,13 @@ class WifiCfg:
             "iperf_timeout": float(self.iperf_timeout),
         }
 
+    @property
+    def any_enabled(self) -> bool:
+        """True when at least one sub-test is switched on (M36: replaces
+        the retired master switch)."""
+        return bool(self.scan_enabled or self.ping_enabled
+                    or self.iperf_enabled)
+
 
 @dataclass
 class BluetoothCfg:
@@ -1146,10 +1159,13 @@ class BluetoothCfg:
     * Tone/Music test   - host routes audio to the DUT A2DP sink and
       plays a test tone; operator GUI confirm. Linux only.
 
-    Each sub-test carries its own timeout (default 15 s)."""
-    enabled: bool = False
-    # 1) RSSI / discovery (both DUT kinds)
-    rssi_enabled: bool = True
+    Each sub-test carries its own timeout (default 15 s).
+
+    M36: no master ``enabled`` switch - rssi / pair / tone flags are the
+    single source of truth; a legacy YAML ``enabled`` key is ignored."""
+    # 1) RSSI / discovery (both DUT kinds); M36: opt-in, like the other
+    # sub-tests (the retired master switch used to keep it inert)
+    rssi_enabled: bool = False
     expected_name: str = ""
     # Optional fixed BD address (aa:bb:.. or aa-bb-..). When set, pair/tone
     # skip the probabilistic inquiry and connect straight to it; RSSI still
@@ -1173,7 +1189,6 @@ class BluetoothCfg:
 
     def to_dict(self) -> dict:
         return {
-            "enabled": self.enabled,
             "rssi_enabled": self.rssi_enabled,
             "expected_name": self.expected_name,
             "expected_addr": self.expected_addr,
@@ -1190,6 +1205,13 @@ class BluetoothCfg:
             "test_tone": self.test_tone,
             "tone_duration_s": int(self.tone_duration_s),
         }
+
+    @property
+    def any_enabled(self) -> bool:
+        """True when at least one sub-test is switched on (M36: replaces
+        the retired master switch)."""
+        return bool(self.rssi_enabled or self.pair_enabled
+                    or self.tone_enabled)
 
 
 @dataclass
@@ -1274,13 +1296,14 @@ class FctTestConfig:
         wmode = wifi.get("mode")          # rssi_only | full_stack | None
         legacy_ssid = str(wifi.get("ssid", ""))
         bmode = bt.get("mode")            # rssi_only | pair_connect | a2dp_sink
+        # M36: legacy ``enabled`` master keys under console/wifi/bluetooth
+        # are IGNORED - the configured fields / sub-test flags win.
         wifi_cfg = WifiCfg(
-            enabled=bool(wifi.get("enabled", False)),
             interface=str(wifi.get("interface", "mlan0")),
             driver_load_cmd=str(wifi.get("driver_load_cmd", "")),
             scan_enabled=bool(wifi.get(
                 "scan_enabled",
-                wmode in (None, "rssi_only", "full_stack"))),
+                wmode in ("rssi_only", "full_stack"))),
             ap_ssid=str(wifi.get("ap_ssid",
                                  wifi.get("scan_ssid", legacy_ssid))),
             ap_password=str(wifi.get("ap_password",
@@ -1311,10 +1334,9 @@ class FctTestConfig:
                                         DEFAULT_RF_TIMEOUT)),
         )
         bt_cfg = BluetoothCfg(
-            enabled=bool(bt.get("enabled", False)),
             rssi_enabled=bool(bt.get(
                 "rssi_enabled",
-                bmode in (None, "rssi_only", "pair_connect",
+                bmode in ("rssi_only", "pair_connect",
                           "a2dp_sink"))),
             expected_name=str(bt.get("expected_name", "")),
             expected_addr=(str(bt.get("expected_addr", "")).strip()
@@ -1341,7 +1363,6 @@ class FctTestConfig:
         return cls(
             dut_type=str(data.get("dut_type", "linux")),
             console=ConsoleCfg(
-                enabled=bool(console.get("enabled", False)),
                 port=str(console.get("port", "")),
                 baudrate=int(console.get("baudrate", 115200)),
                 newline=str(console.get("newline", "lf")),
@@ -1373,14 +1394,28 @@ class FctTestConfig:
 
     # ---------------------------------------------------------- validation
     def validate(self) -> list:
-        """Returns a list of error strings (empty = valid)."""
+        """Returns a list of error strings (empty = valid).
+
+        M36: there are no master enable switches.  The console section is
+        active when it holds a port / endpoint / rows, and each RF module
+        is active when at least one of its sub-tests is switched on."""
         errors: list = []
         c, w, b = self.console, self.wifi, self.bluetooth
+        rows = list(c.test_commands) + list(c.post_rf_commands)
+        console_active = bool(c.port.strip() or c.ssh_host.strip()
+                              or c.deploy_scripts or rows)
         if self.dut_type not in ("bare_metal", "linux"):
             errors.append("dut_type must be bare_metal|linux")
-        if c.enabled:
-            if not c.port.strip():
-                errors.append("console.enabled: port must not be empty")
+        if console_active:
+            # only rows that really talk to the DUT over the serial line
+            # need a port (Flash_GUI / Delay / host CLI / RF reference
+            # rows run without one)
+            if not c.port.strip() and any(
+                    getattr(r, "transport", "serial") != "ssh"
+                    and getattr(r, "kind", "") not in _NO_SERIAL_KINDS
+                    for r in rows):
+                errors.append("console.port must not be empty "
+                              "(serial console rows need a port)")
             if int(c.baudrate) not in BAUDRATES:
                 errors.append(f"console.baudrate must be one of "
                               f"{BAUDRATES}")
@@ -1422,10 +1457,7 @@ class FctTestConfig:
                     errors.append(
                         f"host CLI row '{cmd.name}': host_cmd must not "
                         "be empty")
-        if w.enabled:
-            if not (w.scan_enabled or w.ping_enabled or w.iperf_enabled):
-                errors.append("wifi.enabled: enable at least one of "
-                              "scan / ping / iperf")
+        if w.any_enabled:
             if w.scan_via not in WIFI_SCAN_VIA:
                 errors.append(f"wifi.scan_via must be one of "
                               f"{WIFI_SCAN_VIA}")
@@ -1450,10 +1482,7 @@ class FctTestConfig:
                                   f"{BW_TOOLS}")
                 elif float(w.iperf_min_mbps) <= 0:
                     errors.append("wifi iperf: iperf_min_mbps must be > 0")
-        if b.enabled:
-            if not (b.rssi_enabled or b.pair_enabled or b.tone_enabled):
-                errors.append("bluetooth.enabled: enable at least one of "
-                              "rssi / pair / tone")
+        if b.any_enabled:
             if b.rssi_timeout < 1 or b.pair_timeout < 1 \
                     or b.tone_timeout < 1:
                 errors.append("bluetooth timeouts must be >= 1 s")
@@ -1696,8 +1725,6 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
 
     Returns [] when the module / sub-test is disabled or the sub-test is
     Linux-only on a bare-metal DUT."""
-    if not cfg.wifi.enabled:
-        return []
     w = cfg.wifi
     if subtest == "scan":
         if not w.scan_enabled:
@@ -1770,8 +1797,6 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
     ``pair`` carries the optional L2CAP data-path proof.  The one-time
     piscan step is emitted separately by build_fct_steps before the first
     BT step, preserving the old order."""
-    if not cfg.bluetooth.enabled:
-        return []
     b = cfg.bluetooth
     if subtest == "rssi":
         if not b.rssi_enabled:
@@ -1855,7 +1880,7 @@ def build_fct_steps(cfg: FctTestConfig,
     c = cfg.console
     is_linux = cfg.dut_type == "linux"
     driver_needed = bool(
-        is_linux and (cfg.wifi.enabled or cfg.bluetooth.enabled)
+        is_linux and (cfg.wifi.any_enabled or cfg.bluetooth.any_enabled)
         and cfg.wifi.driver_load_cmd.strip())
     expanded: set = set()         # (kind, rf_subtest) reference rows seen
     rf_prologue_done = False      # RF driver load emitted once
@@ -1875,34 +1900,34 @@ def build_fct_steps(cfg: FctTestConfig,
                 steps.append(_bt_piscan_step(channel_key))
         steps.extend(sub_steps)
 
-    if c.enabled:
-        # console steps: Wait->Send->Capture primitives (v2 model).
-        # Both DUT kinds use the SAME three-stage flow over serial; a
-        # bare-metal/RTOS firmware can prompt and accept replies too
-        # (e.g. Button/LED: wait for the prompt -> send yes/no ->
-        # capture the result). The only console difference is that a
-        # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
-        for cmd in c.test_commands:
-            kind = str(getattr(cmd, "kind", "") or "")
-            if kind in (KIND_WIFI_TEST, KIND_BT_TEST):
-                subtest = str(getattr(cmd, "rf_subtest", "") or "")
-                family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
-                key = (kind, subtest)
-                if subtest and key not in expanded:
-                    sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
-                                 if family == "wifi" else
-                                 _bt_subtest_steps(cfg, subtest, channel_key))
-                    if sub_steps:
-                        expanded.add(key)
-                        _emit_rf(family, sub_steps)
-                continue
-            steps.extend(_console_row_steps(cmd, channel_key,
-                                            c.ssh_host, c.ssh_username))
-            # Serial asset provisioning right after the login (a fresh
-            # DUT has no scripts / board-test package; no SSH yet).
-            if c.serial_deploy and "login" in str(
-                    getattr(cmd, "name", "")).lower():
-                steps.append(_serial_deploy_step(c, channel_key))
+    # console steps: Wait->Send->Capture primitives (v2 model).  Both DUT
+    # kinds use the SAME three-stage flow over serial; a bare-metal/RTOS
+    # firmware can prompt and accept replies too (e.g. Button/LED: wait
+    # for the prompt -> send yes/no -> capture the result).  The only
+    # console difference is that a bare-metal DUT has no SSH/SFTP
+    # transport; RF stays RSSI-only.  (M36: no master switch - the rows
+    # themselves are the source of truth.)
+    for cmd in c.test_commands:
+        kind = str(getattr(cmd, "kind", "") or "")
+        if kind in (KIND_WIFI_TEST, KIND_BT_TEST):
+            subtest = str(getattr(cmd, "rf_subtest", "") or "")
+            family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
+            key = (kind, subtest)
+            if subtest and key not in expanded:
+                sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
+                             if family == "wifi" else
+                             _bt_subtest_steps(cfg, subtest, channel_key))
+                if sub_steps:
+                    expanded.add(key)
+                    _emit_rf(family, sub_steps)
+            continue
+        steps.extend(_console_row_steps(cmd, channel_key,
+                                        c.ssh_host, c.ssh_username))
+        # Serial asset provisioning right after the login (a fresh DUT
+        # has no scripts / board-test package; no SSH yet).
+        if c.serial_deploy and "login" in str(
+                getattr(cmd, "name", "")).lower():
+            steps.append(_serial_deploy_step(c, channel_key))
     # Backward-compatible fallback: enabled RF sub-tests with NO reference
     # row still expand after the console body in the old fixed order.
     for kind, subtests in ((KIND_WIFI_TEST, ("scan", "ping", "iperf")),

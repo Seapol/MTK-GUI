@@ -149,7 +149,6 @@ def test_capture_fields_round_trip_through_panel(qapp):
     from mtkgui.engine.fct_test_config import ConsoleCommand
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.console_enabled.setChecked(True)
     r = panel.cmd_table.rowCount()
     panel.cmd_table.insertRow(r)
     panel._save_row_cmd(r, ConsoleCommand(

@@ -590,13 +590,12 @@ class FCTTestConfigPanel(QWidget):
     def _build_console_tab(self) -> QWidget:
         """Host PC Serial/SSH connection config ONLY (M22c).
 
-        Enable / Port / Baudrate / SSH endpoint.  The test-command table
-        and its row buttons live in the Sequence tab.
+        Port / Baudrate / SSH endpoint (M36: no master enable switch -
+        configuring the port is what activates the console).  The
+        test-command table and its row buttons live in the Sequence tab.
         """
         w = QWidget()
         lay = QVBoxLayout(w)
-        self.console_enabled = QCheckBox("Enable Console FCT")
-        lay.addWidget(self.console_enabled)
         form = QFormLayout()
         self.console_port = QComboBox()
         self.console_port.setEditable(True)
@@ -1915,22 +1914,17 @@ class FCTTestConfigPanel(QWidget):
     def _build_wifi_tab(self) -> QWidget:
         """Wi-Fi tab (M31): a scrollable, adaptive three-column body.
 
-        Row 0 = the master enable checkbox (span 3).  Row 1 = the three
-        config group boxes side by side (DUT | Hotspot AP | Host PC).
-        Row 2 = the three test boxes side by side (Scan/RSSI | Ping |
-        iPerf).  Row 3 = the Host PC <-> AP connection test (span 3).
+        Row 0 = the three config group boxes side by side (DUT | Hotspot
+        AP | Host PC).  Row 1 = the three test boxes side by side
+        (Scan/RSSI | Ping | iPerf).  Row 2 = the Host PC <-> AP connection
+        test (span 3).  M36: no master enable checkbox - the three sub-test
+        checkboxes are the source of truth.
         The QScrollArea guarantees no control overlap at any window size."""
         body = QWidget()
         grid = QGridLayout(body)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
-
-        self.wifi_enabled = QCheckBox(
-            "Enable Wi-Fi FCT  (DUT advertises the Wi-Fi endpoint; "
-            "Host PC is the initiator)")
-        self.wifi_enabled.toggled.connect(self._sync_wifi_groups)
-        grid.addWidget(self.wifi_enabled, 0, 0, 1, 3)
 
         # ---- DUT base ------------------------------------------------------
         self.wifi_base = QGroupBox("DUT")
@@ -1979,7 +1973,7 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_scan_box = QGroupBox("1. Scan / RSSI test  (Linux + "
                                       "Bare-metal/RTOS)")
         self.wifi_scan_box.setCheckable(True)
-        self.wifi_scan_box.setChecked(True)
+        self.wifi_scan_box.setChecked(False)
         sc = QFormLayout(self.wifi_scan_box)
         self.wifi_rssi_min = QSpinBox()
         self.wifi_rssi_min.setRange(-100, 0)
@@ -2064,27 +2058,24 @@ class FCTTestConfigPanel(QWidget):
         return scroll
 
     def _sync_wifi_groups(self) -> None:
-        """Enable state = master Wi-Fi switch AND (for Linux-only
-        sub-tests) the DUT OS/firmware kind."""
+        """Capability gating only (M36: master Wi-Fi switch retired).
+
+        The DUT OS/firmware kind decides which sub-tests exist: driver
+        load / ping / iperf / DUT-console RSSI need a Linux shell;
+        scan/RSSI works on both kinds."""
         if not hasattr(self, "wifi_scan_box") or not hasattr(
                 self, "dut_type"):
             return
         is_linux = self.dut_type.currentText() == "linux"
-        on = self.wifi_enabled.isChecked()
-        self.wifi_base.setEnabled(on)
-        self.wifi_ap_box.setEnabled(on)
-        self.wifi_host_box.setEnabled(on)
-        self.wifi_driver_cmd.setEnabled(on and is_linux)
-        self.wifi_scan_box.setEnabled(on)
-        self.wifi_ping_box.setEnabled(on and is_linux)
-        self.wifi_iperf_box.setEnabled(on and is_linux)
-        self.wifi_conn_test_btn.setEnabled(on)
+        self.wifi_driver_cmd.setEnabled(is_linux)
+        self.wifi_ping_box.setEnabled(is_linux)
+        self.wifi_iperf_box.setEnabled(is_linux)
         # dut_console RSSI read needs a Linux shell; bare-metal = host scan
         if not is_linux and self.wifi_scan_via.currentText() != "host":
             self.wifi_scan_via.blockSignals(True)
             self.wifi_scan_via.setCurrentText("host")
             self.wifi_scan_via.blockSignals(False)
-        self.wifi_scan_via.setEnabled(on and is_linux)
+        self.wifi_scan_via.setEnabled(is_linux)
         if not self._guard:
             self._refresh_rf_ref_rows()
 
@@ -2123,7 +2114,7 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_conn_status.setText(summary)
         self.wifi_conn_status.setStyleSheet(
             self._SSH_OK_STYLE if ok else self._SSH_ERR_STYLE)
-        self.wifi_conn_test_btn.setEnabled(self.wifi_enabled.isChecked())
+        self.wifi_conn_test_btn.setEnabled(True)
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
@@ -2143,7 +2134,7 @@ class FCTTestConfigPanel(QWidget):
         # ---- 1) Host PC Bluetooth (Host -> DUT) ----------------------------
         self.bt_rssi_box = QGroupBox("1. Host PC Bluetooth (Host -> DUT)")
         self.bt_rssi_box.setCheckable(True)
-        self.bt_rssi_box.setChecked(True)
+        self.bt_rssi_box.setChecked(False)
         m1 = QVBoxLayout(self.bt_rssi_box)
         rs = QFormLayout()
         self.bt_name = QLineEdit()
@@ -2355,9 +2346,6 @@ class FCTTestConfigPanel(QWidget):
         if not family:
             return True
         if family == "wifi":
-            if not hasattr(self, "wifi_enabled") or \
-                    not self.wifi_enabled.isChecked():
-                return False
             box = {"scan": "wifi_scan_box", "ping": "wifi_ping_box",
                    "iperf": "wifi_iperf_box"}.get(subtest)
         else:
@@ -2431,7 +2419,7 @@ class FCTTestConfigPanel(QWidget):
                 self._rf_summary_sigs.add(id(signal))
                 signal.connect(self._refresh_rf_ref_rows)
 
-        for name in ("wifi_enabled", "wifi_scan_box", "wifi_ping_box",
+        for name in ("wifi_scan_box", "wifi_ping_box",
                      "wifi_iperf_box", "bt_rssi_box", "bt_pair_box"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "toggled")
@@ -2683,7 +2671,6 @@ class FCTTestConfigPanel(QWidget):
             # (newline, inter-command delay, deploy_scripts, serial_deploy,
             # post_rf_commands) must round-trip untouched (M22c)
             self._console_cfg = copy.deepcopy(c)
-            self.console_enabled.setChecked(c.enabled)
             self.console_ssh_host.setText(c.ssh_host)
             self.console_ssh_user.setText(c.ssh_username)
             # M29: the password comes from the CREDENTIAL layer
@@ -2719,7 +2706,6 @@ class FCTTestConfigPanel(QWidget):
                 self._save_row_cmd(r, cmd)
             self._renumber_rows()
             w = cfg.wifi
-            self.wifi_enabled.setChecked(w.enabled)
             self.wifi_interface.setText(w.interface)
             self.wifi_driver_cmd.setText(w.driver_load_cmd)
             self.wifi_ap_ssid.setText(w.ap_ssid)
@@ -2740,21 +2726,15 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_iperf_duration.setValue(w.iperf_duration)
             self.wifi_iperf_timeout.setValue(int(w.iperf_timeout))
             b = cfg.bluetooth
-            # Legacy ``bluetooth.enabled: false`` meant "no Bluetooth at
-            # all"; there is no master switch any more, so reflect that as
-            # un-checked sub-tests (preserves the old validate() cleanly).
-            bt_node = (data or {}).get("bluetooth") or {}
-            legacy_bt_off = ("enabled" in bt_node
-                             and not bool(bt_node.get("enabled")))
-            self.bt_rssi_box.setChecked(
-                False if legacy_bt_off else b.rssi_enabled)
+            # M36: the sub-test flags are the single source of truth - a
+            # legacy ``bluetooth.enabled`` master key is ignored on load.
+            self.bt_rssi_box.setChecked(b.rssi_enabled)
             self.bt_name.setText(b.expected_name)
             self.bt_expected_addr.setText(b.expected_addr)
             self.bt_scan_retries.setValue(b.scan_retries)
             self.bt_rssi_min.setValue(b.rssi_min)
             self.bt_rssi_timeout.setValue(int(b.rssi_timeout))
-            self.bt_pair_box.setChecked(
-                False if legacy_bt_off else b.pair_enabled)
+            self.bt_pair_box.setChecked(b.pair_enabled)
             self.bt_pair_timeout.setValue(int(b.pair_timeout))
             self.bt_l2ping.setValue(b.l2ping_count)
             self.bt_pair_script.setText(b.bt_pair_script)
@@ -2797,7 +2777,6 @@ class FCTTestConfigPanel(QWidget):
             WifiCfg,
         )
         cfg.console = copy.deepcopy(self._console_cfg)
-        cfg.console.enabled = self.console_enabled.isChecked()
         cfg.console.port = self.console_port.currentText().strip()
         cfg.console.baudrate = int(self.console_baud.currentText())
         cfg.console.ssh_host = self.console_ssh_host.text().strip()
@@ -2826,11 +2805,10 @@ class FCTTestConfigPanel(QWidget):
             else:
                 test_commands.append(cmd)
         cfg.console.test_commands = test_commands
-        # tone has no off switch: its YAML enabled flag is derived from a
-        # bt_test tone reference row (the row decides tone's place in the
-        # sequence). enabled mirrors any active sub-test so legacy YAML
-        # with ``bluetooth.enabled: false`` round-trips without forcing BT
-        # validation onto a config that does not use Bluetooth.
+        # tone has no off switch: its YAML flag is derived from a bt_test
+        # tone reference row (the row decides tone's place in the
+        # sequence). (M36: no master ``enabled`` key any more - the
+        # sub-test flags below are the only source of truth.)
         tone_ref = any(
             getattr(c, "kind", "") == KIND_BT_TEST
             and getattr(c, "rf_subtest", "") == "tone"
@@ -2838,7 +2816,6 @@ class FCTTestConfigPanel(QWidget):
         bt_rssi = self.bt_rssi_box.isChecked()
         bt_pair = self.bt_pair_box.isChecked()
         cfg.wifi = WifiCfg(
-            enabled=self.wifi_enabled.isChecked(),
             interface=self.wifi_interface.text().strip(),
             driver_load_cmd=self.wifi_driver_cmd.text().strip(),
             ap_ssid=self.wifi_ap_ssid.text().strip(),
@@ -2860,7 +2837,6 @@ class FCTTestConfigPanel(QWidget):
             iperf_timeout=float(self.wifi_iperf_timeout.value()),
         )
         cfg.bluetooth = BluetoothCfg(
-            enabled=(bt_rssi or bt_pair or tone_ref),
             rssi_enabled=bt_rssi,
             expected_name=self.bt_name.text().strip(),
             expected_addr=self.bt_expected_addr.text().strip(),

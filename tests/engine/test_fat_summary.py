@@ -128,7 +128,6 @@ def _parse_row() -> ConsoleCommand:
 
 def test_capture_row_expands_summary_and_overall_fails():
     cfg = FctTestConfig()
-    cfg.console.enabled = True
     cfg.console.test_commands = [_parse_row()]
     serial = FakeSerial(preload=_fat_summary_text().encode())
     out = FctTestRunner(cfg).run(serial, host_runner=None)
@@ -158,7 +157,6 @@ def test_sequence_continues_after_summary_fail_items():
         send="mkdir -p /var/run/sshd; /usr/sbin/sshd",
         expect_fail="SSHD_STARTED", capture_is_expected=True, timeout=5.0)
     cfg = FctTestConfig()
-    cfg.console.enabled = True
     cfg.console.test_commands = [_parse_row(), sshd]
     serial = FakeSerial(script={"mkdir -p /var/run/sshd; /usr/sbin/sshd":
                                 "SSHD_STARTED\r\n"},
@@ -171,7 +169,6 @@ def test_sequence_continues_after_summary_fail_items():
 
 def test_summary_not_found_fails_row_and_stops():
     cfg = FctTestConfig()
-    cfg.console.enabled = True
     cfg.console.test_commands = [_parse_row()]
     serial = FakeSerial(preload=b"some unrelated output\r\n")
     results = FctTestRunner(cfg).run_console(serial)
@@ -190,7 +187,6 @@ def test_config_roundtrip_parse_summary():
 
 def test_build_fct_steps_carries_parse_flag():
     cfg = FctTestConfig()
-    cfg.console.enabled = True
     cfg.console.test_commands = [_parse_row()]
     steps = build_fct_steps(cfg)
     assert steps and steps[0].params.get("parse_summary") is True

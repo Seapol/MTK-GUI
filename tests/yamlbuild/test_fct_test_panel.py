@@ -86,7 +86,7 @@ def test_roundtrip_preserves_config(qapp):
     node = yaml.safe_load(out["fct_test_config_yaml"])
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
     assert cfg.dut_type == "linux"
-    assert cfg.console.enabled and cfg.console.baudrate == 115200
+    assert cfg.console.port and cfg.console.baudrate == 115200
     # legacy expect_pass of a send command migrates to the Capture
     # positive keyword (WaitFor uses expect_pass; Capture uses expect_fail)
     kernel = next(c for c in cfg.console.test_commands
@@ -103,11 +103,11 @@ def test_roundtrip_preserves_config(qapp):
 def test_ui_edits_reach_values(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.console_enabled.setChecked(True)
     panel.console_port.setCurrentText("/dev/cu.test")
-    panel.wifi_enabled.setChecked(True)
+    panel.wifi_scan_box.setChecked(True)
     panel.wifi_ap_ssid.setText("DUT-AP")
     panel.wifi_ping_box.setChecked(True)
+    panel.bt_rssi_box.setChecked(True)
     panel.bt_name.setText("DUT-BT")
     panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
     panel.bt_scan_retries.setValue(4)
@@ -132,6 +132,7 @@ def test_ui_edits_reach_values(qapp):
 def test_invalid_config_logged_not_lost(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({})
+    panel.bt_rssi_box.setChecked(True)
     panel.bt_name.setText("")                 # required -> invalid
     logs = []
     panel.task_log.connect(lambda lvl, msg: logs.append(msg))
@@ -145,8 +146,8 @@ def test_invalid_config_logged_not_lost(qapp):
 
 def test_dut_type_grey_out_and_hint(qapp):
     panel = FCTTestConfigPanel()
-    # Wi-Fi keeps a master switch; the BT tab is always enabled (M32).
-    panel.wifi_enabled.setChecked(True)
+    # M36: no master switch - only the DUT kind gates the Linux-only
+    # sub-tests; the BT tab is always enabled (M32).
     panel.dut_type.setCurrentText("bare_metal")
     # no Linux shell: driver cmd, Connect&Ping, iPerf, Pair, Tone greyed;
     # the Scan/RSSI discovery tests (both DUT kinds) stay available
@@ -276,7 +277,6 @@ def test_advanced_capture_attrs_survive_roundtrip(qapp):
     # lost when the row goes table -> values() -> YAML -> model
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.console_enabled.setChecked(True)
     cmd = ConsoleCommand(
         name="No error window", kind="send", send="run",
         wait_enabled=False, send_enabled=True, capture_enabled=True,
@@ -300,7 +300,6 @@ def test_advanced_capture_attrs_survive_roundtrip(qapp):
 def test_sftp_row_clears_wait_and_capture(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.console_enabled.setChecked(True)
     cmd = ConsoleCommand(
         name="Deploy", kind="sftp_put", transport="ssh",
         wait_enabled=False, send_enabled=True, capture_enabled=False,

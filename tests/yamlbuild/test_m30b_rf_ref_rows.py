@@ -154,11 +154,12 @@ def test_reference_row_enabled_mirrors_module_checkboxes(qapp):
     tone_cmd = panel._row_cmd(1)
     assert panel._rf_effective_enabled(scan_cmd) is True
     assert panel._rf_effective_enabled(tone_cmd) is True
-    panel.wifi_enabled.setChecked(False)
+    # M36: no master switch - the Scan/RSSI checkbox is the source
+    panel.wifi_scan_box.setChecked(False)
     assert panel._rf_effective_enabled(scan_cmd) is False
     assert panel.cmd_table.item(0, _COL_STEP).foreground().color().name() \
         == "#9ca3af"
-    panel.wifi_enabled.setChecked(True)
+    panel.wifi_scan_box.setChecked(True)
     assert panel._rf_effective_enabled(scan_cmd) is True
 
 
@@ -179,11 +180,10 @@ def test_double_click_jumps_to_rf_tab(qapp):
 def test_build_order_expands_wifi_row_at_its_position():
     cfg = FctTestConfig(
         dut_type="linux",
-        wifi=WifiCfg(enabled=True, ap_ssid="DUT-AP", scan_enabled=False,
+        wifi=WifiCfg(ap_ssid="DUT-AP", scan_enabled=False,
                      ping_enabled=True, ping_count=20),
-        bluetooth=BluetoothCfg(enabled=False))
+        bluetooth=BluetoothCfg())
     cfg.console = ConsoleCfg(
-        enabled=True,
         test_commands=[
             ConsoleCommand(name="before", kind="send", send="x",
                            wait_enabled=False, send_enabled=True,

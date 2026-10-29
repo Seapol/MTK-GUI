@@ -32,7 +32,6 @@ FRDM_YAML = """
 fct_test_config:
   dut_type: linux
   console:
-    enabled: true
     port: "/dev/cu.usbmodem53930099631"
     baudrate: 115200
     test_commands:
@@ -45,7 +44,6 @@ fct_test_config:
          expect_pass: "RF drivers loaded OK", expect_fail: FAILED,
          timeout: 15, retries: 2}
   wifi:
-    enabled: true
     interface: mlan0
     driver_load_cmd: ""
     scan_enabled: true
@@ -56,7 +54,6 @@ fct_test_config:
     ping_enabled: false
     iperf_enabled: false
   bluetooth:
-    enabled: true
     rssi_enabled: true
     expected_name: FRDM-IMX93-DUT
     rssi_min: -70
@@ -88,15 +85,35 @@ def test_validate_clean_for_frdm():
 def test_validate_rejects_bad_mode_and_baud():
     cfg = frdm_config()
     cfg.console.baudrate = 1234
-    # every Wi-Fi / BT sub-test switched off -> one error each
+    # M36: every Wi-Fi / BT sub-test switched off is NOT an error - the
+    # module simply does nothing (no master switch to contradict)
     cfg.wifi.scan_enabled = False
     cfg.bluetooth.rssi_enabled = False
     errors = cfg.validate()
-    assert len(errors) == 3
+    assert len(errors) == 1
     assert any("baudrate" in e for e in errors)
-    assert any("wifi" in e and "scan / ping / iperf" in e for e in errors)
-    assert any("bluetooth" in e and "rssi / pair / tone" in e
-               for e in errors)
+    assert not any("scan / ping / iperf" in e for e in errors)
+    assert not any("rssi / pair / tone" in e for e in errors)
+
+
+def test_legacy_master_enabled_keys_are_ignored():
+    """M36: a legacy console/wifi/bluetooth ``enabled`` key is ignored on
+    load - the configured fields / sub-test flags win."""
+    legacy = {
+        "dut_type": "linux",
+        "console": {"enabled": False, "port": "/dev/cu.test"},
+        "wifi": {"enabled": False, "scan_enabled": True, "ap_ssid": "AP"},
+        "bluetooth": {"enabled": False, "rssi_enabled": True,
+                      "expected_name": "DUT-BT"},
+    }
+    cfg = FctTestConfig.from_dict(legacy)
+    assert cfg.console.port == "/dev/cu.test"
+    assert cfg.wifi.scan_enabled and cfg.wifi.any_enabled
+    assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.any_enabled
+    assert "enabled" not in cfg.console.to_dict()
+    assert "enabled" not in cfg.wifi.to_dict()
+    assert "enabled" not in cfg.bluetooth.to_dict()
+    assert cfg.validate() == []
 
 
 def test_build_steps_console_chain():
@@ -133,8 +150,10 @@ def test_build_steps_retries_carried():
 
 def test_build_steps_disabled_sections_absent():
     cfg = frdm_config()
-    cfg.console.enabled = False
-    cfg.wifi.enabled = False
+    # M36: no master switch - switching off the rows / sub-tests is the
+    # only way to leave a section out of the built sequence
+    cfg.console.test_commands = []
+    cfg.wifi.scan_enabled = False
     steps = build_fct_steps(cfg)
     # Linux BT, RSSI-only: make discoverable, then the host RSSI scan
     assert [s.name for s in steps] == ["BT discoverable (piscan)",
@@ -390,7 +409,7 @@ def bare_config() -> FctTestConfig:
     return FctTestConfig(
         dut_type="bare_metal",
         console=ConsoleCfg(
-            enabled=True, port="/dev/cu.usbmodem1",
+            port="/dev/cu.usbmodem1",
             test_commands=[
                 ConsoleCommand(name="FW version", kind="send",
                                send="version", send_enabled=True,
@@ -409,8 +428,8 @@ def bare_config() -> FctTestConfig:
                 ConsoleCommand(name="Boot log capture", kind="capture",
                                send_enabled=False, capture_enabled=True),
             ]),
-        wifi=WifiCfg(enabled=True, scan_enabled=True, ap_ssid="DUT-AP"),
-        bluetooth=BluetoothCfg(enabled=True, rssi_enabled=True,
+        wifi=WifiCfg(scan_enabled=True, ap_ssid="DUT-AP"),
+        bluetooth=BluetoothCfg(rssi_enabled=True,
                                expected_name="DUT-BT",
                                pair_enabled=False, tone_enabled=False,
                                l2ping_count=0))
@@ -1015,7 +1034,6 @@ def test_sequence_roundtrip_is_deterministic():
     )
     cfg = FctTestConfig()
     cfg.setup = FctSetupCfg(power_mode=POWER_NONE)
-    cfg.console.enabled = True
     cfg.console.test_commands = [
         ConsoleCommand(kind="send", name="Cmd", wait_enabled=True,
                        send_enabled=True, capture_enabled=False,
@@ -1063,7 +1081,7 @@ def _linux_full_rf_config() -> FctTestConfig:
     return FctTestConfig(
         dut_type="linux",
         wifi=WifiCfg(
-            enabled=True, interface="mlan0",
+            interface="mlan0",
             driver_load_cmd="/root/load_rf_drivers.sh",
             scan_enabled=True, ap_ssid="DUT-AP", ap_password="pw",
             scan_via="host",
@@ -1072,7 +1090,7 @@ def _linux_full_rf_config() -> FctTestConfig:
             iperf_enabled=True, iperf_tool="iperf3", iperf_min_mbps=10,
             iperf_server_ip="", iperf_duration=10),
         bluetooth=BluetoothCfg(
-            enabled=True, rssi_enabled=True, expected_name="DUT-BT",
+            rssi_enabled=True, expected_name="DUT-BT",
             pair_enabled=True, l2ping_count=5, tone_enabled=True,
             audio_confirm=True))
 
@@ -1103,8 +1121,8 @@ def test_linux_all_rf_subtests_build_distinct_steps():
 def test_bare_metal_rf_is_discovery_only():
     cfg = FctTestConfig(
         dut_type="bare_metal",
-        wifi=WifiCfg(enabled=True, scan_enabled=True, ap_ssid="DUT-AP"),
-        bluetooth=BluetoothCfg(enabled=True, rssi_enabled=True,
+        wifi=WifiCfg(scan_enabled=True, ap_ssid="DUT-AP"),
+        bluetooth=BluetoothCfg(rssi_enabled=True,
                                expected_name="DUT-BT"))
     assert cfg.validate() == []
     names = [s.name for s in build_fct_steps(cfg)]
@@ -1146,21 +1164,21 @@ def test_rf_subtest_validation_rules():
     # ping enabled with a valid ping count is clean (SSID/password are
     # now shared as ap_ssid/ap_password, no per-ping fields)
     cfg = FctTestConfig(dut_type="linux", wifi=WifiCfg(
-        enabled=True, scan_enabled=False, ping_enabled=True,
+        scan_enabled=False, ping_enabled=True,
         ping_count=20, iperf_enabled=False))
     assert cfg.validate() == []
     # bad iperf tool
-    cfg.wifi = WifiCfg(enabled=True, scan_enabled=False, iperf_enabled=True)
+    cfg.wifi = WifiCfg(scan_enabled=False, iperf_enabled=True)
     cfg.wifi.iperf_tool = "iperf9"
     assert any("iperf" in e and "tool" in e for e in cfg.validate())
     # zero/negative timeouts rejected
-    cfg.wifi = WifiCfg(enabled=True, ap_ssid="X", scan_timeout=0)
+    cfg.wifi = WifiCfg(ap_ssid="X", scan_enabled=True, scan_timeout=0)
     assert any("timeout" in e for e in cfg.validate())
-    # every sub-test off
-    cfg.wifi = WifiCfg(enabled=True, scan_enabled=False)
-    assert any("scan / ping / iperf" in e for e in cfg.validate())
+    # M36: every sub-test off = module idle (no master switch error)
+    cfg.wifi = WifiCfg(scan_enabled=False)
+    assert not any("scan / ping / iperf" in e for e in cfg.validate())
     # rssi on but no BT name
-    cfg.bluetooth = BluetoothCfg(enabled=True, rssi_enabled=True,
+    cfg.bluetooth = BluetoothCfg(rssi_enabled=True,
                                  expected_name=" ")
     assert any("expected_name" in e for e in cfg.validate())
 
@@ -1230,6 +1248,6 @@ def test_build_steps_message_row_styles_reach_params():
 def test_validate_accepts_message_row_on_bare_metal():
     """A message row needs no OS: serial default transport, no SFTP."""
     cfg = FctTestConfig(dut_type="bare_metal", console=ConsoleCfg(
-        enabled=True, port="/dev/cu.usbmodem1",
+        port="/dev/cu.usbmodem1",
         test_commands=[ConsoleCommand(kind=KIND_MESSAGE, name="ask")]))
     assert cfg.validate() == []
