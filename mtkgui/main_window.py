@@ -45,6 +45,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import project_config
+from .engine.yaml_validation import (blocking_issues, format_issues,
+                                     validate_project_yaml)
 from .equipment_page import EquipmentPage
 from .gui.shell import resolve_tenant_base
 from .gui.event_log_levels import (
@@ -1868,6 +1870,24 @@ class MainWindow(QMainWindow):
                 "A test run is active - stop it before loading "
                 "another project.")
             return
+        # M39: validate the file BEFORE the previous project is closed -
+        # a blocking issue stops the load (the current project stays
+        # usable) and the error list states which section to fix
+        try:
+            candidate = project_config.load_config(path)
+        except Exception as exc:      # noqa: BLE001 - report, never crash
+            QMessageBox.critical(self, "Load Failed", str(exc))
+            return
+        issues = validate_project_yaml(candidate)
+        blocking = blocking_issues(issues)
+        if blocking:
+            self._append_event_log(
+                f"Yaml load blocked: {len(blocking)} error(s) in {path}")
+            QMessageBox.critical(self, "YAML Validation Failed",
+                                 format_issues(issues))
+            return
+        for issue in issues:          # warnings only: load proceeds
+            self._append_event_log(issue.as_line())
         self._begin_yaml_load(path)
 
     # ------------------------------------------------- staged yaml load
