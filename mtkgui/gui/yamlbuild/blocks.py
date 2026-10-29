@@ -168,8 +168,11 @@ class BlockConfigDialog(QDialog):
             # M27 P4: the FCT panel demands 1100 px (8-column step
             # editor); give the dialog a width that satisfies it and mark
             # _dlg_enlarged so the DialogCenterer never re-inflates it.
+            # Height 700: the two-column Wi-Fi/BT tabs (2026-10-29)
+            # brought the panel minimum down to ~594 px, so the dialog
+            # now fits a 1440x900 laptop screen and stays user-resizable.
             self.setProperty("_dlg_enlarged", True)
-            fit_dialog(self, 1180, 820)
+            fit_dialog(self, 1180, 700)
         else:
             for spec in self._specs:
                 if spec.hidden:

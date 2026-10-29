@@ -250,8 +250,13 @@ class ConsoleWindow(QDialog):
         self.bg_color = bg_color
         self.console = console
         self.setWindowTitle(f"{label} Console")
-        self.setMinimumSize(1200, 800)
-        enable_dialog_controls(self)
+        # 2026-10-29 audit: a fixed 1200x800 minimum made the window
+        # unshrinkable on 1366x768 laptop screens (bottom and the resize
+        # edges left the screen).  The console only needs the inset; the
+        # initial size still comes from the fit_dialog below.
+        self.setMinimumSize(760, 480)
+        from mtkgui.gui.dialog_sizing import fit_dialog
+        fit_dialog(self, 1200, 800)
 
         layout = QVBoxLayout(self)
 

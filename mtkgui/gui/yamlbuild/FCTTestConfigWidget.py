@@ -1134,14 +1134,28 @@ class FCTTestConfigPanel(QWidget):
         s.setSuffix(" s")
         return s
 
-    def _build_wifi_tab(self) -> QWidget:
+    @staticmethod
+    def _two_column_tab(enable_caption: str, toggled) -> tuple:
+        """A two-column tab body: returns (widget, left_layout,
+        right_layout).  Halves the tab height so the FCT dialog fits
+        the screen (single-column stacking made it taller than the
+        available area - the button row left the screen)."""
         w = QWidget()
-        lay = QVBoxLayout(w)
-        self.wifi_enabled = QCheckBox(
+        cols = QHBoxLayout(w)
+        cols.setContentsMargins(0, 0, 0, 0)
+        lay_l = QVBoxLayout()
+        lay_r = QVBoxLayout()
+        cols.addLayout(lay_l, 1)
+        cols.addLayout(lay_r, 1)
+        enable = QCheckBox(enable_caption)
+        lay_l.addWidget(enable)
+        enable.toggled.connect(toggled)
+        return w, lay_l, lay_r, enable
+
+    def _build_wifi_tab(self) -> QWidget:
+        w, lay, lay_r, self.wifi_enabled = self._two_column_tab(
             "Enable Wi-Fi FCT  (DUT advertises the Wi-Fi endpoint; "
-            "Host PC is the initiator)")
-        lay.addWidget(self.wifi_enabled)
-        self.wifi_enabled.toggled.connect(self._sync_wifi_groups)
+            "Host PC is the initiator)", self._sync_wifi_groups)
 
         # ---- DUT base ------------------------------------------------------
         self.wifi_base = QGroupBox("DUT")
@@ -1206,7 +1220,6 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_scan_timeout = self._tspin(15)
         sc.addRow("Timeout:", self.wifi_scan_timeout)
         lay.addWidget(self.wifi_scan_box)
-
         # ---- 2) connect & ping (Linux only) --------------------------------
         self.wifi_ping_box = QGroupBox("2. Ping test  (Linux only; "
                                       "Host->AP, DUT->AP, DUT->Host)")
@@ -1219,7 +1232,7 @@ class FCTTestConfigPanel(QWidget):
         pg.addRow("Ping count:", self.wifi_ping_count)
         self.wifi_ping_timeout = self._tspin(15)
         pg.addRow("Timeout:", self.wifi_ping_timeout)
-        lay.addWidget(self.wifi_ping_box)
+        lay_r.addWidget(self.wifi_ping_box)
 
         # ---- 3) iperf throughput (Linux only) ------------------------------
         self.wifi_iperf_box = QGroupBox("3. iPerf throughput test  (Linux "
@@ -1245,7 +1258,8 @@ class FCTTestConfigPanel(QWidget):
         ip.addRow("Duration:", self.wifi_iperf_duration)
         self.wifi_iperf_timeout = self._tspin(15)
         ip.addRow("Timeout:", self.wifi_iperf_timeout)
-        lay.addWidget(self.wifi_iperf_box)
+        lay_r.addWidget(self.wifi_iperf_box)
+        lay_r.addStretch(1)
         lay.addStretch(1)
         self._sync_wifi_groups()
         return w
@@ -1274,13 +1288,9 @@ class FCTTestConfigPanel(QWidget):
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
-        w = QWidget()
-        lay = QVBoxLayout(w)
-        self.bt_enabled = QCheckBox(
+        w, lay, lay_r, self.bt_enabled = self._two_column_tab(
             "Enable Bluetooth FCT  (Host PC is the initiator / A2DP "
-            "source; DUT is the sink / advertiser)")
-        lay.addWidget(self.bt_enabled)
-        self.bt_enabled.toggled.connect(self._sync_bt_groups)
+            "source; DUT is the sink / advertiser)", self._sync_bt_groups)
 
         # ---- 1) RSSI / discovery (both DUT kinds) --------------------------
         self.bt_rssi_box = QGroupBox("1. RSSI / discovery test  (Linux + "
@@ -1329,7 +1339,7 @@ class FCTTestConfigPanel(QWidget):
             "Optional L2CAP ping DUT -> host PC (data-transfer proof, "
             "real echo both ways); 0 = off.")
         pr.addRow("L2CAP ping count (0=off):", self.bt_l2ping)
-        lay.addWidget(self.bt_pair_box)
+        lay_r.addWidget(self.bt_pair_box)
 
         # ---- 3) tone / music over A2DP (Linux only) ------------------------
         self.bt_tone_box = QGroupBox("3. Tone / Music over A2DP  (Linux "
@@ -1343,7 +1353,8 @@ class FCTTestConfigPanel(QWidget):
         tn.addRow(self.bt_audio_confirm)
         self.bt_tone_timeout = self._tspin(15)
         tn.addRow("Timeout:", self.bt_tone_timeout)
-        lay.addWidget(self.bt_tone_box)
+        lay_r.addWidget(self.bt_tone_box)
+        lay_r.addStretch(1)
         lay.addStretch(1)
         self._sync_bt_groups()
         return w
