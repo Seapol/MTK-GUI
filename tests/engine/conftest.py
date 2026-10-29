@@ -176,6 +176,13 @@ def scripted_drivers():
             rec.calls.append(("dio", channels, value))
             return None
 
+        def read_dio(self, channels):
+            # M38: scripted fixture DIO read (set rec.read_dio_value
+            # from a test; default 1 -> High)
+            rec.calls.append(("read_dio", channels))
+            return MeasurementResult(getattr(rec, "read_dio_value", 1),
+                                     "")
+
         def reset(self):
             rec.calls.append(("reset", "DAQ973A"))
             return None

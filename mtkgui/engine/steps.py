@@ -210,14 +210,34 @@ def op_step(name: str, params: dict | None = None) -> tuple:
     return ("op", name, "—", "—", "—", "—", dict(params))
 
 
+def fixture_level(value) -> str:
+    """M38: normalize a fixture expectation level -> "High" / "Low" / ""
+    (empty = no expectation, the op is a plain write)."""
+    text = str(value or "").strip().lower()
+    if text in ("h", "high", "1", "on", "true"):
+        return "High"
+    if text in ("l", "low", "0", "off", "false"):
+        return "Low"
+    return ""
+
+
 def op_summary(params: dict | None) -> str:
     """Short parameter summary for the sequence list label."""
     t = (params or {}).get("type")
     if t in ("instruments", "reset"):
         return "+".join((params or {}).get("instruments", []))
     if t == "fixture":
-        return f"{(params or {}).get('signal', '')}=" \
-               f"{(params or {}).get('level', '')}"
+        summary = f"{(params or {}).get('signal', '')}=" \
+                  f"{(params or {}).get('level', '')}"
+        # M38: the expectation lives in op_params and renders in the
+        # cmd / params column (never the Capture column)
+        expect = fixture_level((params or {}).get("expect"))
+        unexpected = fixture_level((params or {}).get("unexpected"))
+        if expect:
+            summary += f" Expect {expect}"
+        if unexpected:
+            summary += f" Unexpected {unexpected}"
+        return summary
     if t == "power" and "voltage" in (params or {}):
         return (f"{params['voltage']:g}V/"
                 f"{params.get('current', 0):g}A")
@@ -239,6 +259,15 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
                  for inst in p.get("instruments", [])] or [f"{verb} OK"])
     if t == "fixture":
         sig, lvl = p.get("signal", "press"), p.get("level", "H")
+        expect = fixture_level(p.get("expect"))
+        unexpected = fixture_level(p.get("unexpected"))
+        if expect or unexpected:
+            parts = [f"read {sig}"]
+            if expect:
+                parts.append(f"expect {expect}")
+            if unexpected:
+                parts.append(f"unexpected {unexpected}")
+            return ["fixture " + ", ".join(parts)]
         return [f"drive {sig}={lvl} -> state verified"]
     if t == "power":
         if "voltage" in p:

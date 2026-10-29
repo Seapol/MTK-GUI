@@ -705,6 +705,9 @@ class TestWorkFlowPage(QWidget):
         # Virtual mode: simulated HW, random fault injection, "Virtual "
         # result prefix (set from MainWindow according to the login mode)
         self.virtual_mode = False
+        # M38: fixture type from the MainWindow login global ("ATE" |
+        # "Manual"); the runner pushes it into the instrument gateway
+        self.fixture_type = "ATE"
         self.fault_cfg = {"test_fail_ratio": 0, "equipment_error_ratio": 0}
         # currently executing row (highlighted + auto-scrolled into view)
         self._active_table = None

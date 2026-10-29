@@ -34,10 +34,10 @@ from .steps import (CONSOLE_KINDS, DIO_OPS, FCT_METHODS, FIXTURE_OPS,
                     INSTRUMENT_OPS, MESSAGE_CONSOLE_KINDS,
                     METHOD_R_GND, METHOD_R_GND_LEGACY,
                     OP_STEPS, console_keyword_fallback, display_text,
-                    fct_kind_from_name, is_impedance_short,
-                    is_r_gnd_method, normalize_ict_method,
-                    normalize_ict_step_name, op_step, op_summary,
-                    steps_template)
+                    fct_kind_from_name, fixture_level,
+                    is_impedance_short, is_r_gnd_method,
+                    normalize_ict_method, normalize_ict_step_name,
+                    op_step, op_summary, steps_template)
 
 __all__ = [
     "CONSOLE_KINDS",
@@ -59,6 +59,7 @@ __all__ = [
     "console_keyword_fallback",
     "display_text",
     "fct_kind_from_name",
+    "fixture_level",
     "generate_rails",
     "is_impedance_short",
     "is_r_gnd_method",

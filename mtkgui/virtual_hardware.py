@@ -470,11 +470,13 @@ class VirtualU2355A:
             f"DAQ: U2355A DIO write {channels} = {pattern} -> written"])
 
     def dio_read(self, fault):
-        """M7: read the DIO bank once (reference levels, no judgement)."""
+        """M38: read the DIO bank once and PRESENT the levels (no
+        judgement - the operator reads the value)."""
         if fault == "Error":
             return Measurement("Error", "—", [
                 "DAQ: U2355A DIO bank: USB transfer error -> Error"])
         lines = ["DAQ: U2355A DIO bank read (24 ch)"]
+        levels = []
         for row in self.control_io:
             net = str(row.get("net") or "")
             dio = str(row.get("dio") or "")
@@ -482,11 +484,13 @@ class VirtualU2355A:
                 continue
             # deterministic simulated level (hashed per net name)
             level = "HIGH" if sum(ord(c) for c in net) % 2 else "LOW"
+            levels.append(f"{dio}={'H' if level == 'HIGH' else 'L'}")
             lines.append(f"Control IO {net}: {dio} = {level}")
         if not self.control_io:
             lines.append("Control IO: no allocated control net (read "
                          "the full bank)")
-        return Measurement("Done", "—", lines)
+        text = "DIO Read = " + (" ".join(levels) if levels else "24 ch")
+        return Measurement("Done", text, [text] + lines)
 
     def measure_counter(self, counter, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0

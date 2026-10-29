@@ -54,7 +54,9 @@ def test_virtual_rack_dio_read_reports_allocated_nets(env):
     env.rack.control_io = ROWS
     m = env.rack.execute_op("U2355A DIO Read", {"type": "dio_read"})
     assert m.verdict == "Done"
-    assert m.text == "—"
+    # M38: the read value is PRESENTED (no pass/fail judgement)
+    assert m.text.startswith("DIO Read = ")
+    assert "DIO01=" in m.text
     for row in ROWS:
         prefix = f"Control IO {row['net']}: {row['dio']} = "
         assert any(line.startswith(prefix) for line in m.lines)

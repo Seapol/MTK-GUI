@@ -330,6 +330,9 @@ class HeadlessEnv:
         self.stages = stages
         self.mode = mode
         self.virtual_mode = mode == "virtual"
+        # M38: fixture type (MainWindow login global); engine tests and
+        # the headless demo default to the ATE fixture
+        self.fixture_type = "ATE"
         cfg = config or {}
         wf = cfg.get("test_workflow") or {}
         # rows: stage 0 = ICT rows, everything else = FCT rows

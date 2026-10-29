@@ -526,9 +526,12 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                               if k != "op"})
             ctx.log(f"standard op: {op_name}")
             verdict = ctx.run_op(op_name, op_params)
-            return FctOutcome(
-                VERDICT_PASS if verdict == "Done" else VERDICT_ERROR,
-                f"{op_name}: {verdict}")
+            if verdict == "Done":
+                return FctOutcome(VERDICT_PASS, f"{op_name}: {verdict}")
+            if verdict == "Fail":
+                # M38: a failed fixture expectation is a test FAIL
+                return FctOutcome(VERDICT_FAIL, f"{op_name}: {verdict}")
+            return FctOutcome(VERDICT_ERROR, f"{op_name}: {verdict}")
         if step.params.get("console_dialog"):
             # Console-domain operator dialog (user direction 2026-10-18):
             # WAIT the expected console message first, THEN ask

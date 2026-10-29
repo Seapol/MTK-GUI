@@ -1688,6 +1688,8 @@ class MainWindow(QMainWindow):
         and fixture-linked operation; a fixed friendly notice pops up
         once per login (non-blocking, manually closable)."""
         manual = self.fixture_type == FIXTURE_MANUAL
+        # M38: the runner reads the fixture type from its environment
+        self.workflow_page.fixture_type = self.fixture_type
         # M14 F2: remembered here, pushed into the lazy Equipment page
         # by _apply_page_permissions
         self._manual_fixture = manual

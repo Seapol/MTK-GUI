@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .steps import (dio_channel_index, dio_name, dio_pattern_value,
-                    op_status_lines)
+                    fixture_level, op_status_lines)
 
 # equipment YAML key -> instrument abbreviation used by the op catalog
 _INSTRUMENT_KEYS = {
@@ -96,10 +96,16 @@ def judge_limits(value: float, lo_s: str, hi_s: str) -> str | None:
 class RealGateway:
     """Real-mode instrument backend backed by mtkgui.drivers (T1)."""
 
-    def __init__(self, equipment: dict | None = None):
+    def __init__(self, equipment: dict | None = None,
+                 fixture_type: str = "ATE"):
         self._equipment = dict(equipment or {})
         self._drivers: dict[str, object] = {}
         self._module = None
+        # M38: fixture type from the MainWindow login global ("ATE" |
+        # "Manual"); a Manual fixture never touches the DAQM907A DIO
+        self._fixture_type = ("Manual"
+                              if str(fixture_type or "").strip().lower()
+                              == "manual" else "ATE")
         # last instrument-fault reason (rail capture; surfaced in the
         # runner's event log / row detail)
         self.last_error = ""
@@ -111,6 +117,18 @@ class RealGateway:
             self._module = None
 
     # ------------------------------------------------------------ state
+    @property
+    def fixture_type(self) -> str:
+        """M38: "ATE" (drive / compare the DAQM907A DIO) or "Manual"
+        (never touch fixture hardware)."""
+        return self._fixture_type
+
+    @fixture_type.setter
+    def fixture_type(self, value) -> None:
+        self._fixture_type = ("Manual"
+                              if str(value or "").strip().lower()
+                              == "manual" else "ATE")
+
     @property
     def available(self) -> bool:
         """True when the T1 driver package is importable."""
@@ -280,21 +298,68 @@ class RealGateway:
                 return GatewayOutcome("Error", lines=lines)
         return GatewayOutcome("Done", lines=lines or ["init OK"])
 
-    def _op_fixture(self, p: dict) -> GatewayOutcome:
-        mod = self._require_module()
-        drv = self._driver("DAQM")
+    def _fixture_channel(self, p: dict) -> str:
+        """Fixture DIO channel from op_params or the equipment section."""
         channel = (p.get("channel")
                    or self._instrument_cfg("fixture").get("Channel"))
         if not channel:
-            raise mod.InstrumentConfigError(
+            raise self._require_module().InstrumentConfigError(
                 "fixture DIO channel not configured "
                 "(op_params.channel or equipment.fixture.fields)")
-        level = p.get("level", "H")
-        drv.write_dio(str(channel), 1 if level == "H" else 0)
+        return str(channel)
+
+    def _op_fixture(self, p: dict) -> GatewayOutcome:
+        """M38: DAQM907A fixture operation.
+
+        Write-style (no expectation) drives the fixture DIO -> Done.
+        Read-style (``expect`` / ``unexpected`` in op_params) reads the
+        DIO level and compares it with the step's cmd / params
+        expectation: match -> Done, mismatch / unexpected present -> Fail.
+        A Manual fixture never touches hardware (-> Done).
+        """
         sig = p.get("signal", "press")
+        expect = fixture_level(p.get("expect"))
+        unexpected = fixture_level(p.get("unexpected"))
+        if self._fixture_type == "Manual":
+            return GatewayOutcome(
+                "Done",
+                lines=[f"fixture {sig}: Manual fixture -> no hardware "
+                       f"action"])
+        if expect or unexpected:
+            return self._read_fixture(p, sig, expect, unexpected)
+        mod = self._require_module()
+        drv = self._driver("DAQM")
+        channel = self._fixture_channel(p)
+        level = p.get("level", "H")
+        drv.write_dio(channel, 1 if level == "H" else 0)
         return GatewayOutcome(
             "Done",
             lines=[f"drive {sig}={level} -> DIO {channel} written"])
+
+    def _read_fixture(self, p: dict, sig: str, expect: str,
+                      unexpected: str) -> GatewayOutcome:
+        """M38: compare the read fixture level with the expectation."""
+        drv = self._driver("DAQM")
+        channel = self._fixture_channel(p)
+        result = drv.read_dio(channel)
+        raw = int(getattr(result, "value", 0) or 0)
+        level = "High" if raw else "Low"
+        lines = [f"fixture {sig}: read DIO {channel} = {level}"]
+        text = ""
+        verdict = "Done"
+        if expect:
+            text = f"Expect {expect}"
+            if level == expect:
+                lines.append(f"Expect {expect} -> matched")
+            else:
+                text = f"Expect {expect} / read {level}"
+                lines.append(f"Expect {expect} but read {level} -> FAIL")
+                verdict = "Fail"
+        if unexpected and level == unexpected:
+            text = f"Unexpected {unexpected} / read {level}"
+            lines.append(f"Unexpected {unexpected} present -> FAIL")
+            verdict = "Fail"
+        return GatewayOutcome(verdict, value=level, text=text, lines=lines)
 
     def _op_dio_out(self, p: dict) -> GatewayOutcome:
         """M7: drive the U2355A DIO bank (digital output)."""
@@ -309,7 +374,8 @@ class RealGateway:
                    f"(0x{value:02X}) -> written"])
 
     def _op_dio_read(self, p: dict) -> GatewayOutcome:
-        """M7: read the U2355A DIO bank once (reference levels only)."""
+        """M38: read the U2355A DIO bank and PRESENT the value (no
+        pass/fail judgement - the operator reads the levels)."""
         rows = list(p.get("control_io") or [])
         channels = ",".join(sorted({
             dio_name(str(row.get("dio"))) for row in rows
@@ -319,6 +385,7 @@ class RealGateway:
         drv = self._driver("DAQ")
         result = drv.dio_read(channels)
         value = int(getattr(result, "value", 0) or 0)
+        levels = []
         lines = []
         for row in rows:
             net = str(row.get("net") or "")
@@ -327,11 +394,16 @@ class RealGateway:
             if not net or not dio or index is None:
                 continue
             level = "HIGH" if (value >> index) & 1 else "LOW"
+            levels.append(f"{dio}={'H' if level == 'HIGH' else 'L'}")
             lines.append(f"Control IO {net}: {dio} = {level}")
         if not lines:
             lines.append("Control IO: no allocated control net (read "
                          "the full bank)")
-        return GatewayOutcome("Done", lines=lines)
+        value_line = f"DIO Read = 0x{value:02X}"
+        if levels:
+            value_line += " / " + " ".join(levels)
+        return GatewayOutcome("Done", value=value, text=value_line,
+                              lines=[value_line] + lines)
 
     def _op_power(self, p: dict) -> GatewayOutcome:
         mod = self._require_module()

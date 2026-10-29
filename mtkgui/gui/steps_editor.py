@@ -41,6 +41,7 @@ from ..engine import (
     METHOD_R_GND,
     OP_STEPS,
     fct_kind_from_name as _fct_kind_from_name,
+    fixture_level as _fixture_level,
     normalize_ict_method,
     op_step as _op_step,
     op_summary as _op_summary,
@@ -683,9 +684,21 @@ class StepsEditorDialog(QDialog):
                 lvl = QComboBox()
                 lvl.addItems(["H", "L"])
                 lvl.setCurrentText(params.get("level", "H"))
+                # M38: expectation lives in the step's cmd / params and
+                # drives the DAQM907A fixture read comparison
+                expect = QComboBox()
+                expect.addItems(["", "High", "Low"])
+                expect.setCurrentText(_fixture_level(params.get("expect")))
+                unexpected = QComboBox()
+                unexpected.addItems(["", "High", "Low"])
+                unexpected.setCurrentText(
+                    _fixture_level(params.get("unexpected")))
                 fields["signal"], fields["level"] = sig, lvl
+                fields["expect"], fields["unexpected"] = expect, unexpected
                 param_form.addRow("Signal:", sig)
                 param_form.addRow("Level:", lvl)
+                param_form.addRow("Expect (read):", expect)
+                param_form.addRow("Unexpected (read):", unexpected)
             elif t == "power":
                 if "voltage" in params or \
                         op_combo.currentText().strip() == "Power On DUT":
@@ -769,6 +782,12 @@ class StepsEditorDialog(QDialog):
             new_params = {"type": "fixture",
                           "signal": fields["signal"].currentText(),
                           "level": fields["level"].currentText()}
+            expect = fields["expect"].currentText()
+            if expect:
+                new_params["expect"] = expect
+            unexpected = fields["unexpected"].currentText()
+            if unexpected:
+                new_params["unexpected"] = unexpected
         elif t == "power":
             new_params = {"type": "power"}
             if "voltage" in fields:

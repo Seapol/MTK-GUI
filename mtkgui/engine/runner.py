@@ -463,6 +463,13 @@ class TestRunner(QObject):
             env._log(f"{tag} op {name}: Done")
             return "Done"
         if gw is not None:
+            # M38: the fixture type (login global) lives on the environment
+            # and is pushed into the gateway for every fixture op
+            try:
+                gw.fixture_type = str(
+                    getattr(env, "fixture_type", "ATE") or "ATE")
+            except Exception:        # pragma: no cover - defensive
+                pass
             out = gw.execute_op(name, params)
         elif virtual:
             out = None
@@ -481,6 +488,13 @@ class TestRunner(QObject):
                 self._last_op_error = " | ".join(
                     out.lines) or "instrument error"
                 return "Error"
+            if getattr(out, "verdict", "Done") == "Fail":
+                # M38: a failed fixture expectation (mismatch / unexpected
+                # level) -> the row is a FAIL with the expectation text
+                self._last_op_error = (getattr(out, "text", "") or
+                                       " | ".join(out.lines) or "FAIL")
+                env._log(f"{tag} op {name}: Fail")
+                return "Fail"
         env._log(f"{tag} op {name}: Done")
         return "Done"
 
@@ -713,7 +727,9 @@ class TestRunner(QObject):
                       if r < len(env.fct_op_params) else None)
             verdict = self._run_op("FCT", name, params, interactive)
             status = op_verdict_status(verdict)
-            self._put("fct", r, status, None, time.monotonic() - t0)
+            self._put("fct", r, status,
+                      None if verdict == "Done" else self._last_op_error,
+                      time.monotonic() - t0)
             return
         verdict = None
         if r in env.fct_sim_fail:
