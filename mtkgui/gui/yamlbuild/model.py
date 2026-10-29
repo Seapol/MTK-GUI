@@ -20,6 +20,7 @@ from datetime import datetime
 
 import yaml
 
+from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.gui.yamlbuild.channel_allocation import UNSET
 from mtkgui.gui.yamlbuild.schema import (
     MODULE_FIELDS,
@@ -33,6 +34,41 @@ from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
     STAGE_BY_KEY, STAGE_KEYS
 
 _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
+
+#: M37: equipment-section keys that carry a configured instrument
+#: (the Equipment page device entries; anything else is host info)
+_INSTRUMENT_DOC_KEYS = ("daq973a", "m908a_1", "m908a_2", "m907a",
+                        "u2355a", "u_ai", "u_ctr", "psu", "psu_detail",
+                        "jlink", "instruments")
+
+
+def available_ops(model, virtual: bool = False) -> set[str] | None:
+    """Standard operations usable with the project's configured
+    resources (M37).
+
+    Args:
+        model:   YamlBuildModel (its ``gpio_allocation`` and
+                 ``_equipment_doc`` are the resource truth).
+        virtual: Virtual mode -> None (no hardware is needed at all).
+
+    Returns:
+        ``None`` = every standard operation is usable, otherwise the
+        set of usable operation names.
+    """
+    if virtual:
+        return None
+    equipment = dict(getattr(model, "_equipment_doc", None) or {})
+    ops = set(OP_STEPS)
+    # DIO operations need the ICT Control IO nets
+    if not list(getattr(model, "gpio_allocation", None) or []):
+        ops.difference_update(DIO_OPS)
+    # instrument Init / Reset need a configured instrument
+    if not any(equipment.get(key) for key in _INSTRUMENT_DOC_KEYS):
+        ops.difference_update(INSTRUMENT_OPS)
+    # fixture operations need a configured fixture
+    if not equipment.get("fixture"):
+        ops.difference_update(FIXTURE_OPS)
+    return ops
 
 
 def _migrate_legacy_modules(modules: dict) -> dict:
@@ -165,6 +201,10 @@ class YamlBuildModel:
         #: last import / export decision list (Event-Log mirror; never
         #: persisted - it is an operation log, not project data)
         self.testplan_sync_report: list = []
+        #: M37: the project file ``equipment`` section exactly as loaded
+        #: (the Equipment page owns it; the step editors read it to
+        #: decide which standard operations are usable)
+        self._equipment_doc: dict = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -505,6 +545,11 @@ class YamlBuildModel:
         plan = section.get("ict_test_plan")
         if isinstance(plan, dict):
             self.ict_test_plan = plan
+        # M37: keep the project-file equipment section (the step
+        # editors derive the usable standard operations from it)
+        equipment = data.get("equipment")
+        self._equipment_doc = (dict(equipment)
+                               if isinstance(equipment, dict) else {})
         self.changed = True
         return errors
 

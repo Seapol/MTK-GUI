@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
+from mtkgui.gui.yamlbuild.model import available_ops
 from mtkgui.gui.yamlbuild.schema import module_title
 from mtkgui.gui.yamlbuild.stages import (
     DISPLAY_CARD_MODULES,
@@ -419,7 +420,8 @@ class BlockFlowWidget(QWidget):
                     net_source: tuple[str, str] | None = None,
                     panel_state: dict | None = None,
                     yaml_model=None,
-                    apply_save_cb=None):
+                    apply_save_cb=None,
+                    virtual: bool = False):
         """Open the dedicated config dialog for one module.
 
         Args:
@@ -438,17 +440,25 @@ class BlockFlowWidget(QWidget):
             yaml_model:       Block 02 ICT Test Plan sync target (M5).
             apply_save_cb:    Block 07 in-place "Apply & Save yaml"
                               callback (M22b).
+            virtual:          M37 - Virtual mode flag; block 07 then
+                              offers every standard operation.
 
         Returns:
             ``(values, dialog)`` where ``values`` is the validated
             parameter dict (None when cancelled) and ``dialog`` is the
             closed BlockConfigDialog (None when cancelled).
         """
+        # M37: the configured resources decide which standard operations
+        # block 07 may offer (None = all usable, e.g. Virtual mode)
+        available = None
+        if not virtual and yaml_model is not None:
+            available = available_ops(yaml_model)
         dialog = BlockConfigDialog(module_key, params, parent,
                                    net_source=net_source,
                                    panel_state=panel_state,
                                    yaml_model=yaml_model,
-                                   apply_save_cb=apply_save_cb)
+                                   apply_save_cb=apply_save_cb,
+                                   available_ops=available)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:

@@ -1019,6 +1019,9 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.tabs.setTabVisible(idx, self._can_yaml_build)
         self._yaml_build_page.set_edit_allowed(self._can_yaml_build)
+        # M37: Virtual mode offers every standard operation in the
+        # sequence editors (no hardware configuration needed)
+        self._yaml_build_page.set_virtual(self.mode == "Virtual")
         self._yaml_build_page.channel_alloc.set_edit_allowed(
             self._can_yaml_build)
         self.act_import_excel.setEnabled(self._can_yaml_build)

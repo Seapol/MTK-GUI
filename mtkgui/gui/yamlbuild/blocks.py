@@ -88,7 +88,8 @@ class BlockConfigDialog(QDialog):
                  net_source: tuple[str, str] | None = None,
                  panel_state: dict | None = None,
                  yaml_model=None,
-                 apply_save_cb=None) -> None:
+                 apply_save_cb=None,
+                 available_ops=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -109,6 +110,9 @@ class BlockConfigDialog(QDialog):
                               project yaml in place, returning an error
                               string (None = saved).  The dialog stays
                               open so the operator can keep editing.
+            available_ops:    M37 - block 07 only: the standard operations
+                              usable with the configured resources
+                              (None = all of them).
         """
         super().__init__(parent)
         self.module_key = module_key
@@ -165,6 +169,7 @@ class BlockConfigDialog(QDialog):
             from mtkgui.gui.yamlbuild.FCTTestConfigWidget import \
                 FCTTestConfigPanel
             self.panel = FCTTestConfigPanel()
+            self.panel.set_available_ops(available_ops)
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
             body_lay.addWidget(self.panel)

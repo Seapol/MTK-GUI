@@ -108,6 +108,13 @@ OP_STEPS: dict[str, dict] = {
         "type": "dio_out", "channels": "DIO01-DIO08", "pattern": "0x00"},
 }
 
+#: M37 resource groups: the operations that need one configuration
+#: source before they may be used (the editors gray the rest out)
+DIO_OPS = ("U2355A DIO Read", "U2355A DIO Write")
+INSTRUMENT_OPS = ("Init Instruments", "Reset Instruments")
+FIXTURE_OPS = ("Fixture Clamp Down", "Fixture Release", "Fixture Lock",
+               "Fixture Unlock", "Fixture E-Stop Healthy")
+
 
 #: trailing channel number of a DIO channel name (``DIO07`` -> 7)
 _DIO_NUM_RE = re.compile(r"(\d+)\s*$")

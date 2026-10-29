@@ -34,7 +34,10 @@ from PySide6.QtWidgets import (
 
 from .dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from ..engine import (
+    DIO_OPS,
     FCT_METHODS,
+    FIXTURE_OPS,
+    INSTRUMENT_OPS,
     METHOD_R_GND,
     OP_STEPS,
     fct_kind_from_name as _fct_kind_from_name,
@@ -49,13 +52,19 @@ class StepsEditorDialog(QDialog):
     test case steps. Works on copies; only writes back on accept."""
 
     def __init__(self, kind, steps, enables, waits, timeouts, parent=None,
-                 kinds=None, op_params=None, embedded=False):
+                 kinds=None, op_params=None, embedded=False,
+                 available_ops=None):
         super().__init__(parent)
         # embedded: the dialog is dropped into a host widget (the block-07
         # FCT panel) that owns its own OK / Cancel buttons - the editor
         # then omits its button box and the fixed window size
         self._embedded = bool(embedded)
         self._kind = kind  # "ict" or "fct"
+        # M37: None = every standard operation is usable; a set = only
+        # the named operations may be added (the rest are grayed out
+        # with a "configure X first" tooltip)
+        self._available_ops = (set(available_ops)
+                               if available_ops is not None else None)
         self._steps = list(steps)
         self._enables = list(enables)
         self._waits = list(waits)
@@ -183,7 +192,38 @@ class StepsEditorDialog(QDialog):
             act.triggered.connect(
                 lambda _checked=False, s=entry[1], m=method, p=params:
                     self._on_add(s, m, p))
+            # M37: an operation whose resource is not configured yet is
+            # grayed out with the "configure X first" tooltip
+            op_name = self._op_name_for_label(entry[0])
+            if op_name is not None and not self._op_usable(op_name):
+                act.setEnabled(False)
+                act.setToolTip(self._op_blocked_tooltip(op_name))
         return menu
+
+    @staticmethod
+    def _op_name_for_label(label: str) -> str | None:
+        """Standard operation name behind an "Operation: <name>" entry
+        (None for Custom / non-operation entries)."""
+        prefix = "Operation: "
+        if not label.startswith(prefix):
+            return None
+        name = label[len(prefix):]
+        return name if name in OP_STEPS else None
+
+    def _op_usable(self, name: str) -> bool:
+        """True when the operation may be added (M37 availability)."""
+        return self._available_ops is None or name in self._available_ops
+
+    @staticmethod
+    def _op_blocked_tooltip(name: str) -> str:
+        """Explain WHICH configuration makes one operation usable."""
+        if name in DIO_OPS:
+            return "Configure Control IO Nets (ICT module) first"
+        if name in INSTRUMENT_OPS:
+            return "Configure instruments (Equipment page) first"
+        if name in FIXTURE_OPS:
+            return "Configure fixture (Equipment page) first"
+        return "Configure the required resource first"
 
     def _populate(self):
         lw = self.list_widget

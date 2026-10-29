@@ -466,6 +466,9 @@ class FCTTestConfigPanel(QWidget):
         self._console_cfg = ConsoleCfg()
         self._guard = False
         self._rf_summary_sigs: set = set()
+        #: M37: standard operations usable with the configured resources
+        #: (None = all of them; the Operation row editor grays the rest)
+        self._available_ops: set[str] | None = None
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
@@ -1299,7 +1302,8 @@ class FCTTestConfigPanel(QWidget):
             [int(cmd.op_wait_ms or 100)],
             [int(cmd.op_timeout_ms or 5000)],
             kinds=["op"],
-            op_params=[dict(cmd.op_params) if cmd.op_params else None])
+            op_params=[dict(cmd.op_params) if cmd.op_params else None],
+            available_ops=self._available_ops)
         if dlg.exec() == QDialog.Accepted:
             steps, enables, waits, timeouts, _kinds, op_params = \
                 dlg.result_data()
@@ -2646,6 +2650,12 @@ class FCTTestConfigPanel(QWidget):
         return cmd
 
     # ------------------------------------------------------- state in/out
+    def set_available_ops(self, available_ops: set[str] | None) -> None:
+        """M37: restrict the Operation row editor to the operations
+        whose resource is configured (None = everything usable)."""
+        self._available_ops = (set(available_ops)
+                               if available_ops is not None else None)
+
     def set_values(self, params: dict) -> None:
         """Restore from the module params (round-trip safe)."""
         self._legacy = {k: v for k, v in (params or {}).items()

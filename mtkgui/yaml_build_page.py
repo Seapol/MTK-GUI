@@ -59,7 +59,7 @@ from mtkgui.gui.progress_dialog import ProgressBridge
 from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
     import_from_excel
-from mtkgui.gui.yamlbuild.model import YamlBuildModel
+from mtkgui.gui.yamlbuild.model import YamlBuildModel, available_ops
 from mtkgui.gui.yamlbuild.publish import (
     archive_copy,
     compare_plans,
@@ -181,6 +181,9 @@ class YamlBuildPage(QWidget):
         """Create the page (model + panes + buttons)."""
         super().__init__(parent)
         self.model = YamlBuildModel()
+        #: M37: Virtual mode flag (MainWindow.set_mode -> here) - the
+        #: step editors then offer every standard operation
+        self._virtual = False
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -500,7 +503,8 @@ class YamlBuildPage(QWidget):
             rail_count=daq_ai_rail_count(
                 self.model.channel_allocation),
             allocation=self.model.channel_allocation,
-            parent=self)
+            parent=self,
+            available_ops=available_ops(self.model, self._virtual))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # the WHOLE editor state travels back (steps + enables +
             # waits + timeouts) - the page writes it verbatim (single
@@ -523,7 +527,9 @@ class YamlBuildPage(QWidget):
             self,
             log_sink=self.task_log.emit,
             progress_sink=self.task_progress.emit,
-            apply_save_cb=self._apply_save_fct_params)
+            apply_save_cb=self._apply_save_fct_params,
+            yaml_model=self.model,
+            virtual=self._virtual)
         if params is None:
             return
         self.model.set_params("fct_build", params)
@@ -702,6 +708,11 @@ class YamlBuildPage(QWidget):
         self.task_log.emit(level, message)
 
     # ------------------------------------------------------- Excel I/O
+    def set_virtual(self, virtual: bool) -> None:
+        """M37: Virtual mode (no hardware) makes every standard
+        operation usable in the step editors."""
+        self._virtual = bool(virtual)
+
     def set_edit_allowed(self, allowed: bool) -> None:
         """Operator accounts cannot edit the YAML config (T5): the
         whole action row (Excel import / export) and the preview

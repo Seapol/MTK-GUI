@@ -466,7 +466,8 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
 
     def __init__(self, net_provider, initial_tests=None, rail_count=0,
                  allocation=None,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None,
+                 available_ops=None) -> None:
         self._net_provider = net_provider
         self._rail_count = int(rail_count)
         self._allocation = allocation
@@ -482,7 +483,8 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
             allocation=self._allocation)
         n = len(steps)
         super().__init__(
-            "ict", steps, [True] * n, [100] * n, [5000] * n, parent)
+            "ict", steps, [True] * n, [100] * n, [5000] * n, parent,
+            available_ops=available_ops)
         self.setWindowTitle("Build ICT Test Work Flow Sequence")
         self.setMinimumSize(640, 460)
         # the step editor offers the nets PER TEST METHOD from the
