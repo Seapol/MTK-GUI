@@ -18,6 +18,9 @@ import yaml  # noqa: E402
 
 from mtkgui.main_window import MainWindow  # noqa: E402
 
+from mtkgui.gui.yamlbuild.publish import plan_filename  # noqa: E402
+from mtkgui import project_config  # noqa: E402
+
 MainWindow.__test__ = False
 
 
@@ -102,3 +105,47 @@ def test_p1_plain_load_normalizes_legacy_rows(window, qapp, tmp_path):
         if page.fct_rows[r] == "Console login")
     assert marker["params"]["wait_pattern"] == "imx93frdm login:"
     assert marker["params"]["send"] == "root"
+
+
+# ------------------------------------------------------------- P3
+def test_p3_plan_version_field_edits_and_validates(window):
+    """The Yaml Build header exposes an editable plan-version field
+    (1.x.y).  A valid value drives the model; an invalid one is
+    rejected (field snaps back, model unchanged)."""
+    yb = window.yaml_build_page
+    edit = yb.plan_version_edit
+    assert edit is not None
+    assert edit.text() == yb.model.plan_version
+
+    edit.setText("1.1.0")
+    yb._on_plan_version_edited()
+    assert yb.model.plan_version == "1.1.0"
+
+    # invalid values are rejected
+    for bad in ("2.0", "abc", "1.2", "1.2.3.4", ""):
+        edit.setText(bad)
+        yb._on_plan_version_edited()
+        assert yb.model.plan_version == "1.1.0", bad
+        assert edit.text() == "1.1.0", bad
+
+
+def test_p3_plan_version_drives_filename_and_revision(window):
+    """The edited plan version lands in the published file name
+    (rev_<version>) and in project.revision on save."""
+    yb = window.yaml_build_page
+    yb.model.set_params("design_input", {
+        "product_id": "29420", "part_number": "MTK12345",
+        "batch": "EVT (Proto-1)"})
+    yb.plan_version_edit.setText("1.2.3")
+    yb._on_plan_version_edited()
+    assert yb.model.plan_version == "1.2.3"
+
+    # project.revision derives from the yaml_build_state.plan_version
+    config = project_config.build_config(
+        window.workflow_page, window.equipment_page,
+        yaml_build_state={"plan_version": yb.model.plan_version})
+    assert config["project"]["revision"] == "1.2.3"
+
+    # the publish file name carries rev_<version>
+    name = plan_filename(yb.model, "draft")
+    assert "rev_1.2.3" in name

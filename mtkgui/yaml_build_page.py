@@ -23,6 +23,7 @@ touched.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -182,6 +184,25 @@ class YamlBuildPage(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
+        # M27 P3: an editable plan-version field in the page header.  It
+        # drives model.plan_version (1.x.y) so the published file name
+        # rev_<version> and project.revision always agree with the field.
+        header = QWidget()
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(0, 0, 0, 0)
+        header_lay.setSpacing(6)
+        header_lay.addWidget(QLabel("Plan version:"))
+        self.plan_version_edit = QLineEdit(self.model.plan_version)
+        self.plan_version_edit.setMaximumWidth(120)
+        self.plan_version_edit.setToolTip(
+            "Plan version used in the Draft/Final file name "
+            "(format 1.x.y, e.g. 1.1.0)")
+        self.plan_version_edit.editingFinished.connect(
+            self._on_plan_version_edited)
+        header_lay.addWidget(self.plan_version_edit)
+        header_lay.addStretch(1)
+        root.addWidget(header, 0)
+
         # the preview pane is created BEFORE the top button row: its
         # Apply button is reparented into that row (item 16; user
         # direction: no Edit mode - the editor is directly editable)
@@ -239,6 +260,11 @@ class YamlBuildPage(QWidget):
     def refresh_all(self) -> None:
         """Repaint both panes from the model (single broadcast point;
         keeps the diagram <-> YAML sync loop-free)."""
+        # M27 P3: keep the header version field in sync with the model
+        # (e.g. after a project load restores a stored plan_version).
+        edit = getattr(self, "plan_version_edit", None)
+        if edit is not None and edit.text() != self.model.plan_version:
+            edit.setText(self.model.plan_version)
         for key in STAGE_KEYS:
             self.block_flow.set_state(key, self.model.is_enabled(key))
             self.block_flow.set_module_mark(
@@ -250,6 +276,21 @@ class YamlBuildPage(QWidget):
         # the embedded Channel Allocation tables mirror the model
         # (parse result + saved configuration, kept configs preserved)
         self.channel_alloc.refresh_from_model()
+
+    def _on_plan_version_edited(self) -> None:
+        """Commit an edited plan version (validated ``1.x.y``).
+
+        An invalid value is rejected: the field snaps back to the model's
+        current version and a warning is logged (model.set_plan_version
+        itself already applies the same dotted-triple rule)."""
+        text = self.plan_version_edit.text().strip()
+        if re.match(r"^\d+\.\d+\.\d+$", text):
+            self.model.set_plan_version(text)
+        else:
+            self.plan_version_edit.setText(self.model.plan_version)
+            self._tlog("WARN", f"Invalid plan version {text!r} ignored "
+                               f"(expected 1.x.y); keeping "
+                               f"{self.model.plan_version}")
 
     def _goto_channel_alloc(self) -> None:
         """Nav card 03: bring the embedded Channel Allocation tables
