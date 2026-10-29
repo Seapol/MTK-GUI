@@ -147,6 +147,11 @@ KIND_OP = "op"                  # standard operation (Init/Reset Instr.,
                                 # op_params; it round-trips through
                                 # fct_sequence_cases_yaml (never
                                 # console.test_commands)
+KIND_WIFI_TEST = "wifi_test"    # Wi-Fi reference row (m30b): a Sequence
+                                # step that expands to one Wi-Fi sub-test
+                                # AT its position (no inline dialog)
+KIND_BT_TEST = "bt_test"        # Bluetooth reference row (m30b): expands
+                                # to one Bluetooth sub-test at its position
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST)
 
@@ -164,13 +169,55 @@ STEP_TYPE_MESSAGE_GOSTOP = "MessageGoStop"
 STEP_TYPE_MESSAGE_OK_WAIT = "MessageOK_to_Console"
 STEP_TYPE_MESSAGE_YESNO_WAIT = "MessageYesNo_to_Console"
 STEP_TYPE_MESSAGE_GOSTOP_WAIT = "MessageGoStop_to_Console"
+#: the six Wi-Fi/BT reference-row labels (m30b): a Sequence step that
+#: expands to the matching sub-test and jumps to its tab for editing.
+STEP_TYPE_WIFI_SCAN = "Wifi_Scan"
+STEP_TYPE_WIFI_PING = "Wifi_Ping"
+STEP_TYPE_WIFI_IPERF = "Wifi_Iperf"
+STEP_TYPE_BT_RSSI = "BT_RSSI"
+STEP_TYPE_BT_PAIR = "BT_Pair"
+STEP_TYPE_BT_TONE = "BT_Tone"
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
                     STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
-                    STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+                    STEP_TYPE_MESSAGE_GOSTOP_WAIT,
+                    STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
+                    STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_RSSI,
+                    STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE)
+
+#: rf_subtest -> Type label per RF reference-row family (m30b)
+_RF_SUBTEST_LABELS = {
+    KIND_WIFI_TEST: {"scan": STEP_TYPE_WIFI_SCAN,
+                     "ping": STEP_TYPE_WIFI_PING,
+                     "iperf": STEP_TYPE_WIFI_IPERF},
+    KIND_BT_TEST: {"rssi": STEP_TYPE_BT_RSSI,
+                   "pair": STEP_TYPE_BT_PAIR,
+                   "tone": STEP_TYPE_BT_TONE},
+}
+
+#: default module title for the six RF reference rows (Step column)
+_RF_SUBTEST_TITLES = {
+    STEP_TYPE_WIFI_SCAN: "Wi-Fi: Scan / RSSI",
+    STEP_TYPE_WIFI_PING: "Wi-Fi: Ping",
+    STEP_TYPE_WIFI_IPERF: "Wi-Fi: iPerf",
+    STEP_TYPE_BT_RSSI: "Bluetooth: RSSI / discovery",
+    STEP_TYPE_BT_PAIR: "Bluetooth: Pair & Connect",
+    STEP_TYPE_BT_TONE: "Bluetooth: Tone / A2DP",
+}
+
+
+def rf_subtest_for_label(label: str) -> tuple:
+    """Reverse lookup: RF Type label -> ``(kind, rf_subtest)``.
+
+    Returns ``("", "")`` for any non-RF label."""
+    for kind, subs in _RF_SUBTEST_LABELS.items():
+        for subtest, lbl in subs.items():
+            if lbl == label:
+                return (kind, subtest)
+    return ("", "")
 
 #: dialog styles of a message row (ConsoleCommand.dialog_style)
 DIALOG_OK = "ok"
@@ -633,6 +680,11 @@ class ConsoleCommand:
                                     # fixture / power / flash / dio_*)
     op_wait_ms: int = 100           # case wait_ms (op rows)
     op_timeout_ms: int = 5000       # case timeout_ms (op rows)
+    rf_subtest: str = ""            # kind == wifi_test|bt_test (m30b):
+                                    # scan|ping|iperf|rssi|pair|tone —
+                                    # the Wi-Fi/BT sub-test this reference
+                                    # row expands to at its sequence
+                                    # position (empty for non-RF rows)
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
@@ -665,7 +717,8 @@ class ConsoleCommand:
              "host_cmd": self.host_cmd,
              "host_cmd_windows": self.host_cmd_windows,
              "capture_expected": self.capture_expected,
-             "capture_unexpected": self.capture_unexpected}
+             "capture_unexpected": self.capture_unexpected,
+             "rf_subtest": self.rf_subtest}
         if self.kind == KIND_OP:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
@@ -739,7 +792,8 @@ class ConsoleCommand:
                 parse_summary=bool(c.get("parse_summary", False)),
                 host_cmd=str(c.get("host_cmd", "")),
                 host_cmd_windows=str(c.get("host_cmd_windows", "")),
-                capture_expected=exp, capture_unexpected=unexp)
+                capture_expected=exp, capture_unexpected=unexp,
+                rf_subtest=str(c.get("rf_subtest", "")))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -809,10 +863,13 @@ class ConsoleCommand:
 # m30 merged-table Type label <-> backing mapping
 # ---------------------------------------------------------------------------
 def step_type_label(cmd: "ConsoleCommand") -> str:
-    """One of the 12 Type labels for a merged FCT test step row."""
+    """One of the 18 Type labels for a merged FCT test step row."""
     kind = str(getattr(cmd, "kind", ""))
     if kind == KIND_OP:
         return STEP_TYPE_OPERATION
+    if kind in (KIND_WIFI_TEST, KIND_BT_TEST):
+        return _RF_SUBTEST_LABELS.get(kind, {}).get(
+            str(getattr(cmd, "rf_subtest", "") or ""), "")
     if kind == KIND_SFTP_PUT:
         return STEP_TYPE_SFTP_PUT
     if kind == KIND_SFTP_GET:
@@ -839,13 +896,18 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
 
 def console_command_for_label(label: str,
                               name: str = "") -> "ConsoleCommand":
-    """The default ConsoleCommand backing one of the 12 Type labels."""
+    """The default ConsoleCommand backing one of the 18 Type labels."""
     if label == STEP_TYPE_OPERATION:
         return ConsoleCommand(kind=KIND_OP, name=name or "New Operation",
                               wait_enabled=False, send_enabled=False,
                               capture_enabled=False, op_kind="op",
                               op_params=None, op_wait_ms=100,
                               op_timeout_ms=5000)
+    if label in _RF_SUBTEST_TITLES:
+        kind, subtest = rf_subtest_for_label(label)
+        return ConsoleCommand(kind=kind, name=name or _RF_SUBTEST_TITLES[label],
+                              rf_subtest=subtest, wait_enabled=False,
+                              send_enabled=False, capture_enabled=False)
     if label == STEP_TYPE_CONSOLE_SSH:
         return ConsoleCommand(kind="send", name=name or "",
                               transport="ssh", wait_enabled=False,
@@ -1365,6 +1427,11 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     steps: list = []
     if not getattr(cmd, "enabled", True):
         return steps                   # disabled row -> no steps
+    # RF reference rows never produce steps through the console path:
+    # they are expanded by build_fct_steps (post_rf reference rows are
+    # invalid and simply vanish here defensively).
+    if getattr(cmd, "kind", "") in (KIND_WIFI_TEST, KIND_BT_TEST):
+        return steps
     # Host CLI rows: the command runs on the TEST PC, not on the DUT
     # (e.g. start/stop a local iperf3 server); PASS = exit code 0
     if cmd.kind == KIND_HOST:
@@ -1515,6 +1582,147 @@ def _serial_deploy_step(c: "ConsoleCfg", channel_key: str) -> "FctStep":
         params={"fct_serial_push": {"files": files}})
 
 
+def _rf_driver_step(cfg: FctTestConfig, channel_key: str) -> "FctStep":
+    """The one-time Wi-Fi/BT driver load (Linux only, editable command)."""
+    return FctStep(
+        name="Load RF drivers",
+        step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+        timeout_s=15.0,
+        params={"fct_console": True,
+                "send": cfg.wifi.driver_load_cmd.strip()})
+
+
+def _bt_piscan_step(channel_key: str) -> "FctStep":
+    """Make the DUT discoverable first (hciconfig piscan, Linux only)."""
+    return FctStep(
+        name="BT discoverable (piscan)",
+        step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+        timeout_s=3.0,
+        params={"fct_console": True,
+                "send": "hciconfig hci0 piscan"})
+
+
+def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
+                        channel_key: str) -> list:
+    """One Wi-Fi sub-test (scan|ping|iperf) -> its list[FctStep].
+
+    Returns [] when the module / sub-test is disabled or the sub-test is
+    Linux-only on a bare-metal DUT."""
+    if not cfg.wifi.enabled:
+        return []
+    w = cfg.wifi
+    if subtest == "scan":
+        if not w.scan_enabled:
+            return []
+        rf = {"mode": "rssi_only", "ssid": w.ap_ssid,
+              "expected_ssid": w.ap_ssid,
+              "rssi_min": int(w.rssi_min),
+              "interface": w.interface}
+        if cfg.dut_type == "linux" and w.scan_via == "dut_console":
+            return [FctStep(
+                name="Wi-Fi Scan / RSSI (DUT console)",
+                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                timeout_s=float(w.scan_timeout),
+                params={"tool_family": "wifi",
+                        "rssi_via": "dut_console", "fct_rf": rf})]
+        return [FctStep(
+            name="Wi-Fi Scan / RSSI",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(w.scan_timeout),
+            params={"tool_family": "wifi", "fct_rf": rf})]
+    if subtest == "ping":
+        if not (w.ping_enabled and cfg.dut_type == "linux"):
+            return []
+        # 3 stages over the shared AP - the runner executes Host->AP,
+        # DUT->AP, DUT->Host as independent verdicts
+        return [FctStep(
+            name="Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host)",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(w.ping_timeout),
+            params={"tool_family": "wifi", "fct_rf": {
+                "mode": "full_stack", "ssid": w.ap_ssid,
+                "expected_ssid": w.ap_ssid,
+                "password": w.ap_password,
+                "ssid_password": w.ap_password,
+                "ap_ip": w.ap_ip,
+                "rssi_min": int(w.rssi_min),
+                "ping_count": int(w.ping_count),
+                "iperf3": False, "any_reply": True,
+                "rf_timeout_s": float(w.ping_timeout)}})]
+    if subtest == "iperf":
+        if not (w.iperf_enabled and cfg.dut_type == "linux"):
+            return []
+        return [FctStep(
+            name=f"Wi-Fi iPerf Throughput ({w.iperf_tool})",
+            step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+            timeout_s=float(w.iperf_timeout),
+            params={"tool_family": "wifi",
+                    "fct_wifi_iperf": {
+                        "tool": w.iperf_tool,
+                        "server_ip": w.iperf_server_ip,
+                        "min_mbps": float(w.iperf_min_mbps),
+                        "duration": int(w.iperf_duration)}})]
+    return []
+
+
+def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
+                      channel_key: str) -> list:
+    """One Bluetooth sub-test (rssi|pair|tone) -> its list[FctStep].
+
+    ``pair`` carries the optional L2CAP data-path proof.  The one-time
+    piscan step is emitted separately by build_fct_steps before the first
+    BT step, preserving the old order."""
+    if not cfg.bluetooth.enabled:
+        return []
+    b = cfg.bluetooth
+    if subtest == "rssi":
+        if not b.rssi_enabled:
+            return []
+        return [FctStep(
+            name="Bluetooth RSSI",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(b.rssi_timeout),
+            params={"tool_family": "bluetooth", "fct_rf": {
+                "mode": "rssi_only",
+                "expected_name": b.expected_name,
+                "rssi_min": int(b.rssi_min),
+                "rf_timeout_s": float(b.rssi_timeout)}})]
+    if subtest == "pair":
+        if not (b.pair_enabled and cfg.dut_type == "linux"):
+            return []
+        steps = [FctStep(
+            name="Bluetooth Pair & Connect",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(b.pair_timeout),
+            params={"tool_family": "bluetooth", "fct_rf": {
+                "mode": "pair_connect",
+                "expected_name": b.expected_name,
+                "rssi_min": int(b.rssi_min),
+                "rf_timeout_s": float(b.pair_timeout)}})]
+        if b.l2ping_count > 0:
+            steps.append(FctStep(
+                name=f"BT L2CAP ping ({b.l2ping_count})",
+                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                timeout_s=float(b.pair_timeout),
+                params={"tool_family": "bluetooth",
+                        "fct_bt_l2ping": {
+                            "count": int(b.l2ping_count)}}))
+        return steps
+    if subtest == "tone":
+        if not (b.tone_enabled and cfg.dut_type == "linux"):
+            return []
+        return [FctStep(
+            name="Bluetooth Tone / Music (A2DP)",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(b.tone_timeout),
+            params={"tool_family": "bluetooth", "fct_rf": {
+                "mode": "a2dp_sink",
+                "expected_name": b.expected_name,
+                "audio_confirm": bool(b.audio_confirm),
+                "rf_timeout_s": float(b.tone_timeout)}})]
+    return []
+
+
 def build_fct_steps(cfg: FctTestConfig,
                     channel_key: str = "ser1") -> list:
     """FctTestConfig -> ordered list[FctStep] for the work flow.
@@ -1525,9 +1733,36 @@ def build_fct_steps(cfg: FctTestConfig,
     * Wi-Fi / Bluetooth: EXTERNAL_TOOL steps carrying the sub-config
       in params (``tool_family`` + ``fct_rf``) — executed by the B5
       runner branch through the B4 rf_adapters.
-    """
+
+    m30b: the merged Sequence table is the single ordered source.  An
+    enabled Wi-Fi/BT sub-test with a ``wifi_test`` / ``bt_test``
+    reference row expands AT that row's position; sub-tests with NO
+    reference row still append after the console body exactly as before
+    (old project files keep identical semantics)."""
     steps: list = []
     c = cfg.console
+    is_linux = cfg.dut_type == "linux"
+    driver_needed = bool(
+        is_linux and (cfg.wifi.enabled or cfg.bluetooth.enabled)
+        and cfg.wifi.driver_load_cmd.strip())
+    expanded: set = set()         # (kind, rf_subtest) reference rows seen
+    rf_prologue_done = False      # RF driver load emitted once
+    bt_prologue_done = False      # piscan emitted once
+
+    def _emit_rf(family: str, sub_steps: list) -> None:
+        """Append RF sub-steps, emitting the one-time driver load (and the
+        BT piscan) before the first RF/BT step."""
+        nonlocal rf_prologue_done, bt_prologue_done
+        if not rf_prologue_done:
+            rf_prologue_done = True
+            if driver_needed:
+                steps.append(_rf_driver_step(cfg, channel_key))
+        if family == "bluetooth" and not bt_prologue_done:
+            bt_prologue_done = True
+            if is_linux:
+                steps.append(_bt_piscan_step(channel_key))
+        steps.extend(sub_steps)
+
     if c.enabled:
         # console steps: Wait->Send->Capture primitives (v2 model).
         # Both DUT kinds use the SAME three-stage flow over serial; a
@@ -1536,6 +1771,19 @@ def build_fct_steps(cfg: FctTestConfig,
         # capture the result). The only console difference is that a
         # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
         for cmd in c.test_commands:
+            kind = str(getattr(cmd, "kind", "") or "")
+            if kind in (KIND_WIFI_TEST, KIND_BT_TEST):
+                subtest = str(getattr(cmd, "rf_subtest", "") or "")
+                family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
+                key = (kind, subtest)
+                if subtest and key not in expanded:
+                    sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
+                                 if family == "wifi" else
+                                 _bt_subtest_steps(cfg, subtest, channel_key))
+                    if sub_steps:
+                        expanded.add(key)
+                        _emit_rf(family, sub_steps)
+                continue
             steps.extend(_console_row_steps(cmd, channel_key,
                                             c.ssh_host, c.ssh_username))
             # Serial asset provisioning right after the login (a fresh
@@ -1543,122 +1791,20 @@ def build_fct_steps(cfg: FctTestConfig,
             if c.serial_deploy and "login" in str(
                     getattr(cmd, "name", "")).lower():
                 steps.append(_serial_deploy_step(c, channel_key))
-    # Linux DUT only: load the Wi-Fi/BT RF drivers once (editable BSP
-    # command; the driver script itself is a BSP deliverable) before any
-    # RF sub-test runs.
-    if cfg.dut_type == "linux" and (cfg.wifi.enabled or cfg.bluetooth.enabled) \
-            and cfg.wifi.driver_load_cmd.strip():
-        steps.append(FctStep(
-            name="Load RF drivers",
-            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-            timeout_s=15.0,
-            params={"fct_console": True,
-                    "send": cfg.wifi.driver_load_cmd.strip()}))
-    if cfg.wifi.enabled:
-        w = cfg.wifi
-        # 1) scan / RSSI (both DUT kinds). A station-mode Linux DUT can
-        #    only report its own RSSI over the console; the default host
-        #    scan discovers the DUT-advertised AP/hotspot.
-        if w.scan_enabled:
-            rf = {"mode": "rssi_only", "ssid": w.ap_ssid,
-                  "expected_ssid": w.ap_ssid,
-                  "rssi_min": int(w.rssi_min),
-                  "interface": w.interface}
-            if cfg.dut_type == "linux" and w.scan_via == "dut_console":
-                steps.append(FctStep(
-                    name="Wi-Fi Scan / RSSI (DUT console)",
-                    step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                    timeout_s=float(w.scan_timeout),
-                    params={"tool_family": "wifi",
-                            "rssi_via": "dut_console", "fct_rf": rf}))
-            else:
-                steps.append(FctStep(
-                    name="Wi-Fi Scan / RSSI",
-                    step_type=STEP_EXTERNAL_TOOL, channel="",
-                    timeout_s=float(w.scan_timeout),
-                    params={"tool_family": "wifi", "fct_rf": rf}))
-        # 2) ping (Linux only): 3 stages over the shared AP - the runner
-        #    executes Host->AP, DUT->AP, DUT->Host as independent verdicts
-        if w.ping_enabled and cfg.dut_type == "linux":
-            steps.append(FctStep(
-                name="Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host)",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
-                timeout_s=float(w.ping_timeout),
-                params={"tool_family": "wifi", "fct_rf": {
-                    "mode": "full_stack", "ssid": w.ap_ssid,
-                    "expected_ssid": w.ap_ssid,
-                    "password": w.ap_password,
-                    "ssid_password": w.ap_password,
-                    "ap_ip": w.ap_ip,
-                    "rssi_min": int(w.rssi_min),
-                    "ping_count": int(w.ping_count),
-                    "iperf3": False, "any_reply": True,
-                    "rf_timeout_s": float(w.ping_timeout)}}))
-        # 3) iperf throughput (Linux only; host server / DUT client).
-        if w.iperf_enabled and cfg.dut_type == "linux":
-            steps.append(FctStep(
-                name=f"Wi-Fi iPerf Throughput ({w.iperf_tool})",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=float(w.iperf_timeout),
-                params={"tool_family": "wifi",
-                        "fct_wifi_iperf": {
-                            "tool": w.iperf_tool,
-                            "server_ip": w.iperf_server_ip,
-                            "min_mbps": float(w.iperf_min_mbps),
-                            "duration": int(w.iperf_duration)}}))
-    if cfg.bluetooth.enabled:
-        b = cfg.bluetooth
-        # make the DUT discoverable FIRST (hciconfig piscan per the
-        # board FCT_SETUP) - Linux console only.
-        if cfg.dut_type == "linux":
-            steps.append(FctStep(
-                name="BT discoverable (piscan)",
-                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                timeout_s=3.0,
-                params={"fct_console": True,
-                        "send": "hciconfig hci0 piscan"}))
-        # 1) RSSI / discovery (both DUT kinds, host-side inquiry)
-        if b.rssi_enabled:
-            steps.append(FctStep(
-                name="Bluetooth RSSI",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
-                timeout_s=float(b.rssi_timeout),
-                params={"tool_family": "bluetooth", "fct_rf": {
-                    "mode": "rssi_only",
-                    "expected_name": b.expected_name,
-                    "rssi_min": int(b.rssi_min),
-                    "rf_timeout_s": float(b.rssi_timeout)}}))
-        # 2) pair & connect (Linux only)
-        if b.pair_enabled and cfg.dut_type == "linux":
-            steps.append(FctStep(
-                name="Bluetooth Pair & Connect",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
-                timeout_s=float(b.pair_timeout),
-                params={"tool_family": "bluetooth", "fct_rf": {
-                    "mode": "pair_connect",
-                    "expected_name": b.expected_name,
-                    "rssi_min": int(b.rssi_min),
-                    "rf_timeout_s": float(b.pair_timeout)}}))
-            # optional L2CAP data-path proof (DUT -> host BT address)
-            if b.l2ping_count > 0:
-                steps.append(FctStep(
-                    name=f"BT L2CAP ping ({b.l2ping_count})",
-                    step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                    timeout_s=float(b.pair_timeout),
-                    params={"tool_family": "bluetooth",
-                            "fct_bt_l2ping": {
-                                "count": int(b.l2ping_count)}}))
-        # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
-        if b.tone_enabled and cfg.dut_type == "linux":
-            steps.append(FctStep(
-                name="Bluetooth Tone / Music (A2DP)",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
-                timeout_s=float(b.tone_timeout),
-                params={"tool_family": "bluetooth", "fct_rf": {
-                    "mode": "a2dp_sink",
-                    "expected_name": b.expected_name,
-                    "audio_confirm": bool(b.audio_confirm),
-                    "rf_timeout_s": float(b.tone_timeout)}}))
+    # Backward-compatible fallback: enabled RF sub-tests with NO reference
+    # row still expand after the console body in the old fixed order.
+    for kind, subtests in ((KIND_WIFI_TEST, ("scan", "ping", "iperf")),
+                           (KIND_BT_TEST, ("rssi", "pair", "tone"))):
+        family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
+        for subtest in subtests:
+            if (kind, subtest) in expanded:
+                continue
+            sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
+                         if family == "wifi" else
+                         _bt_subtest_steps(cfg, subtest, channel_key))
+            if sub_steps:
+                expanded.add((kind, subtest))
+                _emit_rf(family, sub_steps)
     # Post-RF teardown rows ('shutdown now', stopping the host-side
     # iperf3 server, ...) - appended AFTER the Wi-Fi/BT sections so the
     # DUT stays up while any RF sub-test can still run.  Each row is

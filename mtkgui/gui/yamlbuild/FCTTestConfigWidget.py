@@ -37,7 +37,8 @@ from __future__ import annotations
 import copy
 
 import yaml
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -71,6 +72,8 @@ from mtkgui.engine.fct_test_config import (
     KIND_HOST,
     KIND_MESSAGE,
     KIND_OP,
+    KIND_WIFI_TEST,
+    KIND_BT_TEST,
     STEP_TYPE_LABELS,
     STEP_TYPE_OPERATION,
     STEP_TYPE_CONSOLE_SERIAL,
@@ -84,11 +87,18 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_MESSAGE_OK_WAIT,
     STEP_TYPE_MESSAGE_YESNO_WAIT,
     STEP_TYPE_MESSAGE_GOSTOP_WAIT,
+    STEP_TYPE_WIFI_SCAN,
+    STEP_TYPE_WIFI_PING,
+    STEP_TYPE_WIFI_IPERF,
+    STEP_TYPE_BT_RSSI,
+    STEP_TYPE_BT_PAIR,
+    STEP_TYPE_BT_TONE,
     ConsoleCfg,
     ConsoleCommand,
     FctSetupCfg,
     FctTestConfig,
     console_command_for_label,
+    rf_subtest_for_label,
     step_type_label,
 )
 
@@ -146,7 +156,31 @@ _ADD_ROW_NAMES = {
     STEP_TYPE_MESSAGE_OK_WAIT: "MessageOKtoConsole",
     STEP_TYPE_MESSAGE_YESNO_WAIT: "MessageYesNotoConsole",
     STEP_TYPE_MESSAGE_GOSTOP_WAIT: "MessageGoStoptoConsole",
+    STEP_TYPE_WIFI_SCAN: "Wi-Fi: Scan / RSSI",
+    STEP_TYPE_WIFI_PING: "Wi-Fi: Ping",
+    STEP_TYPE_WIFI_IPERF: "Wi-Fi: iPerf",
+    STEP_TYPE_BT_RSSI: "Bluetooth: RSSI / discovery",
+    STEP_TYPE_BT_PAIR: "Bluetooth: Pair & Connect",
+    STEP_TYPE_BT_TONE: "Bluetooth: Tone / A2DP",
 }
+
+#: reference-row Timeout source per (kind, rf_subtest); the summary cell
+#: reads the matching tab widget live (m30b)
+_RF_SUBTEST_TIMEOUT_ATTRS = {
+    ("wifi", "scan"): "wifi_scan_timeout",
+    ("wifi", "ping"): "wifi_ping_timeout",
+    ("wifi", "iperf"): "wifi_iperf_timeout",
+    ("bluetooth", "rssi"): "bt_rssi_timeout",
+    ("bluetooth", "pair"): "bt_pair_timeout",
+    ("bluetooth", "tone"): "bt_tone_timeout",
+}
+
+
+def _fmt_num(value) -> str:
+    """Compact number rendering: 10.0 -> '10', 10.5 -> '10.5'."""
+    if isinstance(value, float) and float(value).is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _serial_ports() -> list:
@@ -346,12 +380,15 @@ class FCTTestConfigPanel(QWidget):
         #: command table are edited; the rest is re-emitted untouched)
         self._console_cfg = ConsoleCfg()
         self._guard = False
+        self._rf_summary_sigs: set = set()
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
         self.tabs.addTab(self._build_console_tab(), "Console")
-        self.tabs.addTab(self._build_wifi_tab(), "Wi-Fi")
-        self.tabs.addTab(self._build_bt_tab(), "Bluetooth")
+        self.wifi_tab = self._build_wifi_tab()
+        self.tabs.addTab(self.wifi_tab, "Wi-Fi")
+        self.bt_tab = self._build_bt_tab()
+        self.tabs.addTab(self.bt_tab, "Bluetooth")
         # Sequence tab (task: single sequence source): the shared step
         # editor adds the standard operations / flash operations / Delay
         # steps that run BEFORE the console / Wi-Fi / Bluetooth body
@@ -403,14 +440,17 @@ class FCTTestConfigPanel(QWidget):
 
     def _sync_add_menu(self) -> None:
         """Bare-metal DUTs hide Console_ssh / SFTP_put / SFTP_get in the
-        Add dropdown (no OS -> no SSH/SFTP); Console_serial, Console_cli
-        and the Message* / Operation rows stay available."""
+        Add dropdown (no OS -> no SSH/SFTP) and the Linux-only RF rows
+        (Wifi_Iperf / BT_Pair / BT_Tone); Console_serial, Console_cli,
+        Wifi_Scan, BT_RSSI and the Message* / Operation rows stay
+        available."""
         if not hasattr(self, "cmd_table"):
             return
         is_linux = self.dut_type.currentText() == "linux"
         actions = getattr(self, "_add_actions", {})
         for label in (STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
-                      STEP_TYPE_SFTP_GET):
+                      STEP_TYPE_SFTP_GET, STEP_TYPE_WIFI_IPERF,
+                      STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE):
             act = actions.get(label)
             if act is not None:
                 act.setVisible(is_linux)
@@ -817,6 +857,14 @@ class FCTTestConfigPanel(QWidget):
                       STEP_TYPE_MESSAGE_YESNO_WAIT,
                       STEP_TYPE_MESSAGE_GOSTOP_WAIT):
             _add_action(label)
+        add_menu.addSection("Wi-Fi tests")
+        _add_action(STEP_TYPE_WIFI_SCAN)
+        _add_action(STEP_TYPE_WIFI_PING)
+        _add_action(STEP_TYPE_WIFI_IPERF)
+        add_menu.addSection("Bluetooth tests")
+        _add_action(STEP_TYPE_BT_RSSI)
+        _add_action(STEP_TYPE_BT_PAIR)
+        _add_action(STEP_TYPE_BT_TONE)
         add.setMenu(add_menu)
         add.clicked.connect(self._add_console_row)
 
@@ -910,6 +958,9 @@ class FCTTestConfigPanel(QWidget):
             return
         cmd = self._row_cmd(row)
         if cmd is None:
+            return
+        if self._is_rf_ref_row(cmd):
+            self._jump_to_rf_tab(cmd)
             return
         if cmd.kind == KIND_OP:
             self._edit_operation_row(row)
@@ -1765,6 +1816,7 @@ class FCTTestConfigPanel(QWidget):
         lay_r.addStretch(1)
         lay.addStretch(1)
         self._sync_wifi_groups()
+        self._connect_rf_summary_signals()
         return w
 
     def _sync_wifi_groups(self) -> None:
@@ -1788,6 +1840,8 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_scan_via.setCurrentText("host")
             self.wifi_scan_via.blockSignals(False)
         self.wifi_scan_via.setEnabled(on and is_linux)
+        if not self._guard:
+            self._refresh_rf_ref_rows()
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
@@ -1860,6 +1914,7 @@ class FCTTestConfigPanel(QWidget):
         lay_r.addStretch(1)
         lay.addStretch(1)
         self._sync_bt_groups()
+        self._connect_rf_summary_signals()
         return w
 
     def _sync_bt_groups(self) -> None:
@@ -1871,6 +1926,142 @@ class FCTTestConfigPanel(QWidget):
         self.bt_rssi_box.setEnabled(on)
         self.bt_pair_box.setEnabled(on and is_linux)
         self.bt_tone_box.setEnabled(on and is_linux)
+        if not self._guard:
+            self._refresh_rf_ref_rows()
+
+    # ------------------------------------------------- RF reference rows
+    def _rf_family(self, cmd: ConsoleCommand) -> tuple:
+        """(family, rf_subtest) for an RF reference row, else ("", "")."""
+        kind = str(getattr(cmd, "kind", "") or "")
+        if kind == KIND_WIFI_TEST:
+            return ("wifi", str(getattr(cmd, "rf_subtest", "") or ""))
+        if kind == KIND_BT_TEST:
+            return ("bluetooth", str(getattr(cmd, "rf_subtest", "") or ""))
+        return ("", "")
+
+    def _is_rf_ref_row(self, cmd: ConsoleCommand) -> bool:
+        return bool(self._rf_family(cmd)[0])
+
+    def _rf_effective_enabled(self, cmd: ConsoleCommand) -> bool:
+        """Mirror the Wi-Fi/BT module + sub-test checkboxes (m30b)."""
+        family, subtest = self._rf_family(cmd)
+        if not family:
+            return True
+        if family == "wifi":
+            if not hasattr(self, "wifi_enabled") or \
+                    not self.wifi_enabled.isChecked():
+                return False
+            box = {"scan": "wifi_scan_box", "ping": "wifi_ping_box",
+                   "iperf": "wifi_iperf_box"}.get(subtest)
+        else:
+            if not hasattr(self, "bt_enabled") or \
+                    not self.bt_enabled.isChecked():
+                return False
+            box = {"rssi": "bt_rssi_box", "pair": "bt_pair_box",
+                   "tone": "bt_tone_box"}.get(subtest)
+        if not box or not hasattr(self, box):
+            return False
+        return bool(getattr(self, box).isChecked())
+
+    def _rf_summary(self, cmd: ConsoleCommand) -> str:
+        """Live cmd/params summary read from the Wi-Fi / Bluetooth tab."""
+        family, subtest = self._rf_family(cmd)
+        if family == "wifi":
+            if subtest == "scan":
+                return (f"SSID={self.wifi_ap_ssid.text().strip()}, "
+                        f"RSSI\u2265{self.wifi_rssi_min.value()} dBm")
+            if subtest == "ping":
+                return (f"ping\u00d7{self.wifi_ping_count.value()}, "
+                        f"{self.wifi_ping_timeout.value()}s")
+            if subtest == "iperf":
+                return (f"{self.wifi_iperf_tool.currentText()} "
+                        f"\u2265{_fmt_num(self.wifi_iperf_min.value())} Mbps, "
+                        f"{self.wifi_iperf_duration.value()}s")
+            return ""
+        if family == "bluetooth":
+            if subtest == "rssi":
+                return (f"DUT BT name={self.bt_name.text().strip()}, "
+                        f"RSSI\u2265{self.bt_rssi_min.value()}")
+            if subtest == "pair":
+                return (f"bt_conn.sh, L2CAP\u00d7{self.bt_l2ping.value()}")
+            if subtest == "tone":
+                return f"tone_1khz_6s.wav, {self.bt_tone_timeout.value()}s"
+            return ""
+        return ""
+
+    def _rf_timeout_text(self, cmd: ConsoleCommand) -> str:
+        """Timeout cell from the matching sub-test timeout spin box."""
+        family, subtest = self._rf_family(cmd)
+        attr = _RF_SUBTEST_TIMEOUT_ATTRS.get((family, subtest))
+        if attr and hasattr(self, attr):
+            return f"{int(getattr(self, attr).value())}s"
+        return "-"
+
+    def _refresh_rf_ref_rows(self) -> None:
+        """Re-render every RF reference row (summary / enabled mirror)."""
+        if self._guard or not hasattr(self, "cmd_table"):
+            return
+        for r in range(self.cmd_table.rowCount()):
+            cmd = self._row_cmd(r)
+            if cmd is not None and self._is_rf_ref_row(cmd):
+                self._render_row_cmd(r, cmd)
+
+    def _connect_rf_summary_signals(self) -> None:
+        """Wire every Wi-Fi / Bluetooth widget that changes an RF summary
+        (or the enabled mirror) to re-render the reference rows live.
+
+        Called at the end of both RF tab builders (each pass sees a
+        partially-constructed tab set); a per-signal set makes the wiring
+        idempotent so no widget fires twice."""
+        def _hook(widget, signal_name):
+            signal = getattr(widget, signal_name, None)
+            if signal is not None and id(signal) not in self._rf_summary_sigs:
+                self._rf_summary_sigs.add(id(signal))
+                signal.connect(self._refresh_rf_ref_rows)
+
+        for name in ("wifi_enabled", "wifi_scan_box", "wifi_ping_box",
+                     "wifi_iperf_box", "bt_enabled", "bt_rssi_box",
+                     "bt_pair_box", "bt_tone_box"):
+            if hasattr(self, name):
+                _hook(getattr(self, name), "toggled")
+        for name in ("wifi_ap_ssid", "bt_name"):
+            if hasattr(self, name):
+                _hook(getattr(self, name), "textChanged")
+        for name in ("wifi_rssi_min", "wifi_ping_count",
+                     "wifi_ping_timeout", "wifi_iperf_min",
+                     "wifi_iperf_duration", "wifi_iperf_timeout",
+                     "bt_rssi_min", "bt_scan_retries", "bt_pair_timeout",
+                     "bt_l2ping", "bt_tone_timeout", "bt_rssi_timeout"):
+            if hasattr(self, name):
+                _hook(getattr(self, name), "valueChanged")
+        if hasattr(self, "wifi_iperf_tool"):
+            _hook(self.wifi_iperf_tool, "currentTextChanged")
+
+    def _jump_to_rf_tab(self, cmd: ConsoleCommand) -> None:
+        """Switch to the Wi-Fi / Bluetooth tab of an RF reference row and
+        briefly highlight the matching module group box (no modal dialog)."""
+        family, subtest = self._rf_family(cmd)
+        if family == "wifi":
+            target_tab = self.wifi_tab
+            target_box = {"scan": self.wifi_scan_box,
+                          "ping": self.wifi_ping_box,
+                          "iperf": self.wifi_iperf_box}.get(subtest)
+        else:
+            target_tab = self.bt_tab
+            target_box = {"rssi": self.bt_rssi_box,
+                          "pair": self.bt_pair_box,
+                          "tone": self.bt_tone_box}.get(subtest)
+        if target_tab is None:
+            return
+        self.tabs.setCurrentWidget(target_tab)
+        if target_box is None:
+            return
+        prev_style = target_box.styleSheet()
+        target_box.setStyleSheet(
+            "QGroupBox { border: 2px solid #f59e0b; "
+            "background: #fff7e6; border-radius: 4px; }")
+        QTimer.singleShot(
+            1200, lambda: target_box.setStyleSheet(prev_style))
 
     # ------------------------------------------------------- helpers
     # ------------------------------------------------- row model (UserRole)
@@ -1916,6 +2107,20 @@ class FCTTestConfigPanel(QWidget):
         self._set_cell(r, _COL_STEP, cmd.name)
         typ = step_type_label(cmd)
         self._set_cell(r, _COL_TYPE, typ, editable=False)
+        if self._is_rf_ref_row(cmd):
+            self._set_cell(r, _COL_WAIT, "\u2014", editable=False)
+            self._set_cell(r, _COL_SEND, "\u2014", editable=False)
+            self._set_cell(r, _COL_CAPTURE, "\u2014", editable=False)
+            self._set_cell(r, _COL_TIMEOUT, self._rf_timeout_text(cmd),
+                           editable=False)
+            self._set_cell(r, _COL_CMD, self._rf_summary(cmd),
+                           editable=False)
+            step_item = self.cmd_table.item(r, _COL_STEP)
+            if step_item is not None:
+                step_item.setForeground(
+                    QColor("#9ca3af") if not self._rf_effective_enabled(cmd)
+                    else QColor("#111827"))
+            return
         if cmd.kind == KIND_OP:
             self._set_cell(r, _COL_WAIT, "", editable=False)
             self._set_cell(r, _COL_SEND, "", editable=False)
@@ -2124,6 +2329,10 @@ class FCTTestConfigPanel(QWidget):
             self._setup_cfg = copy.deepcopy(cfg.setup)
         finally:
             self._guard = False
+        # RF reference rows render from the Wi-Fi / Bluetooth tabs, whose
+        # values were restored while _guard suppressed the live refresh;
+        # render them once now that the widgets hold the YAML values.
+        self._refresh_rf_ref_rows()
 
     def _table_lines(self, table: QTableWidget, width: int) -> list:
         rows = []
