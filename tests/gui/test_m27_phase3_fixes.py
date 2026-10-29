@@ -107,6 +107,20 @@ def test_p1_plain_load_normalizes_legacy_rows(window, qapp, tmp_path):
     assert marker["params"]["send"] == "root"
 
 
+FCT_TEXT = yaml.safe_dump({"fct_test_config": {
+    "dut_type": "linux",
+    "console": {"enabled": True, "port": "/dev/cu.test",
+                "test_commands": [
+                    {"name": "Kernel check", "send": "uname -a",
+                     "timeout": 5},
+                    {"name": "Get fat", "kind": "sftp_get",
+                     "local": "{{dut_report}}/fat.json",
+                     "remote": "/root/fat.json"},
+                ]},
+    "setup": {"power_mode": "none"},
+}}, sort_keys=False)
+
+
 # ------------------------------------------------------------- P3
 def test_p3_plan_version_field_edits_and_validates(window):
     """The Yaml Build header exposes an editable plan-version field
@@ -149,3 +163,25 @@ def test_p3_plan_version_drives_filename_and_revision(window):
     # the publish file name carries rev_<version>
     name = plan_filename(yb.model, "draft")
     assert "rev_1.2.3" in name
+
+
+# ------------------------------------------------------------- P4
+def test_p4_fct_dialog_wide_and_table_columns_fit(qapp):
+    """The block-07 dialog is widened to satisfy the 1100 px panel, and
+    the step table's short columns are Fixed so the Type column stays
+    reachable (content columns Stretch)."""
+    from PySide6.QtWidgets import QHeaderView
+    from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
+
+    dlg = BlockConfigDialog("fct_build", {"fct_test_config_yaml": FCT_TEXT},
+                            apply_save_cb=lambda v: None)
+    # the 1100 px panel minimum propagates into the dialog's size hint
+    assert dlg.minimumSizeHint().width() >= 1100
+    assert dlg.property("_dlg_enlarged") is True
+
+    h = dlg.panel.cmd_table.horizontalHeader()
+    for col in (1, 5, 6, 7):           # Console / Timeout / Retry / Type
+        assert h.sectionResizeMode(col) == QHeaderView.Fixed, col
+    for col in (0, 2, 3, 4):           # Name / WaitFor / SendTo / Capture
+        assert h.sectionResizeMode(col) == QHeaderView.Stretch, col
+    dlg.deleteLater()

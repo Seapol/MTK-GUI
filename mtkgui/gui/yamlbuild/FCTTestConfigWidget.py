@@ -285,12 +285,19 @@ class FCTTestConfigPanel(QWidget):
         self.cmd_table.setHorizontalHeaderLabels(
             ["Name", "Console", "WaitFor", "SendTo",
              "Capture", "Timeout(s)", "Retry", "Type"])
-        self.cmd_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch)
-        self.cmd_table.setColumnWidth(0, 120)  # Name
-        self.cmd_table.setColumnWidth(1, 80)   # Console
-        self.cmd_table.setColumnWidth(5, 70)   # Timeout (capture)
-        self.cmd_table.setColumnWidth(6, 60)   # Retry
+        # M27 P4: narrow-friendly layout - the short columns (Console /
+        # Timeout / Retry / Type) are FIXED so the Type column stays
+        # visible without a horizontal scrollbar, and the four content
+        # columns share the remaining width (Stretch).  The old all-
+        # Stretch mode made every column 1/8 of the width and pushed Type
+        # out of view on scaled displays.
+        header = self.cmd_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        for col, width in ((1, 80), (5, 90), (6, 55), (7, 70)):
+            header.setSectionResizeMode(col, QHeaderView.Fixed)
+            self.cmd_table.setColumnWidth(col, width)
+        for col in (0, 2, 3, 4):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
         self.cmd_table.setMinimumHeight(150)
         lay.addWidget(self.cmd_table, 3)
         self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)

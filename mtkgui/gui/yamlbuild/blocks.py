@@ -165,6 +165,11 @@ class BlockConfigDialog(QDialog):
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
             lay.addWidget(self.panel)
+            # M27 P4: the FCT panel demands 1100 px (8-column step
+            # editor); give the dialog a width that satisfies it and mark
+            # _dlg_enlarged so the DialogCenterer never re-inflates it.
+            self.setProperty("_dlg_enlarged", True)
+            fit_dialog(self, 1180, 820)
         else:
             for spec in self._specs:
                 if spec.hidden:
