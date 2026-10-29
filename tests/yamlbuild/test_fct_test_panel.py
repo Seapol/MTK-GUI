@@ -591,18 +591,33 @@ def _layout_widgets(lay):
     return [lay.itemAt(i).widget() for i in range(lay.count())]
 
 
-def test_wifi_tab_is_two_column(qapp):
-    """m28: the Wi-Fi tab body is a two-column layout - connection /
-    config boxes on the LEFT, the Ping and iPerf sub-test boxes on the
-    RIGHT."""
+def test_wifi_tab_three_column_rows(qapp):
+    """m31: the Wi-Fi tab body is a scrollable three-column grid - the
+    DUT / Hotspot AP / Host PC boxes sit in ONE row (columns 0/1/2) and
+    the Scan / RSSI, Ping and iPerf boxes sit in ONE row (columns
+    0/1/2)."""
+    from PySide6.QtWidgets import QGridLayout, QScrollArea
     panel = FCTTestConfigPanel()
-    left, right = _two_column_layouts(panel, "Wi-Fi")
-    widgets_l, widgets_r = _layout_widgets(left), _layout_widgets(right)
-    # left column: enable checkbox + DUT base + the connection config
-    assert panel.wifi_scan_box in widgets_l or panel.wifi_base in widgets_l
-    # right column: the sub-test boxes
-    assert panel.wifi_ping_box in widgets_r
-    assert panel.wifi_iperf_box in widgets_r
+    assert isinstance(panel.wifi_tab, QScrollArea), \
+        "Wi-Fi tab body must be wrapped in a QScrollArea"
+    grid = panel.wifi_tab.widget().layout()
+    assert isinstance(grid, QGridLayout), \
+        "Wi-Fi tab body must be a QGridLayout"
+
+    def pos(widget):
+        return grid.getItemPosition(grid.indexOf(widget))[:2]
+
+    cfg = [pos(w) for w in (panel.wifi_base, panel.wifi_ap_box,
+                           panel.wifi_host_box)]
+    assert {r for r, _c in cfg} == {1}, "DUT/AP/Host must share row 1"
+    assert [c for _r, c in cfg] == [0, 1, 2], \
+        "DUT/AP/Host must occupy columns 0/1/2"
+
+    tests = [pos(w) for w in (panel.wifi_scan_box, panel.wifi_ping_box,
+                              panel.wifi_iperf_box)]
+    assert {r for r, _c in tests} == {2}, "Scan/Ping/iPerf must share row 2"
+    assert [c for _r, c in tests] == [0, 1, 2], \
+        "Scan/Ping/iPerf must occupy columns 0/1/2"
 
 
 def test_bt_tab_is_two_column(qapp):

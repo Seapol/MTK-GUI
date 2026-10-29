@@ -44,6 +44,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -52,6 +54,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QTableWidget,
@@ -102,6 +105,7 @@ from mtkgui.engine.fct_test_config import (
     step_type_label,
 )
 
+from mtkgui.engine import host_platform
 from mtkgui.engine.steps import op_summary as _op_summary
 
 # Each cmd_table row carries its full ConsoleCommand on the Name cell's
@@ -363,6 +367,38 @@ class _SshTransferWorker(QThread):
                     channel.close()
                 except Exception:             # noqa: BLE001
                     pass
+
+
+class _WifiLinkProbeWorker(QThread):
+    """M31 Host PC <-> AP connection test OFF the UI thread.
+
+    Delegates the actual command execution to
+    ``host_platform.probe_host_ap_link`` (itself built on
+    ``host_platform.run_link_cmd`` - monkeypatchable in tests).  Emits
+    progress(done, total), line(text) per verdict line, then
+    done(ok, summary)."""
+
+    progress = Signal(int, int)
+    line = Signal(str)
+    done = Signal(bool, str)
+
+    def __init__(self, gateway: str, parent=None) -> None:
+        super().__init__(parent)
+        self._gateway = gateway
+
+    def run(self) -> None:
+        try:
+            result = host_platform.probe_host_ap_link(
+                self._gateway,
+                progress=lambda d, t: self.progress.emit(d, t))
+            lines = [str(x) for x in result.get("lines", [])]
+            for text in lines:
+                self.line.emit(text)
+            self.done.emit(bool(result.get("ok")), "\n".join(lines))
+        except Exception as exc:              # noqa: BLE001 - surfaced as
+            self.progress.emit(3, 3)          # the required FAILED verdict
+            self.line.emit(f"Connection FAILED: {exc}")
+            self.done.emit(False, f"Connection FAILED: {exc}")
 
 
 class FCTTestConfigPanel(QWidget):
@@ -1707,9 +1743,24 @@ class FCTTestConfigPanel(QWidget):
         return w, lay_l, lay_r, enable
 
     def _build_wifi_tab(self) -> QWidget:
-        w, lay, lay_r, self.wifi_enabled = self._two_column_tab(
+        """Wi-Fi tab (M31): a scrollable, adaptive three-column body.
+
+        Row 0 = the master enable checkbox (span 3).  Row 1 = the three
+        config group boxes side by side (DUT | Hotspot AP | Host PC).
+        Row 2 = the three test boxes side by side (Scan/RSSI | Ping |
+        iPerf).  Row 3 = the Host PC <-> AP connection test (span 3).
+        The QScrollArea guarantees no control overlap at any window size."""
+        body = QWidget()
+        grid = QGridLayout(body)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+
+        self.wifi_enabled = QCheckBox(
             "Enable Wi-Fi FCT  (DUT advertises the Wi-Fi endpoint; "
-            "Host PC is the initiator)", self._sync_wifi_groups)
+            "Host PC is the initiator)")
+        self.wifi_enabled.toggled.connect(self._sync_wifi_groups)
+        grid.addWidget(self.wifi_enabled, 0, 0, 1, 3)
 
         # ---- DUT base ------------------------------------------------------
         self.wifi_base = QGroupBox("DUT")
@@ -1723,7 +1774,7 @@ class FCTTestConfigPanel(QWidget):
             "load the Wi-Fi/BT drivers; the driver script itself is a "
             "BSP deliverable.")
         base.addRow("Driver load cmd:", self.wifi_driver_cmd)
-        lay.addWidget(self.wifi_base)
+        grid.addWidget(self.wifi_base, 1, 0)
 
         # ---- Hotspot AP (SSID/password the DUT joins) ----------------------
         self.wifi_ap_box = QGroupBox("Hotspot AP  (router / phone hotspot)")
@@ -1741,7 +1792,7 @@ class FCTTestConfigPanel(QWidget):
             "Hotspot AP / gateway IPv4 used by the ping stages "
             "(Host->AP, DUT->AP); empty = auto-detect at run time.")
         ap.addRow("AP IP (gateway):", self.wifi_ap_ip)
-        lay.addWidget(self.wifi_ap_box)
+        grid.addWidget(self.wifi_ap_box, 1, 1)
 
         # ---- Host PC ------------------------------------------------------
         self.wifi_host_box = QGroupBox("Host PC")
@@ -1752,7 +1803,7 @@ class FCTTestConfigPanel(QWidget):
             "Host PC IPv4 used as the ping/SFTP/iperf target ({{host_ip}}). "
             "Empty = auto-detect at run time.")
         hp.addRow("Host IP:", self.wifi_host_ip)
-        lay.addWidget(self.wifi_host_box)
+        grid.addWidget(self.wifi_host_box, 1, 2)
 
         # ---- 1) scan / RSSI (both DUT kinds) --------------------------------
         self.wifi_scan_box = QGroupBox("1. Scan / RSSI test  (Linux + "
@@ -1773,7 +1824,7 @@ class FCTTestConfigPanel(QWidget):
         sc.addRow("RSSI via:", self.wifi_scan_via)
         self.wifi_scan_timeout = self._tspin(15)
         sc.addRow("Timeout:", self.wifi_scan_timeout)
-        lay.addWidget(self.wifi_scan_box)
+        grid.addWidget(self.wifi_scan_box, 2, 0)
         # ---- 2) connect & ping (Linux only) --------------------------------
         self.wifi_ping_box = QGroupBox("2. Ping test  (Linux only; "
                                       "Host->AP, DUT->AP, DUT->Host)")
@@ -1786,7 +1837,7 @@ class FCTTestConfigPanel(QWidget):
         pg.addRow("Ping count:", self.wifi_ping_count)
         self.wifi_ping_timeout = self._tspin(15)
         pg.addRow("Timeout:", self.wifi_ping_timeout)
-        lay_r.addWidget(self.wifi_ping_box)
+        grid.addWidget(self.wifi_ping_box, 2, 1)
 
         # ---- 3) iperf throughput (Linux only) ------------------------------
         self.wifi_iperf_box = QGroupBox("3. iPerf throughput test  (Linux "
@@ -1812,12 +1863,35 @@ class FCTTestConfigPanel(QWidget):
         ip.addRow("Duration:", self.wifi_iperf_duration)
         self.wifi_iperf_timeout = self._tspin(15)
         ip.addRow("Timeout:", self.wifi_iperf_timeout)
-        lay_r.addWidget(self.wifi_iperf_box)
-        lay_r.addStretch(1)
-        lay.addStretch(1)
+        grid.addWidget(self.wifi_iperf_box, 2, 2)
+
+        # ---- Host PC <-> AP connection test (M31) -------------------------
+        self.wifi_conn_box = QGroupBox(
+            "Test Host PC <-> Hotspot AP connection")
+        conn = QVBoxLayout(self.wifi_conn_box)
+        self.wifi_conn_test_btn = QPushButton(
+            "Test Host PC <-> Hotspot AP connection")
+        self.wifi_conn_test_btn.clicked.connect(self._on_wifi_conn_test)
+        self.wifi_conn_status = QLabel("")
+        self.wifi_conn_status.setWordWrap(True)
+        self.wifi_conn_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.wifi_conn_progress = QProgressBar()
+        self.wifi_conn_progress.setRange(0, 100)
+        self.wifi_conn_progress.setValue(0)
+        self.wifi_conn_progress.setVisible(False)
+        conn.addWidget(self.wifi_conn_test_btn)
+        conn.addWidget(self.wifi_conn_status)
+        conn.addWidget(self.wifi_conn_progress)
+        grid.addWidget(self.wifi_conn_box, 3, 0, 1, 3)
+
         self._sync_wifi_groups()
         self._connect_rf_summary_signals()
-        return w
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        return scroll
 
     def _sync_wifi_groups(self) -> None:
         """Enable state = master Wi-Fi switch AND (for Linux-only
@@ -1834,6 +1908,7 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_scan_box.setEnabled(on)
         self.wifi_ping_box.setEnabled(on and is_linux)
         self.wifi_iperf_box.setEnabled(on and is_linux)
+        self.wifi_conn_test_btn.setEnabled(on)
         # dut_console RSSI read needs a Linux shell; bare-metal = host scan
         if not is_linux and self.wifi_scan_via.currentText() != "host":
             self.wifi_scan_via.blockSignals(True)
@@ -1842,6 +1917,43 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_scan_via.setEnabled(on and is_linux)
         if not self._guard:
             self._refresh_rf_ref_rows()
+
+    # -------------------------------------------- wifi connection test (M31)
+    def _on_wifi_conn_test(self) -> None:
+        """M31: show the pre-front progress bar ("Connecting..."), then
+        run the Host PC <-> AP connection probe in a worker thread."""
+        if getattr(self, "_wifi_probe", None) is not None \
+                and self._wifi_probe.isRunning():
+            return
+        gateway = self.wifi_ap_ip.text().strip()
+        self.wifi_conn_progress.setVisible(True)
+        self.wifi_conn_progress.setValue(0)
+        self.wifi_conn_status.setText("Connecting...")
+        self.wifi_conn_status.setStyleSheet("")
+        self.wifi_conn_test_btn.setEnabled(False)
+        self._wifi_probe = _WifiLinkProbeWorker(gateway)
+        self._wifi_probe.progress.connect(self._on_wifi_probe_progress)
+        self._wifi_probe.line.connect(self._on_wifi_probe_line)
+        self._wifi_probe.done.connect(self._on_wifi_probe_done)
+        self._wifi_probe.start()
+
+    def _on_wifi_probe_progress(self, done: int, total: int) -> None:
+        total = max(total, 1)
+        self.wifi_conn_progress.setValue(int(100 * done / total))
+
+    def _on_wifi_probe_line(self, text: str) -> None:
+        current = self.wifi_conn_status.text()
+        if current and current != "Connecting...":
+            self.wifi_conn_status.setText(current + "\n" + text)
+        else:
+            self.wifi_conn_status.setText(text)
+
+    def _on_wifi_probe_done(self, ok: bool, summary: str) -> None:
+        self.wifi_conn_progress.setValue(100)
+        self.wifi_conn_status.setText(summary)
+        self.wifi_conn_status.setStyleSheet(
+            self._SSH_OK_STYLE if ok else self._SSH_ERR_STYLE)
+        self.wifi_conn_test_btn.setEnabled(self.wifi_enabled.isChecked())
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
