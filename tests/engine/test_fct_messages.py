@@ -287,7 +287,8 @@ def test_add_message_yesno_gostop_presets(qapp):
     assert yn.name == "MessageYesNotoConsole"
     assert gs.name == "MessageGoStoptoConsole"
     r = panel.cmd_table.rowCount() - 2
-    assert panel.cmd_table.item(r, 3).text() == "y / n"
+    # M27 P5: the answer chars are labelled so the operator can tell them apart
+    assert panel.cmd_table.item(r, 3).text() == "YES='y' / NO='n'"
     assert panel.cmd_table.item(r, 5).text() == "W:10s S:4s"
 
 

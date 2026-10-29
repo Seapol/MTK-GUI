@@ -185,3 +185,18 @@ def test_p4_fct_dialog_wide_and_table_columns_fit(qapp):
     for col in (0, 2, 3, 4):           # Name / WaitFor / SendTo / Capture
         assert h.sectionResizeMode(col) == QHeaderView.Stretch, col
     dlg.deleteLater()
+
+
+# ------------------------------------------------------------- P5
+def test_p5_gostop_row_labels_answer_chars(qapp):
+    """A Go-Stop / Yes-No dialog row renders the answer payloads with
+    labels so the operator can tell Yes/GO from No/STOP."""
+    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+        FCTTestConfigPanel,
+        DIALOG_GOSTOP,
+    )
+    panel = FCTTestConfigPanel()
+    panel._add_message_row(DIALOG_GOSTOP)
+    row = panel.cmd_table.rowCount() - 1
+    assert panel.cmd_table.item(row, 3).text() == "YES='y' / NO='n'"
+    panel.deleteLater()

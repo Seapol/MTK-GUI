@@ -1386,8 +1386,11 @@ class FCTTestConfigPanel(QWidget):
                                      if cmd.timeout > 0 else "-"),
                                editable=False)
             else:
-                self._set_cell(r, 3, f"{cmd.send_yes} / {cmd.send_no}",
-                               editable=False)
+                # M27 P5: label each answer char so the operator can tell
+                # the Yes/GO reply from the No/STOP reply.
+                self._set_cell(
+                    r, 3, f"YES='{cmd.send_yes}' / NO='{cmd.send_no}'",
+                    editable=False)
                 parts = []
                 if cmd.wait_enabled:
                     parts.append(f"W:{int(cmd.wait_timeout)}s")
