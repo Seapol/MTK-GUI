@@ -271,7 +271,9 @@ class BluetoothAdapter:
         self.rssi_min = int(cfg.get("rssi_min", -70))
         self.scan_s = int(cfg.get("scan_s", 10))
         self.timeout_s = float(cfg.get("timeout_s", 30))
-        self.tone_path = cfg.get("test_tone", "resources/retro_game_tone.wav")
+        self.tone_path = cfg.get(
+            "test_tone", "resources/tones/tone_1khz_6s.wav")
+        self.tone_duration_s = int(cfg.get("tone_duration_s", 6))
         self.cmds = _backend_section(rf_cfg, "bluetooth")
         self._runner = runner
         self._confirm = human_confirm   # callable(question) -> bool
@@ -397,7 +399,8 @@ class BluetoothAdapter:
                     self._run(self.cmds["audio_switch_cmd"],
                               {"name": name})
                     self._run(self.cmds["tone_cmd"],
-                              {"tone": self.tone_path})
+                              {"tone": self.tone_path,
+                               "duration": self.tone_duration_s})
                     heard = self._confirm(
                         f"Do you hear audio from DUT headphone jack? "
                         f"(DUT: {name}, addr: {addr})") \

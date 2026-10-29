@@ -41,7 +41,9 @@ __all__ = [
     "platform_key", "host_lan_ip", "is_lan_ipv4", "wifi_backend_cmds",
     "bt_backend_cmds", "windows_capabilities", "signal_quality",
     "percent_to_rssi_dbm", "wifi_link_probe_cmds", "run_link_cmd",
-    "probe_host_ap_link",
+    "probe_host_ap_link", "host_bt_status_cmd", "host_bt_devices_cmd",
+    "host_bt_scan_cmd", "host_bt_identity", "parse_bt_status",
+    "parse_bt_devices", "format_bt_scan_result",
 ]
 
 
@@ -317,3 +319,222 @@ def probe_host_ap_link(gateway: str, progress=None) -> dict:
         progress(3, 3)
     return {"ok": ok, "rssi": rssi, "pct": pct, "lines": lines,
             "quality": quality, "error": error}
+
+
+# ---------------------------------------------------------------------------
+# M32 Host PC Bluetooth panel: status / connected devices / scan / identity.
+# ---------------------------------------------------------------------------
+_WINDOWS_BT_DEVICES_CMD = (
+    'powershell -NoProfile -Command "Get-PnpDevice -Class Bluetooth | '
+    'Where-Object {$_.Status -eq \'OK\'} | '
+    'Select-Object -ExpandProperty FriendlyName"')
+
+
+def host_bt_status_cmd() -> str:
+    """Host PC BT adapter power status command for THIS platform.
+
+    mac: ``blueutil --raw power`` (``1``/``0``); Windows: the Bluetooth
+    class device count (``> 0`` => the adapter is present/powered)."""
+    key = platform_key()
+    if key == "mac":
+        return "blueutil --raw power"
+    if key == "windows":
+        return ('powershell -NoProfile -Command '
+                '"@(Get-PnpDevice -Class Bluetooth).Count"')
+    raise PlatformBackendMissing(
+        "rf.bluetooth: no built-in Linux host-side Bluetooth CLI")
+
+
+def host_bt_devices_cmd() -> str:
+    """Host PC currently-connected-devices listing command."""
+    key = platform_key()
+    if key == "mac":
+        return "system_profiler SPBluetoothDataType"
+    if key == "windows":
+        return _WINDOWS_BT_DEVICES_CMD
+    raise PlatformBackendMissing(
+        "rf.bluetooth: no built-in Linux host-side Bluetooth CLI")
+
+
+def host_bt_scan_cmd() -> str:
+    """Nearby-device scan command.
+
+    mac runs a true 10 s inquiry (``blueutil --inquiry 10``).  Windows
+    has no surrounding-device scan API, so the button lists the KNOWN /
+    paired Bluetooth devices (immediate, no 10 s wait) - the popup says
+    so explicitly (owner-approved option B, 2026-10-29)."""
+    key = platform_key()
+    if key == "mac":
+        return "blueutil --inquiry 10"
+    if key == "windows":
+        return _WINDOWS_BT_DEVICES_CMD
+    raise PlatformBackendMissing(
+        "rf.bluetooth: no built-in Linux host-side Bluetooth CLI")
+
+
+def host_bt_identity() -> tuple:
+    """Best-effort Host PC Bluetooth identity ``(name, address)``.
+
+    Returns ``("", "")`` when the backend is unavailable - the caller
+    renders the pair-script command WITHOUT fabricated identity values."""
+    import re
+    key = platform_key()
+    if key == "mac":
+        name = (run_link_cmd(
+            "scutil --get ComputerName 2>/dev/null",
+            timeout_s=5) or "").strip().splitlines()
+        name = name[0] if name else ""
+        out = run_link_cmd("system_profiler SPBluetoothDataType",
+                           timeout_s=20)
+        addr = ""
+        m = re.search(r"\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b", out)
+        if m:
+            addr = m.group(0).replace("-", ":")
+        return name, addr
+    if key == "windows":
+        name = (run_link_cmd(
+            'powershell -NoProfile -Command "$env:COMPUTERNAME"',
+            timeout_s=10) or "").strip().splitlines()
+        return (name[0] if name else ""), ""
+    return "", ""
+
+
+def parse_bt_status(text: str) -> str:
+    """Pure ``ON`` / ``OFF`` / ``N/A`` from the status command output.
+
+    Both ``blueutil --raw power`` (``1``/``0``) and the PowerShell count
+    share the ``int > 0`` => ON rule; anything unparseable (missing
+    ``blueutil`` / backend unavailable) is ``N/A``."""
+    t = (text or "").strip()
+    if not t:
+        return "N/A"
+    first = t.splitlines()[0].strip()
+    try:
+        return "ON" if int(first) > 0 else "OFF"
+    except ValueError:
+        low = t.lower()
+        if "powered" not in low and "state" not in low and "on" in low:
+            return "ON"
+        if low.startswith("off") or "off" in low.splitlines()[0].lower():
+            return "OFF"
+    return "N/A"
+
+
+def parse_bt_devices(text: str) -> list:
+    """Pure connected device list from the devices/scan command output.
+
+    Returns ``"Name (aa:bb:cc:dd:ee:ff)"`` strings for mac
+    (``system_profiler`` name + Address lines, and ``blueutil --inquiry``
+    ``address: .., name: ..`` lines).  For Windows ``Get-PnpDevice``
+    output (friendly names only, no MAC) it returns the non-empty lines
+    verbatim as device names."""
+    import re
+    mac_re = re.compile(r"\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
+    text = text or ""
+    if not mac_re.search(text):
+        # Windows friendly-name listing: no addresses at all.
+        return [line.strip() for line in text.splitlines() if line.strip()]
+    out: list = []
+    pending_name: str | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        addr_m = mac_re.search(line)
+        if addr_m:
+            addr = addr_m.group(0).replace("-", ":").lower()
+            if pending_name is None and "name" in line.lower():
+                nm = re.search(r"name:\s*(.+)", line, re.I)
+                pending_name = (nm.group(1).strip() if nm else "")
+            out.append(f"{pending_name} ({addr})".strip()
+                       if pending_name else addr)
+            pending_name = None
+            continue
+        low = line.lower()
+        if line.endswith(":"):
+            name = line.rstrip(":").strip()
+            if name and low[:-1] not in (
+                    "address", "connected", "not connected", "minor type",
+                    "services", "major type", "paired", "configured"):
+                pending_name = name
+    return out
+
+
+def _parse_rssi_map(text: str) -> dict:
+    """``name -> int RSSI`` from ``system_profiler SPBluetoothDataType``.
+
+    Each connected/paired device block carries a ``Name:`` line then an
+    ``RSSI: -57`` line; this maps them for the scan popup."""
+    import re
+    out: dict = {}
+    current: str | None = None
+    for raw in (text or "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        m = re.match(r"RSSI:\s*(-?\d+)", s)
+        if m and current is not None:
+            out[current] = int(m.group(1))
+            current = None
+            continue
+        if s.endswith(":") and re.match(r"^[\w .\-()/]+:$", s):
+            current = s.rstrip(":").strip()
+    return out
+
+
+def _rssi_for_label(label: str, rssi_map: dict):
+    name = (label or "").split(" (")[0].strip()
+    if name and name in rssi_map:
+        return rssi_map[name]
+    for k, v in rssi_map.items():
+        if k and (k in name or name in k):
+            return v
+    return None
+
+
+def format_bt_scan_result(scan_text: str, rssi_text: str,
+                          dut_name: str, is_windows: bool) -> dict:
+    """Render the scan popup: device lines + the DUT-hit conclusion.
+
+    RSSI rules (owner-approved 2026-10-29):
+      * Windows always ``-- dBm (Not supported by Windows 11)`` (never a
+        fake number);
+      * mac shows the real ``system_profiler`` dBm, else ``-- dBm``
+        (device not connected => no RSSI data).
+
+    Returns ``{"lines": [...], "verdict": str}``; ``verdict`` is empty
+    when no DUT name was given."""
+    lines: list = []
+    if is_windows:
+        lines.append("Windows has no surrounding-device scan API; showing "
+                     "paired devices only.")
+    devices = parse_bt_devices(scan_text)
+    rssi_map = {} if is_windows else _parse_rssi_map(rssi_text)
+    if devices:
+        lines.append("Nearby Bluetooth devices:" if not is_windows else
+                     "Known / paired Bluetooth devices:")
+        for dev in devices:
+            if is_windows:
+                rssi_txt = "-- dBm (Not supported by Windows 11)"
+            else:
+                rssi = _rssi_for_label(dev, rssi_map)
+                rssi_txt = f"{rssi} dBm" if rssi is not None else "-- dBm"
+            lines.append(f"  {dev}  RSSI: {rssi_txt}")
+    else:
+        lines.append("No Bluetooth devices found.")
+    verdict = ""
+    if dut_name:
+        found = [d for d in devices if dut_name.lower() in d.lower()]
+        if found:
+            if is_windows:
+                verdict = (f"DUT BT name: {dut_name} 信号已找到, "
+                           f"RSSI: -- dBm (Not supported by Windows 11)")
+            else:
+                rssi = _rssi_for_label(found[0], rssi_map)
+                verdict = (f"DUT BT name: {dut_name} 信号已找到, RSSI: "
+                           f"{rssi} dBm" if rssi is not None else
+                           f"DUT BT name: {dut_name} 信号已找到, RSSI: "
+                           f"-- dBm")
+        else:
+            verdict = f"DUT BT name: {dut_name} 未找到"
+    return {"lines": lines, "verdict": verdict}

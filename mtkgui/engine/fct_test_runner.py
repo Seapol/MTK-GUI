@@ -81,7 +81,7 @@ BT_MAC_CMDS = {
         'SwitchAudioSource -a 2>/dev/null | grep -qi "{{name}}" && '
         '{ SwitchAudioSource -s "{{name}}" && exit 0; }; '
         'sleep 1; done; exit 1'),
-    "tone_cmd": "afplay {{tone}}",
+    "tone_cmd": "afplay -t {{duration}} {{tone}}",
 }
 
 #: host-side (Windows) Wi-Fi command set (m23) - built-in ``netsh wlan``

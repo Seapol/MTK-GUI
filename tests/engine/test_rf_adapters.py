@@ -188,6 +188,8 @@ BT_CFG = {
         "mode": "a2dp_sink",
         "expected_name": "JBL Pulse 5",
         "rssi_min": -70,
+        "test_tone": "resources/test_tone.wav",
+        "tone_duration_s": 6,
         "cmds": {
             "mac": {
                 "scan_cmd": "blueutil --inquiry {{seconds}}",
@@ -331,3 +333,25 @@ def test_bt_inquiry_retries_then_hits():
     out = ad.run_test()
     assert out["verdict"] == "Pass"
     assert sum("inquiry" in c for c in ad._runner.calls) == 2
+
+
+def test_bt_tone_plays_with_duration():
+    """m32: the tone_cmd renders the play duration (-t {{duration}}) from
+    ``tone_duration_s`` and the wav from ``test_tone``."""
+    bt = dict(BT_CFG["bluetooth"], test_tone="resources/test_tone.wav",
+              tone_duration_s=6)
+    bt["cmds"]["mac"]["tone_cmd"] = "afplay -t {{duration}} {{tone}}"
+    script = {
+        "blueutil --inquiry 10": (0, [INQUIRY_HIT]),
+        "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
+        "blueutil --is-connected 40:c1:f6:84:8f:c5": (0, ["1"]),
+        "system_profiler SPBluetoothDataType": (0, ["RSSI: -55"]),
+        "switchaudio-output JBL Pulse 5": (0, []),
+        "afplay -t 6 resources/test_tone.wav": (0, []),
+        "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
+    }
+    ad = BluetoothAdapter({"bluetooth": bt}, StubRunner(script),
+                          human_confirm=lambda q: True)
+    out = ad.run_test()
+    assert out["verdict"] == "Pass"
+    assert "afplay -t 6 resources/test_tone.wav" in ad._runner.calls

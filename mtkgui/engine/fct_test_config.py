@@ -1105,14 +1105,18 @@ class BluetoothCfg:
     scan_retries: int = 3          # extra inquiry rounds if the DUT is missed
     rssi_min: int = -70
     rssi_timeout: float = 15.0
-    # 2) pair & connect (Linux only)
+    # 2) pair & connect (Linux only); optional DUT-side pair script (host
+    # name / addr passed as ARGUMENTS - deploy it with an SFTP put row)
     pair_enabled: bool = False
     pair_timeout: float = 15.0
-    l2ping_count: int = 0           # optional L2CAP data-path proof, 0=off
+    l2ping_count: int = 4           # optional L2CAP data-path proof, 0=off
+    bt_pair_script: str = ""        # DUT script path, e.g. /root/bt_conn.sh
     # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
     tone_enabled: bool = False
     audio_confirm: bool = True
     tone_timeout: float = 15.0
+    test_tone: str = "resources/tones/tone_1khz_6s.wav"
+    tone_duration_s: int = 6
 
     def to_dict(self) -> dict:
         return {
@@ -1126,9 +1130,12 @@ class BluetoothCfg:
             "pair_enabled": self.pair_enabled,
             "pair_timeout": float(self.pair_timeout),
             "l2ping_count": int(self.l2ping_count),
+            "bt_pair_script": self.bt_pair_script,
             "tone_enabled": self.tone_enabled,
             "audio_confirm": self.audio_confirm,
             "tone_timeout": float(self.tone_timeout),
+            "test_tone": self.test_tone,
+            "tone_duration_s": int(self.tone_duration_s),
         }
 
 
@@ -1267,12 +1274,16 @@ class FctTestConfig:
                 "pair_enabled", bmode == "pair_connect")),
             pair_timeout=float(bt.get("pair_timeout",
                                      DEFAULT_RF_TIMEOUT)),
-            l2ping_count=int(bt.get("l2ping_count", 0) or 0),
+            l2ping_count=int(bt.get("l2ping_count", 4) or 0),
+            bt_pair_script=str(bt.get("bt_pair_script", "")),
             tone_enabled=bool(bt.get(
                 "tone_enabled", bmode == "a2dp_sink")),
             audio_confirm=bool(bt.get("audio_confirm", True)),
             tone_timeout=float(bt.get("tone_timeout",
                                      DEFAULT_RF_TIMEOUT)),
+            test_tone=str(bt.get(
+                "test_tone", "resources/tones/tone_1khz_6s.wav")),
+            tone_duration_s=int(bt.get("tone_duration_s", 6)),
         )
         return cls(
             dut_type=str(data.get("dut_type", "linux")),
@@ -1403,7 +1414,7 @@ class FctTestConfig:
                 if b.tone_enabled:
                     errors.append("bare_metal DUT: BT A2DP tone needs a "
                                   "Linux stack - disable it")
-                if b.l2ping_count > 0:
+                if b.pair_enabled and b.l2ping_count > 0:
                     errors.append("bare_metal DUT: L2CAP ping runs on the "
                                   "DUT console - set l2ping_count to 0")
         errors.extend(self.setup.validate())
@@ -1665,6 +1676,16 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
     return []
 
 
+def pair_script_command(script: str, host_name: str, host_addr: str) -> str:
+    """Render the DUT-side pair invocation: ``<script> <name> <addr>``.
+
+    Pure text mapping (no I/O); the host name / addr come from
+    :func:`mtkgui.engine.host_platform.host_bt_identity` at build time so
+    the operator never hard-codes them in the sequence."""
+    parts = [str(script), str(host_name).strip(), str(host_addr).strip()]
+    return " ".join(p for p in parts if p)
+
+
 def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
                       channel_key: str) -> list:
     """One Bluetooth sub-test (rssi|pair|tone) -> its list[FctStep].
@@ -1690,15 +1711,29 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
     if subtest == "pair":
         if not (b.pair_enabled and cfg.dut_type == "linux"):
             return []
-        steps = [FctStep(
-            name="Bluetooth Pair & Connect",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
-            timeout_s=float(b.pair_timeout),
-            params={"tool_family": "bluetooth", "fct_rf": {
-                "mode": "pair_connect",
-                "expected_name": b.expected_name,
-                "rssi_min": int(b.rssi_min),
-                "rf_timeout_s": float(b.pair_timeout)}})]
+        if b.bt_pair_script:
+            # DUT Linux script drives the pair/connect (DUT -> Host); the
+            # Host PC BT name + BD addr are passed as ARGUMENTS. Deploy it
+            # beforehand with an SFTP put row in the sequence.
+            from mtkgui.engine import host_platform
+            host_name, host_addr = host_platform.host_bt_identity()
+            steps = [FctStep(
+                name="Bluetooth Pair & Connect (DUT script)",
+                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+                timeout_s=float(b.pair_timeout),
+                params={"fct_console": True,
+                        "send": pair_script_command(
+                            b.bt_pair_script, host_name, host_addr)})]
+        else:
+            steps = [FctStep(
+                name="Bluetooth Pair & Connect",
+                step_type=STEP_EXTERNAL_TOOL, channel="",
+                timeout_s=float(b.pair_timeout),
+                params={"tool_family": "bluetooth", "fct_rf": {
+                    "mode": "pair_connect",
+                    "expected_name": b.expected_name,
+                    "rssi_min": int(b.rssi_min),
+                    "rf_timeout_s": float(b.pair_timeout)}})]
         if b.l2ping_count > 0:
             steps.append(FctStep(
                 name=f"BT L2CAP ping ({b.l2ping_count})",

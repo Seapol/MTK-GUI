@@ -401,6 +401,48 @@ class _WifiLinkProbeWorker(QThread):
             self.done.emit(False, f"Connection FAILED: {exc}")
 
 
+class _BtScanWorker(QThread):
+    """M32 Host PC Bluetooth scan OFF the UI thread.
+
+    Delegates command execution to ``host_platform.run_link_cmd``
+    (monkeypatchable in tests).  mac: ``blueutil --inquiry 10`` + a
+    ``system_profiler`` pass for RSSI; Windows: ``Get-PnpDevice`` paired
+    list (no 10 s wait).  Emits progress(done, total), result(text) for
+    the device list, verdict(text) for the DUT-hit conclusion, then
+    done()."""
+
+    progress = Signal(int, int)
+    result = Signal(str)
+    verdict = Signal(str)
+    done = Signal()
+
+    def __init__(self, dut_name: str, parent=None) -> None:
+        super().__init__(parent)
+        self._dut_name = dut_name
+
+    def run(self) -> None:
+        try:
+            is_windows = host_platform.platform_key() == "windows"
+            self.progress.emit(1, 2)
+            scan_out = host_platform.run_link_cmd(
+                host_platform.host_bt_scan_cmd(), timeout_s=30)
+            rssi_out = ""
+            if not is_windows:
+                rssi_out = host_platform.run_link_cmd(
+                    host_platform.host_bt_devices_cmd(), timeout_s=20)
+            self.progress.emit(2, 2)
+            info = host_platform.format_bt_scan_result(
+                scan_out, rssi_out, self._dut_name, is_windows)
+            self.result.emit("\n".join(info["lines"]))
+            self.verdict.emit(info["verdict"])
+        except Exception as exc:              # noqa: BLE001 - shown in the
+            self.progress.emit(2, 2)          # popup as the scan failure
+            self.result.emit(f"Scan FAILED: {exc}")
+            self.verdict.emit("")
+        finally:
+            self.done.emit()
+
+
 class FCTTestConfigPanel(QWidget):
     """Block 07 config panel: Console / Wi-Fi / Bluetooth tabs."""
 
@@ -1724,24 +1766,6 @@ class FCTTestConfigPanel(QWidget):
         s.setSuffix(" s")
         return s
 
-    @staticmethod
-    def _two_column_tab(enable_caption: str, toggled) -> tuple:
-        """A two-column tab body: returns (widget, left_layout,
-        right_layout).  Halves the tab height so the FCT dialog fits
-        the screen (single-column stacking made it taller than the
-        available area - the button row left the screen)."""
-        w = QWidget()
-        cols = QHBoxLayout(w)
-        cols.setContentsMargins(0, 0, 0, 0)
-        lay_l = QVBoxLayout()
-        lay_r = QVBoxLayout()
-        cols.addLayout(lay_l, 1)
-        cols.addLayout(lay_r, 1)
-        enable = QCheckBox(enable_caption)
-        lay_l.addWidget(enable)
-        enable.toggled.connect(toggled)
-        return w, lay_l, lay_r, enable
-
     def _build_wifi_tab(self) -> QWidget:
         """Wi-Fi tab (M31): a scrollable, adaptive three-column body.
 
@@ -1957,16 +1981,25 @@ class FCTTestConfigPanel(QWidget):
 
     # ---------------------------------------------------------- bluetooth
     def _build_bt_tab(self) -> QWidget:
-        w, lay, lay_r, self.bt_enabled = self._two_column_tab(
-            "Enable Bluetooth FCT  (Host PC is the initiator / A2DP "
-            "source; DUT is the sink / advertiser)", self._sync_bt_groups)
+        """Bluetooth tab (M32): a scrollable ONE-row three-column body.
 
-        # ---- 1) RSSI / discovery (both DUT kinds) --------------------------
-        self.bt_rssi_box = QGroupBox("1. RSSI / discovery test  (Linux + "
-                                     "Bare-metal/RTOS)")
+        Module 1 = Host PC Bluetooth panel (RSSI/discovery test fields +
+        Host adapter status / connected devices / scan).  Module 2 = Pair
+        & Connect test (DUT -> Host).  Module 3 = Tone / Music over A2DP
+        (not checkable).  The tab is ALWAYS enabled - gating moved to the
+        per-module checkbox (rssi / pair) and the sequence reference rows."""
+        body = QWidget()
+        grid = QGridLayout(body)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+
+        # ---- 1) Host PC Bluetooth (Host -> DUT) ----------------------------
+        self.bt_rssi_box = QGroupBox("1. Host PC Bluetooth (Host -> DUT)")
         self.bt_rssi_box.setCheckable(True)
         self.bt_rssi_box.setChecked(True)
-        rs = QFormLayout(self.bt_rssi_box)
+        m1 = QVBoxLayout(self.bt_rssi_box)
+        rs = QFormLayout()
         self.bt_name = QLineEdit()
         self.bt_name.setPlaceholderText("DUT Bluetooth advertised name")
         rs.addRow("DUT BT name:", self.bt_name)
@@ -1992,10 +2025,42 @@ class FCTTestConfigPanel(QWidget):
         rs.addRow("RSSI min (dBm):", self.bt_rssi_min)
         self.bt_rssi_timeout = self._tspin(15)
         rs.addRow("Timeout:", self.bt_rssi_timeout)
-        lay.addWidget(self.bt_rssi_box)
+        m1.addLayout(rs)
 
-        # ---- 2) pair & connect (Linux only) --------------------------------
-        self.bt_pair_box = QGroupBox("2. Pair & Connect test  (Linux only)")
+        # Host PC adapter status / connected devices (read-only)
+        host_form = QFormLayout()
+        self.bt_host_status = QLabel("N/A")
+        self.bt_host_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        host_form.addRow("Host PC BT status:", self.bt_host_status)
+        self.bt_host_devices = QLabel("\u2014")
+        self.bt_host_devices.setWordWrap(True)
+        self.bt_host_devices.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        host_form.addRow("Connected devices:", self.bt_host_devices)
+        host_hint = QLabel("Disconnect devices in Windows yourself; this "
+                           "list is read-only.")
+        host_hint.setWordWrap(True)
+        host_hint.setStyleSheet("color: #6b7280;")
+        host_form.addRow(host_hint)
+        m1.addLayout(host_form)
+
+        # Scan button + progress
+        self.bt_scan_btn = QPushButton("Scan BT devices")
+        self.bt_scan_btn.clicked.connect(self._on_bt_scan)
+        self.bt_scan_status = QLabel("")
+        self.bt_scan_status.setWordWrap(True)
+        self.bt_scan_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.bt_scan_progress = QProgressBar()
+        self.bt_scan_progress.setRange(0, 100)
+        self.bt_scan_progress.setValue(0)
+        self.bt_scan_progress.setVisible(False)
+        m1.addWidget(self.bt_scan_btn)
+        m1.addWidget(self.bt_scan_status)
+        m1.addWidget(self.bt_scan_progress)
+        m1.addStretch(1)
+        grid.addWidget(self.bt_rssi_box, 0, 0)
+
+        # ---- 2) pair & connect (Linux only, DUT -> Host) -------------------
+        self.bt_pair_box = QGroupBox("2. Pair & Connect test  (DUT -> Host)")
         self.bt_pair_box.setCheckable(True)
         self.bt_pair_box.setChecked(False)
         pr = QFormLayout(self.bt_pair_box)
@@ -2003,43 +2068,127 @@ class FCTTestConfigPanel(QWidget):
         pr.addRow("Timeout:", self.bt_pair_timeout)
         self.bt_l2ping = QSpinBox()
         self.bt_l2ping.setRange(0, 100)
-        self.bt_l2ping.setValue(0)
+        self.bt_l2ping.setValue(4)
         self.bt_l2ping.setToolTip(
             "Optional L2CAP ping DUT -> host PC (data-transfer proof, "
             "real echo both ways); 0 = off.")
         pr.addRow("L2CAP ping count (0=off):", self.bt_l2ping)
-        lay_r.addWidget(self.bt_pair_box)
+        self.bt_pair_script = QLineEdit()
+        self.bt_pair_script.setPlaceholderText("/root/bt_conn.sh")
+        self.bt_pair_script.setToolTip(
+            "DUT Linux script that drives the pair/connect; the Host PC "
+            "BT name and BD addr are passed as ARGUMENTS.")
+        pr.addRow("DUT script path:", self.bt_pair_script)
+        pair_hint = QLabel("Deploy the script Host -> DUT with an SFTP put "
+                           "row earlier in the FCT sequence.")
+        pair_hint.setWordWrap(True)
+        pair_hint.setStyleSheet("color: #6b7280;")
+        pr.addRow(pair_hint)
+        grid.addWidget(self.bt_pair_box, 0, 1)
 
-        # ---- 3) tone / music over A2DP (Linux only) ------------------------
+        # ---- 3) tone / music over A2DP (Linux only, NOT checkable) --------
         self.bt_tone_box = QGroupBox("3. Tone / Music over A2DP  (Linux "
-                                    "only; Host source -> DUT sink)")
-        self.bt_tone_box.setCheckable(True)
-        self.bt_tone_box.setChecked(False)
+                                     "only; Host source -> DUT sink)")
         tn = QFormLayout(self.bt_tone_box)
+        tone_row = QHBoxLayout()
+        self.bt_tone_file = QLineEdit("resources/tones/tone_1khz_6s.wav")
+        self.bt_tone_file.setToolTip(
+            "WAV test tone played over A2DP. The resources/tones/ folder "
+            "accepts user-added wav files.")
+        tone_row.addWidget(self.bt_tone_file, 1)
+        browse_btn = QPushButton("Browse")
+        browse_btn.clicked.connect(self._on_bt_browse)
+        tone_row.addWidget(browse_btn)
+        tn.addRow("WAV file:", tone_row)
+        self.bt_tone_duration = QSpinBox()
+        self.bt_tone_duration.setRange(1, 600)
+        self.bt_tone_duration.setValue(6)
+        self.bt_tone_duration.setSuffix(" s")
+        tn.addRow("Play duration:", self.bt_tone_duration)
+        self.bt_tone_timeout = self._tspin(15)
+        tn.addRow("Timeout:", self.bt_tone_timeout)
         self.bt_audio_confirm = QCheckBox(
             "GUI_CONFIRM: operator confirms the tone is heard on the DUT")
         self.bt_audio_confirm.setChecked(True)
         tn.addRow(self.bt_audio_confirm)
-        self.bt_tone_timeout = self._tspin(15)
-        tn.addRow("Timeout:", self.bt_tone_timeout)
-        lay_r.addWidget(self.bt_tone_box)
-        lay_r.addStretch(1)
-        lay.addStretch(1)
+        tone_hint = QLabel("Add a MessageYesNo row in the FCT sequence step "
+                           "so the operator confirms the DUT heard the tone.")
+        tone_hint.setWordWrap(True)
+        tone_hint.setStyleSheet("color: #6b7280;")
+        tn.addRow(tone_hint)
+        grid.addWidget(self.bt_tone_box, 0, 2)
+
         self._sync_bt_groups()
         self._connect_rf_summary_signals()
-        return w
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        return scroll
 
     def _sync_bt_groups(self) -> None:
         if not hasattr(self, "bt_rssi_box") or not hasattr(
                 self, "dut_type"):
             return
         is_linux = self.dut_type.currentText() == "linux"
-        on = self.bt_enabled.isChecked()
-        self.bt_rssi_box.setEnabled(on)
-        self.bt_pair_box.setEnabled(on and is_linux)
-        self.bt_tone_box.setEnabled(on and is_linux)
+        # The tab is always enabled; only the Linux-only modules gate on
+        # the DUT OS/firmware kind. Module 1 fields stay available.
+        self.bt_rssi_box.setEnabled(True)
+        self.bt_pair_box.setEnabled(is_linux)
+        self.bt_tone_box.setEnabled(is_linux)
         if not self._guard:
             self._refresh_rf_ref_rows()
+
+    def _on_bt_browse(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        import os
+        current = self.bt_tone_file.text().strip()
+        start = os.path.dirname(current) if current else ""
+        if not start or not os.path.isdir(start):
+            start = os.path.join("resources", "tones")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select test tone wav", start, "WAV files (*.wav)")
+        if path:
+            self.bt_tone_file.setText(path)
+
+    def _on_bt_scan(self) -> None:
+        """M32: pre-front progress bar ("Scanning..."), then run the Host
+        PC Bluetooth scan in a worker; the popup lists devices + the DUT
+        hit conclusion once it finishes."""
+        self.bt_scan_progress.setVisible(True)
+        self.bt_scan_progress.setValue(0)
+        self.bt_scan_status.setText("Scanning...")
+        self.bt_scan_btn.setEnabled(False)
+        self._bt_scan_verdict = ""
+        self._bt_scan_worker = _BtScanWorker(self.bt_name.text().strip())
+        self._bt_scan_worker.progress.connect(self._on_bt_scan_progress)
+        self._bt_scan_worker.result.connect(self._on_bt_scan_result)
+        self._bt_scan_worker.verdict.connect(self._on_bt_scan_verdict)
+        self._bt_scan_worker.done.connect(self._on_bt_scan_done)
+        self._bt_scan_worker.start()
+
+    def _on_bt_scan_progress(self, done: int, total: int) -> None:
+        self.bt_scan_progress.setValue(
+            int(100 * done / max(1, total)))
+
+    def _on_bt_scan_result(self, text: str) -> None:
+        self.bt_scan_status.setText(text)
+
+    def _on_bt_scan_verdict(self, text: str) -> None:
+        self._bt_scan_verdict = text
+
+    def _on_bt_scan_done(self) -> None:
+        self.bt_scan_progress.setValue(100)
+        self.bt_scan_btn.setEnabled(True)
+        text = self.bt_scan_status.text()
+        verdict = getattr(self, "_bt_scan_verdict", "")
+        if verdict:
+            text = (text + "\n\n" + verdict).strip()
+        if "Scan FAILED" in text or "devices" in text or verdict:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "BT scan result", text or "No "
+                                    "Bluetooth devices found.")
 
     # ------------------------------------------------- RF reference rows
     def _rf_family(self, cmd: ConsoleCommand) -> tuple:
@@ -2066,11 +2215,11 @@ class FCTTestConfigPanel(QWidget):
             box = {"scan": "wifi_scan_box", "ping": "wifi_ping_box",
                    "iperf": "wifi_iperf_box"}.get(subtest)
         else:
-            if not hasattr(self, "bt_enabled") or \
-                    not self.bt_enabled.isChecked():
-                return False
-            box = {"rssi": "bt_rssi_box", "pair": "bt_pair_box",
-                   "tone": "bt_tone_box"}.get(subtest)
+            # BT tab is always enabled (no master switch); rssi / pair
+            # keep their checkboxes, tone has no off switch.
+            if subtest == "tone":
+                return True
+            box = {"rssi": "bt_rssi_box", "pair": "bt_pair_box"}.get(subtest)
         if not box or not hasattr(self, box):
             return False
         return bool(getattr(self, box).isChecked())
@@ -2095,9 +2244,14 @@ class FCTTestConfigPanel(QWidget):
                 return (f"DUT BT name={self.bt_name.text().strip()}, "
                         f"RSSI\u2265{self.bt_rssi_min.value()}")
             if subtest == "pair":
-                return (f"bt_conn.sh, L2CAP\u00d7{self.bt_l2ping.value()}")
+                script = self.bt_pair_script.text().strip() or "bt_conn.sh"
+                return (f"{script}, L2CAP\u00d7{self.bt_l2ping.value()}")
             if subtest == "tone":
-                return f"tone_1khz_6s.wav, {self.bt_tone_timeout.value()}s"
+                import os
+                tone = self.bt_tone_file.text().strip() or \
+                    "resources/tones/tone_1khz_6s.wav"
+                return (f"{os.path.basename(tone)}, "
+                        f"{self.bt_tone_duration.value()}s")
             return ""
         return ""
 
@@ -2132,18 +2286,18 @@ class FCTTestConfigPanel(QWidget):
                 signal.connect(self._refresh_rf_ref_rows)
 
         for name in ("wifi_enabled", "wifi_scan_box", "wifi_ping_box",
-                     "wifi_iperf_box", "bt_enabled", "bt_rssi_box",
-                     "bt_pair_box", "bt_tone_box"):
+                     "wifi_iperf_box", "bt_rssi_box", "bt_pair_box"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "toggled")
-        for name in ("wifi_ap_ssid", "bt_name"):
+        for name in ("wifi_ap_ssid", "bt_name", "bt_tone_file"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "textChanged")
         for name in ("wifi_rssi_min", "wifi_ping_count",
                      "wifi_ping_timeout", "wifi_iperf_min",
                      "wifi_iperf_duration", "wifi_iperf_timeout",
                      "bt_rssi_min", "bt_scan_retries", "bt_pair_timeout",
-                     "bt_l2ping", "bt_tone_timeout", "bt_rssi_timeout"):
+                     "bt_l2ping", "bt_tone_timeout", "bt_rssi_timeout",
+                     "bt_tone_duration"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "valueChanged")
         if hasattr(self, "wifi_iperf_tool"):
@@ -2420,19 +2574,28 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_iperf_duration.setValue(w.iperf_duration)
             self.wifi_iperf_timeout.setValue(int(w.iperf_timeout))
             b = cfg.bluetooth
-            self.bt_enabled.setChecked(b.enabled)
-            self.bt_rssi_box.setChecked(b.rssi_enabled)
+            # Legacy ``bluetooth.enabled: false`` meant "no Bluetooth at
+            # all"; there is no master switch any more, so reflect that as
+            # un-checked sub-tests (preserves the old validate() cleanly).
+            bt_node = (data or {}).get("bluetooth") or {}
+            legacy_bt_off = ("enabled" in bt_node
+                             and not bool(bt_node.get("enabled")))
+            self.bt_rssi_box.setChecked(
+                False if legacy_bt_off else b.rssi_enabled)
             self.bt_name.setText(b.expected_name)
             self.bt_expected_addr.setText(b.expected_addr)
             self.bt_scan_retries.setValue(b.scan_retries)
             self.bt_rssi_min.setValue(b.rssi_min)
             self.bt_rssi_timeout.setValue(int(b.rssi_timeout))
-            self.bt_pair_box.setChecked(b.pair_enabled)
+            self.bt_pair_box.setChecked(
+                False if legacy_bt_off else b.pair_enabled)
             self.bt_pair_timeout.setValue(int(b.pair_timeout))
             self.bt_l2ping.setValue(b.l2ping_count)
-            self.bt_tone_box.setChecked(b.tone_enabled)
+            self.bt_pair_script.setText(b.bt_pair_script)
             self.bt_audio_confirm.setChecked(b.audio_confirm)
             self.bt_tone_timeout.setValue(int(b.tone_timeout))
+            self.bt_tone_file.setText(b.test_tone)
+            self.bt_tone_duration.setValue(b.tone_duration_s)
             self._sync_wifi_groups()
             self._sync_bt_groups()
             # setup: there is no editor tab any more - keep the node that
@@ -2497,6 +2660,17 @@ class FCTTestConfigPanel(QWidget):
             else:
                 test_commands.append(cmd)
         cfg.console.test_commands = test_commands
+        # tone has no off switch: its YAML enabled flag is derived from a
+        # bt_test tone reference row (the row decides tone's place in the
+        # sequence). enabled mirrors any active sub-test so legacy YAML
+        # with ``bluetooth.enabled: false`` round-trips without forcing BT
+        # validation onto a config that does not use Bluetooth.
+        tone_ref = any(
+            getattr(c, "kind", "") == KIND_BT_TEST
+            and getattr(c, "rf_subtest", "") == "tone"
+            for c in test_commands)
+        bt_rssi = self.bt_rssi_box.isChecked()
+        bt_pair = self.bt_pair_box.isChecked()
         cfg.wifi = WifiCfg(
             enabled=self.wifi_enabled.isChecked(),
             interface=self.wifi_interface.text().strip(),
@@ -2520,19 +2694,22 @@ class FCTTestConfigPanel(QWidget):
             iperf_timeout=float(self.wifi_iperf_timeout.value()),
         )
         cfg.bluetooth = BluetoothCfg(
-            enabled=self.bt_enabled.isChecked(),
-            rssi_enabled=self.bt_rssi_box.isChecked(),
+            enabled=(bt_rssi or bt_pair or tone_ref),
+            rssi_enabled=bt_rssi,
             expected_name=self.bt_name.text().strip(),
             expected_addr=self.bt_expected_addr.text().strip(),
             scan_retries=self.bt_scan_retries.value(),
             rssi_min=self.bt_rssi_min.value(),
             rssi_timeout=float(self.bt_rssi_timeout.value()),
-            pair_enabled=self.bt_pair_box.isChecked(),
+            pair_enabled=bt_pair,
             pair_timeout=float(self.bt_pair_timeout.value()),
             l2ping_count=self.bt_l2ping.value(),
-            tone_enabled=self.bt_tone_box.isChecked(),
+            bt_pair_script=self.bt_pair_script.text().strip(),
+            tone_enabled=tone_ref,
             audio_confirm=self.bt_audio_confirm.isChecked(),
             tone_timeout=float(self.bt_tone_timeout.value()),
+            test_tone=self.bt_tone_file.text().strip(),
+            tone_duration_s=self.bt_tone_duration.value(),
         )
         # setup: emitted verbatim from what was loaded (no editor tab)
         cfg.setup = copy.deepcopy(self._setup_cfg)

@@ -15,6 +15,7 @@ import yaml
 from mtkgui.engine.fct_test_config import (
     ConsoleCommand,
     FctTestConfig,
+    STEP_TYPE_BT_TONE,
     STEP_TYPE_CONSOLE_CLI,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
@@ -107,11 +108,13 @@ def test_ui_edits_reach_values(qapp):
     panel.wifi_enabled.setChecked(True)
     panel.wifi_ap_ssid.setText("DUT-AP")
     panel.wifi_ping_box.setChecked(True)
-    panel.bt_enabled.setChecked(True)
     panel.bt_name.setText("DUT-BT")
     panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
     panel.bt_scan_retries.setValue(4)
-    panel.bt_tone_box.setChecked(True)
+    panel.bt_tone_file.setText("resources/tones/tone_2khz_6s.wav")
+    panel.bt_tone_duration.setValue(8)
+    panel.bt_pair_script.setText("/root/bt_conn.sh")
+    panel._add_row_for_label(STEP_TYPE_BT_TONE)
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
     cfg = FctTestConfig.from_dict(node["fct_test_config"])
@@ -121,12 +124,14 @@ def test_ui_edits_reach_values(qapp):
     assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.tone_enabled
     assert cfg.bluetooth.expected_addr == "aa:bb:cc:dd:ee:ff"
     assert cfg.bluetooth.scan_retries == 4
+    assert cfg.bluetooth.test_tone == "resources/tones/tone_2khz_6s.wav"
+    assert cfg.bluetooth.tone_duration_s == 8
+    assert cfg.bluetooth.bt_pair_script == "/root/bt_conn.sh"
 
 
 def test_invalid_config_logged_not_lost(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.bt_enabled.setChecked(True)
     panel.bt_name.setText("")                 # required -> invalid
     logs = []
     panel.task_log.connect(lambda lvl, msg: logs.append(msg))
@@ -140,9 +145,8 @@ def test_invalid_config_logged_not_lost(qapp):
 
 def test_dut_type_grey_out_and_hint(qapp):
     panel = FCTTestConfigPanel()
-    # turn the master switches on so sub-test groups are live
+    # Wi-Fi keeps a master switch; the BT tab is always enabled (M32).
     panel.wifi_enabled.setChecked(True)
-    panel.bt_enabled.setChecked(True)
     panel.dut_type.setCurrentText("bare_metal")
     # no Linux shell: driver cmd, Connect&Ping, iPerf, Pair, Tone greyed;
     # the Scan/RSSI discovery tests (both DUT kinds) stay available
@@ -569,28 +573,6 @@ def test_host_cli_row_is_an_action_and_round_trips(qapp):
 
 
 
-# ------------------------------------------------------------------ m28
-# Layout regression tests for ce158e3 ("reflow FCT Wi-Fi/BT tabs to two
-# columns"): a single-column regression pushed the panel minimum height
-# back to ~891 px and pushed the dialog's button row off the screen.
-def _two_column_layouts(panel, tab_text):
-    """Return (left, right) QVBoxLayouts of a _two_column_tab body."""
-    from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
-    idx = next(i for i in range(panel.tabs.count())
-               if panel.tabs.tabText(i) == tab_text)
-    body = panel.tabs.widget(idx)
-    lay = body.layout()
-    assert isinstance(lay, QHBoxLayout), "tab body must be a QHBoxLayout"
-    cols = [lay.itemAt(i).layout() for i in range(lay.count())]
-    cols = [c for c in cols if isinstance(c, QVBoxLayout)]
-    assert len(cols) == 2, "expected exactly a left and a right column"
-    return cols[0], cols[1]
-
-
-def _layout_widgets(lay):
-    return [lay.itemAt(i).widget() for i in range(lay.count())]
-
-
 def test_wifi_tab_three_column_rows(qapp):
     """m31: the Wi-Fi tab body is a scrollable three-column grid - the
     DUT / Hotspot AP / Host PC boxes sit in ONE row (columns 0/1/2) and
@@ -620,15 +602,28 @@ def test_wifi_tab_three_column_rows(qapp):
         "Scan/Ping/iPerf must occupy columns 0/1/2"
 
 
-def test_bt_tab_is_two_column(qapp):
-    """m28: the Bluetooth tab body is a two-column layout - RSSI /
-    discovery on the LEFT, Pair & Connect and Tone/A2DP on the RIGHT."""
+def test_bt_tab_one_row(qapp):
+    """m32: the Bluetooth tab body is a scrollable ONE-row three-column
+    grid - Host PC BT / Pair / Tone boxes sit side by side."""
+    from PySide6.QtWidgets import QGridLayout, QScrollArea
     panel = FCTTestConfigPanel()
-    left, right = _two_column_layouts(panel, "Bluetooth")
-    widgets_l, widgets_r = _layout_widgets(left), _layout_widgets(right)
-    assert panel.bt_rssi_box in widgets_l
-    assert panel.bt_pair_box in widgets_r
-    assert panel.bt_tone_box in widgets_r
+    assert isinstance(panel.bt_tab, QScrollArea), \
+        "Bluetooth tab body must be wrapped in a QScrollArea"
+    grid = panel.bt_tab.widget().layout()
+    assert isinstance(grid, QGridLayout), \
+        "Bluetooth tab body must be a QGridLayout"
+
+    def pos(widget):
+        return grid.getItemPosition(grid.indexOf(widget))[:2]
+
+    boxes = [pos(w) for w in (panel.bt_rssi_box, panel.bt_pair_box,
+                              panel.bt_tone_box)]
+    assert {r for r, _c in boxes} == {0}, "the three modules must share row 0"
+    assert [c for _r, c in boxes] == [0, 1, 2], \
+        "Host/Pair/Tone must occupy columns 0/1/2"
+    # M32: the enable checkbox is gone, tone is NOT checkable
+    assert not hasattr(panel, "bt_enabled")
+    assert not panel.bt_tone_box.isCheckable()
 
 
 def test_fct_panel_minimum_height_is_bounded(qapp):
