@@ -465,6 +465,26 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                       "info", list(collected))
 
 
+def bind_sftp_channel(step: FctStep, ctx: FctContext) -> bool:
+    """Bind an SshFctChannel for an sftp step (M27 P8).
+
+    The step carries its OWN ssh endpoint (``params.ssh_host`` /
+    ``params.ssh_username``); the password comes from the credential
+    layer (``fct_ssh_<host>``), never the YAML.  Returns True when the
+    channel was bound, False when no host is configured (the executor
+    then reports a clean "channel not bound" ERROR).
+    """
+    host = str((step.params or {}).get("ssh_host") or "").strip()
+    if not host:
+        return False
+    from .fct_channels import SshFctChannel
+    ctx.channels[step.channel or "ssh"] = SshFctChannel(
+        host=host,
+        username=str((step.params or {}).get("ssh_username") or "root"),
+        credential_ref=f"fct_ssh_{host}")
+    return True
+
+
 def _open_channel(step: FctStep, ctx: FctContext):
     """Bind the step channel; a host CLI step gets a fresh subprocess
     adapter (registered as __host__)."""

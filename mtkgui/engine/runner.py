@@ -1003,6 +1003,7 @@ class TestRunner(QObject):
             VERDICT_PASS,
             VERDICT_SKIP,
             FctContext,
+            bind_sftp_channel,
             execute_fct_step,
         )
         env = self.env
@@ -1043,7 +1044,21 @@ class TestRunner(QObject):
                          project_base=_project_base(),
                          progress_factory=_progress_factory)
         ch_key = step.channel
-        if ch_key:
+        if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
+            # M27 P8: SFTP rows run over an SSH channel built from the
+            # console's ssh endpoint (carried on the step).  The
+            # credential layer supplies the password - never the YAML.
+            # A connect failure leaves the channel unbound so the
+            # executor reports a clean ERROR (no serial fallback).
+            try:
+                bound = bind_sftp_channel(step, ctx)
+                if not bound:
+                    env._log(
+                        f"FCT {name}: no ssh_host on the sftp step - "
+                        "cannot open an SFTP channel")
+            except Exception as exc:       # noqa: BLE001 - auth/net
+                env._log(f"FCT {name}: ssh channel open failed: {exc}")
+        elif ch_key:
             mc = getattr(env, "multi_console", None)
             worker = (mc.channels.get(ch_key, {}).get("worker")
                       if mc is not None else None)

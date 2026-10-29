@@ -25,6 +25,7 @@ from mtkgui.engine.fct_exec import (
     VERDICT_SKIP,
     FctContext,
     FctStep,
+    bind_sftp_channel,
     execute_fct_step,
     judge_keywords,
     make_virtual_context,
@@ -657,6 +658,61 @@ def test_sftp_get_action_args_may_skip_local_dir_creation(tmp_path):
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
     assert not missing.parent.exists()
+
+
+# ------------------------------------------------------------- M27 P8
+def test_bind_sftp_channel_builds_ssh_channel_from_step_endpoint(monkeypatch):
+    """bind_sftp_channel binds an SshFctChannel (credential layer) under
+    the step's own 'ssh' channel key; without a host it binds nothing."""
+    import mtkgui.engine.fct_channels as fct_channels
+    built = []
+    class _FakeSsh:
+        kind = "ssh"
+        def __init__(self, host, username, credential_ref, **kw):
+            built.append((host, username, credential_ref))
+    monkeypatch.setattr(fct_channels, "SshFctChannel", _FakeSsh)
+
+    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+                   params={"kind": "sftp_get", "ssh_host": "192.168.1.20",
+                           "ssh_username": "root"})
+    ctx = FctContext()
+    assert bind_sftp_channel(step, ctx) is True
+    assert "ssh" in ctx.channels
+    assert built == [("192.168.1.20", "root", "fct_ssh_192.168.1.20")]
+
+    # no host -> not bound
+    step2 = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+                    params={"kind": "sftp_get", "ssh_host": ""})
+    ctx2 = FctContext()
+    assert bind_sftp_channel(step2, ctx2) is False
+    assert "ssh" not in ctx2.channels
+
+
+def test_sftp_get_runs_over_an_ssh_kind_channel(tmp_path):
+    """The sftp executor uses the bound ssh channel's get_file/remove_file
+    (kind == 'ssh'), matching a real SshFctChannel surface."""
+    class _SshKind:
+        kind = "ssh"
+        def __init__(self):
+            self.downloaded = []
+            self.removed = []
+        def get_file(self, remote, local):
+            self.downloaded.append((remote, local))
+        def remove_file(self, remote):
+            self.removed.append(remote)
+
+    chan = _SshKind()
+    ctx = FctContext(channels={"ssh": chan}, station_id="S", user="u",
+                     dut_report=str(tmp_path))
+    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+                   timeout_s=5,
+                   params={"kind": "sftp_get", "action": "sftp_get",
+                           "local": "{{dut_report}}/fat.json",
+                           "remote": "/root/fat.json"})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_PASS
+    assert chan.downloaded == [("/root/fat.json", str(tmp_path / "fat.json"))]
+    assert chan.removed == ["/root/fat.json"]
 
 
 # ------------------------------------------ unified model (2026-10-28)

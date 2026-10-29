@@ -1125,13 +1125,16 @@ class FctTestConfig:
 # ---------------------------------------------------------------------------
 # mapping to B4 FctStep markers (the runner executes THESE)
 # ---------------------------------------------------------------------------
-def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
+def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
+                       ssh_host: str = "", ssh_username: str = "root") -> list:
     """One ConsoleCommand row -> its ordered list[FctStep].
 
     Shared by ``console.test_commands`` (run BEFORE the RF sections)
     and ``console.post_rf_commands`` (run AFTER them).  Host CLI rows
     become EXTERNAL_TOOL steps executed on the HOST PC (see the
-    ``fct_host_cmd`` branch in fct_exec).
+    ``fct_host_cmd`` branch in fct_exec).  SFTP rows carry their own
+    ssh endpoint (``ssh_host`` / ``ssh_username``) and a dedicated ssh
+    channel reference so the runner can bind an SshFctChannel.
     """
     steps: list = []
     if not getattr(cmd, "enabled", True):
@@ -1148,16 +1151,20 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str) -> list:
                 "cmd": cmd.host_cmd,
                 "cmd_windows": cmd.host_cmd_windows}}))
         return steps
-    # SFTP file-transfer rows
+    # SFTP file-transfer rows: bound to an SSH channel (M27 P8), with
+    # the console's ssh endpoint carried on the step (credential layer
+    # supplies the password at run time - never the YAML).
     if cmd.kind in ("sftp_put", "sftp_get"):
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
-            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+            step_type=STEP_MESSAGE_CHECK, channel="ssh",
             timeout_s=float(cmd.send_timeout),
             retries=int(cmd.retries),
             params={"fct_console": True, "kind": cmd.kind,
                     "action": cmd.kind,
-                    "local": cmd.local, "remote": cmd.remote}))
+                    "local": cmd.local, "remote": cmd.remote,
+                    "ssh_host": ssh_host,
+                    "ssh_username": ssh_username or "root"}))
         return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
@@ -1296,7 +1303,8 @@ def build_fct_steps(cfg: FctTestConfig,
         # capture the result). The only console difference is that a
         # bare-metal DUT has no SSH/SFTP transport; RF stays RSSI-only.
         for cmd in c.test_commands:
-            steps.extend(_console_row_steps(cmd, channel_key))
+            steps.extend(_console_row_steps(cmd, channel_key,
+                                            c.ssh_host, c.ssh_username))
             # Serial asset provisioning right after the login (a fresh
             # DUT has no scripts / board-test package; no SSH yet).
             if c.serial_deploy and "login" in str(
@@ -1424,7 +1432,8 @@ def build_fct_steps(cfg: FctTestConfig,
     # tagged params.teardown=True so the runner executes it EVEN on an
     # abort (stop_if_failure) — teardown must never be skipped.
     for cmd in c.post_rf_commands:
-        for step in _console_row_steps(cmd, channel_key):
+        for step in _console_row_steps(cmd, channel_key,
+                                       c.ssh_host, c.ssh_username):
             step.params = dict(step.params or {})
             step.params["teardown"] = True
             steps.append(step)

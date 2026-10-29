@@ -857,6 +857,26 @@ def test_sftp_row_has_no_wait_or_capture():
     assert st.params["local"] == "load_drivers.sh"
 
 
+def test_sftp_step_carries_own_ssh_channel_and_endpoint():
+    """M27 P8: an sftp row is emitted with channel='ssh' plus the
+    console's ssh_host / ssh_username, so the runner binds an SSH
+    channel instead of the serial console."""
+    cfg = frdm_config()
+    cfg.console.ssh_host = "192.168.10.129"
+    cfg.console.ssh_username = "root"
+    sftp = ConsoleCommand(name="Get fat_result.json", kind="sftp_get",
+                          transport="ssh", local="{{dut_report}}/fat.json",
+                          remote="/root/fat_result.json",
+                          wait_enabled=False, send_enabled=True,
+                          capture_enabled=False)
+    cfg.console.test_commands = [sftp]
+    st = build_fct_steps(cfg, channel_key="ser1")[0]
+    assert st.channel == "ssh"
+    assert st.params["kind"] == "sftp_get"
+    assert st.params["ssh_host"] == "192.168.10.129"
+    assert st.params["ssh_username"] == "root"
+
+
 
 # ---------------------------------------------------------------------------
 # FCT setup wrapper (power source + ATE fixture spine), P3-B5
