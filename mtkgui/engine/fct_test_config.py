@@ -141,8 +141,36 @@ KIND_MESSAGE = "message"        # Console-domain operator dialog
 KIND_HOST = "host"              # run a command ON THE HOST PC (test
                                 # station CLI, e.g. start/stop a local
                                 # iperf3 server); PASS = exit code 0
+KIND_OP = "op"                  # standard operation (Init/Reset Instr.,
+                                # Fixture, Power, Flash FAT/OOBE, Delay):
+                                # the merged Sequence table carries it with
+                                # op_params; it round-trips through
+                                # fct_sequence_cases_yaml (never
+                                # console.test_commands)
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST)
+
+#: the twelve labels of the merged "FCT test step" Type column (m30).
+#: Each label maps to a ConsoleCommand (or a standard operation) backing.
+STEP_TYPE_OPERATION = "Operation"
+STEP_TYPE_CONSOLE_SERIAL = "Console_serial"
+STEP_TYPE_CONSOLE_SSH = "Console_ssh"
+STEP_TYPE_SFTP_PUT = "SFTP_put"
+STEP_TYPE_SFTP_GET = "SFTP_get"
+STEP_TYPE_CONSOLE_CLI = "Console_cli"
+STEP_TYPE_MESSAGE_OK = "MessageOK"
+STEP_TYPE_MESSAGE_YESNO = "MessageYesNo"
+STEP_TYPE_MESSAGE_GOSTOP = "MessageGoStop"
+STEP_TYPE_MESSAGE_OK_WAIT = "MessageOK_to_Console"
+STEP_TYPE_MESSAGE_YESNO_WAIT = "MessageYesNo_to_Console"
+STEP_TYPE_MESSAGE_GOSTOP_WAIT = "MessageGoStop_to_Console"
+STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
+                    STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
+                    STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
+                    STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
+                    STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
+                    STEP_TYPE_MESSAGE_YESNO_WAIT,
+                    STEP_TYPE_MESSAGE_GOSTOP_WAIT)
 
 #: dialog styles of a message row (ConsoleCommand.dialog_style)
 DIALOG_OK = "ok"
@@ -508,6 +536,34 @@ def overlay_console_commands(yaml_text: str, cases: list) -> str:
     return _yaml.safe_dump(node, sort_keys=False, allow_unicode=True)
 
 
+def _capture_expected_unexpected(c: dict) -> tuple:
+    """Legacy capture fields -> the m30 unified pair.
+
+    A dict that already carries the m30 fields (even empty) is returned
+    as-is so the round-trip is idempotent.  A legacy dict (no
+    ``capture_expected`` / ``capture_unexpected`` keys) migrates the old
+    ``capture_is_expected`` / ``expect_fail`` / ``capture_forbid`` trio:
+    ``capture_is_expected=True`` + ``expect_fail=X`` -> ``capture_expected``
+    = X; ``capture_is_expected=False`` + ``expect_fail=X`` ->
+    ``capture_unexpected`` = X."""
+    if "capture_expected" in c or "capture_unexpected" in c:
+        return (str(c.get("capture_expected", "") or ""),
+                str(c.get("capture_unexpected", "") or ""))
+    exp = ""
+    unexp = ""
+    is_expected = bool(c.get("capture_is_expected", False))
+    fail = str(c.get("expect_fail", "") or "")
+    forbid = str(c.get("capture_forbid", "") or "")
+    if fail:
+        if is_expected:
+            exp = fail
+        else:
+            unexp = fail
+    if forbid:
+        unexp = (unexp + "\n" + forbid) if unexp else forbid
+    return exp, unexp
+
+
 @dataclass
 class ConsoleCommand:
     """One console test step (model v2): a Wait / Send / Capture
@@ -555,41 +611,68 @@ class ConsoleCommand:
                                     # rows (one report row per test line)
     host_cmd: str = ""              # kind == "host": command run ON THE
                                     # HOST PC (test station shell)
-    host_cmd_windows: str = ""      # optional Windows (cmd.exe) override
+    host_cmd_windows: str = ""      # Windows (cmd.exe) command line —
+                                    # m30: Console_cli is WINDOWS ONLY,
+                                    # this field is the primary source
+                                    # (host_cmd kept for legacy reads)
     enabled: bool = True            # False = skip this row (deployment
                                     # toggle: e.g. SSH/iPerf off while the
                                     # bench network is being re-worked)
+                                    # kind == "op": the case enable flag
+    # m30 unified Capture: output MUST contain `capture_expected` and
+    # MUST NOT contain `capture_unexpected`.  Both empty = no assertion.
+    # `expect_fail` / `capture_is_expected` stay readable for legacy load.
+    capture_expected: str = ""      # output must contain this (exact)
+    capture_unexpected: str = ""    # output must NOT contain this (exact)
+    # kind == "op" (standard operation) — one merged-table row:
+    op_kind: str = ""               # original case kind ("op" / legacy
+                                    # "Delay", "MessageOK", ...) so the
+                                    # fct_sequence_cases_yaml round-trip
+                                    # stays lossless
+    op_params: dict = None          # op parameters (type / instruments /
+                                    # fixture / power / flash / dio_*)
+    op_wait_ms: int = 100           # case wait_ms (op rows)
+    op_timeout_ms: int = 5000       # case timeout_ms (op rows)
 
     def to_dict(self) -> dict:
-        return {"kind": self.kind, "name": self.name,
-                "transport": self.transport,
-                "enabled": bool(self.enabled),
-                "wait_enabled": self.wait_enabled,
-                "send_enabled": self.send_enabled,
-                "capture_enabled": self.capture_enabled,
-                "send": self.send,
-                "expect_pass": self.expect_pass,
-                "expect_fail": self.expect_fail,
-                "expect_pass_is_regex": self.expect_pass_is_regex,
-                "expect_fail_is_regex": self.expect_fail_is_regex,
-                "case_sensitive": self.case_sensitive,
-                "capture_is_expected": self.capture_is_expected,
-                "capture_end_line": self.capture_end_line,
-                "capture_forbid": self.capture_forbid,
-                "confirm_enabled": self.confirm_enabled,
-                "confirm_message": self.confirm_message,
-                "dialog_style": self.dialog_style,
-                "send_yes": self.send_yes,
-                "send_no": self.send_no,
-                "timeout": float(self.timeout),
-                "wait_timeout": float(self.wait_timeout),
-                "send_timeout": float(self.send_timeout),
-                "retries": int(self.retries),
-                "extract": self.extract, "action": self.action,
-                "local": self.local, "remote": self.remote,
-                "parse_summary": bool(self.parse_summary),
-                "host_cmd": self.host_cmd,
-                "host_cmd_windows": self.host_cmd_windows}
+        d = {"kind": self.kind, "name": self.name,
+             "transport": self.transport,
+             "enabled": bool(self.enabled),
+             "wait_enabled": self.wait_enabled,
+             "send_enabled": self.send_enabled,
+             "capture_enabled": self.capture_enabled,
+             "send": self.send,
+             "expect_pass": self.expect_pass,
+             "expect_fail": self.expect_fail,
+             "expect_pass_is_regex": self.expect_pass_is_regex,
+             "expect_fail_is_regex": self.expect_fail_is_regex,
+             "case_sensitive": self.case_sensitive,
+             "capture_is_expected": self.capture_is_expected,
+             "capture_end_line": self.capture_end_line,
+             "capture_forbid": self.capture_forbid,
+             "confirm_enabled": self.confirm_enabled,
+             "confirm_message": self.confirm_message,
+             "dialog_style": self.dialog_style,
+             "send_yes": self.send_yes,
+             "send_no": self.send_no,
+             "timeout": float(self.timeout),
+             "wait_timeout": float(self.wait_timeout),
+             "send_timeout": float(self.send_timeout),
+             "retries": int(self.retries),
+             "extract": self.extract, "action": self.action,
+             "local": self.local, "remote": self.remote,
+             "parse_summary": bool(self.parse_summary),
+             "host_cmd": self.host_cmd,
+             "host_cmd_windows": self.host_cmd_windows,
+             "capture_expected": self.capture_expected,
+             "capture_unexpected": self.capture_unexpected}
+        if self.kind == KIND_OP:
+            d["op_kind"] = self.op_kind or "op"
+            d["op_params"] = (dict(self.op_params)
+                              if self.op_params else None)
+            d["op_wait_ms"] = int(self.op_wait_ms)
+            d["op_timeout_ms"] = int(self.op_timeout_ms)
+        return d
 
     @staticmethod
     def _from_dict_v2(c: dict) -> "ConsoleCommand":
@@ -607,6 +690,22 @@ class ConsoleCommand:
         send = str(c.get("send", ""))
         old_pass = str(c.get("expect_pass", ""))
         old_fail = str(c.get("expect_fail", ""))
+
+        if kind == KIND_OP:
+            # merged-table standard-operation row (m30): it round-trips
+            # through fct_sequence_cases_yaml, never test_commands, but
+            # the row still travels as a ConsoleCommand inside the panel.
+            return ConsoleCommand(
+                kind=KIND_OP, name=str(c.get("name", "")),
+                transport=str(c.get("transport", "serial")),
+                enabled=bool(c.get("enabled", True)),
+                op_kind=str(c.get("op_kind", "") or "op"),
+                op_params=(dict(c.get("op_params"))
+                           if c.get("op_params") else None),
+                op_wait_ms=int(c.get("op_wait_ms", 100) or 100),
+                op_timeout_ms=int(c.get("op_timeout_ms", 5000) or 5000))
+
+        exp, unexp = _capture_expected_unexpected(c)
 
         if not legacy:
             return ConsoleCommand(
@@ -639,7 +738,8 @@ class ConsoleCommand:
                 remote=str(c.get("remote", "")),
                 parse_summary=bool(c.get("parse_summary", False)),
                 host_cmd=str(c.get("host_cmd", "")),
-                host_cmd_windows=str(c.get("host_cmd_windows", "")))
+                host_cmd_windows=str(c.get("host_cmd_windows", "")),
+                capture_expected=exp, capture_unexpected=unexp)
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -656,7 +756,8 @@ class ConsoleCommand:
                 send_yes=str(c.get("send_yes", "y")),
                 send_no=str(c.get("send_no", "n")),
                 timeout=float(c.get("timeout", 6.0)),
-                retries=int(c.get("retries", 0) or 0))
+                retries=int(c.get("retries", 0) or 0),
+                capture_expected=exp, capture_unexpected=unexp)
         if kind == "wait":
             return ConsoleCommand(
                 kind="wait", name=str(c.get("name", "")),
@@ -669,15 +770,18 @@ class ConsoleCommand:
                 timeout=float(c.get("timeout", 6.0)),
                 wait_timeout=float(c.get("timeout", 10.0)),
                 send_timeout=float(c.get("send_timeout", 4.0)),
-                retries=int(c.get("retries", 0) or 0))
+                retries=int(c.get("retries", 0) or 0),
+                capture_expected=exp, capture_unexpected=unexp)
         # send/capture: the old expect_pass becomes the Capture positive
         # keyword; old expect_fail becomes capture_forbid (or the main
         # negative pattern when no positive exists).
         capture_enabled = bool(old_pass or old_fail)
         if old_pass:
             main_pattern, is_expected, forbid = old_pass, True, old_fail
+            cexp, cunexp = old_pass, old_fail
         else:
             main_pattern, is_expected, forbid = old_fail, False, ""
+            cexp, cunexp = "", old_fail
         return ConsoleCommand(
             kind=kind, name=str(c.get("name", "")),
             transport=str(c.get("transport", "serial")),
@@ -697,7 +801,93 @@ class ConsoleCommand:
             extract=str(c.get("extract", "")),
             action=str(c.get("action", "")),
             local=str(c.get("local", "")),
-            remote=str(c.get("remote", "")))
+            remote=str(c.get("remote", "")),
+            capture_expected=cexp, capture_unexpected=cunexp)
+
+
+# ---------------------------------------------------------------------------
+# m30 merged-table Type label <-> backing mapping
+# ---------------------------------------------------------------------------
+def step_type_label(cmd: "ConsoleCommand") -> str:
+    """One of the 12 Type labels for a merged FCT test step row."""
+    kind = str(getattr(cmd, "kind", ""))
+    if kind == KIND_OP:
+        return STEP_TYPE_OPERATION
+    if kind == KIND_SFTP_PUT:
+        return STEP_TYPE_SFTP_PUT
+    if kind == KIND_SFTP_GET:
+        return STEP_TYPE_SFTP_GET
+    if kind == KIND_HOST:
+        return STEP_TYPE_CONSOLE_CLI
+    if kind == KIND_MESSAGE:
+        style = str(getattr(cmd, "dialog_style", "") or "")
+        waits = bool(getattr(cmd, "wait_enabled", False))
+        if waits:
+            return ({DIALOG_OK: STEP_TYPE_MESSAGE_OK_WAIT,
+                     DIALOG_YESNO: STEP_TYPE_MESSAGE_YESNO_WAIT,
+                     DIALOG_GOSTOP: STEP_TYPE_MESSAGE_GOSTOP_WAIT}
+                    .get(style, STEP_TYPE_MESSAGE_OK_WAIT))
+        return ({DIALOG_OK: STEP_TYPE_MESSAGE_OK,
+                 DIALOG_YESNO: STEP_TYPE_MESSAGE_YESNO,
+                 DIALOG_GOSTOP: STEP_TYPE_MESSAGE_GOSTOP}
+                .get(style, STEP_TYPE_MESSAGE_YESNO))
+    # wait | send | capture interact rows
+    return (STEP_TYPE_CONSOLE_SSH
+            if str(getattr(cmd, "transport", "") or "") == "ssh"
+            else STEP_TYPE_CONSOLE_SERIAL)
+
+
+def console_command_for_label(label: str,
+                              name: str = "") -> "ConsoleCommand":
+    """The default ConsoleCommand backing one of the 12 Type labels."""
+    if label == STEP_TYPE_OPERATION:
+        return ConsoleCommand(kind=KIND_OP, name=name or "New Operation",
+                              wait_enabled=False, send_enabled=False,
+                              capture_enabled=False, op_kind="op",
+                              op_params=None, op_wait_ms=100,
+                              op_timeout_ms=5000)
+    if label == STEP_TYPE_CONSOLE_SSH:
+        return ConsoleCommand(kind="send", name=name or "",
+                              transport="ssh", wait_enabled=False,
+                              send_enabled=True, capture_enabled=False)
+    if label == STEP_TYPE_SFTP_PUT:
+        return ConsoleCommand(kind=KIND_SFTP_PUT, name=name or "",
+                              transport="ssh", wait_enabled=False,
+                              send_enabled=True, capture_enabled=False,
+                              send_timeout=30.0)
+    if label == STEP_TYPE_SFTP_GET:
+        return ConsoleCommand(kind=KIND_SFTP_GET, name=name or "",
+                              transport="ssh", wait_enabled=False,
+                              send_enabled=True, capture_enabled=False,
+                              send_timeout=30.0)
+    if label == STEP_TYPE_CONSOLE_CLI:
+        return ConsoleCommand(kind=KIND_HOST, name=name or "",
+                              transport="serial", wait_enabled=False,
+                              send_enabled=True, capture_enabled=False,
+                              host_cmd_windows="", host_cmd="")
+    if label == STEP_TYPE_CONSOLE_SERIAL:
+        return ConsoleCommand(kind="send", name=name or "",
+                              transport="serial", wait_enabled=False,
+                              send_enabled=True, capture_enabled=False)
+    if label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_OK_WAIT):
+        style = DIALOG_OK
+    elif label in (STEP_TYPE_MESSAGE_YESNO, STEP_TYPE_MESSAGE_YESNO_WAIT):
+        style = DIALOG_YESNO
+    else:
+        style = DIALOG_GOSTOP
+    waits = label in (STEP_TYPE_MESSAGE_OK_WAIT,
+                      STEP_TYPE_MESSAGE_YESNO_WAIT,
+                      STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+    cmd = ConsoleCommand(
+        kind=KIND_MESSAGE, name=name or "", transport="serial",
+        dialog_style=style, wait_enabled=waits,
+        wait_timeout=10.0 if waits else 0.0,
+        send_enabled=(style != DIALOG_OK), capture_enabled=False,
+        confirm_enabled=False, retries=0,
+        timeout=(4.0 if style in (DIALOG_YESNO, DIALOG_GOSTOP) else 0.0))
+    if cmd.send_enabled:
+        cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
+    return cmd
 
 
 @dataclass

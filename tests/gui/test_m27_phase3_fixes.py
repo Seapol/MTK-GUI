@@ -180,10 +180,15 @@ def test_p4_fct_dialog_wide_and_table_columns_fit(qapp):
     assert dlg.property("_dlg_enlarged") is True
 
     h = dlg.panel.cmd_table.horizontalHeader()
-    for col in (1, 5, 6, 7):           # Console / Timeout / Retry / Type
+    for col in (0, 2, 6):              # # / Type / Timeout
         assert h.sectionResizeMode(col) == QHeaderView.Fixed, col
-    for col in (0, 2, 3, 4):           # Name / WaitFor / SendTo / Capture
-        assert h.sectionResizeMode(col) == QHeaderView.Stretch, col
+    for col in (1, 3, 4, 5, 7):        # Step / WaitFor / SendTo / Capture
+        assert h.sectionResizeMode(col) == QHeaderView.Stretch, col  # / cmd
+    # the merged table uses the m30 header contract
+    headers = [dlg.panel.cmd_table.horizontalHeaderItem(c).text()
+               for c in range(8)]
+    assert headers == ["#", "Step", "Type", "WaitFor", "SendTo",
+                       "Capture", "Timeout", "cmd / params"]
     dlg.deleteLater()
 
 
@@ -194,19 +199,24 @@ def test_p5_gostop_row_labels_answer_chars(qapp):
     from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
         FCTTestConfigPanel,
         DIALOG_GOSTOP,
+        _COL_SEND,
     )
     panel = FCTTestConfigPanel()
     panel._add_message_row(DIALOG_GOSTOP)
     row = panel.cmd_table.rowCount() - 1
-    assert panel.cmd_table.item(row, 3).text() == "YES='y' / NO='n'"
+    assert panel.cmd_table.item(row, _COL_SEND).text() == "YES='y' / NO='n'"
     panel.deleteLater()
 
 
 # ------------------------------------------------------------- P6
-def test_p6_host_cli_console_column_shows_host_pc(qapp):
-    """A host_cli action row shows "(host PC)" in the Console column
-    (it runs on the test PC) and round-trips its host command."""
-    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
+def test_p6_host_cli_is_console_cli_type(qapp):
+    """m30: a host_cli row shows Console_cli as its Type (no Console
+    column any more) and round-trips its host command."""
+    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+        FCTTestConfigPanel,
+        _COL_CMD,
+        _COL_TYPE,
+    )
     from mtkgui.engine.fct_test_config import ConsoleCommand, KIND_HOST
 
     panel = FCTTestConfigPanel()
@@ -214,10 +224,9 @@ def test_p6_host_cli_console_column_shows_host_pc(qapp):
         kind=KIND_HOST, name="Start iperf3 server (Host CLI)",
         host_cmd="iperf3 -s -D", timeout=15.0))
     r = panel.cmd_table.rowCount() - 1
-    cb = panel.cmd_table.cellWidget(r, 1)
-    assert cb.currentText() == "(host PC)"
-    # the host command survives the row round-trip (transport not read
-    # from the combo)
+    assert panel.cmd_table.item(r, _COL_TYPE).text() == "Console_cli"
+    assert panel.cmd_table.item(r, _COL_CMD).text() == "iperf3 -s -D"
+    # the host command survives the row round-trip
     cmd = panel._get_row_cmd(r)
     assert cmd.kind == KIND_HOST
     assert cmd.host_cmd == "iperf3 -s -D"
@@ -225,28 +234,31 @@ def test_p6_host_cli_console_column_shows_host_pc(qapp):
 
 
 # ------------------------------------------------------------- P7
-def test_p7_console_dropdown_writes_transport(qapp):
-    """Picking 'ssh' in the Console dropdown persists cmd.transport and
-    survives a subsequent row re-render (no snap back to 'serial')."""
-    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
+def test_p7_ssh_transport_survives_rerender(qapp):
+    """m30: a Console_ssh row keeps its ssh transport (rendered as the
+    Console_ssh Type label) through a re-render - the merged table has
+    no Console dropdown to snap it back to serial."""
+    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+        FCTTestConfigPanel,
+        _COL_TYPE,
+    )
+    from mtkgui.engine.fct_test_config import (
+        ConsoleCommand,
+        STEP_TYPE_CONSOLE_SSH,
+    )
 
     panel = FCTTestConfigPanel()
-    panel._add_console_row()
+    panel._insert_row(ConsoleCommand(
+        kind="send", transport="ssh", send_enabled=True,
+        send="uname -a"))
     r = panel.cmd_table.rowCount() - 1
-    cb = panel.cmd_table.cellWidget(r, 1)
+    assert panel.cmd_table.item(r, _COL_TYPE).text() == STEP_TYPE_CONSOLE_SSH
 
-    cb.setCurrentText("ssh")                      # fires _on_console_changed
     cmd = panel._row_cmd(r)
     assert cmd.transport == "ssh"
-    assert cb.currentText() == "ssh"
 
     # a subsequent render (any other cell edit) must NOT snap it back
     panel._save_row_cmd(r, cmd)
-    assert cb.currentText() == "ssh"
     assert panel._row_cmd(r).transport == "ssh"
-
-    # and back to serial round-trips
-    cb.setCurrentText("serial")
-    assert panel._row_cmd(r).transport == "serial"
-    assert cb.currentText() == "serial"
+    assert panel.cmd_table.item(r, _COL_TYPE).text() == STEP_TYPE_CONSOLE_SSH
     panel.deleteLater()

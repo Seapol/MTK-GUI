@@ -12,8 +12,25 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 import yaml
 
-from mtkgui.engine.fct_test_config import ConsoleCommand, FctTestConfig
-from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
+from mtkgui.engine.fct_test_config import (
+    ConsoleCommand,
+    FctTestConfig,
+    STEP_TYPE_CONSOLE_CLI,
+    STEP_TYPE_CONSOLE_SERIAL,
+    STEP_TYPE_CONSOLE_SSH,
+    STEP_TYPE_SFTP_GET,
+    STEP_TYPE_SFTP_PUT,
+)
+from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+    FCTTestConfigPanel,
+    _COL_CAPTURE,
+    _COL_CMD,
+    _COL_SEND,
+    _COL_STEP,
+    _COL_TIMEOUT,
+    _COL_TYPE,
+    _COL_WAIT,
+)
 
 
 @pytest.fixture(scope="module")
@@ -155,27 +172,21 @@ def test_set_values_restores_dut_type_grey(qapp):
     assert "Bare Metal" in panel.dut_hint.text()
 
 
-def test_bare_metal_console_transport_serial_only(qapp):
+def test_bare_metal_add_menu_hides_ssh_and_sftp(qapp):
+    """m30: bare-metal DUTs hide Console_ssh / SFTP_put / SFTP_get in the
+    Add dropdown; Console_serial and Console_cli stay available."""
     panel = FCTTestConfigPanel()
     panel.set_values({})
     panel.dut_type.setCurrentText("linux")
-    add_btn = next(b for b in panel.findChildren(QPushButton)
-                   if b.text() == "Add row")
-    add_btn.click()
-    cb = panel.cmd_table.cellWidget(0, 1)
-    assert cb.count() == 3  # linux: serial + ssh + "(message)"
-    cb.setCurrentText("ssh")
-    # switch to bare metal: ssh is removed and the row falls back
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
+    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
+    assert panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
     panel.dut_type.setCurrentText("bare_metal")
-    assert cb.count() == 2 and cb.itemText(0) == "serial"
-    assert cb.currentText() == "serial"
-    assert panel._get_row_cmd(0).transport == "serial"
-    # a row added under bare metal is serial-only (+ "(message)") too
-    add_btn.click()
-    assert panel.cmd_table.cellWidget(1, 1).count() == 2
-    # back to linux restores both transports
-    panel.dut_type.setCurrentText("linux")
-    assert cb.count() == 3
+    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
+    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
+    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isVisible()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_CLI].isVisible()
 
 
 THREE_STAGE_YAML = """
@@ -216,16 +227,18 @@ def test_three_stage_off_cells_rendered(qapp):
     panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
     t = panel.cmd_table
     assert t.rowCount() == 2
-    # row 0: capture-only -> WaitFor / SendTo show (off), Capture populated
-    assert t.item(0, 2).text() == "(off)"
-    assert t.item(0, 3).text() == "(off)"
-    assert t.item(0, 4).text() == "FW ready"
-    assert t.item(0, 5).text() == "C:6s"      # only capture timeout
+    # row 0: capture-only -> WaitFor / SendTo show (off), Capture shows
+    # the unified Expected; Timeout shows only the capture window
+    assert t.item(0, _COL_TYPE).text() == "Console_serial"
+    assert t.item(0, _COL_WAIT).text() == "(off)"
+    assert t.item(0, _COL_SEND).text() == "(off)"
+    assert t.item(0, _COL_CAPTURE).text() == '+ "FW ready"'
+    assert t.item(0, _COL_TIMEOUT).text() == "C:6s"
     # row 1: full Wait -> Send -> Capture chain
-    assert t.item(1, 2).text() == "login:"
-    assert t.item(1, 3).text() == "root"
-    assert t.item(1, 4).text() == "Password:"
-    assert t.item(1, 5).text() == "W:10s S:4s C:6s"
+    assert t.item(1, _COL_WAIT).text() == "login:"
+    assert t.item(1, _COL_SEND).text() == "root"
+    assert t.item(1, _COL_CAPTURE).text() == '+ "Password:"'
+    assert t.item(1, _COL_TIMEOUT).text() == "W:10s S:4s C:6s"
 
 
 def test_three_stage_off_roundtrip(qapp):
@@ -250,7 +263,7 @@ def test_timeout_column_read_only(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
     from PySide6.QtCore import Qt
-    item = panel.cmd_table.item(1, 5)
+    item = panel.cmd_table.item(1, _COL_TIMEOUT)
     assert not (item.flags() & Qt.ItemIsEditable)
 
 
@@ -291,13 +304,16 @@ def test_sftp_row_clears_wait_and_capture(qapp):
     r = panel.cmd_table.rowCount()
     panel.cmd_table.insertRow(r)
     panel._save_row_cmd(r, cmd)
-    # unified model: an SSH transfer is an ACTION row - the action name
-    # and its params replace the dead Wait/Send/Capture stage cells
-    assert panel.cmd_table.item(r, 2).text() == "action: sftp_put"
-    assert panel.cmd_table.item(r, 3).text() == "load.sh -> /root/load.sh"
-    assert panel.cmd_table.item(r, 4).text() == "(n/a)"
-    assert panel.cmd_table.item(r, 5).text() == "S:30s"
-    assert panel.cmd_table.item(r, 7).text() == "action"
+    # m30: an SSH transfer is an SFTP_put row - the Type column names it
+    # and the cmd/params column shows the transfer paths (WaitFor /
+    # SendTo stage cells stay empty)
+    assert panel.cmd_table.item(r, _COL_TYPE).text() == "SFTP_put"
+    assert panel.cmd_table.item(r, _COL_CMD).text() == \
+        "load.sh -> /root/load.sh"
+    assert panel.cmd_table.item(r, _COL_CAPTURE).text() == "(off)"
+    assert panel.cmd_table.item(r, _COL_TIMEOUT).text() == "S:30s"
+    assert panel.cmd_table.item(r, _COL_WAIT).text() == ""
+    assert panel.cmd_table.item(r, _COL_SEND).text() == ""
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])
     restored = FctTestConfig.from_dict(
@@ -368,16 +384,15 @@ def test_message_rows_render_and_round_trip(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
     t = panel.cmd_table
-    # message rows: combo "(message)", style in the Capture column,
-    # answer stage timeout (legacy rows carry no wait stage)
-    assert t.cellWidget(1, 1).currentText() == "(message)"
-    assert t.item(1, 4).text() == "Yes-No dialog"
-    assert t.item(1, 5).text() == "S:30s"
-    assert t.item(2, 4).text() == "OK dialog"
-    assert t.item(2, 5).text() == "T:10s"
-    # the row model is explicit: a message row IS a dialog step
-    assert t.item(1, 7).text() == "dialog"
-    assert t.item(0, 7).text() == "interact"
+    # m30: a message row shows its Message* Type label; the Yes/No rows
+    # render the answer payloads, the OK row shows (off) send
+    assert t.item(1, _COL_TYPE).text() == "MessageYesNo"
+    assert t.item(1, _COL_SEND).text() == "YES='y' / NO='n'"
+    assert t.item(1, _COL_TIMEOUT).text() == "S:30s"
+    assert t.item(2, _COL_TYPE).text() == "MessageOK"
+    assert t.item(2, _COL_SEND).text() == "(off)"
+    assert t.item(2, _COL_TIMEOUT).text() == "T:10s"
+    assert t.item(0, _COL_TYPE).text() == "Console_serial"
     cmd = panel._row_cmd(1)
     assert cmd.kind == "message" and cmd.dialog_style == "yesno"
     # values() keeps the message rows (no data loss on OK)
@@ -389,30 +404,31 @@ def test_message_rows_render_and_round_trip(qapp):
     assert [c.dialog_style for c in cmds] == ["yesno", "yesno", "ok"]
 
 
-def test_console_choice_switches_row_kind(qapp):
+def test_add_menu_covers_all_twelve_types(qapp):
+    """m30: the Add dropdown offers exactly the 12 Type labels and each
+    added row renders that label in its Type column."""
+    from mtkgui.engine.fct_test_config import (
+        STEP_TYPE_LABELS,
+        step_type_label,
+    )
     panel = FCTTestConfigPanel()
-    panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
-    # switch the send row to a message row via the Console column
-    combo0 = panel.cmd_table.cellWidget(0, 1)
-    combo0.setCurrentText("(message)")
-    cmd0 = panel._get_row_cmd(0)
-    assert cmd0.kind == "message"
-    assert not cmd0.send_enabled and not cmd0.wait_enabled
-    assert panel.cmd_table.item(0, 4).text() == "Yes-No dialog"
-    # ...and back to a transport: the row returns to a Send row
-    combo0.setCurrentText("serial")
-    cmd0 = panel._get_row_cmd(0)
-    assert cmd0.kind == "send" and cmd0.send_enabled
+    panel.set_values({})
+    assert set(panel._add_actions) == set(STEP_TYPE_LABELS)
+    for label in STEP_TYPE_LABELS:
+        panel._add_row_for_label(label)
+        r = panel.cmd_table.rowCount() - 1
+        cmd = panel._row_cmd(r)
+        assert step_type_label(cmd) == label
+        assert panel.cmd_table.item(r, _COL_TYPE).text() == label
 
 
 def test_message_row_survives_bare_metal_switch(qapp):
-    """"(message)" stays selectable on bare-metal DUTs and a restored
-    message row is never reset by the transport refresh."""
+    """A restored message row is untouched by the bare-metal switch and
+    still round-trips as a message row (Console_ssh/SFTP are only hidden
+    from the Add menu, not from already-loaded rows)."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
     panel.dut_type.setCurrentText("bare_metal")
-    combo = panel.cmd_table.cellWidget(1, 1)
-    assert combo.currentText() == "(message)"
     cmd = panel._get_row_cmd(1)
     assert cmd.kind == "message" and cmd.transport == "serial"
     out = panel.values()
@@ -442,7 +458,7 @@ def test_console_tab_is_connection_config_only(qapp):
     assert panel.console_ssh_user in console_edits
     # the row buttons moved with the table
     seq_buttons = {b.text() for b in seq.findChildren(QPushButton)}
-    assert {"Add row", "Remove selected", "Duplicate", "Edit",
+    assert {"Add", "Remove selected", "Duplicate", "Edit",
             "Move Up", "Move Down"} <= seq_buttons
 
 
@@ -516,16 +532,16 @@ fct_test_config:
 
 
 def test_sftp_row_is_an_action_with_editable_params(qapp):
-    """ONE row = ONE step with an explicit type: an SSH transfer row is
-    an ACTION showing its action name + params (not dead stage cells)."""
+    """m30: an SSH transfer row is an SFTP_get Type with its transfer
+    paths in the cmd/params column (not dead Wait/Send/Capture cells)."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
     t = panel.cmd_table
-    assert t.item(0, 7).text() == "action"
-    assert t.item(0, 2).text() == "action: sftp_get"
-    assert t.item(0, 3).text() == ("/root/fat_result.json -> "
-                                   "{{dut_report}}/fat_result.json")
-    assert t.item(0, 4).text() == "remove_after=yes"
+    assert t.item(0, _COL_TYPE).text() == "SFTP_get"
+    assert t.item(0, _COL_CMD).text() == ("/root/fat_result.json -> "
+                                          "{{dut_report}}/fat_result.json")
+    assert t.item(0, _COL_WAIT).text() == ""
+    assert t.item(0, _COL_SEND).text() == ""
     out = panel.values()
     cmd = FctTestConfig.from_dict(yaml.safe_load(
         out["fct_test_config_yaml"])["fct_test_config"]
@@ -536,14 +552,13 @@ def test_sftp_row_is_an_action_with_editable_params(qapp):
 
 
 def test_host_cli_row_is_an_action_and_round_trips(qapp):
-    """A 'host' row is an ACTION with its command visible/editable and
-    kept as a host row on save (never converted to a console send)."""
+    """m30: a 'host' row is a Console_cli Type (Windows command in the
+    cmd/params cell) and stays a host row on save."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": HOST_ROW_YAML})
     t = panel.cmd_table
-    assert t.item(0, 7).text() == "action"
-    assert t.item(0, 2).text() == "action: host_cli"
-    assert t.item(0, 3).text() == "iperf3 -s -1"
+    assert t.item(0, _COL_TYPE).text() == "Console_cli"
+    assert t.item(0, _COL_CMD).text() == "iperf3 -s -1"
     out = panel.values()
     cmd = FctTestConfig.from_dict(yaml.safe_load(
         out["fct_test_config_yaml"])["fct_test_config"]

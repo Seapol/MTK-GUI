@@ -197,6 +197,54 @@ def match_expectation(text: str, expect_pass: str,
     return ("PASS", "output present") if text.strip() else ("", "")
 
 
+def judge_capture(output: str, capture_expected: str = "",
+                  capture_unexpected: str = "",
+                  case_sensitive: bool = True,
+                  expected_is_regex: bool = False,
+                  unexpected_is_regex: bool = False) -> tuple:
+    """Unified Capture verdict (m30) over the step's output.
+
+    - Expected non-empty  -> output MUST contain it, else
+      FAIL ("expected not found").
+    - Unexpected non-empty -> output MUST NOT contain it, found =
+      FAIL ("unexpected found").
+    - BOTH filled -> both must hold for PASS; NEITHER -> no assertion
+      (returns ``("", "")`` so the caller's send/op verdict decides).
+
+    Returns ``(verdict, detail)`` with verdict PASS / FAIL / "".
+    """
+    text = output or ""
+    if capture_expected and not _pattern_hit(
+            capture_expected, expected_is_regex, case_sensitive, text):
+        return "FAIL", "expected not found"
+    if capture_unexpected and _pattern_hit(
+            capture_unexpected, unexpected_is_regex, case_sensitive, text):
+        return "FAIL", "unexpected found"
+    if capture_expected or capture_unexpected:
+        return "PASS", "capture conditions met"
+    return "", ""
+
+
+def capture_unified(serial, capture_expected: str, capture_unexpected: str,
+                    expected_is_regex: bool, unexpected_is_regex: bool,
+                    case_sensitive: bool, timeout: float,
+                    history: str = "") -> tuple:
+    """m30 unified capture window: drain the whole window, then judge
+    the complete output (send rows pass history="" so only post-send
+    bytes are judged; capture-only rows pass the session transcript).
+
+    Returns ``(verdict, detail, output)``."""
+    _, text = _read_until(serial, lambda _t: "", timeout, history=history)
+    verdict, detail = judge_capture(
+        text, capture_expected, capture_unexpected,
+        case_sensitive=case_sensitive,
+        expected_is_regex=expected_is_regex,
+        unexpected_is_regex=unexpected_is_regex)
+    if verdict == "":
+        return "PASS", "capture conditions met", text
+    return verdict, detail, text
+
+
 def console_send_and_expect(serial, cmd: str, expect_pass: str,
                             expect_fail: str, timeout: float,
                             expect_pass_is_regex: bool = False,
@@ -789,11 +837,33 @@ class FctTestRunner:
             self._cycle = ""
             sent = True
         # 3) CAPTURE (judge the resulting output within capture timeout)
-        if cmd.capture_enabled and cmd.expect_fail:
-            # send row  -> judge ONLY the post-send bytes (fresh window;
-            #              the echo cannot be confused with earlier output)
-            # capture-only row -> look back at the whole session
-            #              transcript (console start -> End Line)
+        exp = getattr(cmd, "capture_expected", "") or ""
+        unexp = getattr(cmd, "capture_unexpected", "") or ""
+        want_capture = (cmd.capture_enabled and (
+            exp or unexp or cmd.expect_fail or cmd.capture_forbid))
+        if want_capture and (exp or unexp):
+            # m30 unified Capture: judge the whole window with the new
+            # expected / unexpected pair (legacy rows still take the
+            # capture_stage path below).
+            history = "" if sent else self._con_hist
+            verdict, detail, text = capture_unified(
+                serial, exp, unexp, cmd.expect_fail_is_regex,
+                cmd.expect_fail_is_regex, cmd.case_sensitive, cmd.timeout,
+                history=history)
+            self._note_fresh(text or "", len(history))
+            if verdict != "PASS":
+                return "FAIL", detail, "capture", []
+            if cmd.parse_summary:
+                v, d, extras = self._expand_fat_summary(text or "")
+                return v, d, "done", extras
+            last = ""
+            for ln in (text or "").splitlines():
+                if ln.strip():
+                    last = ln.replace("\r", "").strip()[:160]
+            if last:
+                return "PASS", last, "done", []
+        elif want_capture:
+            # legacy capture_stage path (unchanged behaviour)
             history = "" if sent else self._con_hist
             verdict, text = capture_stage(
                 serial, cmd.expect_fail, cmd.capture_end_line,
@@ -1200,8 +1270,7 @@ class FctTestRunner:
             label = cmd.name or getattr(cmd, "send", None) \
                 or getattr(cmd, "host_cmd", None) or "teardown"
             if cmd.kind == "host":
-                rc, detail = self._run_host_cli(cmd, host_runner)
-                verdict = "PASS" if rc == 0 else "FAIL"
+                verdict, detail = self._run_host_cli(cmd, host_runner)
                 results.append(FctStepResult(
                     label, verdict, detail, duration=time.time() - t0))
                 self.log(f"host cli: {label} -> {verdict} {detail}")
@@ -1218,27 +1287,43 @@ class FctTestRunner:
                              f"{extra.verdict}")
         return results
 
-    def _run_host_cli(self, cmd, host_runner) -> tuple[int, str]:
-        """Run one host-side CLI command via HostCliRunner.
+    def _run_host_cli(self, cmd, host_runner) -> tuple[str, str]:
+        """Run one Console_cli (host) command via HostCliRunner.
 
-        Returns (returncode, detail).  Picks host_cmd_windows on Windows,
-        host_cmd on macOS/Linux.  Never raises (failures become rc≠0)."""
-        import sys as _sys
+        m30: Console_cli is WINDOWS ONLY — the command line comes from
+        ``cmd / params`` (host_cmd_windows, falling back to host_cmd for
+        legacy files); there is no macOS/Linux branch.  A unified Capture
+        (capture_expected / capture_unexpected) judges stdout+stderr.
+        Returns ``(verdict, detail)``; never raises."""
         if host_runner is None:
-            return -1, "no host_runner available"
+            return "FAIL", "no host_runner available"
         line = (getattr(cmd, "host_cmd_windows", "")
-                if _sys.platform == "win32"
-                else "") or getattr(cmd, "host_cmd", "")
+                or getattr(cmd, "host_cmd", ""))
         if not line:
-            return -1, "empty host_cmd"
+            return "FAIL", "empty host_cmd"
         try:
             outcome = host_runner.run(line)
             rc = getattr(outcome, "exit_code", -1)
+            lines = getattr(outcome, "lines", []) or []
+            output = "\n".join(str(l) for l in lines)
             detail = (getattr(outcome, "reason", "")
-                      or "\n".join(getattr(outcome, "lines", [])[:3]))
-            return rc, str(detail).strip()[:200]
+                      or "\n".join(lines[:3]))
+            detail = str(detail).strip()[:200]
+            exp = getattr(cmd, "capture_expected", "") or ""
+            unexp = getattr(cmd, "capture_unexpected", "") or ""
+            if exp or unexp:
+                v, d = judge_capture(
+                    output, exp, unexp,
+                    case_sensitive=getattr(cmd, "case_sensitive", True))
+                if v == "FAIL":
+                    return "FAIL", d
+                detail = d
+            if rc != 0:
+                return "FAIL", f"exit code {rc}" + \
+                    (f": {detail}" if detail else "")
+            return "PASS", detail
         except Exception as exc:               # noqa: BLE001
-            return -1, f"host cli exception: {exc}"
+            return "FAIL", f"host cli exception: {exc}"
 
     # ----------------------------------------------------------- report
     def report(self, results: list, overall: str) -> str:

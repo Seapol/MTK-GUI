@@ -265,10 +265,11 @@ def test_add_message_ok_preset_all_off(qapp):
     assert cmd.wait_enabled is True and cmd.wait_timeout == 10.0
     assert cmd.capture_enabled is False
     assert cmd.send_enabled is False
-    # visible columns: empty wait pattern -> (off); send off; W:10s
-    assert panel.cmd_table.item(r, 2).text() == "(off)"
+    # visible columns (m30 8-col layout: WaitFor=3 / SendTo=4 / Timeout=6):
+    # empty wait pattern -> (off); OK style sends nothing; W:10s
     assert panel.cmd_table.item(r, 3).text() == "(off)"
-    assert panel.cmd_table.item(r, 5).text() == "W:10s"
+    assert panel.cmd_table.item(r, 4).text() == "(off)"
+    assert panel.cmd_table.item(r, 6).text() == "W:10s"
 
 
 def test_add_message_yesno_gostop_presets(qapp):
@@ -287,9 +288,10 @@ def test_add_message_yesno_gostop_presets(qapp):
     assert yn.name == "MessageYesNotoConsole"
     assert gs.name == "MessageGoStoptoConsole"
     r = panel.cmd_table.rowCount() - 2
-    # M27 P5: the answer chars are labelled so the operator can tell them apart
-    assert panel.cmd_table.item(r, 3).text() == "YES='y' / NO='n'"
-    assert panel.cmd_table.item(r, 5).text() == "W:10s S:4s"
+    # M27 P5: the answer chars are labelled so the operator can tell them
+    # apart (m30: SendTo=4, Timeout=6)
+    assert panel.cmd_table.item(r, 4).text() == "YES='y' / NO='n'"
+    assert panel.cmd_table.item(r, 6).text() == "W:10s S:4s"
 
 
 # --------------------------------------------------- runner semantics
