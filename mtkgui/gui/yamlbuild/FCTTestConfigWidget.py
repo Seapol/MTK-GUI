@@ -88,6 +88,9 @@ _CMD_ROLE = Qt.UserRole + 1
 # position (kept in sync with the Test Work Flow page so the standard
 # ops there are no longer overwritten by a rebuild).
 MESSAGE_CHOICE = "(message)"
+#: Console-column display for a host CLI row: the command runs on the
+#: TEST PC, not on the DUT, so serial/ssh would be misleading (M27 P6).
+HOST_CHOICE = "(host PC)"
 
 #: visible label per dialog style (Capture column of a message row)
 _DIALOG_LABELS = {
@@ -239,6 +242,11 @@ class FCTTestConfigPanel(QWidget):
             cb = self.cmd_table.cellWidget(r, 1)
             if not isinstance(cb, QComboBox):
                 continue
+            # M27 P6: host CLI rows keep their "(host PC)" display - the
+            # transport dropdown does not apply to them.
+            cmd = self._get_row_cmd(r)
+            if cmd is not None and cmd.kind == KIND_HOST:
+                continue
             cur = cb.currentText()
             cb.blockSignals(True)
             cb.clear()
@@ -247,7 +255,6 @@ class FCTTestConfigPanel(QWidget):
                 cb.setCurrentText(cur)
             else:
                 cb.setCurrentText("serial")
-                cmd = self._get_row_cmd(r)
                 if cmd is not None and cmd.transport != "serial":
                     cmd.transport = "serial"
                     if cmd.kind in ("sftp_put", "sftp_get"):
@@ -1451,8 +1458,17 @@ class FCTTestConfigPanel(QWidget):
         if cb is not None:
             # programmatic sync: no _on_console_changed round-trip
             cb.blockSignals(True)
-            cb.setCurrentText(MESSAGE_CHOICE if cmd.kind == KIND_MESSAGE
-                              else cmd.transport)
+            if cmd.kind == KIND_HOST:
+                # M27 P6: host CLI commands run on the TEST PC - surface
+                # "(host PC)" instead of the stored serial transport.
+                if cb.findText(HOST_CHOICE) < 0:
+                    cb.addItem(HOST_CHOICE)
+                cb.setCurrentText(HOST_CHOICE)
+            else:
+                if cb.findText(HOST_CHOICE) >= 0:
+                    cb.removeItem(cb.findText(HOST_CHOICE))
+                cb.setCurrentText(MESSAGE_CHOICE if cmd.kind == KIND_MESSAGE
+                                  else cmd.transport)
             cb.blockSignals(False)
         rb = self.cmd_table.cellWidget(r, 6)
         if rb is not None:
@@ -1477,7 +1493,10 @@ class FCTTestConfigPanel(QWidget):
         if item is not None:
             cmd.name = item.text()
         cb = self.cmd_table.cellWidget(r, 1)
-        if cb is not None:
+        if cb is not None and cmd.kind != KIND_HOST:
+            # M27 P6: a host CLI row never reads transport from the
+            # Console combo (it shows "(host PC)"); its host_cmd is
+            # already stored on the command.
             text = cb.currentText()
             if text == MESSAGE_CHOICE:
                 # message row: kind wins, transport stays at its

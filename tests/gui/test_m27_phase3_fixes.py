@@ -200,3 +200,25 @@ def test_p5_gostop_row_labels_answer_chars(qapp):
     row = panel.cmd_table.rowCount() - 1
     assert panel.cmd_table.item(row, 3).text() == "YES='y' / NO='n'"
     panel.deleteLater()
+
+
+# ------------------------------------------------------------- P6
+def test_p6_host_cli_console_column_shows_host_pc(qapp):
+    """A host_cli action row shows "(host PC)" in the Console column
+    (it runs on the test PC) and round-trips its host command."""
+    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
+    from mtkgui.engine.fct_test_config import ConsoleCommand, KIND_HOST
+
+    panel = FCTTestConfigPanel()
+    panel._insert_row(ConsoleCommand(
+        kind=KIND_HOST, name="Start iperf3 server (Host CLI)",
+        host_cmd="iperf3 -s -D", timeout=15.0))
+    r = panel.cmd_table.rowCount() - 1
+    cb = panel.cmd_table.cellWidget(r, 1)
+    assert cb.currentText() == "(host PC)"
+    # the host command survives the row round-trip (transport not read
+    # from the combo)
+    cmd = panel._get_row_cmd(r)
+    assert cmd.kind == KIND_HOST
+    assert cmd.host_cmd == "iperf3 -s -D"
+    panel.deleteLater()
