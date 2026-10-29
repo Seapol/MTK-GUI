@@ -552,3 +552,58 @@ def test_host_cli_row_is_an_action_and_round_trips(qapp):
     assert cmd.host_cmd == "iperf3 -s -1"
     assert cmd.timeout == 20
 
+
+
+# ------------------------------------------------------------------ m28
+# Layout regression tests for ce158e3 ("reflow FCT Wi-Fi/BT tabs to two
+# columns"): a single-column regression pushed the panel minimum height
+# back to ~891 px and pushed the dialog's button row off the screen.
+def _two_column_layouts(panel, tab_text):
+    """Return (left, right) QVBoxLayouts of a _two_column_tab body."""
+    from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
+    idx = next(i for i in range(panel.tabs.count())
+               if panel.tabs.tabText(i) == tab_text)
+    body = panel.tabs.widget(idx)
+    lay = body.layout()
+    assert isinstance(lay, QHBoxLayout), "tab body must be a QHBoxLayout"
+    cols = [lay.itemAt(i).layout() for i in range(lay.count())]
+    cols = [c for c in cols if isinstance(c, QVBoxLayout)]
+    assert len(cols) == 2, "expected exactly a left and a right column"
+    return cols[0], cols[1]
+
+
+def _layout_widgets(lay):
+    return [lay.itemAt(i).widget() for i in range(lay.count())]
+
+
+def test_wifi_tab_is_two_column(qapp):
+    """m28: the Wi-Fi tab body is a two-column layout - connection /
+    config boxes on the LEFT, the Ping and iPerf sub-test boxes on the
+    RIGHT."""
+    panel = FCTTestConfigPanel()
+    left, right = _two_column_layouts(panel, "Wi-Fi")
+    widgets_l, widgets_r = _layout_widgets(left), _layout_widgets(right)
+    # left column: enable checkbox + DUT base + the connection config
+    assert panel.wifi_scan_box in widgets_l or panel.wifi_base in widgets_l
+    # right column: the sub-test boxes
+    assert panel.wifi_ping_box in widgets_r
+    assert panel.wifi_iperf_box in widgets_r
+
+
+def test_bt_tab_is_two_column(qapp):
+    """m28: the Bluetooth tab body is a two-column layout - RSSI /
+    discovery on the LEFT, Pair & Connect and Tone/A2DP on the RIGHT."""
+    panel = FCTTestConfigPanel()
+    left, right = _two_column_layouts(panel, "Bluetooth")
+    widgets_l, widgets_r = _layout_widgets(left), _layout_widgets(right)
+    assert panel.bt_rssi_box in widgets_l
+    assert panel.bt_pair_box in widgets_r
+    assert panel.bt_tone_box in widgets_r
+
+
+def test_fct_panel_minimum_height_is_bounded(qapp):
+    """m28: the two-column reflow keeps the panel minimum height <= 700
+    px so the block-07 dialog still fits an offscreen-height screen
+    (single-column stacking measured ~891 px)."""
+    panel = FCTTestConfigPanel()
+    assert panel.minimumSizeHint().height() <= 700

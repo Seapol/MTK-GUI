@@ -154,3 +154,52 @@ def test_each_tab_switches_on_the_first_click(qapp):
     finally:
         window.close()
         window.deleteLater()
+
+
+# ----------------------------------------------------------------- m28
+# Layout regression tests for ce158e3 ("bound dialog sizes"): the
+# single-column FCT panel needed > 900 px height and the console popup
+# had an unshrinkable 1200x800 minimum on 1366x768 screens.
+FCT_DIALOG_YAML = """
+fct_test_config:
+  dut_type: linux
+  console:
+    enabled: true
+    test_commands:
+      - {name: Kernel check, send: "uname -a", expect_pass: Linux}
+  wifi:
+    enabled: false
+  bluetooth:
+    enabled: false
+"""
+
+
+def test_fct_block_dialog_minimum_width_at_least_1100(qapp):
+    """m28: the block-07 (fct_build) dialog keeps its >= 1100 px
+    minimum width (the widened table layout from ce158e3)."""
+    dlg = BlockConfigDialog(
+        "fct_build", {"fct_test_config_yaml": FCT_DIALOG_YAML},
+        apply_save_cb=lambda v: None)
+    try:
+        assert dlg.minimumSizeHint().width() >= 1100
+        assert dlg.property("_dlg_enlarged") is True
+    finally:
+        dlg.deleteLater()
+
+
+def test_console_popup_window_minimum_is_shrinkable(qapp):
+    """m28: the console popup window minimum is (760, 480) so it stays
+    resizable on 1366x768 laptop screens - the fixed 1200x800 minimum
+    must not come back."""
+    from mtkgui.widgets.console_widget import ConsoleWidget
+    from mtkgui.widgets.multi_console import (ConsoleWindow, THEMES,
+                                              theme_for)
+    bg = "#101014"
+    console = ConsoleWidget("m28", "M28 Console", "m28_log")
+    win = ConsoleWindow("m28", "M28", "#c00", console,
+                        THEMES[theme_for(bg)], bg)
+    try:
+        assert win.minimumWidth() == 760
+        assert win.minimumHeight() == 480
+    finally:
+        win.deleteLater()
