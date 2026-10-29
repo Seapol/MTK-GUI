@@ -422,6 +422,12 @@ def apply_config(config, workflow_page, equipment_page,
     # justification) is rebuilt from the YAML so a project file can
     # carry different FCT test cases than the hard-coded defaults.
     fct_cases = config.get("test_workflow", {}).get("fct_test_cases", [])
+    # unified model (M27 P1): EVERY load path normalizes legacy cases
+    # BEFORE the table renders - a "(wait)" pre-step merges into its
+    # following step (one row per FCT step).  This must run on the plain
+    # File > Load Yaml path too, not only the block-07 apply path.
+    from .gui.yamlbuild.fct_build import normalize_fct_cases
+    fct_cases = normalize_fct_cases(fct_cases)
     if fct_cases:
         try:
             workflow_page.fct_rows = [
