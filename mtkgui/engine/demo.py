@@ -10,8 +10,7 @@ lightweight console environment instead of the Qt workflow page:
 
 Sequence: the stages come from the project YAML via the Common loader
 (mtkgui.project_config.load_config) and mtkgui.engine.sequence -
-ICT -> Flash FAT Firmware -> FCT (WiFi / BT RF) -> Flash OOBE Firmware
-(flash stages are inserted when the YAML does not define them).
+ICT -> FCT (WiFi / BT RF).
 
 Modes (.traerules §3 run_modes):
   * virtual: simulated rack (mtkgui.virtual_hardware.VirtualRack) with
@@ -27,7 +26,6 @@ text file) in --logs-dir.  Exit code: 0 PASS, 1 FAIL.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -340,21 +338,6 @@ class HeadlessEnv:
         self.ict_waits = [0 if fast else s.wait_ms
                           for s in stages[0].steps]
         fct = [s for stage in stages[1:] for s in stage.steps]
-        # the offline demo runs flash steps with scripted images when
-        # the project YAML defines no firmware section (the engine
-        # itself never guesses an image path)
-        for s in stages[0].steps + fct:
-            p = s.op_params or {}
-            if p.get("type") == "flash" and not p.get("image"):
-                p["image"] = f"demo/{p.get('slot', 'fw')}_firmware.bin"
-                s.op_params = p
-                # the scripted demo image must pass the flash parameter
-                # existence check (P1 Task6) - create it on demand
-                if not os.path.isfile(p["image"]):
-                    os.makedirs(os.path.dirname(p["image"]) or ".",
-                                exist_ok=True)
-                    with open(p["image"], "wb") as fh:
-                        fh.write(b"\xde\xad\xbe\xef")
         self.fct_rows = [s.name for s in fct]
         self.fct_kinds = [s.kind for s in fct]
         self.fct_op_params = [s.op_params for s in fct]
@@ -471,8 +454,7 @@ class HeadlessEnv:
 
     def _steps_template(self, ict_count: int, fct_count: int) -> list:
         """Run steps for the staged sequence: ICT rows, then every
-        non-ICT stage's rows with stage markers between (the production
-        flow needs flash stages the 2-stage GUI template cannot express)."""
+        non-ICT stage's rows with stage markers between."""
         steps: list[tuple] = []
         if self._overall_en[0]:
             steps += [("ict", r) for r in range(ict_count)]

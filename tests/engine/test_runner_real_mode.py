@@ -73,16 +73,6 @@ class TestRealModeNoBackend:
         assert any("no instrument gateway connected (Real mode)"
                    in line for line in env._log_lines())
 
-    def test_flash_op_errors_without_programmer(self, tmp_path):
-        """A Real-mode flash step without a J-Link gateway is an
-        equipment Error (it used to run the engine-side simulation)."""
-        env = real_bare_env(tmp_path)
-        runner = TestRunner(env)
-        env.runner = runner
-        assert runner._run_op(
-            "FCT", "Flash FAT Firmware",
-            {"type": "flash", "slot": "fat"}) == "Error"
-
     def test_rail_capture_errors_without_gateway(self, tmp_path):
         """The DAQ AI row must ERROR instead of generating synthetic
         rail samples in Real mode."""

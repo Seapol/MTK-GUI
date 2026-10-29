@@ -44,10 +44,9 @@ class TestFullPass:
         assert runner.state == "idle"
         # every stage completed
         assert env.rows[("stage", 0)] == "PASS"
-        # the flash op step ran (virtual: engine-simulated J-Link)
-        flash_idx = next(i for i, k in enumerate(env.fct_kinds)
-                         if k == "op")
-        assert env.rows[("fct", flash_idx)] == "Done"
+        # every FCT row passed
+        assert all(env.rows[("fct", i)] == "PASS"
+                   for i in range(len(env.fct_rows)))
 
     def test_run_finished_signal(self, env):
         runner = TestRunner(env)
@@ -201,10 +200,10 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"   # timer-driven context
         env.runner = runner
-        runner._exec_fct_row(1, interactive=True)  # SendtoCLI row
-        assert env.rows[("fct", 1)] == "RUNNING"
+        runner._exec_fct_row(0, interactive=True)  # SendtoCLI row
+        assert env.rows[("fct", 0)] == "RUNNING"
         runner._poll_fct_console()   # scripted DUT replies instantly
-        assert env.rows[("fct", 1)] == "PASS"
+        assert env.rows[("fct", 0)] == "PASS"
 
     def test_wifi_row_requires_real_gateway(self, env):
         # FCT Wi-Fi/BT always run against the REAL host RF adapters -
@@ -215,8 +214,8 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
-        runner._exec_fct_row(2, interactive=True)  # WIFI row
-        assert env.rows[("fct", 2)] == "FAIL"
+        runner._exec_fct_row(1, interactive=True)  # WIFI row
+        assert env.rows[("fct", 1)] == "FAIL"
         assert any("no RF gateway" in line
                    for line in env._log_lines())
 
@@ -235,8 +234,8 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
-        runner._exec_fct_row(2, interactive=True)  # WIFI row
-        assert env.rows[("fct", 2)] == "PASS"
+        runner._exec_fct_row(1, interactive=True)  # WIFI row
+        assert env.rows[("fct", 1)] == "PASS"
 
     def test_no_serial_channel_reports_error(self, env):
         # replace the console with one that has no connected channel
@@ -250,8 +249,8 @@ class TestVirtualConsoleSteps:
         env.multi_console = DeadConsole()
         runner = TestRunner(env)
         env.runner = runner
-        runner._exec_fct_row(1, interactive=True)
-        assert env.rows[("fct", 1)] == "Error"
+        runner._exec_fct_row(0, interactive=True)
+        assert env.rows[("fct", 0)] == "Error"
 
     def test_console_wait_timeout_no_reply_is_error(self, env):
         # arm the documented no_response one-shot fault: the scripted
@@ -262,11 +261,11 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
-        runner._exec_fct_row(1, interactive=True)
+        runner._exec_fct_row(0, interactive=True)
         # force the deadline into the past, then poll
         runner._fct_console_wait["deadline"] = 0.0
         runner._poll_fct_console()
-        assert env.rows[("fct", 1)] == "Error"
+        assert env.rows[("fct", 0)] == "Error"
 
     def test_new_cycle_ignores_previous_round_buffer(self, env):
         # user report 2026-10-14: round 2's Waitfor/Capture matched the
@@ -364,17 +363,12 @@ class TestRealModeWithoutDrivers:
 
 
 class TestRealModeWithStubDrivers:
-    def test_full_real_mode_pass(self, tmp_path, scripted_drivers,
-                                 firmware_image):
+    def test_full_real_mode_pass(self, tmp_path, scripted_drivers):
         env, _stages = make_env(mode="real", tmp_path=tmp_path)
         runner = TestRunner(env)
         env.runner = runner
         runner.run_demo()
         assert runner.verdict() == "PASS"
-        # the J-Link flash step ran through the gateway
-        flash_idx = next(i for i, k in enumerate(env.fct_kinds)
-                         if k == "op")
-        assert env.rows[("fct", flash_idx)] == "Done"
 
 
 class TestRealModeNeverSimulates:

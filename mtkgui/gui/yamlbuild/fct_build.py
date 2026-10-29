@@ -97,8 +97,6 @@ _KIND_MAP = {
 }
 
 #: op step names reused from the engine catalog (spine anchors)
-OP_FLASH_FAT = "Flash FAT Firmware"
-OP_FLASH_OOBE = "Flash OOBE Firmware"
 OP_POWER_OFF = "Power Off DUT"
 OP_FIXTURE_UNLOCK = "Fixture Unlock"
 OP_FIXTURE_RELEASE = "Fixture Release"

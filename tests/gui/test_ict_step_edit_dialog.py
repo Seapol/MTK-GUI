@@ -8,8 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import (QApplication, QComboBox,  # noqa: E402
-                               QDialog)
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.test_workflow_page import _SequenceEditorDialog  # noqa: E402
 
@@ -44,41 +43,6 @@ def make_dialog(page):
     return dlg
 
 
-def test_flash_step_editor_writes_the_dual_path_params(qapp, monkeypatch):
-    """user direction 2026-10-17 (R1): the Flash step editor exposes
-    the dual-path switch, the programmer tool and the image.  Picking
-    "manual" rebuilds the form with the third-party GUI rows, and the
-    edited values must land in the step op_params (the YAML keeps
-    them)."""
-    flash = ("op", "Flash FAT Firmware", "—", "—", "—", "—",
-             {"type": "flash", "slot": "fat", "mode": "auto"})
-    dlg = _SequenceEditorDialog("ict", [flash], [True], [100], [5000])
-    try:
-        def fake_exec(widget):
-            for cb in widget.findChildren(QComboBox):
-                if [cb.itemText(i) for i in range(cb.count())] == \
-                        ["auto", "manual"]:
-                    cb.setCurrentText("manual")   # rebuilds the form
-                    break
-            return QDialog.DialogCode.Accepted
-
-        monkeypatch.setattr(QDialog, "exec", fake_exec)
-        assert dlg._edit_op_step(0, dlg._steps[0]) is True
-        params = dlg._steps[0][6]
-        assert params["type"] == "flash"
-        assert params["slot"] == "fat"
-        assert params["mode"] == "manual"
-        assert params["tool"]                 # the programmer tool name
-        assert "launch" in params             # manual-only rows present
-        assert "message" in params
-        assert "message_timeout_s" in params
-        assert params["verify"] is True
-        assert params["reset_run"] is True
-        assert params["erase"] is False
-    finally:
-        dlg.deleteLater()
-
-
 def test_net_choices_follow_the_method(qapp):
     """Impedance / voltage / DAQ AI -> Power nets, Clock Hz -> Clock
     nets, generic test -> GPIO nets; unknown methods only the
@@ -107,16 +71,16 @@ def test_unit_map_covers_all_methods(qapp):
         dlg.deleteLater()
 
 
-def test_ict_add_menu_offers_ops_flash_and_delay(qapp):
+def test_ict_add_menu_offers_ops_and_delay(qapp):
     """Single sequence source: the ICT Add menu offers the standard
-    operations (incl. the flash operations) AND the Delay step - the
-    three categories the user asked for live in the ONE editor."""
+    operations AND the Delay step.  M33 retired the J-Link flash ops
+    (flashing is now the Flash_GUI FCT step)."""
     dlg = make_dialog(None)
     try:
         actions = [a.text() for a in dlg.btn_add.menu().actions()]
         assert "Operation: Init Instruments" in actions
-        assert "Operation: Flash FAT Firmware" in actions
-        assert "Operation: Flash OOBE Firmware" in actions
+        assert "Operation: Flash FAT Firmware" not in actions
+        assert "Operation: Flash OOBE Firmware" not in actions
         assert "Delay — plain wait (ms)" in actions
     finally:
         dlg.deleteLater()

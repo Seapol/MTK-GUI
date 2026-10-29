@@ -533,6 +533,24 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             # Console-domain operator dialog (user direction 2026-10-18):
             # WAIT the expected console message first, THEN ask
             return _console_dialog(step, ctx)
+        if "flash_gui_path" in step.params:
+            # Flash_GUI row (M33): launch (or reuse) the third-party
+            # flash GUI on the HOST PC before the Go / Stop prompt.
+            path = str(step.params.get("flash_gui_path") or "").strip()
+            if not path:
+                return FctOutcome(VERDICT_FAIL,
+                                  "flash GUI path not configured")
+            from .fct_test_runner import _flash_gui_process_running
+            if _flash_gui_process_running(path):
+                ctx.log("flash GUI already running - reusing running GUI "
+                        "(no relaunch)")
+            else:
+                from .flash_tool import launch_tool_gui
+                started, detail = launch_tool_gui(path)
+                if not started:
+                    return FctOutcome(VERDICT_FAIL,
+                                      f"flash GUI launch failed: {detail}")
+                ctx.log(f"flash GUI {detail}")
         if ctx.human_confirm is None:
             return FctOutcome(VERDICT_ERROR, "no confirm hook bound")
         ctx.log("waiting for human confirmation")

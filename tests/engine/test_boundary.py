@@ -16,17 +16,10 @@ from mtkgui.engine.data_quality import SampleCleaner
 from mtkgui.engine.device_manager import (DeviceManager,
                                           DeviceState, DeviceStateError)
 from mtkgui.engine.failures import FailureKind, classify_exception
-from mtkgui.engine.flash_params import (ALLOWED_SLOTS, FlashParamError,
-                                        MAX_RETRIES,
-                                        resolve_flash_params,
-                                        validate_flash_params,
-                                        with_retry_budget)
 from mtkgui.engine.policies import normalize_retry_count
 from mtkgui.engine.protocol import (CommandValidator, ProtocolAdapter,
                                     ProtocolError, ReplyParser,
                                     TimeoutPolicy)
-from mtkgui.engine.slot_images import (ImageState, SlotImageError,
-                                       SlotImageRegistry)
 from mtkgui.engine.stability import (BoundedQueue, BreakerOpen,
                                      CircuitBreaker, HeartbeatMonitor,
                                      LockHeld, QueueFull, ResourceLocks)
@@ -49,109 +42,6 @@ class TestRetryParamBoundaries:
     def test_bool_is_int_subclass(self):
         assert normalize_retry_count(False) == 0
         assert normalize_retry_count(True) == 1
-
-    def test_retry_budget_clamped_to_max(self):
-        p = resolve_flash_params({"image": "x.bin", "slot": "fat",
-                                  "retries": 99})
-        assert with_retry_budget(p).retries == MAX_RETRIES
-
-
-def _params(tmp_path, **over):
-    op = {"image": "fw.bin", "slot": "fat"}
-    op.update(over)
-    img = tmp_path / "fw.bin"
-    img.write_bytes(b"\x00FW")
-    return resolve_flash_params(op, None, str(tmp_path))
-
-
-class TestFlashParamBoundaries:
-    def test_missing_required_image(self, tmp_path):
-        p = resolve_flash_params({"slot": "fat"}, None, str(tmp_path))
-        errs = validate_flash_params(p)
-        assert any(e.field == "image" for e in errs)
-
-    def test_illegal_slot_rejected(self, tmp_path):
-        p = _params(tmp_path, slot="boot")
-        assert "boot" not in ALLOWED_SLOTS
-        assert any(e.field == "slot" for e in validate_flash_params(p))
-
-    def test_bad_hex_address(self, tmp_path):
-        p = _params(tmp_path, address="0xXYZ")
-        assert any(e.field == "address" for e in validate_flash_params(p))
-
-    def test_unaligned_address(self, tmp_path):
-        p = _params(tmp_path, address="0x802")
-        assert any("align" in e.reason for e in validate_flash_params(p))
-
-    def test_address_offset_mutual_exclusion(self, tmp_path):
-        p = _params(tmp_path, address="0x800", offset=0x10)
-        errs = validate_flash_params(p)
-        assert any("mutually" in e.reason or "exclusive" in e.reason
-                   for e in errs)
-
-    def test_negative_retries(self, tmp_path):
-        p = _params(tmp_path)
-        p.retries = -2
-        assert any(e.field == "retries" for e in validate_flash_params(p))
-
-    def test_nul_byte_in_image_path(self, tmp_path):
-        p = _params(tmp_path)
-        p.image = "fw\x00.bin"
-        assert any(e.field == "image" for e in validate_flash_params(p))
-
-    def test_error_carries_field_value_allowed(self, tmp_path):
-        p = _params(tmp_path, slot="nope")
-        errs = validate_flash_params(p)
-        assert errs, "expected at least one param error"
-        e = errs[0]
-        assert e.field == "slot" and e.value == "nope"
-        assert "fat" in e.allowed and "oobe" in e.allowed
-
-
-# ============================================================ slot images
-class TestSlotImageBoundaries:
-    def test_missing_image(self, tmp_path):
-        reg = SlotImageRegistry()
-        rec = reg.inspect(str(tmp_path / "ghost.bin"), "fat")
-        assert rec.state is ImageState.MISSING
-
-    def test_empty_image_corrupt(self, tmp_path):
-        f = tmp_path / "empty.bin"
-        f.write_bytes(b"")
-        rec = SlotImageRegistry().inspect(str(f), "fat")
-        assert rec.state is ImageState.CORRUPT
-
-    def test_illegal_extension(self, tmp_path):
-        f = tmp_path / "fw.exe"
-        f.write_bytes(b"data")
-        assert SlotImageRegistry().inspect(str(f), "fat").state \
-            is ImageState.CORRUPT
-
-    def test_tampered_known_path_is_stale(self, tmp_path):
-        reg = SlotImageRegistry()
-        f = tmp_path / "fw.bin"
-        f.write_bytes(b"v1")
-        assert reg.inspect(str(f), "fat").state is ImageState.VALID
-        f.write_bytes(b"v2-tampered")
-        rec = reg.inspect(str(f), "fat")
-        assert rec.state is ImageState.STALE
-        assert "hash changed" in rec.reason
-
-    def test_load_rejects_non_valid(self, tmp_path):
-        with pytest.raises(SlotImageError):
-            SlotImageRegistry().load(str(tmp_path / "no.bin"), "fat")
-
-    def test_reuse_skip_and_dirty_rollback(self, tmp_path):
-        reg = SlotImageRegistry(skip_if_same_hash=True)
-        f = tmp_path / "fw.bin"
-        f.write_bytes(b"stable")
-        rec = reg.load(str(f), "fat")
-        assert reg.should_flash("fat", rec.sha256)
-        reg.mark_flashed("fat", rec.sha256)
-        assert not reg.should_flash("fat", rec.sha256)
-        reg.mark_dirty("fat")
-        assert reg.is_dirty("fat")
-        assert reg.should_flash("fat", rec.sha256)
 
 
 # ============================================================ protocol

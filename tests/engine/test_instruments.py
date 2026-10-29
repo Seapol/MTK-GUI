@@ -100,28 +100,6 @@ class TestOpSteps:
         assert out.verdict == "Done"
         assert ("dio", "DIO16", 1) in scripted_drivers._record.calls
 
-    def test_flash_uses_jlink(self, gw, scripted_drivers, firmware_image):
-        out = gw.execute_op("Flash FAT Firmware", {
-            "type": "flash", "slot": "fat",
-            "image": "firmware/fat.bin"})
-        assert out.verdict == "Done"
-        assert out.value == 524288
-        assert ("flash", "firmware/fat.bin", True) in \
-            scripted_drivers._record.calls
-        # device name came from op_params -> open call
-        opens = [c for c in scripted_drivers._record.calls
-                 if c[0] == "open" and c[1] == "JLINK"]
-        # flash line + [FLASH_PARAM] audit lines in the event log
-        assert out.lines and any("524288 bytes OK" in line
-                                 for line in out.lines)
-        assert any("[FLASH_PARAM]" in line for line in out.lines)
-
-    def test_flash_without_image_is_config_error(self, gw):
-        out = gw.execute_op("Flash OOBE Firmware",
-                            {"type": "flash", "slot": "oobe"})
-        assert out.verdict == "Error"
-        assert "not configured" in out.lines[0]
-
     def test_missing_address_is_config_error(self, scripted_drivers):
         g = RealGateway({"daq973a": {"fields": {}}})
         out = g.execute_op("Init Instruments", {

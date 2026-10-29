@@ -47,8 +47,7 @@ class TestVirtualMode:
         out = capsys.readouterr().out
         assert "TEST SEQUENCE REPORT" in out
         # production sequence stages present
-        for stage in ("ICT", "Flash FAT Firmware", "FCT",
-                      "Flash OOBE Firmware"):
+        for stage in ("ICT", "FCT"):
             assert f"Stage: " in out or stage in out
         # waveform CSV written to the requested logs dir
         csvs = list(logs.glob("power_rails*.csv"))
@@ -69,12 +68,12 @@ class TestVirtualMode:
         assert rc == 1
         out = capsys.readouterr().out
         assert "Overall Result : FAIL" in out
-        assert "Stage 4" in out   # OOBE flash stage still reached
+        assert "Stage 2" in out   # FCT stage still reached
 
 
 class TestRealMode:
     def test_scripted_drivers_full_pass(self, tmp_path, monkeypatch,
-                                        capsys, firmware_image):
+                                        capsys):
         monkeypatch.delitem(sys.modules, "mtkgui.drivers", raising=False)
         rc, _logs = run_demo_main(tmp_path, monkeypatch, mode="real")
         assert rc == 0

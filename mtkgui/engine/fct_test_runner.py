@@ -17,11 +17,14 @@ real bench uses ``serial.Serial``, tests use fakes.
 """
 from __future__ import annotations
 
+import os
+import platform
 import re
+import subprocess
 import time
 from datetime import datetime
 
-from .fct_test_config import FctTestConfig
+from .fct_test_config import DEFAULT_FLASH_GUI_MESSAGE, FctTestConfig
 
 
 def host_lan_ip() -> str:
@@ -47,6 +50,31 @@ def host_lan_ip() -> str:
                 if a not in (0, 127) and not (a == 169 and b == 254):
                     return tok
     return ""
+
+
+def _flash_gui_process_running(path: str) -> bool:
+    """True when the third-party flash GUI executable is already running.
+
+    Windows: ``tasklist /FI "IMAGENAME eq <basename>"``; macOS / Linux:
+    ``pgrep -f <basename>`` (M33).  Any failure of the detection tool is
+    treated as "not running" so the caller falls back to launching the
+    GUI - detection is best effort and never blocks the run.
+    """
+    name = os.path.basename(str(path or "").strip())
+    if not name:
+        return False
+    try:
+        if platform.system() == "Windows":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {name}"],
+                capture_output=True, text=True, timeout=10).stdout
+            return name.lower() in (out or "").lower()
+        out = subprocess.run(["pgrep", "-f", name],
+                             capture_output=True, text=True, timeout=10)
+        return bool((out.stdout or "").strip())
+    except Exception:                   # noqa: BLE001 - best effort
+        return False
+
 
 #: host-side (mac) command set — B4-verified on macOS 15 (spec:
 #: deprecated airport / networksetup -getairportnetwork are NOT used)
@@ -658,9 +686,13 @@ class FctTestRunner:
         """
         results: list = []
         c = self.cfg.console
-        if not c.enabled or serial is None:
-            return results
+        # M33: a Flash_GUI row launches a third-party GUI and never
+        # touches the DUT console, so it runs even when the console is
+        # disabled or no serial port is bound.
+        console_ready = bool(c.enabled) and serial is not None
         for cmd in c.test_commands:
+            if not console_ready and getattr(cmd, "kind", "") != "flash_gui":
+                continue
             if not getattr(cmd, "enabled", True):
                 self.log(f"console '{cmd.name}' [skip] -> SKIP (disabled)")
                 continue
@@ -720,6 +752,37 @@ class FctTestRunner:
             send_stage(serial, cmd.send_yes, cmd.send_timeout)
         return "PASS", "operator pressed GO, run continues"
 
+    def _run_flash_gui_row(self, cmd) -> tuple:
+        """Flash_GUI row (M33): ensure the third-party flash GUI runs,
+        then take the operator Go / Stop answer as the verdict.
+
+        Go -> PASS and the run continues; Stop -> FAIL and the remaining
+        console rows stop (the standard stop-chain semantics of
+        run_console).  A missing GUI path is an honest FAIL.  An already
+        running GUI is REUSED - it is never relaunched twice (user
+        direction: one flash GUI instance per run)."""
+        path = str(getattr(cmd, "flash_gui_path", "") or "").strip()
+        if not path:
+            return "FAIL", "flash GUI path not configured"
+        exe = os.path.basename(path)
+        if _flash_gui_process_running(path):
+            self.log(f"flash GUI '{exe}' already running - "
+                     "reusing running GUI (no relaunch)")
+        else:
+            from .flash_tool import launch_tool_gui
+            started, detail = launch_tool_gui(path)
+            if not started:
+                return "FAIL", f"flash GUI launch failed: {detail}"
+            self.log(f"flash GUI '{exe}' {detail}")
+        ask = getattr(self, "_human_confirm", None)
+        if not callable(ask):
+            return "FAIL", "no operator dialog available (headless)"
+        message = (str(getattr(cmd, "flash_gui_message", "") or "").strip()
+                   or DEFAULT_FLASH_GUI_MESSAGE)
+        if not ask(message):
+            return "FAIL", "operator pressed STOP - run stops"
+        return "PASS", "operator pressed GO - flash success"
+
     def _run_one_command(self, serial, cmd) -> tuple:
         """Run one ConsoleCommand with retry. Returns (verdict, detail,
         stage, extras) — extras are additional FctStepResult rows (the
@@ -740,6 +803,13 @@ class FctTestRunner:
             # send_yes / send_no (PASS either way), GoStop GO sends
             # send_yes (PASS, run continues) and STOP sends send_no
             # (FAIL, the sequence stops).
+            if cmd.kind == "flash_gui":
+                # M33: launch / reuse the third-party flash GUI, then
+                # take the operator Go / Stop answer as the verdict.
+                # No console channel is involved, and a failure must
+                # never be retried (that would relaunch the GUI).
+                verdict, detail = self._run_flash_gui_row(cmd)
+                return verdict, detail, "flash_gui", []
             if cmd.kind == "message":
                 verdict, detail = self._run_message_row(serial, cmd)
                 return verdict, detail, "message", []

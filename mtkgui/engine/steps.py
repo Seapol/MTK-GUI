@@ -79,7 +79,7 @@ def console_keyword_fallback(rest: str) -> str:
 # on every op step (7th tuple element), saved to YAML as "op_params",
 # edited in the sequence editor (per-type fields) and printed to the
 # Event Log when the step executes.  "type" selects the parameter UI and
-# the log wording (instruments / reset / fixture / power / flash).
+# the log wording (instruments / reset / fixture / power / dio_*).
 OP_STEPS: dict[str, dict] = {
     "Init Instruments": {
         "type": "instruments", "instruments": ["DAQM", "DAQ", "PSU"]},
@@ -99,14 +99,6 @@ OP_STEPS: dict[str, dict] = {
         "type": "power", "voltage": 5.0, "current": 1.0},
     "Power Off DUT": {
         "type": "power"},
-    # user direction 2026-10-17: the flash steps carry the dual-path
-    # switch - "auto" drives the third-party CLI tool and judges on the
-    # captured output, "manual" opens the third-party GUI and takes the
-    # operator GO / STOP answer as the verdict (R1: schema only)
-    "Flash FAT Firmware": {
-        "type": "flash", "slot": "fat", "mode": "auto"},
-    "Flash OOBE Firmware": {
-        "type": "flash", "slot": "oobe", "mode": "auto"},
     # M7: U2355A DIO bank standard operations (digital input / output).
     # Read is reference-only (no judgement); Write drives the bank and
     # is guarded by the isolation preflight in the runner.
@@ -219,10 +211,6 @@ def op_summary(params: dict | None) -> str:
     if t == "fixture":
         return f"{(params or {}).get('signal', '')}=" \
                f"{(params or {}).get('level', '')}"
-    if t == "flash":
-        slot = (params or {}).get("slot", "")
-        image = (params or {}).get("image", "")
-        return f"JLink {slot} {image}".strip()
     if t == "power" and "voltage" in (params or {}):
         return (f"{params['voltage']:g}V/"
                 f"{params.get('current', 0):g}A")
@@ -245,14 +233,6 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
     if t == "fixture":
         sig, lvl = p.get("signal", "press"), p.get("level", "H")
         return [f"drive {sig}={lvl} -> state verified"]
-    if t == "flash":
-        slot = p.get("slot", "")
-        image = p.get("image") or f"<{slot} image not configured>"
-        lines = [f"J-Link loadfile {image}"]
-        if p.get("verify", True):
-            lines.append("J-Link verify OK")
-        lines.append("J-Link reset & run")
-        return lines
     if t == "power":
         if "voltage" in p:
             return [f"N5747A set {p['voltage']:.2f} V / "
@@ -274,8 +254,6 @@ def op_instrument_abbr(params: dict | None) -> str:
         return "PSU"
     if t == "fixture":
         return "DAQM"   # fixture control board sits on DAQM907A DIO
-    if t == "flash":
-        return "JLINK"
     if t in ("dio_read", "dio_out"):
         return "DAQ"    # U2355A USB DAQ
     return "DAQM"

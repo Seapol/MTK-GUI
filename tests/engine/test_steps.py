@@ -24,19 +24,6 @@ from mtkgui.engine.steps import (
 
 
 class TestOpCatalog:
-    def test_flash_steps_carry_the_dual_path_mode(self):
-        """user direction 2026-10-17 (R1 schema): the two firmware
-        flash steps carry the dual-path switch - "auto" = third-party
-        CLI tool judged on its output, "manual" = third-party GUI plus
-        the operator GO / STOP answer.  "auto" is the default so
-        projects written before the switch keep their behaviour."""
-        assert OP_STEPS["Flash FAT Firmware"]["mode"] == "auto"
-        assert OP_STEPS["Flash OOBE Firmware"]["mode"] == "auto"
-        assert op_step("Flash FAT Firmware")[6]["mode"] == "auto"
-        # the slot each step flashes stays untouched
-        assert OP_STEPS["Flash FAT Firmware"]["slot"] == "fat"
-        assert OP_STEPS["Flash OOBE Firmware"]["slot"] == "oobe"
-
     def test_op_step_default_params(self):
         step = op_step("Power On DUT")
         assert step[0] == "op"
@@ -58,8 +45,6 @@ class TestOpCatalog:
                            "level": "H"}) == "press=H"
         assert op_summary({"type": "power", "voltage": 5.0,
                            "current": 1.0}) == "5V/1A"
-        assert op_summary({"type": "flash", "slot": "fat",
-                           "image": "fw.bin"}) == "JLink fat fw.bin"
         assert op_summary(None) == ""
 
     def test_op_status_lines_per_type(self):
@@ -72,16 +57,10 @@ class TestOpCatalog:
             "N5747A set 5.00 V / 1.00 A -> output ON, readback OK"]
         assert op_status_lines("Power Off DUT", {"type": "power"}) == \
             ["N5747A output OFF"]
-        # flash steps (FAT / OOBE firmware flash) produce J-Link lines
-        lines = op_status_lines("Flash FAT Firmware", {
-            "type": "flash", "slot": "fat", "image": "fw/fat.bin"})
-        assert lines == ["J-Link loadfile fw/fat.bin",
-                         "J-Link verify OK", "J-Link reset & run"]
 
     def test_op_instrument_abbr(self):
         assert op_instrument_abbr({"type": "power"}) == "PSU"
         assert op_instrument_abbr({"type": "fixture"}) == "DAQM"
-        assert op_instrument_abbr({"type": "flash"}) == "JLINK"
 
     def test_meas_instrument_abbr(self):
         assert meas_instrument_abbr("Clock Hz",
@@ -89,10 +68,11 @@ class TestOpCatalog:
         assert meas_instrument_abbr("test", "DUT GPIO (24 ch)") == "DAQ"
         assert meas_instrument_abbr("Power Voltage", "TP_P01 x") == "DAQM"
 
-    def test_flash_steps_in_catalog(self):
-        # the production sequence drives FAT / OOBE flash as op steps
-        assert OP_STEPS["Flash FAT Firmware"]["slot"] == "fat"
-        assert OP_STEPS["Flash OOBE Firmware"]["slot"] == "oobe"
+    def test_flash_ops_are_retired_from_the_catalog(self):
+        # M33: flashing moved to the Flash_GUI FCT step - no J-Link flash
+        # op entries remain in the standard-operation catalog
+        assert "Flash FAT Firmware" not in OP_STEPS
+        assert "Flash OOBE Firmware" not in OP_STEPS
 
 
 class TestFctKinds:

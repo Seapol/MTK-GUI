@@ -107,6 +107,13 @@ DEFAULT_MANUAL_OFF_MSG = (
     "FCT finished. Disconnect the power adapter / USB cable, then press "
     "GO.")
 
+#: default operator prompt for a Flash_GUI step (M33): the third-party
+#: flash GUI is launched (or reused) and the operator judges the outcome
+#: with the Go / Stop dialog.
+DEFAULT_FLASH_GUI_MESSAGE = (
+    "Flash GUI has been launched. Handle it. When you finished, press "
+    "Go if flash success, press Stop if flash failure or error.")
+
 #: default per-command timeout (spec §4.1: commands 5 s, driver load
 #: 15 s, Wi-Fi join 30 s — configured per row)
 DEFAULT_CMD_TIMEOUT = 5.0
@@ -142,8 +149,8 @@ KIND_HOST = "host"              # run a command ON THE HOST PC (test
                                 # station CLI, e.g. start/stop a local
                                 # iperf3 server); PASS = exit code 0
 KIND_OP = "op"                  # standard operation (Init/Reset Instr.,
-                                # Fixture, Power, Flash FAT/OOBE, Delay):
-                                # the merged Sequence table carries it with
+                                # Fixture, Power, Delay): the merged
+                                # Sequence table carries it with
                                 # op_params; it round-trips through
                                 # fct_sequence_cases_yaml (never
                                 # console.test_commands)
@@ -152,11 +159,15 @@ KIND_WIFI_TEST = "wifi_test"    # Wi-Fi reference row (m30b): a Sequence
                                 # AT its position (no inline dialog)
 KIND_BT_TEST = "bt_test"        # Bluetooth reference row (m30b): expands
                                 # to one Bluetooth sub-test at its position
+KIND_FLASH_GUI = "flash_gui"    # M33: launch (or reuse) the third-party
+                                # firmware flash GUI, then take the operator
+                                # Go / Stop answer as the verdict
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST)
 
-#: the twelve labels of the merged "FCT test step" Type column (m30).
-#: Each label maps to a ConsoleCommand (or a standard operation) backing.
+#: the labels of the merged "FCT test step" Type column (m30 / m30b /
+#: m33).  Each label maps to a ConsoleCommand (or a standard operation)
+#: backing.
 STEP_TYPE_OPERATION = "Operation"
 STEP_TYPE_CONSOLE_SERIAL = "Console_serial"
 STEP_TYPE_CONSOLE_SSH = "Console_ssh"
@@ -169,6 +180,9 @@ STEP_TYPE_MESSAGE_GOSTOP = "MessageGoStop"
 STEP_TYPE_MESSAGE_OK_WAIT = "MessageOK_to_Console"
 STEP_TYPE_MESSAGE_YESNO_WAIT = "MessageYesNo_to_Console"
 STEP_TYPE_MESSAGE_GOSTOP_WAIT = "MessageGoStop_to_Console"
+#: M33: the third-party firmware flash GUI step (launch / reuse + Go /
+#: Stop operator verdict)
+STEP_TYPE_FLASH_GUI = "Flash_GUI"
 #: the six Wi-Fi/BT reference-row labels (m30b): a Sequence step that
 #: expands to the matching sub-test and jumps to its tab for editing.
 STEP_TYPE_WIFI_SCAN = "Wifi_Scan"
@@ -183,7 +197,7 @@ STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
-                    STEP_TYPE_MESSAGE_GOSTOP_WAIT,
+                    STEP_TYPE_MESSAGE_GOSTOP_WAIT, STEP_TYPE_FLASH_GUI,
                     STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
                     STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_RSSI,
                     STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE)
@@ -685,6 +699,11 @@ class ConsoleCommand:
                                     # the Wi-Fi/BT sub-test this reference
                                     # row expands to at its sequence
                                     # position (empty for non-RF rows)
+    flash_gui_path: str = ""        # kind == flash_gui (m33): third-party
+                                    # flash GUI executable (empty = FAIL)
+    flash_gui_message: str = DEFAULT_FLASH_GUI_MESSAGE
+                                    # kind == flash_gui: operator prompt
+                                    # shown with the Go / Stop dialog
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
@@ -718,7 +737,9 @@ class ConsoleCommand:
              "host_cmd_windows": self.host_cmd_windows,
              "capture_expected": self.capture_expected,
              "capture_unexpected": self.capture_unexpected,
-             "rf_subtest": self.rf_subtest}
+             "rf_subtest": self.rf_subtest,
+             "flash_gui_path": self.flash_gui_path,
+             "flash_gui_message": self.flash_gui_message}
         if self.kind == KIND_OP:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
@@ -793,7 +814,11 @@ class ConsoleCommand:
                 host_cmd=str(c.get("host_cmd", "")),
                 host_cmd_windows=str(c.get("host_cmd_windows", "")),
                 capture_expected=exp, capture_unexpected=unexp,
-                rf_subtest=str(c.get("rf_subtest", "")))
+                rf_subtest=str(c.get("rf_subtest", "")),
+                flash_gui_path=str(c.get("flash_gui_path", "")),
+                flash_gui_message=str(
+                    c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
+                    or DEFAULT_FLASH_GUI_MESSAGE))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -874,6 +899,8 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
         return STEP_TYPE_SFTP_PUT
     if kind == KIND_SFTP_GET:
         return STEP_TYPE_SFTP_GET
+    if kind == KIND_FLASH_GUI:
+        return STEP_TYPE_FLASH_GUI
     if kind == KIND_HOST:
         return STEP_TYPE_CONSOLE_CLI
     if kind == KIND_MESSAGE:
@@ -922,6 +949,13 @@ def console_command_for_label(label: str,
                               transport="ssh", wait_enabled=False,
                               send_enabled=True, capture_enabled=False,
                               send_timeout=30.0)
+    if label == STEP_TYPE_FLASH_GUI:
+        return ConsoleCommand(kind=KIND_FLASH_GUI,
+                              name=name or STEP_TYPE_FLASH_GUI,
+                              wait_enabled=False, send_enabled=False,
+                              capture_enabled=False,
+                              flash_gui_path="",
+                              flash_gui_message=DEFAULT_FLASH_GUI_MESSAGE)
     if label == STEP_TYPE_CONSOLE_CLI:
         return ConsoleCommand(kind=KIND_HOST, name=name or "",
                               transport="serial", wait_enabled=False,
@@ -1469,6 +1503,20 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                     "local": cmd.local, "remote": cmd.remote,
                     "ssh_host": ssh_host,
                     "ssh_username": ssh_username or "root"}))
+        return steps
+    # Flash_GUI row (M33): launch (or reuse) the third-party flash GUI
+    # on the HOST PC, then take the operator Go / Stop answer as the
+    # verdict (Go -> continue, Stop -> FAIL and stop the sequence).
+    if cmd.kind == KIND_FLASH_GUI:
+        steps.append(FctStep(
+            name=cmd.name or "Flash_GUI",
+            step_type=STEP_GUI_CONFIRM, channel="",
+            timeout_s=float(cmd.timeout or 30.0),
+            retries=0,
+            params={"style": DIALOG_GOSTOP,
+                    "message": cmd.flash_gui_message
+                    or DEFAULT_FLASH_GUI_MESSAGE,
+                    "flash_gui_path": cmd.flash_gui_path}))
         return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction

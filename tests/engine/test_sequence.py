@@ -6,14 +6,13 @@ from mtkgui.engine.sequence import iter_steps, load_sequence
 
 
 class TestStageFlow:
-    def test_two_stage_yaml_gets_flash_stages_inserted(self):
+    def test_two_stage_yaml_keeps_ict_and_fct(self):
         stages = load_sequence(make_cfg())
         names = [s.name for s in stages]
-        # production sequence: ICT -> FAT flash -> FCT -> OOBE flash
-        assert names == ["ICT", "Flash FAT Firmware", "FCT",
-                         "Flash OOBE Firmware"]
+        # M33: legacy flash stages are retired - ICT -> FCT only
+        assert names == ["ICT", "FCT"]
 
-    def test_explicit_four_stage_flow_kept(self):
+    def test_explicit_four_stage_flow_filters_flash(self):
         cfg = make_cfg()
         cfg["test_workflow"]["overall_flow"] = [
             {"stage": "ICT", "enable": True},
@@ -22,25 +21,8 @@ class TestStageFlow:
             {"stage": "Flash OOBE Firmware", "enable": False},
         ]
         stages = load_sequence(cfg)
-        assert [s.enable for s in stages] == [True, True, True, False]
-
-    def test_flash_step_params(self):
-        cfg = make_cfg()
-        cfg["firmware"] = {"fat_image": "fw/fat.bin",
-                           "oobe_image": "fw/oobe.bin"}
-        stages = load_sequence(cfg)
-        fat = stages[1].steps[0]
-        oobe = stages[3].steps[0]
-        assert fat.kind == "op"
-        assert fat.op_params["type"] == "flash"
-        assert fat.op_params["image"] == "fw/fat.bin"
-        assert oobe.op_params["slot"] == "oobe"
-
-    def test_flash_without_image_has_no_default_path(self):
-        # no firmware section: the step must fail at execution time,
-        # never guess an image path
-        stages = load_sequence(make_cfg())
-        assert "image" not in stages[1].steps[0].op_params
+        assert [s.name for s in stages] == ["ICT", "FCT"]
+        assert [s.enable for s in stages] == [True, True]
 
 
 class TestStepLoading:
@@ -53,11 +35,9 @@ class TestStepLoading:
 
     def test_fct_kind_derivation_and_params(self):
         stages = load_sequence(make_cfg())
-        fct = stages[2].steps
+        fct = stages[1].steps
         kinds = [s.kind for s in fct]
-        assert kinds == ["SendtoCLI", "WIFI", "op"]
-        flash = fct[2]
-        assert flash.op_params["type"] == "flash"
+        assert kinds == ["SendtoCLI", "WIFI"]
 
     def test_legacy_wait_s_tolerated(self):
         cfg = make_cfg()
@@ -70,7 +50,7 @@ class TestStepLoading:
         cfg = make_cfg()
         cfg["test_workflow"]["fct_test_cases"].append(
             {"name": "CapturefromCLI: 'OK' (expected)"})
-        step = load_sequence(cfg)[2].steps[-1]
+        step = load_sequence(cfg)[1].steps[-1]
         assert step.kind == "CapturefromCLI"
         assert step.wait_ms == 100 and step.timeout_ms == 5000
         assert step.enable is True
@@ -90,7 +70,7 @@ class TestIterSteps:
     def test_disabled_stage_and_steps_skipped(self):
         stages = load_sequence(make_cfg())
         stages[0].enable = False
-        stages[2].steps[0].enable = False
+        stages[1].steps[0].enable = False
         kinds = [s.kind for s in iter_steps(stages)]
         assert "SendtoCLI" not in kinds
         assert "WIFI" in kinds
@@ -117,9 +97,6 @@ def make_cfg() -> dict:
                 {"name": "SendtoCLI: \"cmd\", 'Pass' (expected)",
                  "kind": "SendtoCLI"},
                 {"name": "WIFI: scan and associate", "kind": "WIFI"},
-                {"name": "Flash FAT Firmware", "kind": "op",
-                 "op_params": {"type": "flash", "slot": "fat",
-                               "image": "firmware/fat.bin"}},
             ],
         },
     }

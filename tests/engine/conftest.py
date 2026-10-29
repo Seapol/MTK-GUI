@@ -14,7 +14,7 @@ from mtkgui.engine.sequence import load_sequence
 def make_config() -> dict:
     """Minimal project config covering every engine feature: op steps,
     impedance screening, a measurement row, the rail capture, a console
-    step, a WIFI RF row and a J-Link flash row."""
+    step and a WIFI RF row."""
     return {
         "product": {"part_number": "TEST-0001", "core_id": "M33",
                     "batch": "B1"},
@@ -60,10 +60,6 @@ def make_config() -> dict:
                                           "max_ping_ms": 50,
                                           "max_packet_loss_pct": 0,
                                           "min_throughput_mbps": 10}}},
-                {"name": "Flash FAT Firmware", "kind": "op",
-                 "op_params": {"type": "flash", "slot": "fat",
-                               "image": "firmware/fat.bin",
-                               "device": "MIMXRT700xxxxx"}},
             ],
         },
         "equipment": {
@@ -106,17 +102,6 @@ def env(tmp_path):
     """Default virtual-mode headless environment."""
     e, stages = make_env(tmp_path=tmp_path)
     yield e
-
-
-@pytest.fixture
-def firmware_image(tmp_path, monkeypatch):
-    """A legal firmware image relative to the CWD (the flash parameter
-    layer validates image existence before any driver call)."""
-    fdir = tmp_path / "firmware"
-    fdir.mkdir()
-    (fdir / "fat.bin").write_bytes(b"\xde\xad\xbe\xef")
-    monkeypatch.chdir(tmp_path)
-    return fdir / "fat.bin"
 
 
 @pytest.fixture

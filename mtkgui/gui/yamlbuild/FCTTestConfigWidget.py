@@ -67,6 +67,7 @@ from mtkgui.engine.fct_test_config import (
     BAUDRATES,
     BT_MODES,
     BW_TOOLS,
+    DEFAULT_FLASH_GUI_MESSAGE,
     WIFI_MODES,
     WIFI_SCAN_VIA,
     DIALOG_GOSTOP,
@@ -77,6 +78,7 @@ from mtkgui.engine.fct_test_config import (
     KIND_OP,
     KIND_WIFI_TEST,
     KIND_BT_TEST,
+    KIND_FLASH_GUI,
     STEP_TYPE_LABELS,
     STEP_TYPE_OPERATION,
     STEP_TYPE_CONSOLE_SERIAL,
@@ -90,6 +92,7 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_MESSAGE_OK_WAIT,
     STEP_TYPE_MESSAGE_YESNO_WAIT,
     STEP_TYPE_MESSAGE_GOSTOP_WAIT,
+    STEP_TYPE_FLASH_GUI,
     STEP_TYPE_WIFI_SCAN,
     STEP_TYPE_WIFI_PING,
     STEP_TYPE_WIFI_IPERF,
@@ -104,7 +107,6 @@ from mtkgui.engine.fct_test_config import (
     rf_subtest_for_label,
     step_type_label,
 )
-
 from mtkgui.engine import host_platform
 from mtkgui.engine.steps import op_summary as _op_summary
 
@@ -160,6 +162,7 @@ _ADD_ROW_NAMES = {
     STEP_TYPE_MESSAGE_OK_WAIT: "MessageOKtoConsole",
     STEP_TYPE_MESSAGE_YESNO_WAIT: "MessageYesNotoConsole",
     STEP_TYPE_MESSAGE_GOSTOP_WAIT: "MessageGoStoptoConsole",
+    STEP_TYPE_FLASH_GUI: "Flash_GUI",
     STEP_TYPE_WIFI_SCAN: "Wi-Fi: Scan / RSSI",
     STEP_TYPE_WIFI_PING: "Wi-Fi: Ping",
     STEP_TYPE_WIFI_IPERF: "Wi-Fi: iPerf",
@@ -929,6 +932,8 @@ class FCTTestConfigPanel(QWidget):
         _add_action(STEP_TYPE_SFTP_GET)
         add_menu.addSection("Host CLI")
         _add_action(STEP_TYPE_CONSOLE_CLI)
+        add_menu.addSection("Flash")
+        _add_action(STEP_TYPE_FLASH_GUI)
         add_menu.addSection("Dialogs")
         for label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                       STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
@@ -1042,10 +1047,59 @@ class FCTTestConfigPanel(QWidget):
             return
         if cmd.kind == KIND_OP:
             self._edit_operation_row(row)
+        elif cmd.kind == KIND_FLASH_GUI:
+            self._edit_flash_gui_row(row)
         elif cmd.kind == KIND_MESSAGE:
             self._edit_message_cell(row)
         else:
             self._edit_console_row(row)
+
+    def _edit_flash_gui_row(self, row: int) -> None:
+        """Flash_GUI editor (M33): the third-party flash GUI executable
+        and the operator Go / Stop prompt."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
+                                        QLabel, QLineEdit, QTextEdit,
+                                        QDialogButtonBox)
+        cmd = self._get_row_cmd(row)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Flash_GUI editor")
+        dlg.setMinimumWidth(720)
+        from PySide6.QtCore import Qt
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.raise_()
+        dlg.activateWindow()
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Launches the third-party flash GUI (or reuses it when it is "
+            "already running), then asks the operator: Go = flash "
+            "success (run continues), Stop = flash failed (run stops). "
+            "An empty GUI path fails the row."))
+        form = QFormLayout()
+        path_edit = QLineEdit(cmd.flash_gui_path or "")
+        path_edit.setPlaceholderText(
+            "Third-party flash GUI executable (full path)")
+        form.addRow("GUI path:", path_edit)
+        msg_edit = QTextEdit()
+        msg_edit.setPlainText(cmd.flash_gui_message
+                              or DEFAULT_FLASH_GUI_MESSAGE)
+        msg_edit.setMaximumHeight(90)
+        form.addRow("Message:", msg_edit)
+        lay.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok
+                                   | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec():
+            cmd.kind = KIND_FLASH_GUI
+            cmd.flash_gui_path = path_edit.text().strip()
+            cmd.flash_gui_message = (
+                msg_edit.toPlainText().strip() or DEFAULT_FLASH_GUI_MESSAGE)
+            cmd.wait_enabled = False
+            cmd.send_enabled = False
+            cmd.capture_enabled = False
+            self._save_row_cmd(row, cmd)
+        dlg.deleteLater()
 
     def _edit_message_cell(self, row: int) -> None:
         """Operator-dialog editor (m30): one of the six Message* types
@@ -2425,6 +2479,15 @@ class FCTTestConfigPanel(QWidget):
             self._set_cell(r, _COL_CAPTURE, self._capture_summary(cmd),
                            editable=False)
             self._set_cell(r, _COL_CMD, cmd.confirm_message or "",
+                           editable=False)
+            return
+        if cmd.kind == KIND_FLASH_GUI:
+            self._set_cell(r, _COL_WAIT, "", editable=False)
+            self._set_cell(r, _COL_SEND, "", editable=False)
+            self._set_cell(r, _COL_CAPTURE, "", editable=False)
+            self._set_cell(r, _COL_TIMEOUT, "-", editable=False)
+            self._set_cell(r, _COL_CMD,
+                           cmd.flash_gui_path or "(no path)",
                            editable=False)
             return
         if typ in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
