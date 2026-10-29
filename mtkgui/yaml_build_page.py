@@ -54,6 +54,7 @@ from mtkgui.ict.netparse import (
 from mtkgui.ict.netparse.confidence import clock_freq_hz
 from mtkgui.ict.netparse.priority import nominal_volts_of
 from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
+from mtkgui.gui.dialog_sizing import wrap_page
 from mtkgui.gui.progress_dialog import ProgressBridge
 from mtkgui.startup_timing import begin, end
 from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
@@ -255,6 +256,9 @@ class YamlBuildPage(QWidget):
         # paint both panes from the model
         self._load_persisted()
         self.refresh_all()
+        # M34: scroll-protect the page (block cards + allocation tables)
+        # on very small windows; the fixed-height card strip is preserved
+        wrap_page(self)
 
     # ------------------------------------------------------ model -> UI
     def refresh_all(self) -> None:

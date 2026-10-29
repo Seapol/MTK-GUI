@@ -58,7 +58,9 @@ import random
 
 from .permissions import MANUAL_FIXTURE_NOTICE, MODE_VIRTUAL
 from .qt_guard import qt_safe
-from mtkgui.gui.dialog_sizing import enable_dialog_controls, fit_dialog
+from mtkgui.gui.dialog_sizing import (apply_scroll_to_dialog,
+                                      enable_dialog_controls, fit_dialog,
+                                      wrap_page)
 
 # ---------------------------------------------------------------- palette
 BLUE = "#2563eb"
@@ -1516,6 +1518,9 @@ class _BlockConfigDialog(QDialog):
         enable_dialog_controls(self)
         self._editor = editor
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         # 1 -------------------------------------------- basic information
         info = QGroupBox("Basic Information")
@@ -1525,7 +1530,7 @@ class _BlockConfigDialog(QDialog):
             edit = QLineEdit(value)
             edit.setReadOnly(True)
             form.addRow(f"{label}:", edit)
-        root.addWidget(info)
+        body_lay.addWidget(info)
 
         # 2 -------------------------------------- editor or the notice
         saved = (config or {}).get("params") or {}
@@ -1539,19 +1544,21 @@ class _BlockConfigDialog(QDialog):
                 edit.setPlaceholderText(default or "optional")
                 self._edits[key] = edit
                 tform.addRow(f"{label}:", edit)
-            root.addWidget(test)
+            body_lay.addWidget(test)
             hint = QLabel("Saved with the project and reused by the "
                           "test flow.")
             hint.setObjectName("muted")
-            root.addWidget(hint)
+            body_lay.addWidget(hint)
         else:
             notice = QLabel(_NOT_YET)
             notice.setObjectName("warn")
-            root.addWidget(notice)
+            body_lay.addWidget(notice)
 
         note_label = QLabel(note)
         note_label.setObjectName("warn")
-        root.addWidget(note_label)
+        body_lay.addWidget(note_label)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -1583,6 +1590,9 @@ class _DeviceEditDialog(QDialog):
         enable_dialog_controls(self)
         self._spec = spec
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         if spec:
             form = QFormLayout()
@@ -1593,7 +1603,7 @@ class _DeviceEditDialog(QDialog):
                 edit.setPlaceholderText(default or "optional")
                 self._edits[key] = edit
                 form.addRow(f"{label}:", edit)
-            root.addLayout(form)
+            body_lay.addLayout(form)
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         else:
             info_box = QGroupBox("Device Information")
@@ -1603,11 +1613,13 @@ class _DeviceEditDialog(QDialog):
                 edit = QLineEdit(str(value))
                 edit.setReadOnly(True)
                 form.addRow(f"{label}:", edit)
-            root.addWidget(info_box)
+            body_lay.addWidget(info_box)
             notice = QLabel(_NOT_YET)
             notice.setObjectName("warn")
-            root.addWidget(notice)
+            body_lay.addWidget(notice)
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -1636,6 +1648,9 @@ class _DeviceTableDialog(QDialog):
         self._device_params = dict(
             (config or {}).get("device_params") or {})
         layout = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         table = QTableWidget(len(rows), 3)
         table.setHorizontalHeaderLabels(["Item", "Role", "Interface / Status"])
         table.verticalHeader().setVisible(False)
@@ -1648,14 +1663,16 @@ class _DeviceTableDialog(QDialog):
         table.setColumnWidth(0, 270)
         table.setColumnWidth(1, 420)
         table.cellDoubleClicked.connect(self._edit_device)
-        layout.addWidget(table)
+        body_lay.addWidget(table)
         hint = QLabel("Double-click a device row to edit its "
                       "configuration.")
         hint.setObjectName("muted")
-        layout.addWidget(hint)
+        body_lay.addWidget(hint)
         note_label = QLabel(note)
         note_label.setObjectName("warn")
-        layout.addWidget(note_label)
+        body_lay.addWidget(note_label)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1721,6 +1738,9 @@ class _InstrumentDialog(QDialog):
         self.setWindowTitle(f"{title} - Configuration")
         fit_dialog(self, 920, 720)
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         # 1 ---------------------------------------------------- information
         info = QGroupBox("Instrument Information")
@@ -1730,7 +1750,7 @@ class _InstrumentDialog(QDialog):
             edit = QLineEdit(value)
             edit.setReadOnly(True)
             form.addRow(f"{label}:", edit)
-        root.addWidget(info)
+        body_lay.addWidget(info)
 
         # 2 ------------------------------------------------------ parameters
         saved_params = self._config.get("params") or {}
@@ -1742,7 +1762,7 @@ class _InstrumentDialog(QDialog):
             edit = QLineEdit(str(saved_params.get(label, value)))
             self._param_edits.append(edit)
             pform.addRow(f"{label}:", edit)
-        root.addWidget(params)
+        body_lay.addWidget(params)
 
         # 3 ------------------------------------------------------- connection
         conn = QGroupBox("Connection")
@@ -1780,7 +1800,7 @@ class _InstrumentDialog(QDialog):
         crow.addWidget(self.btn_disconnect)
         crow.addWidget(self.btn_test)
         cv.addLayout(crow)
-        root.addWidget(conn)
+        body_lay.addWidget(conn)
 
         # 4 ------------------------------------------- control & simple tests
         ctl = QGroupBox("Control && Simple Tests")
@@ -1811,20 +1831,26 @@ class _InstrumentDialog(QDialog):
         self._output = QPlainTextEdit()
         self._output.setReadOnly(True)
         self._output.setPlaceholderText("Action / test results appear here ...")
-        self._output.setMinimumHeight(240)
         cl.addWidget(self._output, 1)
-        root.addWidget(ctl, 1)
+        body_lay.addWidget(ctl, 1)
         # the information / parameter groups stay compact; the log
         # group above absorbs the resize
-        root.setStretch(0, 0)
-        root.setStretch(1, 0)
-        root.setStretch(2, 0)
-        root.setStretch(3, 1)
+        body_lay.setStretch(0, 0)
+        body_lay.setStretch(1, 0)
+        body_lay.setStretch(2, 0)
+        body_lay.setStretch(3, 1)
 
         note = QLabel(_mode_note("Virtual" if virtual else "Real",
                                  instrument=True))
         note.setObjectName("warn")
-        root.addWidget(note)
+        body_lay.addWidget(note)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
+        # QScrollArea.setWidget() polishes the content, which lets the
+        # stylesheet min-height replace an explicit minimum set earlier -
+        # re-apply the 240 px Test Log minimum AFTER the wrap (user
+        # direction: the log is the main lower area, not a 130 px strip)
+        self._output.setMinimumHeight(240)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -2052,6 +2078,8 @@ class EquipmentPage(QWidget):
         # hug the actual content so fitInView can maximize the diagram
         rect = self.scene.itemsBoundingRect().adjusted(-20, -20, 20, 20)
         self.scene.setSceneRect(rect)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
 
     def _update_zoom_label(self):
         self.zoom_label.setText(f"{round(self.view.transform().m11() * 100)}%")

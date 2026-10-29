@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox,
 
 from mtkgui.engine.cluster_scheduler import ClusterScheduler, Task
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -68,6 +69,8 @@ class ClusterPage(QWidget):
             ["Task", "Type", "State", "Device"])
         root.addWidget(self.task_table, 1)
 
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ------------------------------------------------------------ view

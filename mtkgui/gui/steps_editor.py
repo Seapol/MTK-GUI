@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .dialog_sizing import fit_dialog
+from .dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from ..engine import (
     FCT_METHODS,
     METHOD_R_GND,
@@ -80,6 +80,9 @@ class StepsEditorDialog(QDialog):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         # --- list + button column ---
         top = QHBoxLayout()
@@ -106,7 +109,10 @@ class StepsEditorDialog(QDialog):
             btn_col.addWidget(btn)
         btn_col.addStretch()
         top.addLayout(btn_col)
-        layout.addLayout(top)
+        body_lay.addLayout(top)
+        # M34: the step list scrolls on small windows; the OK / Cancel row
+        # stays outside the scroll area (always visible)
+        apply_scroll_to_dialog(self, body)
 
         self.btn_up.clicked.connect(self._on_move_up)
         self.btn_down.clicked.connect(self._on_move_down)
@@ -422,7 +428,11 @@ class StepsEditorDialog(QDialog):
         kind = normalize_ict_method(kind)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
-        form = QFormLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
         # Test Method FIRST (user direction); Unit auto-fills, the
         # Expected / Min / Max fields are numeric (the "Measured" slot
         # holds the EXPECTED value: Min = Expected * (1 - tol), Max =
@@ -559,7 +569,10 @@ class StepsEditorDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
+        body_lay.addLayout(form)
+        # M34: the form scrolls on small windows; OK / Cancel stays outside
+        apply_scroll_to_dialog(dlg, body)
+        outer.addWidget(buttons)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
 
@@ -613,6 +626,9 @@ class StepsEditorDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit (Operation)")
         outer = QVBoxLayout(dlg)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         head = QFormLayout()
         op_combo = QComboBox()
@@ -621,13 +637,13 @@ class StepsEditorDialog(QDialog):
         op_combo.setCurrentText(
             name if (name in OP_STEPS or not name) else "Custom Operation")
         head.addRow("Standard Step:", op_combo)
-        outer.addLayout(head)
+        body_lay.addLayout(head)
 
         # per-type parameter area, rebuilt when the step type changes
         param_form = QFormLayout()
         param_box = QWidget()
         param_box.setLayout(param_form)
-        outer.addWidget(param_box)
+        body_lay.addWidget(param_box)
         fields = {}
 
         def current_type():
@@ -720,7 +736,9 @@ class StepsEditorDialog(QDialog):
         meta.addRow("Enable:", enable_cb)
         meta.addRow("Wait:", wait_spin)
         meta.addRow("Timeout:", timeout_spin)
-        outer.addLayout(meta)
+        body_lay.addLayout(meta)
+        # M34: the form scrolls on small windows; OK / Cancel stays outside
+        apply_scroll_to_dialog(dlg, body)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -792,7 +810,11 @@ class StepsEditorDialog(QDialog):
             return ok
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
-        form = QFormLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
         name_edit = QLineEdit(name)
         method_combo = QComboBox()
         method_combo.addItems(FCT_METHODS)
@@ -819,7 +841,10 @@ class StepsEditorDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
+        body_lay.addLayout(form)
+        # M34: the form scrolls on small windows; OK / Cancel stays outside
+        apply_scroll_to_dialog(dlg, body)
+        outer.addWidget(buttons)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
         self._steps[r] = name_edit.text().strip() or name

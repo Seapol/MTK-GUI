@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QGroupBox,
 
 from .case_store import (AUDIT_KEY, DIMENSIONS, DIM_CN, LockedCaseError,
                          CaseStore, categorize)
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 CATEGORIES = ("Power network", "Clock network", "Signal network",
@@ -85,6 +86,8 @@ class CaseEditorPage(QWidget):
         self.refresh_tree()
         self._refresh_dim_boxes()
         self._refresh_trace()
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
 
     # detail form -------------------------------------------------------
     def _build_detail_form(self) -> QWidget:

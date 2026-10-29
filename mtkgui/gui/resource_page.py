@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel,
 from mtkgui.engine.resource_hub import (PathHub, ResourceManager,
                                         ResourceBusy)
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -56,6 +57,8 @@ class ResourcePage(QWidget):
         self.tree = QTreeWidget(self)
         self.tree.setHeaderLabels(["Path hub", "Location"])
         root.addWidget(self.tree, 1)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ------------------------------------------------------------ view

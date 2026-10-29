@@ -36,11 +36,12 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from mtkgui.gui import statistics_store as store
 from mtkgui.gui.charts import BarChart, LineChart, PieChart
-from mtkgui.gui.dialog_sizing import fit_dialog
+from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, fit_dialog
 
 #: BarChart switches from per-unit to per-batch means above this count
 BATCH_THRESHOLD = 50
@@ -102,6 +103,9 @@ class StatisticsDialog(QDialog):
         self.last_records: list[store.RunRecord] = []
 
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         # --------------------------------------------------- source row
         source_row = QHBoxLayout()
@@ -116,14 +120,14 @@ class StatisticsDialog(QDialog):
         self.path_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         source_row.addWidget(self.path_label, 1)
-        root.addLayout(source_row)
+        body_lay.addLayout(source_row)
 
         # corrupt-history / empty-source notice (hidden when clean)
         self.warning_label = QLabel("", self)
         self.warning_label.setWordWrap(True)
         self.warning_label.setStyleSheet("color:#e5b13a;")
         self.warning_label.setVisible(False)
-        root.addWidget(self.warning_label)
+        body_lay.addWidget(self.warning_label)
 
         # --------------------------------------------------- overview
         cards = QHBoxLayout()
@@ -132,7 +136,7 @@ class StatisticsDialog(QDialog):
             card = _OverviewCard(caption, self)
             self.cards[key] = card
             cards.addWidget(card, 1)
-        root.addLayout(cards)
+        body_lay.addLayout(cards)
 
         # ----------------------------------------------------- charts
         charts = QHBoxLayout()
@@ -143,7 +147,7 @@ class StatisticsDialog(QDialog):
         charts.addWidget(self.line_chart, 1)
         charts.addWidget(self.bar_chart, 1)
         charts.addWidget(self.pie_chart, 1)
-        root.addLayout(charts, 1)
+        body_lay.addLayout(charts, 1)
 
         # -------------------------------------------------- CpK table
         cpk_box = QGroupBox("Process capability (Cp / CpK)", self)
@@ -151,7 +155,7 @@ class StatisticsDialog(QDialog):
         cpk_lay.setContentsMargins(6, 6, 6, 6)
         self.cpk_table = self._make_table(CPK_HEADERS)
         cpk_lay.addWidget(self.cpk_table)
-        root.addWidget(cpk_box, 1)
+        body_lay.addWidget(cpk_box, 1)
 
         # ---------------------------------------------------- history
         history_box = QGroupBox("Run history", self)
@@ -159,7 +163,9 @@ class StatisticsDialog(QDialog):
         history_lay.setContentsMargins(6, 6, 6, 6)
         self.history_table = self._make_table(HISTORY_HEADERS)
         history_lay.addWidget(self.history_table)
-        root.addWidget(history_box, 1)
+        body_lay.addWidget(history_box, 1)
+        # M34: body scrolls, Refresh / Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
 
         # ---------------------------------------------------- buttons
         actions = QHBoxLayout()

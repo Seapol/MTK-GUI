@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel,
 
 from mtkgui.engine.cluster_hub import ClusterHub
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -67,6 +68,8 @@ class FleetPage(QWidget):
         self.alert_list = QListWidget(self)
         root.addWidget(self.alert_list, 1)
         self.fleet_alert.connect(self._on_alert)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ------------------------------------------------------------ view

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QLabel, QMessageBox, QPlainTextEdit,
 
 from mtkgui.engine.uploader import SharePointUploader
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -56,6 +57,8 @@ class UploadPage(QWidget):
         self.audit_view.setReadOnly(True)
         root.addWidget(self.audit_view, 1)
 
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ---------------------------------------------------------------- UI

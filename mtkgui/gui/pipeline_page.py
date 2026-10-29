@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel,
 
 from mtkgui.engine.batch_pipeline import BatchPipeline
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -51,6 +52,8 @@ class PipelinePage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 2)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
 
     # ------------------------------------------------------------ view
     def refresh(self) -> int:

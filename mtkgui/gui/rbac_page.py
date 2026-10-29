@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView,
 
 from mtkgui.engine.rbac_hub import Role5, RbacHub
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -67,6 +68,8 @@ class RbacPage(QWidget):
 
         self.stats_label = QLabel("", self)
         root.addWidget(self.stats_label)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ------------------------------------------------------------ view

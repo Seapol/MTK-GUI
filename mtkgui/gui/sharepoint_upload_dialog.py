@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from mtkgui.engine.sharepoint_site import (
@@ -53,7 +54,7 @@ from mtkgui.engine.sharepoint_site import (
     parse_sharepoint_link,
     session_cookies,
 )
-from mtkgui.gui.dialog_sizing import fit_dialog
+from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from mtkgui.engine.uploader import (
     MODE_PACKAGED,
     MODE_SYNC,
@@ -153,17 +154,22 @@ class SharePointSignInDialog(QDialog):
         self.session_cookies: list[dict] = []
 
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         self.url_label = QLineEdit()
         self.url_label.setReadOnly(True)
         self.url_label.setPlaceholderText("sign-in page…")
-        root.addWidget(self.url_label)
+        body_lay.addWidget(self.url_label)
         self.view = (view_factory() if view_factory is not None
                      else self._make_view())
-        root.addWidget(self.view, 1)
+        body_lay.addWidget(self.view, 1)
         self.status = QLabel("Sign in with your NXP account (MFA included)."
                              " MTK GUI stores no password.")
         self.status.setWordWrap(True)
-        root.addWidget(self.status)
+        body_lay.addWidget(self.status)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -247,6 +253,9 @@ class ImportBrowserSessionDialog(QDialog):
         fit_dialog(self, 640, 480)
         self.site_url = str(site_url or "")
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         hint = QLabel(
             "Sign in with your NXP account in your OWN browser first "
             "(Edge/Chrome, MFA included), then import the session here.\n\n"
@@ -263,12 +272,14 @@ class ImportBrowserSessionDialog(QDialog):
             "in the browser and re-import here.")
         hint.setWordWrap(True)
         hint.setObjectName("muted")
-        root.addWidget(hint)
+        body_lay.addWidget(hint)
         self.edit = QPlainTextEdit()
         self.edit.setPlaceholderText(
             "FedAuth=xxxxx\nrtFa=yyyyy\n\nor paste the Cookie-Editor "
             "JSON array here")
-        root.addWidget(self.edit, 1)
+        body_lay.addWidget(self.edit, 1)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -332,6 +343,9 @@ class SharePointUploadDialog(QDialog):
         fit_dialog(self, 720, 560)
 
         root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
 
         # ---------------------------------------------- connection box
         conn = QGroupBox("SharePoint Connection")
@@ -402,7 +416,7 @@ class SharePointUploadDialog(QDialog):
         self.conn_status.setWordWrap(True)
         test_row.addWidget(self.conn_status, 1)
         form.addRow(test_row)
-        root.addWidget(conn)
+        body_lay.addWidget(conn)
 
         # ------------------------------------------------- source folder
         src = QGroupBox("Local Folder")
@@ -416,7 +430,7 @@ class SharePointUploadDialog(QDialog):
         self.btn_browse.clicked.connect(self._browse)
         folder_row.addWidget(self.btn_browse)
         sform.addRow(folder_row)
-        root.addWidget(src)
+        body_lay.addWidget(src)
 
         # ------------------------------------------------------- mode box
         mode = QGroupBox("Upload Mode")
@@ -435,7 +449,7 @@ class SharePointUploadDialog(QDialog):
         mform.addRow("Period:", self.period_combo)
         self.rb_sync.toggled.connect(self._sync_mode_widgets)
         self.rb_packaged.toggled.connect(self._sync_mode_widgets)
-        root.addWidget(mode)
+        body_lay.addWidget(mode)
 
         # ------------------------------------------------------ actions
         actions = QHBoxLayout()
@@ -449,17 +463,19 @@ class SharePointUploadDialog(QDialog):
         self.btn_pack.clicked.connect(self.pack_now)
         actions.addWidget(self.btn_pack)
         actions.addStretch(1)
-        root.addLayout(actions)
+        body_lay.addLayout(actions)
 
         # ------------------------------------------------- status / audit
         if self.virtual:
-            root.addWidget(QLabel(
+            body_lay.addWidget(QLabel(
                 "Virtual mode: the FakeSharePoint transport simulates "
                 "the cloud (results marked virtual)."))
         self.audit_view = QPlainTextEdit()
         self.audit_view.setReadOnly(True)
         self.audit_view.setPlaceholderText("upload audit trail…")
-        root.addWidget(self.audit_view, 1)
+        body_lay.addWidget(self.audit_view, 1)
+        # M34: body scrolls, Close stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Close)

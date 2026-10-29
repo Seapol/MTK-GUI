@@ -28,6 +28,7 @@ from mtkgui.engine.metrics import (MetricsEngine,  # noqa: F401
                                    compute_yield, filter_records)
 
 from .report_export import build_html_report, export_pdf
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -88,6 +89,8 @@ class ExportPage(QWidget):
         root.addLayout(bar2)
 
         self._zoom = 0
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ----------------------------------------------------------- build

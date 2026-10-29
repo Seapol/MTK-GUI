@@ -44,7 +44,8 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.ict.netparse import read_text_any_encoding
-from mtkgui.gui.dialog_sizing import enable_dialog_controls
+from mtkgui.gui.dialog_sizing import (apply_scroll_to_dialog,
+                                      enable_dialog_controls)
 from mtkgui.gui.yamlbuild.parser import core_id_from_filename
 from mtkgui.gui.yamlbuild.schema import (
     BATCH_CUSTOMIZED_PREFIX,
@@ -95,7 +96,11 @@ class DrqDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Deviation (DRQ) Numbers")
         enable_dialog_controls(self)
-        form = QFormLayout(self)
+        outer = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
         self.edits: list[QLineEdit] = []
         values = list(values or [])[:MAX_DRQ_NUMBERS]
         for i in range(MAX_DRQ_NUMBERS):
@@ -103,12 +108,15 @@ class DrqDialog(QDialog):
             edit.setPlaceholderText(f"DRQ number #{i + 1} (optional)")
             form.addRow(f"DRQ #{i + 1}:", edit)
             self.edits.append(edit)
+        body_lay.addLayout(form)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+        outer.addWidget(buttons)
 
     def drq_numbers(self) -> list[str]:
         """The non-empty DRQ numbers in entry order."""

@@ -109,6 +109,7 @@ from mtkgui.engine.fct_test_config import (
 )
 from mtkgui.engine import host_platform
 from mtkgui.engine.steps import op_summary as _op_summary
+from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
 
 # Each cmd_table row carries its full ConsoleCommand on the Name cell's
 # UserRole so that advanced attributes (regex/case/expected/end line/
@@ -579,7 +580,8 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(self.cmd_table, 1)
         self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
         lay.addLayout(self._cmd_row_buttons())
-        return w
+        # M34: the Sequence tab scrolls (small window) - no control squeeze
+        return wrap_scrollable(w)
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:
@@ -701,7 +703,8 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_bare_hint.setVisible(False)
         lay.addWidget(self.ssh_bare_hint)
         lay.addStretch(1)
-        return w
+        # M34: the Console tab scrolls (small window) - no control squeeze
+        return wrap_scrollable(w)
 
     @staticmethod
     def _browse_dir(edit: QLineEdit) -> None:
@@ -1068,7 +1071,10 @@ class FCTTestConfigPanel(QWidget):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel(
             "Launches the third-party flash GUI (or reuses it when it is "
             "already running), then asks the operator: Go = flash "
@@ -1085,11 +1091,13 @@ class FCTTestConfigPanel(QWidget):
         msg_edit.setMaximumHeight(90)
         form.addRow("Message:", msg_edit)
         lay.addLayout(form)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
+        outer.addWidget(buttons)
         if dlg.exec():
             cmd.kind = KIND_FLASH_GUI
             cmd.flash_gui_path = path_edit.text().strip()
@@ -1118,7 +1126,10 @@ class FCTTestConfigPanel(QWidget):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel(
             "Operator dialog: MessageOK only acks; MessageYesNo sends "
             "yes / no (PASS either way); MessageGoStop GO continues and "
@@ -1184,11 +1195,13 @@ class FCTTestConfigPanel(QWidget):
         form.addRow("Capture Expected:", cap_exp)
         form.addRow("Capture Unexpected:", cap_unexp)
         lay.addLayout(form)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
+        outer.addWidget(buttons)
         if dlg.exec():
             _lbl, dialog_style, _wait = self._msg_style_items[
                 style.currentIndex()]
@@ -1249,7 +1262,7 @@ class FCTTestConfigPanel(QWidget):
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QLineEdit, QTextEdit,
                                         QCheckBox, QSpinBox,
-                                        QDialogButtonBox)
+                                        QDialogButtonBox, QWidget)
         cmd = self._get_row_cmd(row)
         typ = step_type_label(cmd)
         dlg = QDialog(self)
@@ -1259,8 +1272,11 @@ class FCTTestConfigPanel(QWidget):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
-        form = QFormLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
 
         wait_edit = None
         wait_cb = None
@@ -1324,11 +1340,13 @@ class FCTTestConfigPanel(QWidget):
         form.addRow("Timeout:", timeout)
 
         lay.addLayout(form)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
+        outer.addWidget(buttons)
         if dlg.exec():
             if wait_cb is not None:
                 cmd.wait_enabled = wait_cb.isChecked()
@@ -1382,7 +1400,7 @@ class FCTTestConfigPanel(QWidget):
             return
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                                         QTextEdit, QPushButton, QLabel,
-                                        QCheckBox)
+                                        QCheckBox, QWidget)
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(750)
@@ -1390,7 +1408,10 @@ class FCTTestConfigPanel(QWidget):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
         # load current state from the row's full ConsoleCommand
         cmd = self._row_cmd(row)
         cell_text = self.cmd_table.item(row, col).text() if self.cmd_table.item(row, col) else ""
@@ -1527,6 +1548,8 @@ class FCTTestConfigPanel(QWidget):
                 result_label.setStyleSheet("color: red")
         # common patterns hint
         lay.addWidget(QLabel("Regex common:  root@.*  |  login:  |  ERROR|FAIL  |  \\d+\\.\\d+"))
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         # buttons
         btn_row = QHBoxLayout()
         ok = QPushButton("OK")
@@ -1536,7 +1559,7 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addStretch(1)
         btn_row.addWidget(cancel)
         btn_row.addWidget(ok)
-        lay.addLayout(btn_row)
+        outer.addLayout(btn_row)
         if dlg.exec() == QDialog.Accepted:
             if cmd is None:
                 cmd = self._get_row_cmd(row)
@@ -1567,14 +1590,17 @@ class FCTTestConfigPanel(QWidget):
         (plus its timeout) - the counterpart of a console row's SendTo."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                                         QTextEdit, QLabel, QPushButton,
-                                        QSpinBox)
+                                        QSpinBox, QWidget)
         dlg = QDialog(self)
         dlg.setWindowTitle("Host CLI editor")
         dlg.setMinimumWidth(700)
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel(
             "Command run on the Host PC (test station shell).\n"
             "PASS = exit code 0. {{placeholders}} are rendered at run time."))
@@ -1590,6 +1616,8 @@ class FCTTestConfigPanel(QWidget):
         t_row.addWidget(t_spin)
         t_row.addStretch(1)
         lay.addLayout(t_row)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         btns = QHBoxLayout()
         btns.addStretch(1)
         cancel = QPushButton("Cancel")
@@ -1598,7 +1626,7 @@ class FCTTestConfigPanel(QWidget):
         ok.clicked.connect(dlg.accept)
         btns.addWidget(cancel)
         btns.addWidget(ok)
-        lay.addLayout(btns)
+        outer.addLayout(btns)
         if dlg.exec() != QDialog.Accepted:
             return
         cmd.host_cmd = edit.toPlainText().strip()
@@ -1638,7 +1666,10 @@ class FCTTestConfigPanel(QWidget):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
         dlg.activateWindow()
-        lay = QVBoxLayout(dlg)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
 
         # Enable Send step checkbox
         send_enable_cb = QCheckBox("Enable Send step")
@@ -1759,6 +1790,8 @@ class FCTTestConfigPanel(QWidget):
             cmd_edit.setPlainText(cmd.send if cmd is not None
                                   else current_text)
 
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         # buttons
         btn_row = QHBoxLayout()
         ok = QPushButton("OK")
@@ -1768,7 +1801,7 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addStretch(1)
         btn_row.addWidget(cancel)
         btn_row.addWidget(ok)
-        lay.addLayout(btn_row)
+        outer.addLayout(btn_row)
 
         if dlg.exec() == QDialog.Accepted:
             idx = op_type.currentIndex()

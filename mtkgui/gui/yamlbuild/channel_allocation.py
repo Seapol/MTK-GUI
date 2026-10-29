@@ -35,11 +35,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTabWidget,
     QTableWidgetItem,
@@ -58,6 +60,7 @@ from mtkgui.gui.yamlbuild.ict_sequence import (
     _filled,
 )
 from mtkgui.ict.netparse.isolation import assess_net
+from mtkgui.gui.dialog_sizing import wrap_scrollable
 from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
     CLOCK_CHANNELS,
@@ -802,6 +805,17 @@ class ChannelAllocationPage(QWidget):
         self._refresh_fp: str | None = None
 
         lay = QVBoxLayout(self)
+        # M34: the body + scroll wrapper are created BEFORE any table
+        # exists - re-parenting the tables into a QScrollArea later
+        # segfaults (shiboken GC bug, see the set_model note above)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        lay.addWidget(scroll, 1)
         # NOTE: the former "Auto" / "Apply to YAML" buttons are GONE
         # (user direction 2026-10-13): the Auto allocation lives on
         # the "Auto-Channel Allocation" workflow card (click -> :meth:
@@ -813,7 +827,7 @@ class ChannelAllocationPage(QWidget):
             "module). All configuration cells are dropdown-only.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
-        lay.addWidget(hint)
+        body_lay.addWidget(hint)
 
         self.tabs = QTabWidget()
         self._members_of = self._net_members
@@ -837,10 +851,13 @@ class ChannelAllocationPage(QWidget):
         # renders the moment the tab is shown (lazy render, 2026-10-15)
         self.tabs.currentChanged.connect(
             lambda _i: self.tabs.currentWidget()._render_window())
-        lay.addWidget(self.tabs, 1)
+        body_lay.addWidget(self.tabs, 1)
 
         self.lbl_summary = QLabel("")
-        lay.addWidget(self.lbl_summary)
+        body_lay.addWidget(self.lbl_summary)
+        # mark the pre-built body as scroll-protected (idempotent no-op
+        # re-parent: it already sits in the scroll area)
+        wrap_scrollable(body)
 
     # ------------------------------------------------------------ helpers
     def set_model(self, model) -> None:

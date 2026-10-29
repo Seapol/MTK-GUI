@@ -14,7 +14,8 @@ import re
 
 from PySide6.QtWidgets import QDialog, QWidget
 
-from mtkgui.gui.dialog_sizing import enable_dialog_controls
+from mtkgui.gui.dialog_sizing import (apply_scroll_to_dialog,
+                                      enable_dialog_controls)
 from mtkgui.ict.netparse.learn import BUCKETS, learn_rules, read_net_names
 from mtkgui.ict.netparse.rules import (DEFAULT_RULES, RULE_SLOTS,
                                        validate_rules)
@@ -55,6 +56,9 @@ class NetRulesEditorDialog(QDialog):
         self.setMinimumWidth(520)
         enable_dialog_controls(self)
         lay = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         head = QLabel(
             "Priority: manual override > SPF pin attribute > custom "
             "regex > factory default.  An empty regex skips the name "
@@ -66,7 +70,7 @@ class NetRulesEditorDialog(QDialog):
             "objects.  Differential pair detection is kernel-internal.")
         head.setObjectName("muted")
         head.setWordWrap(True)
-        lay.addWidget(head)
+        body_lay.addWidget(head)
 
         self._edits: dict[str, QLineEdit] = {}
         self._samples: dict[str, QLineEdit] = {}
@@ -96,15 +100,17 @@ class NetRulesEditorDialog(QDialog):
             self._results[key] = result
             test_btn.clicked.connect(
                 lambda _c=False, k=key: self._run_test(k))
-        lay.addLayout(form)
+        body_lay.addLayout(form)
 
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
-        lay.addWidget(self.error_label)
+        body_lay.addWidget(self.error_label)
 
         self._learn_panel = self._build_learn_panel()
-        lay.addWidget(self._learn_panel)
+        body_lay.addWidget(self._learn_panel)
+        # M34: body scrolls, Save / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(self, body)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save

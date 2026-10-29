@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel,
 
 from mtkgui.engine.auth_audit import AccessControl, AuditLog, Role
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -92,6 +93,8 @@ class AuditPage(QWidget):
              "Notes"])
         root.addWidget(self.table, 1)
 
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self.refresh()
 
     # ------------------------------------------------------------ login

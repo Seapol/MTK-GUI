@@ -55,6 +55,7 @@ from mtkgui.ict.netparse import (
     rank_result,
     select_test_points,
 )
+from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog
 from mtkgui.gui.progress_dialog import (
     SHOW_DELAY_S,
     ProgressDialog,
@@ -574,6 +575,9 @@ class ParseNetsPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Test Path Risk Thresholds")
         lay = QVBoxLayout(dlg)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
         spin_medium = QSpinBox()
         spin_medium.setRange(1, 9)
@@ -583,13 +587,15 @@ class ParseNetsPanel(QWidget):
         spin_high.setValue(self.risk_thresholds.get("high_min", 7))
         form.addRow("Medium risk from score:", spin_medium)
         form.addRow("High risk from score:", spin_high)
-        lay.addLayout(form)
+        body_lay.addLayout(form)
         note = QLabel(
             "Score 0-3 Low / 4-6 Medium / 7-10 High (factory "
             "defaults). The warning is advisory only and never "
             "blocks a channel assignment.")
         note.setWordWrap(True)
-        lay.addWidget(note)
+        body_lay.addWidget(note)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)

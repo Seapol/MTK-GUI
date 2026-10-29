@@ -30,6 +30,7 @@ from mtkgui.engine.metrics import (MetricsEngine, TestRecord,
                                    compute_yield, filter_records)
 
 from .charts import BarChart, LineChart, PieChart
+from .dialog_sizing import wrap_scrollable
 from .theme import StyleSpec
 
 AUTO_REFRESH_MS = 5000
@@ -260,7 +261,8 @@ class ReportPage(QWidget):
             viewer = QPlainTextEdit(box)
             viewer.setReadOnly(True)
             viewer.setPlainText(text)
-            v.addWidget(viewer)
+            # M34: the detail text scrolls on small windows
+            v.addWidget(wrap_scrollable(viewer), 1)
             box.resize(640, 420)
             box.exec()
 

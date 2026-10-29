@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QGroupBox,
 from .config_spec import (SECTIONS, ValidationIssue, set_path, get_path,
                           validate_value)
 from .config_store import ConfigStore
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 ERR_BG = "#4a2430"
@@ -106,6 +107,8 @@ class ConfigPage(QWidget):
         self.rollback_btn.clicked.connect(self.on_rollback)
         self.diff_btn.clicked.connect(self.on_diff)
         self.validate_btn.clicked.connect(self.on_validate_all)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
         self._refresh_snapshots()
 
     # editor factory ----------------------------------------------------

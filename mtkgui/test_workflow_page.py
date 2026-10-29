@@ -102,7 +102,7 @@ from .engine import (
 )
 from .engine.rails import DURATION_S
 from .gui.steps_editor import StepsEditorDialog as _SequenceEditorDialog
-from .gui.dialog_sizing import fit_dialog
+from .gui.dialog_sizing import fit_dialog, wrap_scrollable
 from .gui.test_case_viewer import TestCaseViewer
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
@@ -886,6 +886,9 @@ class TestWorkFlowPage(QWidget):
         layout.addWidget(splitter)
 
         scroll.setWidget(body)
+        # M34: the body already lives in a QScrollArea - just mark it so
+        # the scroll guard recognises this page as protected (no re-wrap)
+        wrap_scrollable(body)
         root.addWidget(scroll, 1)
         _startup_mark("twf: page layout done")
 

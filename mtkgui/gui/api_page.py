@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel,
 
 from mtkgui.engine.api_server import ApiServer, MesAdapter
 
+from .dialog_sizing import wrap_page
 from .theme import StyleSpec
 
 
@@ -74,6 +75,8 @@ class ApiPage(QWidget):
         self.table.setHorizontalHeaderLabels(
             ["KeyID", "Secret (shown once)"])
         root.addWidget(self.table, 2)
+        # M34: scroll-protect the page on very small windows
+        wrap_page(self)
 
     # ------------------------------------------------------------ view
     def refresh(self) -> int:

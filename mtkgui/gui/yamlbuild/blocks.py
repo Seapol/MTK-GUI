@@ -33,7 +33,7 @@ from mtkgui.gui.yamlbuild.schema import (
     T_TEXT,
     fields_for,
 )
-from mtkgui.gui.dialog_sizing import fit_dialog
+from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from mtkgui.gui.yamlbuild.stages import STAGE_BY_KEY
 
 
@@ -123,8 +123,11 @@ class BlockConfigDialog(QDialog):
             f"Configure - {STAGE_BY_KEY[module_key].title}")
         self.setMinimumWidth(460)
         lay = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         self.form = QFormLayout()
-        lay.addLayout(self.form)
+        body_lay.addLayout(self.form)
         self._editors: dict[str, QWidget] = {}
         self.panel: QWidget | None = None
         if module_key == "design_input":
@@ -137,7 +140,7 @@ class BlockConfigDialog(QDialog):
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
             self.panel.task_progress.connect(self._panel_progress)
-            lay.addWidget(self.panel)
+            body_lay.addWidget(self.panel)
             # M10-FIX2 F3: the Design Input content is compact - give the
             # dialog a sane, short initial size instead of letting an
             # oversized hint leave a dead band above OK/Cancel.  The
@@ -155,7 +158,7 @@ class BlockConfigDialog(QDialog):
             self.panel = InstrumentsPanel()
             self.panel.set_params(params or {})
             self.panel.task_log.connect(self._panel_log)
-            lay.addWidget(self.panel)
+            body_lay.addWidget(self.panel)
         elif module_key == "fct_build":
             # P3-B5: the FCT Test Work Flow Sequence panel - three tabs
             # (Console / Wi-Fi / Bluetooth) editing fct_test_config
@@ -164,7 +167,7 @@ class BlockConfigDialog(QDialog):
             self.panel = FCTTestConfigPanel()
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
-            lay.addWidget(self.panel)
+            body_lay.addWidget(self.panel)
             # M27 P4: the FCT panel demands 1100 px (8-column step
             # editor); give the dialog a width that satisfies it and mark
             # _dlg_enlarged so the DialogCenterer never re-inflates it.
@@ -187,7 +190,7 @@ class BlockConfigDialog(QDialog):
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: #b91c1c;")
         self.error_label.setWordWrap(True)
-        lay.addWidget(self.error_label)
+        body_lay.addWidget(self.error_label)
         # block 02: formal net pre-analysis (T8 Parse Nets for ICT)
         self.nets_panel: QWidget | None = None
         if module_key == "parse_ict":
@@ -213,7 +216,7 @@ class BlockConfigDialog(QDialog):
             self.nets_panel.set_yaml_model(yaml_model)
             self.nets_panel.task_log.connect(self._panel_log)
             self.nets_panel.task_progress.connect(self._panel_progress)
-            lay.addWidget(self.nets_panel)
+            body_lay.addWidget(self.nets_panel)
             # M10-FIX2 F1: the tables stretch inside a sane initial size
             # instead of forcing a tall empty block above the buttons;
             # fit_dialog marks _dlg_enlarged so the DialogCenterer only
@@ -221,6 +224,11 @@ class BlockConfigDialog(QDialog):
             # (2026-10-26: the button row used to fall behind the
             # taskbar on big builders).
             fit_dialog(self, 1060, 780)
+        # M34: the dialog body scrolls, the OK / Cancel row stays outside
+        # the scroll area (always visible).  The FCT step editor keeps its
+        # 1100 px minimum width on the scroll wrapper.
+        apply_scroll_to_dialog(
+            self, body, 1100 if module_key == "fct_build" else 0)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
