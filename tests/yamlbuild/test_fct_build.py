@@ -292,6 +292,24 @@ def test_action_args_defaults_and_per_step_override():
     assert back.step_type == STEP_MESSAGE_CHECK     # executor routing kept
 
 
+def test_action_args_row_timeout_is_the_single_source():
+    """M27 P10: a positive row timeout overrides the registry default so
+    the visible Timeout column == the executed timeout; an explicit
+    per-step args.timeout_s still wins."""
+    step = FctStep(name="Get fat", step_type=STEP_MESSAGE_CHECK,
+                   channel="ser1", timeout_s=20.0,
+                   params={"kind": "sftp_get", "action": "sftp_get",
+                           "local": "l", "remote": "r"})
+    assert action_args(step)["timeout_s"] == 20.0
+    # an explicit args.timeout_s is honoured
+    step.params["args"] = {"timeout_s": 45.0}
+    assert action_args(step)["timeout_s"] == 45.0
+    # a zero row timeout keeps the registry default
+    step.params = {"kind": "sftp_get", "action": "sftp_get"}
+    step.timeout_s = 0.0
+    assert action_args(step)["timeout_s"] == 30.0
+
+
 def test_legacy_wait_pre_step_merges_into_one_row():
     """A published '(wait)' pre-step + its main step collapse to ONE
     interact step carrying the WaitFor stage (no 2-row model)."""

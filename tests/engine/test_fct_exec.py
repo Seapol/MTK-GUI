@@ -715,6 +715,30 @@ def test_sftp_get_runs_over_an_ssh_kind_channel(tmp_path):
     assert chan.removed == ["/root/fat.json"]
 
 
+def test_sftp_get_honours_the_row_timeout(tmp_path):
+    """M27 P10: _run_sftp bounds the transfer by args.timeout_s (the row
+    timeout is the single source); a slow channel FAILs at the bound."""
+    import time
+    class _SlowSsh:
+        kind = "ssh"
+        def __init__(self):
+            self.started = False
+        def get_file(self, remote, local):
+            self.started = True
+            time.sleep(5)
+    chan = _SlowSsh()
+    ctx = FctContext(channels={"ssh": chan}, station_id="S", user="u",
+                     dut_report=str(tmp_path))
+    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+                   timeout_s=0.2,
+                   params={"kind": "sftp_get", "action": "sftp_get",
+                           "local": "{{dut_report}}/fat.json",
+                           "remote": "/root/fat.json"})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert "timeout" in out.reason.lower()
+
+
 # ------------------------------------------ unified model (2026-10-28)
 def test_one_interact_step_waits_then_sends_then_captures():
     """ONE step = ONE row: the WaitFor stage runs BEFORE the answer is

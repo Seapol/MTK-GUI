@@ -14,6 +14,7 @@ human answer) — no instrument/ICT logic.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -819,14 +820,50 @@ def _run_serial_push(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     return FctOutcome(VERDICT_PASS, detail)
 
 
+class SftpTimeout(RuntimeError):
+    """An SFTP transfer exceeded its configured timeout (M27 P10)."""
+
+
+def _call_with_timeout(fn, timeout_s, *args):
+    """Run ``fn(*args)`` on a daemon thread, bounded by ``timeout_s``.
+
+    A ``timeout_s <= 0`` runs inline (wait forever, historic behaviour
+    before the unified single-source timeout).  Returns the callable's
+    result or raises :class:`SftpTimeout` when it did not finish."""
+    timeout_s = float(timeout_s or 0.0)
+    if timeout_s <= 0:
+        return fn(*args)
+    result: dict = {}
+
+    def _work() -> None:
+        try:
+            result["value"] = fn(*args)
+            result["ok"] = True
+        except Exception as exc:          # noqa: BLE001 - re-raised
+            result["exc"] = exc
+            result["ok"] = False
+
+    thread = threading.Thread(target=_work, daemon=True)
+    thread.start()
+    thread.join(timeout_s)
+    if thread.is_alive():
+        raise SftpTimeout(
+            f"sftp transfer timed out after {timeout_s:.1f}s")
+    if not result.get("ok"):
+        raise result.get("exc")
+    return result.get("value")
+
+
 def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     """sftp_put / sftp_get over an SSH channel exposing put_file /
     get_file (and remove_file for the post-fetch DUT cleanup).
 
     Behaviour is driven by the action registry args
     (``fct_build.action_args``): ``remove_remote_file`` and
-    ``create_local_dir`` default to the historic True; a project can
-    override either per step without touching the executor."""
+    ``create_local_dir`` default to the historic True; ``timeout_s`` is
+    the row's single-source timeout and bounds the transfer (M27 P10).
+    A project can override any subset per step without touching the
+    executor."""
     from ..gui.yamlbuild.fct_build import action_args
     p = step.params
     args = action_args(step)
@@ -836,12 +873,13 @@ def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     if ctx.dut_report:
         local = local.replace("{{dut_report}}", ctx.dut_report)
     local = os.path.normpath(local)   # one spelling on every platform
+    timeout_s = float(args.get("timeout_s") or 0.0)
     try:
         if kind == "sftp_put":
             if not hasattr(channel, "put_file"):
                 return FctOutcome(VERDICT_ERROR,
                                   "channel has no SFTP put_file")
-            channel.put_file(local, remote)
+            _call_with_timeout(channel.put_file, timeout_s, local, remote)
             return FctOutcome(VERDICT_PASS, f"put {local} -> {remote}")
         if kind == "sftp_get":
             if not hasattr(channel, "get_file"):
@@ -850,7 +888,7 @@ def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
             if args.get("create_local_dir", True):
                 parent = os.path.dirname(os.path.abspath(local))
                 os.makedirs(parent, exist_ok=True)
-            channel.get_file(remote, local)
+            _call_with_timeout(channel.get_file, timeout_s, remote, local)
             if args.get("remove_remote_file", True) \
                     and hasattr(channel, "remove_file"):
                 try:
@@ -864,6 +902,8 @@ def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
                                   f"DUT file removed")
             return FctOutcome(VERDICT_PASS, f"get {remote} -> {local}")
         return FctOutcome(VERDICT_ERROR, f"unknown sftp kind {kind!r}")
+    except SftpTimeout as exc:
+        return FctOutcome(VERDICT_FAIL, f"sftp {kind} timeout: {exc}")
     except Exception as exc:                            # noqa: BLE001
         return FctOutcome(VERDICT_FAIL, f"sftp error: {exc}")
 

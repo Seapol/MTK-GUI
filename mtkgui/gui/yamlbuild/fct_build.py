@@ -264,14 +264,22 @@ def action_name(step) -> str:
 
 def action_args(step) -> dict:
     """The EFFECTIVE args of an action step: registry defaults overlaid
-    by ``params['args']``; timeout / retries fall back to the step's own
-    fields (which is exactly the historic behaviour)."""
+    by ``params['args']``.
+
+    ``timeout_s`` has ONE source - the row's own ``timeout_s`` field.  A
+    per-step ``params['args']['timeout_s']`` wins when set; otherwise a
+    positive row timeout overrides any registry default (M27 P10: the
+    visible Timeout column == the executed timeout).  ``retries`` still
+    falls back to the step's own field."""
     args = dict(ACTION_DEFAULTS.get(action_name(step)) or {})
     override = (getattr(step, "params", None) or {}).get("args")
     if isinstance(override, dict):
         args.update(override)
-    if not args.get("timeout_s"):
-        args["timeout_s"] = float(getattr(step, "timeout_s", 0.0) or 0.0)
+    row_to = float(getattr(step, "timeout_s", 0.0) or 0.0)
+    has_override = isinstance(override, dict) and bool(
+        override.get("timeout_s"))
+    if row_to > 0 and not has_override:
+        args["timeout_s"] = row_to
     if args.get("retries") in (None, 0):
         args["retries"] = int(getattr(step, "retries", 0) or 0)
     return args
