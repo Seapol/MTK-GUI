@@ -15,6 +15,8 @@ from mtkgui.engine.fct_test_config import (
     FctTestConfig,
     WifiCfg,
     build_fct_steps,
+    cases_to_console_commands,
+    overlay_console_commands,
 )
 from mtkgui.engine.fct_test_runner import (
     FctStepResult,
@@ -875,6 +877,67 @@ def test_sftp_step_carries_own_ssh_channel_and_endpoint():
     assert st.params["kind"] == "sftp_get"
     assert st.params["ssh_host"] == "192.168.10.129"
     assert st.params["ssh_username"] == "root"
+
+
+def test_apply_does_not_duplicate_deploy_or_confirm(monkeypatch, tmp_path):
+    """M27 P9: an apply/reload cycle yields ONE 'Deploy test assets to
+    DUT' and ONE earphone confirm, and the earphone interact row does
+    NOT send 'y' (the explicit dialog is the single sender)."""
+    from mtkgui.gui.yamlbuild.fct_build import FctSequence, to_project_fct_cases
+
+    cfg = frdm_config()
+    cfg.dut_type = "linux"
+    # a console command whose answer is a legacy confirm_enabled marker
+    tone = ConsoleCommand(
+        name="fat.py: MQS earphone tone", kind="send", transport="serial",
+        wait_enabled=True, expect_pass=r"Did you hear the \d+ Hz tone\?",
+        expect_pass_is_regex=True, send_enabled=True, send="y",
+        capture_enabled=True, expect_fail="operator confirmed tone heard",
+        timeout=20.0, wait_timeout=120.0, confirm_enabled=True,
+        confirm_message="Did you hear the tone?")
+    login = ConsoleCommand(
+        name="Console login", kind="send", transport="serial",
+        wait_enabled=True, expect_pass="imx93frdm login:",
+        send_enabled=True, send="root", capture_enabled=True,
+        expect_fail="root@imx93frdm", timeout=15.0, retries=1)
+    cfg.console.test_commands = [login, tone]
+    cfg.console.serial_deploy = True
+    cfg.console.serial_deploy_files = [
+        {"local": "scripts/connect_wifi.sh", "remote": "/root/connect_wifi.sh"}]
+
+    def emit(cfg):
+        steps = build_fct_steps(cfg, channel_key="ser1")
+        cases = to_project_fct_cases(FctSequence(name="f", steps=steps))
+        return steps, cases
+
+    steps1, cases1 = emit(cfg)
+    names1 = [s.name for s in steps1]
+    assert names1.count("Deploy test assets to DUT") == 1
+    assert names1.count("Confirm: fat.py: MQS earphone tone") == 1
+    # single sender: the interact row sends nothing, the dialog carries y
+    tone1 = next(s for s in steps1 if s.name == "fat.py: MQS earphone tone")
+    assert tone1.params.get("send_enabled") is False
+    assert "send" not in tone1.params
+
+    # reload: overlay the published cases back and re-emit (round-trip)
+    import yaml as _yaml
+    yaml_text = _cfg_to_yaml(cfg)
+    _, cases = emit(cfg)
+    overlaid = overlay_console_commands(yaml_text, cases)
+    cfg2 = FctTestConfig.from_dict(
+        _yaml.safe_load(overlaid)["fct_test_config"])
+    steps2, cases2 = emit(cfg2)
+    names2 = [s.name for s in steps2]
+    assert names2.count("Deploy test assets to DUT") == 1
+    assert names2.count("Confirm: fat.py: MQS earphone tone") == 1
+    tone2 = next(s for s in steps2 if s.name == "fat.py: MQS earphone tone")
+    assert tone2.params.get("send_enabled") is False
+
+
+def _cfg_to_yaml(cfg):
+    import yaml as _yaml
+    node = {"fct_test_config": cfg.to_dict()}
+    return _yaml.safe_dump(node, sort_keys=False)
 
 
 
