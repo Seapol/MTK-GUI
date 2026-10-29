@@ -37,7 +37,7 @@ from __future__ import annotations
 import copy
 
 import yaml
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -159,6 +160,105 @@ def _sequence_lists_to_cases(result) -> list:
     return cases
 
 
+class _SshProbeWorker(QThread):
+    """M29 "Test Connection": one paramiko connect attempt OFF the UI
+    thread using the CURRENT GUI values.  Emits ok(banner) or
+    fail(real error message)."""
+
+    ok = Signal(str)
+    fail = Signal(str)
+
+    def __init__(self, host: str, username: str, password: str,
+                 parent=None) -> None:
+        super().__init__(parent)
+        self._host, self._username = host, username
+        # empty password -> fall back to the credential layer / agent
+        # keys inside run() (agent/key auth is attempted first there)
+        self._password = password
+
+    def run(self) -> None:
+        try:
+            import paramiko
+        except ImportError:
+            self.fail.emit("paramiko is not installed "
+                           "(pip install paramiko)")
+            return
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        kwargs: dict = dict(hostname=self._host, port=22,
+                            username=self._username, timeout=8,
+                            allow_agent=True, look_for_keys=True)
+        if self._password:
+            kwargs["password"] = self._password
+        try:
+            client.connect(**kwargs)
+            _stdin, out, _err = client.exec_command(
+                "uname -s -r", timeout=5)
+            banner = out.read().decode(errors="replace").strip()[:80]
+            self.ok.emit(banner)
+        except Exception as exc:              # noqa: BLE001 - the REAL
+            # error (auth failed / timeout / name resolution / refused)
+            # is the point of this button
+            self.fail.emit(str(exc))
+        finally:
+            client.close()
+
+
+class _SshTransferWorker(QThread):
+    """M29 asset transfer (push / pull) OFF the UI thread over a fresh
+    :class:`SshFctChannel` (password via the credential layer, ref
+    ``fct_ssh_<host>`` - the same ref fct_exec uses).  Emits
+    progress(done, total, path) per file, done(count) or fail(error)."""
+
+    progress = Signal(int, int, str)
+    done = Signal(int)
+    fail = Signal(str)
+
+    def __init__(self, direction: str, host: str, username: str,
+                 local_dir: str, remote_dir: str, parent=None) -> None:
+        super().__init__(parent)
+        self._direction = direction          # "push" | "pull"
+        self._host, self._username = host, username
+        self._local_dir, self._remote_dir = local_dir, remote_dir
+
+    def run(self) -> None:
+        import os
+        from ...engine.fct_channels import SshFctChannel
+        channel = None
+        try:
+            channel = SshFctChannel(
+                host=self._host, username=self._username,
+                credential_ref=f"fct_ssh_{self._host}")
+            if self._direction == "push":
+                if os.path.isfile(self._local_dir):
+                    target = channel.put_file(
+                        self._local_dir,
+                        remote_path=(f"{self._remote_dir.rstrip('/')}/"
+                                     f"{os.path.basename(self._local_dir)}"
+                                     if self._remote_dir else ""))
+                    self.progress.emit(1, 1, target)
+                    self.done.emit(1)
+                    return
+                files = channel.put_dir(
+                    self._local_dir, self._remote_dir,
+                    progress=lambda d, t, _lp, rp:
+                        self.progress.emit(d, t, rp))
+            else:
+                files = channel.get_dir(
+                    self._remote_dir, self._local_dir,
+                    progress=lambda d, t, _rp, lp:
+                        self.progress.emit(d, t, lp))
+            self.done.emit(len(files))
+        except Exception as exc:              # noqa: BLE001 - surfaced
+            self.fail.emit(str(exc))
+        finally:
+            if channel is not None:
+                try:
+                    channel.close()
+                except Exception:             # noqa: BLE001
+                    pass
+
+
 class FCTTestConfigPanel(QWidget):
     """Block 07 config panel: Console / Wi-Fi / Bluetooth tabs."""
 
@@ -226,6 +326,7 @@ class FCTTestConfigPanel(QWidget):
             "Wait->Send->Capture flow (e.g. Button/LED: wait prompt -> "
             "send yes/no -> capture result); no SSH/SFTP. Wi-Fi: host -> "
             "DUT RSSI only. Bluetooth: host -> DUT RSSI only.")
+        self._sync_ssh_controls()
         self._refresh_console_transport_options()
 
     def _refresh_console_transport_options(self) -> None:
@@ -352,7 +453,84 @@ class FCTTestConfigPanel(QWidget):
         self.console_ssh_user = QLineEdit()
         self.console_ssh_user.setPlaceholderText("root")
         form.addRow("SSH username:", self.console_ssh_user)
+        self.console_ssh_password = QLineEdit()
+        self.console_ssh_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.console_ssh_password.setPlaceholderText(
+            "leave empty = agent/key auth (stored in the OS keyring, "
+            "never in the YAML)")
+        form.addRow("SSH password:", self.console_ssh_password)
+        test_row = QHBoxLayout()
+        self.ssh_test_btn = QPushButton("Test Connection")
+        self.ssh_test_btn.clicked.connect(self._on_ssh_test)
+        test_row.addWidget(self.ssh_test_btn)
+        self.ssh_test_status = QLabel("")
+        self.ssh_test_status.setWordWrap(True)
+        test_row.addWidget(self.ssh_test_status, 1)
+        form.addRow(test_row)
+        self.console_ssh_host.textChanged.connect(
+            self._on_ssh_endpoint_edited)
+        self.console_ssh_host.textChanged.connect(
+            self._sync_ssh_controls)
+        self.console_ssh_user.textChanged.connect(
+            self._on_ssh_endpoint_edited)
         lay.addLayout(form)
+
+        # ---- SSH asset transfer (push / pull, M29) ------------------------
+        self.ssh_transfer_box = QGroupBox("SSH asset transfer")
+        tlay = QVBoxLayout(self.ssh_transfer_box)
+        push_form = QFormLayout()
+        self.console_deploy_box = QCheckBox(
+            "Deploy assets folder (Local -> DUT)")
+        push_form.addRow(self.console_deploy_box)
+        local_row = QHBoxLayout()
+        self.console_scripts_local = QLineEdit()
+        self.console_scripts_local.setPlaceholderText(
+            "local asset folder (deploy_scripts)")
+        local_row.addWidget(self.console_scripts_local, 1)
+        btn_local = QPushButton("Browse...")
+        btn_local.clicked.connect(
+            lambda: self._browse_dir(self.console_scripts_local))
+        local_row.addWidget(btn_local)
+        push_form.addRow("Local dir:", local_row)
+        self.console_scripts_remote = QLineEdit()
+        self.console_scripts_remote.setPlaceholderText("/root")
+        push_form.addRow("Remote dir:", self.console_scripts_remote)
+        tlay.addLayout(push_form)
+        pull_form = QFormLayout()
+        self.console_pull_remote = QLineEdit()
+        self.console_pull_remote.setPlaceholderText("/tmp/results")
+        pull_form.addRow("Pull remote dir:", self.console_pull_remote)
+        pull_local_row = QHBoxLayout()
+        self.console_pull_local = QLineEdit()
+        self.console_pull_local.setPlaceholderText(
+            "local destination folder for pulled results")
+        pull_local_row.addWidget(self.console_pull_local, 1)
+        btn_pull = QPushButton("Browse...")
+        btn_pull.clicked.connect(
+            lambda: self._browse_dir(self.console_pull_local))
+        pull_local_row.addWidget(btn_pull)
+        pull_form.addRow("Pull local dir:", pull_local_row)
+        tlay.addLayout(pull_form)
+        transfer_row = QHBoxLayout()
+        self.ssh_transfer_direction = QComboBox()
+        self.ssh_transfer_direction.addItems(
+            ["Push (Local -> DUT)", "Pull (DUT -> Local)"])
+        transfer_row.addWidget(self.ssh_transfer_direction)
+        self.ssh_transfer_btn = QPushButton("Transfer")
+        self.ssh_transfer_btn.clicked.connect(self._on_ssh_transfer)
+        transfer_row.addWidget(self.ssh_transfer_btn)
+        transfer_row.addStretch(1)
+        tlay.addLayout(transfer_row)
+        self.ssh_transfer_bar = QProgressBar()
+        self.ssh_transfer_bar.setRange(0, 100)
+        self.ssh_transfer_bar.setValue(0)
+        self.ssh_transfer_bar.setVisible(False)
+        tlay.addWidget(self.ssh_transfer_bar)
+        self.ssh_transfer_status = QLabel("")
+        self.ssh_transfer_status.setWordWrap(True)
+        tlay.addWidget(self.ssh_transfer_status)
+        lay.addWidget(self.ssh_transfer_box)
+
         hint = QLabel(
             "Connection settings only.  The console test commands "
             "(Wait->Send->Capture, SFTP, host CLI, operator dialogs) are "
@@ -360,8 +538,173 @@ class FCTTestConfigPanel(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #6b7280;")
         lay.addWidget(hint)
+        self.ssh_bare_hint = QLabel(
+            "Bare Metal: serial console only, no SSH/SFTP.")
+        self.ssh_bare_hint.setWordWrap(True)
+        self.ssh_bare_hint.setStyleSheet("color: #b45309;")
+        self.ssh_bare_hint.setVisible(False)
+        lay.addWidget(self.ssh_bare_hint)
         lay.addStretch(1)
         return w
+
+    @staticmethod
+    def _browse_dir(edit: QLineEdit) -> None:
+        """M29: pick a directory into `edit` (local dir fields)."""
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            edit, "Select directory", edit.text().strip() or "")
+        if path:
+            edit.setText(path)
+
+    def _on_ssh_endpoint_edited(self) -> None:
+        """Editing host/user clears the stale Test Connection result."""
+        if self._guard:
+            return
+        self.ssh_test_status.setText("")
+        self.ssh_test_status.setStyleSheet("")
+
+    def _sync_ssh_controls(self) -> None:
+        """M29 bare-metal gating: no OS -> no SSH at all.  Also the
+        Test Connection button needs an endpoint."""
+        is_linux = self.dut_type.currentText() == "linux"
+        has_host = bool(self.console_ssh_host.text().strip())
+        for w in (self.console_ssh_host, self.console_ssh_user,
+                  self.console_ssh_password, self.ssh_test_btn,
+                  self.ssh_transfer_box):
+            w.setEnabled(is_linux)
+        self.ssh_test_btn.setEnabled(is_linux and has_host)
+        self.ssh_bare_hint.setVisible(not is_linux)
+        if not is_linux:
+            self.ssh_test_status.setText("")
+
+    # -------------------------------------------------- SSH test/transfer
+    _SSH_OK_STYLE = "color: #15803d; font-weight: bold;"
+    _SSH_ERR_STYLE = "color: #b91c1c; font-weight: bold;"
+
+    def _on_ssh_test(self) -> None:
+        """M29 Test Connection: one paramiko probe OFF the UI thread."""
+        host = self.console_ssh_host.text().strip()
+        if not host or self.dut_type.currentText() != "linux":
+            return
+        if getattr(self, "_ssh_probe", None) is not None \
+                and self._ssh_probe.isRunning():
+            return
+        self.ssh_test_status.setText("Connecting...")
+        self.ssh_test_status.setStyleSheet("")
+        self._ssh_probe = _SshProbeWorker(
+            host, self.console_ssh_user.text().strip() or "root",
+            self.console_ssh_password.text())
+        self._ssh_probe.ok.connect(self._on_ssh_probe_ok)
+        self._ssh_probe.fail.connect(self._on_ssh_probe_fail)
+        self._ssh_probe.start()
+
+    def _on_ssh_probe_ok(self, banner: str) -> None:
+        user = self.console_ssh_user.text().strip() or "root"
+        host = self.console_ssh_host.text().strip()
+        text = f"SSH OK: {user}@{host}"
+        if banner:
+            text += f"  ({banner})"
+        self.ssh_test_status.setText(text)
+        self.ssh_test_status.setStyleSheet(self._SSH_OK_STYLE)
+
+    def _on_ssh_probe_fail(self, error: str) -> None:
+        self.ssh_test_status.setText(f"SSH FAILED: {error}")
+        self.ssh_test_status.setStyleSheet(self._SSH_ERR_STYLE)
+
+    def _on_ssh_transfer(self) -> None:
+        """M29 Transfer: validate inputs, show the pre-front progress
+        bar ("Connecting..."), then run push/pull in the worker."""
+        host = self.console_ssh_host.text().strip()
+        if not host or self.dut_type.currentText() != "linux":
+            return
+        if getattr(self, "_ssh_transfer", None) is not None \
+                and self._ssh_transfer.isRunning():
+            return
+        direction = ("push" if self.ssh_transfer_direction.currentIndex() == 0
+                     else "pull")
+        remote = (self.console_scripts_remote.text().strip()
+                  if direction == "push"
+                  else self.console_pull_remote.text().strip())
+        local = (self.console_scripts_local.text().strip()
+                 if direction == "push"
+                 else self.console_pull_local.text().strip())
+        if direction == "push" and not local:
+            self.ssh_transfer_status.setText(
+                "Push needs a local dir (Deploy assets folder).")
+            self.ssh_transfer_status.setStyleSheet(self._SSH_ERR_STYLE)
+            return
+        if direction == "pull" and not (remote and local):
+            self.ssh_transfer_status.setText(
+                "Pull needs a remote dir AND a local dir.")
+            self.ssh_transfer_status.setStyleSheet(self._SSH_ERR_STYLE)
+            return
+        # the password lands in the credential layer FIRST so the
+        # SshFctChannel (ref fct_ssh_<host>) can use it
+        self._persist_ssh_password()
+        # PRE-FRONT: the bar is visible and shows "Connecting..." BEFORE
+        # the transfer thread starts
+        self.ssh_transfer_bar.setVisible(True)
+        self.ssh_transfer_bar.setValue(0)
+        self.ssh_transfer_status.setText("Connecting...")
+        self.ssh_transfer_status.setStyleSheet("")
+        self.ssh_transfer_btn.setEnabled(False)
+        self._ssh_transfer = _SshTransferWorker(
+            direction, host, self.console_ssh_user.text().strip() or "root",
+            local, remote)
+        self._ssh_transfer.progress.connect(self._on_transfer_progress)
+        self._ssh_transfer.done.connect(self._on_transfer_done)
+        self._ssh_transfer.fail.connect(self._on_transfer_fail)
+        self._ssh_transfer.start()
+
+    def _on_transfer_progress(self, done: int, total: int,
+                              path: str) -> None:
+        total = max(total, 1)
+        self.ssh_transfer_bar.setValue(int(100 * done / total))
+        verb = ("Uploading" if self.ssh_transfer_direction.currentIndex() == 0
+                else "Downloading")
+        self.ssh_transfer_status.setText(f"{verb} {done}/{total}: {path}")
+
+    def _on_transfer_done(self, count: int) -> None:
+        self.ssh_transfer_bar.setValue(100)
+        self.ssh_transfer_status.setText(f"Done: {count} files")
+        self.ssh_transfer_status.setStyleSheet(self._SSH_OK_STYLE)
+        self.ssh_transfer_btn.setEnabled(True)
+
+    def _on_transfer_fail(self, error: str) -> None:
+        self.ssh_transfer_status.setText(f"TRANSFER FAILED: {error}")
+        self.ssh_transfer_status.setStyleSheet(self._SSH_ERR_STYLE)
+        self.ssh_transfer_btn.setEnabled(True)
+
+    def _persist_ssh_password(self) -> None:
+        """GUI -> credential layer ONLY (M29): the password value NEVER
+        reaches ConsoleCfg/YAML.  Empty field = clear the credential
+        (falls back to agent/key auth)."""
+        host = self.console_ssh_host.text().strip()
+        if not host:
+            return
+        from mtkgui.engine import credentials
+        ref = f"fct_ssh_{host}"
+        password = self.console_ssh_password.text()
+        if password:
+            ok, warning = credentials.set_credential(ref, password)
+            if not ok:
+                self.task_log.emit("WARN", warning)
+        else:
+            credentials.delete_credential(ref)
+
+    def _prefill_ssh_password(self, host: str) -> None:
+        """YAML/GUI load: prefill from the credential layer (warnings
+        suppressed - absence is normal)."""
+        self.console_ssh_password.setText("")
+        if not host:
+            return
+        from mtkgui.engine import credentials
+        try:
+            password, _warning = credentials.get_credential(
+                f"fct_ssh_{host}")
+            self.console_ssh_password.setText(password)
+        except Exception:                     # noqa: BLE001 - absent
+            pass
 
     def _insert_row(self, cmd: ConsoleCommand) -> None:
         """Append one row and render the given command on it (the
@@ -1638,6 +1981,14 @@ class FCTTestConfigPanel(QWidget):
             self.console_enabled.setChecked(c.enabled)
             self.console_ssh_host.setText(c.ssh_host)
             self.console_ssh_user.setText(c.ssh_username)
+            # M29: the password comes from the CREDENTIAL layer
+            # (fct_ssh_<host>) - never from the YAML
+            self._prefill_ssh_password(c.ssh_host)
+            self.console_deploy_box.setChecked(c.deploy_scripts)
+            self.console_scripts_local.setText(c.scripts_local_dir)
+            self.console_scripts_remote.setText(c.scripts_remote_dir)
+            self.console_pull_remote.setText(c.pull_remote_dir)
+            self.console_pull_local.setText(c.pull_local_dir)
             if c.port:
                 if self.console_port.findText(c.port) < 0:
                     self.console_port.addItem(c.port)
@@ -1744,6 +2095,18 @@ class FCTTestConfigPanel(QWidget):
         cfg.console.baudrate = int(self.console_baud.currentText())
         cfg.console.ssh_host = self.console_ssh_host.text().strip()
         cfg.console.ssh_username = self.console_ssh_user.text().strip()
+        # M29: password -> credential layer ONLY; the fields below are
+        # plain paths (YAML-safe)
+        self._persist_ssh_password()
+        cfg.console.deploy_scripts = self.console_deploy_box.isChecked()
+        cfg.console.scripts_local_dir = \
+            self.console_scripts_local.text().strip()
+        cfg.console.scripts_remote_dir = \
+            self.console_scripts_remote.text().strip()
+        cfg.console.pull_remote_dir = \
+            self.console_pull_remote.text().strip()
+        cfg.console.pull_local_dir = \
+            self.console_pull_local.text().strip()
         cfg.console.test_commands = [
             self._get_row_cmd(r)
             for r in range(self.cmd_table.rowCount())]

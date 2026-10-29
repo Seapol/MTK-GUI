@@ -721,6 +721,11 @@ class ConsoleCfg:
     deploy_scripts: bool = False
     scripts_local_dir: str = ""     # Host asset folder (rel to yaml/pkg)
     scripts_remote_dir: str = "/root"   # DUT target directory
+    # M29 pull path (DUT -> Host): the DUT result folder is fetched back
+    # into the local destination folder (SshFctChannel.get_dir).  Plain
+    # paths only - the SSH password NEVER lands here (credential layer).
+    pull_remote_dir: str = ""       # DUT source directory (e.g. /tmp/results)
+    pull_local_dir: str = ""        # Host destination directory
     # Serial asset provisioning (no SSH needed): right after the console
     # login, push the listed files to a freshly flashed DUT that has none
     # of them; an archive entry may add "unzip": target dir.  Local paths
@@ -738,6 +743,8 @@ class ConsoleCfg:
             "deploy_scripts": bool(self.deploy_scripts),
             "scripts_local_dir": self.scripts_local_dir,
             "scripts_remote_dir": self.scripts_remote_dir,
+            "pull_remote_dir": self.pull_remote_dir,
+            "pull_local_dir": self.pull_local_dir,
             "serial_deploy": bool(self.serial_deploy),
             "serial_deploy_files": [dict(f) for f in self.serial_deploy_files],
             "test_commands": [c.to_dict() for c in self.test_commands],
@@ -1030,6 +1037,8 @@ class FctTestConfig:
                     console.get("scripts_local_dir", "")),
                 scripts_remote_dir=str(
                     console.get("scripts_remote_dir", "/root")),
+                pull_remote_dir=str(console.get("pull_remote_dir", "")),
+                pull_local_dir=str(console.get("pull_local_dir", "")),
                 serial_deploy=bool(console.get("serial_deploy", False)),
                 serial_deploy_files=[
                     dict(f) for f in

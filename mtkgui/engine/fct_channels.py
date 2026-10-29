@@ -481,7 +481,8 @@ class SshFctChannel:
             except IOError:
                 sftp.mkdir(accum)
 
-    def put_dir(self, local_dir: str, remote_dir: str = "") -> list:
+    def put_dir(self, local_dir: str, remote_dir: str = "",
+                progress=None) -> list:
         """Recursively deploy a whole Host PC asset directory to the DUT.
 
         Every new DUT is re-provisioned from the maintained local asset
@@ -489,7 +490,11 @@ class SshFctChannel:
         tree is mirrored under ``remote_dir`` (default ``remote_dir``
         from the constructor, then the login cwd). Returns a list of
         ``(local, remote, size)`` and leaves one event line in the read
-        buffer so the FCT judge / EventLog records the deployment."""
+        buffer so the FCT judge / EventLog records the deployment.
+
+        `progress` (optional) is called as ``progress(done, total,
+        local_path, remote_path)`` after each file - the GUI transfer
+        worker drives its progress bar from it (M29)."""
         import os
         if not os.path.isdir(local_dir):
             raise ChannelClosed(
@@ -499,28 +504,80 @@ class SshFctChannel:
         sftp = self._ensure_sftp()
         if base:
             self._sftp_mkdirs(sftp, base)
-        uploaded: list = []
+        # collect first so the caller gets a real total up front
+        plan: list = []
         for root, _dirs, files in os.walk(local_dir):
             rel = os.path.relpath(root, local_dir)
             rel = "" if rel == "." else rel.replace(os.sep, "/")
             rdir = base if not rel else (f"{base}/{rel}" if base else rel)
-            if rdir:
-                self._sftp_mkdirs(sftp, rdir)
             for fname in sorted(files):
                 lp = os.path.join(root, fname)
                 rp = f"{rdir}/{fname}" if rdir else fname
-                if os.path.realpath(lp) == os.path.realpath(rp):
-                    raise ChannelClosed(
-                        f"sftp put_dir: local and remote path collide "
-                        f"({rp}); choose a different remote_dir")
-                sftp.put(lp, rp)
-                uploaded.append((lp, rp, os.path.getsize(lp)))
+                plan.append((rdir, lp, rp))
+        uploaded: list = []
+        for i, (rdir, lp, rp) in enumerate(plan, 1):
+            if rdir:
+                self._sftp_mkdirs(sftp, rdir)
+            if os.path.realpath(lp) == os.path.realpath(rp):
+                raise ChannelClosed(
+                    f"sftp put_dir: local and remote path collide "
+                    f"({rp}); choose a different remote_dir")
+            sftp.put(lp, rp)
+            uploaded.append((lp, rp, os.path.getsize(lp)))
+            if progress is not None:
+                progress(i, len(plan), lp, rp)
         target = base or "~"
         self._pending = [f"[sftp] put_dir {local_dir} -> {target} "
                          f"({len(uploaded)} files)"]
         for _lp, rp, size in uploaded:
             self._pending.append(f"[sftp]   {rp} ({size} bytes)")
         return uploaded
+
+    def get_dir(self, remote_dir: str, local_dir: str = "",
+                progress=None) -> list:
+        """Recursive remote -> local pull - the MIRROR of :meth:`put_dir`
+        (M29: the DUT-side result folder is fetched back to the Host PC).
+
+        Walks `remote_dir` via ``sftp.listdir_attr`` recursion, mirrors
+        the relative paths under `local_dir` (mkdirs on demand) and
+        downloads every file.  Returns a list of ``(remote, local,
+        size)`` and leaves one event line in the read buffer.
+
+        `progress` is called as ``progress(done, total, remote_path,
+        local_path)`` after each file."""
+        import os
+        import stat as _stat
+        base_remote = (remote_dir or self._remote_dir or "").rstrip("/")
+        if not base_remote:
+            raise ChannelClosed(
+                "sftp get_dir: no remote source directory configured")
+        base_local = os.path.abspath(local_dir or ".")
+        sftp = self._ensure_sftp()
+
+        def _walk(rdir: str, ldir: str) -> list:
+            plan: list = []
+            for attr in sftp.listdir_attr(rdir):
+                rpath = f"{rdir}/{attr.filename}"
+                lpath = os.path.join(ldir, attr.filename)
+                if _stat.S_ISDIR(attr.st_mode or 0):
+                    plan.extend(_walk(rpath, lpath))
+                else:
+                    plan.append((rpath, lpath))
+            return plan
+
+        plan = _walk(base_remote, base_local)
+        pulled: list = []
+        for i, (rpath, lpath) in enumerate(plan, 1):
+            os.makedirs(os.path.dirname(lpath), exist_ok=True)
+            sftp.get(rpath, lpath)
+            pulled.append((rpath, lpath, os.path.getsize(lpath)))
+            if progress is not None:
+                progress(i, len(plan), rpath, lpath)
+        self._pending = [f"[sftp] get_dir {base_remote} -> {base_local} "
+                         f"({len(pulled)} files)"]
+        for _rp, lp, size in pulled:
+            self._pending.append(f"[sftp]   {lp} ({size} bytes)")
+        return pulled
 
     def close(self) -> None:
         if self._sftp is not None:
