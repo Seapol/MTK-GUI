@@ -84,6 +84,41 @@ BT_MAC_CMDS = {
     "tone_cmd": "afplay {{tone}}",
 }
 
+#: host-side (Windows) Wi-Fi command set (m23) - built-in ``netsh wlan``
+#: family, no external tools.  SAME keys as WIFI_MAC_CMDS.
+#: NOTE: the RSSI source is a PERCENTAGE (0-100) of an ideal link, not
+#: dBm (netsh exposes no dBm) - the documented approximation: finding
+#: the SSID + the signal percentage is still a valid PASS criterion.
+#: ``connect_cmd`` requires an existing WLAN profile (first successful
+#: connect stores one); the explicit ``add_network_cmd`` needs a profile
+#: XML and is intentionally unsupported (the competing-network restore
+#: treats its failure as a warning, macOS auto-rejoin has no Windows
+#: equivalent).
+WIFI_MAC_CMDS_WINDOWS = {
+    "list_networks_cmd": "netsh wlan show networks",
+    "remove_network_cmd": 'netsh wlan delete profile name="{{ssid}}"',
+    "connect_cmd": 'netsh wlan connect name="{{ssid}}"',
+    "add_network_cmd":
+        'cmd /c echo explicit profile add needs a profile XML on '
+        'Windows (first connect stores it) & exit 1',
+    "rssi_cmd": "netsh wlan show networks mode=bssid",
+    "rssi_parse": r"Signal\s*:\s*(\d+)%",
+    "gateway_cmd":
+        'powershell -NoProfile -Command "Get-NetIPConfiguration | '
+        'Where-Object {$_.IPv4DefaultGateway} | Select-Object -First 1 '
+        '-ExpandProperty IPv4DefaultGateway -ExpandProperty NextHop"',
+    "gateway_parse": r"(\d+\.\d+\.\d+\.\d+)",
+    "ping_cmd": "ping -n {{count}} {{gateway}}",
+    # English Windows ping: "Lost = 0 (0% loss)" - NOT "% packet loss"
+    "ping_loss_parse": r"\((\d+(?:\.\d+)?)% ?loss\)",
+}
+#: Bluetooth: Windows has NO built-in classic-BT RSSI / A2DP CLI.  There
+#: is deliberately NO BT command table for windows -
+#: host_platform.bt_backend_cmds() raises PlatformBackendMissing with
+#: user guidance through the existing fct_exec hint path (explicit
+#: ERROR, never a silent PASS, never a traceback).  Decision recorded
+#: in reports/m23_host_platform_acceptance.txt.
+
 
 # ---------------------------------------------------------------------------
 # fat.py Summary parsing (per-item report rows)
@@ -834,8 +869,12 @@ class FctTestRunner:
         from .rf_adapters import WifiAdapter
 
         def _adapter(runner_, cfg: dict):
+            # m23: the backend key follows THIS platform (mac behaviour
+            # is byte-identical - the mac table under the "mac" key)
+            from .host_platform import platform_key, wifi_backend_cmds
+            key = platform_key()
             return WifiAdapter(
-                {"wifi": dict(cfg, cmds={"mac": dict(WIFI_MAC_CMDS)})},
+                {"wifi": dict(cfg, cmds={key: wifi_backend_cmds()})},
                 runner_)
 
         # 1) scan / RSSI
@@ -979,16 +1018,36 @@ class FctTestRunner:
 
         def _run(mode: str, label: str, timeout: float):
             t0 = time.time()
-            ad = BluetoothAdapter(
-                {"bluetooth": {
-                    "mode": mode, "expected_name": b.expected_name,
-                    "expected_addr": b.expected_addr,
-                    "scan_retries": b.scan_retries,
-                    "rssi_min": b.rssi_min, "audio_confirm":
-                        b.audio_confirm, "timeout_s": float(timeout),
-                    "cmds": {"mac": dict(BT_MAC_CMDS)}}},
-                host_runner, human_confirm=human_confirm)
-            out = ad.run_test()
+            # m23: platform-aware backend; Windows has no built-in
+            # classic-BT CLI -> bt_backend_cmds() raises
+            # PlatformBackendMissing -> explicit ERROR row (never a
+            # silent PASS, never a traceback)
+            from .host_platform import platform_key, bt_backend_cmds
+            from .rf_adapters import PlatformBackendMissing
+            try:
+                key = platform_key()
+                ad = BluetoothAdapter(
+                    {"bluetooth": {
+                        "mode": mode, "expected_name": b.expected_name,
+                        "expected_addr": b.expected_addr,
+                        "scan_retries": b.scan_retries,
+                        "rssi_min": b.rssi_min, "audio_confirm":
+                            b.audio_confirm, "timeout_s": float(timeout),
+                        "cmds": {key: bt_backend_cmds()}}},
+                    host_runner, human_confirm=human_confirm)
+                out = ad.run_test()
+            except PlatformBackendMissing as exc:
+                import sys as _sys
+                hint = ("install a command-line scanner (e.g. "
+                        "BluetoothCL) and add a 'windows' backend, or "
+                        "run this Bluetooth step on macOS."
+                        if _sys.platform == "win32" else
+                        "configure a command backend for this platform.")
+                self.log(f"{label} unavailable: {exc}")
+                results.append(FctStepResult(
+                    label, "ERROR", f"{exc} {hint}",
+                    duration=time.time() - t0))
+                return
             results.append(FctStepResult(
                 label, "PASS" if out["verdict"] == "Pass" else "FAIL",
                 str(out["items"]), duration=time.time() - t0))

@@ -144,8 +144,9 @@ class WifiAdapter:
         res = self._run(
             self.cmds["ping_cmd"],
             {"gateway": self.gateway, "count": self.ping_count},
-            regex_extracts={"loss_pct":
-                            r"(\d+(?:\.\d+)?)% packet loss"},
+            regex_extracts={"loss_pct": self.cmds.get(
+                # mac: "% packet loss"; Windows ping: "Lost = N (N% loss)"
+                "ping_loss_parse", r"(\d+(?:\.\d+)?)% packet loss")},
             timeout_s=max(self.ping_count + 10, 30))
         loss = float(res.items.get("loss_pct", "100"))
         return {"loss_pct": loss, "verdict": res.verdict,

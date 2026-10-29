@@ -336,45 +336,28 @@ def runner_for(ctx: FctContext):
 
 
 def _is_lan_ipv4(tok: str) -> bool:
-    parts = tok.split(".")
-    if len(parts) != 4 or not all(p.isdigit() for p in parts):
-        return False
-    a, b = int(parts[0]), int(parts[1])
-    if a == 127 or (a == 169 and b == 254) or a == 0:
-        return False
-    return True
+    """Legacy alias -> host_platform.is_lan_ipv4 (m23 single source)."""
+    from .host_platform import is_lan_ipv4
+    return is_lan_ipv4(tok)
 
 
 def host_lan_ip(ctx: FctContext) -> str:
-    """Best-effort Host PC LAN IPv4 (the iperf server address the DUT
-    client connects to). Tries the active Wi-Fi/Ethernet interfaces;
-    macOS first (ipconfig getifaddr), Linux fallback (hostname -I)."""
-    import platform
-    import subprocess
-    if platform.system() == "Darwin":
-        tries = [["ipconfig", "getifaddr", ifc]
-                 for ifc in ("en0", "en1", "en2")]
-    else:
-        tries = [["hostname", "-I"], ["ip", "-4", "addr"]]
-    for cmd in tries:
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True,
-                                 timeout=5).stdout.split()
-        except Exception:                   # noqa: BLE001
-            continue
-        for tok in out:
-            if _is_lan_ipv4(tok):
-                ctx.log(f"host iperf server IP: {tok} ({' '.join(cmd)})")
-                return tok
-    return ""
+    """Best-effort Host PC LAN IPv4 - DELEGATES to
+    :func:`mtkgui.engine.host_platform.host_lan_ip` (m23), which adds
+    the Windows PowerShell / ipconfig branch.  Kept here so existing
+    callers/tests are unchanged."""
+    from .host_platform import host_lan_ip as _ip
+    return _ip(ctx)
 
 
 def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     """B5 RF tool execution (spec 3.2 / 3.3): build the B4 adapter
-    from the embedded config (params.fct_rf) with the B4-verified mac
-    command set, run it, log every command line, map the verdict.
-    a2dp_sink routes the operator question through the confirm hook."""
-    from .fct_test_runner import BT_MAC_CMDS, WIFI_MAC_CMDS
+    from the embedded config (params.fct_rf) with the platform's
+    command set (m23: mac / windows via host_platform), run it, log
+    every command line, map the verdict.  a2dp_sink routes the
+    operator question through the confirm hook."""
+    from .host_platform import (platform_key, wifi_backend_cmds,
+                                bt_backend_cmds)
     from .rf_adapters import BluetoothAdapter, WifiAdapter, PlatformBackendMissing
     cfg = dict(step.params.get("fct_rf") or {})
     runner = runner_for(ctx)
@@ -389,11 +372,14 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
             # B5 config key `ssid` -> adapter key `expected_ssid`
             rf = dict(cfg)
             rf.setdefault("expected_ssid", rf.get("ssid", ""))
-            rf_cfg = {"wifi": dict(rf, cmds={"mac": dict(WIFI_MAC_CMDS)})}
+            key = platform_key()
+            rf_cfg = {"wifi": dict(
+                rf, cmds={key: wifi_backend_cmds()})}
             out = WifiAdapter(rf_cfg, runner).run_test()
         else:
+            key = platform_key()
             rf_cfg = {"bluetooth": dict(
-                cfg, cmds={"mac": dict(BT_MAC_CMDS)})}
+                cfg, cmds={key: bt_backend_cmds()})}
             adapter = BluetoothAdapter(rf_cfg, runner,
                                        human_confirm=ctx.human_confirm)
             out = adapter.run_test()
