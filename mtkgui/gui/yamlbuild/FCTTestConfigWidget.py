@@ -580,7 +580,12 @@ class FCTTestConfigPanel(QWidget):
         cmd = self._row_cmd(r)
         if cmd is None:
             return
-        if cb.currentText() == MESSAGE_CHOICE:
+        text = cb.currentText()
+        if cmd.kind == KIND_HOST:
+            # M27 P6: a host CLI row never changes transport via this
+            # dropdown (it shows "(host PC)").
+            return
+        if text == MESSAGE_CHOICE:
             if cmd.kind != KIND_MESSAGE:
                 cmd.kind = KIND_MESSAGE
                 cmd.wait_enabled = cmd.send_enabled = False
@@ -588,10 +593,20 @@ class FCTTestConfigPanel(QWidget):
                 cmd.confirm_enabled = False
                 cmd.dialog_style = DIALOG_YESNO
                 self._save_row_cmd(r, cmd)
-        elif cmd.kind == KIND_MESSAGE:
-            cmd.kind = "send"
-            cmd.send_enabled = True
-            self._save_row_cmd(r, cmd)
+        elif text in ("serial", "ssh"):
+            # M27 P7: the Console dropdown WRITES the transport, so a
+            # picked "ssh" is persisted and survives the next row edit
+            # (render no longer snaps it back to the stored "serial").
+            changed = False
+            if cmd.kind == KIND_MESSAGE:
+                cmd.kind = "send"
+                cmd.send_enabled = True
+                changed = True
+            if cmd.transport != text:
+                cmd.transport = text
+                changed = True
+            if changed:
+                self._save_row_cmd(r, cmd)
 
     def _edit_message_cell(self, row: int) -> None:
         """Operator-dialog editor: dialog style (MessageOK / MessageYesNo

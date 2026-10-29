@@ -222,3 +222,31 @@ def test_p6_host_cli_console_column_shows_host_pc(qapp):
     assert cmd.kind == KIND_HOST
     assert cmd.host_cmd == "iperf3 -s -D"
     panel.deleteLater()
+
+
+# ------------------------------------------------------------- P7
+def test_p7_console_dropdown_writes_transport(qapp):
+    """Picking 'ssh' in the Console dropdown persists cmd.transport and
+    survives a subsequent row re-render (no snap back to 'serial')."""
+    from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
+
+    panel = FCTTestConfigPanel()
+    panel._add_console_row()
+    r = panel.cmd_table.rowCount() - 1
+    cb = panel.cmd_table.cellWidget(r, 1)
+
+    cb.setCurrentText("ssh")                      # fires _on_console_changed
+    cmd = panel._row_cmd(r)
+    assert cmd.transport == "ssh"
+    assert cb.currentText() == "ssh"
+
+    # a subsequent render (any other cell edit) must NOT snap it back
+    panel._save_row_cmd(r, cmd)
+    assert cb.currentText() == "ssh"
+    assert panel._row_cmd(r).transport == "ssh"
+
+    # and back to serial round-trips
+    cb.setCurrentText("serial")
+    assert panel._row_cmd(r).transport == "serial"
+    assert cb.currentText() == "serial"
+    panel.deleteLater()
