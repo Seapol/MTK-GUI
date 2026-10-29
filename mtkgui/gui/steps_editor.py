@@ -163,50 +163,18 @@ class StepsEditorDialog(QDialog):
                  ("delay", "Delay", "ms", "—", "—", "—")),
             ]
         else:
-            # FCT Add dropdown: standard operations first, then every
-            # supported test method with a matching template name
+            # M35: the FCT Add dropdown keeps only the standard
+            # operations, a custom operation and the plain Delay wait.
+            # Every other step type (dialogs / console / CLI / Wi-Fi /
+            # Bluetooth / flash) is added through the main FCT Sequence
+            # table's own Add menu, which is the single add entry.
             types = [(f"Operation: {n}", n, "op", dict(OP_STEPS[n]))
                      for n in OP_STEPS]
             types += [
-                ("MessageOK — notice dialog (Ok -> Done)",
-                 "MessageOK: New Test", "MessageOK"),
-                ("MessageYesNo — operator Yes / No dialog",
-                 "MessageYesNo: New Test", "MessageYesNo"),
-                ("MessageGoStop — Go / Stop dialog (No stops the run)",
-                 "MessageGoStop: New Test", "MessageGoStop"),
-                ("MessageOKtoConsole — wait console msg, OK notice "
-                 "(no command)",
-                 "MessageOKtoConsole: 'ready' (expected)",
-                 "MessageOKtoConsole"),
-                ("MessageYesNotoConsole — wait console msg, Yes / No "
-                 "(always continues)",
-                 "MessageYesNotoConsole: 'ready' (expected)",
-                 "MessageYesNotoConsole"),
-                ("MessageGoStoptoConsole — wait console msg, Go / Stop "
-                 "(No stops the run)",
-                 "MessageGoStoptoConsole: 'ready' (expected)",
-                 "MessageGoStoptoConsole"),
-                ("SendtoConsole — send command to console",
-                 "SendtoConsole: COM1, 'cmd'", "SendtoConsole"),
-                ("WaitforConsole — wait for a console keyword",
-                 "WaitforConsole: COM1, 'Pass' (expected)",
-                 "WaitforConsole"),
-                ("CapturefromConsole — instant buffer capture",
-                 "CapturefromConsole: COM1, 'Pass' (expected)",
-                 "CapturefromConsole"),
+                ("Operation: Custom",
+                 ("op", "New Operation", "—", "—", "—", "—")),
                 ("Delay — plain wait (ms)",
                  "Delay: 1000 ms", "Delay"),
-                ("SendtoCLI — run CLI command, check Pass / Success",
-                 "SendtoCLI: \"cmd --run\", 'Pass'/'Success' (expected)",
-                 "SendtoCLI"),
-                ("WaitforCLI — wait for a CLI keyword",
-                 "WaitforCLI: 'Pass' (expected)", "WaitforCLI"),
-                ("CapturefromCLI — instant CLI buffer capture",
-                 "CapturefromCLI: 'Pass' (expected)", "CapturefromCLI"),
-                ("WIFI — Wi-Fi connectivity test",
-                 "WIFI: scan and associate", "WIFI"),
-                ("Bluetooth — Bluetooth connectivity test",
-                 "Bluetooth: scan and pair", "Bluetooth"),
             ]
         for entry in types:
             act = menu.addAction(entry[0])

@@ -79,6 +79,7 @@ from mtkgui.engine.fct_test_config import (
     KIND_WIFI_TEST,
     KIND_BT_TEST,
     KIND_FLASH_GUI,
+    KIND_DELAY,
     STEP_TYPE_LABELS,
     STEP_TYPE_OPERATION,
     STEP_TYPE_CONSOLE_SERIAL,
@@ -93,6 +94,7 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_MESSAGE_YESNO_WAIT,
     STEP_TYPE_MESSAGE_GOSTOP_WAIT,
     STEP_TYPE_FLASH_GUI,
+    STEP_TYPE_DELAY,
     STEP_TYPE_WIFI_SCAN,
     STEP_TYPE_WIFI_PING,
     STEP_TYPE_WIFI_IPERF,
@@ -164,6 +166,7 @@ _ADD_ROW_NAMES = {
     STEP_TYPE_MESSAGE_YESNO_WAIT: "MessageYesNotoConsole",
     STEP_TYPE_MESSAGE_GOSTOP_WAIT: "MessageGoStoptoConsole",
     STEP_TYPE_FLASH_GUI: "Flash_GUI",
+    STEP_TYPE_DELAY: "Delay",
     STEP_TYPE_WIFI_SCAN: "Wi-Fi: Scan / RSSI",
     STEP_TYPE_WIFI_PING: "Wi-Fi: Ping",
     STEP_TYPE_WIFI_IPERF: "Wi-Fi: iPerf",
@@ -927,6 +930,8 @@ class FCTTestConfigPanel(QWidget):
 
         add_menu.addSection("Operations")
         _add_action(STEP_TYPE_OPERATION)
+        # M35: Delay is a main-table Type (plain fixed wait, no console)
+        _add_action(STEP_TYPE_DELAY)
         add_menu.addSection("Console interact")
         _add_action(STEP_TYPE_CONSOLE_SERIAL)
         _add_action(STEP_TYPE_CONSOLE_SSH)
@@ -1050,12 +1055,66 @@ class FCTTestConfigPanel(QWidget):
             return
         if cmd.kind == KIND_OP:
             self._edit_operation_row(row)
+        elif cmd.kind == KIND_DELAY:
+            self._edit_delay_row(row)
         elif cmd.kind == KIND_FLASH_GUI:
             self._edit_flash_gui_row(row)
         elif cmd.kind == KIND_MESSAGE:
             self._edit_message_cell(row)
         else:
             self._edit_console_row(row)
+
+    def _edit_delay_row(self, row: int) -> None:
+        """Delay editor (M35): the fixed wait in ms.  The Timeout is the
+        step's maximum execution time - when the wait would exceed it the
+        wait is capped (0 = no cap)."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
+                                        QLabel, QSpinBox, QDoubleSpinBox,
+                                        QDialogButtonBox)
+        cmd = self._get_row_cmd(row)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Delay editor")
+        dlg.setMinimumWidth(420)
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(QLabel(
+            "Plain wait - no console or instrument interaction.  The "
+            "Timeout below bounds the maximum execution time: a longer "
+            "wait is capped at that value (0 = no cap)."))
+        form = QFormLayout()
+        wait_spin = QSpinBox()
+        wait_spin.setRange(0, 3_600_000)
+        wait_spin.setSingleStep(100)
+        wait_spin.setSuffix(" ms")
+        wait_spin.setValue(int(cmd.wait_ms or 0))
+        form.addRow("Delay:", wait_spin)
+        timeout_spin = QDoubleSpinBox()
+        timeout_spin.setRange(0.0, 3600.0)
+        timeout_spin.setDecimals(1)
+        timeout_spin.setSingleStep(0.5)
+        timeout_spin.setSuffix(" s")
+        timeout_spin.setSpecialValueText("(no cap)")
+        timeout_spin.setValue(float(cmd.timeout or 0.0))
+        form.addRow("Timeout:", timeout_spin)
+        lay.addLayout(form)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok
+                                   | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        outer.addWidget(buttons)
+        if dlg.exec():
+            cmd.kind = KIND_DELAY
+            cmd.wait_ms = int(wait_spin.value())
+            cmd.timeout = float(timeout_spin.value())
+            cmd.wait_enabled = False
+            cmd.send_enabled = False
+            cmd.capture_enabled = False
+            self._save_row_cmd(row, cmd)
+        dlg.deleteLater()
 
     def _edit_flash_gui_row(self, row: int) -> None:
         """Flash_GUI editor (M33): the third-party flash GUI executable
@@ -2482,6 +2541,17 @@ class FCTTestConfigPanel(QWidget):
                            f"{int(cmd.op_timeout_ms or 0)}ms",
                            editable=False)
             self._set_cell(r, _COL_CMD, _op_summary(cmd.op_params),
+                           editable=False)
+            return
+        if cmd.kind == KIND_DELAY:
+            self._set_cell(r, _COL_WAIT, "", editable=False)
+            self._set_cell(r, _COL_SEND, "", editable=False)
+            self._set_cell(r, _COL_CAPTURE, "", editable=False)
+            self._set_cell(r, _COL_TIMEOUT,
+                           (f"{float(cmd.timeout):.1f}s"
+                            if float(cmd.timeout or 0.0) > 0 else "-"),
+                           editable=False)
+            self._set_cell(r, _COL_CMD, f"{int(cmd.wait_ms or 0)} ms",
                            editable=False)
             return
         if cmd.kind == KIND_MESSAGE:

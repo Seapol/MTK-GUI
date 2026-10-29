@@ -640,6 +640,21 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         return outcome
 
     if step.step_type == STEP_EXTERNAL_TOOL:
+        # Delay row (M35): a plain fixed wait, no console / instrument I/O.
+        # The step timeout bounds the maximum execution time.
+        if "fct_delay_ms" in step.params:
+            import time as _time
+            wait_ms = max(0, int(step.params.get("fct_delay_ms") or 0))
+            cap_ms = 0
+            try:
+                cap_ms = int(float(step.timeout_s) * 1000.0)
+            except (TypeError, ValueError):
+                cap_ms = 0
+            if cap_ms > 0:
+                wait_ms = min(wait_ms, cap_ms)
+            ctx.log(f"delay: waiting {wait_ms} ms")
+            _time.sleep(wait_ms / 1000.0)
+            return FctOutcome(VERDICT_PASS, f"Done - waited {wait_ms} ms")
         # B5 addendum: DUT-side connectivity / throughput / BT data-path
         # steps (run over the console via the dut_* primitives)
         channel = ctx.channels.get(step.channel)

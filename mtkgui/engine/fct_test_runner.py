@@ -686,12 +686,14 @@ class FctTestRunner:
         """
         results: list = []
         c = self.cfg.console
-        # M33: a Flash_GUI row launches a third-party GUI and never
-        # touches the DUT console, so it runs even when the console is
-        # disabled or no serial port is bound.
+        # M33 / M35: a Flash_GUI or Delay row never touches the DUT
+        # console, so it runs even when the console is disabled or no
+        # serial port is bound.
         console_ready = bool(c.enabled) and serial is not None
         for cmd in c.test_commands:
-            if not console_ready and getattr(cmd, "kind", "") != "flash_gui":
+            if (not console_ready
+                    and getattr(cmd, "kind", "") not in ("flash_gui",
+                                                         "delay")):
                 continue
             if not getattr(cmd, "enabled", True):
                 self.log(f"console '{cmd.name}' [skip] -> SKIP (disabled)")
@@ -803,6 +805,16 @@ class FctTestRunner:
             # send_yes / send_no (PASS either way), GoStop GO sends
             # send_yes (PASS, run continues) and STOP sends send_no
             # (FAIL, the sequence stops).
+            if cmd.kind == "delay":
+                # M35: plain fixed wait - no console / instrument I/O.
+                # The step timeout still bounds the maximum wait.
+                wait_ms = max(0, int(getattr(cmd, "wait_ms", 1000) or 0))
+                cap_ms = int(float(cmd.timeout or 0.0) * 1000.0)
+                if cap_ms > 0:
+                    wait_ms = min(wait_ms, cap_ms)
+                self.log(f"delay: waiting {wait_ms} ms")
+                time.sleep(wait_ms / 1000.0)
+                return "PASS", f"Done - waited {wait_ms} ms", "delay", []
             if cmd.kind == "flash_gui":
                 # M33: launch / reuse the third-party flash GUI, then
                 # take the operator Go / Stop answer as the verdict.

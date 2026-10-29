@@ -162,8 +162,12 @@ KIND_BT_TEST = "bt_test"        # Bluetooth reference row (m30b): expands
 KIND_FLASH_GUI = "flash_gui"    # M33: launch (or reuse) the third-party
                                 # firmware flash GUI, then take the operator
                                 # Go / Stop answer as the verdict
+KIND_DELAY = "delay"            # M35: plain wait row - fixed sleep of
+                                # wait_ms, no console / instrument I/O;
+                                # the step timeout bounds the wait
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
-                 KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST)
+                 KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST,
+                 KIND_DELAY)
 
 #: the labels of the merged "FCT test step" Type column (m30 / m30b /
 #: m33).  Each label maps to a ConsoleCommand (or a standard operation)
@@ -183,6 +187,8 @@ STEP_TYPE_MESSAGE_GOSTOP_WAIT = "MessageGoStop_to_Console"
 #: M33: the third-party firmware flash GUI step (launch / reuse + Go /
 #: Stop operator verdict)
 STEP_TYPE_FLASH_GUI = "Flash_GUI"
+#: M35: plain wait step (fixed sleep, no console interaction)
+STEP_TYPE_DELAY = "Delay"
 #: the six Wi-Fi/BT reference-row labels (m30b): a Sequence step that
 #: expands to the matching sub-test and jumps to its tab for editing.
 STEP_TYPE_WIFI_SCAN = "Wifi_Scan"
@@ -198,6 +204,7 @@ STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
                     STEP_TYPE_MESSAGE_GOSTOP_WAIT, STEP_TYPE_FLASH_GUI,
+                    STEP_TYPE_DELAY,
                     STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
                     STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_RSSI,
                     STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE)
@@ -704,6 +711,9 @@ class ConsoleCommand:
     flash_gui_message: str = DEFAULT_FLASH_GUI_MESSAGE
                                     # kind == flash_gui: operator prompt
                                     # shown with the Go / Stop dialog
+    wait_ms: int = 1000             # kind == delay (M35): fixed wait in
+                                    # milliseconds; the step timeout bounds
+                                    # the maximum execution time
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
@@ -739,7 +749,8 @@ class ConsoleCommand:
              "capture_unexpected": self.capture_unexpected,
              "rf_subtest": self.rf_subtest,
              "flash_gui_path": self.flash_gui_path,
-             "flash_gui_message": self.flash_gui_message}
+             "flash_gui_message": self.flash_gui_message,
+             "wait_ms": int(self.wait_ms)}
         if self.kind == KIND_OP:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
@@ -818,7 +829,8 @@ class ConsoleCommand:
                 flash_gui_path=str(c.get("flash_gui_path", "")),
                 flash_gui_message=str(
                     c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
-                    or DEFAULT_FLASH_GUI_MESSAGE))
+                    or DEFAULT_FLASH_GUI_MESSAGE),
+                wait_ms=int(c.get("wait_ms", 1000) or 0))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -888,10 +900,12 @@ class ConsoleCommand:
 # m30 merged-table Type label <-> backing mapping
 # ---------------------------------------------------------------------------
 def step_type_label(cmd: "ConsoleCommand") -> str:
-    """One of the 18 Type labels for a merged FCT test step row."""
+    """One of the 20 Type labels for a merged FCT test step row."""
     kind = str(getattr(cmd, "kind", ""))
     if kind == KIND_OP:
         return STEP_TYPE_OPERATION
+    if kind == KIND_DELAY:
+        return STEP_TYPE_DELAY
     if kind in (KIND_WIFI_TEST, KIND_BT_TEST):
         return _RF_SUBTEST_LABELS.get(kind, {}).get(
             str(getattr(cmd, "rf_subtest", "") or ""), "")
@@ -923,13 +937,18 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
 
 def console_command_for_label(label: str,
                               name: str = "") -> "ConsoleCommand":
-    """The default ConsoleCommand backing one of the 18 Type labels."""
+    """The default ConsoleCommand backing one of the 20 Type labels."""
     if label == STEP_TYPE_OPERATION:
         return ConsoleCommand(kind=KIND_OP, name=name or "New Operation",
                               wait_enabled=False, send_enabled=False,
                               capture_enabled=False, op_kind="op",
                               op_params=None, op_wait_ms=100,
                               op_timeout_ms=5000)
+    if label == STEP_TYPE_DELAY:
+        return ConsoleCommand(kind=KIND_DELAY, name=name or "Delay",
+                              wait_enabled=False, send_enabled=False,
+                              capture_enabled=False, wait_ms=1000,
+                              timeout=0.0)
     if label in _RF_SUBTEST_TITLES:
         kind, subtest = rf_subtest_for_label(label)
         return ConsoleCommand(kind=kind, name=name or _RF_SUBTEST_TITLES[label],
@@ -1517,6 +1536,16 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                     "message": cmd.flash_gui_message
                     or DEFAULT_FLASH_GUI_MESSAGE,
                     "flash_gui_path": cmd.flash_gui_path}))
+        return steps
+    # Delay row (M35): a plain fixed wait - no console, no instrument.
+    # The step timeout still bounds the maximum execution time.
+    if cmd.kind == KIND_DELAY:
+        steps.append(FctStep(
+            name=cmd.name or "Delay",
+            step_type=STEP_EXTERNAL_TOOL, channel="",
+            timeout_s=float(cmd.timeout or 0.0),
+            retries=int(cmd.retries),
+            params={"fct_delay_ms": max(0, int(cmd.wait_ms))}))
         return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
