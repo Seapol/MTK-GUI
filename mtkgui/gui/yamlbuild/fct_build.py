@@ -23,6 +23,7 @@ execution engine is a later phase built on top of these structures.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import yaml
@@ -293,6 +294,19 @@ def _legacy_type_for(kind: str, step_type: str, params: dict) -> str:
     return STEP_MESSAGE_CHECK
 
 
+#: the legacy emitter baked ``": '<pattern>' (expected)"`` into step
+#: names (e.g. ``"Console login: 'done' (expected)"``).  The pattern now
+#: lives in the step params, so the suffix is pure noise and is stripped
+#: on normalize (M27 P2 - one-time rename; idempotent).
+_LEGACY_NAME_SUFFIX = re.compile(r":\s*'[^']*'\s*\(expected\)\s*$")
+
+
+def strip_legacy_name_suffix(name: str) -> str:
+    """Drop the legacy ``": '<pattern>' (expected)"`` suffix from a step
+    (or case) name.  Idempotent: a clean name is returned unchanged."""
+    return _LEGACY_NAME_SUFFIX.sub("", str(name or "")).rstrip()
+
+
 def normalize_fct_steps(steps: list) -> list:
     """Normalize LEGACY steps into the unified model, losslessly.
 
@@ -306,7 +320,11 @@ def normalize_fct_steps(steps: list) -> list:
     merged: list = []
     pending = None
     for step in list(steps or []):
-        if str(getattr(step, "name", "")).endswith(" (wait)"):
+        # M27 P2: the old emitter baked the expected pattern into the
+        # name - drop that suffix BEFORE the "(wait)" check so both a
+        # bare "X (wait)" and "X (wait): 'kw' (expected)" are recognised
+        step.name = strip_legacy_name_suffix(getattr(step, "name", ""))
+        if str(step.name).endswith(" (wait)"):
             pending = step
             continue
         if pending is not None:
@@ -378,9 +396,21 @@ def normalize_fct_cases(cases: list) -> list:
         marker = ((c.get("op_params") or {}) if isinstance(c, dict) else {})
         raw = marker.get("fct_step") if isinstance(marker, dict) else None
         if not (isinstance(raw, dict) and raw):
-            out.append(c)             # manual row: untouched
+            # manual row (no marker): keep it, but still strip the
+            # legacy name suffix (op / teardown rows baked the same way)
+            if isinstance(c, dict) and ": '" in str(c.get("name", "")) \
+                    and "(expected)" in str(c.get("name", "")):
+                c2 = dict(c)
+                c2["name"] = strip_legacy_name_suffix(
+                    str(c.get("name", "")))
+                out.append(c2)
+            else:
+                out.append(c)
             continue
         step = FctStep.from_dict(raw)
+        # M27 P2: strip the legacy suffix before the "(wait)" check (the
+        # marker name is normally already clean, but be defensive)
+        step.name = strip_legacy_name_suffix(step.name)
         if str(step.name).endswith(" (wait)"):
             pending = (c, step)
             continue                  # merged into the next marker row

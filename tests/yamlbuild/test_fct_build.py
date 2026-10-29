@@ -31,6 +31,7 @@ from mtkgui.gui.yamlbuild.fct_build import (
     normalize_fct_cases,
     normalize_fct_steps,
     step_kind,
+    strip_legacy_name_suffix,
     to_project_fct_cases,
 )
 
@@ -360,6 +361,49 @@ def test_normalize_fct_cases_collapses_legacy_rows_without_data_loss():
     assert marker["params"]["wait_enabled"] is True
     assert marker["params"]["send"] == "y"
     # round-trip deterministic: normalizing the output again is a no-op
+    assert normalize_fct_cases(out) == out
+
+
+def test_strip_legacy_name_suffix():
+    """The old emitter's ": '<kw>' (expected)" name suffix is dropped;
+    a clean name is left untouched (idempotent)."""
+    for raw, want in [
+        ("Console login: 'done' (expected)", "Console login"),
+        ("fat.py: HDMI visual: 'visual command completed' (expected)",
+         "fat.py: HDMI visual"),
+        ("fat.py summary: 'done' (expected)", "fat.py summary"),
+        ("Preflight: kernel version: 'done' (expected)",
+         "Preflight: kernel version"),
+        ("Console login (wait): 'done' (expected)", "Console login (wait)"),
+        ("fat.py: MQS earphone tone", "fat.py: MQS earphone tone"),
+        ("Power on DUT", "Power on DUT"),
+    ]:
+        assert strip_legacy_name_suffix(raw) == want, raw
+        # idempotent
+        assert strip_legacy_name_suffix(
+            strip_legacy_name_suffix(raw)) == want
+
+
+def test_legacy_name_suffix_stripped_on_case_normalization():
+    """normalize_fct_cases strips the baked suffix from BOTH the step
+    name and the case name (op / manual rows included)."""
+    step = FctStep(name="fat.py: MQS earphone tone: 'done' (expected)",
+                   step_type=STEP_MESSAGE_CHECK, channel="ser1",
+                   timeout_s=5,
+                   params={"fct_console": True, "kind": "send", "send": "y"})
+    cases = [
+        {"name": "fat.py: MQS earphone tone: 'done' (expected)",
+         "kind": "CapturefromConsole",
+         "op_params": {"fct_step": step.to_dict()}},
+        {"name": "Power on DUT: 'done' (expected)", "kind": "MessageGoStop",
+         "op_params": None},   # manual op row, no marker
+    ]
+    out = normalize_fct_cases(cases)
+    assert [c["name"] for c in out] == [
+        "fat.py: MQS earphone tone", "Power on DUT"]
+    assert out[0]["op_params"]["fct_step"]["name"] == \
+        "fat.py: MQS earphone tone"
+    # round-trip stable
     assert normalize_fct_cases(out) == out
 
 
