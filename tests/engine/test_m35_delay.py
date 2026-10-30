@@ -41,8 +41,10 @@ def _config(*cmds: ConsoleCommand) -> FctTestConfig:
 # ---------------------------------------------------------------- model
 class TestDelayModel:
     def test_label_and_defaults(self):
-        assert STEP_TYPE_DELAY in STEP_TYPE_LABELS
-        assert len(STEP_TYPE_LABELS) == 20
+        # M43: Delay is no longer a standalone Add-menu Type item (it
+        # lives in the Operation submenu); the kind stays valid
+        assert STEP_TYPE_DELAY not in STEP_TYPE_LABELS
+        assert len(STEP_TYPE_LABELS) == 19
         cmd = console_command_for_label(STEP_TYPE_DELAY, "Delay")
         assert cmd.kind == KIND_DELAY
         assert cmd.wait_ms == 1000
@@ -159,30 +161,35 @@ def qapp():
 
 
 class TestAddMenus:
-    def test_main_table_menu_offers_delay(self, qapp):
-        from PySide6.QtWidgets import QMenu
+    def test_main_table_menu_offers_delay_via_operation_submenu(self, qapp):
+        """M43: Delay is added from the Operation submenu (standalone
+        item gone)."""
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
-            FCTTestConfigPanel, _COL_CMD, _COL_TYPE)
+            FCTTestConfigPanel, _COL_CMD, _COL_TYPE, _COL_TIMEOUT)
         panel = FCTTestConfigPanel()
         panel.set_values({})
-        action = panel._add_actions[STEP_TYPE_DELAY]
-        assert isinstance(action.parent(), QMenu)
-        row = panel.cmd_table.rowCount()
-        panel._add_row_for_label(STEP_TYPE_DELAY)
+        assert STEP_TYPE_DELAY not in panel._add_actions
+        action = panel._op_add_actions["Delay — plain wait (ms)"]
+        assert action.isEnabled()
+        action.trigger()
+        row = panel.cmd_table.rowCount() - 1
         cmd = panel._get_row_cmd(row)
         assert cmd.kind == KIND_DELAY
         assert panel.cmd_table.item(row, _COL_TYPE).text() == STEP_TYPE_DELAY
         assert panel.cmd_table.item(row, _COL_CMD).text() == "1000 ms"
-        from mtkgui.gui.yamlbuild.FCTTestConfigWidget import _COL_TIMEOUT
         assert panel.cmd_table.item(row, _COL_TIMEOUT).text() == "0"
 
-    def test_main_table_covers_all_twenty_types(self, qapp):
+    def test_main_table_covers_all_direct_types(self, qapp):
+        """M43: 18 direct Type items; Operation is a submenu."""
+        from mtkgui.engine.fct_test_config import STEP_TYPE_OPERATION
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_TYPE)
         panel = FCTTestConfigPanel()
         panel.set_values({})
-        assert set(panel._add_actions) == set(STEP_TYPE_LABELS)
-        for label in STEP_TYPE_LABELS:
+        direct = set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}
+        assert set(panel._add_actions) == direct
+        assert len(panel._add_actions) == 18
+        for label in direct:
             panel._add_row_for_label(label)
             row = panel.cmd_table.rowCount() - 1
             assert panel.cmd_table.item(row, _COL_TYPE).text() == label

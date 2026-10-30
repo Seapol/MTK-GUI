@@ -408,16 +408,19 @@ def test_message_rows_render_and_round_trip(qapp):
 
 
 def test_add_menu_covers_all_twelve_types(qapp):
-    """m30: the Add dropdown offers exactly the 12 Type labels and each
-    added row renders that label in its Type column."""
+    """m30/M43: the Add dropdown offers every direct Type label
+    (Operation is the M43 submenu, not a direct item) and each added
+    row renders that label in its Type column."""
     from mtkgui.engine.fct_test_config import (
         STEP_TYPE_LABELS,
+        STEP_TYPE_OPERATION,
         step_type_label,
     )
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    assert set(panel._add_actions) == set(STEP_TYPE_LABELS)
-    for label in STEP_TYPE_LABELS:
+    direct = set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}
+    assert set(panel._add_actions) == direct
+    for label in direct:
         panel._add_row_for_label(label)
         r = panel.cmd_table.rowCount() - 1
         cmd = panel._row_cmd(r)

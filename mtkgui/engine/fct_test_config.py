@@ -199,6 +199,8 @@ STEP_TYPE_WIFI_IPERF = "Wifi_Iperf"
 STEP_TYPE_BT_RSSI = "BT_RSSI"
 STEP_TYPE_BT_PAIR = "BT_Pair"
 STEP_TYPE_BT_TONE = "BT_Tone"
+#: M43: STEP_TYPE_DELAY is still a valid step kind but is no longer a
+#: standalone Add-menu Type item (Delay lives in the Operation submenu)
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
@@ -206,7 +208,6 @@ STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
                     STEP_TYPE_MESSAGE_GOSTOP_WAIT, STEP_TYPE_FLASH_GUI,
-                    STEP_TYPE_DELAY,
                     STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
                     STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_RSSI,
                     STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE)

@@ -80,7 +80,6 @@ from mtkgui.engine.fct_test_config import (
     KIND_BT_TEST,
     KIND_FLASH_GUI,
     KIND_DELAY,
-    STEP_TYPE_LABELS,
     STEP_TYPE_OPERATION,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
@@ -109,6 +108,7 @@ from mtkgui.engine.fct_test_config import (
     rf_subtest_for_label,
     step_type_label,
 )
+from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
 from mtkgui.engine.steps import op_summary as _op_summary
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
@@ -877,9 +877,58 @@ class FCTTestConfigPanel(QWidget):
         self._save_row_cmd(r, cmd)
 
     def _add_row_for_label(self, label: str) -> None:
-        """Add the default row for one of the 12 Type labels."""
+        """Add the default row for one of the direct Type labels."""
         self._insert_row(console_command_for_label(
             label, _ADD_ROW_NAMES.get(label, "")))
+
+    def _add_operation_row(self, op_name: str | None = None) -> None:
+        """M43: add a standard-operation row DIRECTLY from the Operation
+        submenu (no nested sequence-editor dialog opens).
+
+        Args:
+            op_name: One of ``OP_STEPS`` keys; None -> the Custom row.
+        """
+        name = op_name or _ADD_ROW_NAMES[STEP_TYPE_OPERATION]
+        cmd = console_command_for_label(STEP_TYPE_OPERATION, name)
+        if op_name:
+            cmd.op_params = dict(OP_STEPS.get(op_name) or {})
+        self._insert_row(cmd)
+
+    # ------------------------------------------------- M43 op submenu gate
+    @staticmethod
+    def _op_name_for_label(label: str) -> str | None:
+        """Standard operation name behind an "Operation: <name>" entry
+        (None for Custom / Delay entries)."""
+        prefix = "Operation: "
+        if not label.startswith(prefix):
+            return None
+        name = label[len(prefix):]
+        return name if name in OP_STEPS else None
+
+    def _op_usable(self, name: str) -> bool:
+        """True when the operation may be added (M37 availability)."""
+        return self._available_ops is None or name in self._available_ops
+
+    @staticmethod
+    def _op_blocked_tooltip(name: str) -> str:
+        """Explain WHICH configuration makes one operation usable."""
+        if name in DIO_OPS:
+            return "Configure Control IO Nets (ICT module) first"
+        if name in INSTRUMENT_OPS:
+            return "Configure instruments (Equipment page) first"
+        if name in FIXTURE_OPS:
+            return "Configure fixture (Equipment page) first"
+        return "Configure the required resource first"
+
+    def _sync_op_submenu(self) -> None:
+        """M37 gate applied to the M43 Operation submenu entries: an
+        operation whose resource is not configured is disabled with its
+        "configure X first" tooltip."""
+        for text, act in getattr(self, "_op_add_actions", {}).items():
+            name = self._op_name_for_label(text)
+            blocked = name is not None and not self._op_usable(name)
+            act.setEnabled(not blocked)
+            act.setToolTip(self._op_blocked_tooltip(name) if blocked else "")
 
     def _add_console_row(self) -> None:
         """Default interact row: Send enabled, Wait / Capture off."""
@@ -915,10 +964,14 @@ class FCTTestConfigPanel(QWidget):
     def _cmd_row_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()
         add = QPushButton("Add")
-        # m30: one Add dropdown offering the 12 types, grouped
-        # (Operations first, then Console interact, SFTP, CLI, dialogs).
+        # M43: one Add dropdown = 18 direct Type items + the "Operation"
+        # SUBMENU (11 standard operations + Custom + Delay).  Every
+        # submenu entry adds its row DIRECTLY - no nested editor dialog.
+        # The standalone Delay Type item is gone (Delay lives in the
+        # Operation submenu).
         add_menu = QMenu(add)
         self._add_actions = {}
+        self._op_add_actions = {}
 
         def _add_action(label: str):
             act = add_menu.addAction(label,
@@ -927,10 +980,23 @@ class FCTTestConfigPanel(QWidget):
             self._add_actions[label] = act
             return act
 
-        add_menu.addSection("Operations")
-        _add_action(STEP_TYPE_OPERATION)
-        # M35: Delay is a main-table Type (plain fixed wait, no console)
-        _add_action(STEP_TYPE_DELAY)
+        add_menu.addSection("Operation")
+        op_menu = add_menu.addMenu("Operation")
+
+        def _op_action(text: str, handler) -> None:
+            act = op_menu.addAction(text, handler)
+            self._op_add_actions[text] = act
+
+        for name in OP_STEPS:
+            _op_action(f"Operation: {name}",
+                       lambda _checked=False, n=name:
+                       self._add_operation_row(n))
+        _op_action("Operation: Custom",
+                   lambda _checked=False: self._add_operation_row(None))
+        _op_action("Delay — plain wait (ms)",
+                   lambda _checked=False:
+                   self._add_row_for_label(STEP_TYPE_DELAY))
+        self._sync_op_submenu()
         add_menu.addSection("Console interact")
         _add_action(STEP_TYPE_CONSOLE_SERIAL)
         _add_action(STEP_TYPE_CONSOLE_SSH)
@@ -2638,10 +2704,12 @@ class FCTTestConfigPanel(QWidget):
 
     # ------------------------------------------------------- state in/out
     def set_available_ops(self, available_ops: set[str] | None) -> None:
-        """M37: restrict the Operation row editor to the operations
-        whose resource is configured (None = everything usable)."""
+        """M37: restrict the Operation row editor / M43 submenu entries
+        to the operations whose resource is configured (None = all
+        usable)."""
         self._available_ops = (set(available_ops)
                                if available_ops is not None else None)
+        self._sync_op_submenu()
 
     def set_values(self, params: dict) -> None:
         """Restore from the module params (round-trip safe)."""
