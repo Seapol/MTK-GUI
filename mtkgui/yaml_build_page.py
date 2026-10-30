@@ -87,10 +87,12 @@ DISPLAY_TO_CATEGORY = {
     CATEGORY_CONTROL_IO_LABEL: CATEGORY_GPIO,
 }
 
-#: M45b: the gated module chain - a module opens only when the previous
-#: level has been validated (star) or a valid project load starred it.
+#: M45b: the gated ICT module chain - a module opens only when the
+#: previous level has been validated (star) or a valid project load
+#: starred it.  M45c: FCT (module 05) is NOT part of this chain - an
+#: FCT-only project is valid, so ``fct_build`` is always openable.
 GATING_CHAIN: tuple[str, ...] = ("design_input", "parse_ict",
-                                 "ict_workflow", "fct_build")
+                                 "ict_workflow")
 
 #: M45b: display card -> chain level (the two level-03 cards - the
 #: Channel Allocation nav card and the merged Build ICT card - share the
@@ -102,12 +104,12 @@ GATING_DISPLAY_LEVEL: dict[str, str] = {"channel_alloc": "ict_workflow"}
 DESIGN_INPUT_FILES: tuple[str, ...] = ("spf_file", "net_file", "bom_file")
 
 #: M45b: chain level -> operator-facing module title/mark ("module 0X").
+#: M45c: fct_build is independent (not in the chain).
 GATING_LEVEL_TITLE: dict[str, str] = {
     "design_input": "Design Input",
     "parse_ict": "Parse nets for ICT",
     "ict_workflow": "Channel Allocation / Build ICT Test Work Flow "
                     "Sequence",
-    "fct_build": "Build FCT Test Work Flow Sequence",
 }
 
 
@@ -612,8 +614,10 @@ class YamlBuildPage(QWidget):
     def module_openable(self, module_key: str) -> bool:
         """M45b: can this module be opened right now?
 
-        The chain is strictly sequential: a validated module (or the
-        immediately-next module) is openable; module 01 is always open.
+        The ICT chain is strictly sequential: a validated module (or
+        the immediately-next module) is openable; module 01 is always
+        open.  M45c: ``fct_build`` is independent of the chain (and of
+        the design files) - it is ALWAYS openable (FCT-only projects).
         """
         level = GATING_DISPLAY_LEVEL.get(module_key, module_key)
         if level not in GATING_CHAIN:
@@ -630,6 +634,8 @@ class YamlBuildPage(QWidget):
     def _blocked_reason(self, module_key: str) -> str:
         """The "complete module 0X first" prompt text (M45b)."""
         level = GATING_DISPLAY_LEVEL.get(module_key, module_key)
+        if level not in GATING_CHAIN:
+            return ""                     # M45c: independent module
         index = GATING_CHAIN.index(level)
         if not self._design_input_complete():
             return ("Complete module 01 - Design Input first: load the "
@@ -663,20 +669,49 @@ class YamlBuildPage(QWidget):
                 self.model.allocated_testable())
         return not self.model.validate_module(level)
 
+    def _fct_level_valid(self) -> bool:
+        """M45c: fct_build validates INDEPENDENTLY of the ICT chain.
+
+        A loaded project with FCT parameters is valid when its module
+        schema passes AND the generated sequence passes the same M39
+        global rules used by every save path.  A project without FCT
+        content gets no star (nothing to validate).
+        """
+        params = self.model.get_params("fct_build") or {}
+        if not any(str(params.get(key) or "").strip() for key in
+                   ("fct_test_config_yaml", "fct_sequence_cases_yaml")):
+            return False
+        if self.model.validate_module("fct_build"):
+            return False
+        try:
+            cases, errors = self._emit_fct_sequence(params)
+        except Exception:                     # noqa: BLE001 - never crash
+            return False
+        if errors:
+            return False
+        return not blocking_issues(validate_project_yaml(
+            {"test_workflow": {"fct_test_cases": cases}}))
+
     def apply_load_gating(self) -> None:
         """M45b: sequential re-validation after a project LOAD.
 
-        Every mark is cleared first; each level that validates gets its
-        star and unlocks the next one.  The first failing level stops
-        the chain - every later module stays locked.
+        Every mark is cleared first; each ICT level that validates gets
+        its star and unlocks the next one.  The first failing level
+        stops the chain - every later ICT module stays locked.  M45c:
+        ``fct_build`` is re-validated INDEPENDENTLY (its own module
+        schema + M39 rules), so an FCT-only project stars it without
+        any ICT level.
         """
         for level in GATING_CHAIN:
             self.model.set_mark(level, "")
         self.model.set_mark(DISPLAY_CHANNEL_ALLOC, "")
+        self.model.set_mark("fct_build", "")
         for level in GATING_CHAIN:
             if not self._level_valid(level):
                 break
             self.model.set_mark(level, MARK_STAR)
+        if self._fct_level_valid():
+            self.model.set_mark("fct_build", MARK_STAR)
         self._after_model_change()
 
     def _open_block(self, module_key: str) -> None:

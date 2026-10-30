@@ -32,6 +32,12 @@ def _sandbox_cwd(tmp_path, monkeypatch):
     """Load current yaml auto-saves the project under ./projects/ -
     redirect the cwd so tests never write into the repository."""
     monkeypatch.chdir(tmp_path)
+    # M45c: every save path prompts for missing Product Information -
+    # these flows are not about that prompt, so answer it here
+    monkeypatch.setattr(
+        "mtkgui.main_window.ask_product_information",
+        lambda parent, product: {"part_number": "P-TEST", "core_id": "",
+                                 "batch": "freebatch"})
 
 
 @pytest.fixture()

@@ -439,6 +439,51 @@ class _ComboWheelGuard(QObject):
         return False
 
 
+def ask_product_information(parent, product: dict) -> "dict | None":
+    """M45c: modal Product Information prompt for the SAVE paths.
+
+    "Missing" = no ``product:`` section or an empty Part Number.  Part
+    Number is required (OK stays disabled until it is non-empty); Core
+    ID / Batch are optional.  Returns ``{part_number, core_id, batch}``
+    or None when the operator cancelled - the save is then aborted and
+    nothing is written.
+    """
+    product = dict(product or {})
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Product Information")
+    dlg.setModal(True)
+    form = QFormLayout(dlg)
+    ed_part = QLineEdit(str(product.get("part_number") or ""))
+    ed_part.setPlaceholderText("Part Number (required)")
+    ed_core = QLineEdit(str(product.get("core_id") or ""))
+    ed_core.setPlaceholderText("Core ID (optional)")
+    ed_batch = QLineEdit(str(product.get("batch") or ""))
+    ed_batch.setPlaceholderText("Batch (optional)")
+    form.addRow("Part Number:", ed_part)
+    form.addRow("Core ID:", ed_core)
+    form.addRow("Batch:", ed_batch)
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                               | QDialogButtonBox.StandardButton.Cancel)
+    form.addRow(buttons)
+    ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    ok_btn.setEnabled(bool(ed_part.text().strip()))
+    ed_part.textChanged.connect(
+        lambda text: ok_btn.setEnabled(bool(text.strip())))
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    try:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        part = ed_part.text().strip()
+        if not part:
+            return None
+        return {"part_number": part,
+                "core_id": ed_core.text().strip(),
+                "batch": ed_batch.text().strip() or "freebatch"}
+    finally:
+        dlg.deleteLater()
+
+
 class MainWindow(QMainWindow):
 
     #: theme name whose QSS is CURRENTLY active app-wide (dedup guard
@@ -2608,6 +2653,33 @@ class MainWindow(QMainWindow):
             # GUI state equals the file state
             self._reload_saved_yaml(path)
 
+    def _ensure_product_information(self, config: dict) -> bool:
+        """M45c: Product Information prompt on apply-save / save-as-new.
+
+        Project identity is project-level (ICT and FCT-only projects
+        alike): when the ``product:`` section carries no Part Number the
+        operator is asked to fill it in manually.  OK writes the values
+        into the Product Information group (and therefore the YAML);
+        Cancel aborts the save (nothing is written).
+        """
+        product = dict(config.get("product") or {})
+        if str(product.get("part_number") or "").strip():
+            return True
+        values = ask_product_information(self, product)
+        if values is None:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Yaml save cancelled: "
+                "Product Information missing")
+            return False
+        page = self.workflow_page
+        page.part_edit.setText(values["part_number"])
+        page.core_edit.setText(values["core_id"])
+        page.batch_edit.setText(values["batch"])
+        self._append_event_log(
+            f"[{datetime.now():%H:%M:%S}] Product Information set: "
+            f"{values['part_number']}")
+        return True
+
     def _save_yaml_to(self, path):
         """Write the project config to *path*.
 
@@ -2646,6 +2718,12 @@ class MainWindow(QMainWindow):
                     f"[{datetime.now():%H:%M:%S}] Yaml save blocked: "
                     + "; ".join(issue.as_line() for issue in issues))
                 return False
+            # M45c: module + M39 validation passed - a project without
+            # Product Information is prompted BEFORE the file is written
+            # (OK fills product: and the save proceeds; Cancel aborts)
+            if not self._ensure_product_information(config):
+                return False
+            config = self._build_project_config()
             try:
                 project_config.save_config(config, path)
             except OSError as exc:

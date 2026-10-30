@@ -40,6 +40,12 @@ def _sandbox_cwd(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "mtkgui.yaml_build_page.save_project_state",
         lambda key, state: True)
+    # M45c: every save path prompts for missing Product Information -
+    # this lifecycle suite is not about that prompt, so answer it here
+    monkeypatch.setattr(
+        "mtkgui.main_window.ask_product_information",
+        lambda parent, product: {"part_number": "P-TEST", "core_id": "",
+                                 "batch": "freebatch"})
 
 
 @pytest.fixture()
