@@ -169,9 +169,13 @@ KIND_FLASH_GUI = "flash_gui"    # M33: launch (or reuse) the third-party
 KIND_DELAY = "delay"            # M35: plain wait row - fixed sleep of
                                 # wait_ms, no console / instrument I/O;
                                 # the step timeout bounds the wait
+KIND_SERIAL_PUT = "serial_put"  # M46: push a Host PC file to the DUT
+                                # over the SERIAL console
+KIND_SERIAL_PULL = "serial_pull"  # M46: pull a DUT file to the Host PC
+                                  # over the SERIAL console
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST,
-                 KIND_DELAY)
+                 KIND_DELAY, KIND_SERIAL_PUT, KIND_SERIAL_PULL)
 
 #: row kinds that never open the serial console (M36 validation): a
 #: console section made only of these needs no port
@@ -208,6 +212,10 @@ STEP_TYPE_BT_PAIR = "BT_Pair"
 STEP_TYPE_BT_TONE = "BT_Tone"
 #: M43: STEP_TYPE_DELAY is still a valid step kind but is no longer a
 #: standalone Add-menu Type item (Delay lives in the Operation submenu)
+#: M46: the two serial-transfer steps also live in the Operation
+#: submenu only (never a direct Add Type item).
+STEP_TYPE_SERIAL_PUT = "Serial: Push file to DUT"
+STEP_TYPE_SERIAL_PULL = "Serial: Pull file from DUT"
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
@@ -448,6 +456,9 @@ def cases_to_console_commands(cases: list) -> list:
             continue            # M27 P9: serial asset deploy is owned by
                                 # console.serial_deploy - never re-sync
                                 # into test_commands (single owner)
+        if params.get("fct_serial_transfer") is not None:
+            continue            # M46: Push/Pull rows are their own
+                                # test_commands owner - never re-sync
         if kind in _CASE_MESSAGE_STYLES:
             flush_wait()
             commands.append(_message_command_from_case(case))
@@ -724,6 +735,9 @@ class ConsoleCommand:
     wait_ms: int = 1000             # kind == delay (M35): fixed wait in
                                     # milliseconds; the step timeout bounds
                                     # the maximum execution time
+    serial_baud: int = 0            # kind == serial_put|serial_pull (M46):
+                                    # 0 = use the Console Serial baudrate,
+                                    # otherwise one Tera Term table rate
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
@@ -760,7 +774,8 @@ class ConsoleCommand:
              "rf_subtest": self.rf_subtest,
              "flash_gui_path": self.flash_gui_path,
              "flash_gui_message": self.flash_gui_message,
-             "wait_ms": int(self.wait_ms)}
+             "wait_ms": int(self.wait_ms),
+             "serial_baud": int(self.serial_baud or 0)}
         if self.kind == KIND_OP:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
@@ -840,7 +855,8 @@ class ConsoleCommand:
                 flash_gui_message=str(
                     c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
                     or DEFAULT_FLASH_GUI_MESSAGE),
-                wait_ms=int(c.get("wait_ms", 1000) or 0))
+                wait_ms=int(c.get("wait_ms", 1000) or 0),
+                serial_baud=int(c.get("serial_baud", 0) or 0))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:
@@ -903,6 +919,7 @@ class ConsoleCommand:
             action=str(c.get("action", "")),
             local=str(c.get("local", "")),
             remote=str(c.get("remote", "")),
+            serial_baud=int(c.get("serial_baud", 0) or 0),
             capture_expected=cexp, capture_unexpected=cunexp)
 
 
@@ -923,6 +940,10 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
         return STEP_TYPE_SFTP_PUT
     if kind == KIND_SFTP_GET:
         return STEP_TYPE_SFTP_GET
+    if kind == KIND_SERIAL_PUT:
+        return STEP_TYPE_SERIAL_PUT
+    if kind == KIND_SERIAL_PULL:
+        return STEP_TYPE_SERIAL_PULL
     if kind == KIND_FLASH_GUI:
         return STEP_TYPE_FLASH_GUI
     if kind == KIND_HOST:
@@ -959,6 +980,18 @@ def console_command_for_label(label: str,
                               wait_enabled=False, send_enabled=False,
                               capture_enabled=False, wait_ms=1000,
                               timeout=0.0)
+    if label == STEP_TYPE_SERIAL_PUT:
+        return ConsoleCommand(kind=KIND_SERIAL_PUT, name=name or label,
+                              transport="serial", wait_enabled=False,
+                              send_enabled=False, capture_enabled=False,
+                              local="", remote="/root/", serial_baud=0,
+                              timeout=600.0)
+    if label == STEP_TYPE_SERIAL_PULL:
+        return ConsoleCommand(kind=KIND_SERIAL_PULL, name=name or label,
+                              transport="serial", wait_enabled=False,
+                              send_enabled=False, capture_enabled=False,
+                              local="", remote="/root/", serial_baud=0,
+                              timeout=600.0)
     if label in _RF_SUBTEST_TITLES:
         kind, subtest = rf_subtest_for_label(label)
         return ConsoleCommand(kind=kind, name=name or _RF_SUBTEST_TITLES[label],
@@ -1013,6 +1046,31 @@ def console_command_for_label(label: str,
     if cmd.send_enabled:
         cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
     return cmd
+
+
+def default_assets_dir(project: str = "", tenant_base: str = "projects",
+                       bundled_assets: str = "assets") -> tuple:
+    """Browse default for the Push step: ``(path, hint)``.
+
+    Priority: the CURRENT project's ``assets/`` folder, then the
+    bundled template (``_internal/assets`` in a frozen build).  ``hint``
+    is a human message when neither exists.
+    """
+    import os
+    project = str(project or "").strip()
+    if project:
+        candidate = os.path.normpath(os.path.join(
+            str(tenant_base or "projects"), project, "assets"))
+        if os.path.isdir(candidate):
+            return candidate, ""
+        hint = (f"project assets folder not found ({candidate}) - "
+                "choose a folder manually or use the bundled template")
+        if os.path.isdir(bundled_assets):
+            return os.path.normpath(bundled_assets), hint
+        return candidate, hint
+    if os.path.isdir(bundled_assets):
+        return os.path.normpath(bundled_assets), ""
+    return "", "no assets template found - choose a folder manually"
 
 
 @dataclass
@@ -1453,6 +1511,16 @@ class FctTestConfig:
                     errors.append(
                         f"host CLI row '{cmd.name}': host_cmd must not "
                         "be empty")
+                if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+                    if not str(cmd.remote or "").strip():
+                        errors.append(
+                            f"serial transfer row '{cmd.name}': the DUT "
+                            "path must not be empty")
+                    if cmd.kind == KIND_SERIAL_PUT \
+                            and not str(cmd.local or "").strip():
+                        errors.append(
+                            f"serial transfer row '{cmd.name}': the local "
+                            "source path must not be empty")
         if w.any_enabled:
             if w.scan_via not in WIFI_SCAN_VIA:
                 errors.append(f"wifi.scan_via must be one of "
@@ -1512,7 +1580,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                        scripts_local_dir: str = "",
                        scripts_remote_dir: str = "",
                        pull_remote_dir: str = "",
-                       pull_local_dir: str = "") -> list:
+                       pull_local_dir: str = "",
+                       console_baud: int = 115200) -> list:
     """One ConsoleCommand row -> its ordered list[FctStep].
 
     Shared by ``console.test_commands`` (run BEFORE the RF sections)
@@ -1593,6 +1662,23 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             timeout_s=float(cmd.timeout or 0.0),
             retries=int(cmd.retries),
             params={"fct_delay_ms": max(0, int(cmd.wait_ms))}))
+        return steps
+    # M46: serial-console file transfer rows (Push / Pull).  The transfer
+    # runs over the SAME console channel as every other serial step; the
+    # optional row baudrate is negotiated and restored by the runner.
+    if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+        steps.append(FctStep(
+            name=cmd.name or cmd.kind,
+            step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+            timeout_s=float(cmd.timeout or 600.0),
+            retries=int(cmd.retries),
+            params={"fct_serial_transfer": {
+                "direction": ("push" if cmd.kind == KIND_SERIAL_PUT
+                              else "pull"),
+                "local": str(cmd.local or ""),
+                "remote": str(cmd.remote or ""),
+                "baud": int(cmd.serial_baud or 0),
+                "console_baud": int(console_baud or 115200)}}))
         return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
@@ -1946,7 +2032,7 @@ def build_fct_steps(cfg: FctTestConfig,
         steps.extend(_console_row_steps(
             cmd, channel_key, c.ssh_host, c.ssh_username,
             c.scripts_local_dir, c.scripts_remote_dir,
-            c.pull_remote_dir, c.pull_local_dir))
+            c.pull_remote_dir, c.pull_local_dir, c.baudrate))
         # Serial asset provisioning right after the login (a fresh DUT
         # has no scripts / board-test package; no SSH yet).
         if c.serial_deploy and "login" in str(
@@ -1975,7 +2061,7 @@ def build_fct_steps(cfg: FctTestConfig,
         for step in _console_row_steps(
                 cmd, channel_key, c.ssh_host, c.ssh_username,
                 c.scripts_local_dir, c.scripts_remote_dir,
-                c.pull_remote_dir, c.pull_local_dir):
+                c.pull_remote_dir, c.pull_local_dir, c.baudrate):
             step.params = dict(step.params or {})
             step.params["teardown"] = True
             steps.append(step)

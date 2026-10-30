@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """M43: the main FCT Sequence Add menu nests the Operation entries.
 
-The "Operation" entry is a SUBMENU with 15 entries (13 standard
-operations + "Operation: Custom" + "Delay — plain wait (ms)"); clicking
-an entry adds the matching row DIRECTLY (no nested sequence-editor
-dialog).  The standalone Delay Type item is gone: the main menu holds
-18 direct Type items + the Operation submenu.  (M41 grew the catalog
-from 11 to 13 standard operations.)
+The "Operation" entry is a SUBMENU with 16 entries (13 standard
+operations + the two M46 serial transfers + "Delay — plain wait (ms)");
+clicking an entry adds the matching row DIRECTLY (no nested
+sequence-editor dialog).  The standalone Delay Type item is gone: the
+main menu holds 18 direct Type items + the Operation submenu.  (M41 grew
+the catalog from 11 to 13 standard operations; M46 removed the no-op
+"Operation: Custom" entry and added Serial Push / Pull.)
 """
 from __future__ import annotations
 
@@ -21,9 +22,13 @@ from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, \
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     KIND_DELAY,
     KIND_OP,
+    KIND_SERIAL_PULL,
+    KIND_SERIAL_PUT,
     STEP_TYPE_DELAY,
     STEP_TYPE_LABELS,
     STEP_TYPE_OPERATION,
+    STEP_TYPE_SERIAL_PULL,
+    STEP_TYPE_SERIAL_PUT,
 )
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
@@ -32,7 +37,6 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     _COL_TYPE,
 )
 
-CUSTOM_LABEL = "Operation: Custom"
 DELAY_LABEL = "Delay — plain wait (ms)"
 
 
@@ -53,12 +57,14 @@ def _op_labels() -> list:
 
 
 class TestOperationSubmenu:
-    def test_submenu_has_exactly_fifteen_entries(self, panel):
+    def test_submenu_has_exactly_sixteen_entries(self, panel):
         texts = list(panel._op_add_actions)
-        assert texts == _op_labels() + [CUSTOM_LABEL, DELAY_LABEL]
+        assert texts == _op_labels() + [
+            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL, DELAY_LABEL]
         # 13 standard operations (M41 added the two network-setup ops)
-        # + Custom + Delay
-        assert len(texts) == 15
+        # + 2 serial transfers (M46) + Delay; Custom is gone
+        assert len(texts) == 16
+        assert "Operation: Custom" not in texts
         # it really is a submenu of the Add dropdown
         first = next(iter(panel._op_add_actions.values()))
         sub = first.parent()
@@ -76,14 +82,20 @@ class TestOperationSubmenu:
             assert panel.cmd_table.item(row, _COL_TYPE).text() \
                 == STEP_TYPE_OPERATION
 
-    def test_custom_entry_adds_a_custom_op_row(self, panel):
-        before = panel.cmd_table.rowCount()
-        panel._op_add_actions[CUSTOM_LABEL].trigger()
-        assert panel.cmd_table.rowCount() == before + 1
-        cmd = panel._get_row_cmd(before)
-        assert cmd.kind == KIND_OP
-        assert cmd.name == "New Operation"
-        assert cmd.op_params is None
+    def test_serial_entries_add_their_rows_directly(self, panel):
+        """M46: the two serial transfers add a serial row with the
+        documented defaults (Push: local assets dir; Pull: project
+        outbox; both remote /root/)."""
+        for label, kind in ((STEP_TYPE_SERIAL_PUT, KIND_SERIAL_PUT),
+                            (STEP_TYPE_SERIAL_PULL, KIND_SERIAL_PULL)):
+            before = panel.cmd_table.rowCount()
+            panel._op_add_actions[label].trigger()
+            assert panel.cmd_table.rowCount() == before + 1
+            cmd = panel._get_row_cmd(before)
+            assert cmd.kind == kind
+            assert cmd.remote == "/root/"
+            assert cmd.transport == "serial"
+            assert cmd.serial_baud == 0
 
     def test_delay_entry_adds_a_delay_row(self, panel):
         before = panel.cmd_table.rowCount()
@@ -140,7 +152,8 @@ class TestOperationSubmenuGate:
             assert not act.isEnabled()
             assert act.toolTip() == tip
         assert acts[f"Operation: {allowed}"].isEnabled()
-        assert acts[CUSTOM_LABEL].isEnabled()
+        assert acts[STEP_TYPE_SERIAL_PUT].isEnabled()
+        assert acts[STEP_TYPE_SERIAL_PULL].isEnabled()
         assert acts[DELAY_LABEL].isEnabled()
 
     def test_none_available_ops_enables_everything(self, panel):

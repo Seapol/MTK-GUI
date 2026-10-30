@@ -614,7 +614,8 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 if step.params.get("send_enabled", True) and \
                         _send_text.strip():
                     ctx.log(f"console send: {_send_text!r}")
-                    channel.write(console_line(_send_text))
+                    from .serial_transport import apply_send_hardening
+                    apply_send_hardening(channel, console_line(_send_text))
                 else:
                     ctx.log("console send skipped "
                             f"(send_enabled={step.params.get('send_enabled', True)}, "
@@ -659,6 +660,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # by MD5 and unzip archives (long operation -> foreground bar).
         if step.params.get("fct_serial_push"):
             return _run_serial_push(step, ctx, channel)
+        # M46: Serial Push/Pull over the console (chunked base64 + ACK).
+        if step.params.get("fct_serial_transfer"):
+            return _run_serial_transfer(step, ctx, channel)
         # host CLI row: run a command ON THE HOST PC (test station
         # shell, e.g. start/stop the local iperf3 server); PASS =
         # exit code 0.  No DUT console involved.
@@ -832,6 +836,92 @@ def _run_serial_push(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     detail = f"deployed {len(results)} file(s) [{deployed}]"
     if unzipped:
         detail += "; unzipped to " + ", ".join(r["unzip"] for r in unzipped)
+    return FctOutcome(VERDICT_PASS, detail)
+
+
+def _run_serial_transfer(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
+    """Serial Push/Pull (params.fct_serial_transfer, M46).
+
+    The transfer runs over the console channel with the chunked base64
+    + ACK protocol; an optional row baudrate is negotiated up front and
+    BOTH ends are restored afterwards (a restore failure is a FAIL with
+    an explicit message).  A local DIRECTORY is deployed file by file
+    under ``<remote>/<dir basename>``.
+    """
+    from .serial_transfer import SerialTransferError, transfer
+
+    if channel is None:
+        return FctOutcome(VERDICT_ERROR,
+                          "serial transfer: no console channel bound")
+    spec = step.params.get("fct_serial_transfer") or {}
+    direction = str(spec.get("direction") or "push").lower()
+    local = str(spec.get("local") or "")
+    remote = str(spec.get("remote") or "").strip()
+    baud = int(spec.get("baud") or 0)
+    console_baud = int(spec.get("console_baud") or 115200)
+    if not remote:
+        return FctOutcome(VERDICT_ERROR,
+                          "serial transfer: no DUT path configured")
+
+    files: list = []            # (local_file, remote_file)
+    if direction == "push":
+        local = _resolve_deploy_local(ctx, local)
+        if os.path.isdir(local):
+            base_remote = remote.rstrip("/") or "/root"
+            root_remote = f"{base_remote}/{os.path.basename(local.rstrip('/'))}"
+            for root, _dirs, names in os.walk(local):
+                rel = os.path.relpath(root, local)
+                rel = "" if rel == "." else rel.replace(os.sep, "/")
+                for name in sorted(names):
+                    rpath = (f"{root_remote}/{rel}/{name}" if rel
+                             else f"{root_remote}/{name}")
+                    files.append((os.path.join(root, name), rpath))
+        elif os.path.isfile(local):
+            files.append((local, remote))
+        else:
+            return FctOutcome(VERDICT_FAIL,
+                              f"serial push: local path not found: {local}")
+    else:
+        if not local:
+            base = str(ctx.project_base or "")
+            local = os.path.join(base, "outbox") if base else "outbox"
+        local = _resolve_deploy_local(ctx, local)
+        files.append((local, remote))
+    if not files:
+        return FctOutcome(VERDICT_FAIL,
+                          "serial push: the local folder is empty")
+
+    def _run(stage):
+        def _progress(done, size, name):
+            if stage is not None and size:
+                pct = min(99, int(done * 100 / size))
+                stage(pct, f"Transfer {name} ({pct}%)")
+        try:
+            for local_file, remote_file in files:
+                if direction == "push":
+                    parent = os.path.dirname(remote_file)
+                    if parent:
+                        channel.write(f"mkdir -p {parent}\n")
+                transfer(channel, direction, local_file, remote_file,
+                         baud=baud, console_baud=console_baud,
+                         log=ctx.log, progress=_progress)
+            return None
+        except SerialTransferError as exc:
+            return FctOutcome(VERDICT_FAIL, f"serial transfer: {exc}")
+        except Exception as exc:                    # noqa: BLE001
+            return FctOutcome(VERDICT_ERROR, f"serial transfer: {exc}")
+
+    if ctx.progress_factory is not None:
+        with ctx.progress_factory("Serial transfer") as stage:
+            failed = _run(stage)
+    else:
+        failed = _run(None)
+    if failed is not None:
+        return failed
+    if direction == "push":
+        detail = f"pushed {len(files)} file(s) to {remote}"
+    else:
+        detail = f"pulled {remote} -> {files[0][0]}"
     return FctOutcome(VERDICT_PASS, detail)
 
 

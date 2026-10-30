@@ -75,6 +75,8 @@ ACTION_DEFAULTS = {
     "dialog": {"style": "ok", "send_yes": "y", "send_no": "n",
                "answer_timeout_s": 0.0},
     "serial_push": {"timeout_s": 300.0},
+    "serial_put": {"timeout_s": 600.0},
+    "serial_pull": {"timeout_s": 600.0},
     "rf": {"timeout_s": 30.0},
     "op": {"timeout_s": 0.0},
 }
@@ -224,6 +226,7 @@ def step_kind(step) -> str:
             or p.get("kind") in ("sftp_get", "sftp_put")
             or p.get("fct_host_cmd") is not None
             or p.get("fct_serial_push") is not None
+            or p.get("fct_serial_transfer") is not None
             or p.get("fct_rf") is not None
             or p.get("fct_wifi_iperf") is not None
             or p.get("fct_bt_l2ping") is not None
@@ -244,6 +247,10 @@ def action_name(step) -> str:
         return "host_cli"
     if p.get("fct_serial_push") is not None:
         return "serial_push"
+    xfer = p.get("fct_serial_transfer")
+    if xfer is not None:
+        direction = str((xfer or {}).get("direction") or "push").lower()
+        return "serial_pull" if direction == "pull" else "serial_put"
     if (p.get("fct_rf") is not None or p.get("fct_wifi_iperf") is not None
             or p.get("fct_bt_l2ping") is not None):
         return "rf"

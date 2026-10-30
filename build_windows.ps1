@@ -72,10 +72,19 @@ if (Test-Path -LiteralPath $exe) {
     $projOk = if ($SkipProjects) { $false } else {
         Test-Path -LiteralPath (Join-Path $internal "projects")
     }
+    # M46: the project-assets template must reach _internal\assets
+    $assetsDir = Join-Path $internal "assets"
+    $assetsOk = Test-Path -LiteralPath $assetsDir
     $sizeTxt = "{0:N0} bytes ({1:N1} MB)" -f $file.Length, ($file.Length / 1MB)
     Write-Host "==> OK: $exe"
     Write-Host "    size    : $sizeTxt"
     Write-Host "    built-in projects: $projOk"
+    Write-Host "    assets template  : $assetsOk"
+    if ($assetsOk) {
+        $af = (Get-ChildItem -LiteralPath $assetsDir -Recurse -File |
+            Measure-Object).Count
+        Write-Host "    assets files     : $af"
+    }
     if ($projOk) {
         $pj = (Get-ChildItem -LiteralPath (Join-Path $internal "projects") -Recurse -File |
             Measure-Object -Property Length -Sum).Sum

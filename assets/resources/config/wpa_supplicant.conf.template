@@ -1,0 +1,17 @@
+# wpa_supplicant.conf template - NXP i.MX Linux DUT (FRDM-IMX93 style)
+# Copy to your project assets/resources/config/ and adapt.
+# For SSID/password, prefer generating with:
+#   wpa_passphrase <SSID> <PASSWORD> > /tmp/wpa.conf
+# (the FCT Wi-Fi step writes its own conf from the Wi-Fi page config)
+
+ctrl_interface=/var/run/wpa_supplicant
+update_config=1
+country=US
+
+network={
+    ssid="YOUR_AP_SSID"
+    psk="YOUR_AP_PASSWORD"
+    key_mgmt=WPA-PSK
+    # IW612 power-save is disabled by the connect step:
+    #   iw dev mlan0 set power_save off
+}

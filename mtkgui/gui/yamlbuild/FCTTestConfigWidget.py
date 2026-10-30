@@ -86,6 +86,8 @@ from mtkgui.engine.fct_test_config import (
     KIND_BT_TEST,
     KIND_FLASH_GUI,
     KIND_DELAY,
+    KIND_SERIAL_PUT,
+    KIND_SERIAL_PULL,
     STEP_TYPE_OPERATION,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
@@ -100,6 +102,8 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_MESSAGE_GOSTOP_WAIT,
     STEP_TYPE_FLASH_GUI,
     STEP_TYPE_DELAY,
+    STEP_TYPE_SERIAL_PUT,
+    STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_WIFI_SCAN,
     STEP_TYPE_WIFI_PING,
     STEP_TYPE_WIFI_IPERF,
@@ -111,6 +115,7 @@ from mtkgui.engine.fct_test_config import (
     FctSetupCfg,
     FctTestConfig,
     console_command_for_label,
+    default_assets_dir,
     rf_subtest_for_label,
     step_type_label,
 )
@@ -1304,7 +1309,7 @@ class FCTTestConfigPanel(QWidget):
                  else self.console_pull_local.text().strip())
         if direction == "push" and not local:
             self.ssh_transfer_status.setText(
-                "Push needs a local dir (Deploy assets folder).")
+                "Push needs a local source dir (Host PC).")
             self.ssh_transfer_status.setStyleSheet(self._SSH_ERR_STYLE)
             return
         if direction == "pull" and not (remote and local):
@@ -1417,23 +1422,54 @@ class FCTTestConfigPanel(QWidget):
             cmd.local = (cmd.local
                          or self.console_pull_local.text().strip())
 
-    def _add_operation_row(self, op_name: str | None = None) -> None:
+    def _add_operation_row(self, op_name: str) -> None:
         """M43: add a standard-operation row DIRECTLY from the Operation
         submenu (no nested sequence-editor dialog opens).
 
         Args:
-            op_name: One of ``OP_STEPS`` keys; None -> the Custom row.
+            op_name: one of ``OP_STEPS`` keys.
         """
-        name = op_name or _ADD_ROW_NAMES[STEP_TYPE_OPERATION]
-        cmd = console_command_for_label(STEP_TYPE_OPERATION, name)
-        if op_name:
-            cmd.op_params = dict(OP_STEPS.get(op_name) or {})
-            # M41: the Wi-Fi connect row starts with the Wi-Fi page
-            # SSID / password plugged into its template (still editable)
-            if op_name == WIFI_CONNECT_OP:
-                cmd.op_params["ssid"] = self.wifi_ap_ssid.text().strip()
-                cmd.op_params["password"] = self.wifi_ap_password.text()
+        cmd = console_command_for_label(STEP_TYPE_OPERATION, op_name)
+        cmd.op_params = dict(OP_STEPS.get(op_name) or {})
+        # M41: the Wi-Fi connect row starts with the Wi-Fi page
+        # SSID / password plugged into its template (still editable)
+        if op_name == WIFI_CONNECT_OP:
+            cmd.op_params["ssid"] = self.wifi_ap_ssid.text().strip()
+            cmd.op_params["password"] = self.wifi_ap_password.text()
         self._insert_row(cmd)
+
+    def _add_serial_transfer_row(self, direction: str) -> None:
+        """M46: add a Serial Push / Pull row (Operation submenu)."""
+        label = (STEP_TYPE_SERIAL_PUT if direction == "push"
+                 else STEP_TYPE_SERIAL_PULL)
+        cmd = console_command_for_label(label, label)
+        if direction == "push":
+            path, _hint = self._default_assets_dir()
+            cmd.local = path
+            cmd.remote = "/root/"
+        else:
+            cmd.local = self._default_outbox_dir()
+            cmd.remote = "/root/"
+        self._insert_row(cmd)
+
+    def _default_assets_dir(self) -> tuple:
+        """(path, hint) for the Push Browse default (M46)."""
+        from mtkgui.gui.shell import resolve_tenant_base
+        project = str(getattr(self, "_project_name", "") or "")
+        if project:
+            base = resolve_tenant_base()
+        else:
+            base = "projects"
+        return default_assets_dir(project, base)
+
+    def _default_outbox_dir(self) -> str:
+        """Pull local default: the current project folder / outbox."""
+        from mtkgui.gui.shell import resolve_tenant_base
+        project = str(getattr(self, "_project_name", "") or "")
+        if project:
+            import os
+            return os.path.join(resolve_tenant_base(), project, "outbox")
+        return "outbox"
 
     # ------------------------------------------------- M43 op submenu gate
     @staticmethod
@@ -1546,8 +1582,15 @@ class FCTTestConfigPanel(QWidget):
             _op_action(f"Operation: {name}",
                        lambda _checked=False, n=name:
                        self._add_operation_row(n))
-        _op_action("Operation: Custom",
-                   lambda _checked=False: self._add_operation_row(None))
+        # M46: two serial-console transfer steps (16 submenu entries:
+        # 13 standard operations + 2 serial transfers + Delay).  The
+        # "Operation: Custom" entry was removed (it did nothing).
+        _op_action(STEP_TYPE_SERIAL_PUT,
+                   lambda _checked=False:
+                   self._add_serial_transfer_row("push"))
+        _op_action(STEP_TYPE_SERIAL_PULL,
+                   lambda _checked=False:
+                   self._add_serial_transfer_row("pull"))
         _op_action("Delay — plain wait (ms)",
                    lambda _checked=False:
                    self._add_row_for_label(STEP_TYPE_DELAY))
@@ -1683,6 +1726,8 @@ class FCTTestConfigPanel(QWidget):
             self._edit_delay_row(row)
         elif cmd.kind == KIND_FLASH_GUI:
             self._edit_flash_gui_row(row)
+        elif cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+            self._edit_serial_transfer_row(row)
         elif cmd.kind == KIND_MESSAGE:
             self._edit_message_cell(row)
         else:
@@ -1726,6 +1771,107 @@ class FCTTestConfigPanel(QWidget):
             cmd.wait_ms = int(wait_spin.value())
             # M42: Delay has NO timeout of its own
             cmd.timeout = 0.0
+            cmd.wait_enabled = False
+            cmd.send_enabled = False
+            cmd.capture_enabled = False
+            self._save_row_cmd(row, cmd)
+        dlg.deleteLater()
+
+    def _edit_serial_transfer_row(self, row: int) -> None:
+        """Serial Push / Pull editor (M46): Host PC path + DUT path +
+        optional baudrate with a READ-ONLY estimated transfer time."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                        QFormLayout, QLabel, QLineEdit,
+                                        QComboBox, QPushButton,
+                                        QDialogButtonBox)
+        from mtkgui.engine.serial_transfer import (BAUD_CHOICES,
+                                                   dir_size, estimate_text)
+        cmd = self._get_row_cmd(row)
+        is_push = cmd.kind == KIND_SERIAL_PUT
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Serial Push / Pull editor")
+        dlg.setMinimumWidth(760)
+        from PySide6.QtCore import Qt
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.raise_()
+        dlg.activateWindow()
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(QLabel(
+            "Transfer over the SERIAL console: base64 chunks with marker "
+            "ACKs, so console output cannot corrupt the data.  An empty "
+            "baudrate uses the Console Serial rate; a raised rate is "
+            "restored on BOTH sides afterwards (a restore failure fails "
+            "the step explicitly)."))
+        form = QFormLayout()
+        local_edit = QLineEdit(cmd.local or "")
+        local_edit.setPlaceholderText(
+            "Host PC file or folder" if is_push else "Host PC destination")
+        browse = QPushButton("Browse...")
+
+        def _browse_local() -> None:
+            from PySide6.QtWidgets import QFileDialog
+            if is_push:
+                path, _hint = self._default_assets_dir()
+                picked = QFileDialog.getExistingDirectory(
+                    self, "Local source folder (Host PC)",
+                    path or (cmd.local or ""))
+            else:
+                path = cmd.local or self._default_outbox_dir()
+                picked = QFileDialog.getExistingDirectory(
+                    self, "Local destination folder (Host PC)", path)
+            if picked:
+                local_edit.setText(picked)
+
+        browse.clicked.connect(_browse_local)
+        local_row = QHBoxLayout()
+        local_row.addWidget(local_edit, 1)
+        local_row.addWidget(browse)
+        form.addRow("Local (Host PC):", local_row)
+        remote_edit = QLineEdit(cmd.remote or "/root/")
+        remote_edit.setPlaceholderText(
+            "DUT target path (file or folder)")
+        form.addRow("Remote (DUT):", remote_edit)
+        baud_combo = QComboBox()
+        baud_combo.addItem("(Console Serial baudrate)", 0)
+        for rate in BAUD_CHOICES:
+            baud_combo.addItem(str(rate), rate)
+        idx = baud_combo.findData(int(cmd.serial_baud or 0))
+        baud_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        form.addRow("Baudrate (optional):", baud_combo)
+        est_label = QLabel("")
+        form.addRow("Estimated time (read-only):", est_label)
+
+        def _refresh_estimate() -> None:
+            baud = int(baud_combo.currentData() or 0)
+            rate = baud or 115200
+            if is_push:
+                size = dir_size(local_edit.text().strip())
+                if size:
+                    est_label.setText(f"{estimate_text(size, rate)} "
+                                      f"({size} bytes @ {rate})")
+                else:
+                    est_label.setText("n/a (no local source yet)")
+            else:
+                est_label.setText("n/a (remote size unknown until run)")
+
+        baud_combo.currentIndexChanged.connect(
+            lambda _i: _refresh_estimate())
+        local_edit.textChanged.connect(lambda _t: _refresh_estimate())
+        _refresh_estimate()
+        lay.addLayout(form)
+        apply_scroll_to_dialog(dlg, body)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok
+                                   | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        outer.addWidget(buttons)
+        if dlg.exec():
+            cmd.local = local_edit.text().strip()
+            cmd.remote = remote_edit.text().strip()
+            cmd.serial_baud = int(baud_combo.currentData() or 0)
             cmd.wait_enabled = False
             cmd.send_enabled = False
             cmd.capture_enabled = False
@@ -3525,6 +3671,20 @@ class FCTTestConfigPanel(QWidget):
             self._set_cell(r, _COL_CMD, cmd.confirm_message or "",
                            editable=False)
             return
+        if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+            self._set_cell(r, _COL_WAIT, "", editable=False)
+            self._set_cell(r, _COL_SEND, "", editable=False)
+            self._set_cell(r, _COL_CAPTURE, "", editable=False)
+            self._set_cell(r, _COL_TIMEOUT,
+                           f"{int(cmd.timeout or 0)}s", editable=False)
+            arrow = ("%s -> %s" % (cmd.local or "(no source)",
+                                   cmd.remote or "(no target)")
+                     if cmd.kind == KIND_SERIAL_PUT
+                     else "%s -> %s" % (cmd.remote or "(no source)",
+                                        cmd.local or "(no target)"))
+            baud = (f" @{int(cmd.serial_baud)}" if cmd.serial_baud else "")
+            self._set_cell(r, _COL_CMD, f"{arrow}{baud}", editable=False)
+            return
         if cmd.kind == KIND_FLASH_GUI:
             self._set_cell(r, _COL_WAIT, "", editable=False)
             self._set_cell(r, _COL_SEND, "", editable=False)
@@ -3609,6 +3769,11 @@ class FCTTestConfigPanel(QWidget):
 
     def set_values(self, params: dict) -> None:
         """Restore from the module params (round-trip safe)."""
+        # M46: the current project name (project assets / outbox Browse
+        # defaults); absent in most module params -> bundled template.
+        self._project_name = str(
+            (params or {}).get("project_name")
+            or (params or {}).get("project") or "")
         self._legacy = {k: v for k, v in (params or {}).items()
                         if k not in ("fct_test_config_yaml",
                                      "fct_sequence_cases_yaml")}

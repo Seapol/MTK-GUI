@@ -32,6 +32,10 @@ datas = [
     ('config/Nets_Template.xlsx', 'config'),
     ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
+    # M46: the project-assets TEMPLATE (precheck / drivers / resources)
+    # ships inside _internal/assets; the Push step Browse defaults to it
+    # when the current project has no assets folder yet.
+    ('assets', 'assets'),
     ('docs/help', 'docs/help'),
 ]
 

@@ -62,6 +62,8 @@ datas = [
     ('config/Nets_Template.xlsx', 'config'),
     ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
+    # M46: the project-assets TEMPLATE ships inside _internal/assets.
+    ('assets', 'assets'),
     ('docs/help', 'docs/help'),
 ]
 # M19: projects travel with the package unless explicitly disabled
