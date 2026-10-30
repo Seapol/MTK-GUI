@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -69,6 +70,49 @@ def spec_tooltip(spec: FieldSpec) -> str:
     return "; ".join(parts)
 
 
+class ExitPromptDialog(QDialog):
+    """M45a: the dirty-Exit decision with a FIXED left-to-right order.
+
+    M44 used a ``QMessageBox`` with role-based buttons - Qt reorders
+    those by platform role, so macOS showed "Save as new yaml | Cancel
+    (discard changes) | Apply_Save yaml" instead of the owner's
+    required "Apply_Save yaml | Save as new yaml | Cancel".  This
+    dialog lays the three buttons out explicitly in one ``QHBoxLayout``.
+    """
+
+    APPLY = 1
+    SAVE_AS = 2
+    CANCEL = 3
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Unsaved changes")
+        self.choice = self.CANCEL
+        lay = QVBoxLayout(self)
+        label = QLabel("This configuration page has unsaved changes.\n"
+                       "What should happen?")
+        label.setWordWrap(True)
+        lay.addWidget(label)
+        row = QHBoxLayout()
+        self.btn_apply = QPushButton("Apply_Save yaml")
+        self.btn_new = QPushButton("Save as new yaml")
+        self.btn_cancel = QPushButton("Cancel")
+        for btn in (self.btn_apply, self.btn_new, self.btn_cancel):
+            row.addWidget(btn)
+        lay.addLayout(row)
+        self.btn_apply.clicked.connect(lambda: self._choose(self.APPLY))
+        self.btn_new.clicked.connect(lambda: self._choose(self.SAVE_AS))
+        self.btn_cancel.clicked.connect(self.reject)
+
+    def _choose(self, choice: int) -> None:
+        self.choice = choice
+        self.accept()
+
+    def buttons_in_order(self) -> list[QPushButton]:
+        """The three buttons in their visible left-to-right order."""
+        return [self.btn_apply, self.btn_new, self.btn_cancel]
+
+
 class BlockConfigDialog(QDialog):
     """Dedicated configuration popup for exactly one workflow module.
 
@@ -106,11 +150,15 @@ class BlockConfigDialog(QDialog):
             yaml_model:       Block 02 only - the project YamlBuildModel
                               the Test Plan sync writes into (M5).
             apply_save_cb:    Block 07 only - callable(values) invoked by
-                              the "Apply & Save yaml" button; it applies
-                              the sequence to every view and saves the
-                              project yaml in place, returning an error
-                              string (None = saved).  The dialog stays
-                              open so the operator can keep editing.
+                              the single "Apply_Save yaml" button before
+                              the dialog accepts; it applies the sequence
+                              to every view and saves the project yaml in
+                              place, returning an error string (None =
+                              saved; an error keeps the dialog open).
+                              M45a: the former duplicate "Apply & Save
+                              yaml" button (bottom-left) is gone - every
+                              config page shows exactly ONE Apply_Save
+                              yaml + ONE Exit.
             available_ops:    M37 - block 07 only: the standard operations
                               usable with the configured resources
                               (None = all of them).
@@ -254,20 +302,6 @@ class BlockConfigDialog(QDialog):
         # the dirty check compares the values read back at Exit time with
         # the values the dialog opened with
         self._initial_values = self._current_values()
-        # M22b: block 07 gets an in-place "Apply & Save yaml" action -
-        # it writes the project yaml and refreshes every view that reads
-        # the sequence WITHOUT closing the dialog (the old flow only
-        # saved after OK, so the tables stayed stale until a reopen).
-        self.btn_apply_save = None
-        if module_key == "fct_build" and self._apply_save_cb is not None:
-            self.btn_apply_save = buttons.addButton(
-                "Apply & Save yaml",
-                QDialogButtonBox.ButtonRole.ActionRole)
-            self.btn_apply_save.setToolTip(
-                "Apply the current FCT configuration, refresh the sequence "
-                "/ Test Work Flow tables and save the project yaml in "
-                "place - the dialog stays open")
-            self.btn_apply_save.clicked.connect(self._on_apply_save)
         lay.addWidget(buttons)
 
     # ------------------------------------------------- panel log mirror
@@ -365,9 +399,24 @@ class BlockConfigDialog(QDialog):
         return dict(self._edited)
 
     def _on_accept(self) -> None:
-        """Validate all fields; accept only when clean."""
-        if self._collect() is None:
+        """Validate all fields; accept only when clean.
+
+        M45a: block 07's single "Apply_Save yaml" button runs the
+        in-place apply/save callback BEFORE accepting (the M22b
+        refresh behaviour, now on the one lifecycle button); an error
+        from the callback keeps the dialog open with the message.
+        """
+        values = self._collect()
+        if values is None:
             return
+        if self._apply_save_cb is not None:
+            error = self._apply_save_cb(values)
+            if error:
+                self.error_label.setText(str(error))
+                return
+            self.error_label.setText("")
+            self.task_log.emit("info",
+                               "FCT sequence applied and yaml saved")
         if self.nets_panel is not None:
             # M5 commit gate: a workbook import may write the
             # production YAML only after the block was applied
@@ -397,53 +446,23 @@ class BlockConfigDialog(QDialog):
         return False
 
     def _on_exit(self) -> None:
-        """M44: Exit with unsaved changes prompts three choices -
-        apply save yaml / save as new yaml / Cancel (discard changes).
-        An unchanged dialog exits silently."""
+        """M44/M45a: Exit with unsaved changes prompts three choices in
+        the FIXED left-to-right order Apply_Save yaml | Save as new yaml
+        | Cancel.  An unchanged dialog exits silently."""
         if not self._is_dirty():
             self.reject()
             return
-        box = QMessageBox(self)
-        box.setWindowTitle("Unsaved changes")
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setText(
-            "This configuration page has unsaved changes.\n"
-            "What should happen?")
-        btn_apply = box.addButton("Apply_Save yaml",
-                                  QMessageBox.ButtonRole.AcceptRole)
-        btn_new = box.addButton("Save as new yaml",
-                                QMessageBox.ButtonRole.ActionRole)
-        box.addButton("Cancel (discard changes)",
-                      QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is btn_apply:
-            if self.btn_apply_save is not None:
-                self._on_apply_save()
-            else:
-                self._on_accept()
-                return
-            self.reject()
-        elif clicked is btn_new:
+        prompt = ExitPromptDialog(self)
+        prompt.exec()
+        if prompt.choice == ExitPromptDialog.APPLY:
+            # validate + apply save; accept closes the dialog
+            self._on_accept()
+        elif prompt.choice == ExitPromptDialog.SAVE_AS:
             if self._save_as_cb is not None:
                 self._save_as_cb(self._current_values())
             self.reject()
         else:
             self.reject()
-
-    def _on_apply_save(self) -> None:
-        """M22b: apply in place + save the project yaml + refresh every
-        view reading the sequence - the dialog stays open."""
-        values = self._collect()
-        if values is None:
-            return
-        error = self._apply_save_cb(values)
-        if error:
-            self.error_label.setText(str(error))
-            return
-        self.error_label.setText("")
-        self.task_log.emit("info",
-                           "FCT sequence applied and yaml saved")
 
     def values(self) -> dict:
         """Return the validated parameter set (after accept).

@@ -58,31 +58,42 @@ def window(qapp):
     w.deleteLater()
 
 
-def test_fct_dialog_has_apply_save_button(qapp):
-    """Block 07 exposes the in-place action; clicking it calls the
-    page callback and neither accepts nor rejects the dialog."""
+def test_fct_dialog_single_apply_save_button(qapp):
+    """M45a: block 07 keeps the M22b in-place apply/save callback but
+    now runs it from the ONE "Apply_Save yaml" button (the duplicate
+    "Apply & Save yaml" button is gone)."""
+    from PySide6.QtWidgets import QDialogButtonBox
     from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
     calls: list = []
     dlg = BlockConfigDialog(
         "fct_build", {"fct_test_config_yaml": FCT_TEXT},
         apply_save_cb=lambda values: calls.append(values))
-    assert dlg.btn_apply_save is not None
-    dlg.btn_apply_save.click()
+    box = dlg.findChild(QDialogButtonBox)
+    box.button(QDialogButtonBox.StandardButton.Ok).click()
     assert calls and calls[0]["fct_test_config_yaml"]
-    assert dlg.result() != BlockConfigDialog.DialogCode.Accepted
-    # a callback error is shown in the dialog, no exception
-    dlg2 = BlockConfigDialog(
+    assert dlg.result() == BlockConfigDialog.DialogCode.Accepted
+
+
+def test_fct_apply_save_error_keeps_dialog_open(qapp):
+    """A callback error is shown in the dialog (no exception) and the
+    dialog does NOT accept."""
+    from PySide6.QtWidgets import QDialogButtonBox
+    from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
+    dlg = BlockConfigDialog(
         "fct_build", {"fct_test_config_yaml": FCT_TEXT},
         apply_save_cb=lambda values: "boom")
-    dlg2.btn_apply_save.click()
-    assert "boom" in dlg2.error_label.text()
+    box = dlg.findChild(QDialogButtonBox)
+    box.button(QDialogButtonBox.StandardButton.Ok).click()
+    assert "boom" in dlg.error_label.text()
+    assert dlg.result() != BlockConfigDialog.DialogCode.Accepted
 
 
-def test_other_dialogs_have_no_apply_save_button(qapp):
+def test_other_dialogs_have_no_apply_save_callback(qapp):
     from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
     dlg = BlockConfigDialog(
         "design_input", {}, apply_save_cb=lambda values: None)
-    assert dlg.btn_apply_save is None
+    # the extras button of M22b is gone everywhere
+    assert not hasattr(dlg, "btn_apply_save")
 
 
 def test_apply_save_callback_emits_cases(window):

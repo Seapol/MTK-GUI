@@ -695,8 +695,10 @@ class ParseNetsPanel(QWidget):
         if not text.strip():
             reason = ("no NET file loaded - import a NET file on the "
                       "Design Input page first")
+            # M45a: a no-input pre-check STOPS immediately - the warning
+            # only, never a task_progress emit (that used to leave the
+            # status bar in the "Working..." 0% state)
             self.task_log.emit("ERROR", f"parse nets failed: {reason}")
-            self.task_progress.emit(0, "parse nets: idle")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Parse Nets", reason)
             return
@@ -822,8 +824,10 @@ class ParseNetsPanel(QWidget):
         if not text.strip():
             reason = ("no NET file loaded - import a NET file on the "
                       "Design Input page first")
+            # M45a: a no-input pre-check STOPS immediately - the warning
+            # only, never a task_progress emit (that used to leave the
+            # status bar in the "Working..." 0% state)
             self.task_log.emit("ERROR", f"parse nets failed: {reason}")
-            self.task_progress.emit(0, "parse nets: idle")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Parse Nets", reason)
             return
