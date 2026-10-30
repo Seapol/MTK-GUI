@@ -44,6 +44,31 @@ def _reset_event_log_level_preference():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_wifi_preferences():
+    """M40: the Wi-Fi tab reads/writes the QSettings ``wifi/*`` keys.
+    Every test starts from an empty set and the developer's real values
+    are restored afterwards, so persisted Wi-Fi data can never leak
+    between tests (or into the developer's GUI)."""
+    from PySide6.QtCore import QSettings
+
+    from mtkgui.style import APP_NAME, APP_ORG
+    settings = QSettings(APP_ORG, APP_NAME)
+    keys = ["wifi/ap_ssid", "wifi/ap_ip", "wifi/host_ip",
+            "wifi/ap_password"]
+    saved = {key: settings.value(key) for key in keys}
+    for key in keys:
+        settings.remove(key)
+    settings.sync()
+    yield
+    for key in keys:
+        settings.remove(key)
+    for key, value in saved.items():
+        if value is not None:
+            settings.setValue(key, value)
+    settings.sync()
+
+
+@pytest.fixture(autouse=True)
 def _drain_deferred_deletes():
     """Flush pending deleteLater()s and zero-timeout timers at every
     test boundary.

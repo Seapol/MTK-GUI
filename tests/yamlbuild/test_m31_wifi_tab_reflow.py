@@ -43,15 +43,33 @@ def _mac_link_cmds():
     }
 
 
-def _install_probe_mocks(monkeypatch, dbm=-45, replies=3):
+_MAC_ASSOC_TEXT = """
+Wi-Fi:
+
+      Interfaces:
+        en0:
+          Card Type: Wi-Fi
+          Status: Connected
+          Current Network Information:
+            TEST-AP:
+              PHY Mode: 802.11ax
+              Signal / Noise: {dbm} dBm / -90 dBm
+"""
+
+
+def _install_probe_mocks(monkeypatch, dbm=-45, replies=3, ssid="TEST-AP"):
     """Mock ``host_platform`` for a deterministic probe: RSSI `dbm` and a
-    ping with `replies` received packets (0 => ping fails)."""
+    ping with `replies` received packets (0 => ping fails).  M40: the
+    association text carries `ssid` (None => no Wi-Fi associated)."""
     monkeypatch.setattr(host_platform, "wifi_link_probe_cmds",
                         _mac_link_cmds)
+    monkeypatch.setattr(host_platform, "platform_key", lambda: "mac")
 
     def fake_run(cmd_line, timeout_s=15):
         if cmd_line.startswith("rssi-cmd"):
-            return f"Signal / Noise: {dbm} dBm"
+            if ssid is None:
+                return "      Interfaces:\n        en0:\n"
+            return _MAC_ASSOC_TEXT.format(dbm=dbm)
         loss = 0 if replies else 100
         return (f"{replies + 1} packets transmitted, {replies} packets "
                 f"received, {loss}.0% packet loss")

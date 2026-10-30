@@ -112,6 +112,22 @@ from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
 from mtkgui.engine.steps import op_summary as _op_summary
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
+from mtkgui.style import APP_NAME, APP_ORG
+
+#: M40 Wi-Fi tab QSettings keys: the Host PC's current-association values
+#: are a LOCAL user preference (password plaintext, owner-approved).
+WIFI_KEY_SSID = "wifi/ap_ssid"
+WIFI_KEY_AP_IP = "wifi/ap_ip"
+WIFI_KEY_HOST_IP = "wifi/host_ip"
+WIFI_KEY_PASSWORD = "wifi/ap_password"
+
+
+def _wifi_settings():
+    """The QSettings store for the Wi-Fi tab keys (module-level so the
+    tests monkeypatch it with an isolated settings.ini)."""
+    from PySide6.QtCore import QSettings
+    return QSettings(APP_ORG, APP_NAME)
+
 
 # Each cmd_table row carries its full ConsoleCommand on the Name cell's
 # UserRole so that advanced attributes (regex/case/expected/end line/
@@ -389,15 +405,18 @@ class _WifiLinkProbeWorker(QThread):
     line = Signal(str)
     done = Signal(bool, str)
 
-    def __init__(self, gateway: str, parent=None) -> None:
+    def __init__(self, gateway: str, expected_ssid: str | None = None,
+                 parent=None) -> None:
         super().__init__(parent)
         self._gateway = gateway
+        self._expected_ssid = expected_ssid
 
     def run(self) -> None:
         try:
             result = host_platform.probe_host_ap_link(
                 self._gateway,
-                progress=lambda d, t: self.progress.emit(d, t))
+                progress=lambda d, t: self.progress.emit(d, t),
+                expected_ssid=self._expected_ssid)
             lines = [str(x) for x in result.get("lines", [])]
             for text in lines:
                 self.line.emit(text)
@@ -2008,6 +2027,9 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_ap_password = QLineEdit()
         self.wifi_ap_password.setEchoMode(QLineEdit.Password)
         self.wifi_ap_password.setPlaceholderText("hotspot password")
+        # M40: password is a local user preference (plaintext QSettings)
+        self.wifi_ap_password.textChanged.connect(
+            self._persist_wifi_password)
         ap.addRow("AP password:", self.wifi_ap_password)
         self.wifi_ap_ip = QLineEdit()
         self.wifi_ap_ip.setPlaceholderText("AP/gateway IP - empty = auto-detect")
@@ -2092,9 +2114,24 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_conn_box = QGroupBox(
             "Test Host PC <-> Hotspot AP connection")
         conn = QVBoxLayout(self.wifi_conn_box)
+        self.wifi_autodetect_btn = QPushButton("Auto-detect")
+        self.wifi_autodetect_btn.setToolTip(
+            "Probe the Host PC's CURRENT Wi-Fi association and fill "
+            "AP SSID, AP IP (gateway) and Host PC IP")
+        self.wifi_autodetect_btn.clicked.connect(self._on_wifi_autodetect)
         self.wifi_conn_test_btn = QPushButton(
             "Test Host PC <-> Hotspot AP connection")
         self.wifi_conn_test_btn.clicked.connect(self._on_wifi_conn_test)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.wifi_autodetect_btn)
+        btn_row.addWidget(self.wifi_conn_test_btn)
+        conn.addLayout(btn_row)
+        self.wifi_autodetect_status = QLabel("")
+        self.wifi_autodetect_status.setWordWrap(True)
+        self.wifi_autodetect_status.setTextInteractionFlags(
+            Qt.TextSelectableByMouse)
+        self.wifi_autodetect_status.setStyleSheet("color: #6b7280;")
+        conn.addWidget(self.wifi_autodetect_status)
         self.wifi_conn_status = QLabel("")
         self.wifi_conn_status.setWordWrap(True)
         self.wifi_conn_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -2109,6 +2146,11 @@ class FCTTestConfigPanel(QWidget):
 
         self._sync_wifi_groups()
         self._connect_rf_summary_signals()
+        # M40: QSettings baseline FIRST; the current-association probe
+        # runs once when the Wi-Fi tab is first shown
+        self._wifi_detect_done = False
+        self._load_wifi_settings()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -2139,6 +2181,93 @@ class FCTTestConfigPanel(QWidget):
             self._refresh_rf_ref_rows()
 
     # -------------------------------------------- wifi connection test (M31)
+    def _on_tab_changed(self, index: int) -> None:
+        """M40: the first time the Wi-Fi tab is opened, run the
+        current-association auto-detect on top of the QSettings baseline."""
+        if index < 0 or self.tabs.widget(index) is not self.wifi_tab:
+            return
+        if self._wifi_detect_done:
+            return
+        self._wifi_detect_done = True
+        self._auto_detect_wifi()
+
+    def _on_wifi_autodetect(self) -> None:
+        """M40: Auto-detect button - fill AP SSID / AP IP (gateway) /
+        Host PC IP from the Host PC's CURRENT Wi-Fi association; the
+        password field is never touched."""
+        self._auto_detect_wifi()
+
+    def _auto_detect_wifi(self) -> None:
+        """Probe the current association and apply the result.
+
+        Failure (no backend / no association) keeps whatever the fields
+        hold (the QSettings baseline) and leaves a status note."""
+        try:
+            info = host_platform.detect_current_wifi()
+        except Exception as exc:              # noqa: BLE001 - note only
+            self.wifi_autodetect_status.setText(f"Auto-detect: {exc}")
+            return
+        self._apply_wifi_detect(info)
+
+    def _apply_wifi_detect(self, info: dict) -> str:
+        """Fill the three fields from a ``detect_current_wifi`` result
+        (non-empty values only; empty result fields stay empty) and
+        return / show the status note."""
+        ssid = str((info or {}).get("ssid") or "").strip()
+        ip = str((info or {}).get("ip") or "").strip()
+        gateway = str((info or {}).get("gateway") or "").strip()
+        if ssid:
+            self.wifi_ap_ssid.setText(ssid)
+        if gateway:
+            self.wifi_ap_ip.setText(gateway)
+        if ip:
+            self.wifi_host_ip.setText(ip)
+        notes = []
+        if not ssid:
+            notes.append("no Wi-Fi associated")
+        else:
+            if not gateway:
+                notes.append("gateway not found")
+            if not ip:
+                notes.append("Host PC IP not found")
+        note = "Auto-detect: " + (
+            ", ".join(notes) if notes else f'OK ({ssid})')
+        self.wifi_autodetect_status.setText(note)
+        if ssid:
+            # M40: a successful detection becomes the new baseline
+            self._persist_wifi_settings()
+        return note
+
+    def _load_wifi_settings(self) -> None:
+        """M40: fill the Wi-Fi tab fields from QSettings (baseline).
+        The developer's real settings are never touched by tests, which
+        monkeypatch the module-level :func:`_wifi_settings`."""
+        settings = _wifi_settings()
+        self.wifi_ap_ssid.setText(
+            str(settings.value(WIFI_KEY_SSID, "") or ""))
+        self.wifi_ap_ip.setText(
+            str(settings.value(WIFI_KEY_AP_IP, "") or ""))
+        self.wifi_host_ip.setText(
+            str(settings.value(WIFI_KEY_HOST_IP, "") or ""))
+        self.wifi_ap_password.setText(
+            str(settings.value(WIFI_KEY_PASSWORD, "") or ""))
+
+    def _persist_wifi_password(self) -> None:
+        """M40: the password field is persisted on every edit."""
+        settings = _wifi_settings()
+        settings.setValue(WIFI_KEY_PASSWORD, self.wifi_ap_password.text())
+        settings.sync()
+
+    def _persist_wifi_settings(self) -> None:
+        """M40: persist the Wi-Fi tab values (auto-detect success and
+        every Apply_Save yaml)."""
+        settings = _wifi_settings()
+        settings.setValue(WIFI_KEY_SSID, self.wifi_ap_ssid.text().strip())
+        settings.setValue(WIFI_KEY_AP_IP, self.wifi_ap_ip.text().strip())
+        settings.setValue(WIFI_KEY_HOST_IP, self.wifi_host_ip.text().strip())
+        settings.setValue(WIFI_KEY_PASSWORD, self.wifi_ap_password.text())
+        settings.sync()
+
     def _on_wifi_conn_test(self) -> None:
         """M31: show the pre-front progress bar ("Connecting..."), then
         run the Host PC <-> AP connection probe in a worker thread."""
@@ -2146,12 +2275,13 @@ class FCTTestConfigPanel(QWidget):
                 and self._wifi_probe.isRunning():
             return
         gateway = self.wifi_ap_ip.text().strip()
+        expected_ssid = self.wifi_ap_ssid.text().strip() or None
         self.wifi_conn_progress.setVisible(True)
         self.wifi_conn_progress.setValue(0)
         self.wifi_conn_status.setText("Connecting...")
         self.wifi_conn_status.setStyleSheet("")
         self.wifi_conn_test_btn.setEnabled(False)
-        self._wifi_probe = _WifiLinkProbeWorker(gateway)
+        self._wifi_probe = _WifiLinkProbeWorker(gateway, expected_ssid)
         self._wifi_probe.progress.connect(self._on_wifi_probe_progress)
         self._wifi_probe.line.connect(self._on_wifi_probe_line)
         self._wifi_probe.done.connect(self._on_wifi_probe_done)
@@ -2878,6 +3008,8 @@ class FCTTestConfigPanel(QWidget):
             for c in test_commands)
         bt_rssi = self.bt_rssi_box.isChecked()
         bt_pair = self.bt_pair_box.isChecked()
+        # M40: Apply_Save yaml is one of the Wi-Fi persistence points
+        self._persist_wifi_settings()
         cfg.wifi = WifiCfg(
             interface=self.wifi_interface.text().strip(),
             driver_load_cmd=self.wifi_driver_cmd.text().strip(),

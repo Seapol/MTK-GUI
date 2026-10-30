@@ -41,6 +41,7 @@ __all__ = [
     "platform_key", "host_lan_ip", "is_lan_ipv4", "wifi_backend_cmds",
     "bt_backend_cmds", "windows_capabilities", "signal_quality",
     "percent_to_rssi_dbm", "wifi_link_probe_cmds", "run_link_cmd",
+    "wifi_detect_cmds", "detect_current_wifi", "parse_current_wifi",
     "probe_host_ap_link", "host_bt_status_cmd", "host_bt_devices_cmd",
     "host_bt_scan_cmd", "host_bt_identity", "parse_bt_status",
     "parse_bt_devices", "format_bt_scan_result",
@@ -266,13 +267,172 @@ def _ping_has_reply(out: str) -> bool:
     return bool(m) and int(m.group(1)) > 0
 
 
-def probe_host_ap_link(gateway: str, progress=None) -> dict:
-    """Orchestrate the Host PC <-> AP connection test (M31).
+# ---------------------------------------------------------------------------
+# M40 Wi-Fi auto-detect: the Wi-Fi the Host PC is CURRENTLY associated to
+# IS the Hotspot AP under test (Host PC <-> AP <-> DUT on one segment).
+# ---------------------------------------------------------------------------
+def wifi_detect_cmds() -> dict:
+    """The current-association detect command table for THIS platform.
+
+    ``ip_cmd`` carries an ``{iface}`` placeholder on macOS (the interface
+    name comes from the ``system_profiler`` text); Windows derives the
+    IPv4 AND the default gateway from one ``ipconfig`` run."""
+    key = platform_key()
+    if key == "mac":
+        return {
+            "assoc_cmd": "system_profiler SPAirPortDataType",
+            "ip_cmd": "ipconfig getifaddr {iface}",
+            "gateway_cmd": "route -n get default",
+        }
+    if key == "windows":
+        return {
+            "assoc_cmd": "netsh wlan show interfaces",
+            "ip_cmd": "ipconfig",
+            "gateway_cmd": "",
+        }
+    raise PlatformBackendMissing(
+        "wifi auto-detect: no built-in Linux host-side command table; "
+        "configure a 'linux' backend in the product YAML.")
+
+
+def parse_mac_wifi(assoc_text: str) -> tuple:
+    """``(ssid, iface)`` from ``system_profiler SPAirPortDataType`` text.
+
+    The interface block that carries ``Current Network Information:``
+    is the associated one; its first indented ``<ssid>:`` child is the
+    SSID.  Missing / disconnected -> ``(None, None)``."""
+    ifaces_indent = None
+    iface_indent = None
+    cur_iface = None
+    in_current = False
+    current_indent = None
+    for raw in str(assoc_text or "").splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if stripped == "Interfaces:":
+            ifaces_indent = indent
+            iface_indent = None
+            continue
+        if ifaces_indent is None:
+            continue
+        if iface_indent is None:
+            if stripped.endswith(":"):
+                iface_indent = indent
+                cur_iface = stripped[:-1].strip()
+            continue
+        if indent == iface_indent:
+            cur_iface = (stripped[:-1].strip()
+                         if stripped.endswith(":") else None)
+            in_current = False
+            continue
+        if stripped == "Current Network Information:":
+            in_current = True
+            current_indent = indent
+            continue
+        if in_current:
+            if indent <= current_indent:
+                in_current = False
+                continue
+            if stripped.endswith(":"):
+                return stripped[:-1].strip(), cur_iface
+    return None, None
+
+
+def _parse_win_ssid(assoc_text: str):
+    """Current SSID from ``netsh wlan show interfaces`` (``SSID : x``;
+    the ``BSSID`` line never matches - the regex is anchored)."""
+    import re
+    m = re.search(r"^\s*SSID\s*:\s*(.+)$", str(assoc_text or ""),
+                  re.MULTILINE)
+    return m.group(1).strip() if m else None
+
+
+def _assoc_ssid(assoc_text: str):
+    """Current association SSID for the RUNNING platform."""
+    if platform_key() == "windows":
+        return _parse_win_ssid(assoc_text)
+    return parse_mac_wifi(assoc_text)[0]
+
+
+_IPV4_RE = r"([0-9]{1,3}(?:\.[0-9]{1,3}){3})"
+
+
+def parse_current_wifi(key: str, assoc_text: str, ip_text: str,
+                      gateway_text: str) -> dict:
+    """Turn the three raw command outputs into
+    ``{"ssid": str|None, "ip": str|None, "gateway": str|None}``.
+
+    Any field that cannot be found stays ``None`` - never an exception."""
+    import re
+    ssid = None
+    ip = None
+    gateway = None
+    if key == "windows":
+        ssid = _parse_win_ssid(assoc_text)
+        m = re.search(r"IPv4 Address[^:\n]*:\s*" + _IPV4_RE, ip_text or "")
+        if m:
+            ip = m.group(1)
+        m = re.search(r"Default Gateway[^:\n]*:\s*" + _IPV4_RE,
+                      ip_text or "")
+        if m:
+            gateway = m.group(1)
+    else:
+        ssid, _iface = parse_mac_wifi(assoc_text)
+        m = re.search(_IPV4_RE, ip_text or "")
+        if m:
+            ip = m.group(1)
+        m = re.search(r"^\s*gateway:\s*" + _IPV4_RE, gateway_text or "",
+                      re.MULTILINE)
+        if m:
+            gateway = m.group(1)
+    return {"ssid": ssid or None, "ip": ip or None,
+            "gateway": gateway or None}
+
+
+def detect_current_wifi(progress=None) -> dict:
+    """Probe the Host PC's CURRENT Wi-Fi association (M40).
+
+    mac: ``system_profiler SPAirPortDataType`` (SSID + associated
+    interface), ``ipconfig getifaddr <iface>`` (IPv4), ``route -n get
+    default`` (gateway).  Windows: ``netsh wlan show interfaces`` (SSID)
+    plus one ``ipconfig`` run (IPv4 + default gateway).  Every command
+    goes through :func:`run_link_cmd` (monkeypatchable in tests)."""
+    key = platform_key()
+    cmds = wifi_detect_cmds()
+    if progress:
+        progress(1, 3)
+    assoc = run_link_cmd(cmds["assoc_cmd"])
+    if progress:
+        progress(2, 3)
+    if key == "windows":
+        ip_text = run_link_cmd(cmds["ip_cmd"])
+        gateway_text = ""
+    else:
+        _ssid, iface = parse_mac_wifi(assoc)
+        ip_text = (run_link_cmd(cmds["ip_cmd"].format(iface=iface))
+                   if iface else "")
+        gateway_text = run_link_cmd(cmds["gateway_cmd"])
+    if progress:
+        progress(3, 3)
+    return parse_current_wifi(key, assoc, ip_text, gateway_text)
+
+
+def probe_host_ap_link(gateway: str, progress=None,
+                       expected_ssid: str | None = None) -> dict:
+    """Orchestrate the Host PC <-> AP connection test (M31/M40).
 
     Runs :func:`run_link_cmd` twice - the current-association RSSI, then
     a 3-packet ping of the AP/gateway (``Connection OK`` requires >=1
     reply).  RSSI / signal-quality are always reported but do NOT gate
     the verdict by themselves; an empty gateway fails immediately.
+
+    M40: the RSSI belongs to WHICHEVER Wi-Fi the Host PC is associated
+    to - a misleading PASS is impossible when no Wi-Fi is associated
+    (``no Wi-Fi associated``) or the association is not the configured
+    AP (``expected_ssid`` mismatch).  The RSSI line stays visible so
+    the operator sees the value that caused the mismatch.
 
     Returns ``{"ok": bool, "rssi": float|None, "pct": int|None,
     "lines": [...], "quality": str, "error": str}``.  `progress`, when
@@ -282,6 +442,7 @@ def probe_host_ap_link(gateway: str, progress=None) -> dict:
     if progress:
         progress(1, 3)
     out = run_link_cmd(cmds["rssi_cmd"])
+    current_ssid = _assoc_ssid(out)
     rssi = None
     pct = None
     lines = []
@@ -303,8 +464,26 @@ def probe_host_ap_link(gateway: str, progress=None) -> dict:
     if progress:
         progress(2, 3)
     quality = signal_quality(rssi)
+    expected = str(expected_ssid or "").strip()
+    if not current_ssid:
+        lines.append("Connection FAILED: no Wi-Fi associated")
+        if progress:
+            progress(3, 3)
+        return {"ok": False, "rssi": rssi, "pct": pct, "lines": lines,
+                "quality": quality, "error": "no Wi-Fi associated"}
+    if expected and current_ssid != expected:
+        lines.append(
+            f'Connection FAILED: Host PC connected to "{current_ssid}", '
+            f'not configured AP "{expected}"')
+        if progress:
+            progress(3, 3)
+        return {"ok": False, "rssi": rssi, "pct": pct, "lines": lines,
+                "quality": quality,
+                "error": (f'Host PC connected to "{current_ssid}", not '
+                          f'configured AP "{expected}"')}
     if not gateway:
         lines.append("Connection FAILED: no AP IP / gateway")
+        lines.append('Configure the AP IP (gateway) or use "Auto-detect".')
         if progress:
             progress(3, 3)
         return {"ok": False, "rssi": rssi, "pct": pct, "lines": lines,
