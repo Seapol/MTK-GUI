@@ -1989,6 +1989,10 @@ class MainWindow(QMainWindow):
     def _yaml_finish(self, path: str) -> None:
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
+        # M45b: modules re-validate sequentially 01 -> 04 - passing
+        # levels get their star (and unlock the next one), the first
+        # failing level stops the chain
+        self.yaml_build_page.apply_load_gating()
         self._project_path = path
         # a published plan file ("yaml_build" section) is just as
         # runnable as a legacy project yaml - register it for the Run
@@ -2631,6 +2635,17 @@ class MainWindow(QMainWindow):
                         "cancelled: no test items")
                     return False
             config = self._build_project_config()
+            # M45b: the M39 validation runs on EVERY write path (apply
+            # save yaml + save as new yaml) - a blocking rule stops the
+            # save with the fix-hint dialog and nothing is written
+            issues = blocking_issues(validate_project_yaml(config))
+            if issues:
+                QMessageBox.warning(self, "Yaml validation failed",
+                                    format_issues(issues))
+                self._append_event_log(
+                    f"[{datetime.now():%H:%M:%S}] Yaml save blocked: "
+                    + "; ".join(issue.as_line() for issue in issues))
+                return False
             try:
                 project_config.save_config(config, path)
             except OSError as exc:

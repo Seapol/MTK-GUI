@@ -228,6 +228,13 @@ def test_yaml_build_page_threads_model_and_virtual(qapp, monkeypatch):
         return None, None
 
     page = page_module.YamlBuildPage()
+    # M45b: 01 -> 03 must be validated before block 04 opens
+    page.model.set_params("design_input", {
+        "product_id": "MTK", "part_number": "P-0001",
+        "spf_file": "board.spf", "net_file": "board.net",
+        "bom_file": "board.csv"})
+    for key in ("design_input", "parse_ict", "ict_workflow"):
+        page.model.set_mark(key, "star")
     monkeypatch.setattr(page.block_flow, "open_dialog", fake_open_dialog)
     page.set_virtual(True)
     page.open_fct_sequence()

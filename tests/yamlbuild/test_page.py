@@ -132,11 +132,22 @@ def test_block_cards_carry_sequence_badges(page):
         assert card.title_label.text().startswith(f"{index + 1:02d} ·")
 
 
+def _unlock_gating(page) -> None:
+    """M45b: 01 -> 02 must be validated before the 03/04 cards open."""
+    page.model.set_params("design_input", {
+        "product_id": "MTK", "part_number": "P-0001",
+        "spf_file": "board.spf", "net_file": "board.net",
+        "bom_file": "board.csv"})
+    page.model.set_mark("design_input", "star")
+    page.model.set_mark("parse_ict", "star")
+
+
 def test_ict_workflow_card_opens_sequence_builder(page, monkeypatch):
     """The merged 'Build ICT Test Work Flow Sequence' card opens the
     sequence builder dialog; on accept it emits ict_sequence_ready
     with the WHOLE editor state (steps / enables / waits / timeouts)."""
     from mtkgui.gui.yamlbuild import ict_sequence
+    _unlock_gating(page)
     fired = []
     page.ict_sequence_ready.connect(lambda rows: fired.append(rows))
     page.model.imported["testable_nets"] = {
@@ -186,6 +197,7 @@ def test_channel_alloc_card_runs_auto_allocation(page):
     """The 'Auto-Channel Allocation' card executes the automatic
     allocation on click (the former Auto button moved onto the
     card - user direction 2026-10-13)."""
+    _unlock_gating(page)
     page.model.imported["testable_nets"] = {
         "3V3": {"category": "Power", "members": ["U1.5"]},
         "CLK_24M": {"category": "Clock", "members": ["U1.10"]},

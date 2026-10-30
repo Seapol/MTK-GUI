@@ -67,11 +67,14 @@ from mtkgui.gui.yamlbuild.publish import (
     publish,
 )
 from mtkgui.gui.yamlbuild.stages import (
+    DISPLAY_CHANNEL_ALLOC,
     DISPLAY_ICT_WORKFLOW,
     STAGE_KEYS,
 )
 from mtkgui.gui.yamlbuild.store import load_project_state, \
     save_project_state
+from mtkgui.engine.yaml_validation import (blocking_issues, format_issues,
+                                           validate_project_yaml)
 from mtkgui.version_info import get_version_info
 
 #: default output directory for published plan files (created on use)
@@ -82,6 +85,29 @@ PLANS_DIR = "config/plans"
 DISPLAY_TO_CATEGORY = {
     "SE Clock": CATEGORY_CLOCK,
     CATEGORY_CONTROL_IO_LABEL: CATEGORY_GPIO,
+}
+
+#: M45b: the gated module chain - a module opens only when the previous
+#: level has been validated (star) or a valid project load starred it.
+GATING_CHAIN: tuple[str, ...] = ("design_input", "parse_ict",
+                                 "ict_workflow", "fct_build")
+
+#: M45b: display card -> chain level (the two level-03 cards - the
+#: Channel Allocation nav card and the merged Build ICT card - share the
+#: same gate).
+GATING_DISPLAY_LEVEL: dict[str, str] = {"channel_alloc": "ict_workflow"}
+
+#: M45b: the three design files module 01 owns (SPF / NET / BOM); if ANY
+#: is missing only module 01 may be opened.
+DESIGN_INPUT_FILES: tuple[str, ...] = ("spf_file", "net_file", "bom_file")
+
+#: M45b: chain level -> operator-facing module title/mark ("module 0X").
+GATING_LEVEL_TITLE: dict[str, str] = {
+    "design_input": "Design Input",
+    "parse_ict": "Parse nets for ICT",
+    "ict_workflow": "Channel Allocation / Build ICT Test Work Flow "
+                    "Sequence",
+    "fct_build": "Build FCT Test Work Flow Sequence",
 }
 
 
@@ -438,6 +464,17 @@ class YamlBuildPage(QWidget):
             self._tlog("ERROR", "FCT config invalid: "
                                 + "; ".join(errors))
             return "\n".join(errors[:10])
+        # M45b: apply-save runs the M39 validation BEFORE anything is
+        # written - module schema + the global project rules on the
+        # generated sequence; a blocking issue keeps the dialog open
+        errors = self.model.validate_module("fct_build")
+        errors += [issue.as_line() for issue in blocking_issues(
+            validate_project_yaml(
+                {"test_workflow": {"fct_test_cases": cases}}))]
+        if errors:
+            self._tlog("ERROR", "FCT apply blocked: "
+                                + "; ".join(errors[:10]))
+            return "\n".join(errors[:10])
         self._set_mark("fct_build", MARK_STAR)
         self.fct_sequence_applied.emit(cases)
         return None
@@ -449,6 +486,8 @@ class YamlBuildPage(QWidget):
         click AND by double-clicking an ICT result row on the Test Work
         Flow page (that table is now a read-only result view).
         """
+        if not self._gate_open(DISPLAY_ICT_WORKFLOW):
+            return
         # quiet sync of the embedded Channel Allocation tables into the
         # model BEFORE the pre-check reads allocated_testable
         self.model.set_channel_allocation(self.channel_alloc.collect())
@@ -524,6 +563,8 @@ class YamlBuildPage(QWidget):
         click AND by double-clicking an FCT result row on the Test Work
         Flow page (that table is now a read-only result view).
         """
+        if not self._gate_open("fct_build"):
+            return
         self.model.set_channel_allocation(self.channel_alloc.collect())
         params, _dialog = self.block_flow.open_dialog(
             "fct_build",
@@ -556,9 +597,93 @@ class YamlBuildPage(QWidget):
         self.fct_sequence_ready.emit(cases)
         self._set_mark("fct_build", MARK_STAR)
 
+    # ------------------------------------------------------ M45b gating
+    def _design_input_complete(self) -> bool:
+        """M45b: module 01 owns three design files (SPF / NET / BOM) -
+        with ANY of them missing only module 01 may be opened."""
+        params = self.model.get_params("design_input") or {}
+        return all(str(params.get(name, "") or "").strip()
+                   for name in DESIGN_INPUT_FILES)
+
+    def _module_starred(self, level: str) -> bool:
+        """True when one chain level carries the validated star mark."""
+        return self.model.marks.get(level, MARK_NONE) == MARK_STAR
+
+    def module_openable(self, module_key: str) -> bool:
+        """M45b: can this module be opened right now?
+
+        The chain is strictly sequential: a validated module (or the
+        immediately-next module) is openable; module 01 is always open.
+        """
+        level = GATING_DISPLAY_LEVEL.get(module_key, module_key)
+        if level not in GATING_CHAIN:
+            return True
+        index = GATING_CHAIN.index(level)
+        if index == 0:
+            return True
+        if not self._design_input_complete():
+            return False
+        if self._module_starred(level):
+            return True
+        return self._module_starred(GATING_CHAIN[index - 1])
+
+    def _blocked_reason(self, module_key: str) -> str:
+        """The "complete module 0X first" prompt text (M45b)."""
+        level = GATING_DISPLAY_LEVEL.get(module_key, module_key)
+        index = GATING_CHAIN.index(level)
+        if not self._design_input_complete():
+            return ("Complete module 01 - Design Input first: load the "
+                    "SPF, NET and BOM files and Apply_Save yaml, then "
+                    "open " + GATING_LEVEL_TITLE[level] + ".")
+        previous = GATING_CHAIN[index - 1]
+        return (f"Complete module 0{index} - "
+                f"{GATING_LEVEL_TITLE[previous]} first "
+                "(Apply_Save yaml or a valid loaded project), then open "
+                f"{GATING_LEVEL_TITLE[level]}.")
+
+    def _gate_open(self, module_key: str) -> bool:
+        """M45b: block the open with an explicit prompt when locked."""
+        if self.module_openable(module_key):
+            return True
+        QMessageBox.information(self, "Module locked",
+                                self._blocked_reason(module_key))
+        return False
+
+    def _level_valid(self, level: str) -> bool:
+        """M45b: load-time validation of one chain level."""
+        if level == "design_input":
+            return (self._design_input_complete()
+                    and not self.model.validate_module("design_input"))
+        if level == "ict_workflow":
+            # level 03 owns no validatable YAML module (rails / clocks /
+            # gpios are NO_UI and their content belongs to the Test Work
+            # Flow page) - it is complete once the project carries a
+            # parsed net set / an ICT allocation
+            return bool(self.model.imported.get("testable_nets")) or bool(
+                self.model.allocated_testable())
+        return not self.model.validate_module(level)
+
+    def apply_load_gating(self) -> None:
+        """M45b: sequential re-validation after a project LOAD.
+
+        Every mark is cleared first; each level that validates gets its
+        star and unlocks the next one.  The first failing level stops
+        the chain - every later module stays locked.
+        """
+        for level in GATING_CHAIN:
+            self.model.set_mark(level, "")
+        self.model.set_mark(DISPLAY_CHANNEL_ALLOC, "")
+        for level in GATING_CHAIN:
+            if not self._level_valid(level):
+                break
+            self.model.set_mark(level, MARK_STAR)
+        self._after_model_change()
+
     def _open_block(self, module_key: str) -> None:
         """Open the dedicated config dialog of one module and store
         the validated result (independent save + validation)."""
+        if not self._gate_open(module_key):
+            return
         if module_key == "channel_alloc":
             # the "Auto-Channel Allocation" card (user direction
             # 2026-10-13): clicking runs the automatic allocation
@@ -611,7 +736,6 @@ class YamlBuildPage(QWidget):
         # configured (OK) -> star mark (user direction); the full
         # sequence validation runs AUTOMATICALLY before every publish
         # (the manual Validate card was retired 2026-10-13)
-        self._set_mark(module_key, MARK_STAR)
         if module_key == "design_input" and dialog is not None \
                 and dialog.panel is not None:
             # keep the loaded NET bytes for the Parse Nets module (T8)
@@ -666,13 +790,25 @@ class YamlBuildPage(QWidget):
         errors = self.model.validate_module(module_key)
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))
+        else:
+            # M45b: star = validated & complete - a failing module stays
+            # unstarred, so its next level stays locked
+            self._set_mark(module_key, MARK_STAR)
         self._after_model_change()
 
     def _save_as_new_yaml(self, module_key: str, values: dict) -> None:
         """M44: a config page's Exit prompt chose "Save as new yaml" -
         apply the values to the model and hand the file pick to the main
-        window's Save as Yaml entry."""
+        window's Save as Yaml entry.
+
+        M45b: the module must pass its own schema validation first -
+        an invalid module never reaches the save.
+        """
         self.model.set_params(module_key, values)
+        errors = self.model.validate_module(module_key)
+        if errors:
+            QMessageBox.warning(self, "Validation", "\n".join(errors))
+            return
         self._set_mark(module_key, MARK_STAR)
         self._after_model_change()
         self.save_as_yaml_requested.emit()
