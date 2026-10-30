@@ -108,6 +108,59 @@ OP_STEPS: dict[str, dict] = {
         "type": "dio_out", "channels": "DIO01-DIO08", "pattern": "0x00"},
 }
 
+#: M41 network-setup standard operations.  Both run DUT-side commands
+#: over the SERIAL console (the DUT has no network yet, so SSH is
+#: impossible).  They are ordinary catalog entries: the app NEVER
+#: auto-inserts them into a sequence (IRON RULE - every step is
+#: user-operated; the recommended order is only help text).
+WIFI_CONNECT_OP = "Wi-Fi: Connect DUT to AP"
+LAN_SETUP_OP = "LAN: Setup DUT Ethernet"
+NETWORK_OPS = (WIFI_CONNECT_OP, LAN_SETUP_OP)
+
+#: network-stack registry (M41): the command set used to bring the DUT
+#: link up.  wpa_supplicant is the NXP i.MX / Yocto default; a BSP with
+#: another stack can still override every command per step (cmd/params).
+NETWORK_STACKS: dict[str, dict] = {
+    "wpa_supplicant": {
+        "label": "wpa_supplicant (NXP i.MX / Yocto)",
+        "conf_path": "/tmp/wpa_supplicant.conf",
+        "connect": "wpa_supplicant -B -i {iface} -c {conf}",
+    },
+}
+
+#: ``<wpa_supplicant.conf>`` body with the Wi-Fi page's SSID / password
+#: plugged into the network block (pure: unit-tested)
+WPA_CONF_TEMPLATE = (
+    "ctrl_interface=/var/run/wpa_supplicant\n"
+    "network={{\n"
+    "    ssid=\"{ssid}\"\n"
+    "    psk=\"{psk}\"\n"
+    "}}\n")
+
+
+def wpa_conf_text(ssid: str, password: str) -> str:
+    """The wpa_supplicant.conf body for one SSID / password."""
+    return WPA_CONF_TEMPLATE.format(ssid=ssid or "", psk=password or "")
+
+
+#: M41 network setup steps: name -> params dict (7th tuple element).  The
+#: serial console runs the commands; ``ssid`` / ``password`` are auto-
+#: plugged from the Wi-Fi page config when the row is created and stay
+#: user-editable afterwards.
+OP_STEPS[WIFI_CONNECT_OP] = {
+    "type": "wifi_connect", "stack": "wpa_supplicant",
+    "iface": "wlan0", "ssid": "", "password": "",
+    "dhcp": True, "dut_ip": "", "netmask": "255.255.255.0",
+    "gateway": "", "timeout_s": 60}
+OP_STEPS[LAN_SETUP_OP] = {
+    "type": "lan_setup", "iface": "eth0", "mode": "dhcp",
+    "dut_ip": "", "netmask": "255.255.255.0", "gateway": "",
+    "timeout_s": 60}
+
+#: the ``op_params["type"]`` values of the M41 network-setup operations
+#: (the GUI editor / runner dispatch on these instead of op names)
+NETWORK_OP_TYPES = ("wifi_connect", "lan_setup")
+
 #: M37 resource groups: the operations that need one configuration
 #: source before they may be used (the editors gray the rest out)
 DIO_OPS = ("U2355A DIO Read", "U2355A DIO Write")
@@ -246,6 +299,16 @@ def op_summary(params: dict | None) -> str:
                 f"{(params or {}).get('pattern', '')}")
     if t == "dio_read":
         return "24 ch Control IO"
+    if t == "wifi_connect":
+        iface = (params or {}).get("iface", "wlan0")
+        ssid = (params or {}).get("ssid", "")
+        return f"{iface} -> {ssid}" if ssid else iface
+    if t == "lan_setup":
+        iface = (params or {}).get("iface", "eth0")
+        mode = str((params or {}).get("mode", "dhcp")).upper()
+        ip = (params or {}).get("dut_ip", "")
+        return f"{iface} {mode}" + (f" {ip}" if mode == "STATIC" and ip
+                                   else "")
     return ""
 
 
@@ -280,6 +343,18 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
     if t == "dio_out":
         return [f"U2355A DIO {p.get('channels', '')} = "
                 f"{p.get('pattern', '')} -> written"]
+    if t == "wifi_connect":
+        iface = p.get("iface", "wlan0")
+        return [f"serial console {iface}: driver check",
+                f"wpa_supplicant.conf written (SSID '{p.get('ssid', '')}')",
+                f"{iface}: {'DHCP' if p.get('dhcp', True) else 'static'} "
+                f"address requested",
+                "DUT IP confirmed"]
+    if t == "lan_setup":
+        iface = p.get("iface", "eth0")
+        mode = str(p.get("mode", "dhcp")).upper()
+        return [f"serial console {iface}: {mode} address requested",
+                "DUT IP confirmed"]
     return [f"{name} executed"]
 
 
@@ -292,6 +367,8 @@ def op_instrument_abbr(params: dict | None) -> str:
         return "DAQM"   # fixture control board sits on DAQM907A DIO
     if t in ("dio_read", "dio_out"):
         return "DAQ"    # U2355A USB DAQ
+    if t in ("wifi_connect", "lan_setup"):
+        return "DUT"    # the DUT console runs the network commands
     return "DAQM"
 
 

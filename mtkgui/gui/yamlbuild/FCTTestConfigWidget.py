@@ -75,6 +75,8 @@ from mtkgui.engine.fct_test_config import (
     DIALOG_YESNO,
     KIND_HOST,
     KIND_MESSAGE,
+    KIND_SFTP_GET,
+    KIND_SFTP_PUT,
     KIND_OP,
     KIND_WIFI_TEST,
     KIND_BT_TEST,
@@ -110,7 +112,9 @@ from mtkgui.engine.fct_test_config import (
 )
 from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
-from mtkgui.engine.steps import op_summary as _op_summary
+from mtkgui.engine.steps import (LAN_SETUP_OP, NETWORK_OP_TYPES,
+                                 NETWORK_OPS, WIFI_CONNECT_OP,
+                                 op_summary as _op_summary)
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
 from mtkgui.style import APP_NAME, APP_ORG
 
@@ -121,12 +125,46 @@ WIFI_KEY_AP_IP = "wifi/ap_ip"
 WIFI_KEY_HOST_IP = "wifi/host_ip"
 WIFI_KEY_PASSWORD = "wifi/ap_password"
 
+#: M41 Console tab QSettings keys (local convenience values; the
+#: DUT-side fields stay authoritative in the YAML).  The password is
+#: plaintext by owner approval (same precedent as wifi/ap_password).
+CONSOLE_KEY_PORT = "console/port"
+CONSOLE_KEY_BAUD = "console/baudrate"
+CONSOLE_KEY_SSH_HOST = "console/ssh_host"
+CONSOLE_KEY_SSH_USER = "console/ssh_user"
+CONSOLE_KEY_SSH_PASSWORD = "console/ssh_password"
+CONSOLE_KEY_SCRIPTS_LOCAL = "console/scripts_local_dir"
+CONSOLE_KEY_PULL_LOCAL = "console/pull_local_dir"
+
 
 def _wifi_settings():
     """The QSettings store for the Wi-Fi tab keys (module-level so the
     tests monkeypatch it with an isolated settings.ini)."""
     from PySide6.QtCore import QSettings
     return QSettings(APP_ORG, APP_NAME)
+
+
+def _console_settings():
+    """The QSettings store for the M41 Console tab keys (module-level so
+    the tests monkeypatch it with an isolated settings.ini)."""
+    from PySide6.QtCore import QSettings
+    return QSettings(APP_ORG, APP_NAME)
+
+
+class _RefreshCombo(QComboBox):
+    """Combo whose popup re-runs a refresh callback first (M41: every
+    expansion of the Port dropdown re-scans ``list_ports.comports()``)."""
+
+    def __init__(self, refresh, parent=None) -> None:
+        super().__init__(parent)
+        self._refresh = refresh
+
+    def showPopup(self) -> None:            # noqa: N802 - Qt override
+        try:
+            self._refresh()
+        except Exception:                   # noqa: BLE001 - optional
+            pass
+        super().showPopup()
 
 
 # Each cmd_table row carries its full ConsoleCommand on the Name cell's
@@ -211,12 +249,14 @@ def _fmt_num(value) -> str:
 
 
 def _serial_ports() -> list:
-    """Available serial devices (pyserial list_ports; tolerant)."""
+    """Available serial devices for THIS platform (pyserial list_ports;
+    tolerant).  mac keeps only ``/dev/cu.*``, Windows only ``COM*``."""
     try:
         from serial.tools import list_ports
-        return [p.device for p in list_ports.comports()]
+        devices = [p.device for p in list_ports.comports()]
     except Exception:                        # noqa: BLE001 - optional
         return []
+    return host_platform.serial_port_devices(devices)
 
 
 def _sequence_cases_from_param(raw) -> list:
@@ -294,9 +334,14 @@ def _op_command_to_case(cmd: ConsoleCommand) -> dict:
 
 
 class _SshProbeWorker(QThread):
-    """M29 "Test Connection": one paramiko connect attempt OFF the UI
-    thread using the CURRENT GUI values.  Emits ok(banner) or
-    fail(real error message)."""
+    """M29/M41 "Test Connection": stepwise SSH diagnosis OFF the UI
+    thread using the CURRENT GUI values.
+
+    Three layers, each with its own guidance when it fails:
+      1. network: ping the DUT IPv4;
+      2. reachability: TCP port 22 open on the DUT;
+      3. authentication: paramiko connect (password / agent / key).
+    Emits ok(<uname banner>) only when all three pass."""
 
     ok = Signal(str)
     fail = Signal(str)
@@ -310,6 +355,20 @@ class _SshProbeWorker(QThread):
         self._password = password
 
     def run(self) -> None:
+        host = str(self._host or "").strip()
+        # ---- layer 1: network reachability (ping) -----------------------
+        if not host_platform.ping_host(host):
+            self.fail.emit(
+                f"network unreachable (ping {host} failed) - run the "
+                "Wi-Fi/LAN network setup step first, or check LAN cable / "
+                "AP association")
+            return
+        # ---- layer 2: TCP port 22 (sshd listening) ----------------------
+        if not host_platform.tcp_port_open(host, 22):
+            self.fail.emit(
+                f"TCP port 22 closed on {host} - check DUT sshd is running")
+            return
+        # ---- layer 3: SSH authentication --------------------------------
         try:
             import paramiko
         except ImportError:
@@ -318,7 +377,7 @@ class _SshProbeWorker(QThread):
             return
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        kwargs: dict = dict(hostname=self._host, port=22,
+        kwargs: dict = dict(hostname=host, port=22,
                             username=self._username, timeout=8,
                             allow_agent=True, look_for_keys=True)
         if self._password:
@@ -330,9 +389,9 @@ class _SshProbeWorker(QThread):
             banner = out.read().decode(errors="replace").strip()[:80]
             self.ok.emit(banner)
         except Exception as exc:              # noqa: BLE001 - the REAL
-            # error (auth failed / timeout / name resolution / refused)
-            # is the point of this button
-            self.fail.emit(str(exc))
+            # auth / handshake error is the point of this button
+            self.fail.emit(f"authentication failed: {exc} - check "
+                           "username, password or key")
         finally:
             client.close()
 
@@ -494,6 +553,10 @@ class FCTTestConfigPanel(QWidget):
         self.tabs.addTab(self._build_console_tab(), "Console")
         self.wifi_tab = self._build_wifi_tab()
         self.tabs.addTab(self.wifi_tab, "Wi-Fi")
+        # M41: the Console SSH "Host PC IPv4" line mirrors the Wi-Fi tab
+        # detection (including the QSettings prefill on load)
+        self.wifi_host_ip.textChanged.connect(self._sync_host_pc_ip)
+        self._sync_host_pc_ip()
         self.bt_tab = self._build_bt_tab()
         self.tabs.addTab(self.bt_tab, "Bluetooth")
         # Sequence tab (task: single sequence source): the shared step
@@ -610,37 +673,65 @@ class FCTTestConfigPanel(QWidget):
 
     # ------------------------------------------------------------ console
     def _build_console_tab(self) -> QWidget:
-        """Host PC Serial/SSH connection config ONLY (M22c).
+        """M41: five independent Console submodules (QGroupBox each) -
+        Serial | SSH | CLI | SFTP Put | SFTP Pull.
 
-        Port / Baudrate / SSH endpoint (M36: no master enable switch -
-        configuring the port is what activates the console).  The
-        test-command table and its row buttons live in the Sequence tab.
+        Serial holds the DUT console port / baudrate (the port dropdown
+        re-scans list_ports on every expansion); SSH holds the Host PC
+        (local, read-only) and the DUT (remote, login target) halves
+        plus the SSH test / transfer buttons; CLI is documentation only;
+        the two SFTP blocks hold the Put / Pull directories.  The
+        console test commands themselves are edited in the Sequence tab.
         """
         w = QWidget()
         lay = QVBoxLayout(w)
-        form = QFormLayout()
-        self.console_port = QComboBox()
+
+        # ---- (1) Console Serial (DUT serial console) -------------------
+        self.console_serial_box = QGroupBox(
+            "Console Serial (DUT serial console)")
+        sform = QFormLayout(self.console_serial_box)
+        self.console_port = _RefreshCombo(self._refresh_serial_ports)
         self.console_port.setEditable(True)
-        ports = _serial_ports()
-        if ports:
-            self.console_port.addItems(ports)
-        form.addRow("Port:", self.console_port)
+        for port in _serial_ports():
+            self.console_port.addItem(port)
+        sform.addRow("Port:", self.console_port)
         self.console_baud = QComboBox()
+        self.console_baud.setEditable(True)      # Tera Term: any baudrate
         self.console_baud.addItems([str(b) for b in BAUDRATES])
-        form.addRow("Baudrate:", self.console_baud)
+        self.console_baud.setCurrentText("115200")
+        sform.addRow("Baudrate:", self.console_baud)
+        lay.addWidget(self.console_serial_box)
+
+        # ---- (2) Console SSH (Host PC <-> DUT) ------------------------
+        self.console_ssh_box = QGroupBox("Console SSH (Host PC <-> DUT)")
+        vbox = QVBoxLayout(self.console_ssh_box)
+        host_note = QLabel("SSH client runs on this PC - no input needed.")
+        host_note.setStyleSheet("color: #6b7280;")
+        vbox.addWidget(host_note)
+        host_form = QFormLayout()
+        self.console_host_pc_ip = QLineEdit()
+        self.console_host_pc_ip.setReadOnly(True)
+        self.console_host_pc_ip.setPlaceholderText(
+            "auto-detected (Wi-Fi / LAN)")
+        host_form.addRow("Host PC IPv4:", self.console_host_pc_ip)
+        vbox.addLayout(host_form)
+        dut_note = QLabel("DUT (remote) - SSH login target")
+        dut_note.setStyleSheet("font-weight: bold;")
+        vbox.addWidget(dut_note)
+        dobj = QFormLayout()
         self.console_ssh_host = QLineEdit()
         self.console_ssh_host.setPlaceholderText(
-            "DUT SSH endpoint (used by ssh / SFTP rows), e.g. 192.168.1.20")
-        form.addRow("SSH host:", self.console_ssh_host)
+            "e.g. 192.168.1.100 (DUT IP)")
+        dobj.addRow("DUT IP:", self.console_ssh_host)
         self.console_ssh_user = QLineEdit()
-        self.console_ssh_user.setPlaceholderText("root")
-        form.addRow("SSH username:", self.console_ssh_user)
+        self.console_ssh_user.setPlaceholderText("e.g. root")
+        dobj.addRow("Username:", self.console_ssh_user)
         self.console_ssh_password = QLineEdit()
         self.console_ssh_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.console_ssh_password.setPlaceholderText(
-            "leave empty = agent/key auth (stored in the OS keyring, "
-            "never in the YAML)")
-        form.addRow("SSH password:", self.console_ssh_password)
+            "e.g. leave empty = key login")
+        dobj.addRow("Password:", self.console_ssh_password)
+        vbox.addLayout(dobj)
         test_row = QHBoxLayout()
         self.ssh_test_btn = QPushButton("Test Connection")
         self.ssh_test_btn.clicked.connect(self._on_ssh_test)
@@ -648,48 +739,15 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_test_status = QLabel("")
         self.ssh_test_status.setWordWrap(True)
         test_row.addWidget(self.ssh_test_status, 1)
-        form.addRow(test_row)
+        vbox.addLayout(test_row)
         self.console_ssh_host.textChanged.connect(
             self._on_ssh_endpoint_edited)
         self.console_ssh_host.textChanged.connect(
             self._sync_ssh_controls)
         self.console_ssh_user.textChanged.connect(
             self._on_ssh_endpoint_edited)
-        lay.addLayout(form)
-
-        # ---- SSH asset transfer (push / pull, M29) ------------------------
-        self.ssh_transfer_box = QGroupBox("SSH asset transfer")
-        tlay = QVBoxLayout(self.ssh_transfer_box)
-        push_form = QFormLayout()
-        local_row = QHBoxLayout()
-        self.console_scripts_local = QLineEdit()
-        self.console_scripts_local.setPlaceholderText(
-            "local source folder on the Host PC")
-        local_row.addWidget(self.console_scripts_local, 1)
-        btn_local = QPushButton("Browse...")
-        btn_local.clicked.connect(
-            lambda: self._browse_dir(self.console_scripts_local))
-        local_row.addWidget(btn_local)
-        push_form.addRow("Local dir:", local_row)
-        self.console_scripts_remote = QLineEdit()
-        self.console_scripts_remote.setPlaceholderText("/root")
-        push_form.addRow("Remote dir:", self.console_scripts_remote)
-        tlay.addLayout(push_form)
-        pull_form = QFormLayout()
-        self.console_pull_remote = QLineEdit()
-        self.console_pull_remote.setPlaceholderText("/tmp/results")
-        pull_form.addRow("Pull remote dir:", self.console_pull_remote)
-        pull_local_row = QHBoxLayout()
-        self.console_pull_local = QLineEdit()
-        self.console_pull_local.setPlaceholderText(
-            "local destination folder for pulled results")
-        pull_local_row.addWidget(self.console_pull_local, 1)
-        btn_pull = QPushButton("Browse...")
-        btn_pull.clicked.connect(
-            lambda: self._browse_dir(self.console_pull_local))
-        pull_local_row.addWidget(btn_pull)
-        pull_form.addRow("Pull local dir:", pull_local_row)
-        tlay.addLayout(pull_form)
+        # transfer (push / pull) runs over this SSH endpoint; the
+        # directories live in the two SFTP submodules below
         transfer_row = QHBoxLayout()
         self.ssh_transfer_direction = QComboBox()
         self.ssh_transfer_direction.addItems(
@@ -699,21 +757,71 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_transfer_btn.clicked.connect(self._on_ssh_transfer)
         transfer_row.addWidget(self.ssh_transfer_btn)
         transfer_row.addStretch(1)
-        tlay.addLayout(transfer_row)
+        vbox.addLayout(transfer_row)
         self.ssh_transfer_bar = QProgressBar()
         self.ssh_transfer_bar.setRange(0, 100)
         self.ssh_transfer_bar.setValue(0)
         self.ssh_transfer_bar.setVisible(False)
-        tlay.addWidget(self.ssh_transfer_bar)
+        vbox.addWidget(self.ssh_transfer_bar)
         self.ssh_transfer_status = QLabel("")
         self.ssh_transfer_status.setWordWrap(True)
-        tlay.addWidget(self.ssh_transfer_status)
-        lay.addWidget(self.ssh_transfer_box)
+        vbox.addWidget(self.ssh_transfer_status)
+        lay.addWidget(self.console_ssh_box)
+
+        # ---- (3) Console CLI (Host PC commands - documentation only) ---
+        self.console_cli_box = QGroupBox("Console CLI (Host PC commands)")
+        cli_lay = QVBoxLayout(self.console_cli_box)
+        cli_note = QLabel(
+            "Commands are written per step in the FCT step cmd / params "
+            "(Windows commands; no page-level configuration).")
+        cli_note.setWordWrap(True)
+        cli_note.setStyleSheet("color: #6b7280;")
+        cli_lay.addWidget(cli_note)
+        lay.addWidget(self.console_cli_box)
+
+        # ---- (4) SFTP Put (Host PC -> DUT) ----------------------------
+        self.sftp_put_box = QGroupBox("SFTP Put (Host PC -> DUT)")
+        put_form = QFormLayout(self.sftp_put_box)
+        local_row = QHBoxLayout()
+        self.console_scripts_local = QLineEdit()
+        self.console_scripts_local.setPlaceholderText(
+            "local source folder on the Host PC")
+        local_row.addWidget(self.console_scripts_local, 1)
+        btn_local = QPushButton("Browse...")
+        btn_local.clicked.connect(
+            lambda: self._browse_dir(self.console_scripts_local))
+        local_row.addWidget(btn_local)
+        put_form.addRow("Local source dir (Host PC):", local_row)
+        self.console_scripts_remote = QLineEdit()
+        self.console_scripts_remote.setPlaceholderText("/root")
+        put_form.addRow("DUT target dir:", self.console_scripts_remote)
+        lay.addWidget(self.sftp_put_box)
+
+        # ---- (5) SFTP Pull (DUT -> Host PC) ---------------------------
+        self.sftp_pull_box = QGroupBox("SFTP Pull (DUT -> Host PC)")
+        pull_form = QFormLayout(self.sftp_pull_box)
+        self.console_pull_remote = QLineEdit()
+        self.console_pull_remote.setPlaceholderText("/tmp/results")
+        pull_form.addRow("DUT source dir:", self.console_pull_remote)
+        pull_local_row = QHBoxLayout()
+        self.console_pull_local = QLineEdit()
+        self.console_pull_local.setPlaceholderText(
+            "local destination folder for pulled results")
+        pull_local_row.addWidget(self.console_pull_local, 1)
+        btn_pull = QPushButton("Browse...")
+        btn_pull.clicked.connect(
+            lambda: self._browse_dir(self.console_pull_local))
+        pull_local_row.addWidget(btn_pull)
+        pull_form.addRow("Host destination dir:", pull_local_row)
+        lay.addWidget(self.sftp_pull_box)
 
         hint = QLabel(
             "Connection settings only.  The console test commands "
             "(Wait->Send->Capture, SFTP, host CLI, operator dialogs) are "
-            "edited in the Sequence tab.")
+            "edited in the Sequence tab.  Recommended order: run the "
+            "[Wi-Fi: Connect DUT to AP] / [LAN: Setup DUT Ethernet] step "
+            "right after Power On / Init / Fixture, before any "
+            "Console_ssh / SFTP step (added manually - never automatic).")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #6b7280;")
         lay.addWidget(hint)
@@ -724,8 +832,92 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_bare_hint.setVisible(False)
         lay.addWidget(self.ssh_bare_hint)
         lay.addStretch(1)
+        # M41: tab init prefills the QSettings convenience values; field
+        # changes persist them again (Apply_Save also persists)
+        self._load_console_settings()
+        for widget in (self.console_port, self.console_baud,
+                       self.console_ssh_host, self.console_ssh_user,
+                       self.console_ssh_password,
+                       self.console_scripts_local, self.console_pull_local):
+            signal = (widget.currentTextChanged
+                      if isinstance(widget, QComboBox)
+                      else widget.textChanged)
+            signal.connect(self._persist_console_settings)
         # M34: the Console tab scrolls (small window) - no control squeeze
         return wrap_scrollable(w)
+
+    # ------------------------------------------------- M41 console settings
+    def _refresh_serial_ports(self) -> None:
+        """Every Port dropdown expansion re-runs ``list_ports.comports()``
+        and drops devices that disappeared (new ones are appended)."""
+        ports = _serial_ports()
+        current = self.console_port.currentText().strip()
+        for i in range(self.console_port.count() - 1, -1, -1):
+            if self.console_port.itemText(i) not in ports:
+                self.console_port.removeItem(i)
+        for port in ports:
+            if self.console_port.findText(port) < 0:
+                self.console_port.addItem(port)
+        if current:
+            self.console_port.setEditText(current)
+
+    def _load_console_settings(self) -> None:
+        """M41: read the QSettings ``console/*`` prefill values."""
+        settings = _console_settings()
+        self._guard = True
+        try:
+            port = str(settings.value(CONSOLE_KEY_PORT, "") or "").strip()
+            if port:
+                if self.console_port.findText(port) < 0:
+                    self.console_port.addItem(port)
+                self.console_port.setCurrentText(port)
+            baud = str(settings.value(CONSOLE_KEY_BAUD, "") or "").strip()
+            if baud:
+                self.console_baud.setCurrentText(baud)
+            for key, widget in (
+                    (CONSOLE_KEY_SSH_HOST, self.console_ssh_host),
+                    (CONSOLE_KEY_SSH_USER, self.console_ssh_user),
+                    (CONSOLE_KEY_SSH_PASSWORD, self.console_ssh_password),
+                    (CONSOLE_KEY_SCRIPTS_LOCAL, self.console_scripts_local),
+                    (CONSOLE_KEY_PULL_LOCAL, self.console_pull_local)):
+                value = str(settings.value(key, "") or "")
+                if value:
+                    widget.setText(value)
+        finally:
+            self._guard = False
+
+    def _persist_console_settings(self) -> None:
+        """M41: write the QSettings ``console/*`` convenience values (the
+        password is plaintext by owner approval; the DUT-side fields stay
+        authoritative in the YAML)."""
+        if getattr(self, "_guard", False):
+            return
+        settings = _console_settings()
+        settings.setValue(CONSOLE_KEY_PORT,
+                          self.console_port.currentText().strip())
+        settings.setValue(CONSOLE_KEY_BAUD,
+                          self.console_baud.currentText().strip())
+        settings.setValue(CONSOLE_KEY_SSH_HOST,
+                          self.console_ssh_host.text().strip())
+        settings.setValue(CONSOLE_KEY_SSH_USER,
+                          self.console_ssh_user.text().strip())
+        settings.setValue(CONSOLE_KEY_SSH_PASSWORD,
+                          self.console_ssh_password.text())
+        settings.setValue(CONSOLE_KEY_SCRIPTS_LOCAL,
+                          self.console_scripts_local.text().strip())
+        settings.setValue(CONSOLE_KEY_PULL_LOCAL,
+                          self.console_pull_local.text().strip())
+
+    def _sync_host_pc_ip(self) -> None:
+        """M41: the Console SSH "Host PC IPv4" line mirrors the value
+        detected on the Wi-Fi tab (read-only here; the Wi-Fi module owns
+        the detection)."""
+        host_ip = getattr(self, "wifi_host_ip", None)
+        value = host_ip.text().strip() if host_ip is not None else ""
+        if not value:
+            value = str(_wifi_settings().value(WIFI_KEY_HOST_IP, "")
+                        or "").strip()
+        self.console_host_pc_ip.setText(value)
 
     @staticmethod
     def _browse_dir(edit: QLineEdit) -> None:
@@ -744,18 +936,27 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_test_status.setStyleSheet("")
 
     def _sync_ssh_controls(self) -> None:
-        """M29 bare-metal gating: no OS -> no SSH at all.  Also the
-        Test Connection button needs an endpoint."""
-        is_linux = self.dut_type.currentText() == "linux"
+        """M29/M41 bare-metal gating: no OS -> no SSH / SFTP at all.
+        Also the Test Connection button needs an endpoint.
+
+        Safe before the DUT-type combo exists (tab init prefills the
+        Console fields through QSettings)."""
+        combo = getattr(self, "dut_type", None)
+        is_linux = combo is None or combo.currentText() == "linux"
         has_host = bool(self.console_ssh_host.text().strip())
         for w in (self.console_ssh_host, self.console_ssh_user,
-                  self.console_ssh_password, self.ssh_test_btn,
-                  self.ssh_transfer_box):
+                  self.console_ssh_password):
             w.setEnabled(is_linux)
+        # M41: the whole SSH / SFTP surface follows the DUT OS (bare
+        # metal has no sshd and no sftp)
+        for box in (self.console_ssh_box, self.sftp_put_box,
+                    self.sftp_pull_box):
+            box.setEnabled(is_linux)
         self.ssh_test_btn.setEnabled(is_linux and has_host)
         self.ssh_bare_hint.setVisible(not is_linux)
         if not is_linux:
             self.ssh_test_status.setText("")
+        self._sync_op_submenu()
 
     # -------------------------------------------------- SSH test/transfer
     _SSH_OK_STYLE = "color: #15803d; font-weight: bold;"
@@ -781,7 +982,7 @@ class FCTTestConfigPanel(QWidget):
     def _on_ssh_probe_ok(self, banner: str) -> None:
         user = self.console_ssh_user.text().strip() or "root"
         host = self.console_ssh_host.text().strip()
-        text = f"SSH OK: {user}@{host}"
+        text = f"SSH OK: {user}@{host}  (ping ok | tcp 22 open | auth ok)"
         if banner:
             text += f"  ({banner})"
         self.ssh_test_status.setText(text)
@@ -874,17 +1075,22 @@ class FCTTestConfigPanel(QWidget):
 
     def _prefill_ssh_password(self, host: str) -> None:
         """YAML/GUI load: prefill from the credential layer (warnings
-        suppressed - absence is normal)."""
-        self.console_ssh_password.setText("")
+        suppressed - absence is normal).
+
+        M41: when the credential layer holds nothing, the QSettings
+        prefill already in the field is KEPT (only an empty host clears
+        the field)."""
         if not host:
+            self.console_ssh_password.setText("")
             return
         from mtkgui.engine import credentials
         try:
             password, _warning = credentials.get_credential(
                 f"fct_ssh_{host}")
-            self.console_ssh_password.setText(password)
         except Exception:                     # noqa: BLE001 - absent
-            pass
+            return
+        if password:
+            self.console_ssh_password.setText(password)
 
     def _insert_row(self, cmd: ConsoleCommand) -> None:
         """Append one row and render the given command on it (the
@@ -897,8 +1103,26 @@ class FCTTestConfigPanel(QWidget):
 
     def _add_row_for_label(self, label: str) -> None:
         """Add the default row for one of the direct Type labels."""
-        self._insert_row(console_command_for_label(
-            label, _ADD_ROW_NAMES.get(label, "")))
+        cmd = console_command_for_label(
+            label, _ADD_ROW_NAMES.get(label, ""))
+        # M41: a new SFTP row starts from the Console SFTP submodule dirs
+        self._prefill_sftp_dirs(cmd)
+        self._insert_row(cmd)
+
+    def _prefill_sftp_dirs(self, cmd: ConsoleCommand) -> None:
+        """M41: fill EMPTY SFTP dir fields from the Console SFTP
+        submodules (non-empty step values always win; console changes
+        never rewrite an already-added row)."""
+        if cmd.kind == KIND_SFTP_PUT:
+            cmd.local = (cmd.local
+                         or self.console_scripts_local.text().strip())
+            cmd.remote = (cmd.remote
+                          or self.console_scripts_remote.text().strip())
+        elif cmd.kind == KIND_SFTP_GET:
+            cmd.remote = (cmd.remote
+                          or self.console_pull_remote.text().strip())
+            cmd.local = (cmd.local
+                         or self.console_pull_local.text().strip())
 
     def _add_operation_row(self, op_name: str | None = None) -> None:
         """M43: add a standard-operation row DIRECTLY from the Operation
@@ -911,6 +1135,11 @@ class FCTTestConfigPanel(QWidget):
         cmd = console_command_for_label(STEP_TYPE_OPERATION, name)
         if op_name:
             cmd.op_params = dict(OP_STEPS.get(op_name) or {})
+            # M41: the Wi-Fi connect row starts with the Wi-Fi page
+            # SSID / password plugged into its template (still editable)
+            if op_name == WIFI_CONNECT_OP:
+                cmd.op_params["ssid"] = self.wifi_ap_ssid.text().strip()
+                cmd.op_params["password"] = self.wifi_ap_password.text()
         self._insert_row(cmd)
 
     # ------------------------------------------------- M43 op submenu gate
@@ -925,7 +1154,13 @@ class FCTTestConfigPanel(QWidget):
         return name if name in OP_STEPS else None
 
     def _op_usable(self, name: str) -> bool:
-        """True when the operation may be added (M37 availability)."""
+        """True when the operation may be added (M37 availability).
+
+        M41: the network-setup operations need no external resource, so
+        they are always usable (the bare-metal gate is applied separately
+        in :meth:`_sync_op_submenu`)."""
+        if name in NETWORK_OPS:
+            return True
         return self._available_ops is None or name in self._available_ops
 
     @staticmethod
@@ -940,14 +1175,22 @@ class FCTTestConfigPanel(QWidget):
         return "Configure the required resource first"
 
     def _sync_op_submenu(self) -> None:
-        """M37 gate applied to the M43 Operation submenu entries: an
-        operation whose resource is not configured is disabled with its
-        "configure X first" tooltip."""
+        """M37 gate + M41 bare-metal gate on the M43 Operation submenu
+        entries: an operation whose resource is not configured is
+        disabled with its "configure X first" tooltip; the network-setup
+        operations are additionally disabled on a bare-metal DUT."""
+        combo = getattr(self, "dut_type", None)
+        is_linux = combo is None or combo.currentText() == "linux"
         for text, act in getattr(self, "_op_add_actions", {}).items():
             name = self._op_name_for_label(text)
             blocked = name is not None and not self._op_usable(name)
+            hint = self._op_blocked_tooltip(name) if blocked else ""
+            if name in NETWORK_OPS and not is_linux:
+                blocked = True
+                hint = ("Bare Metal: no network stack on the DUT - the "
+                        "network setup steps need a Linux DUT")
             act.setEnabled(not blocked)
-            act.setToolTip(self._op_blocked_tooltip(name) if blocked else "")
+            act.setToolTip(hint)
 
     def _add_console_row(self) -> None:
         """Default interact row: Send enabled, Wait / Capture off."""
@@ -1138,7 +1381,11 @@ class FCTTestConfigPanel(QWidget):
             self._jump_to_rf_tab(cmd)
             return
         if cmd.kind == KIND_OP:
-            self._edit_operation_row(row)
+            if str((cmd.op_params or {}).get("type") or "") \
+                    in NETWORK_OP_TYPES:
+                self._edit_network_op_row(row)
+            else:
+                self._edit_operation_row(row)
         elif cmd.kind == KIND_DELAY:
             self._edit_delay_row(row)
         elif cmd.kind == KIND_FLASH_GUI:
@@ -1363,6 +1610,113 @@ class FCTTestConfigPanel(QWidget):
                                        or cmd.capture_unexpected)
             self._save_row_cmd(row, cmd)
 
+    def _edit_network_op_row(self, row: int) -> None:
+        """M41: editor for the two DUT network-setup operations.
+
+        ``wifi_connect`` (serial console): interface, AP SSID / password
+        (auto-plugged from the Wi-Fi tab at row creation), DHCP or static
+        IP, timeout.  ``lan_setup``: interface + DHCP / Static mode + the
+        static IP / mask / gateway + timeout, with the "same subnet as
+        the Host PC" hint.  Every command stays user-editable per step.
+        """
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
+                                        QLabel, QLineEdit, QCheckBox,
+                                        QComboBox, QSpinBox,
+                                        QDialogButtonBox)
+        cmd = self._get_row_cmd(row)
+        params = dict(cmd.op_params or {})
+        is_wifi = str(params.get("type") or "") == "wifi_connect"
+        title = WIFI_CONNECT_OP if is_wifi else LAN_SETUP_OP
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{title} editor")
+        dlg.setMinimumWidth(620)
+        from PySide6.QtCore import Qt
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.raise_()
+        dlg.activateWindow()
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        note = QLabel(
+            "Runs on the DUT SERIAL console (works before any network "
+            "exists).  Recommended: right after Power On / Init / Fixture, "
+            "before any Console_ssh / SFTP step - added manually, never "
+            "automatic.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #6b7280;")
+        lay.addWidget(note)
+        form = QFormLayout()
+        iface = QLineEdit(str(params.get("iface") or ""))
+        iface.setPlaceholderText("wlan0" if is_wifi else "eth0")
+        form.addRow("Interface:", iface)
+        ssid = password = dhcp_cb = mode = None
+        if is_wifi:
+            ssid = QLineEdit(str(params.get("ssid") or ""))
+            ssid.setPlaceholderText("AP SSID (auto-filled from Wi-Fi tab)")
+            form.addRow("AP SSID:", ssid)
+            password = QLineEdit(str(params.get("password") or ""))
+            password.setPlaceholderText("leave empty for an open network")
+            form.addRow("AP password:", password)
+            dhcp_cb = QCheckBox("Use DHCP (uncheck = static IP)")
+            dhcp_cb.setChecked(bool(params.get("dhcp", True)))
+            form.addRow(dhcp_cb)
+        else:
+            mode = QComboBox()
+            mode.addItems(["DHCP", "Static"])
+            mode.setCurrentText("DHCP" if str(params.get("mode") or "dhcp")
+                                .lower() != "static" else "Static")
+            form.addRow("IP mode:", mode)
+        dut_ip = QLineEdit(str(params.get("dut_ip") or ""))
+        dut_ip.setPlaceholderText("e.g. 192.168.1.100")
+        netmask = QLineEdit(str(params.get("netmask") or "255.255.255.0"))
+        gateway = QLineEdit(str(params.get("gateway") or ""))
+        form.addRow("DUT IP (static):", dut_ip)
+        form.addRow("Netmask:", netmask)
+        form.addRow("Gateway:", gateway)
+        timeout = QSpinBox()
+        timeout.setRange(1, 3600)
+        timeout.setValue(int(params.get("timeout_s") or 60))
+        timeout.setSuffix(" s")
+        form.addRow("Timeout:", timeout)
+        lay.addLayout(form)
+        host_ip = self.wifi_host_ip.text().strip()
+        subnet = QLabel(
+            "Static IP must be in the same subnet as the Host PC "
+            f"(Host PC IP: {host_ip or 'not detected'})")
+        subnet.setWordWrap(True)
+        subnet.setStyleSheet("color: #6b7280;")
+        lay.addWidget(subnet)
+        # M34: body scrolls, OK / Cancel stays outside (always visible)
+        apply_scroll_to_dialog(dlg, body)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok
+                                   | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        outer.addWidget(buttons)
+        if dlg.exec():
+            params["type"] = "wifi_connect" if is_wifi else "lan_setup"
+            params["stack"] = str(params.get("stack") or "wpa_supplicant")
+            params["iface"] = (iface.text().strip()
+                               or ("wlan0" if is_wifi else "eth0"))
+            if is_wifi:
+                params["ssid"] = ssid.text().strip()
+                params["password"] = password.text()
+                params["dhcp"] = dhcp_cb.isChecked()
+            else:
+                params["mode"] = ("dhcp" if mode.currentText() == "DHCP"
+                                  else "static")
+            params["dut_ip"] = dut_ip.text().strip()
+            params["netmask"] = (netmask.text().strip()
+                                 or "255.255.255.0")
+            params["gateway"] = gateway.text().strip()
+            params["timeout_s"] = int(timeout.value())
+            cmd.kind = KIND_OP
+            cmd.op_kind = "op"
+            cmd.op_params = params
+            self._save_row_cmd(row, cmd)
+        dlg.deleteLater()
+
     def _edit_operation_row(self, row: int) -> None:
         """Operation row editor: reuse the shared op parameter editor
         via a transient StepsEditorDialog carrying the single row."""
@@ -1443,6 +1797,9 @@ class FCTTestConfigPanel(QWidget):
             send_edit.setMaximumHeight(90)
             form.addRow("SendTo:", send_edit)
         elif typ in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
+            # M41: EMPTY fields auto-fill from the Console SFTP submodule
+            # dirs (non-empty step values keep their override)
+            self._prefill_sftp_dirs(cmd)
             local_edit = QLineEdit(cmd.local or "")
             remote_edit = QLineEdit(cmd.remote or "")
             if typ == STEP_TYPE_SFTP_PUT:
@@ -2972,12 +3329,20 @@ class FCTTestConfigPanel(QWidget):
         )
         cfg.console = copy.deepcopy(self._console_cfg)
         cfg.console.port = self.console_port.currentText().strip()
-        cfg.console.baudrate = int(self.console_baud.currentText())
+        # M41: the baudrate combo is editable (Tera Term style) - fall
+        # back to the default when the typed text is not an integer
+        try:
+            cfg.console.baudrate = int(
+                str(self.console_baud.currentText()).strip())
+        except (TypeError, ValueError):
+            cfg.console.baudrate = 115200
         cfg.console.ssh_host = self.console_ssh_host.text().strip()
         cfg.console.ssh_username = self.console_ssh_user.text().strip()
         # M29: password -> credential layer ONLY; the fields below are
         # plain paths (YAML-safe)
         self._persist_ssh_password()
+        # M41: Apply_Save is a Console QSettings persistence point too
+        self._persist_console_settings()
         cfg.console.scripts_local_dir = \
             self.console_scripts_local.text().strip()
         cfg.console.scripts_remote_dir = \

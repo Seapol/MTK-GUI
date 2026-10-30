@@ -45,6 +45,7 @@ from .steps import (
     expand_dio_channels,
     dio_name,
     op_instrument_abbr,
+    op_status_lines,
     parse_console_step,
 )
 
@@ -438,6 +439,10 @@ class TestRunner(QObject):
         # M7: U2355A DIO ops - inject the allocated control-net map and
         # run the DIO Write isolation preflight (Read is read-only)
         op_type = (params or {}).get("type")
+        # M41: the DUT network setup steps run DUT-side commands over
+        # the SERIAL console (no network exists yet) - never the gateway
+        if op_type in ("wifi_connect", "lan_setup"):
+            return self._run_network_op(tag, name, dict(params or {}))
         if op_type in ("dio_read", "dio_out"):
             rows = self._control_io_rows()
             if virtual and getattr(env, "rack", None) is not None:
@@ -497,6 +502,98 @@ class TestRunner(QObject):
                 return "Fail"
         env._log(f"{tag} op {name}: Done")
         return "Done"
+
+    # ------------------------------------------- M41 DUT network setup
+    def _net_run(self, mc, key: str, command: str,
+                 wait_s: float = 8.0, quiet_s: float = 0.6) -> str:
+        """Send one DUT command over the serial console and collect its
+        output: waits until the channel has been quiet for `quiet_s`
+        (or the `wait_s` budget is spent).  Returns the text."""
+        from .fct_exec import console_line
+        if not str(command or "").strip():
+            return ""
+        start = len(mc.get_read_buffer(key))
+        mc.write_to_channel(key, console_line(str(command)).encode("utf-8"))
+        deadline = time.monotonic() + max(0.1, float(wait_s))
+        text, last_change = "", None
+        while time.monotonic() < deadline:
+            current = mc.get_read_buffer(key)[start:].decode(
+                "utf-8", "replace")
+            if current != text:
+                text, last_change = current, time.monotonic()
+            elif last_change is not None \
+                    and time.monotonic() - last_change >= quiet_s:
+                break
+            time.sleep(0.05)
+        return text
+
+    def _run_network_op(self, tag: str, name: str, params: dict) -> str:
+        """Execute one network-setup op ("Wi-Fi: Connect DUT to AP" /
+        "LAN: Setup DUT Ethernet") over the DUT SERIAL console.
+
+        Returns "Done" / "Fail" / "Error" like every other op.  The
+        emitted DUT IP is stored on the environment (`fct_dut_ip`) so
+        the SSH/SFTP steps can warn about a console-DUT-IP mismatch."""
+        from . import host_platform
+        env = self.env
+        plan = (host_platform.lan_setup_plan(params)
+                if params.get("type") == "lan_setup"
+                else host_platform.wifi_connect_plan(params))
+        mc = getattr(env, "multi_console", None)
+        key = self._pick_serial_channel() if mc is not None else None
+        if mc is None or key is None:
+            self._last_op_error = "no connected serial console"
+            env._log(f"{tag} op {name}: no connected serial console "
+                     f"channel -> Error")
+            return "Error"
+        iface = plan["iface"]
+        # 1. Wi-Fi driver check (link up + `iw dev <iface> info`)
+        if plan["type"] == "wifi_connect":
+            for command in plan["prepare"]:
+                self._net_run(mc, key, command, wait_s=6.0)
+            info = self._net_run(mc, key, plan["probe"], wait_s=6.0)
+            if not host_platform.wifi_driver_ready(info, iface):
+                self._last_op_error = "Wi-Fi driver not ready"
+                env._log(f"{tag} op {name}: Wi-Fi driver not ready "
+                         f"({iface}) -> Fail")
+                return "Fail"
+            # 2. wpa_supplicant.conf from the Wi-Fi page SSID / password
+            self._net_run(mc, key, plan["conf_write"], wait_s=8.0)
+            # 3. associate
+            self._net_run(mc, key, plan["connect"], wait_s=20.0)
+        # 4. DHCP / static address, then confirm the emitted DUT IP
+        ip = ""
+        for command in plan["net_commands"]:
+            out = self._net_run(mc, key, command, wait_s=15.0)
+            ip = host_platform.parse_dut_ip(out, iface) or ip
+            if ip:
+                break
+        if not ip:
+            ip = host_platform.parse_dut_ip(
+                self._net_run(mc, key, plan["confirm"], wait_s=10.0), iface)
+        if not ip:
+            self._last_op_error = f"no IPv4 address on {iface}"
+            env._log(f"{tag} op {name}: no IPv4 address on {iface} "
+                     f"-> Fail")
+            return "Fail"
+        env.fct_dut_ip = ip
+        for line in op_status_lines(name, params):
+            env._log(f"{tag} op {name}: {line}")
+        env._log(f"{tag} op {name}: DUT IP {ip} ({iface})")
+        env._log(f"{tag} op {name}: Done")
+        return "Done"
+
+    def _warn_dut_ip_mismatch(self, name: str, dut_ip: str,
+                             expected: str = "", label: str = "") -> None:
+        """M41: a network setup that emits a DUT IP different from the
+        Console SSH DUT IP logs a WARNING (never a hard fail)."""
+        if not dut_ip or not label:
+            return
+        if expected and expected != dut_ip:
+            self.env._log(f"[WARN] FCT {name}: {label} {dut_ip} differs "
+                          f"from the configured console SSH DUT IP "
+                          f"{expected} - SFTP/SSH steps use the console "
+                          f"value")
 
     # ------------------------------------------------------ ICT staging
     def _exec_ict_row(self, r: int) -> None:
@@ -918,6 +1015,12 @@ class TestRunner(QObject):
                          progress_factory=_progress_factory)
         ch_key = step.channel
         if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
+            # M41: a network setup step that emitted a DIFFERENT DUT IP
+            # only warns - the console SSH DUT IP stays authoritative
+            self._warn_dut_ip_mismatch(
+                name, str(getattr(env, "fct_dut_ip", "") or ""),
+                str(step.params.get("ssh_host") or "").strip(),
+                "Emitted DUT IP")
             # M27 P8: SFTP rows run over an SSH channel built from the
             # console's ssh endpoint (carried on the step).  The
             # credential layer supplies the password - never the YAML.

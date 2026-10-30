@@ -45,16 +45,20 @@ def _reset_event_log_level_preference():
 
 @pytest.fixture(autouse=True)
 def _isolate_wifi_preferences():
-    """M40: the Wi-Fi tab reads/writes the QSettings ``wifi/*`` keys.
-    Every test starts from an empty set and the developer's real values
-    are restored afterwards, so persisted Wi-Fi data can never leak
-    between tests (or into the developer's GUI)."""
+    """M40/M41: the Wi-Fi tab reads/writes the QSettings ``wifi/*`` keys
+    and the Console tab the ``console/*`` keys.  Every test starts from
+    an empty set and the developer's real values are restored afterwards,
+    so persisted data can never leak between tests (or into the
+    developer's GUI)."""
     from PySide6.QtCore import QSettings
 
     from mtkgui.style import APP_NAME, APP_ORG
     settings = QSettings(APP_ORG, APP_NAME)
     keys = ["wifi/ap_ssid", "wifi/ap_ip", "wifi/host_ip",
-            "wifi/ap_password"]
+            "wifi/ap_password",
+            "console/port", "console/baudrate", "console/ssh_host",
+            "console/ssh_user", "console/ssh_password",
+            "console/scripts_local_dir", "console/pull_local_dir"]
     saved = {key: settings.value(key) for key in keys}
     for key in keys:
         settings.remove(key)

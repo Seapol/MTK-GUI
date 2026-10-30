@@ -84,7 +84,10 @@ def test_validate_clean_for_frdm():
 
 def test_validate_rejects_bad_mode_and_baud():
     cfg = frdm_config()
-    cfg.console.baudrate = 1234
+    # M41: the baudrate combo is editable (Tera Term style) - ANY
+    # positive integer is accepted (1234 included); only a zero /
+    # non-integer value is rejected
+    cfg.console.baudrate = 0
     # M36: every Wi-Fi / BT sub-test switched off is NOT an error - the
     # module simply does nothing (no master switch to contradict)
     cfg.wifi.scan_enabled = False

@@ -74,7 +74,11 @@ from ..gui.yamlbuild.fct_build import (
     FctStep,
 )
 
-BAUDRATES = (9600, 19200, 38400, 57600, 115200)
+#: Tera Term baudrate table (M41).  The Console Baudrate combo is
+#: EDITABLE like Tera Term, so any positive integer is valid as well -
+#: this tuple only seeds the dropdown.
+BAUDRATES = (110, 300, 600, 1200, 2400, 4800, 9600, 14400, 19200,
+             38400, 57600, 115200, 230400, 460800, 921600)
 #: adapter modes (rf_adapters) reused by the per-sub-test orchestration
 WIFI_MODES = ("rssi_only", "full_stack")
 BT_MODES = ("rssi_only", "pair_connect", "a2dp_sink")
@@ -1411,9 +1415,14 @@ class FctTestConfig:
                     for r in rows):
                 errors.append("console.port must not be empty "
                               "(serial console rows need a port)")
-            if int(c.baudrate) not in BAUDRATES:
-                errors.append(f"console.baudrate must be one of "
-                              f"{BAUDRATES}")
+            # M41: the baudrate combo is editable (Tera Term style) -
+            # any positive integer is accepted, the table only seeds it
+            try:
+                baud_ok = int(c.baudrate) > 0
+            except (TypeError, ValueError):
+                baud_ok = False
+            if not baud_ok:
+                errors.append("console.baudrate must be a positive integer")
             if (self.dut_type == "bare_metal" and c.ssh_host.strip()):
                 # no OS -> no shell -> no SSH
                 errors.append("bare_metal DUT: ssh_host requires "
@@ -1488,7 +1497,11 @@ class FctTestConfig:
 # mapping to B4 FctStep markers (the runner executes THESE)
 # ---------------------------------------------------------------------------
 def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
-                       ssh_host: str = "", ssh_username: str = "root") -> list:
+                       ssh_host: str = "", ssh_username: str = "root",
+                       scripts_local_dir: str = "",
+                       scripts_remote_dir: str = "",
+                       pull_remote_dir: str = "",
+                       pull_local_dir: str = "") -> list:
     """One ConsoleCommand row -> its ordered list[FctStep].
 
     Shared by ``console.test_commands`` (run BEFORE the RF sections)
@@ -1497,6 +1510,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     ``fct_host_cmd`` branch in fct_exec).  SFTP rows carry their own
     ssh endpoint (``ssh_host`` / ``ssh_username``) and a dedicated ssh
     channel reference so the runner can bind an SshFctChannel.
+
+    M41: an EMPTY SFTP row path falls back to the matching Console
+    SFTP-submodule directory (step-level non-empty values win - the
+    step's own value is the override).
     """
     steps: list = []
     if not getattr(cmd, "enabled", True):
@@ -1522,6 +1539,15 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     # the console's ssh endpoint carried on the step (credential layer
     # supplies the password at run time - never the YAML).
     if cmd.kind in ("sftp_put", "sftp_get"):
+        # M41: empty row paths fall back to the Console SFTP submodule
+        # dirs (put: scripts_local_dir -> scripts_remote_dir, get:
+        # pull_remote_dir -> pull_local_dir); a non-empty row value wins.
+        if cmd.kind == "sftp_put":
+            local = str(cmd.local or scripts_local_dir or "")
+            remote = str(cmd.remote or scripts_remote_dir or "")
+        else:
+            local = str(cmd.local or pull_local_dir or "")
+            remote = str(cmd.remote or pull_remote_dir or "")
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
             step_type=STEP_MESSAGE_CHECK, channel="ssh",
@@ -1529,7 +1555,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             retries=int(cmd.retries),
             params={"fct_console": True, "kind": cmd.kind,
                     "action": cmd.kind,
-                    "local": cmd.local, "remote": cmd.remote,
+                    "local": local, "remote": remote,
                     "ssh_host": ssh_host,
                     "ssh_username": ssh_username or "root"}))
         return steps
@@ -1902,8 +1928,10 @@ def build_fct_steps(cfg: FctTestConfig,
                     expanded.add(key)
                     _emit_rf(family, sub_steps)
             continue
-        steps.extend(_console_row_steps(cmd, channel_key,
-                                        c.ssh_host, c.ssh_username))
+        steps.extend(_console_row_steps(
+            cmd, channel_key, c.ssh_host, c.ssh_username,
+            c.scripts_local_dir, c.scripts_remote_dir,
+            c.pull_remote_dir, c.pull_local_dir))
         # Serial asset provisioning right after the login (a fresh DUT
         # has no scripts / board-test package; no SSH yet).
         if c.serial_deploy and "login" in str(
@@ -1929,8 +1957,10 @@ def build_fct_steps(cfg: FctTestConfig,
     # tagged params.teardown=True so the runner executes it EVEN on an
     # abort (stop_if_failure) — teardown must never be skipped.
     for cmd in c.post_rf_commands:
-        for step in _console_row_steps(cmd, channel_key,
-                                       c.ssh_host, c.ssh_username):
+        for step in _console_row_steps(
+                cmd, channel_key, c.ssh_host, c.ssh_username,
+                c.scripts_local_dir, c.scripts_remote_dir,
+                c.pull_remote_dir, c.pull_local_dir):
             step.params = dict(step.params or {})
             step.params["teardown"] = True
             steps.append(step)

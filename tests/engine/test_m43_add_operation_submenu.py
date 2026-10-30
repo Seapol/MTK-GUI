@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """M43: the main FCT Sequence Add menu nests the Operation entries.
 
-The "Operation" entry is a SUBMENU with exactly 13 entries (11
-standard operations + "Operation: Custom" + "Delay — plain wait
-(ms)"); clicking an entry adds the matching row DIRECTLY (no nested
-sequence-editor dialog).  The standalone Delay Type item is gone:
-the main menu holds 18 direct Type items + the Operation submenu.
+The "Operation" entry is a SUBMENU with 15 entries (13 standard
+operations + "Operation: Custom" + "Delay — plain wait (ms)"); clicking
+an entry adds the matching row DIRECTLY (no nested sequence-editor
+dialog).  The standalone Delay Type item is gone: the main menu holds
+18 direct Type items + the Operation submenu.  (M41 grew the catalog
+from 11 to 13 standard operations.)
 """
 from __future__ import annotations
 
@@ -52,10 +53,12 @@ def _op_labels() -> list:
 
 
 class TestOperationSubmenu:
-    def test_submenu_has_exactly_thirteen_entries(self, panel):
+    def test_submenu_has_exactly_fifteen_entries(self, panel):
         texts = list(panel._op_add_actions)
         assert texts == _op_labels() + [CUSTOM_LABEL, DELAY_LABEL]
-        assert len(texts) == 13
+        # 13 standard operations (M41 added the two network-setup ops)
+        # + Custom + Delay
+        assert len(texts) == 15
         # it really is a submenu of the Add dropdown
         first = next(iter(panel._op_add_actions.values()))
         sub = first.parent()

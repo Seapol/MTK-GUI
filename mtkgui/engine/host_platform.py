@@ -45,6 +45,10 @@ __all__ = [
     "probe_host_ap_link", "host_bt_status_cmd", "host_bt_devices_cmd",
     "host_bt_scan_cmd", "host_bt_identity", "parse_bt_status",
     "parse_bt_devices", "format_bt_scan_result",
+    # M41: DUT network setup + SSH diagnosis
+    "netmask_to_prefix", "parse_dut_ip", "wifi_driver_ready",
+    "network_ip_commands", "wifi_connect_plan", "lan_setup_plan",
+    "ping_cmd", "ping_host", "tcp_port_open", "serial_port_devices",
 ]
 
 
@@ -717,3 +721,163 @@ def format_bt_scan_result(scan_text: str, rssi_text: str,
         else:
             verdict = f"DUT BT name: {dut_name} 未找到"
     return {"lines": lines, "verdict": verdict}
+
+
+# ---------------------------------------------------------------------------
+# M41 DUT network setup (serial console) - pure command / parser helpers
+# ---------------------------------------------------------------------------
+def netmask_to_prefix(netmask: str) -> int:
+    """``255.255.255.0`` -> 24 (invalid masks fall back to 24)."""
+    parts = str(netmask or "").strip().split(".")
+    if len(parts) != 4:
+        return 24
+    try:
+        bits = sum(bin(int(p)).count("1") for p in parts)
+    except ValueError:
+        return 24
+    return bits if bits else 24
+
+
+def parse_dut_ip(text: str, iface: str = "") -> str:
+    """The first usable IPv4 in ``ip -4 addr show`` output (127.x /
+    link-local are skipped); "" when none is present."""
+    import re
+    body = str(text or "")
+    for candidate in re.findall(r"([0-9]+(?:\.[0-9]+){3})", body):
+        if is_lan_ipv4(candidate):
+            return candidate
+    return ""
+
+
+def wifi_driver_ready(info_text: str, iface: str = "wlan0") -> bool:
+    """True when ``iw dev <iface> info`` found the wireless device (a
+    missing driver / device prints "No such device" / "command not
+    found")."""
+    low = str(info_text or "").lower()
+    if not low.strip():
+        return False
+    for marker in ("no such device", "not found", "cannot find",
+                   "can't find", "unknown device", "no wireless"):
+        if marker in low:
+            return False
+    return iface.lower() in low
+
+
+def network_ip_commands(iface: str, dhcp: bool, dut_ip: str = "",
+                        netmask: str = "255.255.255.0",
+                        gateway: str = "") -> list:
+    """The DUT-side address commands for one interface.
+
+    DHCP asks ``dhclient`` first and falls back to the busybox
+    ``udhcpc``; the static path flushes the old address, applies the
+    configured IPv4 / mask and (when given) the default gateway."""
+    iface = str(iface or "eth0").strip() or "eth0"
+    if dhcp:
+        return [f"dhclient {iface}", f"udhcpc -i {iface}"]
+    ip = str(dut_ip or "").strip()
+    prefix = netmask_to_prefix(netmask)
+    commands = [f"ip addr flush dev {iface}"]
+    if ip:
+        commands.append(f"ip addr add {ip}/{prefix} dev {iface}")
+    commands.append(f"ip link set {iface} up")
+    gw = str(gateway or "").strip()
+    if gw:
+        commands.append(f"ip route add default via {gw}")
+    return commands
+
+
+def wifi_connect_plan(params: dict | None) -> dict:
+    """Build the stepwise DUT Wi-Fi connect plan from one op's params.
+
+    Keys: ``prepare`` (link-up), ``probe`` (driver check command),
+    ``conf_write`` (multi-line wpa_supplicant.conf writer), ``connect``,
+    ``net_commands`` (DHCP / static), ``confirm`` and ``timeout_s``.
+    ``ssid`` / ``password`` come from the Wi-Fi page config, plugged
+    into the template when the row was created."""
+    from .steps import NETWORK_STACKS, wpa_conf_text   # no cycle at import
+    p = dict(params or {})
+    iface = str(p.get("iface") or "wlan0").strip() or "wlan0"
+    stack = str(p.get("stack") or "wpa_supplicant")
+    spec = NETWORK_STACKS.get(stack) or NETWORK_STACKS["wpa_supplicant"]
+    conf = spec["conf_path"]
+    conf_text = wpa_conf_text(str(p.get("ssid") or ""),
+                              str(p.get("password") or ""))
+    return {
+        "type": "wifi_connect", "iface": iface, "stack": stack,
+        "prepare": [f"ip link set {iface} up"],
+        "probe": f"iw dev {iface} info",
+        "conf_path": conf,
+        "conf_write": (f"cat > {conf} <<'EOF'\n{conf_text}EOF"),
+        "connect": spec["connect"].format(iface=iface, conf=conf),
+        "net_commands": network_ip_commands(
+            iface, bool(p.get("dhcp", True)), str(p.get("dut_ip") or ""),
+            str(p.get("netmask") or "255.255.255.0"),
+            str(p.get("gateway") or "")),
+        "confirm": f"ip -4 addr show {iface}",
+        "timeout_s": float(p.get("timeout_s") or 60.0),
+    }
+
+
+def lan_setup_plan(params: dict | None) -> dict:
+    """Build the DUT Ethernet setup plan (DHCP or static per step)."""
+    p = dict(params or {})
+    iface = str(p.get("iface") or "eth0").strip() or "eth0"
+    mode = str(p.get("mode") or "dhcp").lower()
+    return {
+        "type": "lan_setup", "iface": iface, "mode": mode,
+        "prepare": [],
+        "probe": "",
+        "conf_write": "",
+        "connect": "",
+        "net_commands": network_ip_commands(
+            iface, mode != "static", str(p.get("dut_ip") or ""),
+            str(p.get("netmask") or "255.255.255.0"),
+            str(p.get("gateway") or "")),
+        "confirm": f"ip -4 addr show {iface}",
+        "timeout_s": float(p.get("timeout_s") or 60.0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# M41 SSH three-layer diagnosis: network -> TCP 22 -> auth
+# ---------------------------------------------------------------------------
+def ping_cmd(host: str) -> str:
+    """One-shot ping command for the Host PC's platform."""
+    key = platform_key()
+    if key == "windows":
+        return f"ping -n 1 {host}"
+    return f"ping -c 1 {host}"
+
+
+def ping_host(host: str, timeout_s: float = 4.0) -> bool:
+    """True when the Host PC gets at least one ping reply from `host`."""
+    if not str(host or "").strip():
+        return False
+    out = run_link_cmd(ping_cmd(str(host).strip()),
+                       timeout_s=max(1, int(timeout_s)))
+    return _ping_has_reply(out)
+
+
+def tcp_port_open(host: str, port: int = 22, timeout_s: float = 4.0) -> bool:
+    """True when a TCP connection to host:port succeeds (sshd reachable)."""
+    import socket
+    try:
+        with socket.create_connection((str(host).strip(), int(port)),
+                                      timeout=timeout_s):
+            return True
+    except Exception:                      # noqa: BLE001 - unreachable
+        return False
+
+
+def serial_port_devices(devices, key: str | None = None) -> list:
+    """Filter ``list_ports`` device names for THIS platform.
+
+    mac shows only ``/dev/cu.*`` (the call-out devices; ``/dev/tty.*``
+    would block waiting for a carrier), Windows only ``COM*``."""
+    key = key or platform_key()
+    items = [str(d) for d in (devices or [])]
+    if key == "mac":
+        return [d for d in items if d.startswith("/dev/cu.")]
+    if key == "windows":
+        return [d for d in items if d.upper().startswith("COM")]
+    return items

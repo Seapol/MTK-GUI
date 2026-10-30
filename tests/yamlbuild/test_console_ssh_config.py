@@ -150,7 +150,8 @@ def test_bare_metal_disables_the_whole_ssh_area(qapp, cred):
     panel = _panel_with_yaml(qapp, cred)
     ssh_widgets = (panel.console_ssh_host, panel.console_ssh_user,
                    panel.console_ssh_password, panel.ssh_test_btn,
-                   panel.ssh_transfer_box)
+                   panel.console_ssh_box, panel.sftp_put_box,
+                   panel.sftp_pull_box)
     assert all(w.isEnabled() for w in ssh_widgets)
 
     panel.dut_type.setCurrentText("bare_metal")
@@ -207,6 +208,16 @@ def _install_fake_paramiko(monkeypatch):
     monkeypatch.setitem(sys.modules, "paramiko", mod)
 
 
+@pytest.fixture
+def net_ok(monkeypatch):
+    """M41: the Test Connection runs ping -> TCP 22 -> auth; here the
+    two network layers pass so the paramiko layer is exercised."""
+    from mtkgui.engine import host_platform
+    monkeypatch.setattr(host_platform, "ping_host", lambda *a, **k: True)
+    monkeypatch.setattr(host_platform, "tcp_port_open",
+                        lambda *a, **k: True)
+
+
 def _wait_probe(qapp, panel):
     probe = panel._ssh_probe
     assert probe is not None
@@ -214,7 +225,8 @@ def _wait_probe(qapp, panel):
     qapp.processEvents()
 
 
-def test_test_connection_success_shows_green_ok(qapp, cred, monkeypatch):
+def test_test_connection_success_shows_green_ok(qapp, cred, monkeypatch,
+                                                net_ok):
     panel = _panel_with_yaml(qapp, cred)
     _install_fake_paramiko(monkeypatch)
     panel._on_ssh_test()
@@ -230,7 +242,7 @@ def test_test_connection_success_shows_green_ok(qapp, cred, monkeypatch):
     ("refused", "Connection refused"),
 ])
 def test_test_connection_failure_shows_real_error(
-        qapp, cred, monkeypatch, mode, fragment):
+        qapp, cred, monkeypatch, net_ok, mode, fragment):
     panel = _panel_with_yaml(qapp, cred)
     _FakeSSHClient.mode = mode
     try:
@@ -244,7 +256,7 @@ def test_test_connection_failure_shows_real_error(
         _FakeSSHClient.mode = "ok"
 
 
-def test_test_connection_paramiko_missing(qapp, cred, monkeypatch):
+def test_test_connection_paramiko_missing(qapp, cred, monkeypatch, net_ok):
     panel = _panel_with_yaml(qapp, cred)
     monkeypatch.setitem(sys.modules, "paramiko", None)   # import raises
     panel._on_ssh_test()
