@@ -4,8 +4,11 @@
 The legacy StepsEditorDialog keeps only the 11 standard operations +
 Custom + Delay; every other step type is added from the main FCT
 Sequence table (20 Types = 18 + Flash_GUI + Delay).  A Delay row is a
-plain fixed wait (no console / instrument I/O), result Done; the step
-timeout still bounds the maximum execution time."""
+plain fixed wait (no console / instrument I/O), result Done.
+
+M42: Delay has NO timeout of its own - the wait is never capped by
+the step timeout, the editor holds only the wait input and the
+main-table Timeout cell is a read-only 0."""
 from __future__ import annotations
 
 import time
@@ -80,7 +83,9 @@ class TestDelayExecution:
         assert results[0].verdict == "PASS"
         assert "Done" in results[0].detail
 
-    def test_runner_timeout_caps_the_wait(self, monkeypatch):
+    def test_runner_waits_full_wait_regardless_of_timeout(self, monkeypatch):
+        """M42: a Delay waits its full wait_ms - the step timeout is not
+        a Delay concept and never caps the wait."""
         slept: list[float] = []
         monkeypatch.setattr(time, "sleep",
                             lambda s: slept.append(float(s)))
@@ -89,7 +94,7 @@ class TestDelayExecution:
                                    timeout=2.5)),
             log_sink=lambda _m: None)
         results = runner.run_console(object())
-        assert slept == [2.5]
+        assert slept == [9.0]
         assert results[0].verdict == "PASS"
 
     def test_runner_runs_without_console_or_serial(self, monkeypatch):
@@ -133,7 +138,7 @@ class TestDelayExecution:
         assert slept == [0.4]
         assert "Done" in out.reason
 
-    def test_exec_step_timeout_caps_the_wait(self, monkeypatch):
+    def test_exec_step_waits_full_wait_regardless_of_timeout(self, monkeypatch):
         slept: list[float] = []
         monkeypatch.setattr(time, "sleep",
                             lambda s: slept.append(float(s)))
@@ -141,7 +146,7 @@ class TestDelayExecution:
             ConsoleCommand(kind=KIND_DELAY, wait_ms=9000, timeout=2.0),
             "console")[0]
         out = fe.execute_fct_step(step, fe.FctContext())
-        assert slept == [2.0]
+        assert slept == [9.0]
         assert out.verdict == "PASS"
 
 
@@ -168,6 +173,8 @@ class TestAddMenus:
         assert cmd.kind == KIND_DELAY
         assert panel.cmd_table.item(row, _COL_TYPE).text() == STEP_TYPE_DELAY
         assert panel.cmd_table.item(row, _COL_CMD).text() == "1000 ms"
+        from mtkgui.gui.yamlbuild.FCTTestConfigWidget import _COL_TIMEOUT
+        assert panel.cmd_table.item(row, _COL_TIMEOUT).text() == "0"
 
     def test_main_table_covers_all_twenty_types(self, qapp):
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
@@ -180,8 +187,12 @@ class TestAddMenus:
             row = panel.cmd_table.rowCount() - 1
             assert panel.cmd_table.item(row, _COL_TYPE).text() == label
 
-    def test_delay_editor_sets_wait_and_timeout(self, qapp, monkeypatch):
-        from PySide6.QtWidgets import QDialog, QDoubleSpinBox, QSpinBox
+    def test_delay_editor_sets_wait_without_timeout(self, qapp, monkeypatch):
+        """M42: the Delay editor holds ONLY the wait input - no Timeout
+        row, no timeout spin, and the dialog stays a narrow single
+        column form."""
+        from PySide6.QtWidgets import QDialog, QDoubleSpinBox, QLabel, \
+            QSpinBox
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_CMD)
         panel = FCTTestConfigPanel()
@@ -191,10 +202,13 @@ class TestAddMenus:
 
         def fake_exec(dlg):
             assert dlg.windowTitle() == "Delay editor"
+            # narrow single-column form (M42)
+            assert dlg.maximumWidth() <= 420
+            labels = [lab.text() for lab in dlg.findChildren(QLabel)]
+            assert not any("Timeout" in t for t in labels)
+            assert dlg.findChildren(QDoubleSpinBox) == []
             spin = dlg.findChildren(QSpinBox)[0]
             spin.setValue(2500)
-            dsp = dlg.findChildren(QDoubleSpinBox)[0]
-            dsp.setValue(3.0)
             return QDialog.DialogCode.Accepted
 
         monkeypatch.setattr(QDialog, "exec", fake_exec)
@@ -202,8 +216,21 @@ class TestAddMenus:
         cmd = panel._get_row_cmd(row)
         assert cmd.kind == KIND_DELAY
         assert cmd.wait_ms == 2500
-        assert cmd.timeout == 3.0
+        assert cmd.timeout == 0.0
         assert panel.cmd_table.item(row, _COL_CMD).text() == "2500 ms"
+
+    def test_delay_row_timeout_cell_is_read_only_zero(self, qapp):
+        """M42: a Delay row's Timeout cell shows 0 and cannot be edited."""
+        from PySide6.QtCore import Qt
+        from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+            FCTTestConfigPanel, _COL_TIMEOUT)
+        panel = FCTTestConfigPanel()
+        panel.set_values({})
+        row = panel.cmd_table.rowCount()
+        panel._add_row_for_label(STEP_TYPE_DELAY)
+        item = panel.cmd_table.item(row, _COL_TIMEOUT)
+        assert item.text() == "0"
+        assert not (item.flags() & Qt.ItemIsEditable)
 
     def test_legacy_fct_menu_keeps_only_ops_custom_delay(self, qapp):
         from mtkgui.gui.steps_editor import StepsEditorDialog

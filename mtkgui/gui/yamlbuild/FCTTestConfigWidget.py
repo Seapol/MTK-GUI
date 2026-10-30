@@ -642,13 +642,10 @@ class FCTTestConfigPanel(QWidget):
         self.ssh_transfer_box = QGroupBox("SSH asset transfer")
         tlay = QVBoxLayout(self.ssh_transfer_box)
         push_form = QFormLayout()
-        self.console_deploy_box = QCheckBox(
-            "Deploy assets folder (Local -> DUT)")
-        push_form.addRow(self.console_deploy_box)
         local_row = QHBoxLayout()
         self.console_scripts_local = QLineEdit()
         self.console_scripts_local.setPlaceholderText(
-            "local asset folder (deploy_scripts)")
+            "local source folder on the Host PC")
         local_row.addWidget(self.console_scripts_local, 1)
         btn_local = QPushButton("Browse...")
         btn_local.clicked.connect(
@@ -1067,40 +1064,31 @@ class FCTTestConfigPanel(QWidget):
             self._edit_console_row(row)
 
     def _edit_delay_row(self, row: int) -> None:
-        """Delay editor (M35): the fixed wait in ms.  The Timeout is the
-        step's maximum execution time - when the wait would exceed it the
-        wait is capped (0 = no cap)."""
-        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                        QLabel, QSpinBox, QDoubleSpinBox,
-                                        QDialogButtonBox)
+        """Delay editor (M42): the fixed wait in ms.  Delay waits a fixed
+        time and has NO timeout of its own - a plain wait of N ms, no
+        console or instrument interaction."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel,
+                                        QSpinBox, QDialogButtonBox)
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
         dlg.setWindowTitle("Delay editor")
-        dlg.setMinimumWidth(420)
+        # M42: single-column form - the wait is the only input
+        dlg.setMinimumWidth(380)
+        dlg.setMaximumWidth(400)
         outer = QVBoxLayout(dlg)
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel(
-            "Plain wait - no console or instrument interaction.  The "
-            "Timeout below bounds the maximum execution time: a longer "
-            "wait is capped at that value (0 = no cap)."))
-        form = QFormLayout()
+            "Plain wait of N ms - no console or instrument interaction, "
+            "no timeout."))
+        lay.addWidget(QLabel("Delay (wait):"))
         wait_spin = QSpinBox()
         wait_spin.setRange(0, 3_600_000)
         wait_spin.setSingleStep(100)
         wait_spin.setSuffix(" ms")
         wait_spin.setValue(int(cmd.wait_ms or 0))
-        form.addRow("Delay:", wait_spin)
-        timeout_spin = QDoubleSpinBox()
-        timeout_spin.setRange(0.0, 3600.0)
-        timeout_spin.setDecimals(1)
-        timeout_spin.setSingleStep(0.5)
-        timeout_spin.setSuffix(" s")
-        timeout_spin.setSpecialValueText("(no cap)")
-        timeout_spin.setValue(float(cmd.timeout or 0.0))
-        form.addRow("Timeout:", timeout_spin)
-        lay.addLayout(form)
+        lay.addWidget(wait_spin)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
         apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
@@ -1111,7 +1099,8 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             cmd.kind = KIND_DELAY
             cmd.wait_ms = int(wait_spin.value())
-            cmd.timeout = float(timeout_spin.value())
+            # M42: Delay has NO timeout of its own
+            cmd.timeout = 0.0
             cmd.wait_enabled = False
             cmd.send_enabled = False
             cmd.capture_enabled = False
@@ -2539,10 +2528,8 @@ class FCTTestConfigPanel(QWidget):
             self._set_cell(r, _COL_WAIT, "", editable=False)
             self._set_cell(r, _COL_SEND, "", editable=False)
             self._set_cell(r, _COL_CAPTURE, "", editable=False)
-            self._set_cell(r, _COL_TIMEOUT,
-                           (f"{float(cmd.timeout):.1f}s"
-                            if float(cmd.timeout or 0.0) > 0 else "-"),
-                           editable=False)
+            # M42: Delay has no timeout input - the cell is read-only 0
+            self._set_cell(r, _COL_TIMEOUT, "0", editable=False)
             self._set_cell(r, _COL_CMD, f"{int(cmd.wait_ms or 0)} ms",
                            editable=False)
             return
@@ -2678,7 +2665,7 @@ class FCTTestConfigPanel(QWidget):
             c = cfg.console
             # keep the full loaded console node: the panel only edits the
             # connection fields + the command table; the remaining keys
-            # (newline, inter-command delay, deploy_scripts, serial_deploy,
+            # (newline, inter-command delay, serial_deploy,
             # post_rf_commands) must round-trip untouched (M22c)
             self._console_cfg = copy.deepcopy(c)
             self.console_ssh_host.setText(c.ssh_host)
@@ -2686,7 +2673,6 @@ class FCTTestConfigPanel(QWidget):
             # M29: the password comes from the CREDENTIAL layer
             # (fct_ssh_<host>) - never from the YAML
             self._prefill_ssh_password(c.ssh_host)
-            self.console_deploy_box.setChecked(c.deploy_scripts)
             self.console_scripts_local.setText(c.scripts_local_dir)
             self.console_scripts_remote.setText(c.scripts_remote_dir)
             self.console_pull_remote.setText(c.pull_remote_dir)
@@ -2794,7 +2780,6 @@ class FCTTestConfigPanel(QWidget):
         # M29: password -> credential layer ONLY; the fields below are
         # plain paths (YAML-safe)
         self._persist_ssh_password()
-        cfg.console.deploy_scripts = self.console_deploy_box.isChecked()
         cfg.console.scripts_local_dir = \
             self.console_scripts_local.text().strip()
         cfg.console.scripts_remote_dir = \

@@ -615,15 +615,11 @@ class FctTestRunner:
     """Executes one FCT cycle from an :class:`FctTestConfig`."""
 
     def __init__(self, config: FctTestConfig, log_sink=None,
-                 station_id: str = "", user: str = "",
-                 scripts_base_dir: str = "") -> None:
+                 station_id: str = "", user: str = "") -> None:
         self.cfg = config
         self._log = log_sink or (lambda _m: None)
         self.station_id = station_id
         self.user = user
-        # Used to resolve a relative console.scripts_local_dir (the YAML
-        # folder in the GUI, the package root in a frozen Windows build).
-        self.scripts_base_dir = scripts_base_dir
         # Session transcript of console output (capture-only rows look
         # back through it: "capture from the console start to the
         # End Line", e.g. the fat.py Summary printed inside an earlier
@@ -806,12 +802,9 @@ class FctTestRunner:
             # send_yes (PASS, run continues) and STOP sends send_no
             # (FAIL, the sequence stops).
             if cmd.kind == "delay":
-                # M35: plain fixed wait - no console / instrument I/O.
-                # The step timeout still bounds the maximum wait.
+                # M42: Delay is a plain fixed wait - no console / instrument
+                # I/O and NO timeout of its own (never capped, never retried).
                 wait_ms = max(0, int(getattr(cmd, "wait_ms", 1000) or 0))
-                cap_ms = int(float(cmd.timeout or 0.0) * 1000.0)
-                if cap_ms > 0:
-                    wait_ms = min(wait_ms, cap_ms)
                 self.log(f"delay: waiting {wait_ms} ms")
                 time.sleep(wait_ms / 1000.0)
                 return "PASS", f"Done - waited {wait_ms} ms", "delay", []
@@ -1223,51 +1216,6 @@ class FctTestRunner:
         return results
 
     # ------------------------------------------------------------- full
-    def deploy_scripts(self, channel):
-        """Provision the Linux DUT with the maintained local script-asset
-        folder over SFTP, once per unit (re-provisions a board whose /root
-        was wiped by a reboot). Returns FctStepResult or None when off."""
-        import os
-        c = self.cfg.console
-        if (not c.deploy_scripts or self.cfg.dut_type != "linux"
-                or channel is None):
-            return None
-        local = c.scripts_local_dir or ""
-        if local and not os.path.isabs(local) and self.scripts_base_dir:
-            # normpath: YAML relative paths use forward slashes on every
-            # OS; normalize so Windows gets native separators.
-            local = os.path.normpath(
-                os.path.join(self.scripts_base_dir, local))
-        remote = (c.scripts_remote_dir or "").rstrip("/")
-        t0 = time.time()
-        try:
-            if not os.path.isdir(local):
-                raise FileNotFoundError(local)
-            if callable(getattr(channel, "put_dir", None)):
-                uploaded = channel.put_dir(local, remote)
-                n = len(uploaded)
-            elif callable(getattr(channel, "put_file", None)):
-                n = 0
-                for root, _dirs, files in os.walk(local):
-                    for fname in sorted(files):
-                        lp = os.path.join(root, fname)
-                        rel = os.path.relpath(lp, local).replace(os.sep, "/")
-                        rp = f"{remote}/{rel}" if remote else rel
-                        channel.put_file(lp, rp)
-                        n += 1
-            else:
-                return FctStepResult("Deploy DUT scripts", "FAIL",
-                                     "channel has no SFTP capability",
-                                     duration=time.time() - t0)
-            return FctStepResult(
-                "Deploy DUT scripts", "PASS",
-                f"{n} file(s) -> {remote or '~'}",
-                duration=time.time() - t0)
-        except Exception as exc:                    # noqa: BLE001
-            return FctStepResult("Deploy DUT scripts", "FAIL",
-                                 f"deploy error: {exc}",
-                                 duration=time.time() - t0)
-
     def run(self, serial, host_runner, human_confirm=None) -> dict:
         """One complete FCT cycle -> results + overall verdict."""
         self.log("FCT cycle start")
@@ -1288,40 +1236,30 @@ class FctTestRunner:
         }
         results: list = []
         teardown_results: list = []
-        aborted_early = False
         try:
-            # 0) provision generic Linux scripts over SFTP before anything runs
-            deploy = self.deploy_scripts(serial)
-            if deploy is not None:
-                results.append(deploy)
-                self.log(f"console '{deploy.name}' [sftp] -> "
-                         f"{deploy.verdict} {deploy.detail}")
-                if not deploy.passed:
-                    aborted_early = True
-            if not aborted_early:
-                results += self.run_console(serial)
-                # DUT-side driver load goes over the CONSOLE (spec 3.2)
-                # - only when not already a console test command (no
-                # double execute)
-                w = self.cfg.wifi
-                console_cmds = {c.send
-                                for c in self.cfg.console.test_commands}
-                if (w.any_enabled and w.driver_load_cmd
-                        and serial is not None
-                        and w.driver_load_cmd not in console_cmds):
-                    t0 = time.time()
-                    verdict, text = console_send_and_expect(
-                        serial, w.driver_load_cmd, r"RF drivers loaded OK",
-                        r"FAILED", 15.0)
-                    results.append(FctStepResult(
-                        f"Load RF drivers ({w.driver_load_cmd})",
-                        "PASS" if verdict == "PASS" else "FAIL",
-                        text.strip().splitlines()[-1][:120]
-                        if text.strip() else "",
-                        duration=time.time() - t0))
-                results += self.run_wifi(serial, host_runner)
-                results += self.run_bluetooth(serial, host_runner,
-                                              human_confirm)
+            results += self.run_console(serial)
+            # DUT-side driver load goes over the CONSOLE (spec 3.2)
+            # - only when not already a console test command (no
+            # double execute)
+            w = self.cfg.wifi
+            console_cmds = {c.send
+                            for c in self.cfg.console.test_commands}
+            if (w.any_enabled and w.driver_load_cmd
+                    and serial is not None
+                    and w.driver_load_cmd not in console_cmds):
+                t0 = time.time()
+                verdict, text = console_send_and_expect(
+                    serial, w.driver_load_cmd, r"RF drivers loaded OK",
+                    r"FAILED", 15.0)
+                results.append(FctStepResult(
+                    f"Load RF drivers ({w.driver_load_cmd})",
+                    "PASS" if verdict == "PASS" else "FAIL",
+                    text.strip().splitlines()[-1][:120]
+                    if text.strip() else "",
+                    duration=time.time() - t0))
+            results += self.run_wifi(serial, host_runner)
+            results += self.run_bluetooth(serial, host_runner,
+                                          human_confirm)
         finally:
             # --- post-RF teardown: ALWAYS run, even on abort/exception ---
             teardown_results = self._run_post_rf_commands(

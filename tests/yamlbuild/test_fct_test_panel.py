@@ -476,7 +476,6 @@ fct_test_config:
     inter_cmd_delay_ms: 250
     ssh_host: 192.168.1.20
     ssh_username: root
-    deploy_scripts: true
     scripts_local_dir: assets
     scripts_remote_dir: /root
     test_commands:
@@ -495,7 +494,7 @@ fct_test_config:
 
 def test_ssh_endpoint_and_console_extras_round_trip(qapp):
     """Console connection fields are editable; every other console key
-    (newline / delay / deploy / post_rf teardown rows) round-trips
+    (newline / delay / SFTP paths / post_rf teardown rows) round-trips
     untouched - the page split must not lose data."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
@@ -509,7 +508,8 @@ def test_ssh_endpoint_and_console_extras_round_trip(qapp):
     assert console["ssh_username"] == "root"
     assert console["newline"] == "crlf"
     assert console["inter_cmd_delay_ms"] == 250
-    assert console["deploy_scripts"] is True
+    # M42: the deploy_scripts switch is retired - never re-emitted
+    assert "deploy_scripts" not in console
     assert console["scripts_local_dir"] == "assets"
     assert console["scripts_remote_dir"] == "/root"
     assert console["test_commands"][0]["kind"] == "sftp_get"
