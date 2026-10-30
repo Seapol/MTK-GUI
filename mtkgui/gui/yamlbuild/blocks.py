@@ -89,7 +89,8 @@ class BlockConfigDialog(QDialog):
                  panel_state: dict | None = None,
                  yaml_model=None,
                  apply_save_cb=None,
-                 available_ops=None) -> None:
+                 available_ops=None,
+                 save_as_cb=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -113,12 +114,17 @@ class BlockConfigDialog(QDialog):
             available_ops:    M37 - block 07 only: the standard operations
                               usable with the configured resources
                               (None = all of them).
+            save_as_cb:       M44 - callable(values) invoked by the Exit
+                              prompt's "Save as new yaml" choice; the
+                              page applies the values and routes the
+                              request to the Save as new yaml entry.
         """
         super().__init__(parent)
         self.module_key = module_key
         self._specs: tuple[FieldSpec, ...] = fields_for(module_key)
         self._edited: dict[str, str] = dict(params or {})
         self._apply_save_cb = apply_save_cb
+        self._save_as_cb = save_as_cb
         # navigation target requested by an embedded panel (e.g. the
         # Parse Nets "Open Power Tree Editor" button); the page reads
         # this after the dialog accepts
@@ -237,8 +243,17 @@ class BlockConfigDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
+        # M44: the lifecycle buttons are "Apply_Save yaml" (OK applies and
+        # saves through the unified apply save yaml) and "Exit" (Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            "Apply_Save yaml")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(
+            "Exit")
         buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
+        buttons.rejected.connect(self._on_exit)
+        # the dirty check compares the values read back at Exit time with
+        # the values the dialog opened with
+        self._initial_values = self._current_values()
         # M22b: block 07 gets an in-place "Apply & Save yaml" action -
         # it writes the project yaml and refreshes every view that reads
         # the sequence WITHOUT closing the dialog (the old flow only
@@ -358,6 +373,63 @@ class BlockConfigDialog(QDialog):
             # production YAML only after the block was applied
             self.nets_panel.mark_applied()
         self.accept()
+
+    def _current_values(self) -> dict:
+        """Read the current editor values WITHOUT validating (the Exit
+        dirty check only needs a comparison)."""
+        try:
+            if self.panel is not None:
+                return dict(self.panel.values())
+            return {spec.name: self._editor_value(spec)
+                    for spec in self._specs if not spec.hidden}
+        except Exception:      # noqa: BLE001 - unreadable -> unchanged
+            return dict(self._initial_values
+                        if hasattr(self, "_initial_values") else {})
+
+    def _is_dirty(self) -> bool:
+        """True when the dialog holds values different from the ones it
+        opened with (M44)."""
+        current = self._current_values()
+        initial = getattr(self, "_initial_values", {}) or {}
+        for key, value in current.items():
+            if str(initial.get(key, "")) != str(value):
+                return True
+        return False
+
+    def _on_exit(self) -> None:
+        """M44: Exit with unsaved changes prompts three choices -
+        apply save yaml / save as new yaml / Cancel (discard changes).
+        An unchanged dialog exits silently."""
+        if not self._is_dirty():
+            self.reject()
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Unsaved changes")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "This configuration page has unsaved changes.\n"
+            "What should happen?")
+        btn_apply = box.addButton("Apply_Save yaml",
+                                  QMessageBox.ButtonRole.AcceptRole)
+        btn_new = box.addButton("Save as new yaml",
+                                QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Cancel (discard changes)",
+                      QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_apply:
+            if self.btn_apply_save is not None:
+                self._on_apply_save()
+            else:
+                self._on_accept()
+                return
+            self.reject()
+        elif clicked is btn_new:
+            if self._save_as_cb is not None:
+                self._save_as_cb(self._current_values())
+            self.reject()
+        else:
+            self.reject()
 
     def _on_apply_save(self) -> None:
         """M22b: apply in place + save the project yaml + refresh every

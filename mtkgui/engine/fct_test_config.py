@@ -72,7 +72,6 @@ from ..gui.yamlbuild.fct_build import (
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     FctStep,
-    dedupe_steps,
 )
 
 BAUDRATES = (9600, 19200, 38400, 57600, 115200)
@@ -1936,59 +1935,4 @@ def build_fct_steps(cfg: FctTestConfig,
             step.params["teardown"] = True
             steps.append(step)
     return steps
-
-
-def _fct_op_step(name: str) -> "FctStep":
-    """A standard-operation row (fixture / rack PSU) reused from the
-    engine OP_STEPS catalog; ``params.op`` makes to_project_fct_cases
-    emit an ``op`` row executed by the standard op runner."""
-    return FctStep(name=name, step_type=STEP_GUI_CONFIRM, timeout_s=0.0,
-                   params={"op": name})
-
-
-def _dedupe_steps(steps: list) -> list:
-    """Drop EXACT duplicate steps (one shared implementation with
-    ``fct_build.dedupe_steps`` so a phantom row can never survive a
-    load/save, M22/M26)."""
-    return dedupe_steps(steps)
-
-
-def wrap_fct_setup(cfg: FctTestConfig, body: list,
-                   channel_key: str = "ser1") -> list:
-    """Wrap the generated FCT test body with the production spine.
-
-    Order: optional fixture clamp/lock/E-Stop -> power on (rack PSU op OR
-    a manual adapter/USB MessageGoStop OR nothing) -> body -> power off /
-    manual remove prompt -> fixture unlock/release.
-
-    M22: the spine NEVER auto-appends a closing "FCT done." row any
-    more - that duplicate was re-created on every overwrite and the
-    operator could not delete it.  A closing dialog belongs to the
-    project ``post_rf_commands`` (visible/editable) only.  Exact
-    duplicate steps are removed so a legacy YAML that still carries the
-    old auto row loads as ONE row.
-
-    FCT uses NO DAQ; the ATE fixture (when present) is driven through the
-    U2355A DIO resource on the real rack (the op names are shared with
-    ICT; the instrument routing is resolved at run time).
-    """
-    s = cfg.setup
-    pre: list = []
-    post: list = []
-    if s.use_fixture:
-        pre += [_fct_op_step("Fixture Clamp Down"),
-                _fct_op_step("Fixture Lock"),
-                _fct_op_step("Fixture E-Stop Healthy")]
-        post += [_fct_op_step("Fixture Unlock"),
-                 _fct_op_step("Fixture Release")]
-    if s.power_mode == POWER_PSU:
-        pre.append(_fct_op_step("Power On DUT"))
-        post.insert(0, _fct_op_step("Power Off DUT"))
-    elif s.power_mode == POWER_MANUAL:
-        pre.append(FctStep(name=s.manual_on_message,
-                           step_type=STEP_GUI_CONFIRM, timeout_s=0.0))
-        post.insert(0, FctStep(name=s.manual_off_message,
-                               step_type=STEP_GUI_CONFIRM, timeout_s=0.0))
-    # power_mode == POWER_NONE: no power action
-    return _dedupe_steps(pre + list(body) + post)
 

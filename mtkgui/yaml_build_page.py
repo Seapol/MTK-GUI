@@ -157,6 +157,9 @@ class YamlBuildPage(QWidget):
     #: the "Close Yaml" button was clicked - the main window runs its
     #: File > Close Yaml reset (which also clears this page's preview)
     close_yaml_requested = Signal()
+    #: M44: a configuration page's Exit prompt asked for "Save as new
+    #: yaml" - the main window runs Save as Yaml on the applied values
+    save_as_yaml_requested = Signal()
     #: the "Load current yaml" button was clicked - the main window
     #: pushes the model-derived ICT / FCT sequences into the Test Work
     #: Flow page and jumps there (guarded; warns when nothing is
@@ -369,8 +372,9 @@ class YamlBuildPage(QWidget):
         if not body:
             # all FCT tabs disabled -> the Sequence-tab steps only
             return list(seq_cases), []
-        from mtkgui.engine.fct_test_config import wrap_fct_setup
-        steps = wrap_fct_setup(cfg, body)
+        # M44: the run-time sequence is EXACTLY the user's rows - no
+        # fixture / power / manual-prompt step is injected around the body
+        steps = body
         seq = FctSequence(name="FCT Test Work Flow", steps=steps)
         cases = to_project_fct_cases(seq)
         # every generated case carries its full step marker so the
@@ -529,7 +533,9 @@ class YamlBuildPage(QWidget):
             progress_sink=self.task_progress.emit,
             apply_save_cb=self._apply_save_fct_params,
             yaml_model=self.model,
-            virtual=self._virtual)
+            virtual=self._virtual,
+            save_as_cb=lambda values: self._save_as_new_yaml(
+                "fct_build", values))
         if params is None:
             return
         self.model.set_params("fct_build", params)
@@ -596,7 +602,9 @@ class YamlBuildPage(QWidget):
                 "risk_scores": dict(
                     (self.model.path_risk or {}).get("scores") or {}),
             } if module_key == "parse_ict" else None,
-            yaml_model=self.model if module_key == "parse_ict" else None)
+            yaml_model=self.model if module_key == "parse_ict" else None,
+            save_as_cb=lambda values: self._save_as_new_yaml(
+                module_key, values))
         if params is None:
             return
         self.model.set_params(module_key, params)
@@ -659,6 +667,15 @@ class YamlBuildPage(QWidget):
         if errors:
             QMessageBox.warning(self, "Validation", "\n".join(errors))
         self._after_model_change()
+
+    def _save_as_new_yaml(self, module_key: str, values: dict) -> None:
+        """M44: a config page's Exit prompt chose "Save as new yaml" -
+        apply the values to the model and hand the file pick to the main
+        window's Save as Yaml entry."""
+        self.model.set_params(module_key, values)
+        self._set_mark(module_key, MARK_STAR)
+        self._after_model_change()
+        self.save_as_yaml_requested.emit()
 
     def _set_enabled(self, module_key: str, enabled: bool) -> None:
         """Enable / disable one module (parameters retained; disabled

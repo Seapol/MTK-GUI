@@ -421,7 +421,8 @@ class BlockFlowWidget(QWidget):
                     panel_state: dict | None = None,
                     yaml_model=None,
                     apply_save_cb=None,
-                    virtual: bool = False):
+                    virtual: bool = False,
+                    save_as_cb=None):
         """Open the dedicated config dialog for one module.
 
         Args:
@@ -442,6 +443,8 @@ class BlockFlowWidget(QWidget):
                               callback (M22b).
             virtual:          M37 - Virtual mode flag; block 07 then
                               offers every standard operation.
+            save_as_cb:       M44 - the Exit prompt's "Save as new yaml"
+                              callback (values -> page -> main window).
 
         Returns:
             ``(values, dialog)`` where ``values`` is the validated
@@ -458,7 +461,8 @@ class BlockFlowWidget(QWidget):
                                    panel_state=panel_state,
                                    yaml_model=yaml_model,
                                    apply_save_cb=apply_save_cb,
-                                   available_ops=available)
+                                   available_ops=available,
+                                   save_as_cb=save_as_cb)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:

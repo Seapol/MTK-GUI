@@ -2258,48 +2258,21 @@ class TestWorkFlowPage(QWidget):
 
     def load_fct_cases(self, cases: list) -> None:
         """P3-B5: the Yaml Build block 07 FCT sequence was accepted -
-        replace the FCT Test Cases table with the generated cases
+        REPLACE the FCT Test Cases table with the generated cases
         (name / kind / enable / wait_ms / timeout_ms / op_params with
         the fct_step marker).
 
-        Merge protection (P3-B7): standard operator dialogs added by
-        hand on this page (MessageOK / MessageYesNo / MessageGoStop
-        rows WITHOUT the generated fct_step marker) are not part of
-        the sequence built in block 07 — they are kept and appended
-        after the generated cases, so a sequence rebuild no longer
-        wipes them."""
+        M44: replacement is exact - the table is the panel's rows, in
+        the panel's order.  The former P3-B7 merge protection
+        (appending hand-made message rows after the generated cases)
+        made the run-time sequence differ from the configured rows and
+        stacked those rows on every apply/save, so it is gone."""
         # unified model (M26): LEGACY published rows ((wait) pre-steps,
         # implicit confirm markers) normalize into ONE row per FCT step
         # before they reach the table, so the table and the runner see
         # exactly the same steps.
         from mtkgui.gui.yamlbuild.fct_build import normalize_fct_cases
         cases = normalize_fct_cases(list(cases))
-        generated = {str(c.get("name", "")) for c in cases}
-        kept: list = []
-        for i, kind in enumerate(self.fct_kinds):
-            name = (self.fct_rows[i] if i < len(self.fct_rows) else "")
-            marker = (self.fct_op_params[i] or {}
-                      if i < len(self.fct_op_params) else {})
-            if (kind in ("MessageOK", "MessageYesNo", "MessageGoStop",
-                         "MessageOKtoConsole", "MessageYesNotoConsole",
-                         "MessageGoStoptoConsole")
-                    and not marker.get("fct_step")
-                    and name and name not in generated):
-                kept.append({
-                    "name": name, "kind": kind,
-                    "enable": (self.fct_enables[i]
-                               if i < len(self.fct_enables) else True),
-                    "wait_ms": (self.fct_waits[i]
-                                if i < len(self.fct_waits) else 100),
-                    "timeout_ms": (self.fct_timeouts[i]
-                                   if i < len(self.fct_timeouts) else 5000),
-                    "op_params": self.fct_op_params[i]
-                    if i < len(self.fct_op_params) else None,
-                })
-        if kept:
-            cases = list(cases) + kept
-            self._log(f"FCT sequence rebuilt: {len(kept)} manual standard "
-                      f"op(s) kept (appended at the end)")
         self.fct_rows = [str(c.get("name", "")) for c in cases]
         self.fct_enables = [bool(c.get("enable", True)) for c in cases]
         self.fct_waits = [int(c.get("wait_ms", 100)) for c in cases]

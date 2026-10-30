@@ -998,6 +998,8 @@ class MainWindow(QMainWindow):
             self.workflow_page.current_fct_case_dicts
         # valid Apply on the Yaml Build page -> offer the file save
         yb.yaml_apply_committed.connect(self._on_yaml_apply_committed)
+        # M44: a config page's Exit prompt chose "Save as new yaml"
+        yb.save_as_yaml_requested.connect(self.save_yaml_as)
         # instrument connection lights: synced from the Equipment page
         self._equipment_page.instrument_connection_changed.connect(
             self._on_instrument_connection)
@@ -1888,10 +1890,11 @@ class MainWindow(QMainWindow):
             return
         for issue in issues:          # warnings only: load proceeds
             self._append_event_log(issue.as_line())
-        self._begin_yaml_load(path)
+        self._begin_yaml_load(path, prompt_product_info=True)
 
     # ------------------------------------------------- staged yaml load
-    def _begin_yaml_load(self, path: str) -> None:
+    def _begin_yaml_load(self, path: str,
+                         prompt_product_info: bool = False) -> None:
         """Non-blocking YAML load (user direction 2026-10-15):
 
         1. a previously loaded project is closed FIRST - two test
@@ -1906,6 +1909,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "_yaml_loading", False):
             return
         self._yaml_loading = True
+        self._prompt_product_info_after_load = bool(prompt_product_info)
         self._yaml_config = None
         self._yaml_plan_errors = None
         _startup_begin("yaml load", category="io")
@@ -2014,6 +2018,8 @@ class MainWindow(QMainWindow):
             if self._yaml_plan_errors:
                 QMessageBox.warning(self, "Load Warnings",
                                     "\n".join(self._yaml_plan_errors))
+        else:
+            self._prompt_product_information()
         self.status_progress.setRange(0, 1)
         self.status_progress.setValue(0)
         self.status_progress.setFormat("Idle")
@@ -2024,6 +2030,33 @@ class MainWindow(QMainWindow):
             dlg.close_done()
         self._yaml_config = None
         self._yaml_plan_errors = None
+
+    def _prompt_product_information(self) -> None:
+        """M44: a legacy project loaded without Product Information (no
+        Design Input / parsed nets) asks the operator to fill it in
+        manually; OK opens the Product Information editor and the values
+        go through the unified apply save yaml."""
+        model = self.yaml_build_page.model
+        if not getattr(self, "_prompt_product_info_after_load", False):
+            return
+        self._prompt_product_info_after_load = False
+        if not self._project_path or self._yaml_config is None:
+            return
+        params = model.get_params("design_input") or {}
+        if str(params.get("part_number") or "").strip() or str(
+                params.get("product_id") or "").strip():
+            return
+        if (model.imported or {}).get("testable_nets"):
+            return
+        answer = QMessageBox.question(
+            self, "Product Information",
+            "This YAML has no Product Information (Design Input).\n\n"
+            "Fill it manually now?  The values are saved through "
+            "apply save yaml.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.yaml_build_page._open_block("design_input")
+        self.apply_and_save_yaml()
 
     def close_yaml(self):
         """File > Close Yaml: drop the current project and reset the
@@ -2403,32 +2436,12 @@ class MainWindow(QMainWindow):
         return [r for _ch, r in derived]
 
     def _on_yaml_apply_committed(self):
-        """The Apply button on the Yaml Build page succeeded (YAML
-        valid, config in the model): with a loaded project yaml ask
-        whether to overwrite it or save to a new file; without one
-        only Save-as is possible."""
-        if not self._project_path:
-            self.save_yaml_as()
-            return
-        box = QMessageBox(self)
-        box.setWindowTitle("Apply Yaml")
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setText(
-            "The YAML is valid and applied.\n"
-            "Save the configuration to a file?")
-        btn_overwrite = box.addButton(
-            "Overwrite current yaml",
-            QMessageBox.ButtonRole.AcceptRole)
-        btn_new = box.addButton(
-            "Save to a new yaml file…",
-            QMessageBox.ButtonRole.ActionRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is btn_overwrite:
-            self._save_yaml_to(self._project_path)
-        elif clicked is btn_new:
-            self.save_yaml_as()
+        """Unified "apply save yaml" (M44): the configuration was applied
+        to the model - write it straight to the current file (no
+        overwrite prompt); without a current file this becomes Save as
+        new yaml.  After the save takes effect the project is reloaded so
+        the GUI state equals the file state."""
+        self.apply_and_save_yaml()
 
     def _import_excel_menu(self):
         """File > Import from Excel… (the page button is gone, M19d)."""
@@ -2533,14 +2546,25 @@ class MainWindow(QMainWindow):
             self._save_yaml_to(self._project_path)
 
     def apply_and_save_yaml(self):
-        """File > Apply and Save Yaml: save back to the current file.
+        """File > Apply and Save Yaml: save back to the current file, then
+        reload it so the GUI state equals the file state (M44).
 
         Without a current file (never loaded/saved) this falls back to
-        Save as Yaml."""
+        Save as new yaml."""
         if not self._project_path:
             self.save_yaml_as()
             return
-        self._save_yaml_to(self._project_path)
+        path = self._project_path
+        if self._save_yaml_to(path):
+            self._reload_saved_yaml(path)
+
+    def _reload_saved_yaml(self, path: str) -> None:
+        """M44: close the current project, clear the GUI, then load the
+        just-saved file again - the tables, model and preview are then
+        rebuilt from the file (GUI == file)."""
+        self._yaml_config = None
+        self._reset_to_factory(auto=True)
+        self._begin_yaml_load(path)
 
     def _build_project_config(self):
         """The full project configuration dict: the workflow/equipment
@@ -2575,11 +2599,22 @@ class MainWindow(QMainWindow):
             _startup_end("save yaml: file pick")
         if not path:
             return
-        self._save_yaml_to(path)
+        if self._save_yaml_to(path):
+            # M44: save-as-new takes effect -> reload the new file so the
+            # GUI state equals the file state
+            self._reload_saved_yaml(path)
 
     def _save_yaml_to(self, path):
+        """Write the project config to *path*.
+
+        Returns True when the file was written (False: the save was
+        cancelled / failed) so the apply-save flow knows whether the
+        reload step is safe (M44)."""
         _startup_begin("save yaml: write", category="io")
         try:
+            # M44: the file must carry exactly the panel rows - derive the
+            # sequence views from the model BEFORE the config is built
+            self._refresh_sequence_views()
             # user direction 2026-10-14: each stage may legally be empty,
             # but a YAML with NO test items at all (ICT and FCT both
             # empty) is warned about at save time (working files may still
@@ -2594,13 +2629,13 @@ class MainWindow(QMainWindow):
                     self._append_event_log(
                         f"[{datetime.now():%H:%M:%S}] Yaml save "
                         "cancelled: no test items")
-                    return
+                    return False
             config = self._build_project_config()
             try:
                 project_config.save_config(config, path)
             except OSError as exc:
                 QMessageBox.critical(self, "Save Failed", str(exc))
-                return
+                return False
             self._project_path = path
             self.workflow_page.set_project_file(path)
             self._append_event_log(
@@ -2608,6 +2643,7 @@ class MainWindow(QMainWindow):
             # M22b: the ONE save path also repaints every view that reads
             # the sequence - no caller can bypass the refresh
             self._refresh_sequence_views()
+            return True
         finally:
             _startup_end("save yaml: write")
 

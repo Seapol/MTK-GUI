@@ -50,9 +50,10 @@ def test_all_disabled_config_is_valid_ict_only(page):
     assert cases == []
 
 
-def test_enabled_wifi_wraps_manual_power_spine(page):
-    # default setup is manual adapter/USB power: on-prompt, body,
-    # off-prompt; M22: no auto-appended closing "FCT done." row
+def test_enabled_wifi_is_the_only_emitted_step(page):
+    """M44: setup.power_mode / use_fixture no longer injects a spine -
+    the configured Wi-Fi row is the ONLY row in the run-time sequence
+    (iron rule: never add steps the user did not configure)."""
     cfg = {"fct_test_config": {
         "dut_type": "linux",
         "wifi": {"enabled": True, "mode": "rssi_only", "ssid": "DUT-AP"}}}
@@ -60,12 +61,12 @@ def test_enabled_wifi_wraps_manual_power_spine(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
     names = [c["name"] for c in cases]
-    assert "FCT done." not in names
-    assert "Connect the power adapter" in names[0]
-    assert "Disconnect the power adapter" in names[-1]
+    assert names == ["Wi-Fi Scan / RSSI"]
 
 
-def test_psu_power_uses_power_on_off_ops(page):
+def test_psu_fixture_setup_adds_nothing(page):
+    """M44: the PSU / fixture setup node is preserved in the YAML but
+    never adds Power On/Off or Fixture rows around the body."""
     cfg = {"fct_test_config": {
         "dut_type": "linux",
         "setup": {"power_mode": "psu", "use_fixture": True},
@@ -74,15 +75,10 @@ def test_psu_power_uses_power_on_off_ops(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
     names = [c["name"] for c in cases]
-    # fixture clamp/lock before power-on, unlock/release at the very end
-    assert names[:3] == ["Fixture Clamp Down", "Fixture Lock",
-                         "Fixture E-Stop Healthy"]
-    assert names[3] == "Power On DUT"
-    assert names[-2:] == ["Fixture Unlock", "Fixture Release"]
-    assert "Power Off DUT" in names
-    # op rows carry the op marker
+    assert names == ["Wi-Fi Scan / RSSI"]
     ops = [c.get("op_params", {}).get("op") for c in cases]
-    assert "Power On DUT" in ops and "Fixture Clamp Down" in ops
+    assert "Power On DUT" not in ops
+    assert not any(str(o).startswith("Fixture ") for o in ops if o)
 
 
 def test_parse_failure_returns_error(page):

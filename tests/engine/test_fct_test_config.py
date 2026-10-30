@@ -961,20 +961,15 @@ def _cfg_to_yaml(cfg):
 
 
 # ---------------------------------------------------------------------------
-# FCT setup wrapper (power source + ATE fixture spine), P3-B5
+# FCT run-time sequence purity (M44)
 # ---------------------------------------------------------------------------
-from mtkgui.gui.yamlbuild.fct_build import FctStep as _FctStep  # noqa: E402
+import mtkgui.engine.fct_test_config as _ftc  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     FctSetupCfg,
     POWER_MANUAL,
     POWER_NONE,
     POWER_PSU,
-    wrap_fct_setup,
 )
-
-
-def _body():
-    return [_FctStep(name="Body test", step_type="MESSAGE_CHECK")]
 
 
 def _setup_cfg(power_mode=POWER_MANUAL, use_fixture=False):
@@ -983,57 +978,48 @@ def _setup_cfg(power_mode=POWER_MANUAL, use_fixture=False):
     return cfg
 
 
-def test_setup_manual_wraps_on_and_off_prompts():
-    steps = wrap_fct_setup(_setup_cfg(POWER_MANUAL), _body())
-    names = [s.name for s in steps]
-    assert "Connect the power adapter" in names[0]
-    assert names[-1].startswith("FCT finished")
-    # M22: the spine no longer auto-appends a closing "FCT done." row
-    assert "FCT done." not in names
-    # no standard op rows in manual mode
-    assert all(not s.params.get("op") for s in steps)
+def test_wrap_fct_setup_is_gone():
+    """M44: the fixture / power / manual-prompt wrapper no longer exists -
+    the run-time sequence is EXACTLY the user's rows."""
+    assert not hasattr(_ftc, "wrap_fct_setup")
 
 
-def test_setup_psu_uses_power_on_off_ops():
-    steps = wrap_fct_setup(_setup_cfg(POWER_PSU), _body())
-    names = [s.name for s in steps]
-    assert names[0] == "Power On DUT"
-    assert "Power Off DUT" in names
-    on = names.index("Power On DUT")
-    off = names.index("Power Off DUT")
-    assert on < names.index("Body test") < off
+def test_no_dedupe_pass_over_user_rows():
+    """M44: the duplicate-removal pass over user rows is gone (it silently
+    deleted configured steps)."""
+    assert not hasattr(_ftc, "_dedupe_steps")
+    cfg = frdm_config()
+    cfg.wifi.scan_enabled = False
+    cfg.bluetooth.rssi_enabled = False
+    cfg.console.test_commands = [
+        ConsoleCommand(kind="send", name="Same", send="a", timeout=5.0),
+        ConsoleCommand(kind="send", name="Same", send="b", timeout=5.0)]
+    assert [s.name for s in build_fct_steps(cfg)] == ["Same", "Same"]
 
 
-def test_setup_none_adds_no_power_action():
-    steps = wrap_fct_setup(_setup_cfg(POWER_NONE), _body())
-    names = [s.name for s in steps]
-    assert names == ["Body test"]
-
-
-def test_wrap_never_auto_appends_fct_done():
-    """M22: the loader/build never adds a closing row by itself."""
-    for mode in (POWER_NONE, POWER_MANUAL, POWER_PSU):
-        names = [s.name for s in wrap_fct_setup(_setup_cfg(mode), _body())]
-        assert "FCT done." not in names
-
-
-def test_wrap_dedupes_identical_phantom_rows():
-    """M22: legacy YAMLs with the old auto row load as ONE row."""
-    body = [_FctStep(name="FCT done.", step_type="MESSAGE_CHECK"),
-            _FctStep(name="FCT done.", step_type="MESSAGE_CHECK")]
-    steps = wrap_fct_setup(_setup_cfg(POWER_NONE), body)
-    assert [s.name for s in steps] == ["FCT done."]
+def test_build_steps_adds_no_fixture_or_power_rows():
+    """M44: setup.power_mode / use_fixture never inject steps around the
+    configured body (iron rule: no auto-added sequence steps)."""
+    for mode in ("psu", "manual", "none"):
+        cfg = frdm_config()
+        cfg.setup = FctSetupCfg(power_mode=mode, use_fixture=True)
+        names = [s.name for s in build_fct_steps(cfg)]
+        assert "Power On DUT" not in names
+        assert "Power Off DUT" not in names
+        assert not any(n.startswith("Fixture ") for n in names)
+        assert not any("Connect the power adapter" in n for n in names)
+        assert not any(n.startswith("FCT finished") for n in names)
 
 
 def test_sequence_roundtrip_is_deterministic():
-    """M22: load(build(cfg)) -> build again yields the same cases
+    """M22/M44: load(build(cfg)) -> build again yields the same cases
     (names + full step markers) - no phantom rows, no drift."""
     from mtkgui.gui.yamlbuild.fct_build import (
         FctSequence,
         to_project_fct_cases,
     )
     cfg = FctTestConfig()
-    cfg.setup = FctSetupCfg(power_mode=POWER_NONE)
+    cfg.setup = FctSetupCfg(power_mode="none")
     cfg.console.test_commands = [
         ConsoleCommand(kind="send", name="Cmd", wait_enabled=True,
                        send_enabled=True, capture_enabled=False,
@@ -1041,8 +1027,8 @@ def test_sequence_roundtrip_is_deterministic():
                        wait_timeout=5.0)]
 
     def _cases(c):
-        steps = wrap_fct_setup(c, build_fct_steps(c))
-        return to_project_fct_cases(FctSequence(name="x", steps=steps))
+        return to_project_fct_cases(
+            FctSequence(name="x", steps=build_fct_steps(c)))
 
     first = _cases(cfg)
     again = _cases(FctTestConfig.from_dict(
@@ -1050,15 +1036,6 @@ def test_sequence_roundtrip_is_deterministic():
     assert [c["name"] for c in first] == [c["name"] for c in again]
     assert ([c["op_params"]["fct_step"] for c in first]
             == [c["op_params"]["fct_step"] for c in again])
-
-
-def test_setup_fixture_order_with_psu():
-    steps = wrap_fct_setup(_setup_cfg(POWER_PSU, use_fixture=True), _body())
-    names = [s.name for s in steps]
-    assert names[:3] == ["Fixture Clamp Down", "Fixture Lock",
-                         "Fixture E-Stop Healthy"]
-    assert names[3] == "Power On DUT"
-    assert names[-2:] == ["Fixture Unlock", "Fixture Release"]
 
 
 def test_setup_validation_rules():
@@ -1074,6 +1051,55 @@ def test_setup_round_trips_through_yaml():
     restored = FctTestConfig.from_dict(cfg.to_dict())
     assert restored.setup.power_mode == POWER_PSU
     assert restored.setup.use_fixture is True
+
+
+def test_runtime_sequence_equals_configured_rows():
+    """M44 iron rule: the run-time sequence (load_sequence) converts the
+    configured FCT rows 1:1 - nothing added, removed or reordered - for
+    a mixed sequence (console, sftp, Wi-Fi, Bluetooth, Delay, op, and
+    operator messages)."""
+    from mtkgui.engine.sequence import load_sequence
+    rows = [
+        {"name": "Kernel check", "kind": "CapturefromConsole",
+         "op_params": {"fct_step": {"name": "Kernel check"}}},
+        {"name": "Push scripts", "kind": "CapturefromConsole",
+         "op_params": {"fct_step": {"name": "Push scripts"}}},
+        {"name": "Wi-Fi Scan / RSSI", "kind": "EXTERNAL_TOOL",
+         "op_params": {"fct_step": {"name": "Wi-Fi Scan / RSSI",
+                                    "params": {"tool_family": "wifi"}}}},
+        {"name": "Bluetooth RSSI", "kind": "EXTERNAL_TOOL",
+         "op_params": {"fct_step": {"name": "Bluetooth RSSI",
+                                    "params": {"tool_family": "bluetooth"}}}},
+        {"name": "Delay — plain wait (ms)", "kind": "Delay"},
+        {"name": "Power On DUT", "kind": "op"},
+        {"name": "Swap DUT fixture", "kind": "MessageYesNo"},
+    ]
+    config = {"test_workflow": {
+        "overall_flow": [{"stage": "FCT", "enable": True}],
+        "fct_test_cases": rows}}
+    stages = load_sequence(config)
+    assert len(stages) == 1
+    names = [s.name for s in stages[0].steps]
+    assert names == [r["name"] for r in rows]
+    assert [s.kind for s in stages[0].steps] == [r["kind"] for r in rows]
+
+
+def test_ict_runtime_sequence_equals_configured_rows():
+    """M44 iron rule for ICT: the converter only maps the configured
+    rows - the sequence is identical in order and count."""
+    from mtkgui.engine.sequence import load_sequence
+    rows = [
+        {"name": "VDD_3V3", "kind": "Power Voltage", "unit": "V"},
+        {"name": "CLK_24M", "kind": "Clock Hz", "unit": "Hz"},
+        {"name": "Power On DUT", "kind": "op"},
+        {"name": "R-GND", "kind": "R-GND", "unit": "Ohm"},
+    ]
+    config = {"test_workflow": {
+        "overall_flow": [{"stage": "ICT", "enable": True}],
+        "ict_test_cases": rows}}
+    stages = load_sequence(config)
+    names = [s.name for s in stages[0].steps]
+    assert names == [r["name"] for r in rows]
 
 
 # ------------------------------------------------- RF per-sub-test model

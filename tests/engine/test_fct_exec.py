@@ -400,15 +400,14 @@ def test_runner_fct_fail_blocks_overall(qapp):
     page.deleteLater()
 
 
-def test_load_fct_cases_keeps_manual_standard_ops(qapp):
-    """P3-B7 merge protection: standard operator dialogs added by hand
-    on the Test Work Flow page (MessageOK/YesNo/GoStop rows without a
-    generated fct_step marker) survive a sequence rebuild - they are
-    appended after the generated cases, never silently wiped."""
+def test_load_fct_cases_replaces_rows_exactly(qapp):
+    """M44: a sequence rebuild REPLACES the FCT table with exactly the
+    configured rows - hand-made rows on the read-only result view are
+    not appended (that append stacked rows on every apply/save)."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
-    # the page constructor preloads demo rows (manual standard ops) -
-    # start from an empty table so the assertions stay deterministic
+    # the page constructor preloads demo rows - start empty so the
+    # assertions stay deterministic
     page.fct_rows = []
     page.fct_kinds = []
     page.fct_enables = []
@@ -426,15 +425,13 @@ def test_load_fct_cases_keeps_manual_standard_ops(qapp):
     page.fct_waits = list(page.fct_waits) + [100, 100]
     page.fct_timeouts = list(page.fct_timeouts) + [30000, 10000]
     page.fct_op_params = list(page.fct_op_params) + [None, None]
-    # rebuild the SAME sequence: manual rows are kept at the end
+    # rebuild the SAME sequence: exactly the generated rows, no extras
     page.load_fct_cases(cases)
-    assert page.fct_rows[:n_generated] == [str(c["name"]) for c in cases]
-    assert page.fct_rows[-2:] == ["Swap DUT fixture", "Check power"]
-    assert page.fct_kinds[-2:] == ["MessageYesNo", "MessageOK"]
-    # a manual row whose name matches a generated row is NOT duplicated
-    page.fct_rows[-1] = page.fct_rows[0]
+    assert page.fct_rows == [str(c["name"]) for c in cases]
+    assert len(page.fct_rows) == n_generated
+    # and no duplicate survives a second rebuild
     page.load_fct_cases(cases)
-    assert page.fct_rows.count(page.fct_rows[0]) == 1
+    assert page.fct_rows == [str(c["name"]) for c in cases]
     page.deleteLater()
 
 
