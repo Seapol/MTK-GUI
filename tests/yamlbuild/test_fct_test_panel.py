@@ -112,7 +112,7 @@ def test_ui_edits_reach_values(qapp):
     panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
     panel.bt_scan_retries.setValue(4)
     panel.bt_tone_file.setText("resources/tones/tone_2khz_6s.wav")
-    panel.bt_tone_duration.setValue(8)
+    panel.bt_tone_range.set_values(1.0, 4.0)
     panel.bt_pair_script.setText("/root/bt_conn.sh")
     panel._add_row_for_label(STEP_TYPE_BT_TONE)
     out = panel.values()
@@ -125,7 +125,7 @@ def test_ui_edits_reach_values(qapp):
     assert cfg.bluetooth.expected_addr == "aa:bb:cc:dd:ee:ff"
     assert cfg.bluetooth.scan_retries == 4
     assert cfg.bluetooth.test_tone == "resources/tones/tone_2khz_6s.wav"
-    assert cfg.bluetooth.tone_duration_s == 8
+    assert (cfg.bluetooth.tone_start_s, cfg.bluetooth.tone_end_s) == (1.0, 4.0)
     assert cfg.bluetooth.bt_pair_script == "/root/bt_conn.sh"
 
 

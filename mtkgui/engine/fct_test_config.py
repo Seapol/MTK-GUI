@@ -59,9 +59,13 @@ YAML shape (product YAML `fct_test_config:` node):
         pair_timeout: 15
         l2ping_count: 0
         # 3. Tone / music over A2DP, Host source -> DUT sink (Linux only)
+        # M45: the played segment is a Start/End range on the wav (no
+        # Play-Duration, no Timeout, no auto GUI confirm) - the operator
+        # adds their own MessageYesNoToConsole row for the "heard it".
         tone_enabled: false
-        audio_confirm: true
-        tone_timeout: 15
+        test_tone: resources/tones/tone_1khz_6s.wav
+        tone_start_s: 0
+        tone_end_s: 6
 """
 from __future__ import annotations
 
@@ -1181,11 +1185,12 @@ class BluetoothCfg:
     l2ping_count: int = 4           # optional L2CAP data-path proof, 0=off
     bt_pair_script: str = ""        # DUT script path, e.g. /root/bt_conn.sh
     # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
+    # M45: Start/End replace Play-Duration; no Timeout and no automatic
+    # operator confirm (the user adds their own Message row).
     tone_enabled: bool = False
-    audio_confirm: bool = True
-    tone_timeout: float = 15.0
     test_tone: str = "resources/tones/tone_1khz_6s.wav"
-    tone_duration_s: int = 6
+    tone_start_s: float = 0.0
+    tone_end_s: float = 0.0      # 0 = whole file (resolved from the wav)
 
     def to_dict(self) -> dict:
         return {
@@ -1200,10 +1205,9 @@ class BluetoothCfg:
             "l2ping_count": int(self.l2ping_count),
             "bt_pair_script": self.bt_pair_script,
             "tone_enabled": self.tone_enabled,
-            "audio_confirm": self.audio_confirm,
-            "tone_timeout": float(self.tone_timeout),
             "test_tone": self.test_tone,
-            "tone_duration_s": int(self.tone_duration_s),
+            "tone_start_s": float(self.tone_start_s),
+            "tone_end_s": float(self.tone_end_s),
         }
 
     @property
@@ -1353,12 +1357,14 @@ class FctTestConfig:
             bt_pair_script=str(bt.get("bt_pair_script", "")),
             tone_enabled=bool(bt.get(
                 "tone_enabled", bmode == "a2dp_sink")),
-            audio_confirm=bool(bt.get("audio_confirm", True)),
-            tone_timeout=float(bt.get("tone_timeout",
-                                     DEFAULT_RF_TIMEOUT)),
+            # M45: ``audio_confirm`` / ``tone_timeout`` are retired - a
+            # legacy YAML carrying them loads fine (keys ignored, never
+            # re-emitted); ``tone_duration_s`` maps to tone_end_s.
             test_tone=str(bt.get(
                 "test_tone", "resources/tones/tone_1khz_6s.wav")),
-            tone_duration_s=int(bt.get("tone_duration_s", 6)),
+            tone_start_s=float(bt.get("tone_start_s", 0) or 0),
+            tone_end_s=float(bt.get("tone_end_s",
+                                    bt.get("tone_duration_s", 0)) or 0),
         )
         return cls(
             dut_type=str(data.get("dut_type", "linux")),
@@ -1473,9 +1479,14 @@ class FctTestConfig:
                 elif float(w.iperf_min_mbps) <= 0:
                     errors.append("wifi iperf: iperf_min_mbps must be > 0")
         if b.any_enabled:
-            if b.rssi_timeout < 1 or b.pair_timeout < 1 \
-                    or b.tone_timeout < 1:
+            if b.rssi_timeout < 1 or b.pair_timeout < 1:
                 errors.append("bluetooth timeouts must be >= 1 s")
+            if b.tone_enabled:
+                if not b.test_tone.strip():
+                    errors.append("bluetooth tone: wav file must not be "
+                                  "empty")
+                if b.tone_end_s > 0 and b.tone_start_s > b.tone_end_s:
+                    errors.append("bluetooth tone: Start must be <= End")
             if b.rssi_enabled and not b.expected_name.strip():
                 errors.append("bluetooth rssi: expected_name (DUT BT name) "
                               "must not be empty")
@@ -1855,15 +1866,19 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
     if subtest == "tone":
         if not (b.tone_enabled and cfg.dut_type == "linux"):
             return []
+        # M45: no timeout (the Segment Start/End defines the playback and
+        # the operator's own Message row confirms it) and no automatic
+        # GUI_CONFIRM - the step publishes ONLY its playback config.
         return [FctStep(
             name="Bluetooth Tone / Music (A2DP)",
             step_type=STEP_EXTERNAL_TOOL, channel="",
-            timeout_s=float(b.tone_timeout),
+            timeout_s=0.0,
             params={"tool_family": "bluetooth", "fct_rf": {
                 "mode": "a2dp_sink",
                 "expected_name": b.expected_name,
-                "audio_confirm": bool(b.audio_confirm),
-                "rf_timeout_s": float(b.tone_timeout)}})]
+                "wav": b.test_tone,
+                "tone_start_s": float(b.tone_start_s),
+                "tone_end_s": float(b.tone_end_s)}})]
     return []
 
 

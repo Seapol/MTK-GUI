@@ -58,11 +58,15 @@ def test_bt_tab_one_row_scroll(qapp):
 
 
 def test_bt_tab_defaults(qapp):
-    """m32: L2CAP default 4, tone wav + duration + host status defaults."""
+    """m32/M45: L2CAP default 4, tone wav + total length + host status."""
     panel = FCTTestConfigPanel()
     assert panel.bt_l2ping.value() == 4
     assert panel.bt_tone_file.text() == "resources/tones/tone_1khz_6s.wav"
-    assert panel.bt_tone_duration.value() == 6
+    # M45: the Play-Duration spin box is gone - the dual-node slider
+    # spans the whole 6 s tone (Start 0 / End = total)
+    assert panel.bt_tone_range.start_s() == 0.0
+    assert panel.bt_tone_range.end_s() == 6.0
+    assert "6.0 s" in panel.bt_tone_total.text()
     assert panel.bt_host_status.text() == "N/A"
     assert panel.bt_host_devices.text() == "\u2014"
 
@@ -216,11 +220,11 @@ def test_windows_bt_backend_still_raises(monkeypatch):
 
 
 def test_bluetooth_cfg_new_fields_roundtrip():
-    """m32: test_tone / tone_duration_s / bt_pair_script load/save."""
+    """m32/M45: test_tone / tone_start_s / tone_end_s / bt_pair_script."""
     cfg = FctTestConfig(bluetooth=BluetoothCfg(
         test_tone="resources/tones/tone_2khz_6s.wav",
-        tone_duration_s=9, bt_pair_script="/root/bt.sh"))
+        tone_start_s=1.5, tone_end_s=7.0, bt_pair_script="/root/bt.sh"))
     restored = FctTestConfig.from_dict(cfg.to_dict()).bluetooth
     assert restored.test_tone == "resources/tones/tone_2khz_6s.wav"
-    assert restored.tone_duration_s == 9
+    assert (restored.tone_start_s, restored.tone_end_s) == (1.5, 7.0)
     assert restored.bt_pair_script == "/root/bt.sh"

@@ -13,6 +13,12 @@ hiddenimports += [
     'PySide6.QtWebEngineWidgets',
     'PySide6.QtWebEngineCore',
 ]
+# QtMultimedia (M45): the BT Tone editor previews the wav locally
+# (QMediaPlayer / QAudioOutput / QAudioBufferOutput).  The PySide6 hook
+# then collects the multimedia plugins + the ffmpeg media backend.
+hiddenimports += [
+    'PySide6.QtMultimedia',
+]
 # Credentials layer (mtkgui/engine/credentials.py): the OS keyring backend
 # must be traced explicitly, otherwise a frozen build raises
 # CredentialUnavailable when a channel/login stores its password.

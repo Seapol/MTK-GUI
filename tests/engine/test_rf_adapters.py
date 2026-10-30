@@ -189,7 +189,8 @@ BT_CFG = {
         "expected_name": "JBL Pulse 5",
         "rssi_min": -70,
         "test_tone": "resources/test_tone.wav",
-        "tone_duration_s": 6,
+        "tone_start_s": 0,
+        "tone_end_s": 6,
         "cmds": {
             "mac": {
                 "scan_cmd": "blueutil --inquiry {{seconds}}",
@@ -212,6 +213,8 @@ INQUIRY_HIT = ("address: 40-c1-f6-84-8f-c5, name: JBL Pulse 5, "
 
 
 def test_bt_a2dp_sink_pass():
+    """M45: a proven A2DP link + played tone is a Pass with no operator
+    confirm item; the disconnect still runs last."""
     script = {
         "blueutil --inquiry 10": (0, [INQUIRY_HIT]),
         "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
@@ -222,21 +225,20 @@ def test_bt_a2dp_sink_pass():
         "afplay resources/test_tone.wav": (0, ["Success"]),
         "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
     }
-    confirms = []
-    ad = BluetoothAdapter(BT_CFG, StubRunner(script),
-                          human_confirm=lambda q: (confirms.append(q),
-                                                   True)[1])
+    ad = BluetoothAdapter(BT_CFG, StubRunner(script))
     out = ad.run_test()
     assert out["verdict"] == "Pass"
     assert out["items"]["connected"] == 1
-    assert out["items"]["operator_confirmed"] == 1
-    assert "Do you hear audio" in confirms[0]
-    joined = "\n".join(script)  # noqa: F841
+    assert "operator_confirmed" not in out["items"]
     calls = ad._runner.calls
     assert calls[-1].startswith("blueutil --disconnect")
 
 
-def test_bt_a2dp_sink_operator_fail():
+def test_bt_a2dp_sink_no_operator_confirm():
+    """M45: the A2DP tone step never pops an automatic operator confirm -
+    the 'heard it' answer is the user's own Message row, so a False
+    human_confirm hook must NOT fail the step."""
+    asked: list = []
     script = {
         "blueutil --inquiry 10": (0, [INQUIRY_HIT]),
         "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
@@ -247,8 +249,11 @@ def test_bt_a2dp_sink_operator_fail():
         "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
     }
     ad = BluetoothAdapter(BT_CFG, StubRunner(script),
-                          human_confirm=lambda q: False)
-    assert ad.run_test()["verdict"] == "Fail"
+                          human_confirm=lambda q: asked.append(q) or False)
+    out = ad.run_test()
+    assert out["verdict"] == "Pass"
+    assert asked == []                       # confirm hook never consulted
+    assert out["items"]["tone_played"] == 1
 
 
 def test_bt_a2dp_sink_not_found():
@@ -335,23 +340,65 @@ def test_bt_inquiry_retries_then_hits():
     assert sum("inquiry" in c for c in ad._runner.calls) == 2
 
 
-def test_bt_tone_plays_with_duration():
-    """m32: the tone_cmd renders the play duration (-t {{duration}}) from
-    ``tone_duration_s`` and the wav from ``test_tone``."""
-    bt = dict(BT_CFG["bluetooth"], test_tone="resources/test_tone.wav",
-              tone_duration_s=6)
-    bt["cmds"]["mac"]["tone_cmd"] = "afplay -t {{duration}} {{tone}}"
+def test_bt_tone_plays_with_duration(tmp_path):
+    """m32/M45: the tone_cmd renders the play duration (-t {{duration}})
+    from ``tone_start_s`` / ``tone_end_s`` and the wav from ``test_tone``."""
+    import wave
+
+    src = tmp_path / "tone.wav"
+    with wave.open(str(src), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(8000)
+        wf.writeframes(b"\x10\x00" * 48000)         # 6 s tone
+    bt = dict(BT_CFG["bluetooth"], test_tone=str(src),
+              tone_start_s=0, tone_end_s=6)
+    bt["cmds"] = dict(bt["cmds"])
+    bt["cmds"]["mac"] = dict(bt["cmds"]["mac"],
+                             tone_cmd="afplay -t {{duration}} {{tone}}")
     script = {
         "blueutil --inquiry 10": (0, [INQUIRY_HIT]),
         "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
         "blueutil --is-connected 40:c1:f6:84:8f:c5": (0, ["1"]),
         "system_profiler SPBluetoothDataType": (0, ["RSSI: -55"]),
         "switchaudio-output JBL Pulse 5": (0, []),
-        "afplay -t 6 resources/test_tone.wav": (0, []),
+        f"afplay -t 6 {src}": (0, []),
         "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
     }
-    ad = BluetoothAdapter({"bluetooth": bt}, StubRunner(script),
-                          human_confirm=lambda q: True)
+    ad = BluetoothAdapter({"bluetooth": bt}, StubRunner(script))
     out = ad.run_test()
     assert out["verdict"] == "Pass"
-    assert "afplay -t 6 resources/test_tone.wav" in ad._runner.calls
+    assert f"afplay -t 6 {src}" in ad._runner.calls
+
+
+def test_bt_tone_sub_range_is_trimmed_to_a_temp_wav(tmp_path):
+    """M45: a Start..End sub-range is cut out of the wav (stdlib wave) and
+    ONLY that segment is handed to the host player."""
+    import wave
+
+    src = tmp_path / "src.wav"
+    with wave.open(str(src), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(8000)
+        wf.writeframes(b"\x10\x00" * 8000)          # 1 s tone
+    bt = dict(BT_CFG["bluetooth"], test_tone=str(src),
+              tone_start_s=0.25, tone_end_s=0.75)
+    bt["cmds"] = dict(bt["cmds"])
+    bt["cmds"]["mac"] = dict(bt["cmds"]["mac"],
+                             tone_cmd="afplay -t {{duration}} {{tone}}")
+    script = {
+        "blueutil --inquiry 10": (0, [INQUIRY_HIT]),
+        "blueutil --connect 40:c1:f6:84:8f:c5": (0, []),
+        "blueutil --is-connected 40:c1:f6:84:8f:c5": (0, ["1"]),
+        "system_profiler SPBluetoothDataType": (0, ["RSSI: -55"]),
+        "switchaudio-output JBL Pulse 5": (0, []),
+        "blueutil --disconnect 40:c1:f6:84:8f:c5": (0, []),
+    }
+    runner = StubRunner(script)          # unknown afplay line -> exit 0
+    out = BluetoothAdapter({"bluetooth": bt}, runner).run_test()
+    assert out["verdict"] == "Pass"
+    tone_call = next(c for c in runner.calls if c.startswith("afplay -t"))
+    trimmed = tone_call.split()[-1]
+    assert trimmed != str(src) and trimmed.endswith(".wav")
+    assert not Path(trimmed).exists()     # temp segment deleted after play

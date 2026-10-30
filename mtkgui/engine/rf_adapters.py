@@ -25,8 +25,9 @@ Bluetooth (host -> DUT):
   * ``a2dp_sink`` - Full Stack Linux DUT: the host is the A2DP SOURCE and
     the DUT is the A2DP SINK - blueutil inquiry -> connect ->
     is-connected -> RSSI (system_profiler SPBluetoothDataType) ->
-    switch audio output -> play test tone -> operator GUI confirm ->
-    disconnect.
+    switch audio output -> play the configured wav segment ->
+    disconnect.  M45: no automatic operator confirm (the "heard it"
+    answer is the user's own Message row).
   * ``rssi_only`` - Bare Metal/RTOS DUT: host-side inquiry + RSSI by
     name only (host -> DUT discovery, no pairing or audio path).
 
@@ -35,6 +36,7 @@ so EventLog identity, timeouts and keyword judging are uniform.
 """
 from __future__ import annotations
 
+import os
 import platform as _platform
 import time
 
@@ -271,12 +273,17 @@ class BluetoothAdapter:
         self.rssi_min = int(cfg.get("rssi_min", -70))
         self.scan_s = int(cfg.get("scan_s", 10))
         self.timeout_s = float(cfg.get("timeout_s", 30))
-        self.tone_path = cfg.get(
-            "test_tone", "resources/tones/tone_1khz_6s.wav")
-        self.tone_duration_s = int(cfg.get("tone_duration_s", 6))
+        # M45: the played segment is a Start/End range on the wav; the
+        # adapter trims it and hands the host player ONLY that segment.
+        self.tone_path = cfg.get("wav", cfg.get(
+            "test_tone", "resources/tones/tone_1khz_6s.wav"))
+        self.tone_start_s = float(cfg.get("tone_start_s", 0) or 0)
+        self.tone_end_s = float(cfg.get("tone_end_s", 0) or 0)
         self.cmds = _backend_section(rf_cfg, "bluetooth")
         self._runner = runner
-        self._confirm = human_confirm   # callable(question) -> bool
+        #: kept for API compatibility (fct_test_runner still passes it);
+        #: M45 retired the automatic tone confirm - the operator owns it.
+        self._confirm = human_confirm
         self._addr: str = ""
 
     def _run(self, template: str, params: dict | None = None, **kw):
@@ -395,18 +402,28 @@ class BluetoothAdapter:
                     # connect + verify only - no audio, no operator step
                     verdict = "Pass"
                 elif self.mode == "a2dp_sink":
-                    # switch audio to the DUT and play the test tone
+                    # M45: switch audio to the DUT and play ONLY the
+                    # configured Start..End segment.  There is NO automatic
+                    # operator confirm any more - the "heard it" answer is
+                    # the user's own MessageYesNoToConsole row, so the
+                    # verdict here is the proven A2DP link (+ the tonal
+                    # playback the host actually performed).
                     self._run(self.cmds["audio_switch_cmd"],
                               {"name": name})
-                    self._run(self.cmds["tone_cmd"],
-                              {"tone": self.tone_path,
-                               "duration": self.tone_duration_s})
-                    heard = self._confirm(
-                        f"Do you hear audio from DUT headphone jack? "
-                        f"(DUT: {name}, addr: {addr})") \
-                        if self._confirm else False
-                    items["operator_confirmed"] = 1 if heard else 0
-                    verdict = "Pass" if heard else "Fail"
+                    tone_path, tone_s = self._tone_segment()
+                    played = 1
+                    if tone_path:
+                        res = self._run(self.cmds["tone_cmd"],
+                                        {"tone": tone_path,
+                                         "duration": int(round(tone_s))})
+                        played = 1 if res.exit_code == 0 else 0
+                        if tone_path != self.tone_path:
+                            try:               # trimmed temp segment
+                                os.unlink(tone_path)
+                            except OSError:
+                                pass
+                    items["tone_played"] = played
+                    verdict = "Pass" if played else "Fail"
         else:
             verdict = "Fail"
             items["connected"] = 0
@@ -424,3 +441,29 @@ class BluetoothAdapter:
             if m:
                 return int(m.group(1))
         return None
+
+    def _tone_segment(self) -> tuple[str, float]:
+        """Resolve the configured Start..End segment of the wav.
+
+        Returns ``(path, seconds)``.  A segment covering the whole file
+        plays the original path; a sub-range is trimmed to a temp wav
+        (the caller deletes it right after the playback command).  An
+        unreadable wav falls back to the configured range so the host
+        player still receives an explicit command (never a silent skip).
+        """
+        from .wav_util import trim_wav, wav_duration_s
+        start = max(0.0, self.tone_start_s)
+        total = wav_duration_s(self.tone_path)
+        if total is not None:
+            end = min(self.tone_end_s or total, total)
+            if end <= start:
+                end = total
+            seconds = max(0.1, end - start)
+            if start > 0.0 or end < total:
+                trimmed = trim_wav(self.tone_path, start, end)
+                if trimmed:
+                    return trimmed, seconds
+            return self.tone_path, seconds
+        seconds = max(0.1, (self.tone_end_s - start)
+                      if self.tone_end_s > start else 6.0)
+        return self.tone_path, seconds

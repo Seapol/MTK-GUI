@@ -1120,8 +1120,7 @@ def _linux_full_rf_config() -> FctTestConfig:
             iperf_server_ip="", iperf_duration=10),
         bluetooth=BluetoothCfg(
             rssi_enabled=True, expected_name="DUT-BT",
-            pair_enabled=True, l2ping_count=5, tone_enabled=True,
-            audio_confirm=True))
+            pair_enabled=True, l2ping_count=5, tone_enabled=True))
 
 
 def test_linux_all_rf_subtests_build_distinct_steps():
@@ -1215,7 +1214,8 @@ def test_rf_subtest_validation_rules():
 def test_rf_default_timeouts_are_15s_minimum_one():
     w, b = WifiCfg(), BluetoothCfg()
     assert (w.scan_timeout, w.ping_timeout, w.iperf_timeout) == (15.0,)*3
-    assert (b.rssi_timeout, b.pair_timeout, b.tone_timeout) == (15.0,)*3
+    # M45: the Tone step has no Timeout any more (Start/End define it)
+    assert (b.rssi_timeout, b.pair_timeout) == (15.0, 15.0)
 
 
 # --------------------------------------------- message rows (P3-B7)

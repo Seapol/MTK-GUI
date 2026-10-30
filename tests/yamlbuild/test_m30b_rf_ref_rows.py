@@ -138,10 +138,11 @@ def test_reference_row_renders_live_summary(qapp):
         assert t.item(r, _COL_SEND).text() == "\u2014"
         assert t.item(r, _COL_CAPTURE).text() == "\u2014"
     assert t.item(0, _COL_TIMEOUT).text() == "15s"
-    assert t.item(1, _COL_TIMEOUT).text() == "15s"
+    # M45: the Tone step has NO Timeout any more
+    assert t.item(1, _COL_TIMEOUT).text() == "-"
     assert t.item(0, _COL_CMD).text() == \
         "SSID=FRDM-IMX93-DUT, RSSI\u2265-70 dBm"
-    assert t.item(1, _COL_CMD).text() == "tone_1khz_6s.wav, 6s"
+    assert t.item(1, _COL_CMD).text() == "tone_1khz_6s.wav, 0.0-6.0s"
 
     # live refresh: a Wi-Fi tab edit re-renders the summary cell
     panel.wifi_ap_ssid.setText("NEW-SSID")

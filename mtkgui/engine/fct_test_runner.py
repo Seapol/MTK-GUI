@@ -1176,8 +1176,11 @@ class FctTestRunner:
                         "mode": mode, "expected_name": b.expected_name,
                         "expected_addr": b.expected_addr,
                         "scan_retries": b.scan_retries,
-                        "rssi_min": b.rssi_min, "audio_confirm":
-                            b.audio_confirm, "timeout_s": float(timeout),
+                        "rssi_min": b.rssi_min,
+                        "wav": b.test_tone,
+                        "tone_start_s": float(b.tone_start_s),
+                        "tone_end_s": float(b.tone_end_s),
+                        "timeout_s": float(timeout),
                         "cmds": {key: bt_backend_cmds()}}},
                     host_runner, human_confirm=human_confirm)
                 out = ad.run_test()
@@ -1211,8 +1214,11 @@ class FctTestRunner:
                         f"BT L2CAP ping ({b.l2ping_count})", v, d,
                         duration=time.time() - t0))
             if b.tone_enabled:
+                # M45: no Timeout row any more - the host commands get a
+                # generous bound derived from the played segment.
+                segment = max(0.0, float(b.tone_end_s) - float(b.tone_start_s))
                 _run("a2dp_sink", "Bluetooth Tone / Music (A2DP)",
-                     b.tone_timeout)
+                     max(30.0, segment + 15.0))
         return results
 
     # ------------------------------------------------------------- full

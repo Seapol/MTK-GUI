@@ -12,10 +12,12 @@ module:
   timeout (default 15 s): 1. Scan/RSSI (both DUT kinds), 2. Connect &
   Ping (Linux only, PASS on >=1 reply), 3. iPerf throughput (Linux
   only, Host server -> DUT client, iperf2/iperf3);
-* Bluetooth tab — three independently enabled sub-tests, each with
-  its own timeout: 1. RSSI discovery (both DUT kinds), 2. Pair &
-  connect with optional L2CAP ping (Linux only), 3. Tone/music over
-  A2DP with GUI confirm (Linux only, Host source -> DUT sink);
+* Bluetooth tab — three independently enabled sub-tests: 1. RSSI
+  discovery (both DUT kinds), 2. Pair & connect with optional L2CAP ping
+  (Linux only), 3. Tone/music over A2DP with a wav Start/End segment, a
+  local QtMultimedia preview + live level meter (Linux only, Host source
+  -> DUT sink; NO automatic GUI confirm - the operator adds their own
+  Message row);
 * Sequence tab  — the step editor: the console test-commands table
   (one row = one test: Name / Console transport / WaitFor / SendTo /
   Capture / Retry, each with its own timeout; rows are add / remove /
@@ -35,10 +37,12 @@ Preview & Export shows the complete configuration (spec §3.4).
 from __future__ import annotations
 
 import copy
+import os
+import time
 
 import yaml
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QObject, QRectF, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -237,8 +241,19 @@ _RF_SUBTEST_TIMEOUT_ATTRS = {
     ("wifi", "iperf"): "wifi_iperf_timeout",
     ("bluetooth", "rssi"): "bt_rssi_timeout",
     ("bluetooth", "pair"): "bt_pair_timeout",
-    ("bluetooth", "tone"): "bt_tone_timeout",
+    # M45: the Tone step has NO Timeout any more (its length is the
+    # Start..End segment) - the reference row renders "-".
 }
+
+#: M45: default tone wav and the default Browse folder (the owner drops
+#: music / custom wavs into resources/music/; the bundled
+#: assets/resources/audio/ template stays browsable as reference).
+DEFAULT_TONE_WAV = "resources/tones/tone_1khz_6s.wav"
+TONE_BROWSE_DIR = os.path.join("resources", "music")
+#: DUT-side BT driver probe markers (echo + shell output both contain
+#: ``__BT_DONE__``; two occurrences = the shell actually ran the probe).
+BT_PROBE_CMD = ("echo __BT_PING__; (ls /sys/class/bluetooth 2>/dev/null; "
+                "hciconfig -a 2>/dev/null | head -8); echo __BT_DONE__")
 
 
 def _fmt_num(value) -> str:
@@ -526,6 +541,284 @@ class _BtScanWorker(QThread):
             self.verdict.emit("")
         finally:
             self.done.emit()
+
+
+def classify_bt_driver_probe(text: str) -> tuple:
+    """Three-state DUT BT driver verdict from a console probe transcript.
+
+    ``OK``         - the DUT shell ran the probe and exposed ``hci0``;
+    ``needs-load`` - the shell answered but no BT adapter exists yet
+                     (guidance: load the driver with a Console_serial
+                     step from the project assets first);
+    ``FAIL``       - the console never answered the probe.
+
+    Read-only hint: nothing is injected into the sequence."""
+    low = (text or "").lower()
+    if low.count("__bt_done__") < 2:
+        return ("FAIL", "DUT console did not answer the probe - check the "
+                "Console Port / Baudrate and that the DUT shell is up.")
+    if "hci0" in low:
+        return ("OK", "DUT Bluetooth driver is loaded (hci0 present).")
+    return ("needs-load", "No hci0 on the DUT - load the BT driver first "
+            "with a Console_serial step (e.g. drivers/load_drivers.sh from "
+            "the project assets), then run Pair & Connect / Tone.")
+
+
+class _BtDriverProbeWorker(QThread):
+    """M45: read-only DUT BT driver probe over the Console serial port.
+
+    Sends :data:`BT_PROBE_CMD` (echo marker -> ``ls /sys/class/bluetooth``
+    + ``hciconfig -a`` -> done marker) and classifies the transcript with
+    :func:`classify_bt_driver_probe`.  Never injects a step."""
+
+    result = Signal(str, str)              # (state, message)
+
+    def __init__(self, port: str, baudrate: int, parent=None) -> None:
+        super().__init__(parent)
+        self._port = port
+        self._baudrate = int(baudrate)
+
+    def run(self) -> None:
+        text = ""
+        try:
+            import serial
+
+            with serial.Serial(self._port, self._baudrate, timeout=0.2,
+                               write_timeout=2) as ser:
+                ser.reset_input_buffer()
+                ser.write((BT_PROBE_CMD + "\n").encode())
+                deadline = time.monotonic() + 8.0
+                while time.monotonic() < deadline:
+                    chunk = ser.read(4096)
+                    if chunk:
+                        text += chunk.decode(errors="replace")
+                    if text.lower().count("__bt_done__") >= 2:
+                        break
+        except Exception as exc:              # noqa: BLE001 - shown as FAIL
+            self.result.emit("FAIL", f"DUT console probe failed: {exc}")
+            return
+        state, message = classify_bt_driver_probe(text)
+        self.result.emit(state, message)
+
+
+class _ToneRangeSlider(QWidget):
+    """M45 dual-node Start/End slider over the whole wav (seconds).
+
+    Two draggable nodes on one track: the left node is the played
+    segment's Start, the right node its End.  Start <= End is enforced
+    while dragging; ``changed`` carries ``(start_s, end_s)`` after every
+    move.  Resolution is 0.1 s, matching the ``tone_start_s`` /
+    ``tone_end_s`` step params."""
+
+    changed = Signal(float, float)
+    _MARGIN = 10
+
+    def __init__(self, total_s: float = 6.0, parent=None) -> None:
+        super().__init__(parent)
+        self._total = max(float(total_s), 0.1)
+        self._start = 0.0
+        self._end = self._total
+        self._drag = ""                    # "start" | "end" | ""
+        self.setMinimumHeight(30)
+        self.setMinimumWidth(180)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    # ---------------------------------------------------------------- api
+    def total(self) -> float:
+        return self._total
+
+    def start_s(self) -> float:
+        return self._start
+
+    def end_s(self) -> float:
+        return self._end
+
+    def set_total(self, total_s: float) -> None:
+        """New wav -> the segment resets to the WHOLE file."""
+        total = max(float(total_s), 0.1)
+        if abs(total - self._total) > 0.001:
+            self._start, self._end = 0.0, total
+        self._total = total
+        self.update()
+
+    def set_values(self, start_s: float, end_s: float) -> None:
+        """Clamp the loaded Start/End into the current file length."""
+        start = max(0.0, min(float(start_s or 0.0), self._total))
+        end = float(end_s or 0.0) or self._total
+        self._start = start
+        self._end = max(start, min(end, self._total))
+        if self._end <= 0.0:
+            self._end = self._total
+        self.update()
+
+    def _seconds_at(self, x: float) -> float:
+        span = max(self.width() - 2 * self._MARGIN, 1)
+        ratio = min(max((x - self._MARGIN) / span, 0.0), 1.0)
+        return round(ratio * self._total, 1)
+
+    def _x_for(self, seconds: float) -> float:
+        span = max(self.width() - 2 * self._MARGIN, 1)
+        return self._MARGIN + span * min(max(seconds / self._total, 0.0), 1.0)
+
+    # -------------------------------------------------------------- events
+    def mousePressEvent(self, event) -> None:      # noqa: N802 - Qt
+        x = event.position().x()
+        self._drag = ("start" if abs(x - self._x_for(self._start))
+                      <= abs(x - self._x_for(self._end)) else "end")
+        self._move_to(x)
+
+    def mouseMoveEvent(self, event) -> None:       # noqa: N802 - Qt
+        if self._drag:
+            self._move_to(event.position().x())
+
+    def mouseReleaseEvent(self, event) -> None:    # noqa: N802 - Qt
+        self._drag = ""
+
+    def _move_to(self, x: float) -> None:
+        value = self._seconds_at(x)
+        if self._drag == "start":
+            self._start = min(value, self._end)
+        else:
+            self._end = max(value, self._start)
+        self.update()
+        self.changed.emit(self._start, self._end)
+
+    def paintEvent(self, event) -> None:           # noqa: N802 - Qt
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        mid = self.height() / 2.0
+        groove = QRectF(self._MARGIN, mid - 3,
+                        max(self.width() - 2 * self._MARGIN, 1), 6)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#d1d5db"))
+        painter.drawRoundedRect(groove, 3, 3)
+        lo = self._x_for(self._start)
+        hi = self._x_for(self._end)
+        painter.setBrush(QColor("#2563eb"))
+        painter.drawRoundedRect(QRectF(lo, mid - 3, max(hi - lo, 1), 6), 3, 3)
+        for value in (lo, hi):
+            painter.setBrush(QColor("#1d4ed8"))
+            painter.drawEllipse(QRectF(value - 7, mid - 7, 14, 14))
+        painter.end()
+
+
+class _TonePreview(QObject):
+    """M45 local WAV preview of the Start..End segment + live RMS meter.
+
+    QtMultimedia (QMediaPlayer/QAudioOutput) is used so the SAME code
+    plays on macOS and Windows; ``QAudioBufferOutput`` (Qt >= 6.8)
+    feeds the decoded buffers to the RMS meter.  When the multimedia
+    backend is missing the editor disables Preview with a status note
+    (graceful degradation, never a crash)."""
+
+    level = Signal(int)                     # 0..100
+    status = Signal(str)
+    playing = Signal(bool)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._player = None
+        self._buffer_out = None
+        self._start_ms = 0
+        self._end_ms = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(80)
+        self._timer.timeout.connect(self._on_tick)
+
+    @staticmethod
+    def available() -> bool:
+        try:
+            from PySide6.QtMultimedia import (      # noqa: F401
+                QAudioOutput, QMediaPlayer)
+        except Exception:                           # noqa: BLE001
+            return False
+        return True
+
+    def _ensure_player(self) -> bool:
+        if self._player is not None:
+            return True
+        try:
+            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+
+            self._player = QMediaPlayer(self)
+            self._player.setAudioOutput(QAudioOutput(self))
+            self._player.playbackStateChanged.connect(self._on_state)
+        except Exception as exc:                    # noqa: BLE001
+            self._player = None
+            self.status.emit(f"Preview unavailable: {exc}")
+            return False
+        try:
+            from PySide6.QtMultimedia import QAudioBufferOutput
+
+            self._buffer_out = QAudioBufferOutput(self)
+            self._buffer_out.audioBufferReceived.connect(self._on_buffer)
+            self._player.setAudioBufferOutput(self._buffer_out)
+        except Exception:                           # noqa: BLE001
+            self._buffer_out = None                 # meter stays at 0
+        return True
+
+    def is_playing(self) -> bool:
+        """True between play() and stop() (drives the toggle button)."""
+        return bool(self._timer.isActive())
+
+    def play(self, path: str, start_s: float, end_s: float) -> None:
+        if not self._ensure_player():
+            return
+        from PySide6.QtCore import QUrl
+
+        self.stop()
+        self._start_ms = max(0, int(round(float(start_s) * 1000)))
+        self._end_ms = max(self._start_ms + 100, int(round(float(end_s) * 1000)))
+        self._player.setSource(QUrl.fromLocalFile(os.path.abspath(path)))
+        self._player.play()
+        self._timer.start()
+        self.playing.emit(True)
+        self.status.emit("Previewing the selected segment locally...")
+
+    def stop(self) -> None:
+        self._timer.stop()
+        if self._player is not None:
+            self._player.stop()
+        self.level.emit(0)                          # meter resets on stop
+        if self.playing is not None:
+            self.playing.emit(False)
+
+    def _on_tick(self) -> None:
+        if self._player is None:
+            self.stop()
+            return
+        pos = int(self._player.position())
+        if pos < self._start_ms:
+            self._player.setPosition(self._start_ms)
+        elif pos >= self._end_ms:
+            self.stop()
+            self.status.emit("Preview finished.")
+
+    def _on_state(self, state) -> None:
+        from PySide6.QtMultimedia import QMediaPlayer as _MP
+
+        if state == _MP.PlaybackState.StoppedState and self._timer.isActive():
+            self._timer.stop()
+            self.level.emit(0)
+            self.playing.emit(False)
+
+    def _on_buffer(self, buffer) -> None:           # noqa: ANN001 - Qt object
+        """RMS of the decoded buffer -> 0..100 meter value."""
+        try:
+            frames = buffer.constData()
+            if frames is None or not len(frames):
+                return
+            data = frames.tobytes()
+            count = len(data) // 2
+            if count <= 0:
+                return
+            from array import array
+
+            samples = array("h", data[:count * 2])
+            peak = max(max(samples), -min(samples), 1)
+            self.level.emit(min(100, int(round(peak * 100 / 32768))))
+        except Exception:                           # noqa: BLE001
+            return
 
 
 class FCTTestConfigPanel(QWidget):
@@ -2739,6 +3032,19 @@ class FCTTestConfigPanel(QWidget):
         m1.addWidget(self.bt_scan_btn)
         m1.addWidget(self.bt_scan_status)
         m1.addWidget(self.bt_scan_progress)
+        # M45: DUT-side BT driver check (read-only hint, no step added)
+        self.bt_dut_probe_btn = QPushButton("Test DUT BT driver (console)")
+        self.bt_dut_probe_btn.setToolTip(
+            "Probe the DUT console for hci0 / BT driver availability: "
+            "OK / needs-load / FAIL. Read-only - nothing is added to the "
+            "sequence.")
+        self.bt_dut_probe_btn.clicked.connect(self._on_bt_dut_probe)
+        self.bt_dut_probe_status = QLabel("")
+        self.bt_dut_probe_status.setWordWrap(True)
+        self.bt_dut_probe_status.setTextInteractionFlags(
+            Qt.TextSelectableByMouse)
+        m1.addWidget(self.bt_dut_probe_btn)
+        m1.addWidget(self.bt_dut_probe_status)
         m1.addStretch(1)
         grid.addWidget(self.bt_rssi_box, 0, 0)
 
@@ -2774,32 +3080,71 @@ class FCTTestConfigPanel(QWidget):
                                      "only; Host source -> DUT sink)")
         tn = QFormLayout(self.bt_tone_box)
         tone_row = QHBoxLayout()
-        self.bt_tone_file = QLineEdit("resources/tones/tone_1khz_6s.wav")
+        self.bt_tone_file = QLineEdit(DEFAULT_TONE_WAV)
         self.bt_tone_file.setToolTip(
-            "WAV test tone played over A2DP. The resources/tones/ folder "
-            "accepts user-added wav files.")
+            "WAV played over A2DP.  Browse defaults to resources/music/ "
+            "(drop your own music / custom wavs there); the bundled "
+            "assets/resources/audio/ template is also browsable.")
         tone_row.addWidget(self.bt_tone_file, 1)
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._on_bt_browse)
         tone_row.addWidget(browse_btn)
         tn.addRow("WAV file:", tone_row)
-        self.bt_tone_duration = QSpinBox()
-        self.bt_tone_duration.setRange(1, 600)
-        self.bt_tone_duration.setValue(6)
-        self.bt_tone_duration.setSuffix(" s")
-        tn.addRow("Play duration:", self.bt_tone_duration)
-        self.bt_tone_timeout = self._tspin(15)
-        tn.addRow("Timeout:", self.bt_tone_timeout)
-        self.bt_audio_confirm = QCheckBox(
-            "GUI_CONFIRM: operator confirms the tone is heard on the DUT")
-        self.bt_audio_confirm.setChecked(True)
-        tn.addRow(self.bt_audio_confirm)
-        tone_hint = QLabel("Add a MessageYesNo row in the FCT sequence step "
-                           "so the operator confirms the DUT heard the tone.")
+        # total length read from the WAV header (file name + duration)
+        self.bt_tone_total = QLabel("\u2014")
+        self.bt_tone_total.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        tn.addRow("Total length:", self.bt_tone_total)
+        # M45: Start/End dual-node slider replaces the retired Play
+        # Duration spin box; the params carry tone_start_s / tone_end_s.
+        self.bt_tone_range = _ToneRangeSlider(6.0)
+        self.bt_tone_range.setToolTip(
+            "Drag either node: Start / End of the played segment "
+            "(Start <= End is enforced).")
+        tn.addRow("Start / End:", self.bt_tone_range)
+        self.bt_tone_segment = QLabel("Start 0.0 s \u2192 End 6.0 s")
+        tn.addRow("", self.bt_tone_segment)
+        # local preview on the Host PC (QtMultimedia) + live RMS meter
+        preview_row = QHBoxLayout()
+        self.bt_tone_preview_btn = QPushButton("Preview (local)")
+        self.bt_tone_preview_btn.clicked.connect(self._on_bt_tone_preview)
+        preview_row.addWidget(self.bt_tone_preview_btn)
+        self.bt_tone_level = QProgressBar()
+        self.bt_tone_level.setRange(0, 100)
+        self.bt_tone_level.setValue(0)
+        self.bt_tone_level.setTextVisible(False)
+        self.bt_tone_level.setFixedHeight(10)
+        self.bt_tone_level.setToolTip("Live playback level (0 on stop)")
+        preview_row.addWidget(self.bt_tone_level, 1)
+        tn.addRow("Preview:", preview_row)
+        self.bt_tone_preview_status = QLabel("")
+        self.bt_tone_preview_status.setWordWrap(True)
+        self.bt_tone_preview_status.setStyleSheet("color: #6b7280;")
+        tn.addRow("", self.bt_tone_preview_status)
+        tone_hint = QLabel(
+            "Recommended order: Console_serial (load the BT driver from the "
+            "project assets) \u2192 Bluetooth: Pair & Connect \u2192 "
+            "Bluetooth: Tone / A2DP \u2192 your own MessageYesNoToConsole "
+            "row (operator confirms the tone was heard).  No confirm step "
+            "is added automatically.")
         tone_hint.setWordWrap(True)
         tone_hint.setStyleSheet("color: #6b7280;")
         tn.addRow(tone_hint)
         grid.addWidget(self.bt_tone_box, 0, 2)
+
+        self._tone_preview = _TonePreview(self)
+        self._tone_preview.level.connect(self.bt_tone_level.setValue)
+        self._tone_preview.status.connect(self.bt_tone_preview_status.setText)
+        self._tone_preview.playing.connect(
+            lambda on: self.bt_tone_preview_btn.setText(
+                "Stop preview" if on else "Preview (local)"))
+        self.bt_tone_range.changed.connect(self._on_tone_range_changed)
+        self.bt_tone_file.editingFinished.connect(self._refresh_tone_range)
+        self._refresh_tone_range()
+        if not self._tone_preview.available():
+            self.bt_tone_preview_btn.setEnabled(False)
+            self.bt_tone_preview_status.setText(
+                "Preview unavailable: the QtMultimedia backend is missing "
+                "in this build - the DUT tone step still runs.")
 
         self._sync_bt_groups()
         self._connect_rf_summary_signals()
@@ -2825,15 +3170,78 @@ class FCTTestConfigPanel(QWidget):
 
     def _on_bt_browse(self) -> None:
         from PySide6.QtWidgets import QFileDialog
-        import os
         current = self.bt_tone_file.text().strip()
         start = os.path.dirname(current) if current else ""
         if not start or not os.path.isdir(start):
-            start = os.path.join("resources", "tones")
+            # M45: music / custom wavs live in resources/music/; the
+            # bundled assets/resources/audio/ template is browsable too.
+            start = TONE_BROWSE_DIR if os.path.isdir(TONE_BROWSE_DIR) \
+                else os.path.join("resources", "tones")
         path, _ = QFileDialog.getOpenFileName(
             self, "Select test tone wav", start, "WAV files (*.wav)")
         if path:
             self.bt_tone_file.setText(path)
+            self._refresh_tone_range()
+
+    # ------------------------------------------------------ M45 tone range
+    def _refresh_tone_range(self) -> None:
+        """Read the wav header -> total length + slider span."""
+        from mtkgui.engine.wav_util import wav_duration_s
+
+        path = self.bt_tone_file.text().strip() or DEFAULT_TONE_WAV
+        total = wav_duration_s(path)
+        if total is None:
+            self.bt_tone_total.setText(
+                f"{os.path.basename(path)} - length unknown (unreadable wav)")
+            return
+        self.bt_tone_total.setText(f"{os.path.basename(path)}, {total:.1f} s")
+        self.bt_tone_range.set_total(total)
+        self._on_tone_range_changed(self.bt_tone_range.start_s(),
+                                    self.bt_tone_range.end_s())
+
+    def _on_tone_range_changed(self, start_s: float, end_s: float) -> None:
+        self.bt_tone_segment.setText(
+            f"Start {start_s:.1f} s \u2192 End {end_s:.1f} s   "
+            f"({max(end_s - start_s, 0.0):.1f} s played)")
+
+    def _on_bt_tone_preview(self) -> None:
+        """Play the selected segment locally on the Host PC."""
+        if self._tone_preview.is_playing():
+            self._tone_preview.stop()
+            return
+        path = self.bt_tone_file.text().strip()
+        if not path or not os.path.isfile(path):
+            self.bt_tone_preview_status.setText(
+                f"WAV not found: {path or '(empty)'}")
+            return
+        self._tone_preview.play(path, self.bt_tone_range.start_s(),
+                                self.bt_tone_range.end_s())
+
+    # ------------------------------------------- M45 DUT BT driver probe
+    def _on_bt_dut_probe(self) -> None:
+        """Read-only three-state DUT BT driver check (no step injection)."""
+        port = self.console_port.currentText().strip()
+        try:
+            baud = int(str(self.console_baud.currentText()).strip() or 115200)
+        except ValueError:
+            baud = 115200
+        if not port:
+            self.bt_dut_probe_status.setText(
+                "Set the Console Port first (Console tab), then retry.")
+            return
+        self.bt_dut_probe_status.setText("Probing the DUT console...")
+        self.bt_dut_probe_btn.setEnabled(False)
+        self._bt_probe_worker = _BtDriverProbeWorker(port, baud, self)
+        self._bt_probe_worker.result.connect(self._on_bt_probe_result)
+        self._bt_probe_worker.finished.connect(
+            lambda: self.bt_dut_probe_btn.setEnabled(True))
+        self._bt_probe_worker.start()
+
+    def _on_bt_probe_result(self, state: str, message: str) -> None:
+        colors = {"OK": "#059669", "needs-load": "#b45309", "FAIL": "#b91c1c"}
+        self.bt_dut_probe_status.setText(f"{state}: {message}")
+        self.bt_dut_probe_status.setStyleSheet(
+            f"color: {colors.get(state, '#374151')};")
 
     def _on_bt_scan(self) -> None:
         """M32: pre-front progress bar ("Scanning..."), then run the Host
@@ -2927,11 +3335,10 @@ class FCTTestConfigPanel(QWidget):
                 script = self.bt_pair_script.text().strip() or "bt_conn.sh"
                 return (f"{script}, L2CAP\u00d7{self.bt_l2ping.value()}")
             if subtest == "tone":
-                import os
-                tone = self.bt_tone_file.text().strip() or \
-                    "resources/tones/tone_1khz_6s.wav"
+                tone = self.bt_tone_file.text().strip() or DEFAULT_TONE_WAV
                 return (f"{os.path.basename(tone)}, "
-                        f"{self.bt_tone_duration.value()}s")
+                        f"{self.bt_tone_range.start_s():.1f}-"
+                        f"{self.bt_tone_range.end_s():.1f}s")
             return ""
         return ""
 
@@ -2976,10 +3383,12 @@ class FCTTestConfigPanel(QWidget):
                      "wifi_ping_timeout", "wifi_iperf_min",
                      "wifi_iperf_duration", "wifi_iperf_timeout",
                      "bt_rssi_min", "bt_scan_retries", "bt_pair_timeout",
-                     "bt_l2ping", "bt_tone_timeout", "bt_rssi_timeout",
-                     "bt_tone_duration"):
+                     "bt_l2ping", "bt_rssi_timeout"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "valueChanged")
+        # M45: the tone row summary follows the dual-node Start/End slider
+        if hasattr(self, "bt_tone_range"):
+            _hook(self.bt_tone_range, "changed")
         if hasattr(self, "wifi_iperf_tool"):
             _hook(self.wifi_iperf_tool, "currentTextChanged")
 
@@ -3289,10 +3698,11 @@ class FCTTestConfigPanel(QWidget):
             self.bt_pair_timeout.setValue(int(b.pair_timeout))
             self.bt_l2ping.setValue(b.l2ping_count)
             self.bt_pair_script.setText(b.bt_pair_script)
-            self.bt_audio_confirm.setChecked(b.audio_confirm)
-            self.bt_tone_timeout.setValue(int(b.tone_timeout))
             self.bt_tone_file.setText(b.test_tone)
-            self.bt_tone_duration.setValue(b.tone_duration_s)
+            self._refresh_tone_range()
+            self.bt_tone_range.set_values(b.tone_start_s, b.tone_end_s)
+            self._on_tone_range_changed(self.bt_tone_range.start_s(),
+                                        self.bt_tone_range.end_s())
             self._sync_wifi_groups()
             self._sync_bt_groups()
             # setup: there is no editor tab any more - keep the node that
@@ -3408,10 +3818,9 @@ class FCTTestConfigPanel(QWidget):
             l2ping_count=self.bt_l2ping.value(),
             bt_pair_script=self.bt_pair_script.text().strip(),
             tone_enabled=tone_ref,
-            audio_confirm=self.bt_audio_confirm.isChecked(),
-            tone_timeout=float(self.bt_tone_timeout.value()),
-            test_tone=self.bt_tone_file.text().strip(),
-            tone_duration_s=self.bt_tone_duration.value(),
+            test_tone=self.bt_tone_file.text().strip() or DEFAULT_TONE_WAV,
+            tone_start_s=float(self.bt_tone_range.start_s()),
+            tone_end_s=float(self.bt_tone_range.end_s()),
         )
         # setup: emitted verbatim from what was loaded (no editor tab)
         cfg.setup = copy.deepcopy(self._setup_cfg)
