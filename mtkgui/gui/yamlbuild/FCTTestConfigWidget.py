@@ -1555,21 +1555,22 @@ class FCTTestConfigPanel(QWidget):
     def _cmd_row_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()
         add = QPushButton("Add")
-        # M43: one Add dropdown = 18 direct Type items + the "Operation"
-        # SUBMENU (11 standard operations + Custom + Delay).  Every
-        # submenu entry adds its row DIRECTLY - no nested editor dialog.
-        # The standalone Delay Type item is gone (Delay lives in the
-        # Operation submenu).
+        # M43: one Add dropdown = the "Operation" SUBMENU + direct items
+        # and the M45d category submenus.  Every submenu entry adds its
+        # row DIRECTLY - no nested editor dialog.
         add_menu = QMenu(add)
         self._add_actions = {}
         self._op_add_actions = {}
 
-        def _add_action(label: str):
-            act = add_menu.addAction(label,
-                                     lambda _checked=False, l=label:
-                                     self._add_row_for_label(l))
+        def _action_on(menu: QMenu, label: str, handler=None):
+            fn = handler or (lambda _checked=False, l=label:
+                             self._add_row_for_label(l))
+            act = menu.addAction(label, fn)
             self._add_actions[label] = act
             return act
+
+        def _add_action(label: str):
+            return _action_on(add_menu, label)
 
         add_menu.addSection("Operation")
         op_menu = add_menu.addMenu("Operation")
@@ -1582,15 +1583,8 @@ class FCTTestConfigPanel(QWidget):
             _op_action(f"Operation: {name}",
                        lambda _checked=False, n=name:
                        self._add_operation_row(n))
-        # M46: two serial-console transfer steps (16 submenu entries:
-        # 13 standard operations + 2 serial transfers + Delay).  The
-        # "Operation: Custom" entry was removed (it did nothing).
-        _op_action(STEP_TYPE_SERIAL_PUT,
-                   lambda _checked=False:
-                   self._add_serial_transfer_row("push"))
-        _op_action(STEP_TYPE_SERIAL_PULL,
-                   lambda _checked=False:
-                   self._add_serial_transfer_row("pull"))
+        # M45d: the Operation submenu keeps the 13 standard operations +
+        # Delay; the two serial transfers moved to File Transfer.
         _op_action("Delay — plain wait (ms)",
                    lambda _checked=False:
                    self._add_row_for_label(STEP_TYPE_DELAY))
@@ -1598,27 +1592,33 @@ class FCTTestConfigPanel(QWidget):
         add_menu.addSection("Console interact")
         _add_action(STEP_TYPE_CONSOLE_SERIAL)
         _add_action(STEP_TYPE_CONSOLE_SSH)
-        add_menu.addSection("SFTP")
-        _add_action(STEP_TYPE_SFTP_PUT)
-        _add_action(STEP_TYPE_SFTP_GET)
         add_menu.addSection("Host CLI")
         _add_action(STEP_TYPE_CONSOLE_CLI)
         add_menu.addSection("Flash")
         _add_action(STEP_TYPE_FLASH_GUI)
-        add_menu.addSection("Dialogs")
+        message_menu = add_menu.addMenu("Message")
         for label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                       STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                       STEP_TYPE_MESSAGE_YESNO_WAIT,
                       STEP_TYPE_MESSAGE_GOSTOP_WAIT):
-            _add_action(label)
-        add_menu.addSection("Wi-Fi tests")
-        _add_action(STEP_TYPE_WIFI_SCAN)
-        _add_action(STEP_TYPE_WIFI_PING)
-        _add_action(STEP_TYPE_WIFI_IPERF)
-        add_menu.addSection("Bluetooth tests")
-        _add_action(STEP_TYPE_BT_RSSI)
-        _add_action(STEP_TYPE_BT_PAIR)
-        _add_action(STEP_TYPE_BT_TONE)
+            _action_on(message_menu, label)
+        transfer_menu = add_menu.addMenu("File Transfer")
+        _action_on(transfer_menu, STEP_TYPE_SFTP_PUT)
+        _action_on(transfer_menu, STEP_TYPE_SFTP_GET)
+        _action_on(transfer_menu, STEP_TYPE_SERIAL_PUT,
+                   lambda _checked=False:
+                   self._add_serial_transfer_row("push"))
+        _action_on(transfer_menu, STEP_TYPE_SERIAL_PULL,
+                   lambda _checked=False:
+                   self._add_serial_transfer_row("pull"))
+        wifi_menu = add_menu.addMenu("Wi-Fi Tests")
+        _action_on(wifi_menu, STEP_TYPE_WIFI_SCAN)
+        _action_on(wifi_menu, STEP_TYPE_WIFI_PING)
+        _action_on(wifi_menu, STEP_TYPE_WIFI_IPERF)
+        bt_menu = add_menu.addMenu("Bluetooth Tests")
+        _action_on(bt_menu, STEP_TYPE_BT_RSSI)
+        _action_on(bt_menu, STEP_TYPE_BT_PAIR)
+        _action_on(bt_menu, STEP_TYPE_BT_TONE)
         add.setMenu(add_menu)
         add.clicked.connect(self._add_console_row)
 

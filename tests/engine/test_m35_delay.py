@@ -180,15 +180,19 @@ class TestAddMenus:
         assert panel.cmd_table.item(row, _COL_TIMEOUT).text() == "0"
 
     def test_main_table_covers_all_direct_types(self, qapp):
-        """M43: 18 direct Type items; Operation is a submenu."""
-        from mtkgui.engine.fct_test_config import STEP_TYPE_OPERATION
+        """M43/M45d: every Type label is reachable; Operation is a
+        submenu and the M46 serial transfers sit in File Transfer."""
+        from mtkgui.engine.fct_test_config import (
+            STEP_TYPE_OPERATION, STEP_TYPE_SERIAL_PULL,
+            STEP_TYPE_SERIAL_PUT)
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_TYPE)
         panel = FCTTestConfigPanel()
         panel.set_values({})
-        direct = set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}
+        direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
+            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 18
+        assert len(panel._add_actions) == 20
         for label in direct:
             panel._add_row_for_label(label)
             row = panel.cmd_table.rowCount() - 1

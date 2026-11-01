@@ -188,8 +188,18 @@ _NO_SERIAL_KINDS = (KIND_HOST, KIND_OP, KIND_WIFI_TEST, KIND_BT_TEST,
 STEP_TYPE_OPERATION = "Operation"
 STEP_TYPE_CONSOLE_SERIAL = "Console_serial"
 STEP_TYPE_CONSOLE_SSH = "Console_ssh"
-STEP_TYPE_SFTP_PUT = "SFTP_put"
-STEP_TYPE_SFTP_GET = "SFTP_get"
+#: M45d: the Type-column names (the internal KIND_SFTP_* action values
+#: stay unchanged - serialization / the executor route on them)
+STEP_TYPE_SFTP_PUT = "SSH SFTP: Push file to DUT"
+STEP_TYPE_SFTP_GET = "SSH SFTP: Pull file from DUT"
+#: M45d: pre-rename labels still accepted on load (tolerant read; the
+#: old YAML file is never rewritten, it re-emits the new names only on
+#: apply-save)
+LEGACY_STEP_TYPE_ALIASES = {"SFTP_put": STEP_TYPE_SFTP_PUT,
+                            "SFTP_get": STEP_TYPE_SFTP_GET}
+#: legacy Type label -> the ConsoleCommand kind it stands for
+_LEGACY_SFTP_KINDS = {"SFTP_put": KIND_SFTP_PUT,
+                      "SFTP_get": KIND_SFTP_GET}
 STEP_TYPE_CONSOLE_CLI = "Console_cli"
 STEP_TYPE_MESSAGE_OK = "MessageOK"
 STEP_TYPE_MESSAGE_YESNO = "MessageYesNo"
@@ -796,7 +806,12 @@ class ConsoleCommand:
         """
         legacy = not any(k in c for k in
                          ("wait_enabled", "send_enabled", "capture_enabled"))
-        kind = str(c.get("kind", "send"))
+        # M45d: a pre-rename row carries the old Type label in step_type
+        # and no kind - fold it back onto the internal action value
+        kind = str(c.get("kind", "") or "")
+        if not kind:
+            kind = _LEGACY_SFTP_KINDS.get(str(c.get("step_type", "")),
+                                          "send")
         send = str(c.get("send", ""))
         old_pass = str(c.get("expect_pass", ""))
         old_fail = str(c.get("expect_fail", ""))
@@ -966,9 +981,20 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
             else STEP_TYPE_CONSOLE_SERIAL)
 
 
+def normalize_step_type_label(label: str) -> str:
+    """Fold a legacy Type label onto the current one (M45d).
+
+    ``SFTP_put`` / ``SFTP_get`` were renamed to ``SSH SFTP: Push file to
+    DUT`` / ``SSH SFTP: Pull file from DUT``; a YAML saved by an older
+    build still names the old label and must keep working."""
+    text = str(label or "")
+    return LEGACY_STEP_TYPE_ALIASES.get(text, text)
+
+
 def console_command_for_label(label: str,
                               name: str = "") -> "ConsoleCommand":
     """The default ConsoleCommand backing one of the 20 Type labels."""
+    label = normalize_step_type_label(label)
     if label == STEP_TYPE_OPERATION:
         return ConsoleCommand(kind=KIND_OP, name=name or "New Operation",
                               wait_enabled=False, send_enabled=False,

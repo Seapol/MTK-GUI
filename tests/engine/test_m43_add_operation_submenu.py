@@ -57,14 +57,15 @@ def _op_labels() -> list:
 
 
 class TestOperationSubmenu:
-    def test_submenu_has_exactly_sixteen_entries(self, panel):
+    def test_submenu_has_exactly_fourteen_entries(self, panel):
         texts = list(panel._op_add_actions)
-        assert texts == _op_labels() + [
-            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL, DELAY_LABEL]
+        assert texts == _op_labels() + [DELAY_LABEL]
         # 13 standard operations (M41 added the two network-setup ops)
-        # + 2 serial transfers (M46) + Delay; Custom is gone
-        assert len(texts) == 16
+        # + Delay; the M46 serial transfers moved to File Transfer (M45d)
+        assert len(texts) == 14
         assert "Operation: Custom" not in texts
+        assert STEP_TYPE_SERIAL_PUT not in texts
+        assert STEP_TYPE_SERIAL_PULL not in texts
         # it really is a submenu of the Add dropdown
         first = next(iter(panel._op_add_actions.values()))
         sub = first.parent()
@@ -89,7 +90,7 @@ class TestOperationSubmenu:
         for label, kind in ((STEP_TYPE_SERIAL_PUT, KIND_SERIAL_PUT),
                             (STEP_TYPE_SERIAL_PULL, KIND_SERIAL_PULL)):
             before = panel.cmd_table.rowCount()
-            panel._op_add_actions[label].trigger()
+            panel._add_actions[label].trigger()
             assert panel.cmd_table.rowCount() == before + 1
             cmd = panel._get_row_cmd(before)
             assert cmd.kind == kind
@@ -123,9 +124,10 @@ class TestOperationSubmenu:
             panel._op_add_actions[text].trigger()
 
     def test_standalone_delay_and_operation_items_are_gone(self, panel):
-        direct = set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}
+        direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
+            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 18
+        assert len(panel._add_actions) == 20
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu
@@ -152,8 +154,9 @@ class TestOperationSubmenuGate:
             assert not act.isEnabled()
             assert act.toolTip() == tip
         assert acts[f"Operation: {allowed}"].isEnabled()
-        assert acts[STEP_TYPE_SERIAL_PUT].isEnabled()
-        assert acts[STEP_TYPE_SERIAL_PULL].isEnabled()
+        # the serial transfers are File Transfer entries now (M45d)
+        assert panel._add_actions[STEP_TYPE_SERIAL_PUT].isEnabled()
+        assert panel._add_actions[STEP_TYPE_SERIAL_PULL].isEnabled()
         assert acts[DELAY_LABEL].isEnabled()
 
     def test_none_available_ops_enables_everything(self, panel):

@@ -307,10 +307,10 @@ def test_sftp_row_clears_wait_and_capture(qapp):
     r = panel.cmd_table.rowCount()
     panel.cmd_table.insertRow(r)
     panel._save_row_cmd(r, cmd)
-    # m30: an SSH transfer is an SFTP_put row - the Type column names it
-    # and the cmd/params column shows the transfer paths (WaitFor /
-    # SendTo stage cells stay empty)
-    assert panel.cmd_table.item(r, _COL_TYPE).text() == "SFTP_put"
+    # m30: an SSH transfer is an SSH SFTP Push row - the Type column
+    # names it and the cmd/params column shows the transfer paths
+    # (WaitFor / SendTo stage cells stay empty)
+    assert panel.cmd_table.item(r, _COL_TYPE).text() == STEP_TYPE_SFTP_PUT
     assert panel.cmd_table.item(r, _COL_CMD).text() == \
         "load.sh -> /root/load.sh"
     assert panel.cmd_table.item(r, _COL_CAPTURE).text() == "(off)"
@@ -408,17 +408,21 @@ def test_message_rows_render_and_round_trip(qapp):
 
 
 def test_add_menu_covers_all_twelve_types(qapp):
-    """m30/M43: the Add dropdown offers every direct Type label
-    (Operation is the M43 submenu, not a direct item) and each added
-    row renders that label in its Type column."""
+    """m30/M43/M45d: the Add dropdown offers every Type label (Operation
+    is the M43 submenu, not a direct item; the M46 serial transfers are
+    File Transfer submenu items) and each added row renders that label
+    in its Type column."""
     from mtkgui.engine.fct_test_config import (
         STEP_TYPE_LABELS,
         STEP_TYPE_OPERATION,
+        STEP_TYPE_SERIAL_PULL,
+        STEP_TYPE_SERIAL_PUT,
         step_type_label,
     )
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    direct = set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}
+    direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
+        STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
     assert set(panel._add_actions) == direct
     for label in direct:
         panel._add_row_for_label(label)
@@ -538,12 +542,13 @@ fct_test_config:
 
 
 def test_sftp_row_is_an_action_with_editable_params(qapp):
-    """m30: an SSH transfer row is an SFTP_get Type with its transfer
-    paths in the cmd/params column (not dead Wait/Send/Capture cells)."""
+    """m30: an SSH transfer row is an SSH SFTP Pull Type with its
+    transfer paths in the cmd/params column (not dead Wait/Send/Capture
+    cells)."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
     t = panel.cmd_table
-    assert t.item(0, _COL_TYPE).text() == "SFTP_get"
+    assert t.item(0, _COL_TYPE).text() == STEP_TYPE_SFTP_GET
     assert t.item(0, _COL_CMD).text() == ("/root/fat_result.json -> "
                                           "{{dut_report}}/fat_result.json")
     assert t.item(0, _COL_WAIT).text() == ""

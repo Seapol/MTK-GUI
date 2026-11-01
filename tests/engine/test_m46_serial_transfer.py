@@ -459,9 +459,10 @@ def test_apply_send_hardening_waits_and_throttles_real_channels():
 
 
 # ---------------------------------------------------------------------------
-# §1 submenu contract (16 entries, Custom gone) - Qt panel
+# §1 submenu contract (M45d: Operation keeps the ops + Delay; the serial
+# transfers are File Transfer entries)
 # ---------------------------------------------------------------------------
-def test_operation_submenu_has_sixteen_entries_and_no_custom():
+def test_operation_submenu_keeps_ops_and_serial_moved_out():
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
     from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
@@ -470,8 +471,11 @@ def test_operation_submenu_has_sixteen_entries_and_no_custom():
     panel = FCTTestConfigPanel()
     panel.set_values({})
     texts = list(panel._op_add_actions)
-    assert len(texts) == 16
+    assert len(texts) == 14
     assert "Operation: Custom" not in texts
-    assert STEP_TYPE_SERIAL_PUT in texts
-    assert STEP_TYPE_SERIAL_PULL in texts
+    assert STEP_TYPE_SERIAL_PUT not in texts
+    assert STEP_TYPE_SERIAL_PULL not in texts
     assert "Delay — plain wait (ms)" in texts
+    # M45d: both transfers stay reachable from the Add menu
+    assert panel._add_actions[STEP_TYPE_SERIAL_PUT].isEnabled()
+    assert panel._add_actions[STEP_TYPE_SERIAL_PULL].isEnabled()

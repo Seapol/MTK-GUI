@@ -23,6 +23,7 @@ import yaml  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     FctTestConfig,
     STEP_TYPE_LABELS,
+    STEP_TYPE_SFTP_GET,
     console_command_for_label,
     step_type_label,
 )
@@ -92,8 +93,8 @@ def test_merge_and_split_round_trip(qapp):
         ["Power On DUT", "Delay", "Kernel check", "Pull report",
          "Stop iperf3"]
     assert [t.item(r, _COL_TYPE).text() for r in range(t.rowCount())] == \
-        ["Operation", "Operation", "Console_serial", "SFTP_get",
-         "Console_cli"]
+        ["Operation", "Operation", "Console_serial",
+         STEP_TYPE_SFTP_GET, "Console_cli"]
 
     out = panel.values()
     node = yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"]
