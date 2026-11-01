@@ -408,6 +408,47 @@ def test_message_without_console_logs_honest_drop(msg_env):
     assert any("NOT sent" in line for line in msg_env._log_lines())
 
 
+# --------------------------------------------------- M48: ICT messages
+# The three plain operator dialogs are STANDARD steps now - an ICT
+# sequence may carry them; the runner routes them through the same
+# semantics (log tag "ICT", same console binding).
+def _run_ict_message(env, kind, answer, abort_spy=None):
+    env.ict_steps[0] = (kind, "Ready?", "—", "—", "—", "—")
+    runner = TestRunner(env)
+    env.runner = runner
+    if abort_spy is not None:
+        runner.abort = lambda trigger="operator": abort_spy.append(trigger)
+    runner._exec_ict_row(0)
+    return runner
+
+
+def test_ict_yesno_yes_sends_y_and_passes(msg_env):
+    msg_env._answers = ["yes"]
+    _run_ict_message(msg_env, "MessageYesNo", "yes")
+    assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
+    assert msg_env.rows[("ict", 0)] == "PASS"
+    assert any(line.startswith("ICT ") for line in msg_env._log_lines())
+
+
+def test_ict_gostop_stop_fails_and_stops_run(msg_env):
+    stops = []
+    msg_env._answers = ["stop"]
+    _run_ict_message(msg_env, "MessageGoStop", "stop", abort_spy=stops)
+    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
+    assert msg_env.rows[("ict", 0)] == "FAIL"
+    assert stops == ["operator"]
+
+
+def test_ict_message_simulated_when_non_interactive(env):
+    env.ict_steps[0] = ("MessageOK", "Note", "—", "—", "—", "—")
+    runner = TestRunner(env)
+    env.runner = runner
+    runner._op_interactive = False
+    runner._exec_ict_row(0)
+    assert env.rows[("ict", 0)] == "PASS"
+    assert any("simulated" in line for line in env._log_lines())
+
+
 # ---------------------- Console-domain operator dialogs (2026-10-18)
 # MessageOKtoConsole / MessageYesNotoConsole / MessageGoStoptoConsole:
 # each WAITS the expected Console message first, then prompts.

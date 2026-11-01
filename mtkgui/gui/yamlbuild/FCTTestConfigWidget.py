@@ -1550,22 +1550,51 @@ class FCTTestConfigPanel(QWidget):
         return "Configure the required resource first"
 
     def _sync_op_submenu(self) -> None:
-        """M37 gate + M41 bare-metal gate on the M43 Operation submenu
-        entries: an operation whose resource is not configured is
-        disabled with its "configure X first" tooltip; the network-setup
-        operations are additionally disabled on a bare-metal DUT."""
+        """M37 gate on the shared Operation entries + M41 bare-metal gate
+        on the shared Network entries (M48)."""
         combo = getattr(self, "dut_type", None)
         is_linux = combo is None or combo.currentText() == "linux"
         for text, act in getattr(self, "_op_add_actions", {}).items():
             name = self._op_name_for_label(text)
             blocked = name is not None and not self._op_usable(name)
-            hint = self._op_blocked_tooltip(name) if blocked else ""
-            if name in NETWORK_OPS and not is_linux:
-                blocked = True
-                hint = ("Bare Metal: no network stack on the DUT - the "
-                        "network setup steps need a Linux DUT")
             act.setEnabled(not blocked)
-            act.setToolTip(hint)
+            act.setToolTip(self._op_blocked_tooltip(name) if blocked else "")
+        for act in getattr(self, "_network_add_actions", {}).values():
+            act.setEnabled(is_linux)
+            act.setToolTip("" if is_linux else
+                           ("Bare Metal: no network stack on the DUT - the "
+                            "network setup steps need a Linux DUT"))
+
+    def _add_entry_gate(self, entry):
+        """M48: per-entry gate applied while the shared menu is built."""
+        if not entry.op_name:
+            return None
+        if entry.group == "Network":
+            combo = getattr(self, "dut_type", None)
+            if combo is not None and combo.currentText() != "linux":
+                return (False, "Bare Metal: no network stack on the DUT - "
+                               "the network setup steps need a Linux DUT")
+            return None
+        if not self._op_usable(entry.op_name):
+            return (False, self._op_blocked_tooltip(entry.op_name))
+        return None
+
+    def _add_for_entry(self, entry) -> None:
+        """M48: one shared Add entry -> its row (direct, no dialog)."""
+        key = str(entry.key)
+        if key.startswith("op:"):
+            self._add_operation_row(key[len("op:"):])
+            return
+        if key == "delay":
+            self._add_row_for_label(STEP_TYPE_DELAY)
+            return
+        label = key[len("step:"):] if key.startswith("step:") else ""
+        if label == STEP_TYPE_SERIAL_PUT:
+            self._add_serial_transfer_row("push")
+        elif label == STEP_TYPE_SERIAL_PULL:
+            self._add_serial_transfer_row("pull")
+        elif label:
+            self._add_row_for_label(label)
 
     def _add_console_row(self) -> None:
         """Default interact row: Send enabled, Wait / Capture off."""
@@ -1601,71 +1630,26 @@ class FCTTestConfigPanel(QWidget):
     def _cmd_row_buttons(self) -> QHBoxLayout:
         row = QHBoxLayout()
         add = QPushButton("Add")
-        # M43: one Add dropdown = the "Operation" SUBMENU + direct items
-        # and the M45d category submenus.  Every submenu entry adds its
-        # row DIRECTLY - no nested editor dialog.
-        add_menu = QMenu(add)
+        # M48: the ONE shared Add menu (same grouped structure as the ICT
+        # step editor).  Every submenu entry adds its row DIRECTLY - no
+        # nested editor dialog; the ICT-only group stays visible but grayed.
+        from mtkgui.gui.add_menu import NETWORK, OPERATION, build_add_menu
+        built = build_add_menu(add, "fct", self._add_for_entry,
+                               gate=self._add_entry_gate)
+        self._add_menu = built.menu
+        self._add_menu_groups = built.submenus
         self._add_actions = {}
         self._op_add_actions = {}
-
-        def _action_on(menu: QMenu, label: str, handler=None):
-            fn = handler or (lambda _checked=False, l=label:
-                             self._add_row_for_label(l))
-            act = menu.addAction(label, fn)
-            self._add_actions[label] = act
-            return act
-
-        def _add_action(label: str):
-            return _action_on(add_menu, label)
-
-        add_menu.addSection("Operation")
-        op_menu = add_menu.addMenu("Operation")
-
-        def _op_action(text: str, handler) -> None:
-            act = op_menu.addAction(text, handler)
-            self._op_add_actions[text] = act
-
-        for name in OP_STEPS:
-            _op_action(f"Operation: {name}",
-                       lambda _checked=False, n=name:
-                       self._add_operation_row(n))
-        # M45d: the Operation submenu keeps the 13 standard operations +
-        # Delay; the two serial transfers moved to File Transfer.
-        _op_action("Delay — plain wait (ms)",
-                   lambda _checked=False:
-                   self._add_row_for_label(STEP_TYPE_DELAY))
-        self._sync_op_submenu()
-        add_menu.addSection("Console interact")
-        _add_action(STEP_TYPE_CONSOLE_SERIAL)
-        _add_action(STEP_TYPE_CONSOLE_SSH)
-        add_menu.addSection("Host CLI")
-        _add_action(STEP_TYPE_CONSOLE_CLI)
-        add_menu.addSection("Flash")
-        _add_action(STEP_TYPE_FLASH_GUI)
-        message_menu = add_menu.addMenu("Message")
-        for label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                      STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
-                      STEP_TYPE_MESSAGE_YESNO_WAIT,
-                      STEP_TYPE_MESSAGE_GOSTOP_WAIT):
-            _action_on(message_menu, label)
-        transfer_menu = add_menu.addMenu("File Transfer")
-        _action_on(transfer_menu, STEP_TYPE_SFTP_PUT)
-        _action_on(transfer_menu, STEP_TYPE_SFTP_GET)
-        _action_on(transfer_menu, STEP_TYPE_SERIAL_PUT,
-                   lambda _checked=False:
-                   self._add_serial_transfer_row("push"))
-        _action_on(transfer_menu, STEP_TYPE_SERIAL_PULL,
-                   lambda _checked=False:
-                   self._add_serial_transfer_row("pull"))
-        wifi_menu = add_menu.addMenu("Wi-Fi Tests")
-        _action_on(wifi_menu, STEP_TYPE_WIFI_SCAN)
-        _action_on(wifi_menu, STEP_TYPE_WIFI_PING)
-        _action_on(wifi_menu, STEP_TYPE_WIFI_IPERF)
-        bt_menu = add_menu.addMenu("Bluetooth Tests")
-        _action_on(bt_menu, STEP_TYPE_BT_RSSI)
-        _action_on(bt_menu, STEP_TYPE_BT_PAIR)
-        _action_on(bt_menu, STEP_TYPE_BT_TONE)
-        add.setMenu(add_menu)
+        self._network_add_actions = {}
+        for entry, act in built.entries:
+            if entry.domain == "ict":
+                continue        # ICT-only: always disabled here
+            self._add_actions[entry.label] = act
+            if entry.group == OPERATION:
+                self._op_add_actions[entry.label] = act
+            elif entry.group == NETWORK:
+                self._network_add_actions[entry.label] = act
+        add.setMenu(built.menu)
         add.clicked.connect(self._add_console_row)
 
         # M47: Load Template appends one of the two reference sequences as

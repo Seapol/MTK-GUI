@@ -421,10 +421,23 @@ def test_add_menu_covers_all_twelve_types(qapp):
     )
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
-        STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
+    # M48: the menu entries are the standard ops + messages + delay +
+    # network ops (Operation group) + the FCT-only step types
+    from mtkgui.engine.steps import (DIO_OPS, LAN_SETUP_OP, OP_STEPS,
+                                     WIFI_CONNECT_OP)
+    standard = [n for n in OP_STEPS
+                if n not in DIO_OPS
+                and n not in (WIFI_CONNECT_OP, LAN_SETUP_OP)]
+    direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
+              | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL,
+                 "Delay — plain wait (ms)"}
+              | {f"Operation: {n}" for n in standard}
+              | {WIFI_CONNECT_OP, LAN_SETUP_OP})
     assert set(panel._add_actions) == direct
     for label in direct:
+        if label.startswith("Operation: ") or label in (
+                WIFI_CONNECT_OP, LAN_SETUP_OP, "Delay — plain wait (ms)"):
+            continue        # added via _add_operation_row (tested above)
         panel._add_row_for_label(label)
         r = panel.cmd_table.rowCount() - 1
         cmd = panel._row_cmd(r)

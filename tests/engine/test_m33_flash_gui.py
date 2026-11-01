@@ -190,7 +190,10 @@ class TestFlashGuiPanel:
         action = panel._add_actions[STEP_TYPE_FLASH_GUI]
         menu = action.parent()
         assert isinstance(menu, QMenu)
-        assert "Flash" in [a.text() for a in menu.actions()]
+        # M48: Flash is its own submenu (one Flash_GUI entry)
+        assert menu.title() == "Flash"
+        assert [a.text() for a in menu.actions() if a.text()] == \
+            [STEP_TYPE_FLASH_GUI]
 
     def test_new_row_summary_shows_no_path(self, panel):
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import _COL_CMD

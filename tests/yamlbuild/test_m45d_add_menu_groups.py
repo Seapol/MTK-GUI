@@ -87,8 +87,8 @@ def panel(qapp):
 
 
 def _add_menu(panel) -> QMenu:
-    """The Add dropdown (parent of every registered entry)."""
-    return panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].parent()
+    """The Add dropdown (top of the grouped submenu tree, M48)."""
+    return panel._add_menu
 
 
 def _submenu(panel, title: str) -> QMenu:
@@ -103,8 +103,25 @@ def _entries(panel, title: str) -> list:
 
 
 class TestSubmenuStructure:
-    def test_message_submenu_has_six_entries(self, panel):
-        assert _entries(panel, "Message") == list(MESSAGE_LABELS)
+    def test_message_submenu_has_three_console_entries(self, panel):
+        """M48: the three plain operator dialogs moved to the STANDARD
+        Operation group; Message (Console) keeps the three _to_Console
+        variants."""
+        assert _entries(panel, "Message (Console)") == [
+            STEP_TYPE_MESSAGE_OK_WAIT, STEP_TYPE_MESSAGE_YESNO_WAIT,
+            STEP_TYPE_MESSAGE_GOSTOP_WAIT]
+
+    def test_plain_message_entries_sit_in_operation(self, panel):
+        for label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
+                      STEP_TYPE_MESSAGE_GOSTOP):
+            assert label in panel._op_add_actions, label
+
+    def test_ict_measurements_submenu_is_ict_only(self, panel):
+        """M48: the ICT-only group stays visible but grayed in FCT."""
+        ict = _submenu(panel, "ICT Measurements")
+        assert not ict.isEnabled()
+        assert "ICT-only step" in ict.menuAction().toolTip()
+        assert len(_entries(panel, "ICT Measurements")) == 6
 
     def test_file_transfer_submenu_has_four_entries(self, panel):
         assert _entries(panel, "File Transfer") == list(TRANSFER_LABELS)
@@ -117,7 +134,11 @@ class TestSubmenuStructure:
 
     def test_operation_submenu_keeps_the_standard_ops_only(self, panel):
         entries = [t for t in panel._op_add_actions]
-        assert entries[-1] == "Delay — plain wait (ms)"
+        # M48: 9 ops + Delay + the three plain operator messages
+        assert entries[-4] == "Delay — plain wait (ms)"
+        assert entries[-3:] == [STEP_TYPE_MESSAGE_OK,
+                                STEP_TYPE_MESSAGE_YESNO,
+                                STEP_TYPE_MESSAGE_GOSTOP]
         assert STEP_TYPE_SERIAL_PUT not in entries
         assert STEP_TYPE_SERIAL_PULL not in entries
 
@@ -125,8 +146,8 @@ class TestSubmenuStructure:
         titles = [m.title() for m in _add_menu(panel).findChildren(QMenu)]
         for old in OLD_SECTION_TITLES:
             assert old not in titles, old
-        for new in ("Operation", "Message", "File Transfer", "Wi-Fi Tests",
-                    "Bluetooth Tests"):
+        for new in ("Operation", "Message (Console)", "File Transfer",
+                    "Network", "Wi-Fi Tests", "Bluetooth Tests"):
             assert new in titles, new
 
 

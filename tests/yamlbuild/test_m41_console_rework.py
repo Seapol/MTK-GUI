@@ -313,8 +313,10 @@ def test_parse_dut_ip_skips_loopback_and_link_local():
 
 
 def test_network_ops_bare_metal_gating(panel):
-    wifi_act = panel._op_add_actions[f"Operation: {WIFI_CONNECT_OP}"]
-    lan_act = panel._op_add_actions[f"Operation: {LAN_SETUP_OP}"]
+    """M48: the network-setup ops live in the FCT-only Network submenu
+    (tracked in _network_add_actions)."""
+    wifi_act = panel._network_add_actions[WIFI_CONNECT_OP]
+    lan_act = panel._network_add_actions[LAN_SETUP_OP]
     assert wifi_act.isEnabled() and lan_act.isEnabled()
 
     panel.dut_type.setCurrentText("bare_metal")
@@ -328,7 +330,7 @@ def test_network_ops_bare_metal_gating(panel):
 def test_network_ops_always_usable_without_resources(panel):
     panel.set_available_ops(set())
     for name in NETWORK_OPS:
-        assert panel._op_add_actions[f"Operation: {name}"].isEnabled()
+        assert panel._network_add_actions[name].isEnabled()
     assert not panel._op_add_actions["Operation: Power On DUT"] \
         .isEnabled()
 

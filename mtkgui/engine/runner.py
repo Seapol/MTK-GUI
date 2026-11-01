@@ -637,6 +637,22 @@ class TestRunner(QObject):
                       else getattr(self, "_last_op_error", None))
             return
 
+        if kind in ("MessageOK", "MessageYesNo", "MessageGoStop"):
+            # M48: the plain operator-dialog kinds are STANDARD steps, so
+            # an ICT sequence may carry them too (same semantics as the
+            # FCT rows; the operator answer drives the DUT console).
+            if not getattr(self, "_op_interactive", True):
+                env._log(f"ICT {name}: operator message simulated -> PASS")
+                self._put("ict", r, StepStatus.PASS)
+                return
+            answer = env._fct_message_dialog(kind, name)
+            verdict = self._fct_message_action(kind, name, answer,
+                                               params or {}, tag="ICT")
+            self._put("ict", r,
+                      StepStatus.PASS if verdict == "PASS"
+                      else StepStatus.FAIL)
+            return
+
         # ------------------------------------------------ measurement rows
         gw = getattr(env, "gateway", None)
         if env.rack is not None:
@@ -915,7 +931,7 @@ class TestRunner(QObject):
         self.env._log(f"FCT {name}: sent {payload!r} to the DUT console")
 
     def _fct_message_action(self, kind: str, name: str, answer: str,
-                            cfg: dict) -> str:
+                            cfg: dict, tag: str = "FCT") -> str:
         """User-direction 2026-10-14 semantics for the three operator
         message kinds:
 
@@ -927,33 +943,36 @@ class TestRunner(QObject):
           continues; STOP sends ``send_no`` (n) -> the step FAILs and
           the run STOPS (operator-style abort, teardown rows run).
 
+        ``tag`` is the log prefix ("FCT" by default; "ICT" for the
+        STANDARD message rows an ICT sequence may carry - M48).
+
         Returns the row verdict ("PASS" / "FAIL")."""
         env = self.env
         send_yes = str(cfg.get("send_yes") or "y")
         send_no = str(cfg.get("send_no") or "n")
         if kind == "MessageOK":
-            env._log(f"FCT {name}: operator OK -> PASS "
+            env._log(f"{tag} {name}: operator OK -> PASS "
                      f"(no console action)")
             return "PASS"
         if kind == "MessageYesNo":
             if answer == "timeout":
-                env._log(f"FCT {name}: operator timeout -> FAIL")
+                env._log(f"{tag} {name}: operator timeout -> FAIL")
                 return "FAIL"
             payload = send_yes if answer == "yes" else send_no
             self._fct_message_send(payload, name)
-            env._log(f"FCT {name}: operator {answer.capitalize()} "
+            env._log(f"{tag} {name}: operator {answer.capitalize()} "
                      f"-> PASS")
             return "PASS"
         # MessageGoStop
         if answer == "timeout":
-            env._log(f"FCT {name}: operator timeout -> FAIL")
+            env._log(f"{tag} {name}: operator timeout -> FAIL")
             return "FAIL"
         if answer == "go":
             self._fct_message_send(send_yes, name)
-            env._log(f"FCT {name}: operator GO -> PASS")
+            env._log(f"{tag} {name}: operator GO -> PASS")
             return "PASS"
         self._fct_message_send(send_no, name)
-        env._log(f"FCT {name}: operator STOP -> FAIL (run stops)")
+        env._log(f"{tag} {name}: operator STOP -> FAIL (run stops)")
         # the run STOPS: operator-style abort - flagged teardown rows
         # still execute before the run ends
         self.abort(trigger="operator")

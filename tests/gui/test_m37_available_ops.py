@@ -41,11 +41,19 @@ def qapp():
 
 
 def _op_actions(menu):
-    """Menu actions whose label is an "Operation: <catalog name>" entry
-    (the "Operation: Custom" entry is not a catalog operation)."""
-    return {act.text(): act for act in menu.actions()
+    """"Operation: <name>" entries of the grouped Add menu (M48: they
+    live in the Operation submenu - DIO ops live in ICT Measurements)."""
+    op_menu = _submenu(menu, "Operation")
+    return {act.text(): act for act in op_menu.actions()
             if act.text().startswith("Operation: ")
             and act.text() != "Operation: Custom"}
+
+
+def _submenu(menu, title):
+    for act in menu.actions():
+        if act.menu() is not None and act.menu().title() == title:
+            return act.menu()
+    raise AssertionError(f"submenu {title!r} not found")
 
 
 def _editor(kind, available):
@@ -107,24 +115,27 @@ def test_none_available_ops_enables_every_operation(qapp):
 @pytest.mark.parametrize("kind", ["ict", "fct"])
 def test_empty_available_ops_greys_every_operation(qapp, kind):
     """An empty set = nothing usable: every "Operation: <name>" entry
-    is disabled, Custom / Delay stay added-able."""
+    is disabled, the Delay / message entries stay added-able."""
     dlg = _editor(kind, set())
     acts = _op_actions(dlg.btn_add.menu())
-    assert len(acts) == len(OP_STEPS)
+    assert len(acts) == len(OP_STEPS) - len(DIO_OPS) - 2   # M48: 9 ops
     assert all(not act.isEnabled() for act in acts.values())
-    others = [act for act in dlg.btn_add.menu().actions()
-              if not act.text().startswith("Operation: ")]
+    op_menu = _submenu(dlg.btn_add.menu(), "Operation")
+    others = [act for act in op_menu.actions()
+              if not act.text().startswith("Operation: ") and act.text()]
     assert others and all(act.isEnabled() for act in others)
 
 
 @pytest.mark.parametrize("kind", ["ict", "fct"])
 def test_subset_available_ops_enables_only_the_subset(qapp, kind):
-    """Only the named operations stay usable."""
+    """Only the named operations stay usable (M48: the DIO operations
+    live in the ICT-only group, never in Operation)."""
     dlg = _editor(kind, {"Power On DUT"})
     acts = _op_actions(dlg.btn_add.menu())
     assert acts["Operation: Power On DUT"].isEnabled()
     assert not acts["Operation: Init Instruments"].isEnabled()
-    assert not acts["Operation: U2355A DIO Read"].isEnabled()
+    for name in DIO_OPS:
+        assert f"Operation: {name}" not in acts
 
 
 @pytest.mark.parametrize("kind", ["ict", "fct"])
@@ -132,12 +143,21 @@ def test_grayed_operation_tooltips_name_the_fix(qapp, kind):
     """Each grayed operation explains WHICH configuration unblocks it."""
     dlg = _editor(kind, set())
     acts = _op_actions(dlg.btn_add.menu())
-    assert "Control IO Nets" in acts["Operation: U2355A DIO Read"] \
-        .toolTip()
     assert "instruments (Equipment page)" in \
         acts["Operation: Init Instruments"].toolTip()
     assert "fixture (Equipment page)" in \
         acts["Operation: Fixture Clamp Down"].toolTip()
+    # M48: the DIO operations sit in the ICT-only group - in an ICT
+    # editor they keep the Control IO Nets tooltip
+    dio_menu = _submenu(dlg.btn_add.menu(), "ICT Measurements")
+    if kind == "ict":
+        dio = {act.text(): act for act in dio_menu.actions()
+               if act.text() in DIO_OPS}
+        assert "Control IO Nets" in \
+            dio[sorted(DIO_OPS)[0]].toolTip()
+    else:
+        assert not dio_menu.isEnabled()
+        assert "ICT-only step" in dio_menu.menuAction().toolTip()
 
 
 # ------------------------------------------------------------- plumbing

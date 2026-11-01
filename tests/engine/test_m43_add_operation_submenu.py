@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 """M43: the main FCT Sequence Add menu nests the Operation entries.
 
-The "Operation" entry is a SUBMENU with 16 entries (13 standard
-operations + the two M46 serial transfers + "Delay — plain wait (ms)");
-clicking an entry adds the matching row DIRECTLY (no nested
-sequence-editor dialog).  The standalone Delay Type item is gone: the
-main menu holds 18 direct Type items + the Operation submenu.  (M41 grew
-the catalog from 11 to 13 standard operations; M46 removed the no-op
-"Operation: Custom" entry and added Serial Push / Pull.)
+The "Operation" entry is a SUBMENU; clicking an entry adds the matching
+row DIRECTLY (no nested sequence-editor dialog).  M48 unified the
+structure with the ICT editor: Operation now holds 13 entries (9
+standard operations + Delay + the three plain operator messages) and
+the ICT-only / FCT-only groups are separate submenus.
 """
 from __future__ import annotations
 
@@ -26,10 +24,14 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     KIND_SERIAL_PUT,
     STEP_TYPE_DELAY,
     STEP_TYPE_LABELS,
+    STEP_TYPE_MESSAGE_GOSTOP,
+    STEP_TYPE_MESSAGE_OK,
+    STEP_TYPE_MESSAGE_YESNO,
     STEP_TYPE_OPERATION,
     STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_SERIAL_PUT,
 )
+from mtkgui.engine.steps import LAN_SETUP_OP, WIFI_CONNECT_OP  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
     _COL_CMD,
@@ -38,6 +40,13 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 )
 
 DELAY_LABEL = "Delay — plain wait (ms)"
+MESSAGE_LABELS = (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
+                  STEP_TYPE_MESSAGE_GOSTOP)
+#: M48: the 9 standard operations (DIO / the two network setups moved
+#: into the ICT-only / FCT-only groups)
+STANDARD_OPS = tuple(n for n in OP_STEPS
+                     if n not in DIO_OPS
+                     and n not in (WIFI_CONNECT_OP, LAN_SETUP_OP))
 
 
 @pytest.fixture(scope="module")
@@ -53,17 +62,18 @@ def panel(qapp):
 
 
 def _op_labels() -> list:
-    return [f"Operation: {n}" for n in OP_STEPS]
+    return [f"Operation: {n}" for n in STANDARD_OPS]
 
 
 class TestOperationSubmenu:
-    def test_submenu_has_exactly_fourteen_entries(self, panel):
+    def test_submenu_has_exactly_thirteen_entries(self, panel):
         texts = list(panel._op_add_actions)
-        assert texts == _op_labels() + [DELAY_LABEL]
-        # 13 standard operations (M41 added the two network-setup ops)
-        # + Delay; the M46 serial transfers moved to File Transfer (M45d)
-        assert len(texts) == 14
+        assert texts == _op_labels() + [DELAY_LABEL] + list(MESSAGE_LABELS)
+        # M48: 9 standard operations + Delay + the three plain messages
+        assert len(texts) == 13
         assert "Operation: Custom" not in texts
+        for moved in DIO_OPS + (WIFI_CONNECT_OP, LAN_SETUP_OP):
+            assert f"Operation: {moved}" not in texts, moved
         assert STEP_TYPE_SERIAL_PUT not in texts
         assert STEP_TYPE_SERIAL_PULL not in texts
         # it really is a submenu of the Add dropdown
@@ -73,7 +83,7 @@ class TestOperationSubmenu:
         assert sub.title() == "Operation"
 
     def test_each_standard_op_adds_its_row_directly(self, panel):
-        for name in OP_STEPS:
+        for name in STANDARD_OPS:
             panel._op_add_actions[f"Operation: {name}"].trigger()
             row = panel.cmd_table.rowCount() - 1
             cmd = panel._get_row_cmd(row)
@@ -82,6 +92,17 @@ class TestOperationSubmenu:
             assert cmd.op_params == dict(OP_STEPS[name])
             assert panel.cmd_table.item(row, _COL_TYPE).text() \
                 == STEP_TYPE_OPERATION
+
+    def test_plain_message_entries_add_message_rows(self, panel):
+        """M48: the three plain operator dialogs are STANDARD steps."""
+        from mtkgui.engine.fct_test_config import KIND_MESSAGE
+        for label in MESSAGE_LABELS:
+            before = panel.cmd_table.rowCount()
+            panel._op_add_actions[label].trigger()
+            assert panel.cmd_table.rowCount() == before + 1, label
+            cmd = panel._get_row_cmd(before)
+            assert cmd.kind == KIND_MESSAGE, label
+            assert panel.cmd_table.item(before, _COL_TYPE).text() == label
 
     def test_serial_entries_add_their_rows_directly(self, panel):
         """M46: the two serial transfers add a serial row with the
@@ -124,10 +145,14 @@ class TestOperationSubmenu:
             panel._op_add_actions[text].trigger()
 
     def test_standalone_delay_and_operation_items_are_gone(self, panel):
-        direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
-            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
+        direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
+                  | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
+                  | {f"Operation: {n}" for n in STANDARD_OPS}
+                  | set(MESSAGE_LABELS)
+                  | {WIFI_CONNECT_OP, LAN_SETUP_OP}
+                  | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 20
+        assert len(panel._add_actions) == 32
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu
@@ -136,24 +161,27 @@ class TestOperationSubmenu:
 
 class TestOperationSubmenuGate:
     def test_available_ops_disables_blocked_entries(self, panel):
-        dio = sorted(DIO_OPS)[0]
         inst = sorted(INSTRUMENT_OPS)[0]
         fixture = sorted(FIXTURE_OPS)[0]
-        blocked = set(DIO_OPS) | set(INSTRUMENT_OPS) | set(FIXTURE_OPS)
+        blocked = set(INSTRUMENT_OPS) | set(FIXTURE_OPS)
         allowed = "Power On DUT" if "Power On DUT" not in blocked \
             else sorted(set(OP_STEPS) - blocked)[0]
         panel.set_available_ops({allowed})
         acts = panel._op_add_actions
-        for name, tip in ((dio, "Configure Control IO Nets (ICT module) "
+        for name, tip in ((inst, "Configure instruments (Equipment page) "
                                 "first"),
-                          (inst, "Configure instruments (Equipment page) "
-                                 "first"),
                           (fixture, "Configure fixture (Equipment page) "
                                     "first")):
             act = acts[f"Operation: {name}"]
             assert not act.isEnabled()
             assert act.toolTip() == tip
         assert acts[f"Operation: {allowed}"].isEnabled()
+        # M48: the DIO operations moved to the ICT-only submenu - it is
+        # always grayed in an FCT sequence
+        ict = panel._add_menu_groups["ICT Measurements"]
+        assert not ict.isEnabled()
+        for name in DIO_OPS:
+            assert f"Operation: {name}" not in acts
         # the serial transfers are File Transfer entries now (M45d)
         assert panel._add_actions[STEP_TYPE_SERIAL_PUT].isEnabled()
         assert panel._add_actions[STEP_TYPE_SERIAL_PULL].isEnabled()

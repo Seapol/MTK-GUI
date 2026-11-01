@@ -73,15 +73,19 @@ def test_unit_map_covers_all_methods(qapp):
 
 def test_ict_add_menu_offers_ops_and_delay(qapp):
     """Single sequence source: the ICT Add menu offers the standard
-    operations AND the Delay step.  M33 retired the J-Link flash ops
-    (flashing is now the Flash_GUI FCT step)."""
+    operations AND the Delay step (M48: grouped submenus).  M33 retired
+    the J-Link flash ops (flashing is now the Flash_GUI FCT step)."""
     dlg = make_dialog(None)
     try:
         actions = [a.text() for a in dlg.btn_add.menu().actions()]
-        assert "Operation: Init Instruments" in actions
-        assert "Operation: Flash FAT Firmware" not in actions
-        assert "Operation: Flash OOBE Firmware" not in actions
-        assert "Delay — plain wait (ms)" in actions
+        assert "Operation" in actions and "ICT Measurements" in actions
+        op_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
+                       if a.text() == "Operation")
+        texts = [a.text() for a in op_menu.actions() if a.text()]
+        assert "Operation: Init Instruments" in texts
+        assert "Operation: Flash FAT Firmware" not in texts
+        assert "Operation: U2355A DIO Read" not in texts  # M48: ICT group
+        assert "Delay — plain wait (ms)" in texts
     finally:
         dlg.deleteLater()
 

@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -46,6 +45,10 @@ from ..engine import (
     op_step as _op_step,
     op_summary as _op_summary,
 )
+
+#: M48: the plain operator-dialog kinds are STANDARD steps - an ICT
+#: sequence may carry them too (edited as name + wait / timeout only)
+ICT_MESSAGE_KINDS = ("MessageOK", "MessageYesNo", "MessageGoStop")
 
 
 class StepsEditorDialog(QDialog):
@@ -148,58 +151,78 @@ class StepsEditorDialog(QDialog):
             fit_dialog(self, 1000, 690)
 
     def _make_add_menu(self):
-        """Dropdown for the Add button: every supported step type."""
-        menu = QMenu(self)
+        """M48: the ONE shared Add menu (same grouped structure as the
+        FCT Sequence table).  The ICT branch adds operation / measurement
+        / message tuples directly; the legacy FCT per-step editor keeps
+        only what its step model can express (the FCT-only groups stay
+        visible but grayed - M43 rule: every entry adds directly)."""
+        from .add_menu import (
+            BLUETOOTH_TESTS,
+            CONSOLE,
+            FILE_TRANSFER,
+            FLASH,
+            MESSAGE_CONSOLE,
+            NETWORK,
+            WIFI_TESTS,
+            build_add_menu,
+        )
+
+        def _gate(entry):
+            if entry.op_name and not self._op_usable(entry.op_name):
+                return (False, self._op_blocked_tooltip(entry.op_name))
+            return None
+
+        def _on_entry(entry):
+            payload = self._payload_for_entry(entry)
+            if payload is not None:
+                self._on_add(*payload)
+
+        disable = {}
+        if self._kind == "fct":
+            disable = {title: "Add this step in the FCT Sequence table's "
+                              "Add menu"
+                       for title in (FILE_TRANSFER, NETWORK, CONSOLE,
+                                     MESSAGE_CONSOLE, WIFI_TESTS,
+                                     BLUETOOTH_TESTS, FLASH)}
+        built = build_add_menu(self, self._kind, _on_entry, gate=_gate,
+                               disable_groups=disable)
+        # kept for introspection / tests (submenu title -> QMenu)
+        self._add_menu_groups = built.submenus
+        return built.menu
+
+    def _payload_for_entry(self, entry):
+        """Translate one shared Add entry into this editor's step model.
+
+        ICT: a 6/7-tuple step.  FCT: ``(label, kind, op_params)`` for
+        ``_on_add``.  None = the entry is not addable here (it is grayed
+        in the menu, so this never happens through the UI).
+        """
+        key = str(entry.key)
         if self._kind == "ict":
-            # every standard operation (with its default parameters)
-            # plus a custom operation, the generic measurement test and
-            # the plain Delay wait step
-            types = [(f"Operation: {n}", _op_step(n)) for n in OP_STEPS]
-            types += [
-                ("Operation: Custom",
-                 ("op", "New Operation", "—", "—", "—", "—")),
-                # M19f: the generic "Test (measurement)" is gone - the
-                # concrete measurement methods are offered instead
-                ("R-GND — rail-to-ground impedance (measurement)",
-                 (METHOD_R_GND, "New Test", "Ω", "—", "—", "—")),
-                ("DAQ AI Sequences — power-rails up sequence "
-                 "(measurement)",
-                 ("DAQ AI", "New Test", "V", "—", "—", "—")),
-                ("Voltage — power rail level (measurement)",
-                 ("Power Voltage", "New Test", "V", "—", "—", "—")),
-                ("Clock Hz — clock frequency (measurement)",
-                 ("Clock Hz", "New Test", "kHz", "—", "—", "—")),
-                ("Delay — plain wait (ms)",
-                 ("delay", "Delay", "ms", "—", "—", "—")),
-            ]
-        else:
-            # M35: the FCT Add dropdown keeps only the standard
-            # operations, a custom operation and the plain Delay wait.
-            # Every other step type (dialogs / console / CLI / Wi-Fi /
-            # Bluetooth / flash) is added through the main FCT Sequence
-            # table's own Add menu, which is the single add entry.
-            types = [(f"Operation: {n}", n, "op", dict(OP_STEPS[n]))
-                     for n in OP_STEPS]
-            types += [
-                ("Operation: Custom",
-                 ("op", "New Operation", "—", "—", "—", "—")),
-                ("Delay — plain wait (ms)",
-                 "Delay: 1000 ms", "Delay"),
-            ]
-        for entry in types:
-            act = menu.addAction(entry[0])
-            method = entry[2] if len(entry) > 2 else None
-            params = entry[3] if len(entry) > 3 else None
-            act.triggered.connect(
-                lambda _checked=False, s=entry[1], m=method, p=params:
-                    self._on_add(s, m, p))
-            # M37: an operation whose resource is not configured yet is
-            # grayed out with the "configure X first" tooltip
-            op_name = self._op_name_for_label(entry[0])
-            if op_name is not None and not self._op_usable(op_name):
-                act.setEnabled(False)
-                act.setToolTip(self._op_blocked_tooltip(op_name))
-        return menu
+            if key.startswith("op:"):
+                return (_op_step(key[3:]),)
+            if key == "delay":
+                return (("delay", "Delay", "ms", "—", "—", "—"),)
+            if key.startswith("measure:"):
+                method = key[len("measure:"):]
+                unit = {"R-GND": "Ω", "DAQ AI": "V", "Power Voltage": "V",
+                        "Clock Hz": "kHz"}.get(method, "—")
+                return ((method, "New Test", unit, "—", "—", "—"),)
+            if key.startswith("step:"):
+                return ((key[len("step:"):],
+                         f"{key[len('step:'):]}: operator confirm",
+                         "—", "—", "—", "—"),)
+            return None
+        # FCT per-step editor
+        if key.startswith("op:"):
+            name = key[3:]
+            return (name, "op", dict(OP_STEPS[name]))
+        if key == "delay":
+            return ("Delay: 1000 ms", "Delay", None)
+        if key.startswith("step:"):
+            return (f"{key[len('step:'):]}: operator confirm",
+                    key[len("step:"):], None)
+        return None
 
     @staticmethod
     def _op_name_for_label(label: str) -> str | None:
@@ -435,6 +458,10 @@ class StepsEditorDialog(QDialog):
             return self._edit_op_step(r, step)
         kind, name, unit, measured, lo, hi = step[:6]
         kind = normalize_ict_method(kind)
+        if kind in ICT_MESSAGE_KINDS:
+            # M48: message rows are STANDARD steps - edit the name and the
+            # wait / timeout only (no measurement fields)
+            return self._edit_ict_message_step(r, step)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Step {r + 1} — Edit")
         outer = QVBoxLayout(dlg)
@@ -612,6 +639,51 @@ class StepsEditorDialog(QDialog):
             _num_text(lo_spin),
             _num_text(hi_spin),
         )
+        self._enables[r] = enable_cb.isChecked()
+        self._waits[r] = wait_spin.value()
+        self._timeouts[r] = timeout_spin.value()
+        return True
+
+    def _edit_ict_message_step(self, r, step):
+        """M48: edit an ICT operator-message row.  MessageOK / YesNo /
+        GoStop carry no measurement: only the message text, the enable
+        flag and the wait / timeout are editable."""
+        kind, name = step[0], step[1]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Step {r + 1} — Edit (Message)")
+        outer = QVBoxLayout(dlg)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
+        name_edit = QLineEdit(name)
+        name_edit.setPlaceholderText("message shown to the operator")
+        enable_cb = QCheckBox()
+        enable_cb.setChecked(self._enables[r])
+        wait_spin = QSpinBox()
+        wait_spin.setRange(0, 99999)
+        wait_spin.setValue(self._waits[r])
+        wait_spin.setSuffix(" ms")
+        timeout_spin = QSpinBox()
+        timeout_spin.setRange(0, 999999)
+        timeout_spin.setValue(self._timeouts[r])
+        timeout_spin.setSuffix(" ms")
+        form.addRow("Message:", name_edit)
+        form.addRow("Enable:", enable_cb)
+        form.addRow("Wait:", wait_spin)
+        form.addRow("Timeout:", timeout_spin)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        body_lay.addLayout(form)
+        apply_scroll_to_dialog(dlg, body)
+        outer.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self._steps[r] = (kind, name_edit.text().strip() or name,
+                          "—", "—", "—", "—")
         self._enables[r] = enable_cb.isChecked()
         self._waits[r] = wait_spin.value()
         self._timeouts[r] = timeout_spin.value()

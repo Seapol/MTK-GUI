@@ -180,20 +180,35 @@ class TestAddMenus:
         assert panel.cmd_table.item(row, _COL_TIMEOUT).text() == "0"
 
     def test_main_table_covers_all_direct_types(self, qapp):
-        """M43/M45d: every Type label is reachable; Operation is a
-        submenu and the M46 serial transfers sit in File Transfer."""
+        """M43/M45d/M48: every Type label is reachable; Operation is a
+        submenu (13 entries incl. Delay + the three plain messages) and
+        the network-setup ops live in the FCT-only Network submenu."""
         from mtkgui.engine.fct_test_config import (
-            STEP_TYPE_OPERATION, STEP_TYPE_SERIAL_PULL,
-            STEP_TYPE_SERIAL_PUT)
+            STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK,
+            STEP_TYPE_MESSAGE_YESNO, STEP_TYPE_OPERATION,
+            STEP_TYPE_SERIAL_PULL, STEP_TYPE_SERIAL_PUT)
+        from mtkgui.engine.steps import (DIO_OPS, LAN_SETUP_OP,
+                                         WIFI_CONNECT_OP)
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_TYPE)
         panel = FCTTestConfigPanel()
         panel.set_values({})
-        direct = (set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION}) | {
-            STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
+        standard = [name for name in OP_STEPS
+                    if name not in DIO_OPS
+                    and name not in (WIFI_CONNECT_OP, LAN_SETUP_OP)]
+        direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
+                  | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
+                  | {f"Operation: {name}" for name in standard}
+                  | {STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
+                     STEP_TYPE_MESSAGE_GOSTOP}
+                  | {WIFI_CONNECT_OP, LAN_SETUP_OP}
+                  | {"Delay — plain wait (ms)"})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 20
+        assert len(panel._add_actions) == 32
         for label in direct:
+            if label.startswith("Operation: ") or label in (
+                    WIFI_CONNECT_OP, LAN_SETUP_OP, "Delay — plain wait (ms)"):
+                continue        # added as operation / delay rows below
             panel._add_row_for_label(label)
             row = panel.cmd_table.rowCount() - 1
             assert panel.cmd_table.item(row, _COL_TYPE).text() == label
@@ -244,21 +259,66 @@ class TestAddMenus:
         assert not (item.flags() & Qt.ItemIsEditable)
 
     def test_legacy_fct_menu_keeps_only_ops_custom_delay(self, qapp):
+        """M48: the legacy FCT editor shares the unified grouped menu -
+        the FCT-only groups stay visible but grayed ("add these in the
+        FCT Sequence table")."""
+        from mtkgui.engine.steps import DIO_OPS, LAN_SETUP_OP, \
+            WIFI_CONNECT_OP
         from mtkgui.gui.steps_editor import StepsEditorDialog
         dlg = StepsEditorDialog("fct", [], [], [], [])
         texts = [a.text() for a in dlg.btn_add.menu().actions()]
-        expected = [f"Operation: {n}" for n in OP_STEPS]
-        expected += ["Operation: Custom", "Delay — plain wait (ms)"]
-        assert texts == expected
-        assert not any("MessageOK" in t for t in texts)
+        assert texts == ["Operation", "ICT Measurements", "File Transfer",
+                         "Network", "Console", "Message (Console)",
+                         "Wi-Fi Tests", "Bluetooth Tests", "Flash"]
+        op_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
+                       if a.text() == "Operation")
+        op_texts = [a.text() for a in op_menu.actions() if a.text()]
+        standard = [n for n in OP_STEPS
+                    if n not in DIO_OPS
+                    and n not in (WIFI_CONNECT_OP, LAN_SETUP_OP)]
+        assert op_texts == ([f"Operation: {n}" for n in standard]
+                            + ["Delay — plain wait (ms)", "MessageOK",
+                               "MessageYesNo", "MessageGoStop"])
         assert not any(t.startswith(("Sendto", "Waitfor", "Capturefrom"))
-                       for t in texts)
-        assert not any(t.startswith(("WIFI", "Bluetooth")) for t in texts)
+                       for t in op_texts)
+        # the FCT-only groups are grayed with the redirect tooltip
+        for title in ("File Transfer", "Network", "Console",
+                      "Message (Console)", "Wi-Fi Tests",
+                      "Bluetooth Tests", "Flash"):
+            act = next(a for a in dlg.btn_add.menu().actions()
+                       if a.text() == title)
+            assert not act.isEnabled(), title
+            assert "FCT Sequence table" in act.toolTip(), title
 
     def test_legacy_ict_menu_keeps_measurements(self, qapp):
+        """M48: the ICT editor shares the same grouped menu; its own
+        FCT-only groups are grayed, the ICT groups stay usable."""
+        from mtkgui.engine.steps import DIO_OPS
         from mtkgui.gui.steps_editor import StepsEditorDialog
         dlg = StepsEditorDialog("ict", [], [], [], [])
         texts = [a.text() for a in dlg.btn_add.menu().actions()]
-        assert "Delay — plain wait (ms)" in texts
-        assert any(t.startswith("R-GND") for t in texts)
-        assert not any("MessageOK" in t for t in texts)
+        assert texts == ["Operation", "ICT Measurements", "File Transfer",
+                         "Network", "Console", "Message (Console)",
+                         "Wi-Fi Tests", "Bluetooth Tests", "Flash"]
+        op_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
+                       if a.text() == "Operation")
+        op_texts = [a.text() for a in op_menu.actions() if a.text()]
+        assert "Delay — plain wait (ms)" in op_texts
+        assert "MessageOK" in op_texts            # M48: standard now
+        ict_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
+                        if a.text() == "ICT Measurements")
+        ict_texts = [a.text() for a in ict_menu.actions() if a.text()]
+        assert any(t.startswith("R-GND") for t in ict_texts)
+        assert len(ict_texts) == 6                # 4 measures + 2 DIO
+        for title in ("File Transfer", "Network", "Console",
+                      "Message (Console)", "Wi-Fi Tests",
+                      "Bluetooth Tests", "Flash"):
+            act = next(a for a in dlg.btn_add.menu().actions()
+                       if a.text() == title)
+            assert not act.isEnabled(), title
+            assert "not available in an ICT sequence" in act.toolTip()
+        # Operation + ICT Measurements stay enabled
+        for title in ("Operation", "ICT Measurements"):
+            act = next(a for a in dlg.btn_add.menu().actions()
+                       if a.text() == title)
+            assert act.isEnabled(), title
