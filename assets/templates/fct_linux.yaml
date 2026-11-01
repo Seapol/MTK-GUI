@@ -1,0 +1,91 @@
+# M47 reference template - Linux DUT (full production sequence).
+#
+# Every entry below becomes ONE ordinary row of the FCT Sequence table
+# (editable / removable / reorderable).  The app never loads this on its
+# own: the operator presses "Load Template" -> "Linux DUT".
+template:
+  name: Linux DUT
+  description: >
+    Instruments -> fixture -> power -> boot wait -> serial console checks ->
+    asset push -> driver / RF checks -> network (Wi-Fi) -> SSH push ->
+    ping / iperf / Bluetooth -> log pull -> cleanup -> power off -> release.
+steps:
+  - type: Operation
+    op: Init Instruments
+  - type: Operation
+    op: Fixture Clamp Down
+    note: optional - delete this row when the bench has no clamp
+  - type: Operation
+    op: Power On DUT
+  - type: Delay
+    name: Delay - system boot wait
+    wait_ms: 5000
+  - type: Console_serial
+    name: Console - wait for the login prompt
+    kind: wait
+    wait_enabled: true
+    send_enabled: false
+    expect_pass: "login:"
+    wait_timeout: 30.0
+    timeout: 6.0
+    note: wait only - no send, no capture
+  - type: Console_serial
+    name: Console - kernel version
+    wait_enabled: false
+    send_enabled: true
+    send: "uname -r"
+    capture_enabled: true
+    capture_expected: "Linux"
+    timeout: 6.0
+    note: send + capture - replace Linux with the expected kernel string
+  - type: "Serial: Push file to DUT"
+    name: Serial - push test assets to the DUT
+    local: assets
+    remote: /root
+    timeout: 600.0
+  - type: Console_serial
+    name: Console - RF driver presence
+    wait_enabled: false
+    send_enabled: true
+    send: "dmesg | grep -iE 'wlan|bluetooth'"
+    capture_enabled: true
+    capture_expected: "wlan"
+    timeout: 6.0
+    note: core-circuit / RF check - replace with lsmod when dmesg is quiet
+  - type: Console_serial
+    name: Console - load the RF driver
+    wait_enabled: false
+    send_enabled: true
+    send: "modprobe mlan"
+    capture_enabled: false
+    timeout: 10.0
+    note: optional - delete this row when the BSP auto-loads the driver
+  - type: Operation
+    op: "Wi-Fi: Connect DUT to AP"
+  - type: "SSH SFTP: Push file to DUT"
+    name: SFTP - push test assets to the DUT
+    local: assets
+    remote: /root
+    send_timeout: 30.0
+  - type: Wifi_Ping
+  - type: Wifi_Iperf
+  - type: BT_Pair
+  - type: BT_Tone
+  - type: "Serial: Pull file from DUT"
+    name: Serial - pull the test log back to the host
+    remote: /root
+    local: outbox
+    timeout: 600.0
+  - type: Console_serial
+    name: Console - clean up the pushed files
+    wait_enabled: false
+    send_enabled: true
+    send: "rm -rf /root/fct_assets"
+    capture_enabled: false
+    timeout: 10.0
+    note: optional - an SD-card workflow may keep the files
+  - type: Operation
+    op: Power Off DUT
+  - type: Operation
+    op: Fixture Release
+    note: optional

@@ -44,6 +44,7 @@ import yaml
 from PySide6.QtCore import QObject, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -121,6 +122,7 @@ from mtkgui.engine.fct_test_config import (
 )
 from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
+from mtkgui.engine.fct_templates import TEMPLATE_LABELS
 from mtkgui.engine.steps import (LAN_SETUP_OP, NETWORK_OP_TYPES,
                                  NETWORK_OPS, WIFI_CONNECT_OP,
                                  op_summary as _op_summary)
@@ -963,8 +965,17 @@ class FCTTestConfigPanel(QWidget):
                     _COL_CMD):
             header.setSectionResizeMode(col, QHeaderView.Stretch)
         self.cmd_table.setMinimumHeight(180)
+        # M47: multi-row selection (ctrl / shift + click) so "Remove
+        # Selected" deletes several rows in one action; whole rows are
+        # selected (the sequence is row-oriented).
+        self.cmd_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.cmd_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection)
         lay.addWidget(self.cmd_table, 1)
         self.cmd_table.cellDoubleClicked.connect(self._on_cmd_double_click)
+        self.cmd_table.itemSelectionChanged.connect(
+            self._sync_remove_buttons)
         lay.addLayout(self._cmd_row_buttons())
         # M34: the Sequence tab scrolls (small window) - no control squeeze
         return wrap_scrollable(w)
@@ -1471,6 +1482,41 @@ class FCTTestConfigPanel(QWidget):
             return os.path.join(resolve_tenant_base(), project, "outbox")
         return "outbox"
 
+    # ------------------------------------------------------ M47 templates
+    def _template_prefill(self) -> dict:
+        """Shared parameters the loaded template rows are pre-filled from
+        (Wi-Fi AP values + the project assets / outbox paths).  Whatever
+        the project page does not carry keeps the template's own default."""
+        assets, _hint = self._default_assets_dir()
+        return {
+            "wifi_ssid": self.wifi_ap_ssid.text().strip(),
+            "wifi_password": self.wifi_ap_password.text(),
+            "wifi_interface": self.wifi_interface.text().strip(),
+            "assets_dir": assets,
+            "outbox_dir": self._default_outbox_dir(),
+        }
+
+    def _load_template(self, label: str) -> None:
+        """Load Template: append one reference sequence as ORDINARY rows.
+
+        Only the operator triggers this (the app never injects steps);
+        nothing runs - the load is plain configuration.  The appended
+        rows are editable / removable / reorderable like hand-added ones.
+        """
+        from mtkgui.engine.fct_templates import load_template_commands
+        try:
+            commands = load_template_commands(label, self._template_prefill())
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            self.task_log.emit(
+                "ERROR", f"Load Template '{label}' failed: {exc}")
+            return
+        for cmd in commands:
+            self._insert_row(cmd)
+        self._renumber_rows()
+        self.task_log.emit(
+            "INFO", f"Template '{label}': {len(commands)} step(s) appended "
+                    "- edit, delete or reorder them like any other row")
+
     # ------------------------------------------------- M43 op submenu gate
     @staticmethod
     def _op_name_for_label(label: str) -> str | None:
@@ -1622,8 +1668,22 @@ class FCTTestConfigPanel(QWidget):
         add.setMenu(add_menu)
         add.clicked.connect(self._add_console_row)
 
-        remove = QPushButton("Remove selected")
-        remove.clicked.connect(self._remove_selected)
+        # M47: Load Template appends one of the two reference sequences as
+        # ORDINARY rows; nothing is injected without this operator click.
+        template = QPushButton("Load Template")
+        template_menu = QMenu(template)
+        self._template_actions = {}
+        for label in TEMPLATE_LABELS:
+            act = template_menu.addAction(
+                label, lambda _checked=False, l=label:
+                self._load_template(l))
+            self._template_actions[label] = act
+        template.setMenu(template_menu)
+
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove_current)
+        remove_sel = QPushButton("Remove selected")
+        remove_sel.clicked.connect(self._remove_selected)
         duplicate = QPushButton("Duplicate")
         duplicate.clicked.connect(self._duplicate_row)
         edit = QPushButton("Edit")
@@ -1633,19 +1693,51 @@ class FCTTestConfigPanel(QWidget):
         move_down = QPushButton("Move Down")
         move_down.clicked.connect(self._move_down)
         row.addWidget(add)
+        row.addWidget(template)
         row.addWidget(remove)
+        row.addWidget(remove_sel)
         row.addWidget(duplicate)
         row.addWidget(edit)
         row.addWidget(move_up)
         row.addWidget(move_down)
         row.addStretch(1)
+        self._remove_sel_btn = remove_sel
+        self._sync_remove_buttons()
         return row
 
-    def _remove_selected(self) -> None:
+    def _sync_remove_buttons(self) -> None:
+        """M47: "Remove selected" is enabled only when rows are selected."""
+        button = getattr(self, "_remove_sel_btn", None)
+        if button is None:
+            return
+        model = self.cmd_table.selectionModel()
+        if model is None:
+            return
+        button.setEnabled(bool(model.selectedRows()))
+
+    def _selected_rows(self) -> list:
+        """The selected row indices, ascending, de-duplicated."""
+        model = self.cmd_table.selectionModel()
+        if model is None:
+            return []
+        return sorted({index.row() for index in model.selectedRows()})
+
+    def _remove_current(self) -> None:
+        """Remove the row under the cursor (single-row Remove)."""
         r = self.cmd_table.currentRow()
         if r >= 0:
             self.cmd_table.removeRow(r)
             self._renumber_rows()
+
+    def _remove_selected(self) -> None:
+        """M47: delete ALL selected rows in one action (no-op when the
+        selection is empty)."""
+        rows = self._selected_rows()
+        if not rows:
+            return
+        for r in reversed(rows):
+            self.cmd_table.removeRow(r)
+        self._renumber_rows()
 
     def _duplicate_row(self) -> None:
         r = self.cmd_table.currentRow()
