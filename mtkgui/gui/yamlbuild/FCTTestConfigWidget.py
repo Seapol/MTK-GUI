@@ -859,6 +859,11 @@ class FCTTestConfigPanel(QWidget):
         self._wifi_cfg = None
         self._bt_cfg = None
         self._guard = False
+        #: M58: Undo / Redo snapshot history.  ``_undo_stack`` holds the
+        #: table state BEFORE each operator change, ``_redo_stack`` the
+        #: cancelled ones.  Emptied on every successful save (values()).
+        self._undo_stack: list[list] = []
+        self._redo_stack: list[list] = []
         #: M50: the project Equipment node (dict) for effective-value
         #: display / reference validation (None = not wired)
         self.equipment_provider = equipment_provider
@@ -1022,6 +1027,7 @@ class FCTTestConfigPanel(QWidget):
 
     def _add_row_for_label(self, label: str) -> None:
         """Add the default row for one of the direct Type labels."""
+        self._push_history()
         cmd = console_command_for_label(
             label, _ADD_ROW_NAMES.get(label, ""))
         # M41: a new SFTP row starts from the Console SFTP submodule dirs
@@ -1046,6 +1052,7 @@ class FCTTestConfigPanel(QWidget):
         Args:
             op_name: one of ``OP_STEPS`` keys.
         """
+        self._push_history()
         cmd = console_command_for_label(STEP_TYPE_OPERATION, op_name)
         cmd.op_params = dict(OP_STEPS.get(op_name) or {})
         # M55: the connection / addressing values are FIXED runtime
@@ -1078,6 +1085,7 @@ class FCTTestConfigPanel(QWidget):
 
     def _add_serial_transfer_row(self, direction: str) -> None:
         """M46: add a Serial Push / Pull row (Operation submenu)."""
+        self._push_history()
         label = (STEP_TYPE_SERIAL_PUT if direction == "push"
                  else STEP_TYPE_SERIAL_PULL)
         cmd = console_command_for_label(label, label)
@@ -1145,6 +1153,8 @@ class FCTTestConfigPanel(QWidget):
         hand-added ones.
         """
         from mtkgui.engine.fct_templates import load_template_commands
+        # M58: BEFORE the M56 clear, so Undo restores the pre-template rows
+        self._push_history()
         cleared = self.cmd_table.rowCount()
         while self.cmd_table.rowCount() > 0:
             self.cmd_table.removeRow(0)
@@ -1260,6 +1270,7 @@ class FCTTestConfigPanel(QWidget):
           way); answer timeout 4 s.
         - MessageGoStoptoConsole: GO sends y -> PASS, run continues;
           STOP sends n -> FAIL, run stops; answer timeout 4 s."""
+        self._push_history()
         cmd = ConsoleCommand(
             kind=KIND_MESSAGE, dialog_style=style,
             wait_enabled=True, wait_timeout=10.0,
@@ -1334,9 +1345,21 @@ class FCTTestConfigPanel(QWidget):
         row.addWidget(edit)
         row.addWidget(move_up)
         row.addWidget(move_down)
+        # M58: undo / redo of the operator's own table edits
+        undo = QPushButton("Undo")
+        undo.setToolTip("Undo last change")
+        undo.clicked.connect(self._undo_step)
+        redo = QPushButton("Redo")
+        redo.setToolTip("Redo cancelled change")
+        redo.clicked.connect(self._redo_step)
+        row.addWidget(undo)
+        row.addWidget(redo)
         row.addStretch(1)
+        self._undo_btn = undo
+        self._redo_btn = redo
         self._remove_sel_btn = remove_sel
         self._sync_remove_buttons()
+        self._sync_undo_redo()
         return row
 
     def _clear_all_steps(self) -> None:
@@ -1352,11 +1375,64 @@ class FCTTestConfigPanel(QWidget):
             "Continue?")
         if answer != QMessageBox.StandardButton.Yes:
             return
+        # M58: one undoable step (after the confirmation, before clearing)
+        self._push_history()
         cleared = self.cmd_table.rowCount()
         while self.cmd_table.rowCount() > 0:
             self.cmd_table.removeRow(0)
         self._renumber_rows()
         self.task_log.emit("INFO", f"Clean up: cleared {cleared} row(s)")
+
+    # ------------------------------------------------------ M58 undo / redo
+    def _snapshot_rows(self) -> list:
+        """Deep copies of every row command (the undo unit)."""
+        return [copy.deepcopy(self._get_row_cmd(r))
+                for r in range(self.cmd_table.rowCount())]
+
+    def _restore_rows(self, snapshot: list) -> None:
+        """Replace the table with *snapshot* (never touches the stacks)."""
+        self.cmd_table.setRowCount(0)
+        for cmd in snapshot:
+            self._insert_row(copy.deepcopy(cmd))
+        self._renumber_rows()
+
+    def _push_history(self) -> None:
+        """Record the CURRENT table state before an operator mutation."""
+        self._undo_stack.append(self._snapshot_rows())
+        if len(self._undo_stack) > 100:
+            del self._undo_stack[0]
+        self._redo_stack = []
+        self._sync_undo_redo()
+
+    def _undo_step(self) -> None:
+        """Step back one table change (all unsaved changes at the limit)."""
+        if not self._undo_stack:
+            return
+        self._redo_stack.append(self._snapshot_rows())
+        self._restore_rows(self._undo_stack.pop())
+        self._sync_undo_redo()
+
+    def _redo_step(self) -> None:
+        """Replay one cancelled (undone) change."""
+        if not self._redo_stack:
+            return
+        self._undo_stack.append(self._snapshot_rows())
+        self._restore_rows(self._redo_stack.pop())
+        self._sync_undo_redo()
+
+    def _sync_undo_redo(self) -> None:
+        undo = getattr(self, "_undo_btn", None)
+        if undo is not None:
+            undo.setEnabled(bool(self._undo_stack))
+        redo = getattr(self, "_redo_btn", None)
+        if redo is not None:
+            redo.setEnabled(bool(self._redo_stack))
+
+    def _clear_history(self) -> None:
+        """M58 save point: a successful save drops every snapshot."""
+        self._undo_stack = []
+        self._redo_stack = []
+        self._sync_undo_redo()
 
     def _sync_remove_buttons(self) -> None:
         """M47: "Remove" is enabled only when rows are selected."""
@@ -1379,6 +1455,7 @@ class FCTTestConfigPanel(QWidget):
         """Remove the row under the cursor (single-row Remove)."""
         r = self.cmd_table.currentRow()
         if r >= 0:
+            self._push_history()
             self.cmd_table.removeRow(r)
             self._renumber_rows()
 
@@ -1388,6 +1465,7 @@ class FCTTestConfigPanel(QWidget):
         rows = self._selected_rows()
         if not rows:
             return
+        self._push_history()
         for r in reversed(rows):
             self.cmd_table.removeRow(r)
         self._renumber_rows()
@@ -1397,6 +1475,7 @@ class FCTTestConfigPanel(QWidget):
         if r < 0:
             return
         src = self._row_cmd(r)
+        self._push_history()
         self.cmd_table.insertRow(r + 1)
         for col in range(8):
             self.cmd_table.setItem(r + 1, col, QTableWidgetItem(""))
@@ -1409,6 +1488,7 @@ class FCTTestConfigPanel(QWidget):
         r = self.cmd_table.currentRow()
         if r <= 0:
             return
+        self._push_history()
         self._swap_rows(r, r - 1)
         self.cmd_table.setCurrentCell(r - 1, _COL_HASH)
 
@@ -1416,6 +1496,7 @@ class FCTTestConfigPanel(QWidget):
         r = self.cmd_table.currentRow()
         if r < 0 or r >= self.cmd_table.rowCount() - 1:
             return
+        self._push_history()
         self._swap_rows(r, r + 1)
         self.cmd_table.setCurrentCell(r + 1, _COL_HASH)
 
@@ -1512,6 +1593,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             cmd.kind = KIND_DELAY
             cmd.wait_ms = int(wait_spin.value())
             # M42: Delay has NO timeout of its own
@@ -1614,6 +1696,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             cmd.local = local_edit.text().strip()
             cmd.remote = remote_edit.text().strip()
             cmd.serial_baud = 0
@@ -1673,6 +1756,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             cmd.kind = KIND_FLASH_GUI
             cmd.flash_gui_path = path_edit.text().strip()
             cmd.flash_gui_message = (
@@ -1780,6 +1864,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             _lbl, dialog_style, _wait = self._msg_style_items[
                 style.currentIndex()]
             is_wait_label = _wait
@@ -1873,6 +1958,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             params["type"] = "wifi_connect" if is_wifi else "lan_setup"
             params["stack"] = str(params.get("stack") or "wpa_supplicant")
             refs = dict(cmd.refs or {})
@@ -2046,6 +2132,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             if wait_cb is not None:
                 cmd.wait_enabled = wait_cb.isChecked()
                 cmd.expect_pass = (wait_edit.text().strip()
@@ -2263,6 +2350,7 @@ class FCTTestConfigPanel(QWidget):
         btn_row.addWidget(ok)
         outer.addLayout(btn_row)
         if dlg.exec() == QDialog.Accepted:
+            self._push_history()
             if cmd is None:
                 cmd = self._get_row_cmd(row)
             pat = pattern_edit.toPlainText()
@@ -2506,6 +2594,7 @@ class FCTTestConfigPanel(QWidget):
         outer.addLayout(btn_row)
 
         if dlg.exec() == QDialog.Accepted:
+            self._push_history()
             idx = op_type.currentIndex()
             if cmd is None:
                 cmd = self._get_row_cmd(row)
@@ -2756,6 +2845,7 @@ class FCTTestConfigPanel(QWidget):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            self._push_history()
             for key, label, kind, ref_path, default in spec:
                 if ref_path:
                     # M55: the reference map is seeded on save; legacy
@@ -3059,6 +3149,8 @@ class FCTTestConfigPanel(QWidget):
         behaviour; unresolvable references are reported, never rewritten.
         """
         params = params or {}
+        # M58: a load (project / saved YAML) is a fresh save point
+        self._clear_history()
         # M46: the current project name (project assets / outbox Browse
         # defaults); absent in most module params -> bundled template.
         self._project_name = str(params.get("project_name")
@@ -3247,6 +3339,11 @@ class FCTTestConfigPanel(QWidget):
         out = dict(self._legacy)
         out["fct_steps_yaml"] = yaml.safe_dump(
             node, sort_keys=False, allow_unicode=True)
+        # M58 save point: a CLEAN save drops the undo / redo history
+        # ("undo every UNSAVED step"); a validation error (or an
+        # exception before this line) keeps it - not a save point.
+        if not errors:
+            self._clear_history()
         return out
 
 

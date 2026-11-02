@@ -51,7 +51,8 @@ def test_toolbar_order_and_labels(panel):
     seq = panel.tabs.widget(0)
     texts = [b.text() for b in seq.findChildren(QPushButton)]
     assert texts == ["Add", "Load Template", "Clean up", "Remove",
-                     "Duplicate", "Edit", "Move Up", "Move Down"]
+                     "Duplicate", "Edit", "Move Up", "Move Down",
+                     "Undo", "Redo"]
 
 
 def test_clean_up_clears_every_row_after_confirmation(panel, monkeypatch):
