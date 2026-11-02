@@ -122,13 +122,15 @@ INSTRUMENTS = (
 )
 
 LED_COLORS = {
-    "connected": "#22c55e",      # green
-    "disconnected": "#9ca3af",   # gray
+    "connected": "#22c55e",      # green: config + connection + self-test OK
+    "disconnected": "#9ca3af",   # gray: not connected
+    "untested": "#facc15",       # yellow: connected, self-test not run/passed
     "error": "#ef4444",           # red
 }
 LED_TEXT = {
-    "connected": "Connected",
+    "connected": "Connected - self-test OK",
     "disconnected": "Disconnected",
+    "untested": "Connected - self-test not run / not passed",
     "error": "Error",
 }
 
@@ -1048,6 +1050,12 @@ class MainWindow(QMainWindow):
         # instrument connection lights: synced from the Equipment page
         self._equipment_page.instrument_connection_changed.connect(
             self._on_instrument_connection)
+        # M49a §3: self-test OK turns the lamp green
+        self._equipment_page.instrument_selftest_changed.connect(
+            self._on_instrument_selftest)
+        # M49a §4: page-level Apply Save YAML -> the File-menu slot
+        self._equipment_page.apply_save_requested.connect(
+            self.apply_and_save_yaml)
         # Event-Log detail from the Yaml Build page (T6); the long-task
         # progress now drives the page's own FOREGROUND dialog
         # (ProgressBridge, M15) - the status-bar progress bar no longer
@@ -2152,6 +2160,9 @@ class MainWindow(QMainWindow):
         # equipment defaults (same shape apply_config restores into)
         from mtkgui.equipment_page import _mock_configs
         self.equipment_page.configs = _mock_configs()
+        refresh = getattr(self.equipment_page, "refresh_from_configs", None)
+        if callable(refresh):
+            refresh()
         # Yaml Build model -> fresh (apply_state of an empty state
         # clears imported nets / allocation / rail config, keeps the
         # factory parameter defaults)
@@ -2970,11 +2981,28 @@ class MainWindow(QMainWindow):
 
     def _on_instrument_connection(self, key, connected):
         """Equipment page instrument dialog connect / disconnect ->
-        sync the matching status-bar LED (user report: never synced)."""
+        sync the matching status-bar LED (user report: never synced).
+
+        M49a §3 lamp semantics: connected but not (yet) self-tested is
+        YELLOW; only a passed self-test turns it GREEN."""
         abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
         if abbr:
             self.instr_status.set_state(
-                abbr, "connected" if connected else "disconnected")
+                abbr, "untested" if connected else "disconnected")
+
+    def _on_instrument_selftest(self, key, passed):
+        """M49a §3: a self-test result drives the instrument lamp."""
+        abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
+        if not abbr:
+            return
+        connected = self._equipment_page._instrument_connections.get(
+            key, False)
+        if passed and connected:
+            self.instr_status.set_state(abbr, "connected")
+        elif connected:
+            self.instr_status.set_state(abbr, "untested")
+        else:
+            self.instr_status.set_state(abbr, "disconnected")
 
     def _connect_virtual_instruments(self):
         """Virtual mode: the simulated instruments are READY, but the

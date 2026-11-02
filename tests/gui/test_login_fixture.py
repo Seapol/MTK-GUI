@@ -209,8 +209,7 @@ def test_manual_fixture_blocks_fixture_blocks(window, monkeypatch):
     assert window.equipment_page._manual_fixture is True
     for key in _MANUAL_FIXTURE_KEYS:
         shown.clear()
-        window.equipment_page._on_block_clicked(
-            window.equipment_page.blocks[key])
+        window.equipment_page.open_entry(key)
         assert shown, f"block {key} must be blocked in Manual mode"
         assert shown[0][2] == MANUAL_FIXTURE_NOTICE   # fixed wording
 
@@ -229,8 +228,7 @@ def test_ate_fixture_allows_fixture_blocks(qapp, monkeypatch):
     w = MainWindow(role=ROLE_SUPERVISOR, fixture=FIXTURE_ATE)
     try:
         assert w.equipment_page._manual_fixture is False
-        w.equipment_page._on_block_clicked(
-            w.equipment_page.blocks["fixture"])
+        w.equipment_page.open_entry("fixture")
         assert opened, "ATE mode must open the fixture config dialog"
         assert popups == []
     finally:

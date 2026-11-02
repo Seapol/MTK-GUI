@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolTip,
@@ -166,6 +168,8 @@ _INSTRUMENT_ACTIONS = {
          lambda p: "CTR1: 6.000 MHz -> PASS"),
         ("DIO Loopback",
          lambda p: "DIO loopback 24 ch -> OK"),
+        ("Self Test",
+         lambda p: "Self test completed - 0 errors"),
     ],
     "psu": [
         ("Power ON",
@@ -176,6 +180,8 @@ _INSTRUMENT_ACTIONS = {
         ("Read V/I",
          lambda p: f"V = {p[0]} V, I = {random.uniform(0.3, 0.6):.2f} A "
                    f"(readback ~1%)"),
+        ("Self Test",
+         lambda p: "Self test completed - 0 errors"),
     ],
 }
 
@@ -183,6 +189,93 @@ _INSTRUMENT_ACTIONS = {
 # globally disabled together with every IO-control entry
 _MANUAL_FIXTURE_KEYS = ("fixture", "control_board", "cell_press",
                         "cell_inpos", "cell_presence", "cell_estop")
+
+# M49a: the LEFT column lists ONLY configurable hardware.  Each entry is
+# (entry key, label, kind, data source).  ``kind`` selects the dialog:
+#   instrument -> _InstrumentDialog (Config + Test)
+#   form       -> editable form dialog
+# The data source is (configs key, group key) - ``group key`` is None
+# for a plain config entry (its ``fields`` / ``params`` are edited).
+LEFT_ENTRIES = (
+    ("Instruments", (
+        ("daq973a", "DAQ973A Mainframe", "instrument", ("daq973a", None)),
+        ("u2355a", "U2355A", "instrument", ("u2355a", None)),
+        ("psu", "N5747A", "instrument", ("psu", None)),
+    )),
+    ("Fixture", (
+        ("control_board", "ATE Fixture Control Board", "form",
+         ("control_board", None)),
+        ("fixture", "Fixture Probe Board", "form", ("fixture", None)),
+    )),
+    ("DUT", (
+        ("dut_os", "DUT Board OS", "form", ("dut", "board_os")),
+        ("dut_wifi", "DUT Wi-Fi", "form", ("dut", "wifi")),
+        ("dut_bt", "DUT Bluetooth", "form", ("dut", "bluetooth")),
+        ("dut_ssh", "SSH Login", "form", ("dut", "ssh")),
+        ("dut_console", "DUT Console", "form", ("dut", "console")),
+    )),
+    ("Peripherals", (
+        ("pc_wifi", "PC Wi-Fi", "form", ("peripherals", "wifi")),
+        ("pc_bt", "PC Bluetooth", "form", ("peripherals", "bluetooth")),
+        ("router", "Ethernet Router", "form", ("peripherals", "router")),
+        ("jlink", "J-Link", "form", ("jlink", None)),
+    )),
+)
+
+#: instruments that own a main-window indicator lamp (M49a §3); J-Link is
+#: a third-party GUI and deliberately has NO lamp.
+INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
+
+# M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
+# editable fields (field key, label, default).  The YAML carries these
+# as nested keys (``equipment.dut.ssh.ip`` ...) so FCT steps can
+# reference them at runtime (M50).
+GROUP_FIELDS = {
+    ("dut", "board_os"): [
+        ("os_type", "OS type", "Linux"), ("notes", "Notes", "")],
+    ("dut", "wifi"): [
+        ("ssid", "DUT SSID", ""), ("interface", "Interface", "wlan0")],
+    ("dut", "bluetooth"): [
+        ("name", "BT name", ""), ("bd_addr", "BD address", "")],
+    ("dut", "ssh"): [
+        ("ip", "IP address", ""), ("username", "Username", ""),
+        ("password", "Password", "")],
+    ("dut", "console"): [
+        ("channel", "Console channel", ""), ("port", "Serial port", ""),
+        ("baud", "Baud rate", "115200"), ("parity", "Parity", "None")],
+    ("peripherals", "wifi"): [
+        ("ap_ssid", "AP SSID", ""), ("ap_ip", "AP IP", ""),
+        ("host_ip", "Host IP", ""), ("ap_password", "AP password", "")],
+    ("peripherals", "bluetooth"): [
+        ("adapter", "Host adapter", ""),
+        ("scan_targets", "Scan targets", "")],
+    ("peripherals", "router"): [
+        ("setup_mode", "Setup mode", "direct"),
+        ("router_ip", "Router IP", ""), ("dut_ip", "DUT IP", "")],
+}
+
+#: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2)
+DIO_FIELDS = [
+    ("press", "Press cylinder", "DIO01"),
+    ("inpos", "Cylinder in-position", "DIO02"),
+    ("presence", "DUT presence", "DIO03"),
+    ("estop", "E-stop healthy", "DIO04"),
+]
+
+#: J-Link is a third-party flash GUI: installation path only
+JLINK_FIELDS = [
+    ("install_path", "Install path", ""),
+    ("executable", "Executable", "JLink.exe"),
+    ("device", "Device", ""),
+]
+
+
+def _default_group(owner, name):
+    """Fresh dict with the default field values of one grouped config."""
+    return {key: default
+            for key, _label, default in GROUP_FIELDS[(owner, name)]}
+
+
 
 # connection interfaces: combo text -> default VISA-style address
 _INSTRUMENT_CONN = {
@@ -295,6 +388,23 @@ def _mock_configs():
                 ("Microphone / Earphone", "Audio path check", "Not connected"),
                 ("Speaker", "Audio output check", "Not connected"),
             ],
+            # M49a §5: shared PC-side parameters (runtime-referenced by
+            # FCT steps in M50).  Router setup mode: direct | via_ap.
+            "groups": {
+                "wifi": _default_group("peripherals", "wifi"),
+                "bluetooth": _default_group("peripherals", "bluetooth"),
+                "router": _default_group("peripherals", "router"),
+            },
+        },
+        "jlink": {
+            "title": "J-Link",
+            "fields": [
+                ("Role", "Third-party flash GUI (Flash_GUI step)"),
+                ("Managed by", "MTK launches the GUI; operator judges"),
+                ("Self-test", "None (no MTK-managed status lamp)"),
+            ],
+            "params": {key: default
+                       for key, _label, default in JLINK_FIELDS},
         },
         # ---- layer 2: DAQ973A -------------------------------------------
         "daq973a": {
@@ -305,6 +415,9 @@ def _mock_configs():
                 ("Interfaces", "GPIB + LAN (LXI) + USB"),
                 ("Scan speed", "up to 450 ch/s"),
                 ("Frequency function", "3 Hz - 300 kHz"),
+                # M49a §1.2: ONE config unit owns the three modules
+                ("Modules", "DAQM908A #1 (Slot 1) / DAQM908A #2 (Slot 2) "
+                            "/ DAQM907A (Slot 3)"),
                 ("Status", "Available"),
             ],
         },
@@ -416,6 +529,9 @@ def _mock_configs():
                 ("Pull-up", "external; 42 V / 400 mA"),
                 ("Channels", "16 (4 used)"),
             ],
+            # M49a §5: the 4 DIO signals (Press / In-Position / DUT
+            # Presence / E-Stop) are part of the control-board config.
+            "dio": {key: default for key, _label, default in DIO_FIELDS},
         },
         "cell_press": {
             "title": "[OUT] Press Cylinder",
@@ -463,6 +579,11 @@ def _mock_configs():
                 ("GPIO nets", "TP_GPIO0 - TP_GPIO23"),
                 ("Reference", "stress / strain gauge"),
             ],
+            # M49a §5: the DUT group (board OS / Wi-Fi / Bluetooth /
+            # SSH login / console) - DUT = remote, Host PC = local.
+            "groups": {name: _default_group("dut", name)
+                       for name in ("board_os", "wifi", "bluetooth",
+                                    "ssh", "console")},
         },
         "grp_power": {
             "title": "Power Nets TP_P1-P80",
@@ -1578,6 +1699,94 @@ def _form_dialog(parent, title, fields, note, editor=None, config=None):
                               editor=editor, config=config)
 
 
+class _HardwareInfoDialog(QDialog):
+    """M49a §2: READ-ONLY Hardware Info opened by clicking a diagram
+    module (model / specifications / channels / connections).
+
+    No edit control exists here: every edit entry point lives in the
+    LEFT column entries of the Equipment page."""
+
+    def __init__(self, parent, title, fields, connections, role=""):
+        super().__init__(parent)
+        self.setWindowTitle(f"{title} - Hardware Info")
+        fit_dialog(self, 720, 560)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+
+        info = QGroupBox("Specifications")
+        form = QFormLayout(info)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for label, value in fields:
+            edit = QLineEdit(str(value))
+            edit.setReadOnly(True)
+            form.addRow(f"{label}:", edit)
+        body_lay.addWidget(info)
+
+        conn = QGroupBox("Connections")
+        cform = QFormLayout(conn)
+        cform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for label, value in connections:
+            edit = QLineEdit(str(value))
+            edit.setReadOnly(True)
+            cform.addRow(f"{label}:", edit)
+        body_lay.addWidget(conn)
+
+        if role:
+            note = QLabel(role)
+            note.setObjectName("muted")
+            body_lay.addWidget(note)
+        read_only = QLabel(
+            "Read-only information.  Configure this module from the "
+            "left-hand hardware list.")
+        read_only.setObjectName("warn")
+        body_lay.addWidget(read_only)
+        apply_scroll_to_dialog(self, body)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+
+class _GroupConfigDialog(QDialog):
+    """M49a: small editable form for one grouped config (DUT Wi-Fi /
+    SSH Login / Ethernet Router / ... or the control-board DIO map)."""
+
+    def __init__(self, parent, title, spec, values):
+        super().__init__(parent)
+        self.setWindowTitle(f"{title} - Configuration")
+        fit_dialog(self, 560, 360)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._edits = {}
+        for key, label, default in spec:
+            edit = QLineEdit(str((values or {}).get(key, default)))
+            edit.setPlaceholderText(default or "optional")
+            self._edits[key] = edit
+            form.addRow(f"{label}:", edit)
+        body_lay.addLayout(form)
+        note = QLabel(
+            "Saved in the project yaml and referenced by test steps at "
+            "runtime.")
+        note.setObjectName("muted")
+        body_lay.addWidget(note)
+        apply_scroll_to_dialog(self, body)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def values(self):
+        return {key: edit.text().strip()
+                for key, edit in self._edits.items()}
+
+
 class _DeviceEditDialog(QDialog):
     """Per-device editor opened by double-clicking a table row: an
     editable form when the device integration is developed, otherwise
@@ -1725,6 +1934,9 @@ class _InstrumentDialog(QDialog):
 
     # (key, connected) - emitted live so the status-bar LEDs follow
     connection_changed = Signal(str, bool)
+    # (key, passed) - M49a §3: a self-test run inside the dialog turns
+    # the lamp from yellow (connected, untested) to green
+    self_test_changed = Signal(str, bool)
 
     def __init__(self, parent, title, fields, key, virtual, manual=False,
                  config=None):
@@ -1968,12 +2180,13 @@ class _InstrumentDialog(QDialog):
                 out = fn(params)
                 self._log(f"[{label}] {out}")
                 if label == "Self Test":
+                    passed = "PASS" in out or "0 errors" in out
                     # T9: mirror the Self-Test result to the shared
                     # status hub (block 03 panel display)
                     from mtkgui.gui.yamlbuild.instrument_status import HUB
-                    HUB.set_self_test(
-                        "OK" if ("PASS" in out or "0 errors" in out)
-                        else "NOK")
+                    HUB.set_self_test("OK" if passed else "NOK")
+                    # M49a §3: main-window lamp - self-test OK -> green
+                    self.self_test_changed.emit(self._key, passed)
                 return
 
 
@@ -1986,6 +2199,12 @@ class EquipmentPage(QWidget):
     # window syncs the status-bar LEDs from it (user report: the LEDs
     # never reflected the real connect state)
     instrument_connection_changed = Signal(str, bool)
+    # (instrument key, passed) - M49a §3: self-test result drives the
+    # lamp (yellow -> green)
+    instrument_selftest_changed = Signal(str, bool)
+    # M49a §4: page-level "Apply Save YAML" (handled by MainWindow with
+    # the same mechanism as the other config pages)
+    apply_save_requested = Signal()
 
     #: instrument dialog key -> status-bar LED abbreviation
     _INSTRUMENT_ABBR = {
@@ -2000,6 +2219,9 @@ class EquipmentPage(QWidget):
         # per-instrument connect state (user report: the state died
         # with the modal dialog - reopening showed Disconnected again)
         self._instrument_connections: dict[str, bool] = {}
+        self._instrument_selftest: dict[str, bool] = {}
+        # entry key -> row widgets (Config / Test buttons)
+        self.entry_buttons: dict[str, dict[str, QPushButton]] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -2034,7 +2256,7 @@ class EquipmentPage(QWidget):
 
     def _build(self):
         layout = QVBoxLayout(self)
-        title = QLabel("Equipment - Block Diagram")
+        title = QLabel("Equipment")
         title.setObjectName("strong")
         title.setStyleSheet("font-size: 20px;")
 
@@ -2057,22 +2279,39 @@ class EquipmentPage(QWidget):
         layout.addLayout(header)
 
         hint = QLabel(
-            "Click a block to open its configuration window - "
-            "right-click to copy the diagram as an image. "
-            "Final rack: DAQ973A + 2x DAQM908A + DAQM907A, U2355A, N5747A.")
+            "Left: configurable hardware (Config).  Right: read-only "
+            "block diagram (click a module for Hardware Info; "
+            "right-click to copy the diagram as an image).")
         hint.setObjectName("muted")
         layout.addWidget(hint)
 
-        self.scene = QGraphicsScene(0, 0, W, H)
-        self.view = BlockDiagramView(self.scene, self._on_block_clicked)
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setStyleSheet("background:#fbfdff; border:1px solid #d4d9e0;")
-        layout.addWidget(self.view, 1)
+        # ---- two-column layout (M49a §1 / §2) -------------------------
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.left_panel = self._build_left_panel()
+        self.right_panel = self._build_right_panel()
+        self.splitter.addWidget(self.left_panel)
+        self.splitter.addWidget(self.right_panel)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([340, 1100])
+        self.splitter.splitterMoved.connect(
+            lambda _pos, _idx: self._enforce_splitter_clamp())
+        layout.addWidget(self.splitter, 1)
 
         btn_out.clicked.connect(self.view.zoom_out)
         btn_in.clicked.connect(self.view.zoom_in)
         btn_reset.clicked.connect(self.view.zoom_reset)
         self.view.zoomChanged.connect(self._update_zoom_label)
+
+        # ---- page-level Apply Save YAML (M49a §4) ---------------------
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        self.btn_apply_save = QPushButton("Apply Save YAML")
+        self.btn_apply_save.setToolTip(
+            "Persist the Equipment configuration into the project yaml")
+        self.btn_apply_save.clicked.connect(self.apply_save_requested.emit)
+        bar.addWidget(self.btn_apply_save)
+        layout.addLayout(bar)
 
         self._populate()
         # hug the actual content so fitInView can maximize the diagram
@@ -2080,6 +2319,96 @@ class EquipmentPage(QWidget):
         self.scene.setSceneRect(rect)
         # M34: scroll-protect the page on very small windows
         wrap_page(self)
+
+    def _build_right_panel(self):
+        self.scene = QGraphicsScene(0, 0, W, H)
+        self.view = BlockDiagramView(self.scene, self._on_block_clicked)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setStyleSheet("background:#fbfdff; border:1px solid #d4d9e0;")
+        return self.view
+
+    def _build_left_panel(self):
+        """M49a §1: collapsible list of ONLY configurable hardware."""
+        panel = QWidget()
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+
+        head = QHBoxLayout()
+        cap = QLabel("Hardware Configuration")
+        cap.setObjectName("strong")
+        head.addWidget(cap)
+        head.addStretch(1)
+        self.btn_collapse = QPushButton("Hide")
+        self.btn_collapse.setFixedWidth(64)
+        self.btn_collapse.clicked.connect(self._toggle_left_column)
+        head.addWidget(self.btn_collapse)
+        outer.addLayout(head)
+
+        self.left_list = QScrollArea()
+        self.left_list.setWidgetResizable(True)
+        self.left_list.setMinimumWidth(240)
+        self.left_list.setStyleSheet(
+            "QScrollArea {background:#ffffff; border:1px solid #d4d9e0;}")
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(6, 6, 6, 6)
+        body_lay.setSpacing(6)
+        for group_title, entries in LEFT_ENTRIES:
+            group_box = QGroupBox(group_title)
+            gl = QVBoxLayout(group_box)
+            gl.setContentsMargins(6, 6, 6, 6)
+            gl.setSpacing(4)
+            for entry in entries:
+                gl.addLayout(self._entry_row(entry))
+            body_lay.addWidget(group_box)
+        body_lay.addStretch(1)
+        self.left_list.setWidget(body)
+        outer.addWidget(self.left_list, 1)
+        return panel
+
+    def _entry_row(self, entry):
+        """One left-column row: label + Config (+ Test for instruments)."""
+        key, label, kind, _source = entry
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        name = QLabel(label)
+        name.setMinimumWidth(150)
+        row.addWidget(name)
+        row.addStretch(1)
+        buttons = {}
+        btn_cfg = QPushButton("Config")
+        btn_cfg.setFixedWidth(72)
+        btn_cfg.clicked.connect(
+            lambda _=False, k=key: self.open_entry(k))
+        row.addWidget(btn_cfg)
+        buttons["config"] = btn_cfg
+        if kind == "instrument":
+            btn_test = QPushButton("Test")
+            btn_test.setFixedWidth(56)
+            btn_test.clicked.connect(
+                lambda _=False, k=key: self._run_instrument_self_test(k))
+            row.addWidget(btn_test)
+            buttons["test"] = btn_test
+        self.entry_buttons[key] = buttons
+        return row
+
+    def _toggle_left_column(self):
+        visible = self.left_list.isHidden()
+        self.left_list.setVisible(visible)
+        self.btn_collapse.setText("Hide" if visible else "Show")
+
+    def _enforce_splitter_clamp(self):
+        """M49a §1.1: the left column may grow up to 1:1 with the right
+        column - never wider."""
+        sizes = self.splitter.sizes()
+        if len(sizes) != 2:
+            return
+        left, right = sizes
+        if left > right:
+            total = left + right
+            half = total // 2
+            self.splitter.setSizes([half, total - half])
 
     def _update_zoom_label(self):
         self.zoom_label.setText(f"{round(self.view.transform().m11() * 100)}%")
@@ -2296,59 +2625,179 @@ class EquipmentPage(QWidget):
 
     # ------------------------------------------------------------------
     def _on_block_clicked(self, item):
+        """M49a §2: the diagram is READ-ONLY - clicking a module opens
+        the read-only Hardware Info dialog (never a config dialog)."""
         if not isinstance(item, BlockItem):
             return
+        cfg = self.configs.get(item.key)
+        if not cfg:
+            return
+        dlg = _HardwareInfoDialog(
+            self, cfg["title"], self._info_fields(item.key),
+            self._info_connections(item.key),
+            role=cfg.get("short", ""))
+        dlg.exec()
+
+    def _info_fields(self, key):
+        """(label, value) specification rows of one diagram module."""
+        cfg = self.configs.get(key) or {}
+        rows = [("Title", cfg.get("title", key))]
+        rows += [(str(label), str(value))
+                 for label, value in cfg.get("fields", [])]
+        for group_name, group in (cfg.get("groups") or {}).items():
+            for field, value in group.items():
+                rows.append((f"{group_name}.{field}", str(value)))
+        for field, value in (cfg.get("dio") or {}).items():
+            rows.append((f"dio.{field}", str(value)))
+        return rows
+
+    def _info_connections(self, key):
+        """Connection relationships shown in the Hardware Info dialog."""
+        cfg = self.configs.get(key) or {}
+        rows = []
+        conn = cfg.get("connection") or {}
+        if conn:
+            rows.append(("Interface", str(conn.get("interface", ""))))
+            rows.append(("Address", str(conn.get("address", ""))))
+        for label, value in cfg.get("fields", []):
+            if any(word in label.lower()
+                   for word in ("interface", "bus", "connection", "port",
+                                "driven", "tap", "io board")):
+                rows.append((str(label), str(value)))
+        if key in ("daq973a", "m908a_1", "m908a_2", "m907a"):
+            rows.append(("Control bus", "SCPI (GPIB / LAN / USB)"))
+        if key in ("u2355a", "u_ai", "u_ctr"):
+            rows.append(("Control bus", "USB (USBTMC)"))
+        if key in ("psu", "psu_detail"):
+            rows.append(("Control bus", "LAN (LXI) / GPIB / USB"))
+        if key in ("fixture", "control_board", "cell_press", "cell_inpos",
+                   "cell_presence", "cell_estop"):
+            rows.append(("Fixture", "ATE fixture control board"))
+        if not rows:
+            rows.append(("Connection", "See the left-hand hardware entry"))
+        return rows
+
+    # ------------------------------------------------------------------
+    def _entry_source(self, entry_key):
+        for _group, entries in LEFT_ENTRIES:
+            for key, _label, _kind, source in entries:
+                if key == entry_key:
+                    return source
+        return (entry_key, None)
+
+    def open_entry(self, entry_key):
+        """M49a: the ONLY edit entry point (left column Config button).
+
+        Keeps the permission / manual-fixture gating that used to live
+        on the diagram click."""
+        owner, group = self._entry_source(entry_key)
         if not self._config_allowed:
             QMessageBox.information(
                 self, "Permission",
                 "Operator account cannot open equipment configuration.\n"
                 "Ask the supervisor to grant this permission.")
             return
-        key = item.key
-        if self._manual_fixture and key in _MANUAL_FIXTURE_KEYS:
-            # Manual fixture mode: fixture hardware config is disabled
+        if self._manual_fixture and owner in _MANUAL_FIXTURE_KEYS:
             QMessageBox.information(
                 self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
             return
-        cfg = self.configs[key]
-        if key in _INSTRUMENT_CONN:
-            # instruments: rich window with information / parameters /
-            # connection / control-and-tests group boxes
-            dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
-                                    self.virtual_mode,
-                                    manual=self._manual_fixture,
-                                    config=cfg)
-            # the connect state lives on the PAGE (user report: it died
-            # with the modal dialog); live LED sync to the status bar
-            dlg.set_connected(self._instrument_connections.get(key, False))
-            dlg.connection_changed.connect(
-                self.instrument_connection_changed)
-            dlg.exec()
-            self._instrument_connections[key] = dlg._connected
-            # persist the edited connection / parameters into the page
-            # config -> saved with the project YAML (build_config)
-            dlg.apply_to_config(cfg)
+        if owner in _INSTRUMENT_CONN and group is None:
+            self._open_instrument(owner)
             return
-        elif "table" in cfg:
-            # probes / peripherals: double-click a device row to edit it
-            # (not-yet-integrated devices show the not-yet-available
-            # notice); edits persist with the project YAML
+        if group is not None:
+            self._open_group_entry(owner, group)
+            return
+        cfg = self.configs.get(owner)
+        if cfg is None:
+            return
+        if "table" in cfg:
             dlg = _DeviceTableDialog(self, cfg["title"], cfg["table"],
                                      note=_mode_note(self._mode),
-                                     block_key=key, config=cfg)
+                                     block_key=owner, config=cfg)
             dlg.exec()
             dlg.apply_to_config(cfg)
             return
-        else:
-            # form blocks: editable test configuration for integrated
-            # blocks (HOST PC / DUT board); the others show the
-            # not-yet-available notice
-            editor = _BLOCK_EDITORS.get(key)
-            dlg = _form_dialog(self, cfg["title"], cfg["fields"],
-                               note=_mode_note(self._mode),
-                               editor=editor,
-                               config=cfg if editor else None)
-            dlg.exec()
-            if editor:
-                dlg.apply_to_config(cfg)
+        self._open_plain_entry(owner, cfg)
+
+    def _open_instrument(self, key):
+        cfg = self.configs[key]
+        dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
+                                self.virtual_mode,
+                                manual=self._manual_fixture, config=cfg)
+        # the connect state lives on the PAGE (user report: it died
+        # with the modal dialog); live LED sync to the status bar
+        dlg.set_connected(self._instrument_connections.get(key, False))
+        dlg.connection_changed.connect(self.instrument_connection_changed)
+        dlg.self_test_changed.connect(self.instrument_selftest_changed)
+        dlg.exec()
+        self._instrument_connections[key] = dlg._connected
+        dlg.apply_to_config(cfg)
+
+    def _open_group_entry(self, owner, group):
+        cfg = self.configs.setdefault(owner, {"title": owner})
+        groups = cfg.setdefault("groups", {})
+        values = groups.setdefault(group, _default_group(owner, group))
+        spec = GROUP_FIELDS[(owner, group)]
+        dlg = _GroupConfigDialog(self, f"{cfg['title']} - {group}",
+                                 spec, values)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            groups[group] = dlg.values()
+
+    def _open_plain_entry(self, owner, cfg):
+        if owner == "control_board":
+            self._open_dio_entry(cfg)
             return
+        editor = _BLOCK_EDITORS.get(owner)
+        if owner == "jlink":
+            editor = JLINK_FIELDS
+        dlg = _form_dialog(self, cfg["title"], cfg.get("fields", []),
+                           note=_mode_note(self._mode),
+                           editor=editor,
+                           config=cfg if editor else None)
+        dlg.exec()
+        if editor:
+            dlg.apply_to_config(cfg)
+
+    def _open_dio_entry(self, cfg):
+        """ATE Fixture Control Board: base info + the 4 DIO signals."""
+        values = cfg.setdefault("dio",
+                                {key: default
+                                 for key, _label, default in DIO_FIELDS})
+        dlg = _GroupConfigDialog(self, f"{cfg['title']} - DIO signals",
+                                 DIO_FIELDS, values)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            cfg["dio"] = dlg.values()
+
+    def _run_instrument_self_test(self, key):
+        """M49a §3: left-column Test button - one self-test call per
+        instrument unit (DAQ973A covers all three modules at once)."""
+        if not self._instrument_connections.get(key, False):
+            QMessageBox.information(
+                self, "Instrument",
+                f"{self.configs[key]['title']} is not connected.\n"
+                "Connect it from its Config dialog first.")
+            return False
+        for label, fn in _INSTRUMENT_ACTIONS[key]:
+            if label == "Self Test":
+                out = fn([])
+                passed = "PASS" in out or "0 errors" in out
+                self._instrument_selftest[key] = passed
+                self.instrument_selftest_changed.emit(key, passed)
+                return passed
+        return False
+
+    def instrument_state(self, key):
+        """M49a §3: lamp state of one instrument unit:
+        green / grey / yellow (red only for an injected fault)."""
+        if not self._instrument_connections.get(key, False):
+            return "grey"
+        if self._instrument_selftest.get(key, False):
+            return "green"
+        return "yellow"
+
+    def refresh_from_configs(self):
+        """M49a §4: after a YAML load the page re-reads the configs.
+        Connection / self-test state is project-scoped and resets."""
+        self._instrument_connections = {}
+        self._instrument_selftest = {}
+

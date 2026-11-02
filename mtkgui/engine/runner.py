@@ -479,10 +479,13 @@ class TestRunner(QObject):
         elif virtual:
             out = None
         else:
-            env._instrument_error(op_instrument_abbr(params))
-            self._last_op_error = "instrument not connected (Real mode)"
+            abbr = op_instrument_abbr(params)
+            env._instrument_error(abbr)
+            self._last_op_error = (
+                f"instrument not connected (Real mode): {abbr}")
             env._log(f"{tag} op {name}: no instrument gateway "
-                     f"connected (Real mode) -> Error")
+                     f"connected (Real mode) - {abbr} not connected "
+                     f"-> Error")
             return "Error"
         if out is not None:
             for line in out.lines:
@@ -690,11 +693,12 @@ class TestRunner(QObject):
         # Overall Flow stop policies then apply).  The legacy dice-roll
         # placeholder below is reachable in Virtual mode only.
         if not getattr(env, "virtual_mode", False):
+            abbr = meas_instrument_abbr(kind, name)
             self._put("ict", r, StepStatus.ERROR,
-                      "instrument not connected (Real mode)")
-            env._instrument_error(meas_instrument_abbr(kind, name))
+                      f"instrument not connected (Real mode): {abbr}")
+            env._instrument_error(abbr)
             env._log(f"ICT {name}: no instrument gateway connected "
-                     f"(Real mode) -> Error")
+                     f"(Real mode) - {abbr} not connected -> Error")
             return
         if r in env.ict_sim_fail:
             if is_impedance_short(step):

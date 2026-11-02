@@ -63,8 +63,9 @@ def _connect_dialog(page, key, monkeypatch, connected=True):
         return 0
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
-    block = page.blocks[key]
-    page._on_block_clicked(block)
+    # M49a: config entry point moved to the left column (diagram is
+    # read-only now)
+    page.open_entry(key)
     monkeypatch.setattr(QDialog, "exec", orig_exec)
     return captured["dlg"]
 
@@ -200,23 +201,27 @@ def test_virtual_startup_does_not_force_green(qapp):
         w._connect_virtual_instruments()   # the old force-green path
         for abbr in ("DAQM", "DAQ", "PSU"):
             assert w.instr_status.states[abbr] == "disconnected", abbr
-        # ... and a manual Equipment-page connect DOES light the LED
+        # ... and a manual Equipment-page connect lights YELLOW until
+        # the instrument self-test passes (M49a §3)
         w.equipment_page.instrument_connection_changed.emit("psu", True)
-        assert w.instr_status.states["PSU"] == "connected"
+        assert w.instr_status.states["PSU"] == "untested"
     finally:
         w.close()
         w.deleteLater()
 
 
 def test_status_leds_follow_equipment_connect(window, monkeypatch):
-    """The status-bar LED for DAQ turns green exactly when the U2355A
-    dialog connects, and gray on disconnect - no forced green."""
+    """M49a §3: connect -> YELLOW; a passed self-test -> GREEN; a
+    disconnect -> GRAY."""
     window.instr_status.set_all("disconnected")
     events = []
     window.equipment_page.instrument_connection_changed.connect(
         lambda key, conn: events.append((key, conn)))
     window.equipment_page.instrument_connection_changed.emit(
         "u2355a", True)
+    assert window.instr_status.states["DAQ"] == "untested"
+    window.equipment_page._instrument_connections["u2355a"] = True
+    window.equipment_page.instrument_selftest_changed.emit("u2355a", True)
     assert window.instr_status.states["DAQ"] == "connected"
     window.equipment_page.instrument_connection_changed.emit(
         "u2355a", False)

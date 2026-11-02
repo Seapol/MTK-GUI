@@ -111,6 +111,13 @@ def _equipment_to_yaml(configs):
             entry["device_params"] = {
                 device: dict(opts)
                 for device, opts in cfg["device_params"].items()}
+        # M49a §5: the grouped DUT / peripheral configs and the ATE
+        # control-board DIO map travel as nested keys, so FCT steps can
+        # reference them at runtime (``equipment.dut.ssh.ip`` ...).
+        for group_name, group in (cfg.get("groups") or {}).items():
+            entry[group_name] = dict(group)
+        if cfg.get("dio"):
+            entry["dio"] = dict(cfg["dio"])
         data[key] = entry
     return data
 
@@ -468,6 +475,11 @@ def apply_config(config, workflow_page, equipment_page,
     equipment = config.get("equipment")
     if equipment:
         equipment_page.configs = _equipment_from_yaml(equipment)
+        # M49a §4: Loading a yaml auto-fills every hardware config and
+        # resets the project-scoped connection / self-test state.
+        refresh = getattr(equipment_page, "refresh_from_configs", None)
+        if callable(refresh):
+            refresh()
 
     # console channels defined by the project. A present 'console'
     # section is authoritative: channels not in the project are removed
@@ -552,5 +564,17 @@ def _equipment_from_yaml(data):
             cfg["device_params"] = {
                 device: dict(opts)
                 for device, opts in entry["device_params"].items()}
+        # M49a §5: nested group keys (dut.ssh / peripherals.router / ...)
+        # and the ATE control-board DIO map are restored as groups.
+        reserved = {"title", "fields", "params", "connection", "table",
+                    "device_params"}
+        groups = {key: dict(value)
+                  for key, value in entry.items()
+                  if key not in reserved and isinstance(value, dict)
+                  and key != "dio"}
+        if groups:
+            cfg["groups"] = groups
+        if isinstance(entry.get("dio"), dict):
+            cfg["dio"] = dict(entry["dio"])
         configs[key] = cfg
     return configs

@@ -714,9 +714,11 @@ class StepsEditorDialog(QDialog):
         head = QFormLayout()
         op_combo = QComboBox()
         op_combo.setEditable(True)
-        op_combo.addItems(list(OP_STEPS) + ["Custom Operation"])
-        op_combo.setCurrentText(
-            name if (name in OP_STEPS or not name) else "Custom Operation")
+        op_combo.addItems(list(OP_STEPS))
+        # M49a: no "Custom Operation" entry point anymore.  A legacy row
+        # whose name is not a standard step keeps showing its own text
+        # (the combo is editable).
+        op_combo.setCurrentText(name or "")
         head.addRow("Standard Step:", op_combo)
         body_lay.addLayout(head)
 
@@ -843,7 +845,7 @@ class StepsEditorDialog(QDialog):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
         new_name = op_combo.currentText().strip()
-        if not new_name or new_name == "Custom Operation":
+        if not new_name:
             new_name = name or "New Operation"
         t = current_type()
         if t in ("instruments", "reset"):
