@@ -213,7 +213,13 @@ class TestFlashGuiPanel:
 
         def fake_exec(dlg):
             assert dlg.windowTitle() == "Flash_GUI editor"
-            line = dlg.findChildren(QLineEdit)[0]
+            # M50: the J-Link executable reference row (ref + effective +
+            # override) comes FIRST; the GUI path is the step-owned field
+            refs = [e for e in dlg.findChildren(QLineEdit)
+                    if "override" in e.placeholderText()]
+            assert refs and refs[0].text() == ""
+            line = next(e for e in dlg.findChildren(QLineEdit)
+                        if "flash GUI" in e.placeholderText())
             line.setText(FLASH_PATH)
             text = dlg.findChildren(QTextEdit)[0]
             text.setPlainText("custom prompt")

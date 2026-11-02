@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""P3-B5: FCTTestConfigPanel headless tests (set_values / values)."""
+"""P3-B5: FCTTestConfigPanel headless tests (set_values / values).
+
+M50: the panel is ONE page (the FCT step sequence).  The former
+Console / Wi-Fi / Bluetooth tabs are gone; shared values are runtime
+references into the Equipment page, and an OLD ``fct_test_config_yaml``
+project is imported best effort.
+"""
 import sys
 from pathlib import Path
 
@@ -14,13 +20,16 @@ import yaml
 
 from mtkgui.engine.fct_test_config import (
     ConsoleCommand,
-    FctTestConfig,
+    STEP_TYPE_BT_RSSI,
     STEP_TYPE_BT_TONE,
     STEP_TYPE_CONSOLE_CLI,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
+    STEP_TYPE_DELAY,
     STEP_TYPE_SFTP_GET,
     STEP_TYPE_SFTP_PUT,
+    STEP_TYPE_WIFI_SCAN,
+    console_command_for_label,
 )
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
     FCTTestConfigPanel,
@@ -38,6 +47,17 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
 def qapp():
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+def _steps(panel) -> list:
+    """The rows as the saved ``fct.steps`` list."""
+    node = yaml.safe_load(panel.values()["fct_steps_yaml"]) or {}
+    return (node.get("fct") or {}).get("steps") or []
+
+
+def _fct(panel) -> dict:
+    return (yaml.safe_load(panel.values()["fct_steps_yaml"]) or {}).get("fct") \
+        or {}
 
 
 FRDM_YAML = """
@@ -76,96 +96,82 @@ fct_test_config:
 """
 
 
-def test_roundtrip_preserves_config(qapp):
+def test_legacy_config_imports_into_single_page_rows(qapp):
+    """M50: the OLD config imports into rows (console body first, then
+    the enabled Wi-Fi/Bluetooth sub-tests) and saves the new schema."""
     panel = FCTTestConfigPanel()
-    params = {"legacy_key": "kept",
-              "fct_test_config_yaml": FRDM_YAML}
-    panel.set_values(params)
+    panel.set_values({"fct_test_config_yaml": FRDM_YAML,
+                      "legacy_key": "kept"})
+    assert hasattr(panel, "legacy_key") is False
     out = panel.values()
     assert out["legacy_key"] == "kept"
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    cfg = FctTestConfig.from_dict(node["fct_test_config"])
-    assert cfg.dut_type == "linux"
-    assert cfg.console.port and cfg.console.baudrate == 115200
+    steps = _steps(panel)
+    assert [s["type"] for s in steps] == [STEP_TYPE_CONSOLE_SERIAL,
+                                          STEP_TYPE_WIFI_SCAN,
+                                          STEP_TYPE_BT_RSSI]
+    kernel = steps[0]
+    assert kernel["name"] == "Kernel check"
     # legacy expect_pass of a send command migrates to the Capture
     # positive keyword (WaitFor uses expect_pass; Capture uses expect_fail)
-    kernel = next(c for c in cfg.console.test_commands
-                  if c.name == "Kernel check")
-    assert kernel.capture_enabled and kernel.capture_is_expected
-    assert kernel.expect_fail == "Linux imx93frdm"
-    assert cfg.wifi.scan_enabled and cfg.wifi.ap_ssid == "FRDM-IMX93-DUT"
-    assert cfg.bluetooth.rssi_enabled
-    assert cfg.bluetooth.expected_name == "FRDM-IMX93-DUT"
-    assert cfg.bluetooth.expected_addr == "b8:f4:4f:59:51:a0"
-    assert cfg.bluetooth.scan_retries == 2
+    assert kernel["capture_enabled"] is True
+    assert kernel["capture_is_expected"] is True
+    assert kernel["expect_fail"] == "Linux imx93frdm"
+    # shared values now travel as Equipment references + step overrides
+    assert steps[1]["ref"]["ap_ssid"] == \
+        "equipment.peripherals.wifi.ap_ssid"
+    assert steps[1]["override"]["ap_ssid"] == "FRDM-IMX93-DUT"
+    assert steps[1]["rssi_min"] == -70
+    assert steps[2]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
+    assert steps[2]["override"]["addr"] == "b8:f4:4f:59:51:a0"
 
 
 def test_ui_edits_reach_values(qapp):
+    """Every Add entry lands as one step entry in the saved schema."""
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.console_port.setCurrentText("/dev/cu.test")
-    panel.wifi_scan_box.setChecked(True)
-    panel.wifi_ap_ssid.setText("DUT-AP")
-    panel.wifi_ping_box.setChecked(True)
-    panel.bt_rssi_box.setChecked(True)
-    panel.bt_name.setText("DUT-BT")
-    panel.bt_expected_addr.setText("AA:BB:CC:DD:EE:FF")
-    panel.bt_scan_retries.setValue(4)
-    panel.bt_tone_file.setText("resources/tones/tone_2khz_6s.wav")
-    panel.bt_tone_range.set_values(1.0, 4.0)
-    panel.bt_pair_script.setText("/root/bt_conn.sh")
-    panel._add_row_for_label(STEP_TYPE_BT_TONE)
-    out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    cfg = FctTestConfig.from_dict(node["fct_test_config"])
-    assert cfg.console.port == "/dev/cu.test"
-    assert cfg.wifi.scan_enabled and cfg.wifi.ap_ssid == "DUT-AP"
-    assert cfg.wifi.ping_enabled
-    assert cfg.bluetooth.rssi_enabled and cfg.bluetooth.tone_enabled
-    assert cfg.bluetooth.expected_addr == "aa:bb:cc:dd:ee:ff"
-    assert cfg.bluetooth.scan_retries == 4
-    assert cfg.bluetooth.test_tone == "resources/tones/tone_2khz_6s.wav"
-    assert (cfg.bluetooth.tone_start_s, cfg.bluetooth.tone_end_s) == (1.0, 4.0)
-    assert cfg.bluetooth.bt_pair_script == "/root/bt_conn.sh"
+    labels = [STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH,
+              STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
+              STEP_TYPE_CONSOLE_CLI, STEP_TYPE_BT_TONE, STEP_TYPE_DELAY]
+    for label in labels:
+        panel._add_row_for_label(label)
+    assert [s["type"] for s in _steps(panel)] == labels
 
 
-def test_invalid_config_logged_not_lost(qapp):
-    panel = FCTTestConfigPanel()
-    panel.set_values({})
-    panel.bt_rssi_box.setChecked(True)
-    panel.bt_name.setText("")                 # required -> invalid
+def test_unresolvable_reference_is_logged_with_the_step_name(qapp):
+    """M50 §6: an unknown reference is reported (step name + path) at
+    save time - the row itself is never rewritten."""
+    panel = FCTTestConfigPanel(equipment_provider=lambda: {"equipment": {}})
+    cmd = console_command_for_label(STEP_TYPE_CONSOLE_SERIAL)
+    cmd.name = "bad row"
+    cmd.refs = {"port": "equipment.not.a.real.path"}
+    panel._insert_row(cmd)
     logs = []
-    panel.task_log.connect(lambda lvl, msg: logs.append(msg))
-    out = panel.values()
-    assert out["fct_test_config_yaml"]        # text preserved
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    assert FctTestConfig.from_dict(
-        node["fct_test_config"]).validate()   # and still invalid
-    assert any("expected_name" in m for m in logs)
+    panel.task_log.connect(lambda _lvl, msg: logs.append(msg))
+    panel.values()
+    errors = [m for m in logs if "FCT step references" in m]
+    assert errors, logs
+    assert "bad row" in errors[0]
+    assert "equipment.not.a.real.path" in errors[0]
+    assert panel.cmd_table.item(0, _COL_STEP).text() == "bad row"
 
 
-def test_dut_type_grey_out_and_hint(qapp):
+def test_dut_type_gates_the_add_menu_and_hint(qapp):
+    """M36: no master switch - only the DUT kind gates the Linux-only
+    sub-tests; discovery tests stay available on both kinds."""
     panel = FCTTestConfigPanel()
-    # M36: no master switch - only the DUT kind gates the Linux-only
-    # sub-tests; the BT tab is always enabled (M32).
     panel.dut_type.setCurrentText("bare_metal")
-    # no Linux shell: driver cmd, Connect&Ping, iPerf, Pair, Tone greyed;
-    # the Scan/RSSI discovery tests (both DUT kinds) stay available
-    assert not panel.wifi_driver_cmd.isEnabled()
-    assert not panel.wifi_ping_box.isEnabled()
-    assert not panel.wifi_iperf_box.isEnabled()
-    assert not panel.bt_pair_box.isEnabled()
-    assert not panel.bt_tone_box.isEnabled()
-    assert panel.wifi_scan_box.isEnabled()
-    assert panel.bt_rssi_box.isEnabled()
+    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
+    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
+    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isVisible()
+    assert panel._add_actions[STEP_TYPE_BT_RSSI].isVisible()
+    assert panel._add_actions[STEP_TYPE_WIFI_SCAN].isVisible()
     assert "Bare Metal" in panel.dut_hint.text()
-    # back to linux: Linux-only sub-tests re-enable
+    # back to linux: the SSH-only items re-enable
     panel.dut_type.setCurrentText("linux")
-    assert panel.wifi_driver_cmd.isEnabled()
-    assert panel.wifi_ping_box.isEnabled()
-    assert panel.wifi_iperf_box.isEnabled()
-    assert panel.bt_pair_box.isEnabled()
-    assert panel.bt_tone_box.isEnabled()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
+    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
+    assert panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
 
 
 def test_set_values_restores_dut_type_grey(qapp):
@@ -222,8 +228,10 @@ fct_test_config:
         wait_timeout: 10
         send_timeout: 4
         timeout: 6
-  wifi: {enabled: false, mode: rssi_only, interface: mlan0, ssid: x, rssi_min: -70}
-  bluetooth: {enabled: false, mode: rssi_only, expected_name: x, rssi_min: -70}
+  wifi: {enabled: false, scan_enabled: false, ping_enabled: false,
+         iperf_enabled: false}
+  bluetooth: {enabled: false, rssi_enabled: false, pair_enabled: false,
+              tone_enabled: false}
 """
 
 
@@ -249,19 +257,17 @@ def test_three_stage_off_cells_rendered(qapp):
 def test_three_stage_off_roundtrip(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": THREE_STAGE_YAML})
-    out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    cfg = FctTestConfig.from_dict(node["fct_test_config"])
-    cap, login = cfg.console.test_commands
+    cap, login = _steps(panel)
     # capture-only row keeps its stage flags through the table roundtrip
-    assert cap.wait_enabled is False
-    assert cap.send_enabled is False
-    assert cap.capture_enabled is True
-    assert cap.expect_fail == "FW ready"
+    assert cap["wait_enabled"] is False
+    assert cap["send_enabled"] is False
+    assert cap["capture_enabled"] is True
+    assert cap["expect_fail"] == "FW ready"
     # full chain row keeps all three stages
-    assert login.wait_enabled and login.send_enabled and login.capture_enabled
-    assert login.expect_pass == "login:"
-    assert login.expect_fail == "Password:"
+    assert login["wait_enabled"] and login["send_enabled"] \
+        and login["capture_enabled"]
+    assert login["expect_pass"] == "login:"
+    assert login["expect_fail"] == "Password:"
 
 
 def test_timeout_column_read_only(qapp):
@@ -286,15 +292,12 @@ def test_advanced_capture_attrs_survive_roundtrip(qapp):
     r = panel.cmd_table.rowCount()
     panel.cmd_table.insertRow(r)
     panel._save_row_cmd(r, cmd)
-    out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    restored = FctTestConfig.from_dict(
-        node["fct_test_config"]).console.test_commands[0]
-    assert restored.capture_enabled and not restored.capture_is_expected
-    assert restored.expect_fail == "ERROR"
-    assert restored.case_sensitive is False
-    assert restored.capture_end_line == "DONE"
-    assert restored.timeout == 8.0
+    restored = _steps(panel)[0]
+    assert restored["capture_enabled"] and not restored["capture_is_expected"]
+    assert restored["expect_fail"] == "ERROR"
+    assert restored["case_sensitive"] is False
+    assert restored["capture_end_line"] == "DONE"
+    assert restored["timeout"] == 8.0
 
 
 def test_sftp_row_clears_wait_and_capture(qapp):
@@ -317,25 +320,22 @@ def test_sftp_row_clears_wait_and_capture(qapp):
     assert panel.cmd_table.item(r, _COL_TIMEOUT).text() == "S:30s"
     assert panel.cmd_table.item(r, _COL_WAIT).text() == ""
     assert panel.cmd_table.item(r, _COL_SEND).text() == ""
-    out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    restored = FctTestConfig.from_dict(
-        node["fct_test_config"]).console.test_commands[0]
-    assert restored.kind == "sftp_put"
-    assert restored.local == "load.sh" and restored.remote == "/root/load.sh"
-    assert not restored.wait_enabled and not restored.capture_enabled
-
-
+    restored = _steps(panel)[0]
+    assert restored["type"] == STEP_TYPE_SFTP_PUT
+    assert restored["local"] == "load.sh"
+    assert restored["remote"] == "/root/load.sh"
+    assert not restored["wait_enabled"] and not restored["capture_enabled"]
 
 
 def test_setup_fields_round_trip_without_editor_tab(qapp):
-    """M22g: the Setup tab is gone (4 tabs left). The `setup:` node is
-    still parsed and re-emitted verbatim, so an old YAML keeps its
+    """M50: only the Sequence page exists. The `setup:` node is still
+    parsed and re-emitted in ``fct.runtime``, so an old YAML keeps its
     power / fixture spine (MessageGoStop prompts, U2355A fixture ops)."""
     panel = FCTTestConfigPanel()
     labels = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
-    assert labels == ["Console", "Wi-Fi", "Bluetooth", "Sequence"]
+    assert labels == ["Sequence"]
     assert not hasattr(panel, "setup_power")
+    assert not hasattr(panel, "wifi_tab") and not hasattr(panel, "bt_tab")
     text = yaml.safe_dump({"fct_test_config": {
         "dut_type": "linux",
         "setup": {"power_mode": "psu", "use_fixture": True,
@@ -343,12 +343,11 @@ def test_setup_fields_round_trip_without_editor_tab(qapp):
                   "manual_off_message": "unplug it"}}}, sort_keys=False)
     panel.set_values({"fct_test_config_yaml": text})
 
-    out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])
-    assert node["fct_test_config"]["setup"] == {
-        "power_mode": "psu", "use_fixture": True,
-        "manual_on_message": "plug it",
-        "manual_off_message": "unplug it"}
+    setup = ((_fct(panel).get("runtime") or {}).get("setup") or {})
+    assert setup["power_mode"] == "psu"
+    assert setup["use_fixture"] is True
+    assert setup["manual_on_message"] == "plug it"
+    assert setup["manual_off_message"] == "unplug it"
 
 
 def test_setup_defaults_when_yaml_has_no_setup_node(qapp):
@@ -357,9 +356,7 @@ def test_setup_defaults_when_yaml_has_no_setup_node(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml":
                       "fct_test_config:\n  dut_type: linux\n"})
-    out = panel.values()
-    setup = yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"][
-        "setup"]
+    setup = ((_fct(panel).get("runtime") or {}).get("setup") or {})
     assert setup["power_mode"] == "manual"
     assert setup["use_fixture"] is False
     assert setup["manual_on_message"]
@@ -378,8 +375,10 @@ fct_test_config:
       - {name: Swap DUT fixture, kind: message, dialog_style: yesno,
          timeout: 30}
       - {name: Ready check, kind: message, dialog_style: ok, timeout: 10}
-  wifi: {enabled: false}
-  bluetooth: {enabled: false}
+  wifi: {enabled: false, scan_enabled: false, ping_enabled: false,
+         iperf_enabled: false}
+  bluetooth: {enabled: false, rssi_enabled: false, pair_enabled: false,
+              tone_enabled: false}
 """
 
 
@@ -399,12 +398,10 @@ def test_message_rows_render_and_round_trip(qapp):
     cmd = panel._row_cmd(1)
     assert cmd.kind == "message" and cmd.dialog_style == "yesno"
     # values() keeps the message rows (no data loss on OK)
-    out = panel.values()
-    cfg = FctTestConfig.from_dict(yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"])
-    cmds = cfg.console.test_commands
-    assert [c.kind for c in cmds] == ["send", "message", "message"]
-    assert [c.dialog_style for c in cmds] == ["yesno", "yesno", "ok"]
+    steps = _steps(panel)
+    assert [s["type"] for s in steps] == ["Console_serial", "MessageYesNo",
+                                          "MessageOK"]
+    assert [s["dialog_style"] for s in steps] == ["yesno", "yesno", "ok"]
 
 
 def test_add_menu_covers_all_twelve_types(qapp):
@@ -454,32 +451,25 @@ def test_message_row_survives_bare_metal_switch(qapp):
     panel.dut_type.setCurrentText("bare_metal")
     cmd = panel._get_row_cmd(1)
     assert cmd.kind == "message" and cmd.transport == "serial"
-    out = panel.values()
-    cfg = FctTestConfig.from_dict(yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"])
-    assert cfg.console.test_commands[1].kind == "message"
-    assert cfg.validate() == []
+    steps = _steps(panel)
+    assert steps[1]["type"] == "MessageYesNo"
+    assert steps[1]["transport"] == "serial"
 
 
-# ----------------------------------------- Console/Sequence split (M22c)
-def test_console_tab_is_connection_config_only(qapp):
-    """The Console tab carries ONLY the Host PC Serial/SSH connection
-    fields; the test-commands table + row buttons moved to Sequence."""
-    from PySide6.QtWidgets import QLineEdit, QTableWidget
+# ----------------------------------------- single-page contract (M50)
+def test_single_sequence_page_has_no_console_wifi_bt_tabs(qapp):
+    """M50 §1: the Console / Wi-Fi / Bluetooth tabs are gone - the panel
+    keeps ONE page and nothing hidden remains."""
+    from PySide6.QtWidgets import QTableWidget
 
     panel = FCTTestConfigPanel()
     labels = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
-    assert labels == ["Console", "Wi-Fi", "Bluetooth", "Sequence"]
-    console = panel.tabs.widget(labels.index("Console"))
-    seq = panel.tabs.widget(labels.index("Sequence"))
-    # no data table left on the Console page
-    assert console.findChildren(QTableWidget) == []
+    assert labels == ["Sequence"]
+    assert not hasattr(panel, "wifi_tab")
+    assert not hasattr(panel, "bt_tab")
+    assert not hasattr(panel, "console_ssh_host")
+    seq = panel.tabs.widget(0)
     assert panel.cmd_table in seq.findChildren(QTableWidget)
-    # connection config lives on the Console page (serial + ssh)
-    console_edits = console.findChildren(QLineEdit)
-    assert panel.console_ssh_host in console_edits
-    assert panel.console_ssh_user in console_edits
-    # the row buttons moved with the table
     seq_buttons = {b.text() for b in seq.findChildren(QPushButton)}
     assert {"Add", "Remove selected", "Duplicate", "Edit",
             "Move Up", "Move Down"} <= seq_buttons
@@ -507,34 +497,36 @@ fct_test_config:
       - {name: Stop iperf3, transport: serial, kind: host,
          wait_enabled: false, send_enabled: true, capture_enabled: false,
          host_cmd: "pkill -f iperf3"}
-  wifi: {enabled: false}
-  bluetooth: {enabled: false}
+  wifi: {enabled: false, scan_enabled: false, ping_enabled: false,
+         iperf_enabled: false}
+  bluetooth: {enabled: false, rssi_enabled: false, pair_enabled: false,
+              tone_enabled: false}
 """
 
 
 def test_ssh_endpoint_and_console_extras_round_trip(qapp):
-    """Console connection fields are editable; every other console key
-    (newline / delay / SFTP paths / post_rf teardown rows) round-trips
-    untouched - the page split must not lose data."""
+    """M50 §5: an SSH step references Equipment ``dut.ssh`` (IP/username/
+    password) instead of a Console page; the remaining console keys
+    (newline / delay / SFTP paths) ride in ``fct.runtime``; post-RF rows
+    stay teardown rows."""
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": CONSOLE_EXTRAS_YAML})
-    assert panel.console_ssh_host.text() == "192.168.1.20"
-    assert panel.console_ssh_user.text() == "root"
-    panel.console_ssh_host.setText("192.168.1.21")
-    out = panel.values()
-    console = yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"]["console"]
-    assert console["ssh_host"] == "192.168.1.21"
-    assert console["ssh_username"] == "root"
+    steps = _steps(panel)
+    sftp = next(s for s in steps
+                if s["type"] == STEP_TYPE_SFTP_GET)
+    assert sftp["ref"]["host"] == "equipment.dut.ssh.ip"
+    assert sftp["ref"]["username"] == "equipment.dut.ssh.username"
+    assert sftp["ref"]["password"] == "equipment.dut.ssh.password"
+    assert sftp["remote"] == "/root/fat_result.json"
+    teardown = [s for s in steps if s.get("teardown")]
+    assert [s["host_cmd"] for s in teardown] == ["pkill -f iperf3"]
+    console = (_fct(panel).get("runtime") or {}).get("console") or {}
     assert console["newline"] == "crlf"
     assert console["inter_cmd_delay_ms"] == 250
-    # M42: the deploy_scripts switch is retired - never re-emitted
-    assert "deploy_scripts" not in console
     assert console["scripts_local_dir"] == "assets"
     assert console["scripts_remote_dir"] == "/root"
-    assert console["test_commands"][0]["kind"] == "sftp_get"
-    assert console["test_commands"][0]["remote"] == "/root/fat_result.json"
-    assert console["post_rf_commands"][0]["host_cmd"] == "pkill -f iperf3"
+    # M42: the deploy_scripts switch is retired - never re-emitted
+    assert "deploy_scripts" not in console
 
 
 # ------------------------------------------- unified row types (M26)
@@ -549,8 +541,10 @@ fct_test_config:
       - {name: Start iperf3, transport: serial, kind: host,
          wait_enabled: false, send_enabled: true, capture_enabled: false,
          timeout: 20, host_cmd: "iperf3 -s -1"}
-  wifi: {enabled: false}
-  bluetooth: {enabled: false}
+  wifi: {enabled: false, scan_enabled: false, ping_enabled: false,
+         iperf_enabled: false}
+  bluetooth: {enabled: false, rssi_enabled: false, pair_enabled: false,
+              tone_enabled: false}
 """
 
 
@@ -566,13 +560,10 @@ def test_sftp_row_is_an_action_with_editable_params(qapp):
                                           "{{dut_report}}/fat_result.json")
     assert t.item(0, _COL_WAIT).text() == ""
     assert t.item(0, _COL_SEND).text() == ""
-    out = panel.values()
-    cmd = FctTestConfig.from_dict(yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"]
-    ).console.test_commands[0]
-    assert cmd.kind == "sftp_get"
-    assert cmd.local == "{{dut_report}}/fat_result.json"
-    assert cmd.remote == "/root/fat_result.json"
+    sftp = _steps(panel)[0]
+    assert sftp["type"] == STEP_TYPE_SFTP_GET
+    assert sftp["local"] == "{{dut_report}}/fat_result.json"
+    assert sftp["remote"] == "/root/fat_result.json"
 
 
 def test_host_cli_row_is_an_action_and_round_trips(qapp):
@@ -583,67 +574,10 @@ def test_host_cli_row_is_an_action_and_round_trips(qapp):
     t = panel.cmd_table
     assert t.item(0, _COL_TYPE).text() == "Console_cli"
     assert t.item(0, _COL_CMD).text() == "iperf3 -s -1"
-    out = panel.values()
-    cmd = FctTestConfig.from_dict(yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"]
-    ).console.test_commands[0]
-    assert cmd.kind == "host"
-    assert cmd.host_cmd == "iperf3 -s -1"
-    assert cmd.timeout == 20
-
-
-
-def test_wifi_tab_three_column_rows(qapp):
-    """m31: the Wi-Fi tab body is a scrollable three-column grid - the
-    DUT / Hotspot AP / Host PC boxes sit in ONE row (columns 0/1/2) and
-    the Scan / RSSI, Ping and iPerf boxes sit in ONE row (columns
-    0/1/2)."""
-    from PySide6.QtWidgets import QGridLayout, QScrollArea
-    panel = FCTTestConfigPanel()
-    assert isinstance(panel.wifi_tab, QScrollArea), \
-        "Wi-Fi tab body must be wrapped in a QScrollArea"
-    grid = panel.wifi_tab.widget().layout()
-    assert isinstance(grid, QGridLayout), \
-        "Wi-Fi tab body must be a QGridLayout"
-
-    def pos(widget):
-        return grid.getItemPosition(grid.indexOf(widget))[:2]
-
-    cfg = [pos(w) for w in (panel.wifi_base, panel.wifi_ap_box,
-                           panel.wifi_host_box)]
-    assert {r for r, _c in cfg} == {1}, "DUT/AP/Host must share row 1"
-    assert [c for _r, c in cfg] == [0, 1, 2], \
-        "DUT/AP/Host must occupy columns 0/1/2"
-
-    tests = [pos(w) for w in (panel.wifi_scan_box, panel.wifi_ping_box,
-                              panel.wifi_iperf_box)]
-    assert {r for r, _c in tests} == {2}, "Scan/Ping/iPerf must share row 2"
-    assert [c for _r, c in tests] == [0, 1, 2], \
-        "Scan/Ping/iPerf must occupy columns 0/1/2"
-
-
-def test_bt_tab_one_row(qapp):
-    """m32: the Bluetooth tab body is a scrollable ONE-row three-column
-    grid - Host PC BT / Pair / Tone boxes sit side by side."""
-    from PySide6.QtWidgets import QGridLayout, QScrollArea
-    panel = FCTTestConfigPanel()
-    assert isinstance(panel.bt_tab, QScrollArea), \
-        "Bluetooth tab body must be wrapped in a QScrollArea"
-    grid = panel.bt_tab.widget().layout()
-    assert isinstance(grid, QGridLayout), \
-        "Bluetooth tab body must be a QGridLayout"
-
-    def pos(widget):
-        return grid.getItemPosition(grid.indexOf(widget))[:2]
-
-    boxes = [pos(w) for w in (panel.bt_rssi_box, panel.bt_pair_box,
-                              panel.bt_tone_box)]
-    assert {r for r, _c in boxes} == {0}, "the three modules must share row 0"
-    assert [c for _r, c in boxes] == [0, 1, 2], \
-        "Host/Pair/Tone must occupy columns 0/1/2"
-    # M32: the enable checkbox is gone, tone is NOT checkable
-    assert not hasattr(panel, "bt_enabled")
-    assert not panel.bt_tone_box.isCheckable()
+    step = _steps(panel)[0]
+    assert step["type"] == "Console_cli"
+    assert step["host_cmd"] == "iperf3 -s -1"
+    assert step["timeout"] == 20
 
 
 def test_fct_panel_minimum_height_is_bounded(qapp):

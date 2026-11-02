@@ -44,7 +44,6 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     STEP_TYPE_WIFI_PING,
     STEP_TYPE_WIFI_SCAN,
     ConsoleCommand,
-    FctTestConfig,
     _console_row_steps,
     step_type_label,
 )
@@ -182,17 +181,16 @@ class TestTemplateLoadAppendsOrdinaryRows:
         assert panel.cmd_table.rowCount() == count
 
     def test_template_rows_round_trip_through_values(self, panel):
-        panel.console_port.addItem("/dev/cu.test")
-        panel.console_port.setCurrentText("/dev/cu.test")
+        """M50: the single Sequence page round-trips through the new
+        ``fct.steps`` schema (one entry per row, no split config)."""
         panel._load_template(TEMPLATE_BARE_METAL)
         out = panel.values()
-        cfg = FctTestConfig.from_dict(
-            (yaml.safe_load(out["fct_test_config_yaml"]) or {})
-            .get("fct_test_config") or {})
-        cases = yaml.safe_load(out["fct_sequence_cases_yaml"]) or []
-        assert len(cfg.console.test_commands) + len(cases) == 9
-        assert len(cases) == 5            # the five Operation rows
-        assert cfg.validate() == []
+        steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
+                 .get("fct") or {}).get("steps") or []
+        assert len(steps) == 9
+        assert len([s for s in steps
+                    if s["type"] == STEP_TYPE_OPERATION]) == 5
+        assert list(out) == ["fct_steps_yaml"]
 
 
 # ------------------------------------------------- 3 multi-select Remove
@@ -272,16 +270,15 @@ class TestConsoleSegmentsAreOptional:
         assert steps[0].params["capture_enabled"] is True
 
     def test_all_segments_empty_is_valid_config(self, panel):
-        panel.console_port.addItem("/dev/cu.test")
-        panel.console_port.setCurrentText("/dev/cu.test")
+        """M50: an empty wait/send/capture row is a valid single-page
+        step (connection data comes from Equipment references)."""
         panel._insert_row(_cmd(wait_enabled=False, send_enabled=False,
                                send="", capture_enabled=False))
         out = panel.values()
-        cfg = FctTestConfig.from_dict(
-            (yaml.safe_load(out["fct_test_config_yaml"]) or {})
-            .get("fct_test_config") or {})
-        assert cfg.validate() == []
-        assert len(cfg.console.test_commands) == 1
+        steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
+                 .get("fct") or {}).get("steps") or []
+        assert len(steps) == 1
+        assert steps[0]["type"] == STEP_TYPE_CONSOLE_SERIAL
 
 
 # ------------------------------------------------------------ 5 pre-fill

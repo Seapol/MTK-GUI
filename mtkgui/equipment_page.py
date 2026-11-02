@@ -17,7 +17,7 @@ Dialog footnotes are mode-aware (Real / Virtual) - the legacy static
 "Demo mode" wording was wrong outside the demo era (user report).
 """
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -225,6 +225,12 @@ LEFT_ENTRIES = (
 #: instruments that own a main-window indicator lamp (M49a §3); J-Link is
 #: a third-party GUI and deliberately has NO lamp.
 INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
+
+#: M50 §4: peripheral / DUT configs that expose a Test Connection button
+#: (availability check for a SAMPLE DUT / host setup - the real per-unit
+#: verification runs inside the FCT Sequence steps).
+_TESTABLE_FORM_KEYS = ("pc_wifi", "pc_bt", "router", "jlink",
+                       "dut_wifi", "dut_bt", "dut_ssh", "dut_console")
 
 # M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
 # editable fields (field key, label, default).  The YAML carries these
@@ -2193,6 +2199,27 @@ class _InstrumentDialog(QDialog):
 # --------------------------------------------------------------------------
 # the page
 # --------------------------------------------------------------------------
+class _PeripheralTestWorker(QThread):
+    """M50 §4: run one availability probe OFF the UI thread.
+
+    ``fn`` returns ``(ok, message)``; an unexpected exception becomes a
+    clear failure message (never a crash / traceback in the UI).
+    """
+
+    done = Signal(bool, str)
+
+    def __init__(self, fn, parent=None):
+        super().__init__(parent)
+        self._fn = fn
+
+    def run(self):
+        try:
+            ok, message = self._fn()
+        except Exception as exc:                    # noqa: BLE001
+            ok, message = False, f"{type(exc).__name__}: {exc}"
+        self.done.emit(bool(ok), str(message))
+
+
 class EquipmentPage(QWidget):
     # (instrument key, connected) emitted by the instrument dialog when
     # the user connects / disconnects INSIDE the dialog - the main
@@ -2222,6 +2249,9 @@ class EquipmentPage(QWidget):
         self._instrument_selftest: dict[str, bool] = {}
         # entry key -> row widgets (Config / Test buttons)
         self.entry_buttons: dict[str, dict[str, QPushButton]] = {}
+        # M50 §4: entry key -> running Test Connection worker (kept here
+        # so the QThread is not garbage-collected mid-probe)
+        self._test_threads: dict[str, _PeripheralTestWorker] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -2368,7 +2398,8 @@ class EquipmentPage(QWidget):
         return panel
 
     def _entry_row(self, entry):
-        """One left-column row: label + Config (+ Test for instruments)."""
+        """One left-column row: label + Config (+ Test for instruments and
+        the M50 Test Connection of peripheral / DUT configs)."""
         key, label, kind, _source = entry
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -2388,6 +2419,14 @@ class EquipmentPage(QWidget):
             btn_test.setFixedWidth(56)
             btn_test.clicked.connect(
                 lambda _=False, k=key: self._run_instrument_self_test(k))
+            row.addWidget(btn_test)
+            buttons["test"] = btn_test
+        elif kind == "form" and key in _TESTABLE_FORM_KEYS:
+            btn_test = QPushButton("Test")
+            btn_test.setFixedWidth(56)
+            btn_test.setToolTip("Test Connection")
+            btn_test.clicked.connect(
+                lambda _=False, k=key: self._test_entry(k))
             row.addWidget(btn_test)
             buttons["test"] = btn_test
         self.entry_buttons[key] = buttons
@@ -2785,6 +2824,263 @@ class EquipmentPage(QWidget):
                 self.instrument_selftest_changed.emit(key, passed)
                 return passed
         return False
+
+    # -- M50 §4: Test Connection on the peripheral / DUT configs ----------
+    def _entry_values(self, entry_key):
+        """The CURRENT config values of one left-column entry."""
+        owner, group = self._entry_source(entry_key)
+        cfg = self.configs.get(owner) or {}
+        if group is None:
+            return dict(cfg.get("params") or {})
+        groups = cfg.get("groups") or {}
+        return dict(groups.get(group) or _default_group(owner, group))
+
+    def _entry_label(self, entry_key):
+        for _group, entries in LEFT_ENTRIES:
+            for key, label, _kind, _source in entries:
+                if key == entry_key:
+                    return label
+        return entry_key
+
+    def _test_entry(self, entry_key):
+        """M50 §4: availability-only Test Connection (a SAMPLE DUT /
+        host setup); the real per-unit verification runs inside the FCT
+        Sequence steps.  Runs OFF the UI thread."""
+        if not self._config_allowed:
+            QMessageBox.information(
+                self, "Permission",
+                "Operator account cannot test equipment connections.\n"
+                "Ask the supervisor to grant this permission.")
+            return
+        running = self._test_threads.get(entry_key)
+        if running is not None and running.isRunning():
+            return
+        values = self._entry_values(entry_key)
+        button = self.entry_buttons.get(entry_key, {}).get("test")
+        if button is not None:
+            button.setEnabled(False)
+        worker = _PeripheralTestWorker(
+            lambda: self._probe_entry(entry_key, values), self)
+        self._test_threads[entry_key] = worker
+
+        def _finished(ok, message, key=entry_key, thread=worker):
+            self._test_threads.pop(key, None)
+            btn = self.entry_buttons.get(key, {}).get("test")
+            if btn is not None:
+                btn.setEnabled(True)
+            title = f"{self._entry_label(key)} - Test Connection"
+            if ok:
+                QMessageBox.information(self, title, message)
+            else:
+                QMessageBox.warning(self, title, message)
+            thread.deleteLater()
+
+        worker.done.connect(_finished)
+        worker.start()
+
+    def _probe_entry(self, entry_key, values):
+        """The availability probe of one peripheral / DUT entry.
+
+        Returns ``(ok, message)``; the message always names what was
+        checked, so an unavailable sample produces a clear failure."""
+        from .engine import host_platform
+
+        if entry_key == "dut_ssh":
+            host = str(values.get("ip") or "").strip()
+            user = str(values.get("username") or "").strip()
+            if not host:
+                return False, ("SSH Login is not configured.\n"
+                               "Open Config and enter the DUT IP address, "
+                               "username and password.")
+            lines = [f"DUT IP: {host}", f"User: {user or '(not set)'}"]
+            if not host_platform.ping_host(host):
+                lines.append("Network: no ping reply")
+                return False, "\n".join(
+                    lines + ["", "Test Connection FAILED: the DUT does not "
+                             "answer ping."])
+            lines.append("Network: ping OK")
+            if not host_platform.tcp_port_open(host, 22):
+                lines.append("SSH port 22: closed / unreachable")
+                return False, "\n".join(
+                    lines + ["", "Test Connection FAILED: sshd is not "
+                             "reachable on port 22."])
+            lines.append("SSH port 22: open")
+            return True, "\n".join(
+                lines + ["", "Test Connection PASSED: the SSH channel is "
+                        "available."])
+
+        if entry_key == "dut_console":
+            port = str(values.get("port") or "").strip()
+            baud = str(values.get("baud") or "115200").strip()
+            parity = str(values.get("parity") or "None").strip()
+            if not port:
+                return False, ("DUT Console is not configured.\n"
+                               "Open Config and select the serial port.")
+            try:
+                from serial.tools import list_ports
+                devices = host_platform.serial_port_devices(
+                    [p.device for p in list_ports.comports()])
+            except Exception:                   # noqa: BLE001
+                devices = []
+            if port not in devices:
+                available = ", ".join(devices) if devices else "(none)"
+                return False, (f"Serial port {port} is not present.\n"
+                               f"Available ports: {available}\n"
+                               "Test Connection FAILED: the serial port "
+                               "cannot be opened.")
+            try:
+                import serial
+                with serial.Serial(port=port, baudrate=int(baud),
+                                   timeout=1):
+                    pass
+            except Exception as exc:            # noqa: BLE001
+                return False, (f"Serial port {port} could not be opened: "
+                               f"{exc}")
+            return True, (f"Serial port: {port}\nBaud rate: {baud}\n"
+                          f"Parity: {parity}\n\nTest Connection PASSED: "
+                          "the serial port opens.")
+
+        if entry_key == "pc_wifi":
+            ssid = str(values.get("ap_ssid") or "").strip()
+            ap_ip = str(values.get("ap_ip") or "").strip()
+            if not ssid and not ap_ip:
+                return False, ("PC Wi-Fi is not configured.\n"
+                               "Open Config and set the AP SSID / AP IP "
+                               "address.")
+            if ap_ip:
+                result = host_platform.probe_host_ap_link(
+                    ap_ip, expected_ssid=ssid or None)
+                lines = list(result.get("lines") or [])
+                lines.append(f"AP IP: {ap_ip}")
+                ok = bool(result.get("ok"))
+                verdict = ("Test Connection PASSED: the Host PC is associated "
+                           "with the configured AP and the AP answers ping."
+                           if ok else
+                           "Test Connection FAILED: "
+                           + str(result.get("error") or "AP unreachable"))
+                return ok, "\n".join(lines + ["", verdict])
+            info = host_platform.detect_current_wifi()
+            current = str(info.get("ssid") or "").strip()
+            lines = [f"Configured AP SSID: {ssid}",
+                     f"Host PC association: {current or '(none)'}",
+                     "AP IP: (not set)"]
+            if current and current == ssid:
+                return True, "\n".join(
+                    lines + ["", "Test Connection PASSED: the Host PC is "
+                            "associated with the configured AP."])
+            return False, "\n".join(
+                lines + ["", "Test Connection FAILED: no AP IP configured "
+                        f'and the Host PC is not associated with "{ssid}".'])
+
+        if entry_key == "dut_wifi":
+            ssid = str(values.get("ssid") or "").strip()
+            iface = str(values.get("interface") or "").strip()
+            if not ssid:
+                return False, ("DUT Wi-Fi is not configured.\n"
+                               "Open Config and enter the DUT SSID.")
+            import platform
+            cmd = ("netsh wlan show networks"
+                   if platform.system() == "Windows"
+                   else "system_profiler SPAirPortDataType")
+            scan = host_platform.run_link_cmd(cmd, timeout_s=25)
+            lines = [f"DUT SSID: {ssid}",
+                     f"DUT interface: {iface or '(not set)'}"]
+            if ssid.lower() in str(scan).lower():
+                return True, "\n".join(
+                    lines + ["", "Test Connection PASSED: the DUT SSID "
+                            "appears in the Host PC Wi-Fi scan."])
+            return False, "\n".join(
+                lines + ["", "Test Connection FAILED: the DUT SSID does not "
+                        "appear in the Host PC Wi-Fi scan (check the DUT "
+                        "Wi-Fi / hotspot power)."])
+
+        if entry_key in ("pc_bt", "dut_bt"):
+            name = str(values.get("name") or "").strip()
+            addr = str(values.get("bd_addr") or "").strip()
+            targets = str(values.get("scan_targets") or "").strip()
+            adapter = str(values.get("adapter") or "").strip()
+            if entry_key == "dut_bt" and not name and not addr:
+                return False, ("DUT Bluetooth is not configured.\n"
+                               "Open Config and enter the BT name / BD "
+                               "address.")
+            try:
+                scan = host_platform.run_link_cmd(
+                    host_platform.host_bt_scan_cmd(), timeout_s=25)
+            except Exception as exc:            # noqa: BLE001
+                return False, f"Bluetooth scan unavailable on this Host PC: {exc}"
+            hay = str(scan).lower()
+            wanted = name or addr or targets
+            found = bool(wanted) and wanted.lower() in hay
+            lines = [f"Host adapter: {adapter or '(default)'}",
+                     f"Lookup: {wanted or '(scan only)'}"]
+            if wanted:
+                lines.append("Device found in the scan" if found
+                             else "Device NOT found in the scan")
+                if found:
+                    return True, "\n".join(
+                        lines + ["", "Test Connection PASSED: the Bluetooth "
+                                "device is visible to the Host PC."])
+                return False, "\n".join(
+                    lines + ["", "Test Connection FAILED: the Bluetooth "
+                            "device is not visible to the Host PC."])
+            if hay.strip():
+                return True, "\n".join(
+                    lines + ["", "Test Connection PASSED: the Bluetooth "
+                            "adapter is available."])
+            return False, "\n".join(
+                lines + ["", "Test Connection FAILED: no Bluetooth scan "
+                        "result from the Host PC."])
+
+        if entry_key == "router":
+            router_ip = str(values.get("router_ip") or "").strip()
+            dut_ip = str(values.get("dut_ip") or "").strip()
+            if not router_ip and not dut_ip:
+                return False, ("Ethernet Router is not configured.\n"
+                               "Open Config and set the router / DUT IP "
+                               "address.")
+            lines = [f"Setup mode: {values.get('setup_mode') or '(not set)'}"]
+            ok = True
+            for label, ip in (("Router", router_ip), ("DUT", dut_ip)):
+                if not ip:
+                    lines.append(f"Ping {label}: (not set)")
+                    continue
+                reachable = host_platform.ping_host(ip)
+                lines.append(f"Ping {label} {ip}: "
+                             + ("OK" if reachable else "no reply"))
+                ok = ok and reachable
+            lines.append("")
+            lines.append("Test Connection PASSED: every configured target "
+                         "answers ping." if ok else
+                         "Test Connection FAILED: a configured target does "
+                         "not answer ping.")
+            return ok, "\n".join(lines)
+
+        if entry_key == "jlink":
+            exe = str(values.get("executable") or "").strip()
+            install = str(values.get("install_path") or "").strip()
+            if not exe:
+                return False, ("J-Link is not configured.\n"
+                               "Open Config and set the install path / "
+                               "executable.")
+            import os
+            if os.path.isabs(exe):
+                candidate = exe
+            elif install:
+                candidate = os.path.join(install, exe)
+            else:
+                candidate = exe
+            lines = [f"Executable: {candidate}",
+                     f"Device: {values.get('device') or '(not set)'}"]
+            if os.path.isfile(candidate):
+                return True, "\n".join(
+                    lines + ["", "Test Connection PASSED: the J-Link "
+                            "executable is present."])
+            return False, "\n".join(
+                lines + ["", "Test Connection FAILED: the J-Link executable "
+                        "was not found.  Configure the install path / "
+                        "executable."])
+
+        return False, f"No Test Connection probe is defined for {entry_key}."
 
     def instrument_state(self, key):
         """M49a §3: lamp state of one instrument unit:

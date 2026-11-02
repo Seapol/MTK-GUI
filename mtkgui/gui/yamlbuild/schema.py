@@ -253,11 +253,15 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
         _f("exception_branch", "Exception Branch", ftype=T_CHOICE,
            choices=("continue", "stop"), default="stop", hidden=True),
         _f("case_link", "Case Link", hidden=True),
+        _f("fct_steps_yaml", "FCT Steps", ftype=T_TEXT,
+           hidden=True, remarks="M50 fct.steps schema - every step inline "
+                                "plus ref / override into equipment:"),
+        # pre-M50 project files only (imported best effort, never re-saved)
         _f("fct_test_config_yaml", "FCT Test Config", ftype=T_TEXT,
-           hidden=True, remarks="fct_test_config YAML node (P3-B5)"),
+           hidden=True, remarks="legacy fct_test_config node (pre-M50)"),
         _f("fct_sequence_cases_yaml", "FCT Sequence Steps", ftype=T_TEXT,
            hidden=True,
-           remarks="standard op / flash / Delay steps (shared editor)"),
+           remarks="legacy standard op / flash / Delay steps (pre-M50)"),
     ),
 }
 

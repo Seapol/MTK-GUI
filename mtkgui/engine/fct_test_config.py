@@ -748,6 +748,13 @@ class ConsoleCommand:
     serial_baud: int = 0            # kind == serial_put|serial_pull (M46):
                                     # 0 = use the Console Serial baudrate,
                                     # otherwise one Tera Term table rate
+    # M50: per-step owned parameters (thresholds / tool / count / tone
+    # segment ...) and the runtime references to the Equipment node.
+    # ``refs`` maps a field key -> dotted path; ``overrides`` maps the
+    # same key -> a literal that wins over the reference.
+    step_params: dict = None        # step-owned tuning values (m50)
+    refs: dict = None               # field key -> equipment reference
+    overrides: dict = None          # field key -> literal override
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
@@ -786,6 +793,12 @@ class ConsoleCommand:
              "flash_gui_message": self.flash_gui_message,
              "wait_ms": int(self.wait_ms),
              "serial_baud": int(self.serial_baud or 0)}
+        if self.step_params:
+            d["step_params"] = dict(self.step_params)
+        if self.refs:
+            d["refs"] = dict(self.refs)
+        if self.overrides:
+            d["overrides"] = dict(self.overrides)
         if self.kind == KIND_OP:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
@@ -871,7 +884,14 @@ class ConsoleCommand:
                     c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
                     or DEFAULT_FLASH_GUI_MESSAGE),
                 wait_ms=int(c.get("wait_ms", 1000) or 0),
-                serial_baud=int(c.get("serial_baud", 0) or 0))
+                serial_baud=int(c.get("serial_baud", 0) or 0),
+                step_params=(dict(c.get("step_params"))
+                             if isinstance(c.get("step_params"), dict)
+                             else None),
+                refs=(dict(c.get("refs"))
+                      if isinstance(c.get("refs"), dict) else None),
+                overrides=(dict(c.get("overrides"))
+                           if isinstance(c.get("overrides"), dict) else None))
 
         # ---- legacy migration ----
         if kind == KIND_MESSAGE:

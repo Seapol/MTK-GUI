@@ -76,7 +76,7 @@ def test_fct_dialog_single_apply_save_button(qapp):
         apply_save_cb=lambda values: calls.append(values))
     box = dlg.findChild(QDialogButtonBox)
     box.button(QDialogButtonBox.StandardButton.Ok).click()
-    assert calls and calls[0]["fct_test_config_yaml"]
+    assert calls and calls[0]["fct_steps_yaml"]
     assert dlg.result() == BlockConfigDialog.DialogCode.Accepted
 
 

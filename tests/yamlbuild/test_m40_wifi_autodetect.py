@@ -16,11 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.engine import host_platform  # noqa: E402
-from mtkgui.gui.yamlbuild import FCTTestConfigWidget as fct_widget  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -156,153 +154,6 @@ def test_detect_current_wifi_windows(monkeypatch):
     assert host_platform.detect_current_wifi() == {
         "ssid": "Office-AP", "ip": "192.168.1.44",
         "gateway": "192.168.1.254"}
-
-
-# ----------------------------------------------------------- panel wiring
-@pytest.fixture
-def panel_factory(tmp_path, monkeypatch):
-    """Isolated QSettings store + panel factory (monkeypatches the
-    module-level ``_wifi_settings`` before the panel loads its baseline)."""
-    settings = QSettings(str(tmp_path / "settings.ini"),
-                         QSettings.Format.IniFormat)
-    monkeypatch.setattr(fct_widget, "_wifi_settings", lambda: settings)
-    made = []
-
-    def make():
-        panel = fct_widget.FCTTestConfigPanel()
-        made.append(panel)
-        return panel
-
-    yield make, settings
-    for panel in made:
-        panel.deleteLater()
-
-
-def _seed(settings, ssid="BASE-AP", ap_ip="10.0.0.1", host_ip="10.0.0.2",
-          password="base-pass"):
-    settings.setValue(fct_widget.WIFI_KEY_SSID, ssid)
-    settings.setValue(fct_widget.WIFI_KEY_AP_IP, ap_ip)
-    settings.setValue(fct_widget.WIFI_KEY_HOST_IP, host_ip)
-    settings.setValue(fct_widget.WIFI_KEY_PASSWORD, password)
-    settings.sync()
-
-
-def test_settings_baseline_loaded_at_init(panel_factory):
-    """Init a: the fields start from the QSettings wifi/* baseline."""
-    make, settings = panel_factory
-    _seed(settings)
-    panel = make()
-    assert panel.wifi_ap_ssid.text() == "BASE-AP"
-    assert panel.wifi_ap_ip.text() == "10.0.0.1"
-    assert panel.wifi_host_ip.text() == "10.0.0.2"
-    assert panel.wifi_ap_password.text() == "base-pass"
-
-
-def test_init_order_detect_overwrites_baseline(panel_factory, monkeypatch):
-    """Init b: a successful detection OVERWRITES the baseline fields
-    AND becomes the new QSettings baseline."""
-    make, settings = panel_factory
-    _seed(settings)
-    panel = make()
-    monkeypatch.setattr(host_platform, "detect_current_wifi",
-                        lambda: {"ssid": "CUR-AP", "ip": "192.168.1.20",
-                                 "gateway": "192.168.1.1"})
-    panel._on_tab_changed(panel.tabs.indexOf(panel.wifi_tab))
-    assert panel.wifi_ap_ssid.text() == "CUR-AP"
-    assert panel.wifi_ap_ip.text() == "192.168.1.1"
-    assert panel.wifi_host_ip.text() == "192.168.1.20"
-    assert settings.value(fct_widget.WIFI_KEY_SSID) == "CUR-AP"
-    assert settings.value(fct_widget.WIFI_KEY_AP_IP) == "192.168.1.1"
-    assert settings.value(fct_widget.WIFI_KEY_HOST_IP) == "192.168.1.20"
-    # the detection runs once per panel (first Wi-Fi tab visit)
-    monkeypatch.setattr(host_platform, "detect_current_wifi",
-                        lambda: {"ssid": "SECOND", "ip": "1.2.3.4",
-                                 "gateway": "1.2.3.1"})
-    panel._on_tab_changed(panel.tabs.indexOf(panel.wifi_tab))
-    assert panel.wifi_ap_ssid.text() == "CUR-AP"
-
-
-def test_init_order_failure_keeps_baseline(panel_factory, monkeypatch):
-    """Init b failure: no association keeps the baseline and notes it."""
-    make, settings = panel_factory
-    _seed(settings)
-    panel = make()
-    monkeypatch.setattr(host_platform, "detect_current_wifi",
-                        lambda: {"ssid": None, "ip": None, "gateway": None})
-    panel._on_tab_changed(panel.tabs.indexOf(panel.wifi_tab))
-    assert panel.wifi_ap_ssid.text() == "BASE-AP"
-    assert panel.wifi_ap_ip.text() == "10.0.0.1"
-    assert panel.wifi_host_ip.text() == "10.0.0.2"
-    assert "no Wi-Fi associated" in panel.wifi_autodetect_status.text()
-
-
-def test_autodetect_button_fills_fields_password_untouched(
-        panel_factory, monkeypatch):
-    """One click fills AP SSID / AP IP (gateway) / Host PC IP; the
-    password field is user-only and never rewritten."""
-    make, settings = panel_factory
-    panel = make()
-    panel.wifi_ap_password.setText("my-secret")
-    monkeypatch.setattr(host_platform, "detect_current_wifi",
-                        lambda: {"ssid": "AP-1", "ip": "192.168.1.30",
-                                 "gateway": "192.168.1.1"})
-    panel.wifi_autodetect_btn.click()
-    assert panel.wifi_ap_ssid.text() == "AP-1"
-    assert panel.wifi_ap_ip.text() == "192.168.1.1"
-    assert panel.wifi_host_ip.text() == "192.168.1.30"
-    assert panel.wifi_ap_password.text() == "my-secret"
-    assert settings.value(fct_widget.WIFI_KEY_PASSWORD) == "my-secret"
-    assert "OK (AP-1)" in panel.wifi_autodetect_status.text()
-
-
-def test_autodetect_missing_gateway_notes_it(panel_factory, monkeypatch):
-    """A detected SSID without a gateway leaves the AP IP empty and
-    notes ``gateway not found``."""
-    make, _settings = panel_factory
-    panel = make()
-    monkeypatch.setattr(host_platform, "detect_current_wifi",
-                        lambda: {"ssid": "AP-2", "ip": "192.168.1.31",
-                                 "gateway": None})
-    panel.wifi_autodetect_btn.click()
-    assert panel.wifi_ap_ssid.text() == "AP-2"
-    assert panel.wifi_ap_ip.text() == ""
-    assert panel.wifi_host_ip.text() == "192.168.1.31"
-    assert "gateway not found" in panel.wifi_autodetect_status.text()
-
-
-def test_autodetect_backend_missing_keeps_baseline(panel_factory, monkeypatch):
-    """A backend error (e.g. Linux host) leaves a note, never raises."""
-    make, settings = panel_factory
-    _seed(settings)
-    panel = make()
-
-    def boom():
-        raise host_platform.PlatformBackendMissing("no linux backend")
-
-    monkeypatch.setattr(host_platform, "detect_current_wifi", boom)
-    panel.wifi_autodetect_btn.click()
-    assert panel.wifi_ap_ssid.text() == "BASE-AP"
-    assert "Auto-detect:" in panel.wifi_autodetect_status.text()
-
-
-def test_wifi_settings_round_trip(panel_factory):
-    """Write on Apply_Save yaml / password edit -> read at next init."""
-    make, settings = panel_factory
-    panel = make()
-    panel.wifi_ap_ssid.setText("SAVED-AP")
-    panel.wifi_ap_ip.setText("192.168.0.1")
-    panel.wifi_host_ip.setText("192.168.0.20")
-    panel.wifi_ap_password.setText("saved-pass")
-    panel._persist_wifi_settings()
-    assert settings.value(fct_widget.WIFI_KEY_SSID) == "SAVED-AP"
-    assert settings.value(fct_widget.WIFI_KEY_AP_IP) == "192.168.0.1"
-    assert settings.value(fct_widget.WIFI_KEY_HOST_IP) == "192.168.0.20"
-    assert settings.value(fct_widget.WIFI_KEY_PASSWORD) == "saved-pass"
-    fresh = make()
-    assert fresh.wifi_ap_ssid.text() == "SAVED-AP"
-    assert fresh.wifi_ap_ip.text() == "192.168.0.1"
-    assert fresh.wifi_host_ip.text() == "192.168.0.20"
-    assert fresh.wifi_ap_password.text() == "saved-pass"
 
 
 # --------------------------------------------------- link-test SSID check

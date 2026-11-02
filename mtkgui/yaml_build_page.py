@@ -215,6 +215,10 @@ class YamlBuildPage(QWidget):
         #: M37: Virtual mode flag (MainWindow.set_mode -> here) - the
         #: step editors then offer every standard operation
         self._virtual = False
+        #: M50: callable returning the CURRENT project Equipment node
+        #: (``equipment:`` dict); wired by the main window.  None = the
+        #: step references are syntax-checked only (headless tests).
+        self.equipment_provider = None
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -353,22 +357,240 @@ class YamlBuildPage(QWidget):
                            self.model.to_dict())
 
     # ------------------------------------------------------ UI -> model
+    def _equipment_node(self) -> dict | None:
+        """The CURRENT project Equipment node (None when not wired)."""
+        provider = getattr(self, "equipment_provider", None)
+        if not callable(provider):
+            return None
+        try:
+            data = provider() or {}
+        except Exception:                     # noqa: BLE001 - never crash
+            return None
+        if isinstance(data, dict) and "equipment" in data:
+            return data.get("equipment") or {}
+        return data if isinstance(data, dict) else None
+
     def _emit_fct_sequence(self, params: dict):
-        """P3-B5: block 07 params -> FCT work-flow case dicts.
+        """P3-B5 / M50: block 07 params -> FCT work-flow case dicts.
 
-        Parses ``fct_test_config_yaml``, builds the ordered FctStep list
-        (console commands + Wi-Fi + Bluetooth) and maps it to the
-        project-YAML case shape.  No closing row is auto-appended (M22):
-        a closing operator dialog belongs to the project's
-        ``post_rf_commands`` and stays visible/editable there.
-
-        A project may contain ICT only, FCT only, or both - an FCT
-        config with every tab disabled is valid and yields zero cases.
+        The new ``fct_steps_yaml`` schema carries every step parameter
+        inline plus optional ``ref`` / ``override`` maps into the project
+        ``equipment:`` node.  References are resolved against the CURRENT
+        Equipment configuration and validated before anything is saved
+        (unknown / missing reference -> clear error naming the step).
+        An OLD ``fct_test_config_yaml`` still imports through the legacy
+        path, so a project saved before M50 keeps working.
 
         Returns ``(cases, errors)``: ``errors`` is an empty list on
         success (cases may be empty for an ICT-only project); on a parse
         or validation failure it carries the messages and cases is None.
         """
+        if str((params or {}).get("fct_steps_yaml") or "").strip():
+            return self._emit_fct_steps(params)
+        return self._emit_fct_sequence_legacy(params)
+
+    def _emit_fct_steps(self, params: dict):
+        """M50: new ``fct.steps`` schema -> project-YAML FCT cases."""
+        import yaml as _yaml
+        from mtkgui.engine.fct_test_config import (
+            FctSetupCfg,
+            FctTestConfig,
+            STEP_TYPE_FLASH_GUI,
+            build_fct_steps,
+        )
+        from mtkgui.engine.ref_resolver import (
+            RefError,
+            effective,
+            resolve,
+            validate_refs,
+        )
+        from mtkgui.gui.yamlbuild.fct_build import (
+            FctSequence,
+            to_project_fct_cases,
+        )
+        from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
+            _command_from_step_dict,
+            _op_command_to_case,
+            _rf_family,
+            step_type_label,
+        )
+
+        text = str((params or {}).get("fct_steps_yaml") or "")
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError as exc:
+            return None, [f"FCT steps parse failed: {exc}"]
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        raw_steps = [s for s in (fct.get("steps") or [])
+                     if isinstance(s, dict)]
+        equipment = self._equipment_node()
+        errors = validate_refs(raw_steps, equipment)
+        if errors:
+            return None, list(errors)
+
+        def eq(path: str, default=""):
+            try:
+                value = resolve(path, equipment)
+            except RefError:
+                return default
+            return default if value in (None, "") else value
+
+        cfg = FctTestConfig(dut_type=str(fct.get("dut_type") or "linux"))
+        runtime = fct.get("runtime") or {}
+        for key in ("newline", "inter_cmd_delay_ms", "scripts_local_dir",
+                    "scripts_remote_dir", "pull_remote_dir",
+                    "pull_local_dir", "serial_deploy",
+                    "serial_deploy_files"):
+            if key in (runtime.get("console") or {}):
+                setattr(cfg.console, key, runtime["console"][key])
+        rw = runtime.get("wifi") or {}
+        cfg.wifi.interface = str(rw.get("interface") or cfg.wifi.interface)
+        cfg.wifi.driver_load_cmd = str(rw.get("driver_load_cmd") or "")
+        if runtime.get("setup"):
+            cfg.setup = FctSetupCfg.from_dict(runtime["setup"])
+
+        def ref_value(cmd, key, default=""):
+            eff = effective((cmd.refs or {}).get(key),
+                            (cmd.overrides or {}).get(key), equipment)
+            return default if eff in (None, "") else eff
+
+        def num(value, default):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
+        op_cases: list = []
+        commands: list = []
+        post_cmds: list = []
+        for step in raw_steps:
+            cmd = _command_from_step_dict(step)
+            if cmd is None:
+                return None, [f"unknown FCT step type "
+                              f"{step.get('type')!r}"]
+            if step_type_label(cmd) == "Operation":
+                op_cases.append(_op_command_to_case(cmd))
+                continue
+            family, subtest = _rf_family(cmd)
+            if family:
+                p = dict(cmd.step_params or {})
+                if family == "wifi":
+                    w = cfg.wifi
+                    if subtest == "scan":
+                        w.scan_enabled = True
+                        w.ap_ssid = str(ref_value(cmd, "ap_ssid", ""))
+                        w.dut_ssid = str(ref_value(cmd, "dut_ssid", ""))
+                        w.rssi_min = int(num(p.get("rssi_min"), w.rssi_min))
+                        w.dut_rssi_min = int(num(
+                            p.get("dut_rssi_min"), w.dut_rssi_min))
+                        w.scan_via = str(p.get("scan_via", "host") or "host")
+                        w.scan_timeout = num(p.get("timeout_s"),
+                                             w.scan_timeout)
+                    elif subtest == "ping":
+                        w.ping_enabled = True
+                        w.ap_ip = str(ref_value(cmd, "target", w.ap_ip))
+                        w.ping_count = int(num(p.get("count"),
+                                               w.ping_count))
+                        w.ping_timeout = num(p.get("timeout_s"),
+                                             w.ping_timeout)
+                    elif subtest == "iperf":
+                        w.iperf_enabled = True
+                        w.iperf_server_ip = str(ref_value(
+                            cmd, "target", w.iperf_server_ip))
+                        w.iperf_tool = str(p.get("tool", w.iperf_tool))
+                        w.iperf_min_mbps = num(p.get("min_mbps"),
+                                               w.iperf_min_mbps)
+                        w.iperf_duration = int(num(p.get("duration"),
+                                                   w.iperf_duration))
+                        w.iperf_timeout = num(p.get("timeout_s"),
+                                              w.iperf_timeout)
+                    if not w.ap_ssid:
+                        w.ap_ssid = str(eq(
+                            "equipment.peripherals.wifi.ap_ssid", ""))
+                    if not w.ap_password:
+                        w.ap_password = str(eq(
+                            "equipment.peripherals.wifi.ap_password", ""))
+                else:
+                    b = cfg.bluetooth
+                    if subtest == "rssi":
+                        b.rssi_enabled = True
+                        b.expected_name = str(ref_value(cmd, "bt_name", ""))
+                        b.expected_addr = str(ref_value(cmd, "addr", ""))
+                        b.rssi_min = int(num(p.get("rssi_min"), b.rssi_min))
+                        b.rssi_timeout = num(p.get("timeout_s"),
+                                             b.rssi_timeout)
+                        b.scan_retries = int(num(p.get("scan_retries"),
+                                                 b.scan_retries))
+                    elif subtest == "pair":
+                        b.pair_enabled = True
+                        b.expected_name = str(ref_value(cmd, "bt_name",
+                                                        b.expected_name))
+                        b.bt_pair_script = str(p.get("script", "") or "")
+                        b.l2ping_count = int(num(p.get("l2ping"), 0))
+                        b.pair_timeout = num(p.get("timeout_s"),
+                                             b.pair_timeout)
+                    elif subtest == "tone":
+                        b.tone_enabled = True
+                        b.test_tone = str(p.get("file", b.test_tone))
+                        b.tone_start_s = num(p.get("start_s"), 0.0)
+                        b.tone_end_s = num(p.get("end_s"), 0.0)
+                    if not b.expected_name:
+                        b.expected_name = str(eq(
+                            "equipment.dut.bluetooth.name", ""))
+                    if not b.expected_addr:
+                        b.expected_addr = str(eq(
+                            "equipment.dut.bluetooth.bd_addr", ""))
+                continue
+            if step_type_label(cmd) == STEP_TYPE_FLASH_GUI:
+                # M50: J-Link executable comes from the Equipment config
+                # at run time; an override / inline path wins.
+                import os as _os
+                exe = str(ref_value(cmd, "jlink", ""))
+                inst = str(eq("equipment.jlink.install_path", ""))
+                if (cmd.overrides or {}).get("jlink"):
+                    cmd.flash_gui_path = str(cmd.overrides["jlink"])
+                elif not cmd.flash_gui_path and exe:
+                    cmd.flash_gui_path = (_os.path.join(inst, exe)
+                                          if inst else exe)
+                commands.append(cmd)
+                continue
+            if str(getattr(cmd, "transport", "") or "") == "ssh":
+                if not cfg.console.ssh_host:
+                    cfg.console.ssh_host = str(ref_value(cmd, "host", ""))
+                user = ref_value(cmd, "username", "")
+                if user:
+                    cfg.console.ssh_username = str(user)
+            else:
+                if not cfg.console.port:
+                    cfg.console.port = str(ref_value(cmd, "port", ""))
+                baud = ref_value(cmd, "baud", "")
+                if baud:
+                    cfg.console.baudrate = int(num(baud,
+                                                   cfg.console.baudrate))
+            if (cmd.step_params or {}).get("teardown"):
+                # post-RF teardown row: runs AFTER the RF sections even on
+                # an abort (never a plain body command)
+                post_cmds.append(cmd)
+            else:
+                commands.append(cmd)
+        cfg.console.test_commands = commands
+        cfg.console.post_rf_commands = post_cmds
+        errors = list(cfg.validate())
+        if errors:
+            return None, errors
+        steps = build_fct_steps(cfg)
+        cases = list(op_cases)
+        if steps:
+            seq = FctSequence(name="FCT Test Work Flow", steps=steps)
+            generated = to_project_fct_cases(seq)
+            for case, step in zip(generated, steps):
+                case.setdefault("op_params", {})["fct_step"] = step.to_dict()
+            cases += generated
+        self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
+        return cases, []
+
+    def _emit_fct_sequence_legacy(self, params: dict):
+        """Legacy ``fct_test_config_yaml`` (pre-M50 project files)."""
         import yaml as _yaml
         from mtkgui.engine.fct_test_config import FctTestConfig
         from mtkgui.gui.yamlbuild.fct_build import (
@@ -439,6 +661,10 @@ class YamlBuildPage(QWidget):
         ``fct_sequence_ready`` (bidirectional sync).  Without a
         provider (page not wired) the stored params open unchanged."""
         current = dict(self.model.get_params(module_key) or {})
+        # M50: the single-page panel already owns the ordered rows - the
+        # old "page -> dialog" overlay is a legacy-schema concern only.
+        if str(current.get("fct_steps_yaml") or "").strip():
+            return current
         provider = getattr(self, "current_fct_cases_provider", None)
         cases = (provider() or []) if callable(provider) else []
         if cases:
@@ -577,6 +803,7 @@ class YamlBuildPage(QWidget):
             apply_save_cb=self._apply_save_fct_params,
             yaml_model=self.model,
             virtual=self._virtual,
+            equipment_provider=self.equipment_provider,
             save_as_cb=lambda values: self._save_as_new_yaml(
                 "fct_build", values))
         if params is None:
@@ -679,7 +906,8 @@ class YamlBuildPage(QWidget):
         """
         params = self.model.get_params("fct_build") or {}
         if not any(str(params.get(key) or "").strip() for key in
-                   ("fct_test_config_yaml", "fct_sequence_cases_yaml")):
+                   ("fct_steps_yaml", "fct_test_config_yaml",
+                    "fct_sequence_cases_yaml")):
             return False
         if self.model.validate_module("fct_build"):
             return False
@@ -763,6 +991,7 @@ class YamlBuildPage(QWidget):
                     (self.model.path_risk or {}).get("scores") or {}),
             } if module_key == "parse_ict" else None,
             yaml_model=self.model if module_key == "parse_ict" else None,
+            equipment_provider=self.equipment_provider,
             save_as_cb=lambda values: self._save_as_new_yaml(
                 module_key, values))
         if params is None:

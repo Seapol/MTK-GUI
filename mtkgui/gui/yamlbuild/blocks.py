@@ -134,7 +134,8 @@ class BlockConfigDialog(QDialog):
                  yaml_model=None,
                  apply_save_cb=None,
                  available_ops=None,
-                 save_as_cb=None) -> None:
+                 save_as_cb=None,
+                 equipment_provider=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -222,7 +223,8 @@ class BlockConfigDialog(QDialog):
             # (Console / Wi-Fi / Bluetooth) editing fct_test_config
             from mtkgui.gui.yamlbuild.FCTTestConfigWidget import \
                 FCTTestConfigPanel
-            self.panel = FCTTestConfigPanel()
+            self.panel = FCTTestConfigPanel(
+                equipment_provider=equipment_provider)
             self.panel.set_available_ops(available_ops)
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)

@@ -1005,6 +1005,11 @@ class MainWindow(QMainWindow):
             "Yaml Build")
 
         yb = self._yaml_build_page
+        # M50: FCT step runtime references resolve against the CURRENT
+        # project Equipment configuration (shared params live there).
+        from .project_config import _equipment_to_yaml
+        yb.equipment_provider = (
+            lambda: _equipment_to_yaml(self._equipment_page.configs))
         # navigation: merged "Build ICT Test Work Flow Sequence" card
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         yb.test_workflow_requested.connect(self._goto_test_workflow)
@@ -2280,7 +2285,8 @@ class MainWindow(QMainWindow):
         model = self.yaml_build_page.model
         fct_params = model.get_params("fct_build") or {}
         if model.is_enabled("fct_build") and str(
-                fct_params.get("fct_test_config_yaml") or "").strip():
+                fct_params.get("fct_steps_yaml")
+                or fct_params.get("fct_test_config_yaml") or "").strip():
             cases, errors = self.yaml_build_page._emit_fct_sequence(
                 fct_params)
             if not errors:
@@ -2302,7 +2308,8 @@ class MainWindow(QMainWindow):
             model.is_enabled(k) for k in ("rails", "clocks", "gpios"))
         fct_params = model.get_params("fct_build") or {}
         fct_ready = model.is_enabled("fct_build") and bool(
-            str(fct_params.get("fct_test_config_yaml") or "").strip())
+            str(fct_params.get("fct_steps_yaml")
+                or fct_params.get("fct_test_config_yaml") or "").strip())
         if not ict_ready and not fct_ready:
             QMessageBox.warning(
                 self, "Load current yaml",

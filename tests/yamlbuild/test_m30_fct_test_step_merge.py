@@ -80,8 +80,8 @@ SEQ_CASES = [
 
 def test_merge_and_split_round_trip(qapp):
     """An old config (test_commands + standard ops) loads into ONE table
-    with the same ordered steps (ops first) and saves back to equivalent
-    YAML (ops -> fct_sequence_cases_yaml, commands -> test_commands)."""
+    with the same ordered steps (ops first) and saves back as the new
+    M50 ``fct.steps`` schema (one entry per row, in order)."""
     panel = FCTTestConfigPanel()
     panel.set_values({
         "fct_test_config_yaml": MERGE_YAML,
@@ -97,20 +97,18 @@ def test_merge_and_split_round_trip(qapp):
          STEP_TYPE_SFTP_GET, "Console_cli"]
 
     out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"]
-    cmds = FctTestConfig.from_dict(node).console.test_commands
-    assert [c.name for c in cmds] == ["Kernel check", "Pull report",
-                                      "Stop iperf3"]
-    assert [c.kind for c in cmds] == ["send", "sftp_get", "host"]
-    assert cmds[0].capture_expected == "Linux"
-    assert cmds[2].host_cmd_windows == "taskkill /IM iperf3.exe"
-
-    seq = yaml.safe_load(out["fct_sequence_cases_yaml"])
-    assert [c["name"] for c in seq] == ["Power On DUT", "Delay"]
-    assert seq[0]["kind"] == "op"
-    assert seq[0]["op_params"]["type"] == "power"
-    assert seq[1]["kind"] == "Delay"
-    assert seq[1]["op_params"] is None
+    steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
+             .get("fct") or {}).get("steps") or []
+    assert [s["name"] for s in steps] == ["Power On DUT", "Delay",
+                                          "Kernel check", "Pull report",
+                                          "Stop iperf3"]
+    assert [s["type"] for s in steps] == ["Operation", "Operation",
+                                          "Console_serial",
+                                          STEP_TYPE_SFTP_GET, "Console_cli"]
+    assert steps[2]["capture_expected"] == "Linux"
+    assert steps[4]["host_cmd_windows"] == "taskkill /IM iperf3.exe"
+    # the Operation rows keep their op params inline
+    assert steps[0]["op_params"]["type"] == "power"
 
 
 LEGACY_CAPTURE_YAML = """
@@ -160,11 +158,11 @@ def test_capture_fields_round_trip_through_panel(qapp):
     assert panel.cmd_table.item(r, _COL_CAPTURE).text() == \
         '+ "Overall result: PASS"  - "Overall result: FAIL"'
     out = panel.values()
-    restored = FctTestConfig.from_dict(yaml.safe_load(
-        out["fct_test_config_yaml"])["fct_test_config"]
-    ).console.test_commands[0]
-    assert restored.capture_expected == "Overall result: PASS"
-    assert restored.capture_unexpected == "Overall result: FAIL"
+    steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
+             .get("fct") or {}).get("steps") or []
+    restored = steps[0]
+    assert restored["capture_expected"] == "Overall result: PASS"
+    assert restored["capture_unexpected"] == "Overall result: FAIL"
 
 
 def test_merged_table_has_eight_columns(qapp):

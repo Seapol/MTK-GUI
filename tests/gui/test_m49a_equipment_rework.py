@@ -109,12 +109,15 @@ def test_left_column_lists_only_configurable_hardware(page):
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
                    "t1", "media converter", "power rail"):
         assert all(banned not in label.lower() for label in labels), banned
-    # every entry has a Config button; instruments additionally a Test
+    # every entry has a Config button; instruments and the M50 testable
+    # peripheral / DUT configs additionally a Test Connection button
+    from mtkgui.equipment_page import _TESTABLE_FORM_KEYS
     for _g, entries in LEFT_ENTRIES:
         for key, _label, kind, _src in entries:
             buttons = page.entry_buttons[key]
             assert "config" in buttons
-            assert ("test" in buttons) == (kind == "instrument")
+            assert ("test" in buttons) == (
+                kind == "instrument" or key in _TESTABLE_FORM_KEYS)
 
 
 def test_left_column_collapses_and_expands(page):

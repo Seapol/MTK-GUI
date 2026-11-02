@@ -113,37 +113,50 @@ def test_panel_defaults_emit_no_rf_steps(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({})
     out = panel.values()
-    cfg = FctTestConfig.from_dict(
-        yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"])
-    assert cfg.validate() == []
-    assert not cfg.wifi.any_enabled and not cfg.bluetooth.any_enabled
+    node = yaml.safe_load(out["fct_steps_yaml"])["fct"]
+    assert node["steps"] == []
+    assert node["runtime"]["wifi"] == {"interface": "", "driver_load_cmd": ""}
+    assert node["runtime"]["bluetooth"] == {}
 
 
 def test_panel_wifi_subtests_reach_values_without_a_master(qapp):
+    """M50: RF sub-tests are ordinary Sequence rows (no removed Wi-Fi /
+    Bluetooth pages and no master switch)."""
     import yaml
+    from mtkgui.engine.fct_test_config import (
+        STEP_TYPE_BT_RSSI, STEP_TYPE_WIFI_SCAN)
     from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
     panel = FCTTestConfigPanel()
     panel.set_values({})
-    panel.wifi_scan_box.setChecked(True)
-    panel.wifi_ap_ssid.setText("DUT-AP")
-    panel.bt_rssi_box.setChecked(True)
-    panel.bt_name.setText("DUT-BT")
-    out = panel.values()
-    cfg = FctTestConfig.from_dict(
-        yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"])
-    assert cfg.wifi.scan_enabled and cfg.wifi.ap_ssid == "DUT-AP"
-    assert cfg.bluetooth.rssi_enabled
-    assert cfg.bluetooth.expected_name == "DUT-BT"
+    panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
+    panel._add_row_for_label(STEP_TYPE_BT_RSSI)
+    node = yaml.safe_load(panel.values()["fct_steps_yaml"])["fct"]
+    steps = node["steps"]
+    assert [s["type"] for s in steps] == [STEP_TYPE_WIFI_SCAN,
+                                          STEP_TYPE_BT_RSSI]
+    assert steps[0]["ref"]["ap_ssid"] == \
+        "equipment.peripherals.wifi.ap_ssid"
+    assert steps[0]["ref"]["dut_ssid"] == "equipment.dut.wifi.ssid"
+    assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
+    assert steps[1]["ref"]["addr"] == "equipment.dut.bluetooth.bd_addr"
 
 
 def test_dut_kind_gating_is_kept(qapp):
+    """bare_metal keeps scan / RSSI and skips ping / iperf / pair."""
     from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
     panel = FCTTestConfigPanel()
     panel.dut_type.setCurrentText("bare_metal")
-    assert not panel.wifi_ping_box.isEnabled()
-    assert not panel.wifi_iperf_box.isEnabled()
-    assert not panel.wifi_driver_cmd.isEnabled()
-    assert panel.wifi_scan_box.isEnabled()
-    assert not panel.bt_pair_box.isEnabled()
-    assert not panel.bt_tone_box.isEnabled()
-    assert panel.bt_rssi_box.isEnabled()
+    # the removed page widgets and their gating no longer exist
+    for gone in ("wifi_ping_box", "wifi_iperf_box", "wifi_driver_cmd",
+                 "bt_pair_box", "bt_tone_box", "bt_rssi_box"):
+        assert not hasattr(panel, gone)
+    cfg = FctTestConfig(dut_type="bare_metal", wifi=WifiCfg(
+        scan_enabled=True, ping_enabled=True, iperf_enabled=True,
+        ap_ssid="AP"), bluetooth=BluetoothCfg(
+        rssi_enabled=True, pair_enabled=True, tone_enabled=True,
+        expected_name="DUT-BT"))
+    names = [s.name for s in build_fct_steps(cfg)]
+    assert "Wi-Fi Scan / RSSI" in names
+    assert "Bluetooth RSSI" in names
+    assert "Wi-Fi Ping" not in names and "Wi-Fi iPerf" not in names
+    assert "Bluetooth Pair / Connect" not in names

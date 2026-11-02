@@ -374,20 +374,16 @@ def test_fct_panel_tabs_scroll_guard(qapp):
     from mtkgui.gui.yamlbuild.FCTTestConfigWidget import FCTTestConfigPanel
 
     panel = FCTTestConfigPanel()
+    # M50: the Console / Wi-Fi / Bluetooth pages are gone - ONE page left
     labels = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
-    for name in ("Console", "Sequence", "Wi-Fi", "Bluetooth"):
-        body = panel.tabs.widget(labels.index(name))
-        assert isinstance(body, QScrollArea), (
-            f"FCT {name} tab body must be a QScrollArea")
-    # Wi-Fi / Bluetooth keep their original scroll widgets
-    assert isinstance(panel.wifi_tab, QScrollArea)
-    assert isinstance(panel.bt_tab, QScrollArea)
+    assert labels == ["Sequence"]
+    body = panel.tabs.widget(0)
+    assert isinstance(body, QScrollArea), (
+        "FCT Sequence tab body must be a QScrollArea")
 
     _check(panel, "FCTTestConfigPanel")
-    # all four tabs are already scroll-wrapped (no double wrap)
-    for name in ("Console", "Sequence", "Wi-Fi", "Bluetooth"):
-        scroll = panel.tabs.widget(labels.index(name))
-        assert len(scroll.findChildren(QScrollArea)) == 0
+    # the single tab is already scroll-wrapped (no double wrap)
+    assert len(body.findChildren(QScrollArea)) == 0
     panel.close()
     panel.deleteLater()
 

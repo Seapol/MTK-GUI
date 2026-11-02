@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
-"""m32: Bluetooth tab rework - one-row layout, Host PC BT panel, scan,
-DUT pair script, and the non-checkable A2DP tone module."""
+"""m32: Bluetooth helpers - host scan/parse/render, pair script, tone.
+
+M50 removed the Bluetooth TAB (the per-test dialog owns the step params);
+the host-side helpers below keep their coverage.
+"""
 from __future__ import annotations
 
 import sys
@@ -11,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.engine import host_platform  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
@@ -24,7 +27,6 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
 from mtkgui.engine.fct_test_runner import BT_MAC_CMDS  # noqa: E402
 from mtkgui.engine.rf_adapters import PlatformBackendMissing  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
-    FCTTestConfigPanel,
     _BtScanWorker,
 )
 
@@ -32,43 +34,6 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 @pytest.fixture(scope="module")
 def qapp():
     return QApplication.instance() or QApplication([])
-
-
-# ---------------------------------------------------------------- layout
-def test_bt_tab_one_row_scroll(qapp):
-    """m32: the BT tab is a scrollable one-row three-column grid with no
-    master enable checkbox and a non-checkable tone module."""
-    from PySide6.QtWidgets import QGridLayout, QScrollArea
-    panel = FCTTestConfigPanel()
-    assert isinstance(panel.bt_tab, QScrollArea)
-    grid = panel.bt_tab.widget().layout()
-    assert isinstance(grid, QGridLayout)
-
-    def pos(widget):
-        return grid.getItemPosition(grid.indexOf(widget))[:2]
-
-    boxes = [pos(w) for w in (panel.bt_rssi_box, panel.bt_pair_box,
-                              panel.bt_tone_box)]
-    assert {r for r, _c in boxes} == {0}
-    assert [c for _r, c in boxes] == [0, 1, 2]
-    assert not hasattr(panel, "bt_enabled")
-    assert not panel.bt_tone_box.isCheckable()
-    assert panel.bt_rssi_box.isCheckable()
-    assert panel.bt_pair_box.isCheckable()
-
-
-def test_bt_tab_defaults(qapp):
-    """m32/M45: L2CAP default 4, tone wav + total length + host status."""
-    panel = FCTTestConfigPanel()
-    assert panel.bt_l2ping.value() == 4
-    assert panel.bt_tone_file.text() == "resources/tones/tone_1khz_6s.wav"
-    # M45: the Play-Duration spin box is gone - the dual-node slider
-    # spans the whole 6 s tone (Start 0 / End = total)
-    assert panel.bt_tone_range.start_s() == 0.0
-    assert panel.bt_tone_range.end_s() == 6.0
-    assert "6.0 s" in panel.bt_tone_total.text()
-    assert panel.bt_host_status.text() == "N/A"
-    assert panel.bt_host_devices.text() == "\u2014"
 
 
 # ------------------------------------------------------------- host panel
@@ -144,27 +109,14 @@ def _install_bt_scan_mocks(monkeypatch):
 
 
 def test_bt_scan_prefront_popup_and_worker(qapp, monkeypatch):
-    """m32: the pre-front progress bar + the scan popup with the DUT found."""
+    """M50: the BT scan worker behind the Equipment "Test Connection"
+    button reports the DUT hit."""
     _install_bt_scan_mocks(monkeypatch)
-    panel = FCTTestConfigPanel()
-    panel.bt_name.setText("FRDM-IMX93-DUT")
-    pops = []
-    monkeypatch.setattr(QMessageBox, "information",
-                        staticmethod(lambda parent, title, text:
-                                    pops.append(text)))
-    panel._on_bt_scan()
-    assert panel.bt_scan_progress.isVisibleTo(panel.bt_tab)
-    assert panel.bt_scan_progress.value() == 0
-    assert panel.bt_scan_status.text() == "Scanning..."
-    assert not panel.bt_scan_btn.isEnabled()
-    worker = panel._bt_scan_worker
-    assert isinstance(worker, _BtScanWorker)
-    assert worker.wait(5000)
-    for _ in range(10):
-        qapp.processEvents()
-    assert panel.bt_scan_progress.value() == 100
-    assert pops and ("DUT BT name: FRDM-IMX93-DUT 信号已找到, RSSI: -55 dBm"
-                     in pops[0])
+    worker = _BtScanWorker("FRDM-IMX93-DUT")
+    verdict = []
+    worker.verdict.connect(verdict.append)
+    worker.run()
+    assert verdict and "信号已找到" in verdict[0]
 
 
 def test_bt_scan_worker_emits_result_and_verdict(monkeypatch):

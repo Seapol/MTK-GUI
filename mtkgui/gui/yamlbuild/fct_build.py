@@ -124,6 +124,11 @@ class FctStep:
     depends: list = field(default_factory=list)
     resource: str = ""                # Channel-Allocation / inventory ref
     params: dict = field(default_factory=dict)
+    #: M50: shared parameters are NOT copied into the step - they are
+    #: referenced at runtime (``equipment.dut.ssh.ip`` ...); a step-level
+    #: override wins when set (see :mod:`mtkgui.engine.ref_resolver`).
+    ref: dict = field(default_factory=dict)
+    override: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """YAML-safe plain dict (full field set, stable order).
@@ -144,6 +149,10 @@ class FctStep:
             "on_fail": self.on_fail, "depends": list(self.depends),
             "resource": self.resource, "params": dict(self.params),
         }
+        if self.ref:
+            out["ref"] = dict(self.ref)
+        if self.override:
+            out["override"] = dict(self.override)
         if kind == TYPE_ACTION:
             out["action"] = action_name(self)
             out["args"] = action_args(self)
@@ -182,6 +191,8 @@ class FctStep:
             depends=[str(d) for d in (data.get("depends") or [])],
             resource=str(data.get("resource", "")),
             params=params,
+            ref=dict(data.get("ref") or {}),
+            override=dict(data.get("override") or {}),
         )
 
     def validate(self, sibling_names: set | None = None) -> list:
@@ -207,6 +218,21 @@ class FctStep:
             if dep not in known:
                 errors.append(f"step {self.name!r}: unknown dependency "
                               f"{dep!r}")
+        # M50: every reference must be a dotted ``equipment.`` path that
+        # matches the Equipment schema (value checks need the project yaml
+        # and run in :func:`ref_resolver.validate_refs`).
+        from mtkgui.engine.ref_resolver import EQUIPMENT_PATHS, is_ref
+        for field_key, path in (self.ref or {}).items():
+            text = str(path or "").strip()
+            if not text:
+                errors.append(f"step {self.name!r}: empty reference for "
+                              f"{field_key!r}")
+            elif not is_ref(text):
+                errors.append(f"step {self.name!r}: {field_key} {text!r} is "
+                              "not an equipment reference")
+            elif text not in EQUIPMENT_PATHS:
+                errors.append(f"step {self.name!r}: unknown reference "
+                              f"{text!r}")
         return errors
 
 
@@ -487,9 +513,15 @@ class FctSequence:
         default_factory=lambda: list(DEFAULT_KEYWORD_FAIL))
     steps: list = field(default_factory=list)   # list[FctStep]
 
-    def validate(self) -> list:
+    def validate(self, equipment=None) -> list:
         """Whole-sequence validation (duplicate names, per-step rules,
-        dependency targets)."""
+        dependency targets, M50 equipment references).
+
+        Args:
+            equipment: optional project yaml dict (or its ``equipment``
+                       node) used to resolve every step reference; None
+                       checks the reference syntax only.
+        """
         errors: list = []
         if not self.name.strip():
             errors.append("sequence name must not be empty")
@@ -500,6 +532,9 @@ class FctSequence:
             errors.append("duplicate step names in the sequence")
         for step in self.steps:
             errors.extend(step.validate(names))
+        if equipment is not None:
+            from mtkgui.engine.ref_resolver import validate_refs
+            errors.extend(validate_refs(self.steps, equipment))
         return errors
 
     # ----------------------------------------------------------- YAML IO

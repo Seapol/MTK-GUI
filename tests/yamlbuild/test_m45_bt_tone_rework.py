@@ -22,17 +22,22 @@ import pytest
 pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+import yaml  # noqa: E402
+
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     BluetoothCfg,
     FctTestConfig,
     STEP_EXTERNAL_TOOL,
+    STEP_TYPE_BT_TONE,
     build_fct_steps,
+    console_command_for_label,
 )
 from mtkgui.engine.wav_util import trim_wav, wav_duration_s  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     BT_PROBE_CMD,
     DEFAULT_TONE_WAV,
     FCTTestConfigPanel,
+    _BtDriverProbeWorker,
     _ToneRangeSlider,
     classify_bt_driver_probe,
 )
@@ -70,25 +75,6 @@ def test_trim_wav_cuts_the_requested_segment(tmp_path):
 
 
 # --------------------------------------------------------------- editor UI
-def test_tone_editor_parses_total_and_resets_the_range(qapp, tmp_path):
-    """A new wav -> total label + slider span = the WHOLE file."""
-    panel = FCTTestConfigPanel()
-    src = _make_wav(tmp_path / "custom.wav", 2.0)
-    panel.bt_tone_file.setText(str(src))
-    panel._refresh_tone_range()
-    assert "custom.wav" in panel.bt_tone_total.text()
-    assert "2.0 s" in panel.bt_tone_total.text()
-    assert panel.bt_tone_range.total() == pytest.approx(2.0)
-    assert (panel.bt_tone_range.start_s(),
-            panel.bt_tone_range.end_s()) == (0.0, 2.0)
-    assert "Start 0.0 s" in panel.bt_tone_segment.text()
-
-    # an unreadable file -> explicit "length unknown", no crash
-    panel.bt_tone_file.setText(str(tmp_path / "nope.wav"))
-    panel._refresh_tone_range()
-    assert "length unknown" in panel.bt_tone_total.text()
-
-
 def test_tone_slider_enforces_start_le_end(qapp):
     slider = _ToneRangeSlider(6.0)
     slider.set_values(1.0, 4.0)
@@ -104,59 +90,20 @@ def test_tone_slider_enforces_start_le_end(qapp):
     assert (slider.start_s(), slider.end_s()) == (0.0, 3.0)
 
 
-def test_tone_range_change_updates_the_segment_label(qapp):
-    panel = FCTTestConfigPanel()
-    panel._on_tone_range_changed(1.5, 4.5)
-    assert "Start 1.5 s" in panel.bt_tone_segment.text()
-    assert "End 4.5 s" in panel.bt_tone_segment.text()
-    assert "3.0 s played" in panel.bt_tone_segment.text()
-
-
-def test_preview_toggle_plays_the_segment_then_resets_the_meter(
-        qapp, tmp_path, monkeypatch):
-    """Preview is a toggle: play() gets the segment bounds, the second
-    click stop()s it and the level meter returns to 0."""
-    panel = FCTTestConfigPanel()
-    src = _make_wav(tmp_path / "tone.wav", 2.0)
-    panel.bt_tone_file.setText(str(src))
-    panel._refresh_tone_range()
-    panel.bt_tone_range.set_values(0.5, 1.5)
-
-    calls: list = []
-    state = {"playing": False}
-
-    monkeypatch.setattr(panel._tone_preview, "is_playing",
-                        lambda: state["playing"])
-    monkeypatch.setattr(
-        panel._tone_preview, "play",
-        lambda path, start, end: calls.append(("play", path, start, end)))
-    monkeypatch.setattr(panel._tone_preview, "stop",
-                        lambda: (calls.append(("stop",)),
-                                 panel.bt_tone_level.setValue(0),
-                                 state.__setitem__("playing", False)))
-
-    panel._on_bt_tone_preview()
-    assert calls == [("play", str(src), 0.5, 1.5)]
-
-    state["playing"] = True
-    panel.bt_tone_level.setValue(80)
-    panel._on_bt_tone_preview()
-    assert calls[-1] == ("stop",)
-    assert panel.bt_tone_level.value() == 0
-
-    # a missing file never calls play()
-    calls.clear()
-    panel.bt_tone_file.setText(str(tmp_path / "gone.wav"))
-    panel._on_bt_tone_preview()
-    assert calls == []
-    assert "WAV not found" in panel.bt_tone_preview_status.text()
-
-
-def test_preview_uses_the_bundled_default_tone(qapp):
-    panel = FCTTestConfigPanel()
-    assert panel.bt_tone_file.text() == DEFAULT_TONE_WAV
-    assert panel.bt_tone_preview_btn.text() == "Preview (local)"
-    assert panel.bt_tone_level.value() == 0
+def test_tone_slider_reads_the_total_length_from_the_wav_header(tmp_path):
+    """M50: the per-test dialog builds its slider from the wav header -
+    an unreadable file leaves the length at the fallback, no crash."""
+    src = _make_wav(tmp_path / "custom.wav", 2.0)
+    assert wav_duration_s(str(src)) == pytest.approx(2.0, abs=0.01)
+    slider = _ToneRangeSlider(wav_duration_s(str(src)) or 6.0)
+    slider.set_values(0.0, 2.0)
+    assert slider.total() == pytest.approx(2.0)
+    assert (slider.start_s(), slider.end_s()) == (0.0, 2.0)
+    # missing file -> header unknown -> the 6 s fallback stays
+    assert wav_duration_s(str(tmp_path / "nope.wav")) is None
+    slider = _ToneRangeSlider(wav_duration_s(str(tmp_path / "nope.wav"))
+                              or 6.0)
+    assert slider.total() == pytest.approx(6.0)
 
 
 # ------------------------------------------------------------ step params
@@ -208,6 +155,8 @@ def test_legacy_audio_confirm_and_tone_duration_are_tolerated():
 
 
 def test_legacy_yaml_roundtrips_through_the_panel_without_new_keys(qapp):
+    """M50: a legacy tone config imports into one BT_Tone step row and
+    re-emits the new schema WITHOUT the retired keys."""
     yaml_text = """
 fct_test_config:
   dut_type: linux
@@ -216,12 +165,25 @@ fct_test_config:
     tone_enabled: true
     audio_confirm: true
     tone_timeout: 30
+    tone_duration_s: 5
 """
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": yaml_text})
-    out = panel.values()["fct_test_config_yaml"]
+    out = panel.values()["fct_steps_yaml"]
     assert "audio_confirm" not in out
     assert "tone_timeout" not in out
+    steps = ((yaml.safe_load(out) or {}).get("fct") or {}).get("steps") or []
+    assert [s["type"] for s in steps] == [STEP_TYPE_BT_TONE]
+    # the retired tone_duration_s maps to the End segment
+    assert float(steps[0]["end_s"]) == 5.0
+
+
+def test_tone_row_summary_falls_back_to_the_bundled_default_tone(qapp):
+    """The default tone row names the bundled wav in its summary."""
+    panel = FCTTestConfigPanel()
+    cmd = console_command_for_label(STEP_TYPE_BT_TONE)
+    assert panel._rf_summary(cmd) == "tone_1khz_6s.wav, 0.0-6.0s"
+    assert DEFAULT_TONE_WAV.endswith("tone_1khz_6s.wav")
 
 
 # ------------------------------------------------- DUT BT driver probe
@@ -245,19 +207,13 @@ def test_probe_command_has_markers_and_bt_checks():
     assert "hci" in BT_PROBE_CMD
 
 
-def test_probe_requires_a_console_port(qapp):
-    panel = FCTTestConfigPanel()
-    panel.console_port.setCurrentText("")
-    panel._on_bt_dut_probe()
-    assert "Set the Console Port first" in panel.bt_dut_probe_status.text()
-    assert not hasattr(panel, "_bt_probe_worker")
-
-
-def test_probe_result_colors_the_three_states(qapp):
-    panel = FCTTestConfigPanel()
-    for state, color in (("OK", "#059669"),
-                         ("needs-load", "#b45309"),
-                         ("FAIL", "#b91c1c")):
-        panel._on_bt_probe_result(state, "detail")
-        assert panel.bt_dut_probe_status.text().startswith(state)
-        assert color in panel.bt_dut_probe_status.styleSheet()
+def test_probe_worker_reports_fail_when_the_console_is_unavailable(qapp):
+    """M50: the read-only probe worker never crashes - an unusable
+    console (or missing pyserial) becomes an explicit FAIL."""
+    worker = _BtDriverProbeWorker("/dev/does-not-exist", 115200)
+    seen = {}
+    worker.result.connect(lambda state, msg: seen.update(
+        {"state": state, "msg": msg}))
+    worker.run()
+    assert seen["state"] == "FAIL"
+    assert "probe failed" in seen["msg"] or "did not answer" in seen["msg"]

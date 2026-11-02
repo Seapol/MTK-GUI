@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""m31: Wi-Fi tab reflow + Host PC <-> AP connection test.
+"""m31: Host PC <-> AP connection probe + signal-quality helpers.
 
-The Wi-Fi tab is now a scrollable adaptive THREE-column grid (DUT /
-Hotspot AP / Host PC in one row; Scan / RSSI, Ping, iPerf in one row) and
-gains a "Test Host PC <-> Hotspot AP connection" button whose worker
-reports Connection OK / RSSI / Signal Quality over a pre-front progress
-bar.
+M50 removed the Wi-Fi TAB (the per-test dialog owns the step params);
+the probe engine helpers below keep their coverage.
 """
 from __future__ import annotations
 
@@ -21,7 +18,6 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.engine import host_platform  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
-    FCTTestConfigPanel,
     _WifiLinkProbeWorker,
 )
 
@@ -74,29 +70,6 @@ def _install_probe_mocks(monkeypatch, dbm=-45, replies=3, ssid="TEST-AP"):
         return (f"{replies + 1} packets transmitted, {replies} packets "
                 f"received, {loss}.0% packet loss")
     monkeypatch.setattr(host_platform, "run_link_cmd", fake_run)
-
-
-def test_wifi_tab_scroll_area_three_column_rows(qapp):
-    """m31: Wi-Fi tab body is a QScrollArea whose inner QGridLayout keeps
-    DUT/AP/Host in one row and Scan/Ping/iPerf in one row."""
-    from PySide6.QtWidgets import QGridLayout, QScrollArea
-    panel = FCTTestConfigPanel()
-    assert isinstance(panel.wifi_tab, QScrollArea)
-    grid = panel.wifi_tab.widget().layout()
-    assert isinstance(grid, QGridLayout)
-
-    def pos(widget):
-        return grid.getItemPosition(grid.indexOf(widget))[:2]
-
-    cfg = [pos(w) for w in (panel.wifi_base, panel.wifi_ap_box,
-                           panel.wifi_host_box)]
-    assert {r for r, _c in cfg} == {1}
-    assert [c for _r, c in cfg] == [0, 1, 2]
-
-    tests = [pos(w) for w in (panel.wifi_scan_box, panel.wifi_ping_box,
-                              panel.wifi_iperf_box)]
-    assert {r for r, _c in tests} == {2}
-    assert [c for _r, c in tests] == [0, 1, 2]
 
 
 def test_signal_quality_tiers():
@@ -158,21 +131,14 @@ def test_wifi_link_probe_worker(monkeypatch):
 
 
 def test_wifi_conn_test_prefront_and_complete(qapp, monkeypatch):
-    """m31: the button shows the pre-front progress bar at 0 +
-    "Connecting...", then the worker ends at 100%."""
+    """M50: the Wi-Fi probe worker behind the Equipment "Test Connection"
+    button reports its verdict lines and completes."""
     _install_probe_mocks(monkeypatch, dbm=-55, replies=3)
-    panel = FCTTestConfigPanel()
-    panel.wifi_ap_ip.setText("192.168.1.1")
-    panel._on_wifi_conn_test()
-    assert panel.wifi_conn_progress.isVisibleTo(panel.wifi_tab)
-    assert panel.wifi_conn_progress.value() == 0
-    assert panel.wifi_conn_status.text() == "Connecting..."
-    assert not panel.wifi_conn_test_btn.isEnabled()
-    worker = panel._wifi_probe
-    assert worker is not None
-    assert worker.wait(5000)
-    for _ in range(10):
-        qapp.processEvents()
-    assert panel.wifi_conn_progress.value() == 100
-    assert "Connection OK" in panel.wifi_conn_status.text()
-    assert panel.wifi_conn_test_btn.isEnabled()
+    worker = _WifiLinkProbeWorker("192.168.1.1")
+    done = []
+    lines = []
+    worker.line.connect(lines.append)
+    worker.done.connect(lambda ok, summary: done.append((ok, summary)))
+    worker.run()
+    assert any("Connection OK" in line for line in lines)
+    assert done and done[0][0] is True

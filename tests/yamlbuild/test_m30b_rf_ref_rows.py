@@ -2,10 +2,10 @@
 """m30b: Wi-Fi/BT sub-tests as FCT sequence reference rows.
 
 A reference row (kind ``wifi_test`` / ``bt_test`` + ``rf_subtest``)
-lives in the merged Sequence table, expands AT its position when the FCT
-work flow is built, re-renders its summary live from the Wi-Fi /
-Bluetooth tabs, and double-clicking it jumps to the matching tab (no
-modal dialog).
+lives in the single Sequence table.  M50 removed the Wi-Fi / Bluetooth
+tabs: each row now shows its EFFECTIVE values resolved from the
+Equipment page references (plus per-step overrides), and the engine
+still expands the row AT its position when the FCT work flow is built.
 """
 from __future__ import annotations
 
@@ -40,13 +40,8 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
 )
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
-    _COL_CAPTURE,
     _COL_CMD,
-    _COL_SEND,
-    _COL_STEP,
-    _COL_TIMEOUT,
     _COL_TYPE,
-    _COL_WAIT,
 )
 
 
@@ -95,87 +90,53 @@ def test_add_menu_has_rf_groups_and_bare_metal_gating(qapp):
     assert panel._add_actions[STEP_TYPE_BT_RSSI].isVisible()
 
 
-RF_RENDER_YAML = """
-fct_test_config:
-  dut_type: linux
-  console:
-    enabled: false
-    test_commands:
-      - {name: "Wi-Fi: Scan / RSSI", kind: wifi_test, rf_subtest: scan,
-         wait_enabled: false, send_enabled: false, capture_enabled: false}
-      - {name: "Bluetooth: Tone / A2DP", kind: bt_test, rf_subtest: tone,
-         wait_enabled: false, send_enabled: false, capture_enabled: false}
-  wifi:
-    enabled: true
-    scan_enabled: true
-    ping_enabled: false
-    iperf_enabled: false
-    ap_ssid: "FRDM-IMX93-DUT"
-    rssi_min: -70
-    scan_timeout: 15
-  bluetooth:
-    enabled: true
-    rssi_enabled: false
-    pair_enabled: false
-    tone_enabled: true
-    tone_timeout: 15
-"""
+def _equipment_node():
+    return {"equipment": {"peripherals": {
+        "wifi": {"ap_ssid": "MTK-AP", "ap_password": "pw"},
+        "bluetooth": {"scan_targets": "MTK-DUT"}}}}
 
 
-def _rf_panel(qapp) -> FCTTestConfigPanel:
-    panel = FCTTestConfigPanel()
-    panel.set_values({"fct_test_config_yaml": RF_RENDER_YAML})
-    return panel
+def _ref_row(panel, label, params=None, overrides=None):
+    """Append one RF reference row carrying its default Equipment refs."""
+    cmd = console_command_for_label(label)
+    cmd.step_params = dict(params or {})
+    cmd.refs = panel._default_refs(cmd) or None
+    cmd.overrides = dict(overrides or {}) or None
+    panel._insert_row(cmd)
+    return cmd
 
 
-def test_reference_row_renders_live_summary(qapp):
-    panel = _rf_panel(qapp)
+def test_reference_row_renders_effective_equipment_values(qapp):
+    """M50: the summary cell resolves the row's ``ref`` against the
+    current Equipment node (no deleted tab drives it)."""
+    panel = FCTTestConfigPanel(equipment_provider=_equipment_node)
+    _ref_row(panel, STEP_TYPE_WIFI_SCAN, {"rssi_min": -70})
     t = panel.cmd_table
     assert t.item(0, _COL_TYPE).text() == "Wifi_Scan"
-    assert t.item(1, _COL_TYPE).text() == "BT_Tone"
-    for r in (0, 1):
-        assert t.item(r, _COL_WAIT).text() == "\u2014"
-        assert t.item(r, _COL_SEND).text() == "\u2014"
-        assert t.item(r, _COL_CAPTURE).text() == "\u2014"
-    assert t.item(0, _COL_TIMEOUT).text() == "15s"
-    # M45: the Tone step has NO Timeout any more
-    assert t.item(1, _COL_TIMEOUT).text() == "-"
-    assert t.item(0, _COL_CMD).text() == \
-        "AP=FRDM-IMX93-DUT, RSSI\u2265-70 dBm"
-    assert t.item(1, _COL_CMD).text() == "tone_1khz_6s.wav, 0.0-6.0s"
-
-    # live refresh: a Wi-Fi tab edit re-renders the summary cell
-    panel.wifi_ap_ssid.setText("NEW-SSID")
-    assert t.item(0, _COL_CMD).text() == "AP=NEW-SSID, RSSI\u2265-70 dBm"
+    assert t.item(0, _COL_CMD).text() == "AP=MTK-AP, RSSI\u2265-70 dBm"
 
 
-def test_reference_row_enabled_mirrors_module_checkboxes(qapp):
-    panel = _rf_panel(qapp)
-    scan_cmd = panel._row_cmd(0)
-    tone_cmd = panel._row_cmd(1)
-    assert panel._rf_effective_enabled(scan_cmd) is True
-    assert panel._rf_effective_enabled(tone_cmd) is True
-    # M36: no master switch - the Scan/RSSI checkbox is the source
-    panel.wifi_scan_box.setChecked(False)
-    assert panel._rf_effective_enabled(scan_cmd) is False
-    assert panel.cmd_table.item(0, _COL_STEP).foreground().color().name() \
-        == "#9ca3af"
-    panel.wifi_scan_box.setChecked(True)
-    assert panel._rf_effective_enabled(scan_cmd) is True
+def test_reference_row_override_wins_over_the_equipment_value(qapp):
+    panel = FCTTestConfigPanel(equipment_provider=_equipment_node)
+    _ref_row(panel, STEP_TYPE_WIFI_SCAN, {"rssi_min": -70},
+             {"ap_ssid": "LAB-AP"})
+    assert panel.cmd_table.item(0, _COL_CMD).text() == \
+        "AP=LAB-AP, RSSI\u2265-70 dBm"
 
 
-def test_double_click_jumps_to_rf_tab(qapp):
-    panel = FCTTestConfigPanel()
-    r0 = panel.cmd_table.rowCount()
-    panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
-    r1 = panel.cmd_table.rowCount()
-    panel._add_row_for_label(STEP_TYPE_BT_TONE)
-    panel._on_cmd_double_click(r0, _COL_STEP)
-    assert panel.tabs.currentWidget() is panel.wifi_tab
-    qapp.processEvents()
-    panel._on_cmd_double_click(r1, _COL_STEP)
-    assert panel.tabs.currentWidget() is panel.bt_tab
-    qapp.processEvents()
+def test_rf_rows_round_trip_through_the_message_schema(qapp):
+    """M50: every RF row saves as one ``fct.steps`` entry with its own
+    parameters plus the runtime ``ref`` map."""
+    panel = FCTTestConfigPanel(equipment_provider=_equipment_node)
+    _ref_row(panel, STEP_TYPE_WIFI_SCAN, {"rssi_min": -70, "timeout_s": 15})
+    _ref_row(panel, STEP_TYPE_BT_RSSI, {"rssi_min": -70, "timeout_s": 15})
+    steps = ((yaml.safe_load(panel.values()["fct_steps_yaml"]) or {})
+             .get("fct") or {}).get("steps") or []
+    assert [s["type"] for s in steps] == [STEP_TYPE_WIFI_SCAN, STEP_TYPE_BT_RSSI]
+    assert steps[0]["ref"]["ap_ssid"] == \
+        "equipment.peripherals.wifi.ap_ssid"
+    assert steps[0]["rssi_min"] == -70
+    assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
 
 
 def test_build_order_expands_wifi_row_at_its_position():
@@ -203,6 +164,8 @@ def test_build_order_expands_wifi_row_at_its_position():
 
 
 def test_legacy_config_without_reference_rows_round_trips(qapp):
+    """M50: a legacy project (no RF ref rows) imports into single-page
+    rows and re-emits the new ``fct.steps`` schema."""
     yaml_text = """
 fct_test_config:
   dut_type: linux
@@ -222,11 +185,8 @@ fct_test_config:
                       "fct_sequence_cases_yaml": yaml.safe_dump(
                           seq, sort_keys=False)})
     out = panel.values()
-    node = yaml.safe_load(out["fct_test_config_yaml"])["fct_test_config"]
-    cmds = FctTestConfig.from_dict(node).console.test_commands
-    assert [c.name for c in cmds] == ["Kernel check"]
-    assert [c.kind for c in cmds] == ["send"]
-    assert all(c.rf_subtest == "" for c in cmds)
-    seq_out = yaml.safe_load(out["fct_sequence_cases_yaml"])
-    assert [c["name"] for c in seq_out] == ["Power On DUT"]
-    assert seq_out[0]["kind"] == "op"
+    steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
+             .get("fct") or {}).get("steps") or []
+    assert [s["name"] for s in steps] == ["Power On DUT", "Kernel check"]
+    assert [s["type"] for s in steps][1] == "Console_serial"
+    assert list(out) == ["fct_steps_yaml"]
