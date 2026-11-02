@@ -202,19 +202,21 @@ class TestOperationSubmenuGate:
 
 
 class TestRowEditingStaysSingle:
-    def test_double_click_opens_the_single_row_editor(self, panel,
-                                                      monkeypatch):
-        """The main table still edits ONE row at a time - no multi-step
-        sequence editor."""
+    def test_double_click_opens_the_single_row_form(self, panel,
+                                                    monkeypatch):
+        """The main table edits ONE row at a time.  M53: the row opens the
+        shared per-type parameter FORM - no multi-step sequence editor."""
         from mtkgui.gui.steps_editor import StepsEditorDialog
         panel._op_add_actions["Operation: Power On DUT"].trigger()
         row = panel.cmd_table.rowCount() - 1
         seen = {}
 
-        def fake_exec(self):
-            seen["steps"] = list(self._steps)
+        def fake_exec(dlg):
+            seen["nested"] = isinstance(dlg, StepsEditorDialog)
+            seen["title"] = dlg.windowTitle()
             return QDialog.DialogCode.Rejected
 
-        monkeypatch.setattr(StepsEditorDialog, "exec", fake_exec)
+        monkeypatch.setattr(QDialog, "exec", fake_exec)
         panel._edit_current_row(row)
-        assert seen["steps"] == ["Power On DUT"]
+        assert seen["nested"] is False
+        assert "Edit (Operation)" in seen["title"]

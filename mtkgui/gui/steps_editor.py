@@ -51,6 +51,200 @@ from ..engine import (
 ICT_MESSAGE_KINDS = ("MessageOK", "MessageYesNo", "MessageGoStop")
 
 
+def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
+                        title=None):
+    """M53: reusable per-type OPERATION parameter form.
+
+    A standard operation step is ONE action plus its parameters - the same
+    form is opened by the shared sequence editor (ICT / FCT legacy rows)
+    and by the FCT single-page table, never wrapped in a nested step list.
+
+    Returns ``(name, params, enable, wait, timeout)`` on accept (``params``
+    is ``None`` when the type carries no parameters) or ``None`` on cancel.
+    """
+    params = dict(params or {})
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title or "Edit (Operation)")
+    # same modality / raise behaviour as the other per-type row editors
+    dlg.setWindowModality(Qt.ApplicationModal)
+    dlg.raise_()
+    dlg.activateWindow()
+    outer = QVBoxLayout(dlg)
+    body = QWidget()
+    body_lay = QVBoxLayout(body)
+    body_lay.setContentsMargins(0, 0, 0, 0)
+
+    head = QFormLayout()
+    op_combo = QComboBox()
+    op_combo.setEditable(True)
+    op_combo.addItems(list(OP_STEPS))
+    # M49a: no "Custom Operation" entry point anymore.  A legacy row
+    # whose name is not a standard step keeps showing its own text
+    # (the combo is editable).
+    op_combo.setCurrentText(name or "")
+    head.addRow("Standard Step:", op_combo)
+    body_lay.addLayout(head)
+
+    # per-type parameter area, rebuilt when the step type changes
+    param_form = QFormLayout()
+    param_box = QWidget()
+    param_box.setLayout(param_form)
+    body_lay.addWidget(param_box)
+    fields = {}
+
+    def current_type():
+        return OP_STEPS.get(op_combo.currentText().strip(),
+                            {}).get("type", "custom")
+
+    def rebuild_params():
+        fields.clear()
+        while param_form.rowCount():
+            param_form.removeRow(0)
+        t = current_type()
+        if t in ("instruments", "reset"):
+            chosen = set(params.get("instruments", []) or [])
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            checks = []
+            for inst in ("DAQM", "DAQ", "PSU"):
+                cb = QCheckBox(inst)
+                cb.setChecked(not chosen or inst in chosen)
+                h.addWidget(cb)
+                checks.append(cb)
+            fields["instruments"] = checks
+            param_form.addRow("Instruments:", row)
+        elif t == "fixture":
+            sig = QComboBox()
+            sig.addItems(["press", "inpos", "estop"])
+            sig.setCurrentText(params.get("signal", "press"))
+            lvl = QComboBox()
+            lvl.addItems(["H", "L"])
+            lvl.setCurrentText(params.get("level", "H"))
+            # M38: expectation lives in the step's cmd / params and
+            # drives the DAQM907A fixture read comparison
+            expect = QComboBox()
+            expect.addItems(["", "High", "Low"])
+            expect.setCurrentText(_fixture_level(params.get("expect")))
+            unexpected = QComboBox()
+            unexpected.addItems(["", "High", "Low"])
+            unexpected.setCurrentText(
+                _fixture_level(params.get("unexpected")))
+            fields["signal"], fields["level"] = sig, lvl
+            fields["expect"], fields["unexpected"] = expect, unexpected
+            param_form.addRow("Signal:", sig)
+            param_form.addRow("Level:", lvl)
+            param_form.addRow("Expect (read):", expect)
+            param_form.addRow("Unexpected (read):", unexpected)
+        elif t == "power":
+            if "voltage" in params or \
+                    op_combo.currentText().strip() == "Power On DUT":
+                volt = QDoubleSpinBox()
+                volt.setRange(0.0, 60.0)
+                volt.setDecimals(2)
+                volt.setSuffix(" V")
+                volt.setValue(float(params.get("voltage", 5.0)))
+                curr = QDoubleSpinBox()
+                curr.setRange(0.0, 12.5)
+                curr.setDecimals(2)
+                curr.setSuffix(" A")
+                curr.setValue(float(params.get("current", 1.0)))
+                fields["voltage"], fields["current"] = volt, curr
+                param_form.addRow("Voltage:", volt)
+                param_form.addRow("Current limit:", curr)
+            else:
+                param_form.addRow(
+                    QLabel("N5747A output OFF — no setpoints."))
+        elif t == "dio_out":
+            channels = QLineEdit(str(
+                params.get("channels")
+                or OP_STEPS.get(op_combo.currentText().strip(),
+                                {}).get("channels") or "DIO01-DIO08"))
+            channels.setPlaceholderText("e.g. DIO01-DIO08")
+            pattern = QLineEdit(str(
+                params.get("pattern")
+                or OP_STEPS.get(op_combo.currentText().strip(),
+                                {}).get("pattern") or "0x00"))
+            pattern.setPlaceholderText("hex (0x3C) or DIO01=1,DIO03=0")
+            fields["channels"], fields["pattern"] = channels, pattern
+            param_form.addRow("Channels:", channels)
+            param_form.addRow("Pattern:", pattern)
+        elif t == "dio_read":
+            param_form.addRow(QLabel(
+                "Reads the full U2355A DIO bank and reports each "
+                "allocated Control IO net level (reference only)."))
+        else:
+            param_form.addRow(
+                QLabel("Custom operation: no parameters."))
+
+    op_combo.currentTextChanged.connect(lambda _t: rebuild_params())
+    rebuild_params()
+
+    enable_cb = QCheckBox()
+    enable_cb.setChecked(bool(enable))
+    wait_spin = QSpinBox()
+    wait_spin.setRange(0, 99999)
+    wait_spin.setValue(int(wait))
+    wait_spin.setSuffix(" ms")
+    timeout_spin = QSpinBox()
+    timeout_spin.setRange(0, 999999)
+    timeout_spin.setValue(int(timeout))
+    timeout_spin.setSuffix(" ms")
+    meta = QFormLayout()
+    meta.addRow("Enable:", enable_cb)
+    meta.addRow("Wait:", wait_spin)
+    meta.addRow("Timeout:", timeout_spin)
+    body_lay.addLayout(meta)
+    # M34: the form scrolls on small windows; OK / Cancel stays outside
+    apply_scroll_to_dialog(dlg, body)
+
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok
+        | QDialogButtonBox.StandardButton.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    outer.addWidget(buttons)
+
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    new_name = op_combo.currentText().strip()
+    if not new_name:
+        new_name = name or "New Operation"
+    t = current_type()
+    if t in ("instruments", "reset"):
+        new_params = {"type": t, "instruments": [
+            cb.text() for cb in fields["instruments"]
+            if cb.isChecked()]}
+    elif t == "fixture":
+        new_params = {"type": "fixture",
+                      "signal": fields["signal"].currentText(),
+                      "level": fields["level"].currentText()}
+        expect = fields["expect"].currentText()
+        if expect:
+            new_params["expect"] = expect
+        unexpected = fields["unexpected"].currentText()
+        if unexpected:
+            new_params["unexpected"] = unexpected
+    elif t == "power":
+        new_params = {"type": "power"}
+        if "voltage" in fields:
+            new_params["voltage"] = fields["voltage"].value()
+            new_params["current"] = fields["current"].value()
+    elif t == "dio_out":
+        new_params = {
+            "type": "dio_out",
+            "channels": fields["channels"].text().strip()
+            or "DIO01-DIO08",
+            "pattern": fields["pattern"].text().strip() or "0x00",
+        }
+    elif t == "dio_read":
+        new_params = {"type": "dio_read"}
+    else:
+        new_params = None
+    return (new_name, new_params, enable_cb.isChecked(),
+            wait_spin.value(), timeout_spin.value())
+
+
 class StepsEditorDialog(QDialog):
     """Dialog for reordering, adding, removing, editing, and duplicating
     test case steps. Works on copies; only writes back on accept."""
@@ -693,191 +887,27 @@ class StepsEditorDialog(QDialog):
         """Edit one operation step: pick a standard step and configure
         its parameters (instruments / fixture signal+level / PSU
         setpoints) in per-type fields. Used by both ICT (step tuple)
-        and FCT (name string + parallel kind / op-params lists)."""
+        and FCT (name string + parallel kind / op-params lists).
+
+        M53: the form itself lives in the module-level
+        :func:`edit_op_step_dialog` - this wrapper keeps the ICT 7-tuple
+        bridge and the FCT name / kind / op-params bridge unchanged."""
         if self._kind == "ict":
             name = step[1]
-            params = dict(step[6]) if len(step) > 6 and step[6] else {}
+            params = dict(step[6]) if len(step) > 6 and step[6] else None
         else:
             name = step
             params = (dict(self._op_params[r])
                       if self._op_params is not None
                       and r < len(self._op_params)
-                      and self._op_params[r] else {})
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Step {r + 1} — Edit (Operation)")
-        outer = QVBoxLayout(dlg)
-        body = QWidget()
-        body_lay = QVBoxLayout(body)
-        body_lay.setContentsMargins(0, 0, 0, 0)
-
-        head = QFormLayout()
-        op_combo = QComboBox()
-        op_combo.setEditable(True)
-        op_combo.addItems(list(OP_STEPS))
-        # M49a: no "Custom Operation" entry point anymore.  A legacy row
-        # whose name is not a standard step keeps showing its own text
-        # (the combo is editable).
-        op_combo.setCurrentText(name or "")
-        head.addRow("Standard Step:", op_combo)
-        body_lay.addLayout(head)
-
-        # per-type parameter area, rebuilt when the step type changes
-        param_form = QFormLayout()
-        param_box = QWidget()
-        param_box.setLayout(param_form)
-        body_lay.addWidget(param_box)
-        fields = {}
-
-        def current_type():
-            return OP_STEPS.get(op_combo.currentText().strip(),
-                                {}).get("type", "custom")
-
-        def rebuild_params():
-            fields.clear()
-            while param_form.rowCount():
-                param_form.removeRow(0)
-            t = current_type()
-            if t in ("instruments", "reset"):
-                chosen = set(params.get("instruments", []) or [])
-                row = QWidget()
-                h = QHBoxLayout(row)
-                h.setContentsMargins(0, 0, 0, 0)
-                checks = []
-                for inst in ("DAQM", "DAQ", "PSU"):
-                    cb = QCheckBox(inst)
-                    cb.setChecked(not chosen or inst in chosen)
-                    h.addWidget(cb)
-                    checks.append(cb)
-                fields["instruments"] = checks
-                param_form.addRow("Instruments:", row)
-            elif t == "fixture":
-                sig = QComboBox()
-                sig.addItems(["press", "inpos", "estop"])
-                sig.setCurrentText(params.get("signal", "press"))
-                lvl = QComboBox()
-                lvl.addItems(["H", "L"])
-                lvl.setCurrentText(params.get("level", "H"))
-                # M38: expectation lives in the step's cmd / params and
-                # drives the DAQM907A fixture read comparison
-                expect = QComboBox()
-                expect.addItems(["", "High", "Low"])
-                expect.setCurrentText(_fixture_level(params.get("expect")))
-                unexpected = QComboBox()
-                unexpected.addItems(["", "High", "Low"])
-                unexpected.setCurrentText(
-                    _fixture_level(params.get("unexpected")))
-                fields["signal"], fields["level"] = sig, lvl
-                fields["expect"], fields["unexpected"] = expect, unexpected
-                param_form.addRow("Signal:", sig)
-                param_form.addRow("Level:", lvl)
-                param_form.addRow("Expect (read):", expect)
-                param_form.addRow("Unexpected (read):", unexpected)
-            elif t == "power":
-                if "voltage" in params or \
-                        op_combo.currentText().strip() == "Power On DUT":
-                    volt = QDoubleSpinBox()
-                    volt.setRange(0.0, 60.0)
-                    volt.setDecimals(2)
-                    volt.setSuffix(" V")
-                    volt.setValue(float(params.get("voltage", 5.0)))
-                    curr = QDoubleSpinBox()
-                    curr.setRange(0.0, 12.5)
-                    curr.setDecimals(2)
-                    curr.setSuffix(" A")
-                    curr.setValue(float(params.get("current", 1.0)))
-                    fields["voltage"], fields["current"] = volt, curr
-                    param_form.addRow("Voltage:", volt)
-                    param_form.addRow("Current limit:", curr)
-                else:
-                    param_form.addRow(
-                        QLabel("N5747A output OFF — no setpoints."))
-            elif t == "dio_out":
-                channels = QLineEdit(str(
-                    params.get("channels")
-                    or OP_STEPS.get(op_combo.currentText().strip(),
-                                    {}).get("channels") or "DIO01-DIO08"))
-                channels.setPlaceholderText("e.g. DIO01-DIO08")
-                pattern = QLineEdit(str(
-                    params.get("pattern")
-                    or OP_STEPS.get(op_combo.currentText().strip(),
-                                    {}).get("pattern") or "0x00"))
-                pattern.setPlaceholderText("hex (0x3C) or DIO01=1,DIO03=0")
-                fields["channels"], fields["pattern"] = channels, pattern
-                param_form.addRow("Channels:", channels)
-                param_form.addRow("Pattern:", pattern)
-            elif t == "dio_read":
-                param_form.addRow(QLabel(
-                    "Reads the full U2355A DIO bank and reports each "
-                    "allocated Control IO net level (reference only)."))
-            else:
-                param_form.addRow(
-                    QLabel("Custom operation: no parameters."))
-
-        op_combo.currentTextChanged.connect(lambda _t: rebuild_params())
-        rebuild_params()
-
-        enable_cb = QCheckBox()
-        enable_cb.setChecked(self._enables[r])
-        wait_spin = QSpinBox()
-        wait_spin.setRange(0, 99999)
-        wait_spin.setValue(self._waits[r])
-        wait_spin.setSuffix(" ms")
-        timeout_spin = QSpinBox()
-        timeout_spin.setRange(0, 999999)
-        timeout_spin.setValue(self._timeouts[r])
-        timeout_spin.setSuffix(" ms")
-        meta = QFormLayout()
-        meta.addRow("Enable:", enable_cb)
-        meta.addRow("Wait:", wait_spin)
-        meta.addRow("Timeout:", timeout_spin)
-        body_lay.addLayout(meta)
-        # M34: the form scrolls on small windows; OK / Cancel stays outside
-        apply_scroll_to_dialog(dlg, body)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        outer.addWidget(buttons)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+                      and self._op_params[r] else None)
+        result = edit_op_step_dialog(
+            self, name, params, self._enables[r], self._waits[r],
+            self._timeouts[r],
+            title=f"Step {r + 1} — Edit (Operation)")
+        if result is None:
             return False
-        new_name = op_combo.currentText().strip()
-        if not new_name:
-            new_name = name or "New Operation"
-        t = current_type()
-        if t in ("instruments", "reset"):
-            new_params = {"type": t, "instruments": [
-                cb.text() for cb in fields["instruments"]
-                if cb.isChecked()]}
-        elif t == "fixture":
-            new_params = {"type": "fixture",
-                          "signal": fields["signal"].currentText(),
-                          "level": fields["level"].currentText()}
-            expect = fields["expect"].currentText()
-            if expect:
-                new_params["expect"] = expect
-            unexpected = fields["unexpected"].currentText()
-            if unexpected:
-                new_params["unexpected"] = unexpected
-        elif t == "power":
-            new_params = {"type": "power"}
-            if "voltage" in fields:
-                new_params["voltage"] = fields["voltage"].value()
-                new_params["current"] = fields["current"].value()
-        elif t == "dio_out":
-            new_params = {
-                "type": "dio_out",
-                "channels": fields["channels"].text().strip()
-                or "DIO01-DIO08",
-                "pattern": fields["pattern"].text().strip() or "0x00",
-            }
-        elif t == "dio_read":
-            new_params = {"type": "dio_read"}
-        else:
-            new_params = None
+        new_name, new_params, enable, wait, timeout = result
         if self._kind == "ict":
             self._steps[r] = ("op", new_name, "—", "—", "—", "—",
                               new_params)
@@ -887,9 +917,9 @@ class StepsEditorDialog(QDialog):
                 self._kinds[r] = "op"
             if self._op_params is not None:
                 self._op_params[r] = new_params
-        self._enables[r] = enable_cb.isChecked()
-        self._waits[r] = wait_spin.value()
-        self._timeouts[r] = timeout_spin.value()
+        self._enables[r] = enable
+        self._waits[r] = wait
+        self._timeouts[r] = timeout
         return True
 
     def _edit_fct_step(self, r):

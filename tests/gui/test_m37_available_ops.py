@@ -161,36 +161,15 @@ def test_grayed_operation_tooltips_name_the_fix(qapp, kind):
 
 
 # ------------------------------------------------------------- plumbing
-def test_panel_forwards_available_ops_to_row_editor(qapp, monkeypatch):
-    """The Operation row editor receives the panel's available set."""
+def test_panel_greys_the_operation_add_entries(qapp):
+    """The panel's available set gates its Add-menu operations.  M53:
+    the row editor itself is the shared per-type parameter form, so it
+    no longer carries the available set."""
     panel = FCTTestConfigPanel()
     panel.set_available_ops({"Power On DUT"})
-    seen = {}
-
-    class FakeDialog:
-        class DialogCode:
-            Accepted = 1
-
-        def __init__(self, kind, steps, enables, waits, timeouts,
-                     parent=None, kinds=None, op_params=None,
-                     available_ops=None):
-            seen["kind"] = kind
-            seen["available_ops"] = available_ops
-
-        def exec(self):
-            return 0            # rejected -> the row is untouched
-
-        def deleteLater(self):
-            pass
-
-    import mtkgui.gui.steps_editor as steps_editor_module
-    monkeypatch.setattr(steps_editor_module, "StepsEditorDialog",
-                        FakeDialog)
-    panel.set_values({})
-    panel._add_row_for_label("Operation")
-    panel._edit_operation_row(panel.cmd_table.rowCount() - 1)
-    assert seen["kind"] == "fct"
-    assert seen["available_ops"] == {"Power On DUT"}
+    acts = panel._op_add_actions
+    assert acts["Operation: Power On DUT"].isEnabled()
+    assert not acts["Operation: Init Instruments"].isEnabled()
 
 
 def test_block_dialog_hands_available_ops_to_the_panel(qapp):

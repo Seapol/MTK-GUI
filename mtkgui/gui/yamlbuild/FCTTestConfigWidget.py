@@ -1883,33 +1883,30 @@ class FCTTestConfigPanel(QWidget):
         dlg.deleteLater()
 
     def _edit_operation_row(self, row: int) -> None:
-        """Operation row editor: reuse the shared op parameter editor
-        via a transient StepsEditorDialog carrying the single row."""
-        from PySide6.QtWidgets import QDialog
-        from mtkgui.gui.steps_editor import StepsEditorDialog
+        """M53: a standard Operation row is ONE action plus its
+        parameters - open the shared per-type parameter FORM directly
+        (never wrap the single row in a nested sequence editor)."""
+        from mtkgui.gui.steps_editor import edit_op_step_dialog
         cmd = self._row_cmd(row)
         if cmd is None:
             return
-        dlg = StepsEditorDialog(
-            "fct", [cmd.name], [bool(cmd.enabled)],
-            [int(cmd.op_wait_ms or 100)],
-            [int(cmd.op_timeout_ms or 5000)],
-            kinds=["op"],
-            op_params=[dict(cmd.op_params) if cmd.op_params else None],
-            available_ops=self._available_ops)
-        if dlg.exec() == QDialog.Accepted:
-            steps, enables, waits, timeouts, _kinds, op_params = \
-                dlg.result_data()
-            if steps:
-                cmd.name = str(steps[0])
-                cmd.enabled = bool(enables[0])
-                cmd.op_wait_ms = int(waits[0])
-                cmd.op_timeout_ms = int(timeouts[0])
-                cmd.op_params = (dict(op_params[0])
-                                 if op_params and op_params[0] else None)
-                cmd.op_kind = "op"
-                self._save_row_cmd(row, cmd)
-        dlg.deleteLater()
+        result = edit_op_step_dialog(
+            self, cmd.name,
+            dict(cmd.op_params) if cmd.op_params else None,
+            bool(cmd.enabled),
+            int(cmd.op_wait_ms or 100),
+            int(cmd.op_timeout_ms or 5000),
+            title=f"Step {row + 1} — Edit (Operation)")
+        if result is None:
+            return
+        name, params, enabled, wait, timeout = result
+        cmd.name = name
+        cmd.enabled = bool(enabled)
+        cmd.op_wait_ms = int(wait)
+        cmd.op_timeout_ms = int(timeout)
+        cmd.op_params = dict(params) if params else None
+        cmd.op_kind = "op"
+        self._save_row_cmd(row, cmd)
 
     def _edit_console_row(self, row: int) -> None:
         """Console_serial / Console_ssh / SFTP / Console_cli editor with
