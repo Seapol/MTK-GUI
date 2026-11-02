@@ -85,6 +85,24 @@ AUTO_KEYS = frozenset({"band"})
 #: rows plus this margin above/below; scrolling tops the rest up
 LAZY_MARGIN_ROWS = 30
 
+
+def allocation_configured_ok(data) -> bool:
+    """Capacity-aware validation: every Power / Clock row and the
+    first :data:`GPIO_CHANNEL_CAPACITY` Control IO rows must be
+    configured.  Later Control IO nets are EXPECTED overflow (kept
+    classified, no channel - not a validation error).
+
+    M59: the model reuses this exact footer check when deriving the
+    block-03 star from a loaded YAML ("validation: OK").
+    """
+    for kind in ("power", "clock"):
+        if any(not row.is_configured(kind)
+               for row in getattr(data, kind)):
+            return False
+    return all(row.is_configured("gpio")
+               for row in data.gpio[:GPIO_CHANNEL_CAPACITY])
+
+
 #: Control-IO operation choice (M19b: every Control IO net defaults
 #: to High Z = NOT TESTED; the operator arms the nets that must be
 #: read / driven - Read needs the DIO channel, Write additionally the
@@ -1251,18 +1269,10 @@ class ChannelAllocationPage(QWidget):
         finally:
             _t_end("yamlbuild: auto allocate")
 
-    @staticmethod
-    def _configured_ok(data: ChannelAllocationData) -> bool:
-        """Capacity-aware validation: every Power / Clock row and the
-        first :data:`GPIO_CHANNEL_CAPACITY` Control IO rows must be
-        configured.  Later Control IO nets are EXPECTED overflow (kept
-        classified, no channel - not a validation error)."""
-        for kind in ("power", "clock"):
-            if any(not row.is_configured(kind)
-                   for row in getattr(data, kind)):
-                return False
-        return all(row.is_configured("gpio")
-                   for row in data.gpio[:GPIO_CHANNEL_CAPACITY])
+    def _configured_ok(self, data) -> bool:
+        """The footer's capacity-aware validation (see
+        :func:`allocation_configured_ok`)."""
+        return allocation_configured_ok(data)
 
     def _update_summary(self) -> None:
         data = ChannelAllocationData.from_dict(self.collect())

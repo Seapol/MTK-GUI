@@ -21,7 +21,11 @@ from datetime import datetime
 import yaml
 
 from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
-from mtkgui.gui.yamlbuild.channel_allocation import UNSET
+from mtkgui.gui.yamlbuild.channel_allocation import (
+    ChannelAllocationData,
+    UNSET,
+    allocation_configured_ok,
+)
 from mtkgui.gui.yamlbuild.schema import (
     MODULE_FIELDS,
     T_BOOL,
@@ -713,4 +717,41 @@ class YamlBuildModel:
             for spec in MODULE_FIELDS.get(key, ()):
                 if spec.name in saved:
                     params[spec.name] = saved[spec.name]
+        # M59: a loaded project YAML already completed blocks 01-03 when
+        # it was created - no design-file re-import on load
+        self._derive_loaded_marks()
         self.changed = True
+
+    #: M59: the star mark value (block_flow.MARK_STAR; not importable
+    #: here - block_flow imports this module)
+    _MARK_STAR = "star"
+
+    def _derive_loaded_marks(self) -> None:
+        """M59: derive blocks 01-03 stars from the STORED data on load.
+
+        Only the module's OWN persisted data counts (never the design
+        files on disk).  A stored mark always wins (nothing is
+        overridden); a block whose data is missing / whose Channel
+        Allocation validation is NOK stays unstarred, so the normal
+        fresh-build flow applies.
+        """
+        if not self.marks.get("design_input"):
+            params = self.get_params("design_input")
+            has_identity = all(
+                str(params.get(name) or "").strip()
+                for name in ("part_number", "product_id", "batch"))
+            has_design_data = bool(
+                (self.imported.get("net") or {}).get("file")
+                or (self.imported.get("testable_nets") or {}))
+            if has_identity and has_design_data:
+                self.marks["design_input"] = self._MARK_STAR
+        if (not self.marks.get("parse_ict")
+                and (self.imported.get("testable_nets") or {})):
+            self.marks["parse_ict"] = self._MARK_STAR
+        if not self.marks.get("channel_alloc"):
+            # an EMPTY allocation table is not "already done" - require
+            # stored rows AND the footer's capacity-aware validation
+            data = ChannelAllocationData.from_dict(self.channel_allocation)
+            if ((data.power or data.clock or data.gpio)
+                    and allocation_configured_ok(data)):
+                self.marks["channel_alloc"] = self._MARK_STAR
