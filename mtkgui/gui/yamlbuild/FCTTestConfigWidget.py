@@ -982,10 +982,13 @@ class FCTTestConfigPanel(QWidget):
         # m30: the short columns (# / Type / Timeout) are FIXED so the
         # Type column stays visible without a horizontal scrollbar; the
         # five content columns share the remaining width (Stretch).
+        # M52: Type widened to fit "SSH SFTP: Push file to DUT" /
+        # "Serial: Push file to DUT"; Timeout widened so the "Timeout"
+        # header and combined "S:4s +W:30s" values are not truncated.
         header = self.cmd_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        for col, width in ((_COL_HASH, 40), (_COL_TYPE, 130),
-                           (_COL_TIMEOUT, 70)):
+        for col, width in ((_COL_HASH, 40), (_COL_TYPE, 215),
+                           (_COL_TIMEOUT, 105)):
             header.setSectionResizeMode(col, QHeaderView.Fixed)
             self.cmd_table.setColumnWidth(col, width)
         for col in (_COL_STEP, _COL_WAIT, _COL_SEND, _COL_CAPTURE,
