@@ -350,12 +350,115 @@ def host_lan_ip(ctx: FctContext) -> str:
     return _ip(ctx)
 
 
+def _wifi_scan_targets(cfg: dict) -> list:
+    """The Wi-Fi scan targets (AP + DUT) from the step config (M49b).
+
+    A ``targets`` list wins (each ``{role, ssid, rssi_min}``); a legacy
+    single-target config falls back to the AP SSID + ``rssi_min``."""
+    out: list = []
+    raw = cfg.get("targets")
+    if isinstance(raw, list) and raw:
+        for item in raw:
+            item = dict(item or {})
+            ssid = str(item.get("ssid") or "").strip()
+            if not ssid:
+                continue
+            out.append({"role": str(item.get("role") or "DUT"),
+                        "ssid": ssid,
+                        "rssi_min": int(item.get("rssi_min", -60))})
+        return out
+    ssid = str(cfg.get("expected_ssid") or cfg.get("ssid") or "").strip()
+    if ssid:
+        out.append({"role": "AP", "ssid": ssid,
+                    "rssi_min": int(cfg.get("rssi_min", -70))})
+    return out
+
+
+def _wifi_scan_host(step: FctStep, cfg: dict, ctx: FctContext) -> FctOutcome:
+    """Host-side dual-target Wi-Fi RSSI scan (M49b).
+
+    ``lswifi --json`` on Windows, CoreWLAN on macOS (via host_rf).  Each
+    target judges against its OWN threshold; the verdict is PASS only
+    when every target is found and within its threshold."""
+    from . import host_rf
+    targets = _wifi_scan_targets(cfg)
+    if not targets:
+        return FctOutcome(VERDICT_ERROR,
+                          "no Wi-Fi scan target configured (AP SSID / "
+                          "DUT SSID)")
+    timeout_s = float(cfg.get("scan_timeout_s")
+                      or step.timeout_s or 30.0)
+    try:
+        found = host_rf.wifi_scan(
+            [t["ssid"] for t in targets],
+            virtual=bool(cfg.get("virtual")),
+            virtual_rssi=cfg.get("virtual_rssi"),
+            timeout_s=timeout_s)
+    except host_rf.HostRfError as exc:
+        ctx.log(f"wifi scan failed: {exc}")
+        return FctOutcome(VERDICT_ERROR, str(exc))
+    parts: list = []
+    ok = True
+    for target in targets:
+        rssi = found.get(target["ssid"])
+        passed = rssi is not None and int(rssi) >= target["rssi_min"]
+        ok = ok and passed
+        reading = f"{rssi} dBm" if rssi is not None else "not found"
+        parts.append(f'{target["role"]} "{target["ssid"]}": {reading} '
+                     f'(min {target["rssi_min"]} dBm) '
+                     f'{"PASS" if passed else "FAIL"}')
+    detail = "; ".join(parts)
+    ctx.log(f"wifi scan: {detail}")
+    return FctOutcome(VERDICT_PASS if ok else VERDICT_FAIL, detail,
+                      [detail])
+
+
+def _bt_rssi_host(step: FctStep, cfg: dict, ctx: FctContext) -> FctOutcome:
+    """Host-side BLE RSSI scan (M49b) through ``bleak``.
+
+    A missing target is an ERROR; a target that is configured but not
+    broadcasting is a FAIL carrying the cause line."""
+    from . import host_rf
+    target = str(cfg.get("expected_addr")
+                 or cfg.get("expected_name") or "").strip()
+    if not target:
+        return FctOutcome(VERDICT_ERROR,
+                          "no Bluetooth target configured (DUT BT name / "
+                          "BD address)")
+    timeout_s = float(cfg.get("rf_timeout_s")
+                      or step.timeout_s or 10.0)
+    try:
+        rssi = host_rf.bt_scan(
+            target, virtual=bool(cfg.get("virtual")),
+            virtual_rssi=cfg.get("virtual_rssi"), timeout_s=timeout_s)
+    except host_rf.HostRfError as exc:
+        ctx.log(f"BT scan failed: {exc}")
+        return FctOutcome(VERDICT_ERROR, str(exc))
+    if rssi is None:
+        detail = (f'BT scan failed / DUT "{target}" not found '
+                  "(is it broadcasting?)")
+        ctx.log(f"BT RSSI: {detail}")
+        return FctOutcome(VERDICT_FAIL, detail, [detail])
+    rssi_min = int(cfg.get("rssi_min", -70))
+    passed = int(rssi) >= rssi_min
+    detail = (f'BT "{target}": {rssi} dBm (min {rssi_min} dBm) '
+              f'{"PASS" if passed else "FAIL"}')
+    ctx.log(f"BT RSSI: {detail}")
+    return FctOutcome(VERDICT_PASS if passed else VERDICT_FAIL, detail,
+                      [detail])
+
+
 def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     """B5 RF tool execution (spec 3.2 / 3.3): build the B4 adapter
     from the embedded config (params.fct_rf) with the platform's
     command set (m23: mac / windows via host_platform), run it, log
     every command line, map the verdict.  a2dp_sink routes the
-    operator question through the confirm hook."""
+    operator question through the confirm hook.
+
+    M49b: the RSSI-only scans run on the HOST PC through ``host_rf``
+    (lswifi / CoreWLAN / bleak) - the old Windows percentage
+    approximation is gone.  full_stack / pair_connect / a2dp_sink keep
+    the existing rf_adapters path."""
     from .host_platform import (platform_key, wifi_backend_cmds,
                                 bt_backend_cmds)
     from .rf_adapters import BluetoothAdapter, WifiAdapter, PlatformBackendMissing
@@ -369,6 +472,8 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
             if step.params.get("rssi_via") == "dut_console" \
                     and cfg.get("mode") == "rssi_only":
                 return _wifi_rssi_dut_console(step, cfg, ctx)
+            if cfg.get("mode") == "rssi_only":
+                return _wifi_scan_host(step, cfg, ctx)
             # B5 config key `ssid` -> adapter key `expected_ssid`
             rf = dict(cfg)
             rf.setdefault("expected_ssid", rf.get("ssid", ""))
@@ -377,6 +482,8 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
                 rf, cmds={key: wifi_backend_cmds()})}
             out = WifiAdapter(rf_cfg, runner).run_test()
         else:
+            if cfg.get("mode") == "rssi_only":
+                return _bt_rssi_host(step, cfg, ctx)
             key = platform_key()
             rf_cfg = {"bluetooth": dict(
                 cfg, cmds={key: bt_backend_cmds()})}

@@ -28,10 +28,13 @@ Windows Wi-Fi uses the built-in ``netsh wlan`` family (no external
 tools).  The RSSI source is ``netsh wlan show networks mode=bssid``
 whose ``Signal`` line is a PERCENTAGE (0-100) of an ideal link, not
 dBm - the documented approximation: the SSID-is-found + percentage
-criterion is still a valid PASS gate.  Windows has NO built-in
-classic-Bluetooth RSSI / A2DP command-line interface, so
-:func:`bt_backend_cmds` raises :class:`PlatformBackendMissing` with
-explicit user guidance - never a silent PASS, never a traceback.
+criterion is still a valid PASS gate.  M49b: the FCT Wi-Fi / Bluetooth
+RSSI steps bypass this table entirely and scan on the HOST PC through
+:mod:`mtkgui.engine.host_rf` (lswifi on Windows, CoreWLAN on macOS,
+bleak for BLE on both).  Windows still has NO classic-Bluetooth pair /
+A2DP command-line interface, so :func:`bt_backend_cmds` raises
+:class:`PlatformBackendMissing` with explicit user guidance - never a
+silent PASS, never a traceback.
 """
 from __future__ import annotations
 
@@ -169,15 +172,16 @@ def windows_capabilities() -> dict:
         "wifi_ping": {"ok": True, "cmd": "ping -n {{count}} {{gateway}}"},
         "wifi_iperf": {"ok": True,
                        "note": "iperf3.exe via host_cmd_windows"},
-        "bt_scan_rssi": {"ok": False,
-                         "hint": "no built-in classic-BT RSSI CLI; "
-                                 "install BluetoothCL (or similar) and "
-                                 "add a 'windows' backend, or run the "
-                                 "Bluetooth RSSI step on macOS"},
+        "bt_scan_rssi": {"ok": True, "cmd": "bleak (WinRT BLE scan)",
+                         "note": "M49b: the RSSI step scans BLE "
+                                 "broadcasts through bleak; classic-BT "
+                                 "pair / A2DP stay unsupported"},
         "bt_pair_connect": {"ok": False,
-                            "hint": "same as bt_scan_rssi - explicit "
+                            "hint": "Windows has no classic-BT pair / "
+                                    "connect CLI - explicit "
                                     "PlatformBackendMissing ERROR, no "
-                                    "silent PASS"},
+                                    "silent PASS (run pair/connect on "
+                                    "macOS)"},
         "bt_a2dp_tone": {"ok": False,
                          "hint": "Windows exposes no A2DP source "
                                  "switch/play CLI; run the tone step "

@@ -1189,6 +1189,10 @@ class WifiCfg:
     rssi_min: int = -70
     scan_timeout: float = 15.0
     scan_via: str = "host"          # host | dut_console (station-mode DUT)
+    # M49b: second host-side scan target - the DUT's own SoftAP broadcast
+    # SSID plus its own threshold (both targets are reported separately)
+    dut_ssid: str = ""
+    dut_rssi_min: int = -60
     # 2) connect & ping (Linux only): 3 stages - Host->AP, DUT->AP, DUT->Host
     ping_enabled: bool = False
     ping_count: int = 20
@@ -1213,6 +1217,8 @@ class WifiCfg:
             "rssi_min": int(self.rssi_min),
             "scan_timeout": float(self.scan_timeout),
             "scan_via": self.scan_via,
+            "dut_ssid": self.dut_ssid,
+            "dut_rssi_min": int(self.dut_rssi_min),
             "ping_enabled": self.ping_enabled,
             "ping_count": int(self.ping_count),
             "ping_timeout": float(self.ping_timeout),
@@ -1403,6 +1409,8 @@ class FctTestConfig:
             scan_timeout=float(wifi.get("scan_timeout",
                                        DEFAULT_RF_TIMEOUT)),
             scan_via=str(wifi.get("scan_via", "host")),
+            dut_ssid=str(wifi.get("dut_ssid", "")),
+            dut_rssi_min=int(wifi.get("dut_rssi_min", -60)),
             ping_enabled=bool(wifi.get(
                 "ping_enabled", wmode == "full_stack")),
             ping_count=int(wifi.get("ping_count", 20)),
@@ -1859,9 +1867,20 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
     if subtest == "scan":
         if not w.scan_enabled:
             return []
+        if not w.ap_ssid.strip():
+            return []
+        # M49b: host-side DUAL target - the AP and the DUT SoftAP - each
+        # with its own threshold; the DUT target is omitted when the DUT
+        # broadcast SSID is not configured.
+        targets = [{"role": "AP", "ssid": w.ap_ssid.strip(),
+                    "rssi_min": int(w.rssi_min)}]
+        if w.dut_ssid.strip():
+            targets.append({"role": "DUT", "ssid": w.dut_ssid.strip(),
+                            "rssi_min": int(w.dut_rssi_min)})
         rf = {"mode": "rssi_only", "ssid": w.ap_ssid,
               "expected_ssid": w.ap_ssid,
               "rssi_min": int(w.rssi_min),
+              "targets": targets,
               "interface": w.interface}
         if cfg.dut_type == "linux" and w.scan_via == "dut_console":
             return [FctStep(
@@ -1938,6 +1957,7 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
             params={"tool_family": "bluetooth", "fct_rf": {
                 "mode": "rssi_only",
                 "expected_name": b.expected_name,
+                "expected_addr": b.expected_addr,
                 "rssi_min": int(b.rssi_min),
                 "rf_timeout_s": float(b.rssi_timeout)}})]
     if subtest == "pair":

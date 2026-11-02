@@ -187,48 +187,51 @@ def test_ping_gateway_uses_windows_loss_parse(monkeypatch):
 
 
 # --------------------------------------------------- _run_rf_tool key pick
-def test_run_rf_tool_builds_config_with_platform_key(monkeypatch):
-    monkeypatch.setattr(hp, "platform_key", lambda: "windows")
-    captured = {}
+def test_run_rf_tool_wifi_rssi_only_uses_host_scan(monkeypatch):
+    """M49b: a Wi-Fi rssi_only row scans on the HOST PC through
+    host_rf (lswifi / CoreWLAN) - the legacy rf_adapter command table
+    (and its Windows percentage approximation) is not used."""
+    from mtkgui.engine import host_rf
 
-    class _FakeAdapter:
-        def __init__(self, rf_cfg, runner):
-            captured["cfg"] = rf_cfg
-
-        def run_test(self):
-            return {"verdict": "Pass", "items": {}, "lines": []}
-
-    monkeypatch.setattr(ra, "WifiAdapter", _FakeAdapter)
-    monkeypatch.setattr(fe, "runner_for", lambda ctx: object())
+    monkeypatch.setattr(host_rf, "wifi_scan",
+                        lambda ssids, **kw: {s: -48 for s in ssids})
     step = fe.FctStep(
         name="w", step_type="EXTERNAL_TOOL", params={
             "tool_family": "wifi",
-            "fct_rf": {"mode": "rssi_only", "ssid": "dut-ap"}})
+            "fct_rf": {"mode": "rssi_only", "ssid": "dut-ap",
+                       "rssi_min": -60}})
     out = fe._run_rf_tool(step, "wifi", fe.FctContext())
-    assert "windows" in captured["cfg"]["wifi"]["cmds"]
     assert out.verdict == fe.VERDICT_PASS
+    assert "-48 dBm" in out.reason
 
 
-def test_run_rf_tool_bt_windows_returns_error_with_guidance(monkeypatch):
-    """Windows Bluetooth step: explicit ERROR verdict + guidance, never
-    a silent PASS and never a raised traceback."""
-    monkeypatch.setattr(hp, "platform_key", lambda: "windows")
-    monkeypatch.setattr(fe, "runner_for", lambda ctx: object())
+def test_run_rf_tool_bt_bleak_unavailable_is_error(monkeypatch):
+    """Bluetooth rssi_only: a missing bleak backend is an explicit
+    ERROR verdict with guidance, never a silent PASS and never a
+    raised traceback."""
+    from mtkgui.engine import host_rf
+
+    def _no_bleak(timeout_s=10.0):
+        raise host_rf.HostRfError(
+            "bleak is not installed (install it with "
+            "'pip install bleak'); BT scan failed")
+
+    monkeypatch.setattr(host_rf, "_bleak_discover", _no_bleak)
     step = fe.FctStep(
         name="bt", step_type="EXTERNAL_TOOL", params={
             "tool_family": "bluetooth",
             "fct_rf": {"mode": "rssi_only", "expected_name": "DUT"}})
     out = fe._run_rf_tool(step, "bluetooth", fe.FctContext())
     assert out.verdict == fe.VERDICT_ERROR
-    assert "BluetoothCL" in out.reason or "BluetoothCL" in str(out.lines)
+    assert "bleak" in out.reason or "bleak" in str(out.lines)
 
 
 # ------------------------------------------------------------ capabilities
 def test_windows_capabilities_declares_supported_vs_unsupported():
     caps = hp.windows_capabilities()
     for op in ("wifi_scan", "wifi_connect", "wifi_rssi", "wifi_gateway",
-               "wifi_ping", "host_lan_ip", "host_cli"):
+               "wifi_ping", "host_lan_ip", "host_cli", "bt_scan_rssi"):
         assert caps[op]["ok"] is True, op
-    for op in ("bt_scan_rssi", "bt_pair_connect", "bt_a2dp_tone"):
+    for op in ("bt_pair_connect", "bt_a2dp_tone"):
         assert caps[op]["ok"] is False, op
         assert caps[op]["hint"], op

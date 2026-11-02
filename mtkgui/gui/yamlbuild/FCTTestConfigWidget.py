@@ -2931,7 +2931,16 @@ class FCTTestConfigPanel(QWidget):
         self.wifi_rssi_min = QSpinBox()
         self.wifi_rssi_min.setRange(-100, 0)
         self.wifi_rssi_min.setValue(-70)
-        sc.addRow("RSSI min (dBm):", self.wifi_rssi_min)
+        sc.addRow("AP RSSI min (dBm):", self.wifi_rssi_min)
+        # M49b: second host-side scan target - the DUT SoftAP broadcast
+        self.wifi_dut_ssid = QLineEdit()
+        self.wifi_dut_ssid.setPlaceholderText(
+            "DUT SoftAP SSID (optional - scanned as the 2nd target)")
+        sc.addRow("DUT SSID:", self.wifi_dut_ssid)
+        self.wifi_dut_rssi_min = QSpinBox()
+        self.wifi_dut_rssi_min.setRange(-100, 0)
+        self.wifi_dut_rssi_min.setValue(-60)
+        sc.addRow("DUT RSSI min (dBm):", self.wifi_dut_rssi_min)
         self.wifi_scan_via = QComboBox()
         self.wifi_scan_via.addItems(list(WIFI_SCAN_VIA))
         self.wifi_scan_via.setToolTip(
@@ -3539,8 +3548,13 @@ class FCTTestConfigPanel(QWidget):
         family, subtest = self._rf_family(cmd)
         if family == "wifi":
             if subtest == "scan":
-                return (f"SSID={self.wifi_ap_ssid.text().strip()}, "
+                text = (f"AP={self.wifi_ap_ssid.text().strip()}, "
                         f"RSSI\u2265{self.wifi_rssi_min.value()} dBm")
+                dut = self.wifi_dut_ssid.text().strip()
+                if dut:
+                    text += (f"; DUT={dut}, "
+                             f"RSSI\u2265{self.wifi_dut_rssi_min.value()} dBm")
+                return text
             if subtest == "ping":
                 return (f"ping\u00d7{self.wifi_ping_count.value()}, "
                         f"{self.wifi_ping_timeout.value()}s")
@@ -3598,10 +3612,12 @@ class FCTTestConfigPanel(QWidget):
                      "wifi_iperf_box", "bt_rssi_box", "bt_pair_box"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "toggled")
-        for name in ("wifi_ap_ssid", "bt_name", "bt_tone_file"):
+        for name in ("wifi_ap_ssid", "wifi_dut_ssid", "bt_name",
+                     "bt_tone_file"):
             if hasattr(self, name):
                 _hook(getattr(self, name), "textChanged")
-        for name in ("wifi_rssi_min", "wifi_ping_count",
+        for name in ("wifi_rssi_min", "wifi_dut_rssi_min",
+                     "wifi_ping_count",
                      "wifi_ping_timeout", "wifi_iperf_min",
                      "wifi_iperf_duration", "wifi_iperf_timeout",
                      "bt_rssi_min", "bt_scan_retries", "bt_pair_timeout",
@@ -3915,6 +3931,8 @@ class FCTTestConfigPanel(QWidget):
             self.wifi_host_ip.setText(w.host_ip)
             self.wifi_scan_box.setChecked(w.scan_enabled)
             self.wifi_rssi_min.setValue(w.rssi_min)
+            self.wifi_dut_ssid.setText(w.dut_ssid)
+            self.wifi_dut_rssi_min.setValue(w.dut_rssi_min)
             self.wifi_scan_via.setCurrentText(w.scan_via)
             self.wifi_scan_timeout.setValue(int(w.scan_timeout))
             self.wifi_ping_box.setChecked(w.ping_enabled)
@@ -4035,6 +4053,8 @@ class FCTTestConfigPanel(QWidget):
             host_ip=self.wifi_host_ip.text().strip(),
             scan_enabled=self.wifi_scan_box.isChecked(),
             rssi_min=self.wifi_rssi_min.value(),
+            dut_ssid=self.wifi_dut_ssid.text().strip(),
+            dut_rssi_min=self.wifi_dut_rssi_min.value(),
             scan_via=self.wifi_scan_via.currentText(),
             scan_timeout=float(self.wifi_scan_timeout.value()),
             ping_enabled=self.wifi_ping_box.isChecked(),
