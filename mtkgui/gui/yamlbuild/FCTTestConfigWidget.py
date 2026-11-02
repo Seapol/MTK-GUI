@@ -1133,13 +1133,24 @@ class FCTTestConfigPanel(QWidget):
         }
 
     def _load_template(self, label: str) -> None:
-        """Load Template: append one reference sequence as ORDINARY rows.
+        """Load Template: REPLACE the current step table with one
+        reference sequence (M56).
 
-        Only the operator triggers this (the app never injects steps);
-        nothing runs - the load is plain configuration.  The appended
-        rows are editable / removable / reorderable like hand-added ones.
+        Every existing row is cleared FIRST (same removeRow path the
+        Remove buttons use), then the template rows are inserted as
+        ORDINARY rows.  Only the operator triggers this (the app never
+        injects steps); nothing runs - the load is plain configuration.
+        The inserted rows are editable / removable / reorderable like
+        hand-added ones.
         """
         from mtkgui.engine.fct_templates import load_template_commands
+        cleared = self.cmd_table.rowCount()
+        while self.cmd_table.rowCount() > 0:
+            self.cmd_table.removeRow(0)
+        self._renumber_rows()
+        self.task_log.emit(
+            "INFO", f"Load Template '{label}': cleared {cleared} "
+                    "existing row(s)")
         try:
             commands = load_template_commands(label, self._template_prefill())
         except (OSError, ValueError, yaml.YAMLError) as exc:

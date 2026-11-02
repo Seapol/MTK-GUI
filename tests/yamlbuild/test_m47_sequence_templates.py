@@ -3,13 +3,14 @@
 wait / send / capture optional-segment model.
 
 Owner request 2026-11-01: the FCT Sequence page gains a "Load Template"
-button (Bare Metal DUT / Linux DUT reference sequences appended as
-ORDINARY rows the operator may edit / delete / reorder), multi-row
-selection with one-click "Remove selected", and the formal guarantee
-that each Console segment (wait / send / capture) may be left empty.
+button (Bare Metal DUT / Linux DUT reference sequences inserted as
+ORDINARY rows the operator may edit / delete / reorder; M56: the
+current table is cleared first), multi-row selection with one-click
+"Remove selected", and the formal guarantee that each Console segment
+(wait / send / capture) may be left empty.
 
 IRON RULE under test: the app NEVER injects steps on its own - only the
-operator pressing Load Template appends rows, and nothing runs.
+operator pressing Load Template replaces the rows, and nothing runs.
 """
 from __future__ import annotations
 
@@ -57,6 +58,7 @@ from mtkgui.engine.fct_templates import (  # noqa: E402
 )
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
+    _COL_HASH,
     _COL_STEP,
     _COL_TYPE,
 )
@@ -148,16 +150,53 @@ class TestTemplateFiles:
             os.remove(tmp)
 
 
-class TestTemplateLoadAppendsOrdinaryRows:
-    def test_load_appends_rows_and_leaves_the_rest_alone(self, panel):
-        panel._insert_row(ConsoleCommand(kind=KIND_MESSAGE, name="Keep me",
+class TestTemplateLoadReplacesRows:
+    def test_load_clears_stale_rows_then_inserts_the_template(self, panel):
+        """M56: Load Template REPLACES the table - hand-added rows and
+        previously loaded template rows are cleared first."""
+        panel._insert_row(ConsoleCommand(kind=KIND_MESSAGE, name="Stale",
                                          dialog_style="yesno"))
-        before = panel.cmd_table.rowCount()
+        panel._load_template(TEMPLATE_LINUX)
+        assert panel.cmd_table.rowCount() == len(LINUX_TYPES)
         panel._template_actions[TEMPLATE_BARE_METAL].trigger()
-        assert panel.cmd_table.rowCount() == before + 9
-        assert panel._get_row_cmd(0).name == "Keep me"
+        assert panel.cmd_table.rowCount() == len(BARE_METAL_TYPES)
         assert [panel.cmd_table.item(r, _COL_TYPE).text()
-                for r in range(before, before + 9)] == BARE_METAL_TYPES
+                for r in range(len(BARE_METAL_TYPES))] == BARE_METAL_TYPES
+        names = [panel._get_row_cmd(r).name
+                 for r in range(panel.cmd_table.rowCount())]
+        assert "Stale" not in names
+        assert [panel.cmd_table.item(r, _COL_HASH).text()
+                for r in range(len(BARE_METAL_TYPES))] == \
+            [str(r + 1) for r in range(len(BARE_METAL_TYPES))]
+
+    def test_clear_count_is_logged(self, panel):
+        logs = []
+        panel.task_log.connect(lambda level, msg: logs.append((level, msg)))
+        for r in range(2):
+            panel._insert_row(ConsoleCommand(kind=KIND_MESSAGE,
+                                             name=f"Old {r}"))
+        panel._load_template(TEMPLATE_BARE_METAL)
+        assert ("INFO", f"Load Template '{TEMPLATE_BARE_METAL}': "
+                        "cleared 2 existing row(s)") in logs
+
+    def test_load_into_an_empty_table(self, panel):
+        assert panel.cmd_table.rowCount() == 0
+        panel._load_template(TEMPLATE_LINUX)
+        assert panel.cmd_table.rowCount() == len(LINUX_TYPES)
+        assert [panel.cmd_table.item(r, _COL_TYPE).text()
+                for r in range(len(LINUX_TYPES))] == LINUX_TYPES
+
+    def test_failed_template_load_leaves_the_table_empty(self, panel):
+        logs = []
+        panel.task_log.connect(lambda level, msg: logs.append((level, msg)))
+        panel._insert_row(ConsoleCommand(kind=KIND_MESSAGE, name="Stale",
+                                         dialog_style="yesno"))
+        panel._load_template("No Such Template")
+        assert panel.cmd_table.rowCount() == 0
+        assert any(level == "ERROR" and "No Such Template" in msg
+                   for level, msg in logs)
+        assert not any(level == "INFO" and "step(s)" in msg
+                       for level, msg in logs)
 
     def test_loaded_rows_carry_no_template_marker(self, panel):
         panel._load_template(TEMPLATE_LINUX)
