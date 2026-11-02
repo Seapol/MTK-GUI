@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -1311,9 +1312,11 @@ class FCTTestConfigPanel(QWidget):
             self._template_actions[label] = act
         template.setMenu(template_menu)
 
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_current)
-        remove_sel = QPushButton("Remove selected")
+        # M57: the third button CLEARS every step (confirmation first);
+        # the former "Remove selected" is now the plain "Remove" button.
+        clean_up = QPushButton("Clean up")
+        clean_up.clicked.connect(self._clear_all_steps)
+        remove_sel = QPushButton("Remove")
         remove_sel.clicked.connect(self._remove_selected)
         duplicate = QPushButton("Duplicate")
         duplicate.clicked.connect(self._duplicate_row)
@@ -1325,7 +1328,7 @@ class FCTTestConfigPanel(QWidget):
         move_down.clicked.connect(self._move_down)
         row.addWidget(add)
         row.addWidget(template)
-        row.addWidget(remove)
+        row.addWidget(clean_up)
         row.addWidget(remove_sel)
         row.addWidget(duplicate)
         row.addWidget(edit)
@@ -1336,8 +1339,27 @@ class FCTTestConfigPanel(QWidget):
         self._sync_remove_buttons()
         return row
 
+    def _clear_all_steps(self) -> None:
+        """M57: "Clean up" removes EVERY row from the step table.
+
+        The operator must confirm first; No leaves the table untouched.
+        An empty table is a no-op (no prompt, no error)."""
+        if self.cmd_table.rowCount() == 0:
+            return
+        answer = QMessageBox.question(
+            self, "Clear all test steps?",
+            "This removes every row from the FCT test-steps table. "
+            "Continue?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        cleared = self.cmd_table.rowCount()
+        while self.cmd_table.rowCount() > 0:
+            self.cmd_table.removeRow(0)
+        self._renumber_rows()
+        self.task_log.emit("INFO", f"Clean up: cleared {cleared} row(s)")
+
     def _sync_remove_buttons(self) -> None:
-        """M47: "Remove selected" is enabled only when rows are selected."""
+        """M47: "Remove" is enabled only when rows are selected."""
         button = getattr(self, "_remove_sel_btn", None)
         if button is None:
             return

@@ -471,8 +471,8 @@ def test_single_sequence_page_has_no_console_wifi_bt_tabs(qapp):
     seq = panel.tabs.widget(0)
     assert panel.cmd_table in seq.findChildren(QTableWidget)
     seq_buttons = {b.text() for b in seq.findChildren(QPushButton)}
-    assert {"Add", "Remove selected", "Duplicate", "Edit",
-            "Move Up", "Move Down"} <= seq_buttons
+    assert {"Add", "Load Template", "Clean up", "Remove", "Duplicate",
+            "Edit", "Move Up", "Move Down"} <= seq_buttons
 
 
 CONSOLE_EXTRAS_YAML = """
