@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from .fct_channels import SubprocessFctChannel, VirtualFctChannel
 from .fct_channels import ChannelClosed
+from ..startup_timing import begin as _span_begin, end as _span_end
 from ..gui.yamlbuild.fct_build import (
     STEP_CLI_RUN,
     STEP_EXTERNAL_TOOL,
@@ -591,6 +592,27 @@ def _open_channel(step: FctStep, ctx: FctContext):
     return ch
 
 
+def _step_span_flags(step: FctStep) -> dict:
+    """M51 §5: operator waits / deliberate delays are not stalls."""
+    params = step.params or {}
+    if "fct_delay_ms" in params:
+        return {"no_slow": True}
+    human = (step.step_type == STEP_GUI_CONFIRM and not params.get("op")) \
+        or bool(params.get("console_dialog")) \
+        or (step.step_type == STEP_MESSAGE_CHECK and not step.channel)
+    return {"wait": True} if human else {}
+
+
+def _transfer_span(kind: str, step: FctStep, fn) -> FctOutcome:
+    """Wrap one host-side file transfer with its own timing span."""
+    label = f"io: {kind} {step.name}"
+    _span_begin(label, category="io")
+    try:
+        return fn()
+    finally:
+        _span_end(label)
+
+
 def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
     """Execute ONE FctStep (the whole state machine incl. retries).
 
@@ -601,17 +623,22 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
     if step.params.get("skip"):
         ctx.log(f"{step.name}: SKIP (params.skip)")
         return FctOutcome(VERDICT_SKIP, "skipped by params")
-    ctx.log(f"{step.name}: start ({step.step_type})")
-    attempts = int(step.retries) + 1
-    outcome = FctOutcome(VERDICT_FAIL, "not executed")
-    for attempt in range(1, attempts + 1):
-        if attempt > 1:
-            ctx.log(f"retry {attempt}/{attempts}")
-        outcome = _execute_once(step, ctx)
-        if outcome.verdict in (VERDICT_PASS, VERDICT_ERROR):
-            break
-    ctx.log(f"{step.name}: verdict {outcome.verdict} ({outcome.reason})")
-    return outcome
+    _label = f"testflow: fct step {step.step_type} {step.name}"
+    _span_begin(_label, category="testflow", **_step_span_flags(step))
+    try:
+        ctx.log(f"{step.name}: start ({step.step_type})")
+        attempts = int(step.retries) + 1
+        outcome = FctOutcome(VERDICT_FAIL, "not executed")
+        for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                ctx.log(f"retry {attempt}/{attempts}")
+            outcome = _execute_once(step, ctx)
+            if outcome.verdict in (VERDICT_PASS, VERDICT_ERROR):
+                break
+        ctx.log(f"{step.name}: verdict {outcome.verdict} ({outcome.reason})")
+        return outcome
+    finally:
+        _span_end(_label)
 
 
 def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
@@ -678,7 +705,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # next run (2026-10-27 user direction: fetch fat_result.json /
         # fat.log into DUT Report, then clear them on the DUT).
         if step.params.get("kind") in ("sftp_put", "sftp_get"):
-            return _run_sftp(step, ctx, channel)
+            return _transfer_span(
+                str(step.params.get("kind")), step,
+                lambda: _run_sftp(step, ctx, channel))
         if channel is None:
             # channel-less message check = the operator-confirmed row
             # (MessageOK semantics through the confirm hook)
@@ -766,10 +795,14 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # package to a freshly flashed DUT that has none of them, verify
         # by MD5 and unzip archives (long operation -> foreground bar).
         if step.params.get("fct_serial_push"):
-            return _run_serial_push(step, ctx, channel)
+            return _transfer_span(
+                "serial push", step,
+                lambda: _run_serial_push(step, ctx, channel))
         # M46: Serial Push/Pull over the console (chunked base64 + ACK).
         if step.params.get("fct_serial_transfer"):
-            return _run_serial_transfer(step, ctx, channel)
+            return _transfer_span(
+                "serial transfer", step,
+                lambda: _run_serial_transfer(step, ctx, channel))
         # host CLI row: run a command ON THE HOST PC (test station
         # shell, e.g. start/stop the local iperf3 server); PASS =
         # exit code 0.  No DUT console involved.

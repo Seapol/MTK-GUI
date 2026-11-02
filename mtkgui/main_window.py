@@ -75,6 +75,9 @@ from .startup_timing import (
     begin as _startup_begin,
     end as _startup_end,
     mark as _startup_mark,
+    saved_enabled as perf_timing_saved_enabled,
+    save_enabled as perf_timing_save_enabled,
+    write_session_summary as _perf_timing_summary,
 )
 from .test_workflow_page import TestWorkFlowPage
 from .version_info import get_version_info
@@ -389,6 +392,8 @@ class _ToolsBatchWorker(QThread):
     def run(self) -> None:
         """Execute the batch and emit the outcome (never raises)."""
         ok, lines = True, []
+        _label = f"instr: batch {self.action}"
+        _startup_begin(_label, category="instr")
         try:
             from .engine.instruments import RealGateway
             gw = self.gateway
@@ -418,6 +423,8 @@ class _ToolsBatchWorker(QThread):
         except Exception as exc:  # noqa: BLE001 - report, never crash
             ok = False
             lines.append(f"batch operation failed: {exc}")
+        finally:
+            _startup_end(_label)
         self.finished_sig.emit(self.action, lines, ok)
 
 
@@ -1227,6 +1234,18 @@ class MainWindow(QMainWindow):
             "connections")
         self.act_test_all.triggered.connect(
             lambda: self._tools_batch("Test all connections"))
+        tools_menu.addSeparator()
+        # M51 §3: full-lifecycle performance log switch.  The checkbox
+        # reflects the SAVED setting (next start), never the running
+        # session - toggling must not open / close the log mid-session.
+        self.act_perf_timing = tools_menu.addAction("Performance Timing Log")
+        self.act_perf_timing.setCheckable(True)
+        self.act_perf_timing.setChecked(bool(perf_timing_saved_enabled()))
+        self.act_perf_timing.setToolTip(
+            "Write the full-lifecycle performance timing log "
+            "(logs/_startup_timing.log). Changes take effect on the next "
+            "GUI restart.")
+        self.act_perf_timing.toggled.connect(self._set_perf_timing_enabled)
         # persistent Tools gateway (lazily created, reused by the
         # batch operations; the run flow builds its own per run)
         self._tools_gateway = None
@@ -1404,6 +1423,19 @@ class MainWindow(QMainWindow):
                 "instrument configuration, ports and connection "
                 "parameters.\n\n"
                 + "\n".join(lines))
+
+    def _set_perf_timing_enabled(self, checked: bool) -> None:
+        """M51 §3: persist the Tools switch; it applies on the NEXT start.
+
+        The running session keeps the logging state it started with -
+        no file is opened / closed here.  The operator is always told
+        that a restart is required (owner requirement).
+        """
+        perf_timing_save_enabled(bool(checked))
+        QMessageBox.information(
+            self, "Performance Timing Log",
+            "Performance Timing Log change will take effect on the next "
+            "GUI restart.")
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self):
@@ -3126,6 +3158,10 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
             self._event_log_file = None
+        # M51 §4: append the session summary (TOP-N slowest + captured
+        # exceptions).  Crash-safe and once-only; a session that started
+        # with logging OFF emits nothing.
+        _perf_timing_summary()
         # step 4: accept the close
         event.accept()
 

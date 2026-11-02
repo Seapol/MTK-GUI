@@ -2818,7 +2818,13 @@ class EquipmentPage(QWidget):
             return False
         for label, fn in _INSTRUMENT_ACTIONS[key]:
             if label == "Self Test":
-                out = fn([])
+                from mtkgui.startup_timing import begin, end
+                span = f"equip: self test {self.configs[key]['title']}"
+                begin(span, category="equip")
+                try:
+                    out = fn([])
+                finally:
+                    end(span)
                 passed = "PASS" in out or "0 errors" in out
                 self._instrument_selftest[key] = passed
                 self.instrument_selftest_changed.emit(key, passed)
@@ -2859,8 +2865,18 @@ class EquipmentPage(QWidget):
         button = self.entry_buttons.get(entry_key, {}).get("test")
         if button is not None:
             button.setEnabled(False)
-        worker = _PeripheralTestWorker(
-            lambda: self._probe_entry(entry_key, values), self)
+
+        def _timed_probe():
+            # M51 §5: equipment Test Connection span (availability only)
+            from mtkgui.startup_timing import begin, end
+            span = f"equip: test connection {self._entry_label(entry_key)}"
+            begin(span, category="equip")
+            try:
+                return self._probe_entry(entry_key, values)
+            finally:
+                end(span)
+
+        worker = _PeripheralTestWorker(_timed_probe, self)
         self._test_threads[entry_key] = worker
 
         def _finished(ok, message, key=entry_key, thread=worker):

@@ -26,10 +26,15 @@ def probe(tmp_path):
     st._LAST = st._T0
     st._stack().clear()
     st._PROGRESS_HANDLER = None
+    st._SPANS.clear()
+    st._EXCEPTIONS.clear()
+    st._SUMMARY_WRITTEN = False
     yield log
     st._LOG = None
     st._stack().clear()
     st._PROGRESS_HANDLER = None
+    st._SPANS.clear()
+    st._EXCEPTIONS.clear()
 
 
 def _lines(log: Path) -> list[str]:
@@ -41,7 +46,9 @@ def test_session_header_and_mark(probe):
     lines = _lines(probe)
     assert lines[0].startswith("session 20")
     assert "pid " in lines[0] and "frozen=" in lines[0]
-    assert "[ui" in lines[1] and "ui: theme applied" in lines[1]
+    # M51: the switch marker follows the session header
+    assert "[switch" in lines[1] and "enabled" in lines[1]
+    assert "[ui" in lines[2] and "ui: theme applied" in lines[2]
     # delta of the second checkpoint is measured from the first
     time.sleep(0.01)
     st.mark("ui: build done")
@@ -55,9 +62,9 @@ def test_category_inference_and_override(probe):
     st.mark("no prefix here")           # -> misc
     st.mark("parse: nets", category="io")  # explicit override
     lines = _lines(probe)
-    assert "[testflow" in lines[1]
-    assert "[misc" in lines[2]
-    assert "[io" in lines[3]
+    assert "[testflow" in lines[2]
+    assert "[misc" in lines[3]
+    assert "[io" in lines[4]
 
 
 def test_begin_end_pairs_and_wait_marker(probe):
@@ -87,13 +94,13 @@ def test_begin_end_nesting_and_indent(probe):
 
 def test_end_without_begin_warns(probe):
     st.end("orphan")
-    assert "no matching BEGIN" in _lines(probe)[1]
+    assert "no matching BEGIN" in _lines(probe)[2]
 
 
 def test_end_mismatch_warns(probe):
     st.begin("a: one")
     st.end("b: two")
-    assert "mismatch: open is 'a: one'" in _lines(probe)[2]
+    assert "mismatch: open is 'a: one'" in _lines(probe)[3]
 
 
 def test_timed_context_manager(probe):
