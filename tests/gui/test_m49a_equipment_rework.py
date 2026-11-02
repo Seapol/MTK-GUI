@@ -109,15 +109,12 @@ def test_left_column_lists_only_configurable_hardware(page):
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
                    "t1", "media converter", "power rail"):
         assert all(banned not in label.lower() for label in labels), banned
-    # every entry has a Config button; instruments and the M50 testable
-    # peripheral / DUT configs additionally a Test Connection button
-    from mtkgui.equipment_page import _TESTABLE_FORM_KEYS
+    # every entry has a Config button ONLY (M54 §1: the Test / self-test
+    # actions live inside the Config dialogs now)
     for _g, entries in LEFT_ENTRIES:
-        for key, _label, kind, _src in entries:
+        for key, _label, _kind, _src in entries:
             buttons = page.entry_buttons[key]
-            assert "config" in buttons
-            assert ("test" in buttons) == (
-                kind == "instrument" or key in _TESTABLE_FORM_KEYS)
+            assert set(buttons) == {"config"}, key
 
 
 def test_left_column_collapses_and_expands(page):
@@ -164,11 +161,13 @@ def test_daq_mainframe_one_config_dialog_covers_three_modules(page,
 
 
 def test_daq_mainframe_one_self_test_button(page):
+    """M54 §1: the ONE self-test action lives INSIDE the Config dialog -
+    no row-level Test button exists any more."""
     from mtkgui.equipment_page import _INSTRUMENT_ACTIONS
     self_tests = [label for label, _fn in _INSTRUMENT_ACTIONS["daq973a"]
                   if label == "Self Test"]
     assert self_tests == ["Self Test"]
-    assert "test" in page.entry_buttons["daq973a"]
+    assert "test" not in page.entry_buttons["daq973a"]
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +217,9 @@ def test_instrument_state_grey_yellow_green(page):
     assert page.instrument_state("daq973a") == "grey"
     page._instrument_connections["daq973a"] = True
     assert page.instrument_state("daq973a") == "yellow"
-    assert page._run_instrument_self_test("daq973a") is True
+    # M54 §1: the self-test result comes from the Config dialog (the
+    # page-level Test button is gone) but still drives the lamp
+    page._set_instrument_selftest("daq973a", True)
     assert page.instrument_state("daq973a") == "green"
 
 

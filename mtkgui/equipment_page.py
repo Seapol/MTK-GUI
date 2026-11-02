@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -1413,7 +1414,10 @@ class BlockItem(QGraphicsRectItem):
 class BlockDiagramView(QGraphicsView):
     zoomChanged = Signal()
 
-    MIN_ZOOM, MAX_ZOOM = 0.1, 10.0
+    #: M54 §3: zoom range 50 % .. 300 %
+    MIN_ZOOM, MAX_ZOOM = 0.5, 3.0
+    #: M54 §5: the viewport background never scales with the diagram
+    BACKGROUND = QColor("#fbfdff")
 
     def __init__(self, scene, on_block, parent=None):
         super().__init__(scene, parent)
@@ -1421,6 +1425,24 @@ class BlockDiagramView(QGraphicsView):
         self._auto_fit = True  # fit whole diagram until user zooms manually
         self.setTransformationAnchor(
             QGraphicsView.ViewportAnchor.AnchorViewCenter)
+
+    # ------------------------------------------------- background (M54 §5)
+    def _background_rect(self):
+        """The background rectangle in VIEWPORT coordinates - it keeps
+        the viewport size no matter what the zoom transform is."""
+        return QRectF(self.viewport().rect())
+
+    def drawBackground(self, painter, rect):
+        """Paint the flat viewport background here.
+
+        The painter is reset to viewport coordinates before the fill, so
+        Zoom In / Zoom Out only transform the foreground items (blocks,
+        connectors, labels) and never enlarge / shrink the background.
+        """
+        painter.save()
+        painter.resetTransform()
+        painter.fillRect(self._background_rect(), self.BACKGROUND)
+        painter.restore()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1631,6 +1653,51 @@ _DEVICE_EDITORS: dict[tuple[str, str], list] = {
 _NOT_YET = "Not yet available - under development."
 
 
+def _attach_test_connection(dialog, test_probe, values_getter):
+    """M54 §1: Test Connection control shared by the peripheral / DUT
+    config dialogs.  It runs the SAME availability probe off the UI
+    thread and reports PASSED / FAILED inside the dialog (no row button
+    exists any more)."""
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    row = QHBoxLayout()
+    btn = QPushButton("Test Connection")
+    btn.setToolTip("Run the availability probe with the values above")
+    result = QLabel("")
+    result.setWordWrap(True)
+    dialog.test_result = result
+    row.addWidget(btn)
+    row.addStretch(1)
+    lay.addLayout(row)
+    lay.addWidget(result)
+
+    def _run():
+        worker = getattr(dialog, "_test_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        btn.setEnabled(False)
+        result.setStyleSheet("")
+        result.setText("Testing ...")
+        values = values_getter()
+        worker = _PeripheralTestWorker(lambda: test_probe(values), dialog)
+
+        def _done(ok, message, thread=worker):
+            btn.setEnabled(True)
+            result.setText(message)
+            result.setStyleSheet(
+                "color: %s;" % ("#15803d" if ok else "#b91c1c"))
+            thread.deleteLater()
+
+        dialog._test_worker = worker
+        worker.done.connect(_done)
+        worker.start()
+
+    dialog.test_button = btn
+    btn.clicked.connect(_run)
+    return box
+
+
 class _BlockConfigDialog(QDialog):
     """Form-style configuration window: read-only basic information
     plus an editable Test Configuration group for integrated blocks;
@@ -1638,12 +1705,13 @@ class _BlockConfigDialog(QDialog):
     (user direction, same pattern as the HOST PC window)."""
 
     def __init__(self, parent, title, fields, note, editor=None,
-                 config=None):
+                 config=None, test_probe=None):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - Configuration")
         self.setMinimumWidth(650)
         enable_dialog_controls(self)
         self._editor = editor
+        self._edits = {}
         root = QVBoxLayout(self)
         body = QWidget()
         body_lay = QVBoxLayout(body)
@@ -1676,6 +1744,9 @@ class _BlockConfigDialog(QDialog):
                           "test flow.")
             hint.setObjectName("muted")
             body_lay.addWidget(hint)
+            if test_probe is not None:
+                body_lay.addWidget(_attach_test_connection(
+                    self, test_probe, self.values))
         else:
             notice = QLabel(_NOT_YET)
             notice.setObjectName("warn")
@@ -1690,19 +1761,25 @@ class _BlockConfigDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+    def values(self) -> dict:
+        """The current editor values (empty dict without an editor)."""
+        return {key: edit.text().strip()
+                for key, edit in self._edits.items()}
+
     def apply_to_config(self, cfg: dict) -> None:
         """Write the edited values back into the page config dict -
         persisted with the project YAML like the instrument dialogs."""
         if self._editor:
-            cfg["params"] = {key: edit.text().strip()
-                             for key, edit in self._edits.items()}
+            cfg["params"] = self.values()
 
 
-def _form_dialog(parent, title, fields, note, editor=None, config=None):
+def _form_dialog(parent, title, fields, note, editor=None, config=None,
+                 test_probe=None):
     """Form-style block config dialog factory (basic info + optional
     editable test configuration / not-yet-available notice)."""
     return _BlockConfigDialog(parent, title, fields, note,
-                              editor=editor, config=config)
+                              editor=editor, config=config,
+                              test_probe=test_probe)
 
 
 class _HardwareInfoDialog(QDialog):
@@ -1758,7 +1835,7 @@ class _GroupConfigDialog(QDialog):
     """M49a: small editable form for one grouped config (DUT Wi-Fi /
     SSH Login / Ethernet Router / ... or the control-board DIO map)."""
 
-    def __init__(self, parent, title, spec, values):
+    def __init__(self, parent, title, spec, values, test_probe=None):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - Configuration")
         fit_dialog(self, 560, 360)
@@ -1775,6 +1852,11 @@ class _GroupConfigDialog(QDialog):
             self._edits[key] = edit
             form.addRow(f"{label}:", edit)
         body_lay.addLayout(form)
+        # M54 §1: the row-level Test button moved here for the peripheral
+        # / DUT configs (Test Connection inside the Config dialog)
+        if test_probe is not None:
+            body_lay.addWidget(_attach_test_connection(
+                self, test_probe, self.values))
         note = QLabel(
             "Saved in the project yaml and referenced by test steps at "
             "runtime.")
@@ -2247,11 +2329,8 @@ class EquipmentPage(QWidget):
         # with the modal dialog - reopening showed Disconnected again)
         self._instrument_connections: dict[str, bool] = {}
         self._instrument_selftest: dict[str, bool] = {}
-        # entry key -> row widgets (Config / Test buttons)
+        # entry key -> row widgets (Config button)
         self.entry_buttons: dict[str, dict[str, QPushButton]] = {}
-        # M50 §4: entry key -> running Test Connection worker (kept here
-        # so the QThread is not garbage-collected mid-probe)
-        self._test_threads: dict[str, _PeripheralTestWorker] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -2308,13 +2387,6 @@ class EquipmentPage(QWidget):
         header.addWidget(btn_reset)
         layout.addLayout(header)
 
-        hint = QLabel(
-            "Left: configurable hardware (Config).  Right: read-only "
-            "block diagram (click a module for Hardware Info; "
-            "right-click to copy the diagram as an image).")
-        hint.setObjectName("muted")
-        layout.addWidget(hint)
-
         # ---- two-column layout (M49a §1 / §2) -------------------------
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.left_panel = self._build_left_panel()
@@ -2323,7 +2395,8 @@ class EquipmentPage(QWidget):
         self.splitter.addWidget(self.right_panel)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([340, 1100])
+        # M54 §3: default left column = 25 % (1:3), diagram 75 %
+        self.splitter.setSizes([1, 3])
         self.splitter.splitterMoved.connect(
             lambda _pos, _idx: self._enforce_splitter_clamp())
         layout.addWidget(self.splitter, 1)
@@ -2354,7 +2427,7 @@ class EquipmentPage(QWidget):
         self.scene = QGraphicsScene(0, 0, W, H)
         self.view = BlockDiagramView(self.scene, self._on_block_clicked)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setStyleSheet("background:#fbfdff; border:1px solid #d4d9e0;")
+        self.view.setStyleSheet("border:1px solid #d4d9e0;")
         return self.view
 
     def _build_left_panel(self):
@@ -2369,8 +2442,13 @@ class EquipmentPage(QWidget):
         cap.setObjectName("strong")
         head.addWidget(cap)
         head.addStretch(1)
-        self.btn_collapse = QPushButton("Hide")
-        self.btn_collapse.setFixedWidth(64)
+        # M54 §2: flat arrow toggle (Event Log style) instead of the
+        # "Hide" / "Show" text button; started expanded
+        self.btn_collapse = QToolButton()
+        self.btn_collapse.setArrowType(Qt.ArrowType.LeftArrow)
+        self.btn_collapse.setAutoRaise(True)
+        self.btn_collapse.setFixedSize(18, 16)
+        self.btn_collapse.setToolTip("Collapse Hardware Configuration")
         self.btn_collapse.clicked.connect(self._toggle_left_column)
         head.addWidget(self.btn_collapse)
         outer.addLayout(head)
@@ -2398,9 +2476,9 @@ class EquipmentPage(QWidget):
         return panel
 
     def _entry_row(self, entry):
-        """One left-column row: label + Config (+ Test for instruments and
-        the M50 Test Connection of peripheral / DUT configs)."""
-        key, label, kind, _source = entry
+        """One left-column row: label + Config only (M54 §1 - the Test /
+        self-test actions live INSIDE the Config dialogs)."""
+        key, label, _kind, _source = entry
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
@@ -2414,28 +2492,21 @@ class EquipmentPage(QWidget):
             lambda _=False, k=key: self.open_entry(k))
         row.addWidget(btn_cfg)
         buttons["config"] = btn_cfg
-        if kind == "instrument":
-            btn_test = QPushButton("Test")
-            btn_test.setFixedWidth(56)
-            btn_test.clicked.connect(
-                lambda _=False, k=key: self._run_instrument_self_test(k))
-            row.addWidget(btn_test)
-            buttons["test"] = btn_test
-        elif kind == "form" and key in _TESTABLE_FORM_KEYS:
-            btn_test = QPushButton("Test")
-            btn_test.setFixedWidth(56)
-            btn_test.setToolTip("Test Connection")
-            btn_test.clicked.connect(
-                lambda _=False, k=key: self._test_entry(k))
-            row.addWidget(btn_test)
-            buttons["test"] = btn_test
         self.entry_buttons[key] = buttons
         return row
 
     def _toggle_left_column(self):
+        """M54 §2: collapse the left column to the diagram / expand it
+        again; the arrow direction + tooltip follow the state."""
         visible = self.left_list.isHidden()
         self.left_list.setVisible(visible)
-        self.btn_collapse.setText("Hide" if visible else "Show")
+        if visible:
+            self.btn_collapse.setArrowType(Qt.ArrowType.LeftArrow)
+            self.btn_collapse.setToolTip(
+                "Collapse Hardware Configuration")
+        else:
+            self.btn_collapse.setArrowType(Qt.ArrowType.RightArrow)
+            self.btn_collapse.setToolTip("Show Hardware Configuration")
 
     def _enforce_splitter_clamp(self):
         """M49a §1.1: the left column may grow up to 1:1 with the right
@@ -2744,7 +2815,7 @@ class EquipmentPage(QWidget):
             self._open_instrument(owner)
             return
         if group is not None:
-            self._open_group_entry(owner, group)
+            self._open_group_entry(owner, group, entry_key)
             return
         cfg = self.configs.get(owner)
         if cfg is None:
@@ -2756,7 +2827,7 @@ class EquipmentPage(QWidget):
             dlg.exec()
             dlg.apply_to_config(cfg)
             return
-        self._open_plain_entry(owner, cfg)
+        self._open_plain_entry(owner, cfg, entry_key)
 
     def _open_instrument(self, key):
         cfg = self.configs[key]
@@ -2767,32 +2838,45 @@ class EquipmentPage(QWidget):
         # with the modal dialog); live LED sync to the status bar
         dlg.set_connected(self._instrument_connections.get(key, False))
         dlg.connection_changed.connect(self.instrument_connection_changed)
-        dlg.self_test_changed.connect(self.instrument_selftest_changed)
+        # M54 §1: the self-test now runs INSIDE the Config dialog - the
+        # result must still reach the lamp (yellow -> green)
+        dlg.self_test_changed.connect(
+            lambda _sig_key, passed, k=key:
+            self._set_instrument_selftest(k, passed))
         dlg.exec()
         self._instrument_connections[key] = dlg._connected
         dlg.apply_to_config(cfg)
 
-    def _open_group_entry(self, owner, group):
+    def _open_group_entry(self, owner, group, entry_key=None):
         cfg = self.configs.setdefault(owner, {"title": owner})
         groups = cfg.setdefault("groups", {})
         values = groups.setdefault(group, _default_group(owner, group))
         spec = GROUP_FIELDS[(owner, group)]
+        probe = None
+        if entry_key in _TESTABLE_FORM_KEYS:
+            probe = (lambda vals, k=entry_key:
+                     self._probe_with_span(k, vals))
         dlg = _GroupConfigDialog(self, f"{cfg['title']} - {group}",
-                                 spec, values)
+                                 spec, values, test_probe=probe)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             groups[group] = dlg.values()
 
-    def _open_plain_entry(self, owner, cfg):
+    def _open_plain_entry(self, owner, cfg, entry_key=None):
         if owner == "control_board":
             self._open_dio_entry(cfg)
             return
         editor = _BLOCK_EDITORS.get(owner)
         if owner == "jlink":
             editor = JLINK_FIELDS
+        probe = None
+        if entry_key in _TESTABLE_FORM_KEYS:
+            probe = (lambda vals, k=entry_key:
+                     self._probe_with_span(k, vals))
         dlg = _form_dialog(self, cfg["title"], cfg.get("fields", []),
                            note=_mode_note(self._mode),
                            editor=editor,
-                           config=cfg if editor else None)
+                           config=cfg if editor else None,
+                           test_probe=probe)
         dlg.exec()
         if editor:
             dlg.apply_to_config(cfg)
@@ -2807,40 +2891,14 @@ class EquipmentPage(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             cfg["dio"] = dlg.values()
 
-    def _run_instrument_self_test(self, key):
-        """M49a §3: left-column Test button - one self-test call per
-        instrument unit (DAQ973A covers all three modules at once)."""
-        if not self._instrument_connections.get(key, False):
-            QMessageBox.information(
-                self, "Instrument",
-                f"{self.configs[key]['title']} is not connected.\n"
-                "Connect it from its Config dialog first.")
-            return False
-        for label, fn in _INSTRUMENT_ACTIONS[key]:
-            if label == "Self Test":
-                from mtkgui.startup_timing import begin, end
-                span = f"equip: self test {self.configs[key]['title']}"
-                begin(span, category="equip")
-                try:
-                    out = fn([])
-                finally:
-                    end(span)
-                passed = "PASS" in out or "0 errors" in out
-                self._instrument_selftest[key] = passed
-                self.instrument_selftest_changed.emit(key, passed)
-                return passed
-        return False
+    def _set_instrument_selftest(self, key, passed):
+        """M54 §1: the self-test runs INSIDE the instrument Config dialog;
+        its result still drives the lamp (yellow -> green)."""
+        passed = bool(passed)
+        self._instrument_selftest[key] = passed
+        self.instrument_selftest_changed.emit(key, passed)
 
-    # -- M50 §4: Test Connection on the peripheral / DUT configs ----------
-    def _entry_values(self, entry_key):
-        """The CURRENT config values of one left-column entry."""
-        owner, group = self._entry_source(entry_key)
-        cfg = self.configs.get(owner) or {}
-        if group is None:
-            return dict(cfg.get("params") or {})
-        groups = cfg.get("groups") or {}
-        return dict(groups.get(group) or _default_group(owner, group))
-
+    # -- M54 §1: Test Connection inside the peripheral / DUT config ------
     def _entry_label(self, entry_key):
         for _group, entries in LEFT_ENTRIES:
             for key, label, _kind, _source in entries:
@@ -2848,51 +2906,17 @@ class EquipmentPage(QWidget):
                     return label
         return entry_key
 
-    def _test_entry(self, entry_key):
-        """M50 §4: availability-only Test Connection (a SAMPLE DUT /
-        host setup); the real per-unit verification runs inside the FCT
-        Sequence steps.  Runs OFF the UI thread."""
-        if not self._config_allowed:
-            QMessageBox.information(
-                self, "Permission",
-                "Operator account cannot test equipment connections.\n"
-                "Ask the supervisor to grant this permission.")
-            return
-        running = self._test_threads.get(entry_key)
-        if running is not None and running.isRunning():
-            return
-        values = self._entry_values(entry_key)
-        button = self.entry_buttons.get(entry_key, {}).get("test")
-        if button is not None:
-            button.setEnabled(False)
-
-        def _timed_probe():
-            # M51 §5: equipment Test Connection span (availability only)
-            from mtkgui.startup_timing import begin, end
-            span = f"equip: test connection {self._entry_label(entry_key)}"
-            begin(span, category="equip")
-            try:
-                return self._probe_entry(entry_key, values)
-            finally:
-                end(span)
-
-        worker = _PeripheralTestWorker(_timed_probe, self)
-        self._test_threads[entry_key] = worker
-
-        def _finished(ok, message, key=entry_key, thread=worker):
-            self._test_threads.pop(key, None)
-            btn = self.entry_buttons.get(key, {}).get("test")
-            if btn is not None:
-                btn.setEnabled(True)
-            title = f"{self._entry_label(key)} - Test Connection"
-            if ok:
-                QMessageBox.information(self, title, message)
-            else:
-                QMessageBox.warning(self, title, message)
-            thread.deleteLater()
-
-        worker.done.connect(_finished)
-        worker.start()
+    def _probe_with_span(self, entry_key, values):
+        """M54 §1: the config dialogs invoke this SAME availability probe
+        off the UI thread; the M51 span is kept and the PASSED / FAILED
+        text is reported into the dialog."""
+        from mtkgui.startup_timing import begin, end
+        span = f"equip: test connection {self._entry_label(entry_key)}"
+        begin(span, category="equip")
+        try:
+            return self._probe_entry(entry_key, dict(values or {}))
+        finally:
+            end(span)
 
     def _probe_entry(self, entry_key, values):
         """The availability probe of one peripheral / DUT entry.

@@ -249,17 +249,31 @@ def test_ssh_and_serial_rows_reference_the_equipment_dut_group(qapp):
                                "password": "equipment.dut.ssh.password"}
 
 
-# ----------------------------------------------- §4 Test Connection buttons
+# ------------------------- §4 Test Connection inside the Config dialogs
 def test_each_testable_equipment_config_has_a_test_button(qapp):
+    """M54 §1: the row-level Test buttons are gone; the same Test
+    Connection (PASSED / FAILED) now lives inside the Config dialogs of
+    the testable peripherals / DUT entries."""
+    from mtkgui.equipment_page import (_GroupConfigDialog, _TESTABLE_FORM_KEYS,
+                                       _form_dialog)
+
     page = EquipmentPage()
     try:
-        for key in ("pc_wifi", "pc_bt", "router", "jlink",
-                    "dut_wifi", "dut_bt", "dut_ssh", "dut_console"):
-            buttons = page.entry_buttons[key]
-            assert "test" in buttons, key
-            assert buttons["test"].toolTip() == "Test Connection"
+        for key in _TESTABLE_FORM_KEYS:
+            assert set(page.entry_buttons[key]) == {"config"}, key
         # a non-testable config keeps Config only
         assert "test" not in page.entry_buttons["fixture"]
+        # the shared dialog helper exposes Test Connection when a probe
+        # is supplied and stays plain without one
+        with_probe = _GroupConfigDialog(page, "probe", [("ip", "IP", "")],
+                                        {"ip": "1.2.3.4"},
+                                        test_probe=lambda v: (True, "ok"))
+        plain = _form_dialog(page, "plain", [], "note",
+                             editor=[("x", "X", "")], config={})
+        assert with_probe.test_button.text() == "Test Connection"
+        assert not hasattr(plain, "test_button")
+        with_probe.deleteLater()
+        plain.deleteLater()
     finally:
         page.deleteLater()
 
