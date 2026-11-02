@@ -1047,16 +1047,32 @@ class FCTTestConfigPanel(QWidget):
         """
         cmd = console_command_for_label(STEP_TYPE_OPERATION, op_name)
         cmd.op_params = dict(OP_STEPS.get(op_name) or {})
-        # M50: the Wi-Fi connect row starts with the Equipment PC Wi-Fi
-        # AP values (runtime reference; the row's override field still
-        # lets the operator diverge from the shared value)
+        # M55: the connection / addressing values are FIXED runtime
+        # references into Equipment; the row's op_params start from the
+        # current Equipment values and are refreshed on save.
+        if op_name in NETWORK_OPS:
+            cmd.refs = {
+                "iface": "equipment.dut.wifi.interface",
+                "dut_ip": "equipment.peripherals.router.dut_ip",
+                "netmask": "equipment.peripherals.router.netmask",
+                "gateway": "equipment.peripherals.router.gateway",
+            }
+            cmd.op_params["iface"] = str(self._equipment_value(
+                "equipment.dut.wifi.interface", "") or "")
+            cmd.op_params["dut_ip"] = str(self._equipment_value(
+                "equipment.peripherals.router.dut_ip", "") or "")
+            cmd.op_params["netmask"] = str(self._equipment_value(
+                "equipment.peripherals.router.netmask", "") or "")
+            cmd.op_params["gateway"] = str(self._equipment_value(
+                "equipment.peripherals.router.gateway", "") or "")
         if op_name == WIFI_CONNECT_OP:
-            cmd.refs = {"ssid": "equipment.peripherals.wifi.ap_ssid",
-                        "password": "equipment.peripherals.wifi.ap_password"}
-            node = self.equipment_node() or {}
-            wifi = ((node.get("peripherals") or {}).get("wifi") or {})
-            cmd.op_params["ssid"] = str(wifi.get("ap_ssid") or "")
-            cmd.op_params["password"] = str(wifi.get("ap_password") or "")
+            cmd.refs.update({
+                "ssid": "equipment.peripherals.wifi.ap_ssid",
+                "password": "equipment.peripherals.wifi.ap_password"})
+            cmd.op_params["ssid"] = str(self._equipment_value(
+                "equipment.peripherals.wifi.ap_ssid", "") or "")
+            cmd.op_params["password"] = str(self._equipment_value(
+                "equipment.peripherals.wifi.ap_password", "") or "")
         self._insert_row(cmd)
 
     def _add_serial_transfer_row(self, direction: str) -> None:
@@ -1474,14 +1490,13 @@ class FCTTestConfigPanel(QWidget):
         dlg.deleteLater()
 
     def _edit_serial_transfer_row(self, row: int) -> None:
-        """Serial Push / Pull editor (M46): Host PC path + DUT path +
-        optional baudrate with a READ-ONLY estimated transfer time."""
+        """Serial Push / Pull editor (M46): Host PC path + DUT path with a
+        READ-ONLY estimated transfer time (the baudrate comes from the
+        Equipment console config - M55)."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                                         QFormLayout, QLabel, QLineEdit,
-                                        QComboBox, QPushButton,
-                                        QDialogButtonBox)
-        from mtkgui.engine.serial_transfer import (BAUD_CHOICES,
-                                                   dir_size, estimate_text)
+                                        QPushButton, QDialogButtonBox)
+        from mtkgui.engine.serial_transfer import dir_size, estimate_text
         cmd = self._get_row_cmd(row)
         is_push = cmd.kind == KIND_SERIAL_PUT
         dlg = QDialog(self)
@@ -1497,9 +1512,9 @@ class FCTTestConfigPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel(
             "Transfer over the SERIAL console: base64 chunks with marker "
-            "ACKs, so console output cannot corrupt the data.  An empty "
-            "baudrate uses the Console Serial rate; a raised rate is "
-            "restored on BOTH sides afterwards (a restore failure fails "
+            "ACKs, so console output cannot corrupt the data.  The transfer "
+            "uses the Console Serial baudrate from Equipment; a raised rate "
+            "is restored on BOTH sides afterwards (a restore failure fails "
             "the step explicitly)."))
         form = QFormLayout()
         local_edit = QLineEdit(cmd.local or "")
@@ -1530,19 +1545,22 @@ class FCTTestConfigPanel(QWidget):
         remote_edit.setPlaceholderText(
             "DUT target path (file or folder)")
         form.addRow("Remote (DUT):", remote_edit)
-        baud_combo = QComboBox()
-        baud_combo.addItem("(Console Serial baudrate)", 0)
-        for rate in BAUD_CHOICES:
-            baud_combo.addItem(str(rate), rate)
-        idx = baud_combo.findData(int(cmd.serial_baud or 0))
-        baud_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        form.addRow("Baudrate (optional):", baud_combo)
         est_label = QLabel("")
         form.addRow("Estimated time (read-only):", est_label)
 
+        def _console_baud() -> int:
+            """M55: the Console Serial baudrate comes from Equipment."""
+            try:
+                return int(str(self._equipment_value(
+                    "equipment.dut.console.baud", "")).strip() or 0)
+            except (TypeError, ValueError):
+                return 0
+
         def _refresh_estimate() -> None:
-            baud = int(baud_combo.currentData() or 0)
-            rate = baud or 115200
+            rate = _console_baud()
+            if not rate:
+                est_label.setText("—")
+                return
             if is_push:
                 size = dir_size(local_edit.text().strip())
                 if size:
@@ -1553,8 +1571,6 @@ class FCTTestConfigPanel(QWidget):
             else:
                 est_label.setText("n/a (remote size unknown until run)")
 
-        baud_combo.currentIndexChanged.connect(
-            lambda _i: _refresh_estimate())
         local_edit.textChanged.connect(lambda _t: _refresh_estimate())
         _refresh_estimate()
         lay.addLayout(form)
@@ -1567,7 +1583,7 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             cmd.local = local_edit.text().strip()
             cmd.remote = remote_edit.text().strip()
-            cmd.serial_baud = int(baud_combo.currentData() or 0)
+            cmd.serial_baud = 0
             cmd.wait_enabled = False
             cmd.send_enabled = False
             cmd.capture_enabled = False
@@ -1598,29 +1614,14 @@ class FCTTestConfigPanel(QWidget):
             "success (run continues), Stop = flash failed (run stops). "
             "An empty GUI path fails the row."))
         form = QFormLayout()
-        # M50: J-Link executable is a runtime reference (override wins)
-        from mtkgui.engine.ref_resolver import describe
+        # M55: the J-Link executable is a FIXED runtime reference into
+        # Equipment - the editor only shows a read-only hint line.
         refs = dict(cmd.refs or {})
-        overrides = dict(cmd.overrides or {})
-        refs.setdefault("jlink", "equipment.jlink.executable")
-        ref_line = QLabel(f"ref: {refs['jlink']} - {describe(refs['jlink'])}")
-        ref_line.setStyleSheet("color: #6b7280;")
-        eff_line = QLabel("")
-        eff_line.setStyleSheet("color: #111827;")
-        jlink_override = QLineEdit(str(overrides.get("jlink") or ""))
-        jlink_override.setPlaceholderText(
-            "override (empty = use the referenced Equipment value)")
-
-        def _sync_jlink(_t) -> None:
-            value = self._effective({"v": refs["jlink"]},
-                                    {"v": jlink_override.text()}, "v")
-            eff_line.setText(f"effective: {value or '(not set)'}")
-
-        jlink_override.textChanged.connect(_sync_jlink)
-        _sync_jlink("")
-        form.addRow("J-Link executable:", ref_line)
-        form.addRow("", eff_line)
-        form.addRow("", jlink_override)
+        overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
+        hint = QLabel("Flash GUI executable: configured in Equipment "
+                      "(J-Link).")
+        hint.setStyleSheet("color: #6b7280;")
+        form.addRow("J-Link executable:", hint)
         path_edit = QLineEdit(cmd.flash_gui_path or "")
         path_edit.setPlaceholderText(
             "Third-party flash GUI executable (full path)")
@@ -1643,10 +1644,7 @@ class FCTTestConfigPanel(QWidget):
             cmd.flash_gui_path = path_edit.text().strip()
             cmd.flash_gui_message = (
                 msg_edit.toPlainText().strip() or DEFAULT_FLASH_GUI_MESSAGE)
-            if jlink_override.text().strip():
-                overrides["jlink"] = jlink_override.text().strip()
-            else:
-                overrides.pop("jlink", None)
+            refs.setdefault("jlink", "equipment.jlink.executable")
             cmd.refs = refs
             cmd.overrides = overrides or None
             cmd.wait_enabled = False
@@ -1775,18 +1773,16 @@ class FCTTestConfigPanel(QWidget):
             self._save_row_cmd(row, cmd)
 
     def _edit_network_op_row(self, row: int) -> None:
-        """M41: editor for the two DUT network-setup operations.
+        """M41/M55: editor for the two DUT network-setup operations.
 
-        ``wifi_connect`` (serial console): interface, AP SSID / password
-        (auto-plugged from the Wi-Fi tab at row creation), DHCP or static
-        IP, timeout.  ``lan_setup``: interface + DHCP / Static mode + the
-        static IP / mask / gateway + timeout, with the "same subnet as
-        the Host PC" hint.  Every command stays user-editable per step.
+        The hardware / addressing values (interface, AP SSID / password,
+        DUT IP / netmask / gateway) are FIXED runtime references into
+        Equipment and have no editable fields here; the dialog keeps the
+        step-owned test parameters: DHCP or Static IP mode and Timeout.
         """
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                        QLabel, QLineEdit, QCheckBox,
-                                        QComboBox, QSpinBox,
-                                        QDialogButtonBox)
+                                        QLabel, QCheckBox, QComboBox,
+                                        QSpinBox, QDialogButtonBox)
         cmd = self._get_row_cmd(row)
         params = dict(cmd.op_params or {})
         is_wifi = str(params.get("type") or "") == "wifi_connect"
@@ -1811,17 +1807,8 @@ class FCTTestConfigPanel(QWidget):
         note.setStyleSheet("color: #6b7280;")
         lay.addWidget(note)
         form = QFormLayout()
-        iface = QLineEdit(str(params.get("iface") or ""))
-        iface.setPlaceholderText("wlan0" if is_wifi else "eth0")
-        form.addRow("Interface:", iface)
-        ssid = password = dhcp_cb = mode = None
+        dhcp_cb = mode = None
         if is_wifi:
-            ssid = QLineEdit(str(params.get("ssid") or ""))
-            ssid.setPlaceholderText("AP SSID (auto-filled from Wi-Fi tab)")
-            form.addRow("AP SSID:", ssid)
-            password = QLineEdit(str(params.get("password") or ""))
-            password.setPlaceholderText("leave empty for an open network")
-            form.addRow("AP password:", password)
             dhcp_cb = QCheckBox("Use DHCP (uncheck = static IP)")
             dhcp_cb.setChecked(bool(params.get("dhcp", True)))
             form.addRow(dhcp_cb)
@@ -1831,13 +1818,6 @@ class FCTTestConfigPanel(QWidget):
             mode.setCurrentText("DHCP" if str(params.get("mode") or "dhcp")
                                 .lower() != "static" else "Static")
             form.addRow("IP mode:", mode)
-        dut_ip = QLineEdit(str(params.get("dut_ip") or ""))
-        dut_ip.setPlaceholderText("e.g. 192.168.1.100")
-        netmask = QLineEdit(str(params.get("netmask") or "255.255.255.0"))
-        gateway = QLineEdit(str(params.get("gateway") or ""))
-        form.addRow("DUT IP (static):", dut_ip)
-        form.addRow("Netmask:", netmask)
-        form.addRow("Gateway:", gateway)
         timeout = QSpinBox()
         timeout.setRange(1, 3600)
         timeout.setValue(int(params.get("timeout_s") or 60))
@@ -1862,23 +1842,48 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             params["type"] = "wifi_connect" if is_wifi else "lan_setup"
             params["stack"] = str(params.get("stack") or "wpa_supplicant")
-            params["iface"] = (iface.text().strip()
-                               or ("wlan0" if is_wifi else "eth0"))
+            refs = dict(cmd.refs or {})
+            resolved = {
+                "iface": self._equipment_value(
+                    "equipment.dut.wifi.interface", ""),
+                "dut_ip": self._equipment_value(
+                    "equipment.peripherals.router.dut_ip", ""),
+                "netmask": self._equipment_value(
+                    "equipment.peripherals.router.netmask", ""),
+                "gateway": self._equipment_value(
+                    "equipment.peripherals.router.gateway", ""),
+            }
+            refs.setdefault("iface", "equipment.dut.wifi.interface")
+            refs.setdefault("dut_ip", "equipment.peripherals.router.dut_ip")
+            refs.setdefault("netmask",
+                            "equipment.peripherals.router.netmask")
+            refs.setdefault("gateway",
+                            "equipment.peripherals.router.gateway")
             if is_wifi:
-                params["ssid"] = ssid.text().strip()
-                params["password"] = password.text()
+                resolved["ssid"] = self._equipment_value(
+                    "equipment.peripherals.wifi.ap_ssid", "")
+                resolved["password"] = self._equipment_value(
+                    "equipment.peripherals.wifi.ap_password", "")
+                refs.setdefault("ssid",
+                                "equipment.peripherals.wifi.ap_ssid")
+                refs.setdefault("password",
+                                "equipment.peripherals.wifi.ap_password")
+                params["ssid"] = str(resolved["ssid"])
+                params["password"] = str(resolved["password"])
                 params["dhcp"] = dhcp_cb.isChecked()
             else:
                 params["mode"] = ("dhcp" if mode.currentText() == "DHCP"
                                   else "static")
-            params["dut_ip"] = dut_ip.text().strip()
-            params["netmask"] = (netmask.text().strip()
-                                 or "255.255.255.0")
-            params["gateway"] = gateway.text().strip()
+            params["iface"] = (str(resolved["iface"])
+                               or ("wlan0" if is_wifi else "eth0"))
+            params["dut_ip"] = str(resolved["dut_ip"])
+            params["netmask"] = str(resolved["netmask"] or "255.255.255.0")
+            params["gateway"] = str(resolved["gateway"])
             params["timeout_s"] = int(timeout.value())
             cmd.kind = KIND_OP
             cmd.op_kind = "op"
             cmd.op_params = params
+            cmd.refs = refs
             self._save_row_cmd(row, cmd)
         dlg.deleteLater()
 
@@ -1929,49 +1934,11 @@ class FCTTestConfigPanel(QWidget):
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
-        # M50: the connection itself is a RUNTIME reference into the
-        # Equipment DUT group; the override box wins when filled.
-        from mtkgui.engine.ref_resolver import describe
+        # M55: the connection (serial port / baud / parity or SSH
+        # credentials) is a FIXED runtime reference into the Equipment
+        # DUT group - the dialog shows TEST parameters only.
         refs = dict(cmd.refs or {})
-        overrides = dict(cmd.overrides or {})
-        ref_editors: dict = {}
-        conn_spec = []
-        if typ == STEP_TYPE_CONSOLE_SERIAL:
-            conn_spec = [
-                ("port", "Serial port", "equipment.dut.console.port"),
-                ("baud", "Baud rate", "equipment.dut.console.baud"),
-                ("parity", "Parity", "equipment.dut.console.parity"),
-            ]
-        elif typ in (STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
-                     STEP_TYPE_SFTP_GET):
-            conn_spec = [
-                ("host", "SSH host", "equipment.dut.ssh.ip"),
-                ("username", "SSH username", "equipment.dut.ssh.username"),
-                ("password", "SSH password", "equipment.dut.ssh.password"),
-            ]
-        if conn_spec:
-            form.addRow(QLabel("Connection (runtime reference):"))
-        for key, label, ref_path in conn_spec:
-            refs.setdefault(key, ref_path)
-            ref_line = QLabel(f"ref: {refs[key]} - "
-                              f"{describe(refs[key])}")
-            ref_line.setStyleSheet("color: #6b7280;")
-            eff_line = QLabel("")
-            eff_line.setStyleSheet("color: #111827;")
-            override = QLineEdit(str(overrides.get(key) or ""))
-            override.setPlaceholderText(
-                "override (empty = use the referenced Equipment value)")
-
-            def _sync_eff(_t, e=eff_line, r=ref_path, o=override) -> None:
-                value = self._effective({"v": r}, {"v": o.text()}, "v")
-                e.setText(f"effective: {value or '(not set)'}")
-
-            override.textChanged.connect(_sync_eff)
-            _sync_eff("")
-            form.addRow(f"{label}:", ref_line)
-            form.addRow("", eff_line)
-            form.addRow("", override)
-            ref_editors[key] = override
+        overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
 
         wait_edit = None
         wait_cb = None
@@ -2089,14 +2056,9 @@ class FCTTestConfigPanel(QWidget):
             if typ not in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
                            STEP_TYPE_CONSOLE_CLI):
                 cmd.timeout = float(timeout.value())
-            for key, ov in ref_editors.items():
-                text = ov.text().strip()
-                if text:
-                    overrides[key] = text
-                else:
-                    overrides.pop(key, None)
-            if refs:
-                cmd.refs = refs
+            for key, path in self._default_refs(cmd).items():
+                refs.setdefault(key, path)
+            cmd.refs = refs or None
             cmd.overrides = overrides or None
             self._save_row_cmd(row, cmd)
 
@@ -2665,17 +2627,16 @@ class FCTTestConfigPanel(QWidget):
         return "-"
 
     def _edit_rf_row(self, row: int) -> None:
-        """M50 per-test config dialog for an RF reference row.
+        """M50/M55 per-test config dialog for an RF reference row.
 
-        Every field shows its runtime reference (human label) and the
-        EFFECTIVE value resolved from the current Equipment configuration,
-        plus an override box (empty = use the referenced value).  Fields
-        without a reference are owned by the step itself."""
+        Referenced fields (AP SSID / DUT SSID / target IP / host server
+        IP / DUT BT name / BD address) are FIXED runtime references into
+        the Equipment configuration and have NO UI here; the dialog only
+        edits the step-owned test parameters."""
         from PySide6.QtWidgets import (QDialog, QDialogButtonBox,
                                         QFileDialog, QFormLayout,
-                                        QLabel, QLineEdit, QVBoxLayout,
+                                        QLineEdit, QVBoxLayout,
                                         QHBoxLayout, QPushButton)
-        from mtkgui.engine.ref_resolver import describe
         cmd = self._get_row_cmd(row)
         family, subtest = self._rf_family(cmd)
         spec = self._RF_FIELDS.get((family, subtest))
@@ -2683,7 +2644,7 @@ class FCTTestConfigPanel(QWidget):
             return
         params = dict(cmd.step_params or {})
         refs = dict(cmd.refs or {})
-        overrides = dict(cmd.overrides or {})
+        overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
         dlg = QDialog(self)
         dlg.setWindowTitle(
             f"{step_type_label(cmd)} step config")
@@ -2698,26 +2659,9 @@ class FCTTestConfigPanel(QWidget):
         tone_parts = {}
         for key, label, kind, ref_path, default in spec:
             if ref_path:
-                ref_line = QLabel("")
-                ref_line.setStyleSheet("color: #6b7280;")
-                eff_line = QLabel("")
-                eff_line.setStyleSheet("color: #111827;")
-                override = QLineEdit(str(overrides.get(key) or ""))
-                override.setPlaceholderText(
-                    "override (empty = use the referenced Equipment value)")
-                override.textChanged.connect(
-                    lambda _t, e=eff_line, r=ref_path, o=override:
-                    e.setText(f"effective: {self._effective({'v': r}, {'v': o.text()}, 'v') or '(not set)'}"))
-                eff = self._effective({key: ref_path}, overrides, key)
-                if key not in refs:
-                    refs[key] = ref_path
-                ref_line.setText(f"ref: {ref_path} - "
-                                 f"{describe(ref_path)}")
-                eff_line.setText(f"effective: {eff or '(not set)'}")
-                form.addRow(f"{label}:", ref_line)
-                form.addRow("", eff_line)
-                form.addRow("", override)
-                editors[key] = override
+                # M55: pure runtime reference - no ref / effective /
+                # override rows in the dialog
+                refs.setdefault(key, ref_path)
                 continue
             if kind in ("int", "float"):
                 spin = QDoubleSpinBox()
@@ -2781,11 +2725,9 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             for key, label, kind, ref_path, default in spec:
                 if ref_path:
-                    text = editors[key].text().strip()
-                    if text:
-                        overrides[key] = text
-                    else:
-                        overrides.pop(key, None)
+                    # M55: the reference map is seeded on save; legacy
+                    # overrides are left untouched
+                    refs.setdefault(key, ref_path)
                     continue
                 widget = editors[key]
                 if kind == "text":

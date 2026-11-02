@@ -258,7 +258,10 @@ GROUP_FIELDS = {
         ("scan_targets", "Scan targets", "")],
     ("peripherals", "router"): [
         ("setup_mode", "Setup mode", "direct"),
-        ("router_ip", "Router IP", ""), ("dut_ip", "DUT IP", "")],
+        ("router_ip", "Router IP", ""), ("dut_ip", "DUT IP", ""),
+        # M55: runtime sources for the LAN Setup / Wi-Fi Connect static
+        # addressing (the step dialogs no longer edit these)
+        ("netmask", "Netmask", "255.255.255.0"), ("gateway", "Gateway", "")],
 }
 
 #: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2)

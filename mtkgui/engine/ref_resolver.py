@@ -48,6 +48,11 @@ EQUIPMENT_PATHS = {
                                                "IP", "text"),
     "equipment.peripherals.router.dut_ip": ("Ethernet Router - DUT IP",
                                             "text"),
+    # M55: static addressing sources for LAN Setup / Wi-Fi Connect
+    "equipment.peripherals.router.netmask": ("Ethernet Router - Netmask",
+                                             "text"),
+    "equipment.peripherals.router.gateway": ("Ethernet Router - Gateway",
+                                             "text"),
     "equipment.jlink.install_path": ("J-Link - Install path", "text"),
     "equipment.jlink.executable": ("J-Link - Executable", "text"),
     "equipment.jlink.device": ("J-Link - Device", "text"),

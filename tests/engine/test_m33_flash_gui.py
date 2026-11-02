@@ -205,7 +205,7 @@ class TestFlashGuiPanel:
         assert panel.cmd_table.item(row, _COL_CMD).text() == "(no path)"
 
     def test_editor_has_path_and_message_fields(self, panel, monkeypatch):
-        from PySide6.QtWidgets import (QDialog, QLineEdit, QTextEdit)
+        from PySide6.QtWidgets import (QDialog, QLabel, QLineEdit, QTextEdit)
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import _COL_CMD
         panel.set_values({})
         row = panel.cmd_table.rowCount()
@@ -213,11 +213,13 @@ class TestFlashGuiPanel:
 
         def fake_exec(dlg):
             assert dlg.windowTitle() == "Flash_GUI editor"
-            # M50: the J-Link executable reference row (ref + effective +
-            # override) comes FIRST; the GUI path is the step-owned field
-            refs = [e for e in dlg.findChildren(QLineEdit)
-                    if "override" in e.placeholderText()]
-            assert refs and refs[0].text() == ""
+            # M55: the J-Link executable is a FIXED runtime reference -
+            # no override box, just a read-only hint line
+            assert not [e for e in dlg.findChildren(QLineEdit)
+                        if "override" in e.placeholderText()]
+            labels = [w.text() for w in dlg.findChildren(QLabel)]
+            assert any("configured in Equipment (J-Link)" in t
+                       for t in labels)
             line = next(e for e in dlg.findChildren(QLineEdit)
                         if "flash GUI" in e.placeholderText())
             line.setText(FLASH_PATH)
@@ -231,6 +233,7 @@ class TestFlashGuiPanel:
         assert cmd.kind == KIND_FLASH_GUI
         assert cmd.flash_gui_path == FLASH_PATH
         assert cmd.flash_gui_message == "custom prompt"
+        assert cmd.refs["jlink"] == "equipment.jlink.executable"
         assert panel.cmd_table.item(row, _COL_CMD).text() == FLASH_PATH
 
 

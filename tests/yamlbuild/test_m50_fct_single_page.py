@@ -119,8 +119,8 @@ def test_panel_has_exactly_one_sequence_page(qapp):
     assert panel.tabs.tabBar().isVisible() is False
 
 
-# ---------------------------- §2 per-test dialog: ref + effective + override
-def test_rf_step_dialog_shows_ref_effective_and_override(qapp, monkeypatch):
+# ---------------------------- §2 per-test dialog: step-owned fields only
+def test_rf_step_dialog_has_no_reference_or_override_ui(qapp, monkeypatch):
     panel = FCTTestConfigPanel(equipment_provider=lambda: EQUIPMENT)
     panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
     seen = {}
@@ -132,26 +132,29 @@ def test_rf_step_dialog_shows_ref_effective_and_override(qapp, monkeypatch):
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
-    assert any("ref: equipment.peripherals.wifi.ap_ssid" in t
-               for t in seen["lines"])
-    assert any("effective: MTK-AP" in t for t in seen["lines"])
-    assert len(seen["overrides"]) == 2
+    # M55: the referenced AP / DUT SSID fields are pure runtime
+    # references - no ref line, no effective line, no override box
+    assert not any("ref: equipment." in t for t in seen["lines"])
+    assert not any("effective:" in t for t in seen["lines"])
+    assert seen["overrides"] == []
+    # the step-owned test parameters stay editable
+    assert any("AP RSSI min (dBm):" in t for t in seen["lines"])
+    assert any("Timeout:" in t for t in seen["lines"])
 
 
-def test_rf_step_dialog_override_is_saved_on_accept(qapp, monkeypatch):
+def test_rf_step_dialog_seeds_the_references_on_accept(qapp, monkeypatch):
     panel = FCTTestConfigPanel(equipment_provider=lambda: EQUIPMENT)
     panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
 
     def fake_exec(dlg):
-        edits = _overrides(dlg)
-        edits[0].setText("LAB-AP")            # override the AP SSID only
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
     step = _steps(panel)[0]
     assert step["ref"]["ap_ssid"] == "equipment.peripherals.wifi.ap_ssid"
-    assert step["override"]["ap_ssid"] == "LAB-AP"
+    assert step["ref"]["dut_ssid"] == "equipment.dut.wifi.ssid"
+    assert "override" not in step
 
 
 def test_equipment_edit_flows_into_every_referencing_step(qapp):
@@ -169,7 +172,7 @@ def test_equipment_edit_flows_into_every_referencing_step(qapp):
         "AP=NEW-AP, RSSI\u2265-70 dBm"
 
 
-def test_ssh_step_dialog_references_the_equipment_ssh_login(qapp,
+def test_ssh_step_dialog_has_no_login_ui_and_seeds_the_refs(qapp,
                                                             monkeypatch):
     panel = FCTTestConfigPanel(equipment_provider=lambda: EQUIPMENT)
     panel._add_row_for_label(STEP_TYPE_SFTP_GET)
@@ -177,14 +180,21 @@ def test_ssh_step_dialog_references_the_equipment_ssh_login(qapp,
 
     def fake_exec(dlg):
         seen["lines"] = _lines(dlg)
-        seen["overrides"] = _overrides(dlg)
-        return QDialog.DialogCode.Rejected
+        return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
-    assert any("ref: equipment.dut.ssh.ip" in t for t in seen["lines"])
-    assert any("effective: 192.168.1.20" in t for t in seen["lines"])
-    assert len(seen["overrides"]) >= 3      # host / username / password
+    # M55: the SSH login is a FIXED runtime reference into Equipment
+    assert not any("ref: equipment.dut.ssh" in t for t in seen["lines"])
+    assert not any("effective:" in t for t in seen["lines"])
+    assert not any("SSH host" in t or "SSH username" in t
+                   or "SSH password" in t for t in seen["lines"])
+    # the SFTP path parameters stay editable
+    assert any("Remote (DUT):" in t for t in seen["lines"])
+    step = _steps(panel)[0]
+    assert step["ref"] == {"host": "equipment.dut.ssh.ip",
+                           "username": "equipment.dut.ssh.username",
+                           "password": "equipment.dut.ssh.password"}
 
 
 # ------------------------------- §6 validation blocks load AND apply-save
