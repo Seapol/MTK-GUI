@@ -5,8 +5,10 @@ Covers the host_rf adapter (lswifi JSON, CoreWLAN text, bleak devices)
 and the two executors that consume it (Wifi_Scan dual target, BT_RSSI)
 without touching real hardware: the host command seam is monkeypatched.
 """
+import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -109,7 +111,7 @@ def test_parse_lswifi_malformed_json_raises():
 # ----------------------------------------------------------- wifi_scan
 def test_wifi_scan_windows_parses_canned_output(monkeypatch):
     monkeypatch.setattr(hr, "run_command",
-                        lambda cmd, timeout_s=30: LSWIFI_LIST_JSON)
+                        lambda cmd, timeout_s=30, **kw: LSWIFI_LIST_JSON)
     found = hr.wifi_scan(["AP-Office", "Missing-SSID"], key="windows")
     assert found == {"AP-Office": -48, "Missing-SSID": None}
 
@@ -117,7 +119,7 @@ def test_wifi_scan_windows_parses_canned_output(monkeypatch):
 def test_wifi_scan_windows_missing_lswifi_is_error(monkeypatch):
     monkeypatch.setattr(
         hr, "run_command",
-        lambda cmd, timeout_s=30:
+        lambda cmd, timeout_s=30, **kw:
         "'lswifi' is not recognized as an internal or external command")
     with pytest.raises(hr.HostRfError) as exc:
         hr.wifi_scan(["AP"], key="windows")
@@ -127,7 +129,8 @@ def test_wifi_scan_windows_missing_lswifi_is_error(monkeypatch):
 
 def test_wifi_scan_windows_malformed_output_is_error(monkeypatch):
     monkeypatch.setattr(hr, "run_command",
-                        lambda cmd, timeout_s=30: "<html>gateway</html>")
+                        lambda cmd, timeout_s=30, **kw:
+                        "<html>gateway</html>")
     with pytest.raises(hr.HostRfError) as exc:
         hr.wifi_scan(["AP"], key="windows")
     assert "not valid JSON" in str(exc.value)
@@ -135,9 +138,57 @@ def test_wifi_scan_windows_malformed_output_is_error(monkeypatch):
 
 def test_wifi_scan_mac_parses_corewlan_text(monkeypatch):
     monkeypatch.setattr(hr, "run_command",
-                        lambda cmd, timeout_s=30: COREWLAN_TEXT)
+                        lambda cmd, timeout_s=30, **kw: COREWLAN_TEXT)
     found = hr.wifi_scan(["OfficeWiFi", "DUT-SoftAP"], key="mac")
     assert found == {"OfficeWiFi": -45, "DUT-SoftAP": -55}
+
+
+# --------------------------------------------------- M63: keep_stderr=False
+def test_run_command_keep_stderr_false_strips_logs(monkeypatch):
+    """M63: lswifi INFO logs go to stderr; keep_stderr=False returns
+    stdout only so the JSON payload stays parseable."""
+    fake = SimpleNamespace(
+        stdout=LSWIFI_LIST_JSON,
+        stderr="2026-11-03 13:15:23,814 [INFO] lswifi.app: "
+               "exporting scans as JSON to lswifi_2026-11-03T13_15_21.json")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake)
+    out = hr.run_command("lswifi --json", keep_stderr=False)
+    assert out == LSWIFI_LIST_JSON
+    assert "INFO" not in out
+
+
+def test_run_command_keep_stderr_default_keeps_diagnostics(monkeypatch):
+    fake = SimpleNamespace(stdout="ok", stderr="warning noise")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake)
+    out = hr.run_command("tool")
+    assert out == "ok\nwarning noise"
+
+
+def test_run_command_keep_stderr_false_still_reports_missing_cmd(
+        monkeypatch):
+    """A missing-command marker on stderr must survive keep_stderr=False
+    so the lswifi-not-installed path still triggers."""
+    fake = SimpleNamespace(
+        stdout="",
+        stderr="'lswifi' is not recognized as an internal or external "
+               "command")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake)
+    out = hr.run_command("lswifi --json", keep_stderr=False)
+    assert "'lswifi' is not recognized" in out
+
+
+def test_wifi_scan_windows_ignores_stderr_logs(monkeypatch):
+    """M63 end-to-end: run_command keeps stdout only, wifi_scan parses
+    the scan result even though the tool wrote INFO logs to stderr."""
+    fake = SimpleNamespace(
+        stdout=LSWIFI_LIST_JSON,
+        stderr="2026-11-03 13:15:23,814 [INFO] lswifi.app: "
+               "display filter sensitivity -82; output includes 19 of "
+               "21 BSSIDs")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake)
+    found = hr.wifi_scan(["AP-Office", "DUT-SoftAP", "Missing"],
+                         key="windows")
+    assert found == {"AP-Office": -48, "DUT-SoftAP": -55, "Missing": None}
 
 
 def test_parse_corewlan_text_ignores_section_headers():
@@ -182,6 +233,41 @@ def test_parse_bleak_devices_exact_name_wins_over_partial():
         _Device("DUT-BT-Extra", "bb:bb:bb:bb:bb:bb", -30),
     ]
     assert hr.parse_bleak_devices(devices, "DUT-BT") == -50
+
+
+# ------------------------------- M63: bleak callback tuples (address, name)
+def test_bt_scan_parses_tuple_devices(monkeypatch):
+    """M63: _bleak_discover returns (address, name, rssi) tuples; bt_scan
+    matches address / exact name / containment, strongest RSSI wins -
+    same semantics as the legacy _Device objects."""
+    monkeypatch.setattr(
+        hr, "_bleak_discover",
+        lambda timeout_s=10.0: [
+            ("aa:bb:cc:dd:ee:ff", "DUT-BT", -52),
+            ("11:22:33:44:55:66", "Other", -70)])
+    assert hr.bt_scan("AA:BB:CC:DD:EE:FF") == -52   # address, hyphen form
+    assert hr.bt_scan("dut-bt") == -52              # exact name
+    assert hr.bt_scan("DUT") == -52                 # containment
+    assert hr.bt_scan("Nope") is None
+
+
+def test_parse_bleak_devices_tuple_strongest_rssi_wins():
+    devices = [("aa:aa:aa:aa:aa:aa", "DUT-BT", -60),
+               ("bb:bb:bb:bb:bb:bb", "DUT-BT", -45)]
+    assert hr.parse_bleak_devices(devices, "DUT-BT") == -45
+
+
+def test_parse_bleak_devices_tuple_skips_missing_rssi():
+    devices = [("aa:aa:aa:aa:aa:aa", "DUT-BT", None),
+               ("bb:bb:bb:bb:bb:bb", "DUT-BT", -40)]
+    assert hr.parse_bleak_devices(devices, "DUT-BT") == -40
+
+
+def test_parse_bleak_devices_mixed_tuple_and_object():
+    devices = [("aa:aa:aa:aa:aa:aa", "DUT-BT", -52),
+               _Device("Other", "11:22:33:44:55:66", -70)]
+    assert hr.parse_bleak_devices(devices, "dut-bt") == -52
+    assert hr.parse_bleak_devices(devices, "other") == -70
 
 
 def test_bt_scan_uses_discovery_seam(monkeypatch):

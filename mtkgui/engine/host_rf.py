@@ -56,19 +56,27 @@ def host_key() -> str:
 # ---------------------------------------------------------------------------
 # host command seam
 # ---------------------------------------------------------------------------
-def run_command(cmd_line: str, timeout_s: float = 30) -> str:
+def run_command(cmd_line: str, timeout_s: float = 30, *,
+                keep_stderr: bool = True) -> str:
     """Run one host shell command; returns stdout + stderr text.
 
-    Never raises: a missing command / timeout is returned as an
-    ``ERROR: ...`` line so the caller can attribute it.  Tests monkeypatch
-    this single entry point instead of reaching into subprocess."""
+    ``keep_stderr=False`` returns stdout only (callers that must parse
+    a payload on stdout while tool logs pollute stderr - e.g.
+    ``lswifi --json`` prints INFO logs to stderr).  A missing-command
+    marker on stderr is still merged in that mode so callers can tell
+    "tool absent" from "bad output".  Never raises: a missing command /
+    timeout is returned as an ``ERROR: ...`` line so the caller can
+    attribute it.  Tests monkeypatch this single entry point instead of
+    reaching into subprocess."""
     import subprocess
     try:
         proc = subprocess.run(cmd_line, shell=True, capture_output=True,
                               text=True, timeout=timeout_s)
     except Exception as exc:              # noqa: BLE001 - real cause text
         return f"ERROR: {exc}"
-    return (proc.stdout or "") + "\n" + (proc.stderr or "")
+    if keep_stderr or _looks_like_missing_cmd(proc.stderr):
+        return (proc.stdout or "") + "\n" + (proc.stderr or "")
+    return proc.stdout or ""
 
 
 def _looks_like_missing_cmd(text: str) -> bool:
@@ -193,7 +201,9 @@ def wifi_scan(ssid_list, *, key: str | None = None,
         return {ssid: rssi for ssid in targets}
     backend = key or host_key()
     if backend == "windows":
-        out = run_command(_LSWIFI_CMD, timeout_s=timeout_s)
+        # M63: lswifi INFO logs go to stderr; parse stdout only.
+        out = run_command(_LSWIFI_CMD, timeout_s=timeout_s,
+                          keep_stderr=False)
         try:
             found = parse_lswifi_json(out)
         except HostRfError:
@@ -203,7 +213,9 @@ def wifi_scan(ssid_list, *, key: str | None = None,
                     "'pip install lswifi')") from None
             raise
     elif backend == "mac":
-        out = run_command(_COREWLAN_CMD, timeout_s=timeout_s)
+        # M63: system_profiler can also emit noise on stderr.
+        out = run_command(_COREWLAN_CMD, timeout_s=timeout_s,
+                          keep_stderr=False)
         found = parse_corewlan_text(out)
     else:
         raise HostRfError(
@@ -216,10 +228,14 @@ def wifi_scan(ssid_list, *, key: str | None = None,
 # Bluetooth (BLE)
 # ---------------------------------------------------------------------------
 def _bleak_discover(timeout_s: float = 10.0) -> list:
-    """Run ``BleakScanner.discover`` and return the device list.
+    """Return ``[(address, name, rssi_dbm | None), ...]`` via the scan
+    callback.
 
     The single BLE seam used by :func:`bt_scan` (tests monkeypatch it).
-    A missing ``bleak`` package raises :class:`HostRfError`."""
+    Modern bleak (>= 0.21) exposes RSSI only through the detection
+    callback's AdvertisementData - ``BLEDevice.rssi`` was removed, so
+    ``BleakScanner.discover`` results carry no RSSI.  A missing
+    ``bleak`` package raises :class:`HostRfError`."""
     try:
         from bleak import BleakScanner
     except ImportError as exc:
@@ -227,10 +243,24 @@ def _bleak_discover(timeout_s: float = 10.0) -> list:
             "bleak is not installed (install it with 'pip install bleak'); "
             "BT scan failed") from exc
     import asyncio
+    hits: list = []
+
+    def _on_detect(device, advertisement_data):
+        hits.append((str(getattr(device, "address", "") or ""),
+                     str(getattr(device, "name", "") or ""),
+                     getattr(advertisement_data, "rssi", None)))
+
+    async def _scan():
+        scanner = BleakScanner(detection_callback=_on_detect)
+        await scanner.start()
+        await asyncio.sleep(timeout_s)
+        await scanner.stop()
+
     try:
-        return asyncio.run(BleakScanner.discover(timeout=timeout_s))
+        asyncio.run(_scan())
     except Exception as exc:              # noqa: BLE001 - backend failure
         raise HostRfError(f"BT scan failed: {exc}") from exc
+    return hits
 
 
 def parse_bleak_devices(devices, target: str):
@@ -238,7 +268,10 @@ def parse_bleak_devices(devices, target: str):
 
     `target` is matched against the BD address (``aa:bb:..`` /
     ``aa-bb-..`` normalised) and the broadcast name (case-insensitive;
-    an exact name match wins over a containment match)."""
+    an exact name match wins over a containment match).  `devices`
+    accepts BOTH the ``(address, name, rssi)`` tuples returned by
+    :func:`_bleak_discover` on modern bleak and legacy objects with
+    ``.name/.address/.rssi`` attributes."""
     tgt = str(target or "").strip().lower()
     if not tgt:
         return None
@@ -248,10 +281,15 @@ def parse_bleak_devices(devices, target: str):
     exact = None
     partial = None
     for dev in devices or []:
-        name = str(getattr(dev, "name", "") or "").strip()
-        addr = str(getattr(dev, "address", "") or "").replace(
-            "-", ":").lower()
-        rssi = getattr(dev, "rssi", None)
+        if isinstance(dev, (tuple, list)):
+            parts = list(dev) + [None, None, None]
+            addr, name, rssi = parts[0], str(parts[1] or ""), parts[2]
+        else:
+            addr = getattr(dev, "address", "") or ""
+            name = str(getattr(dev, "name", "") or "")
+            rssi = getattr(dev, "rssi", None)
+        name = name.strip()
+        addr = str(addr).replace("-", ":").lower()
         if rssi is None:
             continue
         try:

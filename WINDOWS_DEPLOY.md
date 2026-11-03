@@ -124,7 +124,7 @@ MTK_GUI\         <- 整个文件夹一起拷，缺一不可
 
 ### 安装清单
 
-**基础功能 —— 无需安装任何软件。** Python、PySide6、串口（pyserial）、SSH（paramiko）等依赖已全部打包在 `_internal\` 里；`ping`、`netsh`、`powershell` 为 Windows 自带。
+**基础功能（不含 Wi-Fi 扫描）—— 无需安装任何软件。** Python、PySide6、串口（pyserial）、SSH（paramiko）、蓝牙扫描（bleak，已随 exe 打包）等依赖已全部打包在 `_internal\` 里；`ping`、`netsh`、`powershell` 为 Windows 自带。
 
 **按需安装：**
 
@@ -134,6 +134,9 @@ MTK_GUI\         <- 整个文件夹一起拷，缺一不可
 | iperf3 | 测试计划启用了 Wi-Fi 吞吐量步骤（host 侧 `iperf3 -c` 测速或 `iperf3 -s` 当 server） | 下载 Windows 版 iperf3.exe，放进 `MTK_GUI\` 文件夹（和 MTK_GUI.exe 同目录）或 `C:\Windows\`；计划未启用吞吐步骤则不用装 |
 | USB 串口驱动 | 用 USB 转串口线连接 DUT | FTDI / CP210x 在 Win10/11 一般自动装；CH340 系列通常需手动装一次 |
 | WLAN 网卡 | host 侧 Wi-Fi 扫描/连接/吞吐测试 | 电脑本身需有可用的 WLAN 网卡 |
+| lswifi | 测试计划启用了 Wi-Fi 扫描步骤（Wifi_Scan，host 侧） | 每台跑 Wifi_Scan 的工厂电脑**必须装**：`pip install lswifi`，并把安装位置的 `Scripts` 目录加入 PATH（打包后的 exe 通过 shell 调用 `lswifi`）。venv 安装 → `<venv>\Scripts`；`--user` 安装 → `%APPDATA%\Python\Python3xx\Scripts`。副作用：lswifi 会在进程 CWD 写入 `lswifi_<时间戳>.json`，exe 旁边可能出现该文件（属正常） |
+| bleak | 测试计划启用了 BT_RSSI 步骤 | 已由 PyInstaller 随 exe 打包（见 requirements.txt），工厂电脑无需安装 |
+| Python | 打包/开发机（M63 起） | 建议 3.12 或 3.13；**不要用 3.14 搭配 bleak ≤ 0.20**（bleak-winrt 无 3.12+ wheel，运行时崩溃）。M63 修复后（bleak ≥ 0.21）3.13/3.14 均可用 |
 | 第三方烧录工具（2026-10-18 起） | 测试计划启用了 Flash FAT / Flash OOBE 步骤 | 安装站点选定的烧录工具（如 SEGGER J-Link 包），并在 Equipment 页对应 Flash / Debug Probe 行的 CLI profile 里填好 exe 路径、命令模板与输出关键词；`mode: auto` 由 MTK GUI 调 CLI 并按关键词判定，`mode: manual` 则由操作员在第三方 GUI 里手动烧录后在 MTK GUI 弹窗回填 GO / STOP（GUI 路径可配 `launch` 自动拉起，不配则手动打开） |
 
 **两个前提 + 一条说明：**
