@@ -167,6 +167,93 @@ def test_excel_round_trip(tmp_path):
         assert other.get_params(key) == model.get_params(key)
 
 
+def _allocated_model() -> YamlBuildModel:
+    """M70: model with all three allocation tables fully configured."""
+    from mtkgui.gui.yamlbuild.channel_allocation import AllocatedRow
+    from mtkgui.gui.yamlbuild.power_alloc import (
+        CLOCK_BANDS,
+        CLOCK_CHANNELS,
+        DAQM908A_SENSE_CHANNELS,
+        GPIO_DIO_CHANNELS,
+        U2355A_AI_CHANNELS,
+    )
+    model = make_model()
+    band = next(iter(CLOCK_BANDS.values()))
+    model.set_channel_allocation({
+        "power": [AllocatedRow(
+            net="VDD_3V3", test_point="TP1.1",
+            impedance=DAQM908A_SENSE_CHANNELS[0],
+            power_rails=U2355A_AI_CHANNELS[0],
+            voltage=DAQM908A_SENSE_CHANNELS[0],
+            r_gnd_min_ohm="1.500", nominal_v="3.300",
+            lower_v="3.135", upper_v="3.465").to_dict()],
+        "clock": [AllocatedRow(
+            net="CLK_24M", test_point="TP3.1",
+            se_clock_hz=CLOCK_CHANNELS[0], band=band,
+            nominal_khz="24000.000", lower_khz="23998.800",
+            upper_khz="24001.200").to_dict()],
+        "gpio": [AllocatedRow(
+            net="GPIO_RST", test_point="TP2.1",
+            dio_channel=GPIO_DIO_CHANNELS[0],
+            op_type="U2355A DIO Write", drive_level="High").to_dict()],
+    })
+    return model
+
+
+def test_excel_round_trip_keeps_channel_allocation_fields(tmp_path):
+    """M70: field-level Channel Allocation round trip (all three tables,
+    limits + op_type / drive_level)."""
+    model = _allocated_model()
+    path = str(tmp_path / "alloc.xlsx")
+    assert export_to_excel(model, path) > 10
+
+    other = make_model(enabled=False)
+    report = import_from_excel(other, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert other.get_channel_allocation() == model.get_channel_allocation()
+    power = other.get_channel_allocation()["power"][0]
+    assert power["r_gnd_min_ohm"] == "1.500"
+    assert power["nominal_v"] == "3.300"
+    assert power["lower_v"] == "3.135"
+    assert power["upper_v"] == "3.465"
+    clock = other.get_channel_allocation()["clock"][0]
+    assert clock["nominal_khz"] == "24000.000"
+    assert clock["lower_khz"] == "23998.800"
+    assert clock["upper_khz"] == "24001.200"
+    gpio = other.get_channel_allocation()["gpio"][0]
+    assert gpio["op_type"] == "U2355A DIO Write"
+    assert gpio["drive_level"] == "High"
+
+
+def test_legacy_workbook_keeps_model_values(tmp_path):
+    """M70 backward compatibility: a pre-M70 workbook (without the new
+    columns) still imports and keeps the values already on the model."""
+    from openpyxl import load_workbook
+
+    model = _allocated_model()
+    path = str(tmp_path / "alloc.xlsx")
+    export_to_excel(model, path)
+    workbook = load_workbook(path)
+    for sheet, new_columns in (
+            ("Power", ("R-GND Min limit (ohm)", "Nominal (V)",
+                       "Lower (V)", "Upper (V)")),
+            ("Clock", ("Nominal (kHz)", "Lower (kHz)", "Upper (kHz)")),
+            ("GPIO", ("Op Type", "Drive Level"))):
+        ws = workbook[sheet]
+        header = [cell.value for cell in ws[1]]
+        for name in new_columns:
+            if name in header:
+                ws.delete_cols(header.index(name) + 1)
+                header.remove(name)
+    workbook.save(path)
+
+    other = _allocated_model()
+    report = import_from_excel(other, path)
+    assert report.applied, report.errors
+    assert other.get_channel_allocation() == model.get_channel_allocation()
+
+
 def test_excel_import_rejects_invalid(tmp_path):
     """Invalid values abort the whole import with row errors (no
     partial overwrites)."""

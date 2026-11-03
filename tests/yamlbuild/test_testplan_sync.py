@@ -117,6 +117,65 @@ def test_roundtrip_keeps_every_net(tmp_path):
     assert "VDD_3V3 (INPUT)" in evidence
 
 
+def test_channel_b_roundtrip_keeps_limits_and_control_io(tmp_path):
+    """M70: field-level Test Plan round trip (Power/Clock limits + the
+    Control IO DIO / op_type / drive_level cells)."""
+    from mtkgui.gui.yamlbuild.power_alloc import GPIO_DIO_CHANNELS
+
+    model = YamlBuildModel()
+    _import_plan(model, _workbook(tmp_path), None, _result())
+    alloc = model.get_channel_allocation()
+    for row in alloc["power"]:
+        if row["net"] == "VDD_3V3":
+            row.update({"r_gnd_min_ohm": "1.500", "nominal_v": "3.300",
+                        "lower_v": "3.135", "upper_v": "3.465"})
+    for row in alloc["clock"]:
+        if row["net"] == "CLK_24M":
+            row.update({"nominal_khz": "24000.000",
+                        "lower_khz": "23998.800",
+                        "upper_khz": "24001.200"})
+    for row in alloc["gpio"]:
+        if row["net"] == "GPIO_RST":
+            row.update({"dio_channel": GPIO_DIO_CHANNELS[0],
+                        "op_type": "U2355A DIO Write",
+                        "drive_level": "High"})
+    model.set_channel_allocation(alloc)
+
+    out = str(tmp_path / "limits.xlsx")
+    _export_plan(model, out, str(tmp_path / "limits_evidence.md"))
+    power = {row[0]: row for row in _rows(out, SHEET_POWER)}
+    clock = {row[0]: row for row in _rows(out, SHEET_CLOCK)}
+    control = {row[0]: row for row in _rows(out, SHEET_CONTROL_IO)}
+    assert float(power["VDD_3V3"][2]) == 1.5
+    assert float(power["VDD_3V3"][3]) == 3.3
+    assert float(power["VDD_3V3"][4]) == 3.135
+    assert float(power["VDD_3V3"][5]) == 3.465
+    assert float(clock["CLK_24M"][2]) == 24000.0
+    assert float(clock["CLK_24M"][3]) == 23998.8
+    assert float(clock["CLK_24M"][4]) == 24001.2
+    assert control["GPIO_RST"][2] == GPIO_DIO_CHANNELS[0]
+    assert control["GPIO_RST"][3] == "U2355A DIO Write"
+    assert control["GPIO_RST"][4] == "High"
+
+    other = YamlBuildModel()
+    _import_plan(other, out, None, None, overwrite=True)
+    imported = other.get_channel_allocation()
+    imported_power = {row["net"]: row for row in imported["power"]}
+    imported_clock = {row["net"]: row for row in imported["clock"]}
+    imported_gpio = {row["net"]: row for row in imported["gpio"]}
+    assert float(imported_power["VDD_3V3"]["r_gnd_min_ohm"]) == 1.5
+    assert float(imported_power["VDD_3V3"]["nominal_v"]) == 3.3
+    assert float(imported_power["VDD_3V3"]["lower_v"]) == 3.135
+    assert float(imported_power["VDD_3V3"]["upper_v"]) == 3.465
+    assert float(imported_clock["CLK_24M"]["nominal_khz"]) == 24000.0
+    assert float(imported_clock["CLK_24M"]["lower_khz"]) == 23998.8
+    assert float(imported_clock["CLK_24M"]["upper_khz"]) == 24001.2
+    assert imported_gpio["GPIO_RST"]["dio_channel"] == \
+        GPIO_DIO_CHANNELS[0]
+    assert imported_gpio["GPIO_RST"]["op_type"] == "U2355A DIO Write"
+    assert imported_gpio["GPIO_RST"]["drive_level"] == "High"
+
+
 def test_yaml_values_win_on_reexport(tmp_path):
     model = YamlBuildModel()
     _import_plan(model, _workbook(tmp_path), None, _result())

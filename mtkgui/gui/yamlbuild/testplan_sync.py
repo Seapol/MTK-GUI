@@ -390,15 +390,33 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         alloc = gpio_alloc_by_net.get(net)
         if alloc is None:
             alloc = {"net": net, "test_point": test_point or UNSET,
-                     "dio_channel": UNSET}
+                     "dio_channel": str(row.get("DIO Channel") or "")
+                     or UNSET,
+                     "op_type": str(row.get("Op Type") or "") or UNSET,
+                     "drive_level": str(row.get("Drive Level") or "")
+                     or UNSET}
             gpio_alloc.append(alloc)
             gpio_alloc_by_net[net] = alloc
             report.append(f"added control IO channel row {net}")
         elif overwrite:
             alloc["test_point"] = test_point or UNSET
+            for key, column in (("dio_channel", "DIO Channel"),
+                                ("op_type", "Op Type"),
+                                ("drive_level", "Drive Level")):
+                alloc[key] = str(row.get(column) or "").strip() or UNSET
             report.append(f"overwrote control IO channel row {net}")
         else:
-            report.append(f"kept control IO channel row {net}")
+            filled = False
+            for key, column in (("dio_channel", "DIO Channel"),
+                                ("op_type", "Op Type"),
+                                ("drive_level", "Drive Level")):
+                value = str(row.get(column) or "").strip()
+                current = str(alloc.get(key) or "").strip()
+                if current in ("", UNSET) and value:
+                    alloc[key] = value
+                    filled = True
+            report.append(f"{'filled' if filled else 'kept'} "
+                          f"control IO channel row {net}")
         _ensure_testable(model, net, "GPIO",
                          _tokens(row.get("Test Point(s)")), report)
 
@@ -594,6 +612,16 @@ def _yaml_overrides(model: YamlBuildModel) -> dict:
             slot(net)["r_v_channel"] = row.get("voltage")
         if str(row.get("power_rails") or "").strip() not in ("", UNSET):
             slot(net)["daq_ai_channel"] = row.get("power_rails")
+        # M70: explicit operator limits survive the YAML -> Excel -> YAML
+        # trip (blank/UNSET keeps the rails+tolerance derivation below;
+        # an existing rail / clock value keeps priority - YAML wins)
+        value = str(row.get("r_gnd_min_ohm") or "").strip()
+        if value not in ("", UNSET):
+            slot(net)["r_gnd_min_ohm"] = row.get("r_gnd_min_ohm")
+        for key in ("nominal_v", "lower_v", "upper_v"):
+            value = str(row.get(key) or "").strip()
+            if value not in ("", UNSET):
+                slot(net).setdefault(key, row.get(key))
     for net, values in overrides.items():
         nominal = _number(values.get("nominal_v"))
         if nominal is None or tolerance is None:
@@ -624,6 +652,12 @@ def _yaml_overrides(model: YamlBuildModel) -> dict:
             slot(net)["test_point"] = row.get("test_point")
         if str(row.get("se_clock_hz") or "").strip() not in ("", UNSET):
             slot(net)["freq_channel"] = row.get("se_clock_hz")
+        # M70: explicit clock limits survive both Excel directions
+        # (the clocks-line value keeps priority when both exist)
+        for key in ("nominal_khz", "lower_khz", "upper_khz"):
+            value = str(row.get(key) or "").strip()
+            if value not in ("", UNSET):
+                slot(net).setdefault(key, row.get(key))
 
     for entry in (model.gpio_allocation or []):
         net = str(entry.get("net") or "").strip()
@@ -634,6 +668,13 @@ def _yaml_overrides(model: YamlBuildModel) -> dict:
         if net and str(row.get("test_point") or "").strip() not in \
                 ("", UNSET):
             slot(net)["test_point"] = row.get("test_point")
+        # M70: the Control IO configuration travels with the workbook
+        if not net:
+            continue
+        for key in ("dio_channel", "op_type", "drive_level"):
+            value = str(row.get(key) or "").strip()
+            if value not in ("", UNSET):
+                slot(net)[key] = row.get(key)
     # input-rail evidence travels with the snapshot (the re-export must
     # keep the Power tree flow markers)
     for net, info in ((model.ict_test_plan or {}).get("records")

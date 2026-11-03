@@ -17,6 +17,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from mtkgui.gui.yamlbuild.channel_allocation import (
+    DRIVE_LEVELS,
+    OP_CHOICES,
     UNSET,
     AllocatedRow,
     ChannelAllocationData,
@@ -49,17 +51,23 @@ ALLOCATION_SHEET_NAMES = {"power": "Power", "clock": "Clock",
                           "gpio": "GPIO"}
 ALLOCATION_HEADERS = {
     "power": ("Net name", "Test point", "R-GND", "Power rails",
-              "Voltage"),
+              "Voltage", "R-GND Min limit (ohm)", "Nominal (V)",
+              "Lower (V)", "Upper (V)"),
     "clock": ("Net name", "Test point", "SE Clock Hz",
-              "Frequency band"),
-    "gpio": ("Net name", "Test point", "DIO Channel"),
+              "Frequency band", "Nominal (kHz)", "Lower (kHz)",
+              "Upper (kHz)"),
+    "gpio": ("Net name", "Test point", "DIO Channel", "Op Type",
+             "Drive Level"),
 }
 #: row keys written per table kind (no auto Status column anywhere)
 _ALLOC_ROW_KEYS = {
     "power": ("net", "test_point", "impedance", "power_rails",
-              "voltage"),
-    "clock": ("net", "test_point", "se_clock_hz", "band"),
-    "gpio": ("net", "test_point", "dio_channel"),
+              "voltage", "r_gnd_min_ohm", "nominal_v", "lower_v",
+              "upper_v"),
+    "clock": ("net", "test_point", "se_clock_hz", "band",
+              "nominal_khz", "lower_khz", "upper_khz"),
+    "gpio": ("net", "test_point", "dio_channel", "op_type",
+             "drive_level"),
 }
 #: per-cell dropdown enum validation (import pass 1)
 _ALLOC_POOLS = {
@@ -68,7 +76,9 @@ _ALLOC_POOLS = {
               "voltage": DAQM908A_SENSE_CHANNELS},
     "clock": {"se_clock_hz": CLOCK_CHANNELS,
               "band": tuple(dict.fromkeys(CLOCK_BANDS.values()))},
-    "gpio": {"dio_channel": GPIO_DIO_CHANNELS},
+    "gpio": {"dio_channel": GPIO_DIO_CHANNELS,
+             "op_type": OP_CHOICES,
+             "drive_level": DRIVE_LEVELS},
 }
 
 
@@ -197,38 +207,62 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     # GPIO) - optional (legacy workbooks stay importable); every
     # config cell must carry a valid dropdown enum value (no free
     # text); the Status column is read-only and ignored (auto).
+    # M70: a pre-M70 workbook without the new limit / op_type /
+    # drive_level columns still imports - the missing field keeps the
+    # CURRENT model value (matched by net + test point), never reset.
     alloc_data: dict[str, list[dict]] = {}
+    current = ChannelAllocationData.from_dict(model.get_channel_allocation())
     for kind, _cols in TABLE_SPECS:
         sheet = ALLOCATION_SHEET_NAMES[kind]
         if sheet not in wb.sheetnames:
             continue
         aw: Worksheet = wb[sheet]
-        for line_no, row in enumerate(
-                aw.iter_rows(min_row=2, values_only=True), start=2):
+        sheet_rows = list(aw.iter_rows(values_only=True))
+        if not sheet_rows:
+            continue
+        header = ["" if cell is None else str(cell).strip()
+                  for cell in sheet_rows[0]]
+        keys = _ALLOC_ROW_KEYS[kind]
+        #: column index for every key present in this workbook
+        present = {key: header.index(title)
+                   for key, title in zip(keys, ALLOCATION_HEADERS[kind])
+                   if title in header}
+        status_idx = header.index("Status") if "Status" in header else None
+        previous = {str(getattr(row, "net", "")): row
+                    for row in getattr(current, kind)}
+        for line_no, row in enumerate(sheet_rows[1:], start=2):
             values = ["" if v is None else str(v).strip() for v in row]
-            values += [""] * (len(ALLOCATION_HEADERS[kind])
-                              - len(values))
-            cells = dict(zip(_ALLOC_ROW_KEYS[kind], values))
-            # only the GPIO sheet carries the auto Status column
-            status_idx = len(_ALLOC_ROW_KEYS[kind])
-            cells["status"] = (values[status_idx]
-                               if len(values) > status_idx else "")
+            net = (values[present["net"]]
+                   if "net" in present and present["net"] < len(values)
+                   else "")
+            old = previous.get(net)
+            cells = {}
+            for key in keys:
+                if key in present and present[key] < len(values):
+                    cells[key] = values[present[key]]
+                else:
+                    # legacy workbook: keep the value already on the model
+                    cells[key] = str(getattr(old, key, "")) \
+                        if old is not None else ""
+            if status_idx is not None:
+                cells["status"] = (values[status_idx]
+                                   if status_idx < len(values) else "")
             prefix = f"{sheet} row {line_no}"
-            if not cells["net"]:
+            if not cells.get("net"):
                 report.errors.append(f"{prefix}: Net name required")
                 continue
-            if not cells["test_point"]:
+            if not cells.get("test_point"):
                 report.errors.append(f"{prefix}: Test point required")
                 continue
             for key, allowed in _ALLOC_POOLS[kind].items():
-                text = cells[key]
+                text = cells.get(key, "")
                 if text and text != UNSET and text not in allowed:
                     report.errors.append(
                         f"{prefix}: {key.replace('_', ' ').title()} "
                         f"{text!r} not in {'/'.join(allowed)}")
             if report.errors:
                 continue
-            cells.pop("status")
+            cells.pop("status", None)
             # canonical persisted row dict (full AllocatedRow keys,
             # exactly like the GUI table save path)
             alloc_data.setdefault(kind, []).append(
