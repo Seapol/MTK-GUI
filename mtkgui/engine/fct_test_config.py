@@ -34,7 +34,7 @@ YAML shape (product YAML `fct_test_config:` node):
         ap_password: ""            # hotspot password ({{password}})
         ap_ip: ""                  # AP/gateway IP; empty = auto-detect
         host_ip: ""                # Host PC IP; empty = auto-detect
-        scan_via: "host"           # host | dut_console
+        scan_via: "dut_console"    # host | dut_console (M66 default)
         rssi_min: -70
         scan_timeout: 15
         # 2. Ping  (Linux DUT only): Host->AP, DUT->AP, DUT->Host
@@ -1230,7 +1230,10 @@ class WifiCfg:
                                     # empty = auto-detect at run time
     rssi_min: int = -70
     scan_timeout: float = 15.0
-    scan_via: str = "host"          # host | dut_console (station-mode DUT)
+    scan_via: str = "dut_console"   # host | dut_console (station-mode DUT)
+    # M66: DUT IP for the Host -> DUT reachability gate of the DUT-console
+    # verdict (empty = skip the reachability check)
+    dut_ip: str = ""
     # M49b: second host-side scan target - the DUT's own SoftAP broadcast
     # SSID plus its own threshold (both targets are reported separately)
     dut_ssid: str = ""
@@ -1259,6 +1262,7 @@ class WifiCfg:
             "rssi_min": int(self.rssi_min),
             "scan_timeout": float(self.scan_timeout),
             "scan_via": self.scan_via,
+            "dut_ip": self.dut_ip,
             "dut_ssid": self.dut_ssid,
             "dut_rssi_min": int(self.dut_rssi_min),
             "ping_enabled": self.ping_enabled,
@@ -1450,7 +1454,8 @@ class FctTestConfig:
             rssi_min=int(wifi.get("rssi_min", -70)),
             scan_timeout=float(wifi.get("scan_timeout",
                                        DEFAULT_RF_TIMEOUT)),
-            scan_via=str(wifi.get("scan_via", "host")),
+            scan_via=str(wifi.get("scan_via", "dut_console")),
+            dut_ip=str(wifi.get("dut_ip", "")),
             dut_ssid=str(wifi.get("dut_ssid", "")),
             dut_rssi_min=int(wifi.get("dut_rssi_min", -60)),
             ping_enabled=bool(wifi.get(
@@ -1924,7 +1929,9 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
               "expected_ssid": w.ap_ssid,
               "rssi_min": int(w.rssi_min),
               "targets": targets,
-              "interface": w.interface}
+              "interface": w.interface,
+              # M66: Host -> DUT reachability gate of the DUT-side verdict
+              "dut_ip": str(w.dut_ip or "")}
         if cfg.dut_type == "linux" and w.scan_via == "dut_console":
             return [FctStep(
                 name="Wi-Fi Scan / RSSI (DUT console)",

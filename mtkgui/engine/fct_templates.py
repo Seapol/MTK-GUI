@@ -46,9 +46,12 @@ from mtkgui.engine.steps import OP_STEPS
 #: operator-facing menu entries -> template file names
 TEMPLATE_BARE_METAL = "Bare Metal DUT"
 TEMPLATE_LINUX = "Linux DUT"
+#: M66: operator-selectable complete Wifi_Scan sequence (never auto-loaded)
+TEMPLATE_WIFI_SCAN = "Wifi_Scan (Host<->DUT)"
 TEMPLATE_FILES = {TEMPLATE_BARE_METAL: "fct_bare_metal.yaml",
-                  TEMPLATE_LINUX: "fct_linux.yaml"}
-TEMPLATE_LABELS = (TEMPLATE_BARE_METAL, TEMPLATE_LINUX)
+                  TEMPLATE_LINUX: "fct_linux.yaml",
+                  TEMPLATE_WIFI_SCAN: "fct_wifi_scan.yaml"}
+TEMPLATE_LABELS = (TEMPLATE_BARE_METAL, TEMPLATE_LINUX, TEMPLATE_WIFI_SCAN)
 
 #: the Type labels a template step may carry (Delay / the two serial
 #: transfers are Add-menu entries but not part of STEP_TYPE_LABELS)
@@ -61,7 +64,7 @@ _CMD_FIELDS = {f.name for f in dataclasses.fields(ConsoleCommand)}
 
 #: prefill keys that map onto a stored row field
 PREFILL_KEYS = ("wifi_ssid", "wifi_password", "wifi_interface",
-                "assets_dir", "outbox_dir")
+                "wifi_driver_load_cmd", "assets_dir", "outbox_dir")
 
 
 def templates_dir() -> str:
@@ -142,6 +145,9 @@ def command_for_step(step: dict) -> ConsoleCommand:
         if key in _NON_FIELD_KEYS:
             continue
         setattr(cmd, key, value)
+    if step.get("note"):
+        # M66: the note marks special prefill rows (driver probe)
+        cmd._template_note = str(step.get("note"))
     return cmd
 
 
@@ -156,6 +162,14 @@ def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
     """
     values = dict(prefill or {})
     params = cmd.op_params if isinstance(cmd.op_params, dict) else None
+    if getattr(cmd, "_template_note", "").startswith("driver_probe"):
+        # M66: the DUT Wi-Fi driver load command comes from the project
+        # Wi-Fi page; the probe waits for the interface to appear
+        driver = str(values.get("wifi_driver_load_cmd") or "").strip()
+        if driver:
+            iface = (str(values.get("wifi_interface") or "").strip()
+                     or "wlan0")
+            cmd.send = f"{driver}; iw dev {iface} info"
     if (cmd.kind == KIND_OP and params
             and str(params.get("type") or "") == "wifi_connect"):
         if str(values.get("wifi_ssid") or "").strip():

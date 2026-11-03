@@ -1125,18 +1125,25 @@ class FCTTestConfigPanel(QWidget):
         assets, _hint = self._default_assets_dir()
         node = self.equipment_node() or {}
         wifi = ((node.get("peripherals") or {}).get("wifi") or {})
+        router = ((node.get("peripherals") or {}).get("router") or {})
         dut_wifi = ((node.get("dut") or {}).get("wifi") or {})
         # M50: the Equipment config is the source; a LEGACY project without
         # Equipment values keeps pre-filling from its imported old config.
         legacy_wifi = self._wifi_cfg
         return {
             "wifi_ssid": str(wifi.get("ap_ssid")
+                             or router.get("hotspot_ssid")
                              or (legacy_wifi.ap_ssid if legacy_wifi else "")
                              or ""),
-            "wifi_password": str(wifi.get("ap_password") or (
-                legacy_wifi.ap_password if legacy_wifi else "") or ""),
+            "wifi_password": str(wifi.get("ap_password")
+                                 or router.get("hotspot_password")
+                                 or (legacy_wifi.ap_password
+                                     if legacy_wifi else "") or ""),
             "wifi_interface": str(dut_wifi.get("interface") or (
                 legacy_wifi.interface if legacy_wifi else "") or ""),
+            # M66: the DUT Wi-Fi driver load command (Wi-Fi page config)
+            "wifi_driver_load_cmd": str(
+                legacy_wifi.driver_load_cmd if legacy_wifi else ""),
             "assets_dir": assets,
             "outbox_dir": self._default_outbox_dir(),
         }
@@ -2645,7 +2652,7 @@ class FCTTestConfigPanel(QWidget):
             ("rssi_min", "AP RSSI min (dBm)", "int", None, -70),
             ("dut_rssi_min", "DUT RSSI min (dBm)", "int", None, -70),
             ("scan_via", "Scan via (host / dut_console)", "text", None,
-             "host"),
+             "dut_console"),
             ("timeout_s", "Timeout", "int", None, 15),
         ),
         ("wifi", "ping"): (

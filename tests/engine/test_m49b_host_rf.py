@@ -23,6 +23,38 @@ from mtkgui.engine.fct_test_config import (
     build_fct_steps,
 )
 
+LSWIFI_REAL_26_AP_JSON = """
+[
+  {"SSID": "ChinaNet-4zEc-5G", "BSSID": "aa:bb:cc:00:11:22", "RSSI": -76},
+  {"SSID": "ChinaNet-4zEc", "BSSID": "aa:bb:cc:00:11:23", "RSSI": -68},
+  {"SSID": "CMCC-5G-01", "BSSID": "aa:bb:cc:00:11:24", "RSSI": -82},
+  {"SSID": "CMCC-2.4G-01", "BSSID": "aa:bb:cc:00:11:25", "RSSI": -74},
+  {"SSID": "TP-LINK_5G_1", "BSSID": "aa:bb:cc:00:11:26", "RSSI": -61},
+  {"SSID": "TP-LINK_2G_1", "BSSID": "aa:bb:cc:00:11:27", "RSSI": -70},
+  {"SSID": "Xiaomi_Router_5G", "BSSID": "aa:bb:cc:00:11:28", "RSSI": -79},
+  {"SSID": "Xiaomi_Router", "BSSID": "aa:bb:cc:00:11:29", "RSSI": -66},
+  {"SSID": "HUAWEI-5G-2", "BSSID": "aa:bb:cc:00:11:2a", "RSSI": -85},
+  {"SSID": "HUAWEI-2.4G", "BSSID": "aa:bb:cc:00:11:2b", "RSSI": -72},
+  {"SSID": "FAST_5G", "BSSID": "aa:bb:cc:00:11:2c", "RSSI": -88},
+  {"SSID": "FAST_2.4G", "BSSID": "aa:bb:cc:00:11:2d", "RSSI": -64},
+  {"SSID": "MERCURY_5G", "BSSID": "aa:bb:cc:00:11:2e", "RSSI": -81},
+  {"SSID": "MERCURY_2.4G", "BSSID": "aa:bb:cc:00:11:2f", "RSSI": -58},
+  {"SSID": "Tenda_5G", "BSSID": "aa:bb:cc:00:11:30", "RSSI": -90},
+  {"SSID": "Tenda_2.4G", "BSSID": "aa:bb:cc:00:11:31", "RSSI": -75},
+  {"SSID": "ASUS_RT_5G", "BSSID": "aa:bb:cc:00:11:32", "RSSI": -80},
+  {"SSID": "ASUS_RT_2G", "BSSID": "aa:bb:cc:00:11:33", "RSSI": -69},
+  {"SSID": "Netgear-5G", "BSSID": "aa:bb:cc:00:11:34", "RSSI": -83},
+  {"SSID": "Netgear-2.4G", "BSSID": "aa:bb:cc:00:11:35", "RSSI": -71},
+  {"SSID": "OfficeWiFi", "BSSID": "aa:bb:cc:00:11:36", "RSSI": -55},
+  {"SSID": "OfficeWiFi_5G", "BSSID": "aa:bb:cc:00:11:37", "RSSI": -60},
+  {"SSID": "GuestWiFi", "BSSID": "aa:bb:cc:00:11:38", "RSSI": -77},
+  {"SSID": "Lab-AP", "BSSID": "aa:bb:cc:00:11:39", "RSSI": -63},
+  {"SSID": "Lab-AP-5G", "BSSID": "aa:bb:cc:00:11:3a", "RSSI": -67},
+  {"SSID": "Factory-AP", "BSSID": "aa:bb:cc:00:11:3b", "RSSI": -73}
+]
+"""
+
+
 LSWIFI_LIST_JSON = """
 [
   {"ssid": "AP-Office", "bssid": "aa:bb:cc:dd:ee:01",
@@ -35,6 +67,7 @@ LSWIFI_LIST_JSON = """
    "channel": 11, "rssi": -80}
 ]
 """
+
 
 COREWLAN_TEXT = """
 Wi-Fi:
@@ -90,9 +123,25 @@ def test_parse_lswifi_networks_wrapper_and_mapping_shapes():
     assert hr.parse_lswifi_json(mapped) == {"DUT": -62}
 
 
-def test_parse_lswifi_percentage_is_normalised_to_dbm():
-    found = hr.parse_lswifi_json('[{"ssid": "Pct", "signal": 76}]')
+def test_parse_lswifi_percentage_field_is_normalised_to_dbm():
+    """M66: only an explicitly percentage-shaped field is converted."""
+    found = hr.parse_lswifi_json('[{"ssid": "Pct", "Signal %": 76}]')
     assert found["Pct"] == -62                # 76 % -> -62 dBm
+
+
+def test_parse_lswifi_real_26_ap_sample_keeps_the_dbm_reading():
+    """M66 regression: a realistic 26-AP scan keeps ChinaNet-4zEc-5G at
+    -76 dBm (the GUI used to report -24 dBm)."""
+    found = hr.parse_lswifi_json(LSWIFI_REAL_26_AP_JSON)
+    assert len(found) == 26
+    assert found["ChinaNet-4zEc-5G"] == -76
+    assert found["OfficeWiFi"] == -55
+    assert -24 not in found.values()
+
+
+def test_parse_lswifi_positive_dbm_field_is_not_a_percentage():
+    """A positive value on a dBm field is rejected (no silent -100%)."""
+    assert hr.parse_lswifi_json('[{"SSID": "X", "RSSI": 76}]') == {}
 
 
 def test_parse_lswifi_skips_rows_without_ssid_or_rssi():

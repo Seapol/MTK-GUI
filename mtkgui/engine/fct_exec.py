@@ -520,9 +520,11 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
 
 def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                            ctx: FctContext) -> FctOutcome:
-    """B5 Wi-Fi rssi_only via the DUT console: send
-    ``iw dev <interface> link``, parse ``signal: -X dBm`` (REGEX from
-    the board's FCT_SETUP interface), judge against rssi_min."""
+    """M66 Wi-Fi verdict via the DUT console: the DUT is a STA, so its
+    RSSI is read ON THE DUT (``iw dev <interface> link`` -> ``signal:
+    -X dBm``) and judged against rssi_min.  When a DUT IP is configured
+    the Host must also reach it - the verdict expresses the Host <-> DUT
+    link, not the router AP."""
     import re
     channel = ctx.channels.get(step.channel)
     if channel is None:
@@ -530,6 +532,7 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                           f"console channel '{step.channel}' not bound")
     interface = str(cfg.get("interface", "mlan0"))
     rssi_min = float(cfg.get("rssi_min", -70))
+    dut_ip = str(cfg.get("dut_ip") or "").strip()
     ctx.log(f"DUT: iw dev {interface} link")
     channel.write(f"iw dev {interface} link\n")
     deadline = time.monotonic() + max(step.timeout_s or 15.0, 1.0)
@@ -546,10 +549,20 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
         if m:
             rssi = float(m.group(1))
             ok = rssi >= rssi_min
+            detail = f"DUT Wi-Fi RSSI {rssi} dBm vs min {rssi_min}"
             ctx.log(f"DUT Wi-Fi RSSI: {rssi} dBm (min {rssi_min})")
+            if dut_ip:
+                from .host_platform import ping_host
+                reachable = ping_host(dut_ip)
+                ctx.log(f"Host -> DUT {dut_ip}: "
+                        + ("reachable" if reachable else "no reply"))
+                detail += (f"; Host -> DUT {dut_ip}: "
+                           + ("reachable" if reachable
+                              else "NO REPLY (link FAIL)"))
+                ok = ok and reachable
             return FctOutcome(
                 VERDICT_PASS if ok else VERDICT_FAIL,
-                f"RSSI {rssi} dBm vs min {rssi_min}", list(collected))
+                detail, list(collected))
         if re.search(r"not connected|No station|Invalid", text,
                      re.IGNORECASE):
             return FctOutcome(VERDICT_FAIL, "DUT Wi-Fi not connected",

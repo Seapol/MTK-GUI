@@ -63,7 +63,9 @@ def test_legacy_enabled_keys_are_ignored_on_load():
     assert cfg.console.port == "/dev/cu.test"
     assert cfg.wifi.any_enabled and cfg.bluetooth.any_enabled
     names = [s.name for s in build_fct_steps(cfg)]
-    assert "Wi-Fi Scan / RSSI" in names and "Bluetooth RSSI" in names
+    # M66: the Linux default verdict is the DUT-console Host<->DUT link
+    assert any(n.startswith("Wi-Fi Scan / RSSI") for n in names)
+    assert "Bluetooth RSSI" in names
 
 
 def test_roundtrip_drops_the_legacy_keys():

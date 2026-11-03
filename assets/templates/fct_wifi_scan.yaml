@@ -1,0 +1,58 @@
+# M66 reference template - Wifi_Scan Host<->DUT (operator-selected preset).
+#
+# Load ONLY when the operator presses "Load Template" -> "Wifi_Scan
+# (Host<->DUT)".  The app never injects these rows into an existing
+# sequence.  Every entry is an ordinary editable row afterwards.
+#
+# Real Host <-> DUT Wi-Fi test (NOT the router-AP peripheral check):
+#   1) DUT driver load + wlan interface ready
+#   2) push wpa_supplicant credentials + associate + DHCP
+#      (plan A: the DUT joins the factory router AP; plan B: the DUT
+#       joins the Host hotspot - set the SSID/password fields to the
+#       Equipment "Wired & Wireless Network" hotspot values)
+#   3) DUT has an IPv4 address on the Wi-Fi interface
+#   4) Wifi_Scan verdict = DUT-side RSSI (iw dev link) + Host -> DUT
+#      reachability, never the Host -> router AP reading
+template:
+  name: Wifi_Scan (Host<->DUT)
+  description: >
+    Complete Wifi_Scan sequence: DUT Wi-Fi driver load, wpa_supplicant
+    credentials, network join with DHCP, then a Host <-> DUT verdict
+    (DUT-side RSSI + DUT IP reachability).  Plan A = router AP, plan
+    B = Host hotspot; both use the same rows.
+steps:
+  - type: Console_serial
+    name: Wi-Fi driver load & ready
+    wait_enabled: false
+    send_enabled: true
+    send: "modprobe moal; iw dev wlan0 info"
+    capture_enabled: true
+    capture_expected: "Interface wlan0"
+    timeout: 15.0
+    note: driver_probe - the project driver_load_cmd is pre-filled here
+  - type: Operation
+    op: "Wi-Fi: Connect DUT to AP"
+    note: >
+      row 2 - writes wpa_supplicant.conf (SSID / password / interface
+      from the Equipment config), associates and runs DHCP.  Plan B:
+      use the Host hotspot SSID / password.
+  - type: Console_serial
+    name: DUT Wi-Fi address
+    wait_enabled: false
+    send_enabled: true
+    send: "ip -4 addr show wlan0"
+    capture_enabled: true
+    capture_expected: "inet "
+    timeout: 10.0
+    note: row 3 - proves the DUT joined the network and holds an IPv4 address
+  - type: Wifi_Scan
+    name: Wi-Fi Scan / RSSI (Host <-> DUT)
+    rf_subtest: scan
+    step_params:
+      scan_via: dut_console
+      rssi_min: -70
+      dut_rssi_min: -70
+      timeout_s: 15
+    note: >
+      row 4 - verdict = DUT-side RSSI (iw dev <iface> link) plus Host ->
+      DUT reachability; the router-AP scan is an optional peripheral check

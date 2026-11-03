@@ -61,7 +61,8 @@ def test_enabled_wifi_is_the_only_emitted_step(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
     names = [c["name"] for c in cases]
-    assert names == ["Wi-Fi Scan / RSSI"]
+    # M66: the default Wi-Fi scan verdict is the DUT-side Host<->DUT link
+    assert names == ["Wi-Fi Scan / RSSI (DUT console)"]
 
 
 def test_psu_fixture_setup_adds_nothing(page):
@@ -75,7 +76,7 @@ def test_psu_fixture_setup_adds_nothing(page):
     cases, errors = page._emit_fct_sequence(_params(text))
     assert errors == []
     names = [c["name"] for c in cases]
-    assert names == ["Wi-Fi Scan / RSSI"]
+    assert names == ["Wi-Fi Scan / RSSI (DUT console)"]
     ops = [c.get("op_params", {}).get("op") for c in cases]
     assert "Power On DUT" not in ops
     assert not any(str(o).startswith("Fixture ") for o in ops if o)

@@ -510,6 +510,10 @@ class YamlBuildPage(QWidget):
                     if not w.ap_password:
                         w.ap_password = str(eq(
                             "equipment.peripherals.wifi.ap_password", ""))
+                    if not w.dut_ip:
+                        # M66: Host -> DUT reachability gate
+                        w.dut_ip = str(eq(
+                            "equipment.peripherals.router.dut_ip", ""))
                 else:
                     b = cfg.bluetooth
                     if subtest == "rssi":

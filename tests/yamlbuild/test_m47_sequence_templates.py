@@ -52,6 +52,7 @@ from mtkgui.engine.fct_templates import (  # noqa: E402
     TEMPLATE_BARE_METAL,
     TEMPLATE_LABELS,
     TEMPLATE_LINUX,
+    TEMPLATE_WIFI_SCAN,
     load_template,
     load_template_commands,
     template_path,
@@ -108,12 +109,15 @@ def _rows(panel) -> list:
 # ------------------------------------------------------- 1 / 2 templates
 class TestTemplateFiles:
     def test_both_template_files_are_shipped(self):
-        assert set(TEMPLATE_LABELS) == {TEMPLATE_BARE_METAL, TEMPLATE_LINUX}
+        # M66 adds the operator-selectable Wifi_Scan (Host<->DUT) preset
+        assert set(TEMPLATE_LABELS) == {
+            TEMPLATE_BARE_METAL, TEMPLATE_LINUX, TEMPLATE_WIFI_SCAN}
         for label in TEMPLATE_LABELS:
             path = template_path(label)
             assert os.path.isfile(path), path
             assert os.path.basename(path) in ("fct_bare_metal.yaml",
-                                              "fct_linux.yaml")
+                                              "fct_linux.yaml",
+                                              "fct_wifi_scan.yaml")
 
     def test_bare_metal_template_has_nine_rows_in_order(self):
         rows = load_template_commands(TEMPLATE_BARE_METAL)

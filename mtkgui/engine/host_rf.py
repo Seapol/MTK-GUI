@@ -87,22 +87,30 @@ def _looks_like_missing_cmd(text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Wi-Fi
 # ---------------------------------------------------------------------------
-def _rssi_value(value):
-    """Normalise a raw RSSI field to int dBm (percent -> approximation
-    only when the source really is a percentage)."""
+def _rssi_value(value, *, percent: bool = False):
+    """Normalise a raw RSSI field to int dBm.
+
+    M66: the lswifi JSON schema carries dBm values directly (negative
+    ints such as -76).  A 0-100 value is ONLY converted (``//2 - 100``)
+    when the source field is explicitly a percentage; a positive value
+    on a dBm field is not a dBm reading and is rejected instead of
+    silently mis-converted (the old "-24 for a -76 AP" anomaly)."""
     try:
         rssi = int(float(value))
     except (TypeError, ValueError):
         return None
-    if 0 <= rssi <= 100:
-        # Windows "Signal %" style source (legacy shapes)
+    if -120 <= rssi <= 0:
+        return rssi
+    if percent and 0 < rssi <= 100:
         return rssi // 2 - 100
-    return rssi
+    return None
 
 
 _SSID_KEYS = ("ssid", "SSID", "name", "Name", "network")
-_RSSI_KEYS = ("rssi", "RSSI", "rssi_dbm", "signal_dbm", "signal",
-              "Signal", "signal_strength", "SignalStrength")
+#: documented dBm fields (negative ints) - no generic "signal" guesses
+_RSSI_KEYS = ("RSSI", "rssi", "rssi_dbm", "signal_dbm")
+#: explicitly percentage-shaped fields (0-100) -> approximation only
+_PERCENT_KEYS = ("Signal %", "signal_percent", "SignalPercent")
 
 
 def _row_ssid(row: dict):
@@ -117,6 +125,11 @@ def _row_rssi(row: dict):
     for key in _RSSI_KEYS:
         if key in row:
             val = _rssi_value(row.get(key))
+            if val is not None:
+                return val
+    for key in _PERCENT_KEYS:
+        if key in row:
+            val = _rssi_value(row.get(key), percent=True)
             if val is not None:
                 return val
     return None
