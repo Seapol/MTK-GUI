@@ -60,8 +60,11 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         # status-bar text elides by design
         "clipped|QLabel|width=146px < sizeHint=163px (minimumSizeHint=163px)",
         "clipped|QLabel|width=146px < sizeHint=208px (minimumSizeHint=208px)",
-        # the offscreen test screen is 800x800; real monitors are larger
-        "undersize|MainWindow|sizeHint 1322x1024px exceeds screen 800x800px",
+        # the offscreen test screen is 800x800; real monitors are larger.
+        # 1322x1030 is the STABLE sizeHint after run_sweep primes one
+        # MainWindow (the first-in-process window measures 1322x1024 and
+        # every later one 1322x1030 - see layout_audit._prime_layout).
+        "undersize|MainWindow|sizeHint 1322x1030px exceeds screen 800x800px",
     ],
     # SharePointSignInDialog ------------------------------------------------
     "SharePointSignInDialog": [

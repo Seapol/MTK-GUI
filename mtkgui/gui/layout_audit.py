@@ -517,12 +517,35 @@ def audit_main_window(app: QApplication) -> dict[str, list[LayoutIssue]]:
     return results
 
 
+def _prime_layout(app: QApplication) -> None:
+    """Build, show and destroy one MainWindow up front.
+
+    In a fresh process Qt's FIRST shown MainWindow reports a sizeHint of
+    1322x1024 while every later one reports 1322x1030 (+6px height once
+    the QSS/font path is cached).  Because the audit measures real
+    layout, priming makes the sweep deterministic: every measured
+    MainWindow is a "later" one, so the known-issues baseline (1030) is
+    stable no matter what the test session ran before this sweep.
+    """
+    from mtkgui.main_window import MainWindow
+    from mtkgui.permissions import FIXTURE_ATE, ROLE_SUPERVISOR
+    w = MainWindow(role=ROLE_SUPERVISOR, mode="Virtual", fixture=FIXTURE_ATE)
+    try:
+        w.show()
+        app.processEvents()
+    finally:
+        w.close()
+        w.deleteLater()
+        app.processEvents()
+
+
 def run_sweep(app: QApplication, factories=None
               ) -> tuple[dict[str, list[LayoutIssue]], dict[str, str]]:
     """Run every factory: show + audit; report factory crashes as skipped."""
     results: dict[str, list[LayoutIssue]] = {}
     skipped: dict[str, str] = {}
     factories = WINDOW_FACTORIES if factories is None else factories
+    _prime_layout(app)
     results.update(audit_main_window(app))
     for label, factory in factories:
         try:
