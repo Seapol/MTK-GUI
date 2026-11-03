@@ -42,17 +42,17 @@ EQUIPMENT_PATHS = {
                                                 "text"),
     "equipment.peripherals.bluetooth.scan_targets": (
         "PC Bluetooth - Scan targets", "text"),
-    "equipment.peripherals.router.setup_mode": ("Ethernet Router - Setup "
-                                                "mode", "text"),
-    "equipment.peripherals.router.router_ip": ("Ethernet Router - Router "
-                                               "IP", "text"),
-    "equipment.peripherals.router.dut_ip": ("Ethernet Router - DUT IP",
-                                            "text"),
+    "equipment.peripherals.router.setup_mode": ("Wired & Wireless Network "
+                                                "- Setup mode", "text"),
+    "equipment.peripherals.router.router_ip": ("Wired & Wireless Network "
+                                               "- Router IP", "text"),
+    "equipment.peripherals.router.dut_ip": ("Wired & Wireless Network - "
+                                            "DUT IP", "text"),
     # M55: static addressing sources for LAN Setup / Wi-Fi Connect
-    "equipment.peripherals.router.netmask": ("Ethernet Router - Netmask",
-                                             "text"),
-    "equipment.peripherals.router.gateway": ("Ethernet Router - Gateway",
-                                             "text"),
+    "equipment.peripherals.router.netmask": ("Wired & Wireless Network - "
+                                             "Netmask", "text"),
+    "equipment.peripherals.router.gateway": ("Wired & Wireless Network - "
+                                             "Gateway", "text"),
     # M64: the flash tool keeps ONE full executable path; args + prompt
     "equipment.jlink.executable_path": ("Flash Tool/Programmer - "
                                         "Executable path", "text"),

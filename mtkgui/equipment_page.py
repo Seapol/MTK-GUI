@@ -29,10 +29,12 @@ from PySide6.QtGui import (
     QPen,
 )
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QGraphicsPathItem,
@@ -219,7 +221,7 @@ LEFT_ENTRIES = (
     ("Peripherals", (
         ("pc_wifi", "PC Wi-Fi", "form", ("peripherals", "wifi")),
         ("pc_bt", "PC Bluetooth", "form", ("peripherals", "bluetooth")),
-        ("router", "Ethernet Router", "form", ("peripherals", "router")),
+        ("router", "Wired & Wireless Network", "form", ("peripherals", "router")),
         ("jlink", "Flash Tool/Programmer", "form", ("jlink", None)),
     )),
 )
@@ -263,7 +265,53 @@ GROUP_FIELDS = {
         ("router_ip", "Router IP", ""), ("dut_ip", "DUT IP", ""),
         # M55: runtime sources for the LAN Setup / Wi-Fi Connect static
         # addressing (the step dialogs no longer edit these)
-        ("netmask", "Netmask", "255.255.255.0"), ("gateway", "Gateway", "")],
+        ("netmask", "Netmask", "255.255.255.0"), ("gateway", "Gateway", ""),
+        # M65: the two network modules (see NETWORK_FIELDS below)
+    ],
+}
+
+#: user-visible name of the combined wired / wireless peripheral
+NETWORK_TITLE = "Wired & Wireless Network"
+
+#: M65: per-module fields of the "Wired & Wireless Network" peripheral.
+#: Names are part of the YAML contract (plain scalars, snake_case).
+NETWORK_FIELDS = [
+    ("wired_enabled", "Wired module enabled", True),
+    ("wifi_enabled", "Wireless module enabled", True),
+    ("wired_mode", "Wired mode", "direct"),
+    ("wired_dut_ports", "DUT port(s)", ""),
+    ("wired_host_port", "Host PC LAN port", ""),
+    ("wired_eth_ports", "Ethernet port(s)", ""),
+    ("wired_host_ip", "Host PC wired IP", ""),
+    ("wired_gateway", "Router gateway IP", ""),
+    ("wifi_mode", "Wireless mode", "hotspot"),
+    ("wifi_dut_iface", "DUT Wi-Fi interface", "wlan0"),
+    ("hotspot_ssid", "Hotspot SSID", ""),
+    ("hotspot_password", "Hotspot password", ""),
+    ("router_ap_ssid", "Router AP SSID", ""),
+    ("router_ap_password", "Router AP password", ""),
+    ("wifi_host_ip", "Host PC Wi-Fi IP", ""),
+    ("wifi_gateway", "Router gateway IP (Wi-Fi)", ""),
+]
+
+#: the network module fields join the legacy router group (YAML contract)
+GROUP_FIELDS[("peripherals", "router")] = (
+    GROUP_FIELDS[("peripherals", "router")] + NETWORK_FIELDS)
+
+#: module -> [(mode key, mode name, one-line description)]
+NETWORK_MODES = {
+    "wired": [
+        ("direct", "Direct (no router)",
+         "DUT -- RJ45 -- Host PC LAN port"),
+        ("lan", "LAN via router",
+         "DUT -> Ethernet switch/router -> Host PC RJ45"),
+    ],
+    "wifi": [
+        ("hotspot", "Host PC hotspot (no router)",
+         "DUT (wlan0) ~~ Wi-Fi ~~ Host PC AP (netsh)"),
+        ("router", "Wi-Fi router",
+         "DUT (wlan0) ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
+    ],
 }
 
 #: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2)
@@ -405,7 +453,8 @@ def _mock_configs():
             "table": [
                 ("PC Wi-Fi", "RF connectivity", "Not connected"),
                 ("PC Bluetooth", "RF connectivity", "Not connected"),
-                ("Ethernet Router", "LAN / iperf throughput", "Not connected"),
+                ("Wired & Wireless Network", "Wired / Wi-Fi connectivity",
+                 "Not connected"),
                 ("Media Converter", "T1 / T1S media", "Not connected"),
                 ("Display", "DSI-MIPI check", "Not connected"),
                 ("Camera", "CSI-MIPI check", "Not connected"),
@@ -1977,6 +2026,532 @@ class _GroupConfigDialog(QDialog):
                 for key, edit in self._edits.items()}
 
 
+# ---------------------------------------------------------------------------
+# M65: "Wired & Wireless Network" - mode-selection page + per-mode dialogs
+# ---------------------------------------------------------------------------
+class _TopologyDiagram(QWidget):
+    """Small schematic topology drawing of one network mode."""
+
+    def __init__(self, topology: str, parent=None):
+        super().__init__(parent)
+        self._topology = topology
+        self.setMinimumHeight(86)
+        self.setToolTip("Schematic topology of this mode")
+
+    def _nodes(self):
+        if self._topology == "lan":
+            return ["DUT", "Router / switch", "Host PC"]
+        if self._topology == "router":
+            return ["DUT", "Router AP", "Host PC"]
+        if self._topology == "hotspot":
+            return ["DUT", "Host PC (AP)"]
+        return ["DUT", "Host PC"]
+
+    def paintEvent(self, _event):                    # noqa: N802 - Qt
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w, h = self.width(), self.height()
+        nodes = self._nodes()
+        n = len(nodes)
+        margin = 8
+        gap = 8
+        box_w = max(40, int((w - 2 * margin - gap * (n - 1)) / n))
+        box_h = 30
+        top = 12
+        centers = []
+        for i, name in enumerate(nodes):
+            x = margin + i * (box_w + gap)
+            painter.setPen(QPen(QColor("#8a94a6"), 1.2))
+            painter.setBrush(QColor("#f3f5f8"))
+            painter.drawRoundedRect(x, top, box_w, box_h, 6, 6)
+            painter.setPen(QColor("#2b3445"))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            font = QFont(self.font())
+            font.setPointSizeF(8.0)
+            painter.setFont(font)
+            painter.drawText(x, top, box_w, box_h,
+                             Qt.AlignmentFlag.AlignCenter, name)
+            centers.append((x + box_w // 2, top + box_h // 2))
+        wireless = self._topology in ("hotspot", "router")
+        pen = QPen(QColor("#2f6fb3" if not wireless else "#b45309"), 1.4)
+        if wireless:
+            pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        for (x1, y1), (x2, _y2) in zip(centers, centers[1:]):
+            painter.drawLine(x1 + box_w // 2, y1, x2 - box_w // 2, y1)
+        font = QFont(self.font())
+        font.setPointSizeF(7.5)
+        painter.setFont(font)
+        painter.setPen(QColor("#6b7280"))
+        caption = {
+            "direct": "RJ45 (no router)",
+            "lan": "RJ45 - router gateway",
+            "hotspot": "Wi-Fi (netsh hotspot)",
+            "router": "Wi-Fi - router gateway",
+        }.get(self._topology, "")
+        painter.drawText(0, h - 18, w, 16, Qt.AlignmentFlag.AlignCenter,
+                         caption)
+
+
+class _ModeCard(QFrame):
+    """Clickable radio-style mode card (diagram + name + description)."""
+
+    clicked = Signal(str)
+
+    def __init__(self, mode_key: str, name: str, description: str,
+                 topology: str, parent=None):
+        super().__init__(parent)
+        self.mode_key = mode_key
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumWidth(240)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.addWidget(_TopologyDiagram(topology))
+        title = QLabel(name)
+        font = QFont(title.font())
+        font.setBold(True)
+        title.setFont(font)
+        title.setWordWrap(True)
+        lay.addWidget(title)
+        desc = QLabel(description)
+        desc.setObjectName("muted")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+        self._selected = False
+        self._apply_style()
+
+    def _apply_style(self):
+        if self._selected:
+            self.setStyleSheet(
+                "QFrame { border: 2px solid #2f6fb3; border-radius: 8px; "
+                "background: #eaf2fb; }")
+        else:
+            self.setStyleSheet(
+                "QFrame { border: 1px solid #c9d1dc; border-radius: 8px; "
+                "background: #ffffff; }")
+
+    def set_selected(self, selected: bool):
+        self._selected = bool(selected)
+        self._apply_style()
+
+    def mousePressEvent(self, event):                # noqa: N802 - Qt
+        self.clicked.emit(self.mode_key)
+        super().mousePressEvent(event)
+
+
+#: (field key, shown label) per network mode
+_MODE_FIELD_LABELS = {
+    "direct": [("wired_dut_ports", "DUT Port"),
+               ("wired_host_port", "Host PC LAN Port"),
+               ("wired_host_ip", "Host PC IP")],
+    "lan": [("wired_dut_ports", "DUT Port(s)"),
+            ("wired_eth_ports", "Ethernet Port(s)"),
+            ("wired_host_port", "Host PC RJ45 Port"),
+            ("wired_host_ip", "Host PC wired IP"),
+            ("wifi_host_ip", "Host PC Wi-Fi IP"),
+            ("wired_gateway", "Router gateway IP")],
+    "hotspot": [("wifi_dut_iface", "DUT Wi-Fi interface"),
+                ("hotspot_ssid", "Host PC AP SSID"),
+                ("hotspot_password", "Host PC AP password"),
+                ("wifi_host_ip", "Host PC Wi-Fi IP")],
+    "router": [("wifi_dut_iface", "DUT Wi-Fi interface"),
+               ("router_ap_ssid", "Router AP SSID"),
+               ("router_ap_password", "Router AP password"),
+               ("wifi_host_ip", "Host PC Wi-Fi IP"),
+               ("wired_host_ip", "Host PC wired IP"),
+               ("wifi_gateway", "Router gateway IP")],
+}
+
+_MODE_NAMES = {"direct": "Direct (no router)", "lan": "LAN via router",
+               "hotspot": "Host PC hotspot (no router)",
+               "router": "Wi-Fi router"}
+
+_MODE_GATEWAY_KEY = {"lan": "wired_gateway", "router": "wifi_gateway"}
+
+
+class _RouterModeDialog(QDialog):
+    """Pure-field configuration dialog of ONE network mode."""
+
+    def __init__(self, parent, mode: str, values: dict, on_save=None):
+        super().__init__(parent)
+        self._mode = mode
+        self._values = dict(values or {})
+        self._on_save = on_save
+        self.setWindowTitle(f"{NETWORK_TITLE} - {_MODE_NAMES.get(mode, mode)}")
+        fit_dialog(self, 640, 540)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        hint = QLabel({
+            "direct": "Direct RJ45 link between the DUT and the Host PC "
+                      "(no router in between).",
+            "lan": "The Host PC reaches the DUT through the router / switch.",
+            "hotspot": "The Host PC runs the Wi-Fi access point (netsh "
+                       "Hosted Network); the DUT joins it.",
+            "router": "The Host PC joins the Router AP; the DUT joins the "
+                      "same router.",
+        }.get(mode, ""))
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._edits = {}
+        for key, label in _MODE_FIELD_LABELS.get(mode, []):
+            edit = QLineEdit(str(self._values.get(key, "") or ""))
+            # bounded fields: two modules fit side by side without a
+            # horizontal scrollbar / oversized stretched rows
+            edit.setMaximumWidth(400)
+            if key in ("wired_dut_ports", "wired_eth_ports",
+                       "wifi_dut_iface"):
+                edit.setPlaceholderText("typed by hand from the DUT (ifconfig)")
+            elif key.endswith("password"):
+                edit.setPlaceholderText("empty = open hotspot")
+            else:
+                edit.setPlaceholderText("empty = not configured")
+            self._edits[key] = edit
+            form.addRow(f"{label}:", edit)
+        if mode in ("direct", "hotspot"):
+            gw = QLineEdit("— not applicable")
+            gw.setReadOnly(True)
+            gw.setMaximumWidth(400)
+            form.addRow("Gateway:", gw)
+        lay.addLayout(form)
+
+        if mode in _MODE_GATEWAY_KEY:
+            router_hint = QLabel(
+                "Host PC wired RJ45 and Wi-Fi are both assumed connected to "
+                "the router.")
+            router_hint.setObjectName("muted")
+            router_hint.setWordWrap(True)
+            lay.addWidget(router_hint)
+            warn = QLabel(
+                "Configure the Host PC <-> Router link in the system "
+                "network settings first; otherwise fill the fields in by "
+                "hand.")
+            warn.setObjectName("warn")
+            warn.setWordWrap(True)
+            lay.addWidget(warn)
+
+        buttons = QHBoxLayout()
+        self.btn_detect = QPushButton("Auto Detect")
+        buttons.addWidget(self.btn_detect)
+        self.btn_test = None
+        if mode in _MODE_GATEWAY_KEY:
+            self.btn_test = QPushButton("Test Connection")
+            buttons.addWidget(self.btn_test)
+        buttons.addStretch(1)
+        lay.addLayout(buttons)
+
+        if mode == "hotspot":
+            lay.addWidget(self._hotspot_block())
+
+        self.result_label = QLabel("")
+        self.result_label.setWordWrap(True)
+        lay.addWidget(self.result_label)
+
+        apply_scroll_to_dialog(self, body)
+        bottom = QHBoxLayout()
+        self.btn_apply = QPushButton("Apply && Save YAML")
+        bottom.addWidget(self.btn_apply)
+        bottom.addStretch(1)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        bottom.addWidget(close)
+        root.addLayout(bottom)
+
+        self.btn_detect.clicked.connect(self._detect)
+        if self.btn_test is not None:
+            self.btn_test.clicked.connect(self._test_connection)
+        self.btn_apply.clicked.connect(self._apply_save)
+
+    # ---------------------------------------------------------- helpers
+    def _report(self, ok: bool, message: str):
+        self.result_label.setText(message)
+        self.result_label.setStyleSheet(
+            "color: %s;" % ("#15803d" if ok else "#b91c1c"))
+
+    def _run_async(self, fn, on_done):
+        worker = _PeripheralTestWorker(fn, self)
+        worker.done.connect(lambda ok, msg: (worker.deleteLater(),
+                                             on_done(ok, msg)))
+        worker.start()
+
+    def values(self) -> dict:
+        return {key: edit.text().strip()
+                for key, edit in self._edits.items()}
+
+    def collected_values(self) -> dict:
+        """The whole group dict with this mode's edits applied."""
+        data = dict(self._values)
+        data.update(self.values())
+        return data
+
+    def _detect(self):
+        self.btn_detect.setEnabled(False)
+        self.result_label.setStyleSheet("")
+        self.result_label.setText("Auto Detect ...")
+        self._detected = {}
+
+        def work():
+            from .engine import host_platform
+            info = host_platform.detect_host_network()
+            self._detected = dict(info or {})
+            return bool(any(str(v or "").strip()
+                            for v in self._detected.values())), \
+                "Auto Detect finished"
+
+        def done(_ok, _message):
+            self.btn_detect.setEnabled(True)
+            info = dict(self._detected or {})
+            wired = str(info.get("wired_ip") or "")
+            wifi = str(info.get("wifi_ip") or "")
+            gw = str(info.get("gateway") or "")
+            port = str(info.get("wired_port") or "")
+            if self._mode in ("direct", "lan") and port:
+                if "wired_host_port" in self._edits:
+                    self._edits["wired_host_port"].setText(port)
+            if self._mode in ("direct", "lan", "router") and wired:
+                if "wired_host_ip" in self._edits:
+                    self._edits["wired_host_ip"].setText(wired)
+            if self._mode in ("lan", "hotspot", "router") and wifi:
+                if "wifi_host_ip" in self._edits:
+                    self._edits["wifi_host_ip"].setText(wifi)
+            gateway_key = _MODE_GATEWAY_KEY.get(self._mode)
+            if gateway_key and gw:
+                self._edits[gateway_key].setText(gw)
+            if not (wired or wifi or gw or port):
+                self._report(False, "Auto Detect found nothing - fill the "
+                                    "Host PC fields in by hand.")
+            else:
+                self._report(True, "Auto Detect: host values updated "
+                                   "(empty fields were not detected).")
+
+        self._run_async(work, done)
+
+    def _test_connection(self):
+        gateway_key = _MODE_GATEWAY_KEY.get(self._mode)
+        if not gateway_key:
+            return
+        gateway = self._edits[gateway_key].text().strip()
+        self.btn_test.setEnabled(False)
+        self.result_label.setStyleSheet("")
+        self.result_label.setText("Test Connection ...")
+
+        def work():
+            from .engine import host_platform
+            return host_platform.test_router_gateway(gateway)
+
+        def done(ok, message):
+            self.btn_test.setEnabled(True)
+            self._report(ok, message)
+
+        self._run_async(work, done)
+
+    def _hotspot_block(self):
+        box = QGroupBox("Hosted Network")
+        lay = QVBoxLayout(box)
+        self.hotspot_status = QLabel("Status: not checked")
+        self.hotspot_status.setObjectName("muted")
+        lay.addWidget(self.hotspot_status)
+        row = QHBoxLayout()
+        self.btn_hotspot_start = QPushButton("Start Hotspot")
+        self.btn_hotspot_stop = QPushButton("Stop Hotspot")
+        row.addWidget(self.btn_hotspot_start)
+        row.addWidget(self.btn_hotspot_stop)
+        row.addStretch(1)
+        lay.addLayout(row)
+        explain = QLabel(
+            "Requires Windows 11 with a Wi-Fi driver that reports "
+            '"Hosted network supported: Yes" and administrator rights. '
+            "PASS = hotspot up and the DUT can scan/join the SSID; "
+            "FAIL = check driver support and administrator rights.")
+        explain.setObjectName("muted")
+        explain.setWordWrap(True)
+        lay.addWidget(explain)
+        self.btn_hotspot_start.clicked.connect(self._start_hotspot)
+        self.btn_hotspot_stop.clicked.connect(self._stop_hotspot)
+        self._refresh_hotspot_status()
+        return box
+
+    def _refresh_hotspot_status(self):
+        def work():
+            from .engine import host_platform
+            return True, host_platform.hostednetwork_status() or "(unknown)"
+
+        def done(_ok, message):
+            self.hotspot_status.setText(f"Status: {message}")
+
+        self._run_async(work, done)
+
+    def _start_hotspot(self):
+        ssid = self._edits["hotspot_ssid"].text().strip()
+        key = self._edits["hotspot_password"].text().strip()
+        self.btn_hotspot_start.setEnabled(False)
+
+        def work():
+            from .engine import host_platform
+            return host_platform.start_hotspot(ssid, key)
+
+        def done(ok, message):
+            self.btn_hotspot_start.setEnabled(True)
+            self._report(ok, message)
+            self._refresh_hotspot_status()
+
+        self._run_async(work, done)
+
+    def _stop_hotspot(self):
+        self.btn_hotspot_stop.setEnabled(False)
+
+        def work():
+            from .engine import host_platform
+            return host_platform.stop_hotspot()
+
+        def done(ok, message):
+            self.btn_hotspot_stop.setEnabled(True)
+            self._report(ok, message)
+            self._refresh_hotspot_status()
+
+        self._run_async(work, done)
+
+    def _apply_save(self):
+        data = self.collected_values()
+        self._values = data
+        if self._on_save is not None:
+            self._on_save(data)
+        self.accept()
+
+
+class RouterNetworkDialog(QDialog):
+    """Mode-selection page of the "Wired & Wireless Network" peripheral.
+
+    Two modules side by side; each module shows two schematic mode cards
+    (radio-style, mutually exclusive).  Clicking a card selects the mode
+    and opens its pure-field configuration dialog.
+    """
+
+    def __init__(self, parent, values, save_callback=None):
+        super().__init__(parent)
+        self._values = dict(values or {})
+        self._save_callback = save_callback
+        self.setWindowTitle(f"{NETWORK_TITLE} - Configuration")
+        fit_dialog(self, 700, 620)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        note = QLabel(
+            "Wired (RJ45) and Wireless (AP hotspot) are independent: use "
+            "either or both.  Mode selection only affects topology and the "
+            "Host PC IP/gateway detection - FCT Wi-Fi steps remain Host "
+            "PC <-> DUT end-to-end tests.")
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        modules = QHBoxLayout()
+        self._panels = {}
+        self._cards = {"wired": {}, "wifi": {}}
+        self._hints = {}
+        for module in ("wired", "wifi"):
+            panel = QGroupBox("Wired (RJ45)" if module == "wired"
+                              else "Wireless (AP hotspot)")
+            pl = QVBoxLayout(panel)
+            enabled = QCheckBox("Module enabled")
+            enabled.setChecked(bool(self._values.get(
+                f"{module}_enabled", True)))
+            pl.addWidget(enabled)
+            self._panels[module] = enabled
+            current = self._current_mode(module)
+            cards = QVBoxLayout()
+            for key, name, desc in NETWORK_MODES[module]:
+                card = _ModeCard(key, name, desc, key)
+                card.set_selected(key == current)
+                card.clicked.connect(
+                    lambda chosen, m=module: self._select_and_open(m, chosen))
+                self._cards[module][key] = card
+                cards.addWidget(card)
+            pl.addLayout(cards)
+            hint = QLabel(
+                f"Current selection: {_MODE_NAMES.get(current, current)}")
+            hint.setObjectName("muted")
+            hint.setWordWrap(True)
+            self._hints[module] = hint
+            pl.addWidget(hint)
+            modules.addWidget(panel, 1)
+        lay.addLayout(modules)
+
+        apply_scroll_to_dialog(self, body)
+        bottom = QHBoxLayout()
+        btn_save = QPushButton("Apply && Save YAML")
+        btn_save.setToolTip(
+            "Persist the network configuration into the project yaml")
+        btn_save.clicked.connect(self._apply_save)
+        bottom.addWidget(btn_save)
+        bottom.addStretch(1)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.accept)
+        bottom.addWidget(close)
+        root.addLayout(bottom)
+
+    # ---------------------------------------------------------- helpers
+    def _current_mode(self, module):
+        value = str(self._values.get(f"{module}_mode") or "").strip()
+        if value:
+            return value
+        # legacy projects only know setup_mode -> map it onto the wired mode
+        if module == "wired" and str(
+                self._values.get("setup_mode") or "").strip() == "via_ap":
+            return "lan"
+        return NETWORK_MODES[module][0][0]
+
+    def _select(self, module, mode):
+        self._values[f"{module}_mode"] = mode
+        for key, card in self._cards[module].items():
+            card.set_selected(key == mode)
+        self._hints[module].setText(
+            f"Current selection: {_MODE_NAMES.get(mode, mode)}")
+
+    def _select_and_open(self, module, mode):
+        self._select(module, mode)
+        dlg = _RouterModeDialog(self, mode, self._values,
+                                on_save=self._absorb_values)
+        dlg.exec()
+
+    def _absorb_values(self, data):
+        self._values.update(dict(data or {}))
+        if self._save_callback is not None:
+            self._save_callback(self.values())
+
+    def _apply_save(self):
+        if self._save_callback is not None:
+            self._save_callback(self.values())
+        self.accept()
+
+    def values(self) -> dict:
+        data = dict(self._values)
+        for module in ("wired", "wifi"):
+            data[f"{module}_enabled"] = bool(
+                self._panels[module].isChecked())
+            data[f"{module}_mode"] = self._current_mode(module)
+        # legacy compatibility for the FCT LAN Setup / Wi-Fi Connect steps
+        data["setup_mode"] = ("direct"
+                              if data.get("wired_mode") == "direct"
+                              else "via_ap")
+        gateway = ""
+        if data.get("wired_mode") == "lan":
+            gateway = str(data.get("wired_gateway") or "").strip()
+        elif data.get("wifi_mode") == "router":
+            gateway = str(data.get("wifi_gateway") or "").strip()
+        if gateway:
+            data["router_ip"] = gateway
+            data["gateway"] = gateway
+        return data
+
+
 class _DeviceEditDialog(QDialog):
     """Per-device editor opened by double-clicking a table row: an
     editable form when the device integration is developed, otherwise
@@ -2973,6 +3548,9 @@ class EquipmentPage(QWidget):
         cfg = self.configs.setdefault(owner, {"title": owner})
         groups = cfg.setdefault("groups", {})
         values = groups.setdefault(group, _default_group(owner, group))
+        if (owner, group) == ("peripherals", "router"):
+            self._open_network_entry(groups, group, values)
+            return
         spec = GROUP_FIELDS[(owner, group)]
         probe = None
         if entry_key in _TESTABLE_FORM_KEYS:
@@ -2981,6 +3559,30 @@ class EquipmentPage(QWidget):
         dlg = _GroupConfigDialog(self, f"{cfg['title']} - {group}",
                                  spec, values, test_probe=probe)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            groups[group] = dlg.values()
+
+    def _open_network_entry(self, groups, group, values):
+        """M65: mode-selection page + per-mode dialogs (replaces the flat
+        Ethernet Router form)."""
+        # old projects carry only the legacy fields: fill the new module
+        # fields with their defaults, the saved values always win
+        saved = dict(values or {})
+        merged = dict(_default_group("peripherals", "router"))
+        merged.update(saved)
+        if not str(saved.get("wired_mode") or "").strip():
+            # legacy setup_mode "via_ap" -> the LAN mode (kept intact)
+            merged["wired_mode"] = (
+                "lan" if str(merged.get("setup_mode") or "") == "via_ap"
+                else "direct")
+        groups[group] = merged
+
+        def save(new_values):
+            groups[group] = dict(new_values)
+            self.apply_save_requested.emit()
+
+        dlg = RouterNetworkDialog(self, merged, save_callback=save)
+        dlg.exec()
+        if dlg.result() == QDialog.DialogCode.Accepted:
             groups[group] = dlg.values()
 
     def _open_plain_entry(self, owner, cfg, entry_key=None):

@@ -30,8 +30,11 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "clipped|QLabel|width=130px < sizeHint=177px (minimumSizeHint=177px)",
         # M64: the longer "Flash Tool/Programmer" entry label elides too
         "clipped|QLabel|width=130px < sizeHint=159px (minimumSizeHint=159px)",
-        # 240px minimum left column + entry content (design decision)
-        "overflow_x|QScrollArea|content sizeHint=319px > viewport=226px "
+        # M65: ... like the longer "Wired & Wireless Network" label
+        "clipped|QLabel|width=130px < sizeHint=181px (minimumSizeHint=181px)",
+        # 240px minimum left column + entry content (design decision);
+        # M65: the longer entry labels raise the content hint to 323px
+        "overflow_x|QScrollArea|content sizeHint=323px > viewport=226px "
         "(horizontal scrollbar)",
     ],
     # ExportPage -------------------------------------------------------------
@@ -44,10 +47,6 @@ KNOWN_ISSUES: dict[str, list[str]] = {
     # Run Control is squeezed by the top-row splitter at the 1020px default
     # window width - the group is 190px wide while it needs 370px.  Raising
     # its minimum would force a wider default window (design decision -> M63).
-    "MainWindow/EquipmentPage": [
-        # M61 130px name minimum + M64 "Flash Tool/Programmer" label elides
-        "clipped|QLabel|width=130px < sizeHint=159px (minimumSizeHint=159px)",
-    ],
     "MainWindow": [
         "clipped|QDoubleSpinBox|width=33px < minimumSizeHint=98px",
         "clipped|QGroupBox|width=190px < sizeHint=370px (minimumSizeHint=370px)",

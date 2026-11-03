@@ -52,6 +52,13 @@ __all__ = [
     "netmask_to_prefix", "parse_dut_ip", "wifi_driver_ready",
     "network_ip_commands", "wifi_connect_plan", "lan_setup_plan",
     "ping_cmd", "ping_host", "tcp_port_open", "serial_port_devices",
+    # M65: wired / wireless network module helpers
+    "parse_ipconfig", "parse_mac_hardware_ports", "parse_ifconfig_addresses",
+    "parse_mac_default_gateway", "detect_host_network",
+    "parse_hostednetwork_status", "hostednetwork_status",
+    "parse_hostednetwork_supported", "hostednetwork_supported",
+    "hotspot_start_commands", "hotspot_stop_command", "start_hotspot",
+    "stop_hotspot", "test_router_gateway",
 ]
 
 
@@ -885,3 +892,219 @@ def serial_port_devices(devices, key: str | None = None) -> list:
     if key == "windows":
         return [d for d in items if d.upper().startswith("COM")]
     return items
+
+
+# ---------------------------------------------------------------------------
+# M65: wired / wireless network module (Auto Detect, Test Connection,
+# netsh Hosted Network).  Every function goes through run_link_cmd so the
+# unit tests monkeypatch ONE entry point.
+# ---------------------------------------------------------------------------
+def parse_ipconfig(text: str) -> dict:
+    """Windows ``ipconfig`` -> wired / Wi-Fi adapter IPs, port names and
+    the default gateway.  Missing values stay empty (never fabricated)."""
+    import re
+    result = {"wired_ip": "", "wifi_ip": "", "wired_port": "",
+              "wifi_port": "", "gateway": ""}
+    section = ""
+    is_wifi_section = False
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if re.search(r"adapter\s+", line, re.I) and line.endswith(":"):
+            section = line[:-1].split("adapter", 1)[-1].strip()
+            is_wifi_section = bool(re.search(r"wireless|wi-fi|wlan", section,
+                                             re.I))
+            continue
+        if ":" not in line:
+            continue
+        label, value = line.split(":", 1)
+        low = label.lower()
+        if "ipv4" in low:
+            found = re.search(_IPV4_RE, value)
+            if not found:
+                continue
+            if is_wifi_section:
+                result["wifi_ip"] = result["wifi_ip"] or found.group(1)
+                result["wifi_port"] = result["wifi_port"] or section
+            else:
+                result["wired_ip"] = result["wired_ip"] or found.group(1)
+                result["wired_port"] = result["wired_port"] or section
+        elif "default gateway" in low:
+            found = re.search(_IPV4_RE, value)
+            if found and not result["gateway"]:
+                result["gateway"] = found.group(1)
+    return result
+
+
+def parse_mac_hardware_ports(text: str) -> dict:
+    """``networksetup -listallhardwareports`` -> {"wired": dev,
+    "wifi": dev} (device names for the Ethernet / Wi-Fi hardware ports)."""
+    import re
+    ports: dict = {}
+    blocks = re.split(r"\n\s*\n", str(text or ""))
+    for block in blocks:
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        hardware = next((ln for ln in lines
+                         if ln.lower().startswith("hardware port:")), "")
+        device = next((ln for ln in lines
+                       if ln.lower().startswith("device:")), "")
+        if not hardware or not device:
+            continue
+        name = hardware.split(":", 1)[1].strip()
+        dev = device.split(":", 1)[1].strip()
+        if re.search(r"wi-fi|airport|wireless", name, re.I):
+            ports.setdefault("wifi", dev)
+        elif re.search(r"ethernet|lan", name, re.I):
+            ports.setdefault("wired", dev)
+    return ports
+
+
+def parse_ifconfig_addresses(text: str) -> dict:
+    """``ifconfig`` -> {interface: first IPv4 address}."""
+    import re
+    addresses: dict = {}
+    current = ""
+    for raw in str(text or "").splitlines():
+        if raw and not raw[0].isspace() and ":" in raw:
+            current = raw.split(":", 1)[0].strip()
+            continue
+        found = re.search(r"inet\s+" + _IPV4_RE, raw)
+        if found and current:
+            addresses.setdefault(current, found.group(1))
+    return addresses
+
+
+def parse_mac_default_gateway(text: str) -> str:
+    """``route -n get default`` -> the gateway IPv4."""
+    import re
+    found = re.search(r"gateway\s*:\s*" + _IPV4_RE, str(text or ""), re.I)
+    return found.group(1) if found else ""
+
+
+def detect_host_network() -> dict:
+    """Best-effort Host PC network detection (Windows + macOS).
+
+    Returns the same keys as :func:`parse_ipconfig`; a platform without
+    the commands returns empty values (the operator fills by hand).
+    """
+    key = platform_key()
+    if key == "windows":
+        return parse_ipconfig(run_link_cmd("ipconfig"))
+    if key == "mac":
+        ports = parse_mac_hardware_ports(
+            run_link_cmd("networksetup -listallhardwareports"))
+        addresses = parse_ifconfig_addresses(run_link_cmd("ifconfig"))
+        gateway = parse_mac_default_gateway(
+            run_link_cmd("route -n get default"))
+        wired_dev = ports.get("wired", "")
+        wifi_dev = ports.get("wifi", "")
+        return {"wired_ip": addresses.get(wired_dev, ""),
+                "wifi_ip": addresses.get(wifi_dev, ""),
+                "wired_port": wired_dev, "wifi_port": wifi_dev,
+                "gateway": gateway}
+    return {"wired_ip": "", "wifi_ip": "", "wired_port": "",
+            "wifi_port": "", "gateway": ""}
+
+
+def parse_hostednetwork_status(text: str) -> str:
+    """``netsh wlan show hostednetwork`` -> the Status value."""
+    import re
+    found = re.search(r"Status\s*:\s*(.+)", str(text or ""), re.I)
+    return found.group(1).strip() if found else ""
+
+
+def hostednetwork_status() -> str:
+    """Current Hosted Network status (Windows only, "" elsewhere)."""
+    if platform_key() != "windows":
+        return ""
+    return parse_hostednetwork_status(
+        run_link_cmd("netsh wlan show hostednetwork"))
+
+
+def parse_hostednetwork_supported(text: str) -> bool:
+    """True when netsh reports "Hosted network supported: Yes"."""
+    import re
+    found = re.search(r"Hosted network supported\s*:\s*(Yes|No)",
+                      str(text or ""), re.I)
+    return bool(found) and found.group(1).lower() == "yes"
+
+
+def hostednetwork_supported() -> bool:
+    """Whether the Wi-Fi driver supports a Hosted Network (Windows)."""
+    if platform_key() != "windows":
+        return False
+    return parse_hostednetwork_supported(
+        run_link_cmd("netsh wlan show drivers"))
+
+
+def hotspot_start_commands(ssid: str, key: str) -> list:
+    """The netsh commands that configure + start the Hosted Network."""
+    return [
+        'netsh wlan set hostednetwork mode=allow ssid="%s" key="%s"'
+        % (str(ssid or ""), str(key or "")),
+        "netsh wlan start hostednetwork",
+    ]
+
+
+def hotspot_stop_command() -> str:
+    """The netsh command that stops the Hosted Network."""
+    return "netsh wlan stop hostednetwork"
+
+
+def start_hotspot(ssid: str, key: str) -> tuple:
+    """Configure + start the Windows Hosted Network; ``(ok, message)``.
+
+    An empty key cannot start a hosted network (netsh requires 8-63
+    characters) - the operator is told to enter one instead of a silent
+    failure.  The empty-password YAML meaning (open hotspot on the DUT
+    side) is unchanged.
+    """
+    ssid = str(ssid or "").strip()
+    key = str(key or "").strip()
+    if platform_key() != "windows":
+        return False, ("Hosted Network control requires Windows netsh - "
+                       "configure the hotspot on this host by hand.")
+    if not ssid:
+        return False, "Enter the hotspot SSID first."
+    if not key:
+        return False, ("Enter the hotspot password (8-63 characters): "
+                       "netsh cannot start a Hosted Network without a key.")
+    if not hostednetwork_supported():
+        return False, ('The Wi-Fi driver reports "Hosted network supported: '
+                       "No\" - use another adapter or Windows Hotspot.")
+    ssid_cmd, start_cmd = hotspot_start_commands(ssid, key)
+    out_set = run_link_cmd(ssid_cmd)
+    out_start = run_link_cmd(start_cmd)
+    low = (out_set + "\n" + out_start).lower()
+    if "error" in low or "not running" in low:
+        return False, ("Hotspot FAILED: " + out_start.strip()[:300]
+                       + "\nCheck driver support / administrator rights.")
+    return True, f'Hotspot PASSED: "{ssid}" is up (netsh Hosted Network).'
+
+
+def stop_hotspot() -> tuple:
+    """Stop the Windows Hosted Network; ``(ok, message)``."""
+    if platform_key() != "windows":
+        return False, "Hosted Network control requires Windows netsh."
+    out = run_link_cmd(hotspot_stop_command())
+    if "error" in out.lower():
+        return False, "Hotspot FAILED: " + out.strip()[:300]
+    return True, "Hotspot stopped (netsh Hosted Network)."
+
+
+def test_router_gateway(gateway: str, timeout_s: int = 8) -> tuple:
+    """Ping the router gateway twice; ``(ok, message)`` for modes B / 2."""
+    gateway = str(gateway or "").strip()
+    if not gateway:
+        return False, ("No router gateway configured - run Auto Detect or "
+                       "fill it in by hand.")
+    mac = platform_key() != "windows"
+    cmd = f"ping -c 2 {gateway}" if mac else f"ping -n 2 {gateway}"
+    out = run_link_cmd(cmd, timeout_s=max(2, int(timeout_s)))
+    if _ping_has_reply(out):
+        return True, (f"Test Connection PASSED: the Host PC reaches the "
+                      f"router gateway {gateway} (LAN / Wi-Fi link OK).")
+    return False, (f"Test Connection FAILED: the router gateway {gateway} "
+                   "does not answer ping - check the cable / network "
+                   "settings and retry.")
