@@ -181,13 +181,26 @@ def test_collapse_control_is_a_flat_arrow_tool_button(page):
     assert not page.left_list.isHidden()
 
 
-def test_collapse_swaps_the_arrow_and_the_tooltip(page):
+def test_collapse_swaps_the_arrow_and_the_tooltip(page, qapp):
+    page.resize(1600, 900)
+    page.show()
+    qapp.processEvents()
+    before = page.splitter.sizes()
     page.btn_collapse.click()
+    qapp.processEvents()
     assert page.left_list.isHidden()
+    # M61 §2: the caption is hidden too and the column physically
+    # closes to the slim arrow strip
+    assert page.cap_label.isHidden()
+    left, right = page.splitter.sizes()
+    assert left <= 30
+    assert left + right == sum(before)
     assert page.btn_collapse.arrowType() == Qt.ArrowType.RightArrow
     assert page.btn_collapse.toolTip() == "Show Hardware Configuration"
     page.btn_collapse.click()
+    qapp.processEvents()
     assert not page.left_list.isHidden()
+    assert not page.cap_label.isHidden()
     assert page.btn_collapse.arrowType() == Qt.ArrowType.LeftArrow
     assert page.btn_collapse.toolTip() == "Collapse Hardware Configuration"
 

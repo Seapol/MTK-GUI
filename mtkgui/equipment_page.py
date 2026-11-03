@@ -2441,9 +2441,11 @@ class EquipmentPage(QWidget):
         outer.setSpacing(4)
 
         head = QHBoxLayout()
-        cap = QLabel("Hardware Configuration")
-        cap.setObjectName("strong")
-        head.addWidget(cap)
+        # M61 §2: stored so the collapse can hide the caption too (it
+        # used to prop the splitter's left column open)
+        self.cap_label = QLabel("Hardware Configuration")
+        self.cap_label.setObjectName("strong")
+        head.addWidget(self.cap_label)
         head.addStretch(1)
         # M54 §2: flat arrow toggle (Event Log style) instead of the
         # "Hide" / "Show" text button; started expanded
@@ -2485,12 +2487,15 @@ class EquipmentPage(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
-        name.setMinimumWidth(150)
+        name.setMinimumWidth(130)
         row.addWidget(name)
         row.addStretch(1)
         buttons = {}
         btn_cfg = QPushButton("Config")
-        btn_cfg.setFixedWidth(72)
+        # M61 §1: 92 px fits "Config" with the app QSS padding
+        # (7px 16px) - the former 72 px clipped the label; 130 + 92
+        # stays inside the ~226 px content width of the left column
+        btn_cfg.setFixedWidth(92)
         btn_cfg.clicked.connect(
             lambda _=False, k=key: self.open_entry(k))
         row.addWidget(btn_cfg)
@@ -2500,9 +2505,23 @@ class EquipmentPage(QWidget):
 
     def _toggle_left_column(self):
         """M54 §2: collapse the left column to the diagram / expand it
-        again; the arrow direction + tooltip follow the state."""
+        again; the arrow direction + tooltip follow the state.
+        M61 §2: the caption is hidden too and the splitter is
+        re-distributed so the column physically closes (a slim arrow
+        strip) / restores the ~25 % share."""
         visible = self.left_list.isHidden()
+        self.cap_label.setVisible(visible)
         self.left_list.setVisible(visible)
+        # the panel's minimum size changed with the hidden children - let
+        # the layout settle so the splitter honours the new sizes
+        self.left_panel.layout().activate()
+        sizes = self.splitter.sizes()
+        if len(sizes) == 2:
+            total = sizes[0] + sizes[1]
+            if visible:
+                self.splitter.setSizes([total // 4, total - total // 4])
+            else:
+                self.splitter.setSizes([28, total - 28])
         if visible:
             self.btn_collapse.setArrowType(Qt.ArrowType.LeftArrow)
             self.btn_collapse.setToolTip(
