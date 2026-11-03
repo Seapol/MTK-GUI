@@ -1265,6 +1265,15 @@ class MainWindow(QMainWindow):
             "(logs/_startup_timing.log). Changes take effect on the next "
             "GUI restart.")
         self.act_perf_timing.toggled.connect(self._set_perf_timing_enabled)
+        tools_menu.addSeparator()
+        # M69: project-bound custom assets (built-in template read-only)
+        self.act_assets_config = tools_menu.addAction(
+            "Config assets for projects…")
+        self.act_assets_config.setToolTip(
+            "Create / edit a project-owned assets folder copied from the "
+            "read-only built-in template")
+        self.act_assets_config.triggered.connect(self._open_assets_config)
+        self._assets_dialog = None
         # persistent Tools gateway (lazily created, reused by the
         # batch operations; the run flow builds its own per run)
         self._tools_gateway = None
@@ -1616,6 +1625,36 @@ class MainWindow(QMainWindow):
         that root."""
         from mtkgui import report_paths
         self._open_report_dir(report_paths.dut_folder(), "DAQ CSV Data")
+
+    def _open_assets_config(self):
+        """M69: Tools > Config assets for projects... (lazy, reused)."""
+        if self._assets_dialog is None:
+            from mtkgui.gui.assets_config_dialog import AssetsConfigDialog
+            self._assets_dialog = AssetsConfigDialog(
+                self, bind_callback=self._bind_project_assets)
+        self._assets_dialog.refresh()
+        self._assets_dialog.show()
+        self._assets_dialog.raise_()
+        self._assets_dialog.activateWindow()
+
+    def _bind_project_assets(self, project: str, assets_dir: str) -> None:
+        """M69: persist the project's assets choice in its shared FCT
+        parameters (``assets_dir`` + ``project_name``).
+
+        Configuration data only - no FCT sequence row is injected, added
+        or reordered.  The binding lands in the project yaml on the next
+        standard save (or immediately when a project file is loaded)."""
+        import os
+        path = os.path.normpath(assets_dir) if str(
+            assets_dir or "").strip() else ""
+        model = self.yaml_build_page.model
+        params = model.get_params("fct_build")
+        params["assets_dir"] = path
+        if project:
+            params["project_name"] = str(project)
+        model.set_params("fct_build", params)
+        if self._project_path:
+            self._save_yaml_to(self._project_path)
 
     def _open_report_dir(self, path: Path, title: str) -> None:
         """Create-if-missing and open a report folder in the system

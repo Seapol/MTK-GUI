@@ -1120,22 +1120,30 @@ def default_assets_dir(project: str = "", tenant_base: str = "projects",
                        bundled_assets: str = "assets") -> tuple:
     """Browse default for the Push step: ``(path, hint)``.
 
-    Priority: the CURRENT project's ``assets/`` folder, then the
-    bundled template (``_internal/assets`` in a frozen build).  ``hint``
-    is a human message when neither exists.
+    Priority (M69): the project's custom folder
+    ``projects/<Project>/assets_<Project>``, then the legacy
+    ``projects/<Project>/assets`` folder, then the bundled template
+    (``_internal/assets`` in a frozen build).  ``hint`` is a human
+    message when no project folder exists.
     """
     import os
     project = str(project or "").strip()
     if project:
-        candidate = os.path.normpath(os.path.join(
-            str(tenant_base or "projects"), project, "assets"))
-        if os.path.isdir(candidate):
-            return candidate, ""
-        hint = (f"project assets folder not found ({candidate}) - "
+        candidates = (
+            os.path.normpath(os.path.join(
+                str(tenant_base or "projects"), project,
+                "assets_" + project)),
+            os.path.normpath(os.path.join(
+                str(tenant_base or "projects"), project, "assets")),
+        )
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return candidate, ""
+        hint = (f"project assets folder not found ({candidates[0]}) - "
                 "choose a folder manually or use the bundled template")
         if os.path.isdir(bundled_assets):
             return os.path.normpath(bundled_assets), hint
-        return candidate, hint
+        return candidates[0], hint
     if os.path.isdir(bundled_assets):
         return os.path.normpath(bundled_assets), ""
     return "", "no assets template found - choose a folder manually"

@@ -858,6 +858,10 @@ class FCTTestConfigPanel(QWidget):
         #: its own tuning in ``ConsoleCommand.step_params``
         self._wifi_cfg = None
         self._bt_cfg = None
+        #: M46/M69: current project name + its bound assets folder (the
+        #: Push Browse defaults); empty = bundled template fallback
+        self._project_name = ""
+        self._assets_dir = ""
         self._guard = False
         #: M58: Undo / Redo snapshot history.  ``_undo_stack`` holds the
         #: table state BEFORE each operator change, ``_redo_stack`` the
@@ -1099,7 +1103,16 @@ class FCTTestConfigPanel(QWidget):
         self._insert_row(cmd)
 
     def _default_assets_dir(self) -> tuple:
-        """(path, hint) for the Push Browse default (M46)."""
+        """(path, hint) for the Push Browse default (M46).
+
+        M69: an explicitly BOUND ``assets_dir`` (project shared param,
+        set by Tools > Config assets for projects) wins when it exists;
+        otherwise the folder-priority search applies (assets_<Project>
+        -> legacy assets/ -> bundled template)."""
+        import os
+        bound = str(getattr(self, "_assets_dir", "") or "")
+        if bound and os.path.isdir(bound):
+            return os.path.normpath(bound), ""
         from mtkgui.gui.shell import resolve_tenant_base
         project = str(getattr(self, "_project_name", "") or "")
         if project:
@@ -1107,6 +1120,13 @@ class FCTTestConfigPanel(QWidget):
         else:
             base = "projects"
         return default_assets_dir(project, base)
+
+    def set_project_assets_binding(self, project: str,
+                                   assets_dir: str) -> None:
+        """M69: apply the project assets binding without reloading the
+        rows (no history reset - the table is untouched)."""
+        self._project_name = str(project or "")
+        self._assets_dir = str(assets_dir or "")
 
     def _default_outbox_dir(self) -> str:
         """Pull local default: the current project folder / outbox."""
@@ -3162,6 +3182,8 @@ class FCTTestConfigPanel(QWidget):
         # defaults); absent in most module params -> bundled template.
         self._project_name = str(params.get("project_name")
                                  or params.get("project") or "")
+        #: M69: the project's bound custom assets folder (push source)
+        self._assets_dir = str(params.get("assets_dir") or "")
         self._legacy = {k: v for k, v in params.items()
                         if k not in ("fct_test_config_yaml",
                                      "fct_sequence_cases_yaml",
