@@ -542,16 +542,18 @@ class YamlBuildPage(QWidget):
                             "equipment.dut.bluetooth.bd_addr", ""))
                 continue
             if step_type_label(cmd) == STEP_TYPE_FLASH_GUI:
-                # M50: J-Link executable comes from the Equipment config
-                # at run time; an override / inline path wins.
-                import os as _os
-                exe = str(ref_value(cmd, "jlink", ""))
-                inst = str(eq("equipment.jlink.install_path", ""))
+                # M64: the FULL executable path, the CLI arguments and the
+                # operator prompt come from the Equipment config at run
+                # time; an override / inline path still wins.
+                path = str(eq("equipment.jlink.executable_path", ""))
                 if (cmd.overrides or {}).get("jlink"):
                     cmd.flash_gui_path = str(cmd.overrides["jlink"])
-                elif not cmd.flash_gui_path and exe:
-                    cmd.flash_gui_path = (_os.path.join(inst, exe)
-                                          if inst else exe)
+                elif not cmd.flash_gui_path and path:
+                    cmd.flash_gui_path = path
+                cmd.flash_gui_arguments = str(
+                    eq("equipment.jlink.arguments", "") or "")
+                cmd.flash_gui_prompt = str(
+                    eq("equipment.jlink.prompt", "") or "")
                 commands.append(cmd)
                 continue
             if str(getattr(cmd, "transport", "") or "") == "ssh":

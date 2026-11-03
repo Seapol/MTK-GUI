@@ -218,8 +218,8 @@ class TestFlashGuiPanel:
             assert not [e for e in dlg.findChildren(QLineEdit)
                         if "override" in e.placeholderText()]
             labels = [w.text() for w in dlg.findChildren(QLabel)]
-            assert any("configured in Equipment (J-Link)" in t
-                       for t in labels)
+            assert any("configured in Equipment "
+                       "(Flash Tool/Programmer)" in t for t in labels)
             line = next(e for e in dlg.findChildren(QLineEdit)
                         if "flash GUI" in e.placeholderText())
             line.setText(FLASH_PATH)
@@ -233,7 +233,7 @@ class TestFlashGuiPanel:
         assert cmd.kind == KIND_FLASH_GUI
         assert cmd.flash_gui_path == FLASH_PATH
         assert cmd.flash_gui_message == "custom prompt"
-        assert cmd.refs["jlink"] == "equipment.jlink.executable"
+        assert cmd.refs["jlink"] == "equipment.jlink.executable_path"
         assert panel.cmd_table.item(row, _COL_CMD).text() == FLASH_PATH
 
 

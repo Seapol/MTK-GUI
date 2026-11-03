@@ -53,9 +53,13 @@ EQUIPMENT_PATHS = {
                                              "text"),
     "equipment.peripherals.router.gateway": ("Ethernet Router - Gateway",
                                              "text"),
-    "equipment.jlink.install_path": ("J-Link - Install path", "text"),
-    "equipment.jlink.executable": ("J-Link - Executable", "text"),
-    "equipment.jlink.device": ("J-Link - Device", "text"),
+    # M64: the flash tool keeps ONE full executable path; args + prompt
+    "equipment.jlink.executable_path": ("Flash Tool/Programmer - "
+                                        "Executable path", "text"),
+    "equipment.jlink.arguments": ("Flash Tool/Programmer - Arguments",
+                                  "text"),
+    "equipment.jlink.prompt": ("Flash Tool/Programmer - Prompt message",
+                               "text"),
     "equipment.control_board.dio.press": ("Control Board - Press",
                                           "text"),
     "equipment.control_board.dio.inpos": ("Control Board - In-position",
@@ -66,13 +70,27 @@ EQUIPMENT_PATHS = {
                                           "text"),
 }
 
-#: the plain-config entries store their fields under a ``fields`` map keyed
-#: by the shown label; these aliases find that value.
+#: the plain-config entries store their fields under a ``params`` map inside
+#: their equipment entry; these aliases find that value.
 _FIELD_ALIASES = {
-    "equipment.jlink.install_path": ("fields", "Install path"),
-    "equipment.jlink.executable": ("fields", "Executable"),
-    "equipment.jlink.device": ("fields", "Device"),
+    "equipment.jlink.executable_path": ("jlink", "params", "executable_path"),
+    "equipment.jlink.arguments": ("jlink", "params", "arguments"),
+    "equipment.jlink.prompt": ("jlink", "params", "prompt"),
 }
+
+#: M64: references written by older projects (install path + executable
+#: were two separate fields) map to the merged executable path, so old
+#: YAML keeps loading.
+LEGACY_PATHS = {
+    "equipment.jlink.install_path": "equipment.jlink.executable_path",
+    "equipment.jlink.executable": "equipment.jlink.executable_path",
+}
+
+
+def canonical_path(path) -> str:
+    """The current reference path for a (possibly legacy) reference."""
+    text = str(path or "").strip()
+    return LEGACY_PATHS.get(text, text)
 
 
 class RefError(ValueError):
@@ -88,9 +106,9 @@ def is_ref(path) -> bool:
 
 def describe(path) -> str:
     """Human-readable target label of one reference (path as fallback)."""
-    text = str(path or "").strip()
+    text = canonical_path(str(path or "").strip())
     label = (EQUIPMENT_PATHS.get(text) or ("", ""))[0]
-    return label or text
+    return label or str(path or "").strip()
 
 
 def _lookup(path: str, yaml_data: dict):
@@ -119,7 +137,7 @@ def resolve(path, yaml_data):
         RefError: unknown path / missing value / wrong (non-scalar)
                   value - the message names the path.
     """
-    text = str(path or "").strip()
+    text = canonical_path(str(path or "").strip())
     if not is_ref(text):
         raise RefError(f"{text!r} is not an equipment reference "
                        f"(expected a dotted path starting with "
@@ -151,7 +169,8 @@ def effective(ref, override, yaml_data):
     text = str(override or "").strip()
     if text:
         return text
-    if not str(ref or "").strip():
+    ref = canonical_path(str(ref or "").strip())
+    if not ref:
         return None
     try:
         return resolve(ref, yaml_data)
@@ -180,7 +199,7 @@ def validate_refs(steps, yaml_data) -> list:
             errors.append(f"step {name!r}: ref must be a mapping")
             continue
         for field_key, path in refs.items():
-            text = str(path or "").strip()
+            text = canonical_path(str(path or "").strip())
             if not text:
                 errors.append(f"step {name!r}: empty reference for "
                               f"{field_key!r}")

@@ -20,6 +20,8 @@ It stores:
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from datetime import datetime
 
@@ -39,6 +41,33 @@ REVISION = "1.1"
 from mtkgui import __version__ as _RELEASE_VERSION  # noqa: E402
 
 SOFTWARE = f"mtk-gui {_RELEASE_VERSION}"
+
+_LOG = logging.getLogger(__name__)
+
+
+def _migrate_jlink_params(params) -> dict:
+    """M64: merge the legacy ``install_path`` + ``executable`` pair into
+    ONE full ``executable_path`` (old projects keep working).
+
+    An absolute executable wins; the device field is dropped.  The
+    merge is logged once when it actually happens.
+    """
+    data = dict(params or {})
+    path = str(data.get("executable_path") or "").strip()
+    if not path:
+        exe = str(data.get("executable") or "").strip()
+        install = str(data.get("install_path") or "").strip()
+        if exe:
+            if os.path.isabs(exe) or not install:
+                path = exe
+            else:
+                path = os.path.join(install, exe)
+            data["executable_path"] = path
+            _LOG.info("M64: merged legacy flash tool install path / "
+                      "executable into %s", path)
+    for legacy in ("install_path", "executable", "device"):
+        data.pop(legacy, None)
+    return data
 
 
 # --------------------------------------------------------------------------
@@ -95,7 +124,11 @@ def _equipment_to_yaml(configs):
         if "fields" in cfg:
             entry["fields"] = {label: value for label, value in cfg["fields"]}
         if "params" in cfg:
-            entry["params"] = dict(cfg["params"])
+            params = dict(cfg["params"])
+            if key == "jlink":
+                # M64: save the merged path only (device is ignored)
+                params = _migrate_jlink_params(params)
+            entry["params"] = params
         if "connection" in cfg:
             entry["connection"] = dict(cfg["connection"])
         if "table" in cfg:
@@ -555,6 +588,9 @@ def _equipment_from_yaml(data):
                              for label, value in entry["fields"].items()]
         if entry.get("params"):
             cfg["params"] = dict(entry["params"])
+            if key == "jlink":
+                # M64: legacy install_path + executable -> executable_path
+                cfg["params"] = _migrate_jlink_params(cfg["params"])
         if entry.get("connection"):
             cfg["connection"] = dict(entry["connection"])
         if entry.get("table"):

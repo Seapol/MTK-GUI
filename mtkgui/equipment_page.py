@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import os
 import random
 
 from .permissions import MANUAL_FIXTURE_NOTICE, MODE_VIRTUAL
@@ -219,18 +220,19 @@ LEFT_ENTRIES = (
         ("pc_wifi", "PC Wi-Fi", "form", ("peripherals", "wifi")),
         ("pc_bt", "PC Bluetooth", "form", ("peripherals", "bluetooth")),
         ("router", "Ethernet Router", "form", ("peripherals", "router")),
-        ("jlink", "J-Link", "form", ("jlink", None)),
+        ("jlink", "Flash Tool/Programmer", "form", ("jlink", None)),
     )),
 )
 
-#: instruments that own a main-window indicator lamp (M49a §3); J-Link is
-#: a third-party GUI and deliberately has NO lamp.
+#: instruments that own a main-window indicator lamp (M49a §3); the flash
+#: tool is a third-party GUI and deliberately has NO lamp.
 INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
 
 #: M50 §4: peripheral / DUT configs that expose a Test Connection button
 #: (availability check for a SAMPLE DUT / host setup - the real per-unit
-#: verification runs inside the FCT Sequence steps).
-_TESTABLE_FORM_KEYS = ("pc_wifi", "pc_bt", "router", "jlink",
+#: verification runs inside the FCT Sequence steps).  M64: the flash tool
+#: uses its own Self-Test button instead (it launches the tool).
+_TESTABLE_FORM_KEYS = ("pc_wifi", "pc_bt", "router",
                        "dut_wifi", "dut_bt", "dut_ssh", "dut_console")
 
 # M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
@@ -272,11 +274,23 @@ DIO_FIELDS = [
     ("estop", "E-stop healthy", "DIO04"),
 ]
 
-#: J-Link is a third-party flash GUI: installation path only
+#: M64: the third-party GUI flash tool as a CATEGORY ("J-Link" is only
+#: one concrete tool of it).  The config carries the FULL executable
+#: path, the optional CLI arguments and the operator prompt; "Self-Test"
+#: launches the tool and asks the operator whether it is usable.
+FLASH_TOOL_NAME = "Flash Tool/Programmer"
+
+#: default operator prompt of the Flash_GUI step (tool-agnostic)
+DEFAULT_FLASH_TOOL_PROMPT = (
+    "Flash Tool/Programmer started. Please perform the flashing yourself "
+    "and judge the result: click Pass = flashing success, click Fail = "
+    "flashing failed - the flash step is marked FAIL and the test program "
+    "stops immediately.")
+
 JLINK_FIELDS = [
-    ("install_path", "Install path", ""),
-    ("executable", "Executable", "JLink.exe"),
-    ("device", "Device", ""),
+    ("executable_path", "Executable path", ""),
+    ("arguments", "Arguments", ""),
+    ("prompt", "Prompt message", DEFAULT_FLASH_TOOL_PROMPT),
 ]
 
 
@@ -407,11 +421,12 @@ def _mock_configs():
             },
         },
         "jlink": {
-            "title": "J-Link",
+            "title": FLASH_TOOL_NAME,
             "fields": [
                 ("Role", "Third-party flash GUI (Flash_GUI step)"),
                 ("Managed by", "MTK launches the GUI; operator judges"),
-                ("Self-test", "None (no MTK-managed status lamp)"),
+                ("Self-test", "Launches the tool and asks the operator to "
+                              "confirm usability"),
             ],
             "params": {key: default
                        for key, _label, default in JLINK_FIELDS},
@@ -1701,6 +1716,44 @@ def _attach_test_connection(dialog, test_probe, values_getter):
     return box
 
 
+def _flash_tool_self_test(values, launch=None, ask=None):
+    """M64: real Self-Test of the third-party flash tool.
+
+    Launches the configured executable DETACHED (the config dialog never
+    waits for the tool process), then asks the operator whether it
+    started and is usable.  ``launch`` / ``ask`` are injectable so the
+    headless tests can prove the async contract.
+
+    Returns ``(ok, message)`` - PASSED / FAILED text for the dialog.
+    """
+    path = str((values or {}).get("executable_path") or "").strip()
+    if not path or not os.path.isabs(path):
+        return False, (f"{FLASH_TOOL_NAME} is not configured. Open Config "
+                       "and set the Executable path.")
+    args = str((values or {}).get("arguments") or "").strip()
+    if launch is None:
+        from .engine.flash_tool import launch_tool_gui as launch
+    started, detail = launch(path, args)
+    if not started:
+        return False, (f"Self-Test FAILED: {FLASH_TOOL_NAME} could not be "
+                       f"started ({detail}).")
+    prompt = (str((values or {}).get("prompt") or "").strip()
+              or DEFAULT_FLASH_TOOL_PROMPT)
+    question = f"{prompt}\n\nDid the tool start and is it usable?"
+    if ask is None:
+        def ask(text):                       # pragma: no cover - Qt dialog
+            answer = QMessageBox.question(
+                None, f"{FLASH_TOOL_NAME} Self-Test", text,
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            return answer == QMessageBox.StandardButton.Yes
+    if ask(question):
+        return True, f"Self-Test PASSED: {FLASH_TOOL_NAME} is usable."
+    return False, ("Self-Test FAILED: operator reports the tool is not "
+                   "usable.")
+
+
 class _BlockConfigDialog(QDialog):
     """Form-style configuration window: read-only basic information
     plus an editable Test Configuration group for integrated blocks;
@@ -1708,7 +1761,8 @@ class _BlockConfigDialog(QDialog):
     (user direction, same pattern as the HOST PC window)."""
 
     def __init__(self, parent, title, fields, note, editor=None,
-                 config=None, test_probe=None):
+                 config=None, test_probe=None, self_test=None,
+                 editor_max_width=None):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - Configuration")
         self.setMinimumWidth(650)
@@ -1727,11 +1781,15 @@ class _BlockConfigDialog(QDialog):
         for label, value in fields:
             edit = QLineEdit(value)
             edit.setReadOnly(True)
+            if editor_max_width:
+                # M64: bounded read-only rows too (no full-width stretch)
+                edit.setMaximumWidth(editor_max_width)
             form.addRow(f"{label}:", edit)
         body_lay.addWidget(info)
 
         # 2 -------------------------------------- editor or the notice
         saved = (config or {}).get("params") or {}
+        self._self_test = self_test
         if editor:
             test = QGroupBox("Test Configuration")
             tform = QFormLayout(test)
@@ -1740,6 +1798,9 @@ class _BlockConfigDialog(QDialog):
             for key, label, default in editor:
                 edit = QLineEdit(str(saved.get(key, default)))
                 edit.setPlaceholderText(default or "optional")
+                if editor_max_width:
+                    # M64: bounded form fields (no full-width stretch)
+                    edit.setMaximumWidth(editor_max_width)
                 self._edits[key] = edit
                 tform.addRow(f"{label}:", edit)
             body_lay.addWidget(test)
@@ -1747,7 +1808,9 @@ class _BlockConfigDialog(QDialog):
                           "test flow.")
             hint.setObjectName("muted")
             body_lay.addWidget(hint)
-            if test_probe is not None:
+            if self_test is not None:
+                body_lay.addWidget(self._self_test_box())
+            elif test_probe is not None:
                 body_lay.addWidget(_attach_test_connection(
                     self, test_probe, self.values))
         else:
@@ -1764,6 +1827,40 @@ class _BlockConfigDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+    def _self_test_box(self):
+        """M64: Self-Test control - launches the tool detached and asks
+        the operator whether it is usable (the dialog never waits on the
+        tool process)."""
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        btn = QPushButton("Self-Test")
+        btn.setToolTip("Launch the tool and confirm that it is usable")
+        result = QLabel("")
+        result.setWordWrap(True)
+        self.test_result = result
+        self.test_button = btn
+        row.addWidget(btn)
+        row.addStretch(1)
+        lay.addLayout(row)
+        lay.addWidget(result)
+
+        def _run():
+            btn.setEnabled(False)
+            result.setStyleSheet("")
+            result.setText("Self-Test ...")
+            try:
+                ok, message = self._self_test(self.values())
+            finally:
+                btn.setEnabled(True)
+            result.setText(message)
+            result.setStyleSheet(
+                "color: %s;" % ("#15803d" if ok else "#b91c1c"))
+
+        btn.clicked.connect(_run)
+        return box
+
     def values(self) -> dict:
         """The current editor values (empty dict without an editor)."""
         return {key: edit.text().strip()
@@ -1777,12 +1874,14 @@ class _BlockConfigDialog(QDialog):
 
 
 def _form_dialog(parent, title, fields, note, editor=None, config=None,
-                 test_probe=None):
+                 test_probe=None, self_test=None, editor_max_width=None):
     """Form-style block config dialog factory (basic info + optional
     editable test configuration / not-yet-available notice)."""
     return _BlockConfigDialog(parent, title, fields, note,
                               editor=editor, config=config,
-                              test_probe=test_probe)
+                              test_probe=test_probe,
+                              self_test=self_test,
+                              editor_max_width=editor_max_width)
 
 
 class _HardwareInfoDialog(QDialog):
@@ -2889,8 +2988,14 @@ class EquipmentPage(QWidget):
             self._open_dio_entry(cfg)
             return
         editor = _BLOCK_EDITORS.get(owner)
+        self_test = None
+        max_width = None
         if owner == "jlink":
             editor = JLINK_FIELDS
+            # M64: the flash tool launches itself for the availability
+            # check - the generic Test Connection probe is gone
+            self_test = _flash_tool_self_test
+            max_width = 420          # bounded fields, no full-width stretch
         probe = None
         if entry_key in _TESTABLE_FORM_KEYS:
             probe = (lambda vals, k=entry_key:
@@ -2899,7 +3004,9 @@ class EquipmentPage(QWidget):
                            note=_mode_note(self._mode),
                            editor=editor,
                            config=cfg if editor else None,
-                           test_probe=probe)
+                           test_probe=probe,
+                           self_test=self_test,
+                           editor_max_width=max_width)
         dlg.exec()
         if editor:
             dlg.apply_to_config(cfg)
@@ -3117,31 +3224,6 @@ class EquipmentPage(QWidget):
                          "Test Connection FAILED: a configured target does "
                          "not answer ping.")
             return ok, "\n".join(lines)
-
-        if entry_key == "jlink":
-            exe = str(values.get("executable") or "").strip()
-            install = str(values.get("install_path") or "").strip()
-            if not exe:
-                return False, ("J-Link is not configured.\n"
-                               "Open Config and set the install path / "
-                               "executable.")
-            import os
-            if os.path.isabs(exe):
-                candidate = exe
-            elif install:
-                candidate = os.path.join(install, exe)
-            else:
-                candidate = exe
-            lines = [f"Executable: {candidate}",
-                     f"Device: {values.get('device') or '(not set)'}"]
-            if os.path.isfile(candidate):
-                return True, "\n".join(
-                    lines + ["", "Test Connection PASSED: the J-Link "
-                            "executable is present."])
-            return False, "\n".join(
-                lines + ["", "Test Connection FAILED: the J-Link executable "
-                        "was not found.  Configure the install path / "
-                        "executable."])
 
         return False, f"No Test Connection probe is defined for {entry_key}."
 

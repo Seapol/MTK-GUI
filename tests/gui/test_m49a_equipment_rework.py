@@ -262,7 +262,7 @@ def test_grouped_equipment_state_round_trips(page):
     assert restored["peripherals"]["groups"]["router"]["setup_mode"] == \
         "via_ap"
     assert restored["control_board"]["dio"]["press"] == "DIO09"
-    assert restored["jlink"]["params"]["executable"] == "JLink.exe"
+    assert restored["jlink"]["params"]["executable_path"] == ""
 
 
 def test_page_apply_save_yaml_button_emits_signal(page):

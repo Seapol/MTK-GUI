@@ -195,12 +195,12 @@ def test_flash_gui_dialog_shows_the_equipment_hint_only(qapp, monkeypatch):
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
-    assert any("configured in Equipment (J-Link)" in t
+    assert any("configured in Equipment (Flash Tool/Programmer)" in t
                for t in seen["labels"])
     assert not any("ref: equipment.jlink" in t for t in seen["labels"])
     assert seen["overrides"] == []
     assert panel._get_row_cmd(0).refs["jlink"] == \
-        "equipment.jlink.executable"
+        "equipment.jlink.executable_path"
     panel.deleteLater()
 
 

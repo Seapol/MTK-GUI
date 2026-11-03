@@ -12,20 +12,24 @@ step, not a machine-parsed op).
 from __future__ import annotations
 
 
-def launch_tool_gui(exe: str) -> tuple[bool, str]:
+def launch_tool_gui(exe: str, args: str = "") -> tuple[bool, str]:
     """Best-effort detached launch of the third-party GUI tool.
 
     Returns ``(started, detail)``.  NEVER raises - a GUI that cannot
     be started is logged and the operator may still flash by hand.
+    ``args`` is the optional CLI argument string configured on the
+    Equipment page (M64); it is split on whitespace and passed after the
+    executable.  Empty args = the pre-M64 behaviour.
     Prefers ``QProcess.startDetached`` (the Qt-safe way to hand a
     process to the desktop) and falls back to a detached
     ``subprocess.Popen`` when Qt is unavailable (headless engine)."""
     exe = str(exe or "").strip()
     if not exe:
         return False, "no GUI path configured (not launched)"
+    argv = str(args or "").split()
     try:
         from PySide6.QtCore import QProcess
-        result = QProcess.startDetached(exe, [])
+        result = QProcess.startDetached(exe, argv)
         started = result[0] if isinstance(result, tuple) else bool(result)
         if started:
             return True, "launched (detached)"
@@ -37,7 +41,7 @@ def launch_tool_gui(exe: str) -> tuple[bool, str]:
         kwargs = ({"creationflags": 0x00000008}      # DETACHED_PROCESS
                   if sys.platform.startswith("win")
                   else {"start_new_session": True})
-        subprocess.Popen([exe], **kwargs)
+        subprocess.Popen([exe] + argv, **kwargs)
         return True, "launched (detached)"
     except Exception as exc:             # noqa: BLE001 - logged only
         return False, f"launch failed: {type(exc).__name__}: {exc}"

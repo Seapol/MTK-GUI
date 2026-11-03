@@ -1730,14 +1730,14 @@ class FCTTestConfigPanel(QWidget):
             "success (run continues), Stop = flash failed (run stops). "
             "An empty GUI path fails the row."))
         form = QFormLayout()
-        # M55: the J-Link executable is a FIXED runtime reference into
-        # Equipment - the editor only shows a read-only hint line.
+        # M55/M64: the flash tool executable is a FIXED runtime reference
+        # into Equipment - the editor only shows a read-only hint line.
         refs = dict(cmd.refs or {})
         overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
         hint = QLabel("Flash GUI executable: configured in Equipment "
-                      "(J-Link).")
+                      "(Flash Tool/Programmer).")
         hint.setStyleSheet("color: #6b7280;")
-        form.addRow("J-Link executable:", hint)
+        form.addRow("Flash Tool/Programmer executable:", hint)
         path_edit = QLineEdit(cmd.flash_gui_path or "")
         path_edit.setPlaceholderText(
             "Third-party flash GUI executable (full path)")
@@ -1761,7 +1761,7 @@ class FCTTestConfigPanel(QWidget):
             cmd.flash_gui_path = path_edit.text().strip()
             cmd.flash_gui_message = (
                 msg_edit.toPlainText().strip() or DEFAULT_FLASH_GUI_MESSAGE)
-            refs.setdefault("jlink", "equipment.jlink.executable")
+            refs.setdefault("jlink", "equipment.jlink.executable_path")
             cmd.refs = refs
             cmd.overrides = overrides or None
             cmd.wait_enabled = False
@@ -3105,7 +3105,7 @@ class FCTTestConfigPanel(QWidget):
                     "username": "equipment.dut.ssh.username",
                     "password": "equipment.dut.ssh.password"}
         if label == STEP_TYPE_FLASH_GUI:
-            return {"jlink": "equipment.jlink.executable"}
+            return {"jlink": "equipment.jlink.executable_path"}
         family, subtest = self._rf_family(cmd)
         spec = self._RF_FIELDS.get((family, subtest)) or ()
         return {key: ref for key, _label, _kind, ref, _default in spec

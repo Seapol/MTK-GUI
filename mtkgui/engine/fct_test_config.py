@@ -118,6 +118,20 @@ DEFAULT_FLASH_GUI_MESSAGE = (
     "Flash GUI has been launched. Handle it. When you finished, press "
     "Go if flash success, press Stop if flash failure or error.")
 
+
+def flash_gui_message(cmd) -> str:
+    """M64: the operator prompt of a Flash_GUI row.
+
+    An explicitly typed step message wins; otherwise the prompt configured
+    on the Equipment page (``equipment.jlink.prompt``) is used, and
+    ``DEFAULT_FLASH_GUI_MESSAGE`` stays the final fallback.
+    """
+    explicit = str(getattr(cmd, "flash_gui_message", "") or "").strip()
+    if explicit and explicit != DEFAULT_FLASH_GUI_MESSAGE:
+        return explicit
+    prompt = str(getattr(cmd, "flash_gui_prompt", "") or "").strip()
+    return prompt or DEFAULT_FLASH_GUI_MESSAGE
+
 #: default per-command timeout (spec §4.1: commands 5 s, driver load
 #: 15 s, Wi-Fi join 30 s — configured per row)
 DEFAULT_CMD_TIMEOUT = 5.0
@@ -742,6 +756,10 @@ class ConsoleCommand:
     flash_gui_message: str = DEFAULT_FLASH_GUI_MESSAGE
                                     # kind == flash_gui: operator prompt
                                     # shown with the Go / Stop dialog
+    flash_gui_arguments: str = ""   # kind == flash_gui (M64): CLI arguments
+                                    # appended after the executable
+    flash_gui_prompt: str = ""      # kind == flash_gui (M64): Equipment
+                                    # prompt (empty = use DEFAULT)
     wait_ms: int = 1000             # kind == delay (M35): fixed wait in
                                     # milliseconds; the step timeout bounds
                                     # the maximum execution time
@@ -791,6 +809,8 @@ class ConsoleCommand:
              "rf_subtest": self.rf_subtest,
              "flash_gui_path": self.flash_gui_path,
              "flash_gui_message": self.flash_gui_message,
+             "flash_gui_arguments": self.flash_gui_arguments,
+             "flash_gui_prompt": self.flash_gui_prompt,
              "wait_ms": int(self.wait_ms),
              "serial_baud": int(self.serial_baud or 0)}
         if self.step_params:
@@ -883,6 +903,8 @@ class ConsoleCommand:
                 flash_gui_message=str(
                     c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
                     or DEFAULT_FLASH_GUI_MESSAGE),
+                flash_gui_arguments=str(c.get("flash_gui_arguments", "")),
+                flash_gui_prompt=str(c.get("flash_gui_prompt", "")),
                 wait_ms=int(c.get("wait_ms", 1000) or 0),
                 serial_baud=int(c.get("serial_baud", 0) or 0),
                 step_params=(dict(c.get("step_params"))
@@ -1703,9 +1725,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             timeout_s=float(cmd.timeout or 30.0),
             retries=0,
             params={"style": DIALOG_GOSTOP,
-                    "message": cmd.flash_gui_message
-                    or DEFAULT_FLASH_GUI_MESSAGE,
-                    "flash_gui_path": cmd.flash_gui_path}))
+                    "message": flash_gui_message(cmd),
+                    "flash_gui_path": cmd.flash_gui_path,
+                    "flash_gui_arguments": cmd.flash_gui_arguments,
+                    "flash_gui_prompt": cmd.flash_gui_prompt}))
         return steps
     # Delay row (M35): a plain fixed wait - no console, no instrument.
     # The step timeout still bounds the maximum execution time.

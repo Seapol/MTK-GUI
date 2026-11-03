@@ -24,7 +24,7 @@ import subprocess
 import time
 from datetime import datetime
 
-from .fct_test_config import DEFAULT_FLASH_GUI_MESSAGE, FctTestConfig
+from .fct_test_config import FctTestConfig, flash_gui_message
 
 
 def host_lan_ip() -> str:
@@ -775,8 +775,7 @@ class FctTestRunner:
         ask = getattr(self, "_human_confirm", None)
         if not callable(ask):
             return "FAIL", "no operator dialog available (headless)"
-        message = (str(getattr(cmd, "flash_gui_message", "") or "").strip()
-                   or DEFAULT_FLASH_GUI_MESSAGE)
+        message = flash_gui_message(cmd)
         if not ask(message):
             return "FAIL", "operator pressed STOP - run stops"
         return "PASS", "operator pressed GO - flash success"
