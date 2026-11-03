@@ -104,18 +104,24 @@ def test_sharepoint_dialog_is_bounded(qapp, tmp_path):
 
 
 # ------------------------------------------------------------------ F5
-def test_serial_port_combo_takes_the_row_slack(qapp):
+def test_serial_port_combo_keeps_a_compact_bounded_width(qapp):
+    """M68 supersedes M10-FIX2 F5: the closed combo is bounded (150-280),
+    long device names stay reachable via the widened popup, and the
+    trailing buttons render their text."""
     from PySide6.QtWidgets import QSizePolicy
     row = ChannelRow("ch1", "serial", "COM1", "#4caf50", {})
     try:
-        assert row.combo_port.minimumWidth() >= 180
+        assert row.combo_port.minimumWidth() == 150
+        assert row.combo_port.maximumWidth() == 280
         assert row.combo_port.sizePolicy().horizontalPolicy() \
-            == QSizePolicy.Policy.Expanding
+            != QSizePolicy.Policy.Expanding
         assert row.combo_baud.maximumWidth() == 100
         row.resize(900, 40)
         row.show()
         qapp.processEvents()
-        assert row.combo_port.width() > 180
+        assert row.combo_port.width() <= 280
+        assert row.btn_config.text() == "Configure"
+        assert row.btn_remove.text() == "Remove"
     finally:
         row.deleteLater()
 

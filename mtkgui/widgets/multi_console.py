@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontDialog,
     QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 from serial.tools import list_ports
 
@@ -516,13 +516,12 @@ class ChannelRow(QFrame):
             self.combo_port = _CompactPortCombo()
             self.combo_port.setToolTip("Serial port device")
             self._fill_ports()
-            # M10-FIX2 F5: the device path can be long (/dev/cu.BLTH -
-            # n/a) and must render untruncated - the combo takes the
-            # row slack, the baud box keeps its fixed width
-            self.combo_port.setMinimumWidth(180)
-            self.combo_port.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                          QSizePolicy.Policy.Fixed)
-            layout.addWidget(self.combo_port, 1)
+            # M68: the compact combo keeps a bounded width - the popup
+            # (widened by _CompactPortCombo) shows long device names; the
+            # closed box no longer consumes the whole row slack.
+            self.combo_port.setMinimumWidth(150)
+            self.combo_port.setMaximumWidth(280)
+            layout.addWidget(self.combo_port)
 
             self.combo_baud = QComboBox()
             self.combo_baud.setEditable(True)
@@ -555,15 +554,15 @@ class ChannelRow(QFrame):
             lambda: self.show_console_requested.emit(self.key))
         layout.addWidget(self.btn_console)
 
-        self.btn_config = QPushButton("\u2699")
-        self.btn_config.setMaximumWidth(32)
+        # M68: text buttons - the global QSS padding (7px 16px) needs
+        # real room; the old 32px glyph buttons clipped every label.
+        self.btn_config = QPushButton("Configure")
         self.btn_config.setToolTip("Advanced parameters")
         self.btn_config.clicked.connect(
             lambda: self.config_requested.emit(self.key))
         layout.addWidget(self.btn_config)
 
-        self.btn_remove = QPushButton("\u00d7")
-        self.btn_remove.setMaximumWidth(32)
+        self.btn_remove = QPushButton("Remove")
         self.btn_remove.setToolTip("Remove this channel")
         self.btn_remove.clicked.connect(
             lambda: self.remove_requested.emit(self.key))

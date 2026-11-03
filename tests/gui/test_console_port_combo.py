@@ -44,21 +44,22 @@ def test_serial_combo_is_compact_type(ser_row):
     assert ser_row.combo_port.isEditable()      # manual entry preserved
 
 
-def test_port_combo_takes_the_row_slack(ser_row, qapp):
-    """M10-FIX2 F5: the device combo is no longer capped to half its
-    hint - a long path (/dev/cu.BLTH - n/a) must render untruncated,
-    so the combo takes the row slack while the baud box stays fixed."""
+def test_port_combo_is_bounded_and_keeps_the_baud_fixed(ser_row, qapp):
+    """M68 supersedes M10-FIX2 F5: the closed combo keeps a COMPACT
+    bounded width (150-280 px); long device names stay reachable through
+    the widened popup (_CompactPortCombo), so the row keeps its column
+    balance and the trailing buttons render."""
     from PySide6.QtWidgets import QSizePolicy
     combo = ser_row.combo_port
-    assert combo.maximumWidth() == 16777215      # QWIDGETSIZE_MAX
-    assert combo.minimumWidth() >= 180
+    assert combo.maximumWidth() == 280
+    assert combo.minimumWidth() == 150
     assert combo.sizePolicy().horizontalPolicy() \
-        == QSizePolicy.Policy.Expanding
+        != QSizePolicy.Policy.Expanding
     assert ser_row.combo_baud.maximumWidth() == 100
     ser_row.resize(900, 40)
     ser_row.show()
     QApplication.processEvents()
-    assert combo.width() > combo.minimumWidth()
+    assert combo.width() <= combo.maximumWidth()
 
 
 def test_popup_expands_to_longest_item(ser_row, qapp):
