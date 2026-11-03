@@ -448,6 +448,12 @@ class _ComboWheelGuard(QObject):
         return False
 
 
+#: M60: one-click placeholders for an FCT-only project whose product
+#: information is genuinely not available yet ("No Product Info" button)
+NO_PRODUCT_INFO = {"part_number": "No_Name", "core_id": "No_ID",
+                   "batch": "No_Batch"}
+
+
 def ask_product_information(parent, product: dict) -> "dict | None":
     """M45c: modal Product Information prompt for the SAVE paths.
 
@@ -474,6 +480,18 @@ def ask_product_information(parent, product: dict) -> "dict | None":
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                | QDialogButtonBox.StandardButton.Cancel)
     form.addRow(buttons)
+
+    def _use_placeholders() -> None:
+        """M60: one click = fill the placeholders AND accept the dialog."""
+        ed_part.setText(NO_PRODUCT_INFO["part_number"])
+        ed_core.setText(NO_PRODUCT_INFO["core_id"])
+        ed_batch.setText(NO_PRODUCT_INFO["batch"])
+        dlg.accept()
+
+    no_info_btn = buttons.addButton(
+        "No Product Info", QDialogButtonBox.ButtonRole.ActionRole)
+    no_info_btn.clicked.connect(_use_placeholders)
+
     ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
     ok_btn.setEnabled(bool(ed_part.text().strip()))
     ed_part.textChanged.connect(
@@ -2728,6 +2746,11 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Product Information set: "
             f"{values['part_number']}")
+        # M60: the "No Product Info" button result is visible in the log
+        if dict(values) == NO_PRODUCT_INFO:
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] Product Information set to "
+                "No Product Info placeholders (No_Name/No_ID/No_Batch)")
         return True
 
     def _save_yaml_to(self, path):
