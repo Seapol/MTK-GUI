@@ -95,6 +95,8 @@ _LIGHT_ORIGINAL = {
     "scroll": "#c3cddb", "scroll_hover": "#9fb0c4",
     "disabled_bg": "#eef1f5", "disabled_text": "#7a8794",
     "tab_sel_text": "#2c5fa8",
+    # M67: theme-driven placeholder color (derived from muted)
+    "placeholder": "#5b6b7a",
 }
 
 

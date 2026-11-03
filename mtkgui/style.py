@@ -108,6 +108,16 @@ GUI_THEMES = {
     },
 }
 
+#: M67: every theme gets a `placeholder` token derived from `muted` and
+#: tuned with the contrast helpers (>= 4.5:1 on that theme's card).  Qt
+#: otherwise uses the Fusion palette placeholder color, which does NOT
+#: follow the GUI theme ("switching themes does nothing" report).
+for _name, _theme in GUI_THEMES.items():
+    _muted = _theme["muted"]
+    _theme["placeholder"] = (text_on_dark(_muted)
+                             if is_dark(_theme["card"])
+                             else text_on_light(_muted))
+
 _TEMPLATE = """
 QWidget {
     font-size: 15px;
@@ -193,7 +203,8 @@ QPushButton#flat:pressed { background-color: @scroll; }
 QPushButton#flat:disabled { background-color: @disabled_bg; color: @disabled_text; }
 
 /* ------------------------------------------------------------ inputs */
-QPlainTextEdit, QTextEdit, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+QPlainTextEdit, QTextEdit, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+QDateTimeEdit, QDateEdit, QTimeEdit {
     background-color: @card;
     color: @text;
     border: 1px solid @border;
@@ -204,13 +215,29 @@ QPlainTextEdit, QTextEdit, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     selection-color: @accent_text;
 }
 QPlainTextEdit:focus, QTextEdit:focus, QLineEdit:focus,
-QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QDateTimeEdit:focus, QDateEdit:focus, QTimeEdit:focus {
     border: 1px solid @accent;
 }
 QPlainTextEdit:disabled, QLineEdit:disabled, QComboBox:disabled,
-QSpinBox:disabled, QDoubleSpinBox:disabled {
+QSpinBox:disabled, QDoubleSpinBox:disabled,
+QDateTimeEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled {
     background-color: @disabled_bg;
     color: @disabled_text;
+}
+/* M67: placeholder text follows the GUI theme (Fusion's palette color
+   does not); Qt 6 exposes the same property on the text editors. */
+QLineEdit, QPlainTextEdit, QTextEdit {
+    placeholder-text-color: @placeholder;
+}
+/* M67: read-only rows (Basic Information / Hardware Info) stay readable
+   on every theme instead of falling back to palette rendering.  The
+   widget property selector is the Qt QSS form that reliably applies
+   (there is no :read-only pseudo-state on the edit widgets). */
+QLineEdit[readOnly="true"], QPlainTextEdit[readOnly="true"],
+QTextEdit[readOnly="true"], QComboBox[readOnly="true"] {
+    background-color: @alt;
+    color: @text;
 }
 QComboBox QAbstractItemView {
     background-color: @card;
@@ -290,6 +317,39 @@ QLabel#muted { color: @muted; }
 QLabel#strong { color: @text; font-weight: bold; }
 QLabel#accent_label { color: @link; font-weight: bold; }
 QLabel#warn { color: @warn; }
+
+/* M67: date / calendar / message-box families were not themed and
+   could fall back to the system palette on the dark themes. */
+QCalendarWidget QWidget {
+    background-color: @card;
+    color: @text;
+}
+QCalendarWidget QToolButton {
+    background-color: @alt;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 4px;
+    padding: 3px 8px;
+}
+QCalendarWidget QToolButton:hover { background-color: @border; }
+QCalendarWidget QMenu {
+    background-color: @card;
+    color: @text;
+}
+QCalendarWidget QSpinBox {
+    background-color: @card;
+    color: @text;
+}
+QCalendarWidget QAbstractItemView:enabled {
+    background-color: @card;
+    color: @text;
+    selection-background-color: @accent;
+    selection-color: @accent_text;
+}
+QMessageBox {
+    background-color: @card;
+}
+QMessageBox QLabel { color: @text; }
 
 QToolTip {
     background-color: @card;
@@ -477,6 +537,11 @@ def audit_theme(name):
         ("link on card", t["link"], t["card"], 4.5),
         ("warn on card", t["warn"], t["card"], 4.5),
         ("tab_sel_text on card", t["tab_sel_text"], t["card"], 4.5),
+        # M67: placeholder + read-only rows + pressed accent button text
+        ("placeholder on card", t["placeholder"], t["card"], 4.5),
+        ("read-only text on alt", t["text"], t["alt"], 4.5),
+        ("accent_text on accent_press", t["accent_text"],
+         t["accent_press"], 3.0),
         ("verdict ok on card", t["verdicts"]["ok"], t["card"], 3.0),
         ("verdict bad on card", t["verdicts"]["bad"], t["card"], 3.0),
         ("verdict run on card", t["verdicts"]["run"], t["card"], 3.0),
