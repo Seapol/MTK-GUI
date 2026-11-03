@@ -775,7 +775,8 @@ class MainWindow(QMainWindow):
         self._log_toggle = QToolButton()
         self._log_toggle.setArrowType(Qt.ArrowType.DownArrow)
         self._log_toggle.setAutoRaise(True)     # flat, native look
-        self._log_toggle.setFixedSize(18, 16)
+        # M62: 24 px = the arrow's minimum size hint (18 clipped it)
+        self._log_toggle.setFixedSize(24, 16)
         self._log_toggle.setToolTip("Collapse Event Log")
         self._log_toggle.clicked.connect(self._toggle_event_log)
         log_header.addWidget(self._log_toggle)

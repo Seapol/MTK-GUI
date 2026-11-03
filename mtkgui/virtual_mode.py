@@ -104,6 +104,10 @@ class VirtualFaultDialog(QDialog):
             "serial fault -> Error")
         form.addRow("Virtual Equipment Error:", self.err_spin)
 
+        # M62: two small percentages never need the dialog's full width
+        for spin in (self.fail_spin, self.err_spin):
+            spin.setMaximumWidth(200)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
