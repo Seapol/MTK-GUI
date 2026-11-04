@@ -141,7 +141,9 @@ def test_unknown_module_rejected():
 
 
 def test_excel_round_trip(tmp_path):
-    """Export -> import restores every parameter and enable state."""
+    """M73: the YamlBuild sheet is REVIEW-ONLY - export -> import keeps
+    the target model untouched (no parameter / enable overwrite) and
+    reports the differences as ignored."""
     model = make_model()
     model.set_enabled("clocks", False)
     model.set_params("rails", {
@@ -157,14 +159,20 @@ def test_excel_round_trip(tmp_path):
     assert export_to_excel(model, path) > 10
 
     other = make_model(enabled=False)
+    before = other.to_effective_dict()
+    before_states = {key: other.is_enabled(key)
+                     for key in ("clocks", "rails", "design_input")}
     report = import_from_excel(other, path)
     assert report.applied, report.errors
     assert report.errors == []
-    # the state dicts embed a save timestamp - compare content
-    assert other.to_effective_dict() == model.to_effective_dict()
-    for key in ("clocks", "rails", "design_input"):
-        assert other.is_enabled(key) == model.is_enabled(key)
-        assert other.get_params(key) == model.get_params(key)
+    # review-only: nothing on the YamlBuild sheet is applied
+    assert report.imported == 0
+    assert other.to_effective_dict() == before
+    for key, state in before_states.items():
+        assert other.is_enabled(key) == state
+    # every differing value is surfaced as an ignored change
+    assert report.ignored_changes
+    assert any("YamlBuild" in item for item in report.ignored_changes)
 
 
 def _allocated_model() -> YamlBuildModel:
@@ -201,16 +209,27 @@ def _allocated_model() -> YamlBuildModel:
 
 
 def test_excel_round_trip_keeps_channel_allocation_fields(tmp_path):
-    """M70: field-level Channel Allocation round trip (all three tables,
-    limits + op_type / drive_level)."""
+    """M70/M73: the whitelisted LIMIT fields round-trip losslessly; the
+    structural cells stay GUI-owned (identical structure in the target
+    model is preserved)."""
     model = _allocated_model()
     path = str(tmp_path / "alloc.xlsx")
     assert export_to_excel(model, path) > 10
 
-    other = make_model(enabled=False)
+    other = _allocated_model()           # same structure, stale limits
+    alloc = other.get_channel_allocation()
+    alloc["power"][0].update({"r_gnd_min_ohm": "9.000",
+                              "nominal_v": "9.900",
+                              "lower_v": "9.800", "upper_v": "10.000"})
+    alloc["clock"][0].update({"nominal_khz": "1.000",
+                              "lower_khz": "0.900",
+                              "upper_khz": "1.100"})
+    other.set_channel_allocation(alloc)
+
     report = import_from_excel(other, path)
     assert report.applied, report.errors
     assert report.errors == []
+    assert len(report.applied_changes) == 7      # 4 power + 3 clock
     assert other.get_channel_allocation() == model.get_channel_allocation()
     power = other.get_channel_allocation()["power"][0]
     assert power["r_gnd_min_ohm"] == "1.500"
@@ -241,11 +260,15 @@ def test_legacy_workbook_keeps_model_values(tmp_path):
             ("Clock", ("Nominal (kHz)", "Lower (kHz)", "Upper (kHz)")),
             ("GPIO", ("Op Type", "Drive Level"))):
         ws = workbook[sheet]
+        # M73: headers carry the read-only / editable suffix - match on
+        # the base title and drop that whole column
         header = [cell.value for cell in ws[1]]
         for name in new_columns:
-            if name in header:
-                ws.delete_cols(header.index(name) + 1)
-                header.remove(name)
+            idx = next((i for i, value in enumerate(header)
+                        if str(value or "").startswith(name)), None)
+            if idx is not None:
+                ws.delete_cols(idx + 1)
+                header.pop(idx)
     workbook.save(path)
 
     other = _allocated_model()

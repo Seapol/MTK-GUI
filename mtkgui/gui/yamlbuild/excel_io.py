@@ -14,13 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill, Protection
 from openpyxl.worksheet.worksheet import Worksheet
 
 from mtkgui.gui.yamlbuild.channel_allocation import (
     DRIVE_LEVELS,
     OP_CHOICES,
     UNSET,
-    AllocatedRow,
     ChannelAllocationData,
     TABLE_SPECS,
 )
@@ -69,6 +69,19 @@ _ALLOC_ROW_KEYS = {
     "gpio": ("net", "test_point", "dio_channel", "op_type",
              "drive_level"),
 }
+#: M73 review-only guard: Excel is the "no-GUI quick review / light
+#: limits edit" carrier.  ONLY these limit fields are applied on import;
+#: every structural field stays owned by the GUI.
+ALLOC_LIMIT_KEYS = {
+    "power": ("r_gnd_min_ohm", "nominal_v", "lower_v", "upper_v"),
+    "clock": ("nominal_khz", "lower_khz", "upper_khz"),
+    "gpio": (),
+}
+READONLY_SUFFIX = " (Read-only \u2014 edit in MTK GUI)"
+EDITABLE_SUFFIX = " (editable \u2014 limits only)"
+READONLY_FILL_RGB = "D9D9D9"
+EDITABLE_FILL_RGB = "FFF2CC"
+
 #: per-cell dropdown enum validation (import pass 1)
 _ALLOC_POOLS = {
     "power": {"impedance": DAQM908A_SENSE_CHANNELS,
@@ -87,19 +100,77 @@ class ImportReport:
     """Outcome of an Excel import.
 
     Attributes:
-        applied:  True when the workbook was valid and applied.
+        applied:  True when the workbook was valid and processed.
         errors:   Row-attached validation errors (module-wide).
-        imported: Number of parameter rows applied.
+        imported: Number of changes applied (kept for old callers; equal
+                  to ``len(applied_changes)``).
+        applied_changes: Editable limit changes written to the model.
+        ignored_changes: Read-only values found in the workbook but NOT
+                  applied (structure / module parameters / enable flags).
     """
 
     applied: bool = False
     errors: list[str] = field(default_factory=list)
     imported: int = 0
+    applied_changes: list[str] = field(default_factory=list)
+    ignored_changes: list[str] = field(default_factory=list)
+
+
+def _base_header(text: str) -> str:
+    """Header text without the M73 read-only / editable suffix."""
+    text = str(text or "").strip()
+    for suffix in (READONLY_SUFFIX, EDITABLE_SUFFIX):
+        if text.endswith(suffix):
+            return text[: -len(suffix)].strip()
+    return text
+
+
+def _style_cell(cell, editable: bool) -> None:
+    if editable:
+        cell.fill = PatternFill(fill_type="solid",
+                                start_color=EDITABLE_FILL_RGB,
+                                end_color=EDITABLE_FILL_RGB)
+    else:
+        cell.fill = PatternFill(fill_type="solid",
+                                start_color=READONLY_FILL_RGB,
+                                end_color=READONLY_FILL_RGB)
+    cell.protection = Protection(locked=not editable)
+
+
+def _style_sheet(ws: Worksheet, editable_columns: set) -> None:
+    """Apply the M73 review-only guard to one sheet.
+
+    Every header gets the read-only / editable suffix, read-only
+    columns are grey (D9D9D9) and locked, editable limit columns are
+    light yellow (FFF2CC) and unlocked, and the sheet is protected
+    without a password."""
+    max_col = ws.max_column
+    for idx in range(1, max_col + 1):
+        header = ws.cell(row=1, column=idx)
+        editable = idx in editable_columns
+        base = _base_header(header.value)
+        suffix = EDITABLE_SUFFIX if editable else READONLY_SUFFIX
+        header.value = base + suffix
+        _style_cell(header, editable)
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row,
+                            min_col=1, max_col=max_col):
+        for cell in row:
+            _style_cell(cell, cell.column in editable_columns)
+    ws.protection.sheet = True
+
+
+def _alloc_editable_columns(kind: str) -> set:
+    """1-based column indices of the whitelisted limit fields."""
+    limits = ALLOC_LIMIT_KEYS[kind]
+    return {i + 1 for i, key in enumerate(_ALLOC_ROW_KEYS[kind])
+            if key in limits}
 
 
 def export_to_excel(model: YamlBuildModel, path: str) -> int:
     """Export the full model (all modules, all fields) to an .xlsx
-    file.
+    file as a REVIEW-ONLY workbook (M73): the YamlBuild sheet is fully
+    read-only, the allocation sheets unlock only the limit columns and
+    every sheet is protected without a password.
 
     Args:
         model: The data model.
@@ -145,16 +216,27 @@ def export_to_excel(model: YamlBuildModel, path: str) -> int:
             values = {key: getattr(row, key) for key in keys}
             aw.append([values[key] for key in keys])
             rows += 1
+        _style_sheet(aw, _alloc_editable_columns(kind))
+    # M73: the YamlBuild sheet is a pure review sheet - nothing on it
+    # may be edited in Excel (all cells grey / locked)
+    _style_sheet(ws, set())
     wb.save(path)
     return rows
 
 
 def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
-    """Import and validate an .xlsx workbook, then apply it.
+    """Import and validate an .xlsx review workbook, then apply the
+    whitelisted LIMIT columns only (M73).
 
     The workbook is validated completely BEFORE anything is applied:
-    any invalid row aborts the import with the error list (batch
-    import never leaves the model half-updated).
+    any invalid structural row (unknown module / parameter / bad value,
+    missing Net name or Test point, invalid dropdown enum) aborts the
+    import with the error list and applies NOTHING.  The ``YamlBuild``
+    sheet is review-only - its module parameters and enable flags are
+    validated but never applied (differences are reported as ignored).
+    On the allocation sheets only ``ALLOC_LIMIT_KEYS`` are applied;
+    every structural cell is read-only and skipped with an ignored
+    entry.
 
     Args:
         model: The data model to update.
@@ -210,8 +292,16 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     # M70: a pre-M70 workbook without the new limit / op_type /
     # drive_level columns still imports - the missing field keeps the
     # CURRENT model value (matched by net + test point), never reset.
-    alloc_data: dict[str, list[dict]] = {}
+    # M73 review-only guard: the allocation data stays fully GUI-owned
+    # except for the whitelisted limit fields.  Start from the CURRENT
+    # model so structural values (and fields the sheet does not carry)
+    # are preserved; only limit cells are overwritten.
+    alloc_final: dict[str, list[dict]] = {}
     current = ChannelAllocationData.from_dict(model.get_channel_allocation())
+    for kind, _cols in TABLE_SPECS:
+        alloc_final[kind] = [dict(row.to_dict())
+                             for row in getattr(current, kind)]
+    limit_changed = False
     for kind, _cols in TABLE_SPECS:
         sheet = ALLOCATION_SHEET_NAMES[kind]
         if sheet not in wb.sheetnames:
@@ -220,7 +310,9 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
         sheet_rows = list(aw.iter_rows(values_only=True))
         if not sheet_rows:
             continue
-        header = ["" if cell is None else str(cell).strip()
+        # M73: the exported headers carry the read-only / editable
+        # suffix - match on the base title
+        header = [_base_header("" if cell is None else str(cell))
                   for cell in sheet_rows[0]]
         keys = _ALLOC_ROW_KEYS[kind]
         #: column index for every key present in this workbook
@@ -230,6 +322,11 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
         status_idx = header.index("Status") if "Status" in header else None
         previous = {str(getattr(row, "net", "")): row
                     for row in getattr(current, kind)}
+        rows_out = alloc_final[kind]
+        by_net = {str(row.get("net", "")): row for row in rows_out}
+        limit_keys = ALLOC_LIMIT_KEYS[kind]
+        structure_keys = tuple(key for key in keys
+                               if key not in limit_keys)
         for line_no, row in enumerate(sheet_rows[1:], start=2):
             values = ["" if v is None else str(v).strip() for v in row]
             net = (values[present["net"]]
@@ -262,21 +359,50 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
                         f"{text!r} not in {'/'.join(allowed)}")
             if report.errors:
                 continue
-            cells.pop("status", None)
-            # canonical persisted row dict (full AllocatedRow keys,
-            # exactly like the GUI table save path)
-            alloc_data.setdefault(kind, []).append(
-                AllocatedRow.from_dict(cells).to_dict())
+            target = by_net.get(net)
+            if target is None:
+                # a brand-new row has no GUI-owned structure to keep -
+                # it is never created from Excel
+                for key in limit_keys:
+                    value = cells.get(key, "")
+                    if key in present and value:
+                        report.ignored_changes.append(
+                            f"{prefix}: {key} (row not on the model)")
+                continue
+            # structural cells are read-only: differences are ignored
+            for key in structure_keys:
+                if key not in present:
+                    continue
+                value = cells.get(key, "")
+                if value and value != str(target.get(key, "")):
+                    report.ignored_changes.append(
+                        f"{prefix}: {key.replace('_', ' ')} "
+                        f"({value!r}, read-only)")
+            # only the whitelisted limits are applied
+            for key in limit_keys:
+                if key not in present:
+                    continue         # legacy workbook: keep model value
+                value = cells.get(key, "")
+                if not value or value == str(target.get(key, "")):
+                    continue
+                target[key] = value
+                limit_changed = True
+                report.applied_changes.append(f"{sheet} {net}: {key}")
     wb.close()
     if report.errors:
         return report
-    # pass 2: apply atomically
+    # YamlBuild sheet: review-only - validated above, never applied
     for key, params in parsed.items():
-        model.set_params(key, {**model.get_params(key), **params})
-        report.imported += len(params)
+        current_params = model.get_params(key)
+        for name, value in params.items():
+            if str(current_params.get(name, "")) != str(value):
+                report.ignored_changes.append(f"YamlBuild {key}.{name}")
     for key, state in enabled.items():
-        model.set_enabled(key, state)
-    if alloc_data:
-        model.set_channel_allocation(alloc_data)
+        if model.is_enabled(key) != state:
+            report.ignored_changes.append(f"YamlBuild {key}.enabled")
+    # pass 2: apply the whitelisted limit changes atomically
+    if limit_changed:
+        model.set_channel_allocation(alloc_final)
+    report.imported = len(report.applied_changes)
     report.applied = True
     return report

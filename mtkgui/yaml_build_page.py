@@ -1258,11 +1258,13 @@ class YamlBuildPage(QWidget):
             return
         self._after_model_change()      # parse -> project view refresh
         self._task(100, "import: done")
-        self._tlog("INFO", f"Excel import done: {report.imported} "
-                           f"parameters applied from {Path(path).name}")
+        summary = (f"Applied {len(report.applied_changes)} limit change(s); "
+                   f"Ignored {len(report.ignored_changes)} read-only "
+                   f"change(s)")
+        self._tlog("INFO", f"Excel import done: {summary} "
+                           f"from {Path(path).name}")
         QMessageBox.information(
-            self, "Import from Excel",
-            f"Applied {report.imported} parameters from {path}")
+            self, "Import from Excel", f"{summary}\n\n{path}")
         end("yamlbuild: import excel")
 
     # ------------------------------------------------------- publishing

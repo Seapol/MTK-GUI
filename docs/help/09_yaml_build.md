@@ -519,8 +519,8 @@ sequence is regenerated (`Load current yaml` / `Auto`).
 ### Underlying module parameters
 
 The three underlying modules own the capture + sequence parameters
-(also settable via `Import from Excel` or a hand-edited YAML
-`Apply`):
+(set them in the GUI or via a hand-edited YAML `Apply`; the Excel
+workbook is review-only for these - see "Excel Import / Export"):
 
 ```
 rails   Power-On Voltage (V, 0-60, default 5.0)
@@ -607,12 +607,30 @@ editable:
 
 ## Excel Import / Export
 
+Excel is the **review-only / quick limits edit** carrier (no GUI
+needed):
+
 - `Export to Excel` writes all module parameters, thresholds,
-  sequences, enable states and remarks to an `.xlsx` workbook
-  (default name `YamlBuild_<project>.xlsx`).
+  sequences, enable states and remarks plus the Power / Clock / GPIO
+  allocation tables to an `.xlsx` workbook (default name
+  `YamlBuild_<project>.xlsx`).
+- Every sheet is protected without a password. Read-only columns are
+  grey (`D9D9D9`), locked and labelled `(Read-only — edit in MTK GUI)`;
+  the editable limit columns are light yellow (`FFF2CC`) and labelled
+  `(editable — limits only)`.
+- Editable in Excel: Power `R-GND Min limit (ohm)` / `Nominal (V)` /
+  `Lower (V)` / `Upper (V)` and Clock `Nominal (kHz)` / `Lower (kHz)` /
+  `Upper (kHz)`. The whole `YamlBuild` sheet and the GPIO sheet are
+  read-only.
 - `Import from Excel` validates the whole workbook first: invalid
-  rows abort the import with the exact row reasons (the Event Log
-  lists the first failures, the dialog shows up to 20).
+  rows (unknown parameter, missing Net name / Test point, invalid
+  dropdown value) abort the import with the exact row reasons and
+  apply nothing (the Event Log lists the first failures, the dialog
+  shows up to 20).
+- Only the whitelisted limit columns are applied. Structural cells,
+  module parameters and enable flags found changed in the workbook are
+  ignored; the dialog reports
+  `Applied N limit change (s); Ignored M read-only change (s)`.
 
 **Note:** Operator accounts cannot modify the YAML configuration -
 the action row and the `Apply` button are disabled and the preview
