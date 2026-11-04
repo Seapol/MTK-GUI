@@ -138,8 +138,8 @@ class CommandLineEdit(QLineEdit):
 
 
 class SendPanel(QGroupBox):
-    # text, hex mode, append CR+LF
-    send_requested = Signal(str, str, bool, bool)
+    # key, text, hex mode, line ending ("crlf" / "lf" / "")
+    send_requested = Signal(str, str, bool, str)
 
     def __init__(self, role_key, title, parent=None):
         super().__init__(title, parent)
@@ -154,7 +154,19 @@ class SendPanel(QGroupBox):
 
         self.check_crlf = QCheckBox("CR+LF")
         self.check_crlf.setChecked(True)
+        self.check_crlf.setToolTip(
+            "Append CR+LF (\\r\\n) - generic terminal / Windows targets")
         layout.addWidget(self.check_crlf)
+
+        # M72 #7: explicit LF-only mode (Linux / Yocto shells expect \\n;
+        # CR+LF off used to send NO line ending at all)
+        self.check_lf = QCheckBox("LF only")
+        self.check_lf.setToolTip(
+            "Append LF only (\\n) - Linux / Yocto DUT shell; with both "
+            "boxes off no line ending is sent")
+        layout.addWidget(self.check_lf)
+        self.check_crlf.toggled.connect(self._sync_ending)
+        self.check_lf.toggled.connect(self._sync_ending)
 
         self.check_hex = QCheckBox("HEX")
         layout.addWidget(self.check_hex)
@@ -163,13 +175,44 @@ class SendPanel(QGroupBox):
         btn_send.clicked.connect(self._emit_send)
         layout.addWidget(btn_send)
 
+    def _sync_ending(self, checked):
+        """CR+LF and LF only are mutually exclusive; both off = no
+        line ending."""
+        if not checked:
+            return
+        other = (self.check_lf if self.sender() is self.check_crlf
+                 else self.check_crlf)
+        if other.isChecked():
+            other.blockSignals(True)
+            other.setChecked(False)
+            other.blockSignals(False)
+
+    def line_ending(self) -> str:
+        if self.check_crlf.isChecked():
+            return "crlf"
+        if self.check_lf.isChecked():
+            return "lf"
+        return ""
+
+    def set_line_ending(self, ending) -> None:
+        """Restore a saved quick-command / legacy bool setting."""
+        if isinstance(ending, bool):
+            ending = "crlf" if ending else ""
+        ending = str(ending or "")
+        self.check_crlf.blockSignals(True)
+        self.check_lf.blockSignals(True)
+        self.check_crlf.setChecked(ending == "crlf")
+        self.check_lf.setChecked(ending == "lf")
+        self.check_crlf.blockSignals(False)
+        self.check_lf.blockSignals(False)
+
     def _emit_send(self):
         text = self.edit.text()
         if text:
             self.send_requested.emit(
                 self.role_key, text,
                 self.check_hex.isChecked(),
-                self.check_crlf.isChecked())
+                self.line_ending())
 
     def set_text(self, text):
         self.edit.setText(text)

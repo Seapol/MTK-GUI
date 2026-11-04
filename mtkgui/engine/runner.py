@@ -515,11 +515,29 @@ class TestRunner(QObject):
         from .fct_exec import console_line
         if not str(command or "").strip():
             return ""
+        # M72 BLOCKER 2: the serial RX reaches the multi-console read
+        # buffer ONLY through queued Qt signals (SerialWorker is a
+        # QThread).  This blocking loop runs on the GUI thread, so it
+        # must pump the event loop every iteration - same pattern as
+        # ConsoleBufferChannel.read_lines (pump=QApplication.
+        # processEvents).  Without it the buffer starves and the live
+        # mlan0 probe text never arrives before the readiness check.
+        pump = None
+        try:
+            from PySide6.QtWidgets import QApplication
+            pump = QApplication.processEvents
+        except Exception:                 # noqa: BLE001 - headless
+            pump = None
         start = len(mc.get_read_buffer(key))
         mc.write_to_channel(key, console_line(str(command)).encode("utf-8"))
         deadline = time.monotonic() + max(0.1, float(wait_s))
         text, last_change = "", None
         while time.monotonic() < deadline:
+            if pump is not None:
+                try:
+                    pump()
+                except Exception:         # noqa: BLE001 - app closing
+                    pump = None
             current = mc.get_read_buffer(key)[start:].decode(
                 "utf-8", "replace")
             if current != text:

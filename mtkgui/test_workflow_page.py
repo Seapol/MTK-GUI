@@ -1021,10 +1021,14 @@ class TestWorkFlowPage(QWidget):
         form.addRow("Batch#:", self.batch_edit)
 
         self.serial_edit = QLineEdit()
+        # M72: the SN format follows the product, not one hard-coded
+        # scheme - alphanumerics plus hyphen (e.g. FS1234567890 or the
+        # directive-style FRDM-IMX93-1104).  Supervisor-only edit
+        # rights are unchanged (see apply_permissions).
         self.serial_edit.setPlaceholderText(
-            "2 letters + digits, e.g. FS1234567890")
+            "e.g. FS1234567890 or FRDM-IMX93-1104")
         self.serial_edit.setValidator(QRegularExpressionValidator(
-            QRegularExpression(r"[A-Z]{0,2}\d*"), self))
+            QRegularExpression(r"[A-Z0-9\-]*"), self))
         self.serial_edit.textChanged.connect(self._force_upper)
         form.addRow("Serial Number:", self.serial_edit)
 

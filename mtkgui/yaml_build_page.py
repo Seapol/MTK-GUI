@@ -460,7 +460,13 @@ class YamlBuildPage(QWidget):
             except (TypeError, ValueError):
                 return float(default)
 
-        op_cases: list = []
+        # M72 BLOCKER 1: the emitted cases follow the USER row order.
+        # ``slots`` records every body row in raw order: ("op", case)
+        # for an Operation row, ("cmd", index) for a console / RF /
+        # flash row (its built steps are sliced from the generated
+        # body).  Teardown rows stay engine-owned and keep running
+        # after the RF blocks (never reordered into the body).
+        slots: list = []
         commands: list = []
         post_cmds: list = []
         for step in raw_steps:
@@ -469,7 +475,10 @@ class YamlBuildPage(QWidget):
                 return None, [f"unknown FCT step type "
                               f"{step.get('type')!r}"]
             if step_type_label(cmd) == "Operation":
-                op_cases.append(_op_command_to_case(cmd))
+                # stay exactly where the operator put this row - the
+                # former op_cases list forced every Operation to the
+                # front and destroyed the user-defined order
+                slots.append(("op", _op_command_to_case(cmd)))
                 continue
             family, subtest = _rf_family(cmd)
             if family:
@@ -559,6 +568,7 @@ class YamlBuildPage(QWidget):
                     eq("equipment.jlink.arguments", "") or "")
                 cmd.flash_gui_prompt = str(
                     eq("equipment.jlink.prompt", "") or "")
+                slots.append(("cmd", len(commands)))
                 commands.append(cmd)
                 continue
             if str(getattr(cmd, "transport", "") or "") == "ssh":
@@ -579,22 +589,68 @@ class YamlBuildPage(QWidget):
                 # an abort (never a plain body command)
                 post_cmds.append(cmd)
             else:
+                slots.append(("cmd", len(commands)))
                 commands.append(cmd)
         cfg.console.test_commands = commands
         cfg.console.post_rf_commands = post_cmds
         errors = list(cfg.validate())
         if errors:
             return None, errors
-        steps = build_fct_steps(cfg)
-        cases = list(op_cases)
-        if steps:
-            seq = FctSequence(name="FCT Test Work Flow", steps=steps)
+        lengths, body_steps = self._fct_command_prefixes(cfg)
+        full_steps = build_fct_steps(cfg)
+        # body = console / RF rows, tail = the engine-owned teardown
+        # rows appended after the RF blocks
+        body_count = len(body_steps) - lengths[0]
+        cmd_steps = body_steps[:body_count]
+        rf_fallback = body_steps[body_count:]
+        teardown = full_steps[len(body_steps):]
+
+        def _cases(steps: list) -> list:
+            if not steps:
+                return []
+            seq = FctSequence(name="FCT Test Work Flow", steps=list(steps))
             generated = to_project_fct_cases(seq)
             for case, step in zip(generated, steps):
                 case.setdefault("op_params", {})["fct_step"] = step.to_dict()
-            cases += generated
+            return generated
+
+        # M72 BLOCKER 1: replay the raw row order - Operations keep
+        # their user-defined position instead of jumping to the front
+        cases: list = []
+        for kind, payload in slots:
+            if kind == "op":
+                cases.append(payload)
+                continue
+            lo = lengths[payload] - lengths[0]
+            hi = lengths[payload + 1] - lengths[0]
+            cases.extend(_cases(cmd_steps[lo:hi]))
+        cases.extend(_cases(rf_fallback))
+        cases.extend(_cases(teardown))
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
+
+    def _fct_command_prefixes(self, cfg):
+        """(prefix lengths, body steps) for the ordered case assembly.
+
+        ``build_fct_steps`` appends the RF fallback block and the
+        teardown rows after the console body, so building the command
+        PREFIXES gives one constant offset (the RF fallback) and the
+        consecutive differences are exactly the steps owned by one
+        console / RF row.  The body build here excludes the teardown
+        rows (the caller appends them last)."""
+        import copy
+
+        from mtkgui.engine.fct_test_config import build_fct_steps
+        body_cfg = copy.copy(cfg)
+        body_cfg.console = copy.copy(cfg.console)
+        body_cfg.console.post_rf_commands = []
+        cmds = list(cfg.console.test_commands)
+        lengths = []
+        for i in range(len(cmds) + 1):
+            body_cfg.console.test_commands = cmds[:i]
+            lengths.append(len(build_fct_steps(body_cfg)))
+        body_cfg.console.test_commands = cmds
+        return lengths, build_fct_steps(body_cfg)
 
     def _emit_fct_sequence_legacy(self, params: dict):
         """Legacy ``fct_test_config_yaml`` (pre-M50 project files)."""

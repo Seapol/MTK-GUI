@@ -112,11 +112,11 @@ console log area, a quick commands row and a send panel.
 ## Quick Commands
 
 - The `Quick:` dropdown copies a saved snippet into the Send line
-  (its `CR+LF` flag is applied and `HEX` is cleared); press `Enter` /
-  `Send` to transmit.
+  (its line-ending flag - `CR+LF`, `LF only` or none - is applied and
+  `HEX` is cleared); press `Enter` / `Send` to transmit.
 - `Save Cmd` saves the current Send line as a new quick command
   (max 15). Saving a command that already exists only updates its
-  `CR+LF` flag instead of duplicating it.
+  line-ending flag instead of duplicating it.
 - `Clear Cmd` removes every saved quick command.
 - Quick commands persist in `config/commands.json`; built-in defaults
   (`AT`, `ATI`, `ATE0`, `help`, `version`, `status`, `reset`) apply
@@ -134,6 +134,9 @@ channel:
 
 - Type a command and press `Enter`, or click `Send`.
 - `CR+LF` (default on) appends a carriage return + line feed.
+- `LF only` appends a bare line feed (`\n`) - the correct ending for a
+  Linux / Yocto DUT shell. `CR+LF` and `LF only` are mutually exclusive;
+  with both off the payload is sent without any line ending.
 - `HEX` sends raw bytes instead of text; use a format such as
   `41 54 0D 0A` (spaces, commas, `0x` prefixes and newlines are
   ignored). Invalid hex input shows a warning and nothing is sent.

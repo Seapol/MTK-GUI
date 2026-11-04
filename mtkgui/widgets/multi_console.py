@@ -237,7 +237,7 @@ class ConsoleWindow(QDialog):
     Commands dropdown and a Send line. Closing the window only hides
     it; the ConsoleWidget keeps receiving data in the background."""
 
-    send_requested = Signal(str, str, bool, bool)  # key, text, hex, crlf
+    send_requested = Signal(str, str, bool, str)  # key, text, hex, ending
     quick_commands_changed = Signal()
 
     def __init__(self, key, label, accent, console, theme, bg_color,
@@ -288,8 +288,8 @@ class ConsoleWindow(QDialog):
         # Send panel
         self.send_panel = SendPanel(key, "Send")
         self.send_panel.send_requested.connect(
-            lambda k, text, hex_mode, crlf:
-                self.send_requested.emit(k, text, hex_mode, crlf))
+            lambda k, text, hex_mode, ending:
+                self.send_requested.emit(k, text, hex_mode, ending))
         layout.addWidget(self.send_panel)
 
         self.quick_entries = load_commands()
@@ -399,7 +399,13 @@ class ConsoleWindow(QDialog):
             return
         # copy the saved command into the Send line (sent on Enter/Send)
         self.send_panel.set_text(entry["command"])
-        self.send_panel.check_crlf.setChecked(bool(entry.get("crlf", True)))
+        if entry.get("lf"):
+            ending = "lf"
+        elif entry.get("crlf", True):
+            ending = "crlf"
+        else:
+            ending = ""
+        self.send_panel.set_line_ending(ending)
         self.send_panel.check_hex.setChecked(False)
         self.send_panel.edit.setFocus()
         self.combo_quick.setCurrentIndex(0)
@@ -409,13 +415,15 @@ class ConsoleWindow(QDialog):
         command = self.send_panel.edit.text().strip()
         if not command:
             return
-        crlf = self.send_panel.check_crlf.isChecked()
-        entry = {"label": command, "command": command, "crlf": crlf}
+        ending = self.send_panel.line_ending()
+        entry = {"label": command, "command": command,
+                 "crlf": ending == "crlf", "lf": ending == "lf"}
 
         # update an identical command instead of duplicating it
         for existing in self.quick_entries:
             if existing["command"] == command:
-                existing["crlf"] = crlf
+                existing["crlf"] = entry["crlf"]
+                existing["lf"] = entry["lf"]
                 break
         else:
             if len(self.quick_entries) >= MAX_QUICK_COMMANDS:
@@ -1176,14 +1184,23 @@ class MultiConsoleWidget(QGroupBox):
 
     # ------------------------------------------------------------ sending
     @staticmethod
+    def ending_bytes(ending) -> bytes:
+        """Line ending selector -> payload suffix.
+
+        Accepts the explicit modes ("crlf" / "lf" / "") and the legacy
+        bool (True = CR+LF, False = none) used by older callers."""
+        if isinstance(ending, bool):
+            return b"\r\n" if ending else b""
+        return {"crlf": b"\r\n", "lf": b"\n"}.get(str(ending or ""), b"")
+
+    @staticmethod
     def encode_payload(text, hex_mode, crlf):
         if hex_mode:
             cleaned = (text.replace(" ", "").replace(",", "")
                            .replace("0x", "").replace("\n", ""))
             return bytes.fromhex(cleaned)
         payload = text.encode("utf-8")
-        if crlf:
-            payload += b"\r\n"
+        payload += MultiConsoleWidget.ending_bytes(crlf)
         return payload
 
     def handle_send(self, key, text, hex_mode, crlf):
@@ -1199,7 +1216,9 @@ class MultiConsoleWidget(QGroupBox):
         if hex_mode:
             shown = " ".join(f"{b:02X}" for b in payload)
         else:
-            shown = text + ("\\r\\n" if crlf else "")
+            suffix = {b"\r\n": "\\r\\n", b"\n": "\\n"}.get(
+                MultiConsoleWidget.ending_bytes(crlf), "")
+            shown = text + suffix
         self._write_to_channel(key, payload, shown)
         channel = self.channels.get(key)
         if (channel and channel["worker"]

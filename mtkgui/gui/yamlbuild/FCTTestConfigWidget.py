@@ -725,6 +725,7 @@ class _TonePreview(QObject):
     level = Signal(int)                     # 0..100
     status = Signal(str)
     playing = Signal(bool)
+    finished = Signal()                     # M72 #8: preview ended/stopped
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -787,12 +788,14 @@ class _TonePreview(QObject):
         self.status.emit("Previewing the selected segment locally...")
 
     def stop(self) -> None:
+        was_playing = self._timer.isActive()
         self._timer.stop()
         if self._player is not None:
             self._player.stop()
         self.level.emit(0)                          # meter resets on stop
-        if self.playing is not None:
-            self.playing.emit(False)
+        self.playing.emit(False)
+        if was_playing:
+            self.finished.emit()
 
     def _on_tick(self) -> None:
         if self._player is None:
@@ -812,6 +815,7 @@ class _TonePreview(QObject):
             self._timer.stop()
             self.level.emit(0)
             self.playing.emit(False)
+            self.finished.emit()
 
     def _on_buffer(self, buffer) -> None:           # noqa: ANN001 - Qt object
         """RMS of the decoded buffer -> 0..100 meter value."""

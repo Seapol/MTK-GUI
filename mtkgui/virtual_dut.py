@@ -71,8 +71,8 @@ DEFAULT_PROFILE = {
     "cmd_delay_ms": 150,
     "rules": [
         {"match": "wifi_test", "response": [
-            "wifi_test: wlan0 up, MAC 00:1a:7d:da:00:01",
-            "wifi_test: scan on wlan0 ... 3 networks found",
+            "wifi_test: mlan0 up, MAC 00:1a:7d:da:00:01",
+            "wifi_test: scan on mlan0 ... 3 networks found",
             "wifi_test: associated with SSID 'MTK-TEST-AP' "
             "(ch 6, 2412 MHz)",
             "wifi_test: RSSI -42 dBm, link rate 72.2 Mbit/s, ping OK",

@@ -3,6 +3,17 @@
 # Every entry below becomes ONE ordinary row of the FCT Sequence table
 # (editable / removable / reorderable).  The app never loads this on its
 # own: the operator presses "Load Template" -> "Linux DUT".
+#
+# M72 #9 - "Console - wait for the login prompt" depends on REAL-TIME
+# console output: the Run start clears every channel read buffer, so a
+# DUT that is already logged in shows no fresh prompt and the wait row
+# times out.  Production DUTs must either boot with auto-login or the
+# sequence must carry an explicit operator step ("press Enter to get a
+# prompt") before this wait row.
+#
+# M72 #6 - no engine-injected BT discoverability step: add your OWN
+# console row (e.g. send "hciconfig hci0 piscan") before the BT rows
+# when the bench needs the DUT discoverable.
 template:
   name: Linux DUT
   description: >

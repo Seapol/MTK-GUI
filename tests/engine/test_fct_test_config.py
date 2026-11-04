@@ -158,9 +158,9 @@ def test_build_steps_disabled_sections_absent():
     cfg.console.test_commands = []
     cfg.wifi.scan_enabled = False
     steps = build_fct_steps(cfg)
-    # Linux BT, RSSI-only: make discoverable, then the host RSSI scan
-    assert [s.name for s in steps] == ["BT discoverable (piscan)",
-                                       "Bluetooth RSSI"]
+    # Linux BT, RSSI-only: M72 #6 - no injected piscan, only the
+    # configured sub-test row
+    assert [s.name for s in steps] == ["Bluetooth RSSI"]
 
 
 # ---------------------------------------------------------------- matcher
@@ -1132,7 +1132,8 @@ def test_linux_all_rf_subtests_build_distinct_steps():
     assert "Wi-Fi Scan / RSSI" in names
     assert any(s.startswith("Wi-Fi Ping") for s in names)
     assert "Wi-Fi iPerf Throughput (iperf3)" in names
-    assert "BT discoverable (piscan)" in names
+    # M72 #6: discoverability is user-owned - the engine injects no row
+    assert "BT discoverable (piscan)" not in names
     assert "Bluetooth RSSI" in names
     assert "Bluetooth Pair & Connect" in names
     assert "BT L2CAP ping (5)" in names
