@@ -74,9 +74,9 @@ class SerialConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Serial Connection Settings")
         enable_dialog_controls(self)
-        params = dict(DEFAULT_SERIAL_PARAMS)
-        if params is not None:
-            params.update(params or {})
+        merged = dict(DEFAULT_SERIAL_PARAMS)
+        if params:
+            merged.update(params)
 
         form = QFormLayout(self)
 
@@ -85,8 +85,8 @@ class SerialConfigDialog(QDialog):
         for p in list_ports.comports():
             self.combo_port.addItem(f"{p.device}  -  {p.description}",
                                     p.device)
-        if params.get("port"):
-            self.combo_port.setCurrentText(str(params["port"]))
+        if merged.get("port"):
+            self.combo_port.setCurrentText(str(merged["port"]))
         btn_refresh = QPushButton("Refresh")
         btn_refresh.setObjectName("flat")
         btn_refresh.clicked.connect(self._refresh_ports)
@@ -101,26 +101,26 @@ class SerialConfigDialog(QDialog):
         self.combo_baud = QComboBox()
         self.combo_baud.setEditable(True)
         self.combo_baud.addItems(BAUDRATES)
-        self.combo_baud.setCurrentText(str(params["baudrate"]))
+        self.combo_baud.setCurrentText(str(merged["baudrate"]))
         form.addRow("Baud:", self.combo_baud)
 
         self.combo_data = QComboBox()
         self.combo_data.addItems(list(BYTESIZE_MAP))
-        self.combo_data.setCurrentText(params["bytesize_key"])
+        self.combo_data.setCurrentText(merged["bytesize_key"])
         form.addRow("Data bits:", self.combo_data)
 
         self.combo_parity = QComboBox()
         self.combo_parity.addItems(list(PARITY_MAP))
-        self.combo_parity.setCurrentText(params["parity_key"])
+        self.combo_parity.setCurrentText(merged["parity_key"])
         form.addRow("Parity:", self.combo_parity)
 
         self.combo_stop = QComboBox()
         self.combo_stop.addItems(list(STOPBITS_MAP))
-        self.combo_stop.setCurrentText(params["stopbits_key"])
+        self.combo_stop.setCurrentText(merged["stopbits_key"])
         form.addRow("Stop bits:", self.combo_stop)
 
         self.check_flow = QCheckBox("HW flow control (RTS/CTS)")
-        self.check_flow.setChecked(bool(params["flow_control"]))
+        self.check_flow.setChecked(bool(merged["flow_control"]))
         form.addRow("", self.check_flow)
 
         buttons = QDialogButtonBox(
@@ -735,7 +735,7 @@ class MultiConsoleWidget(QGroupBox):
         bar = QHBoxLayout()
         self.btn_add_serial = QPushButton("Add Serial")
         self.btn_add_serial.setObjectName("flat")
-        self.btn_add_serial.clicked.connect(self.add_serial)
+        self.btn_add_serial.clicked.connect(self.add_serial_interactive)
         self.btn_add_ssh = QPushButton("Add SSH")
         self.btn_add_ssh.setObjectName("flat")
         self.btn_add_ssh.clicked.connect(self.add_ssh)
@@ -804,6 +804,26 @@ class MultiConsoleWidget(QGroupBox):
         label = f"SER{n}"
         self._create_channel(key, "serial", label, accent,
                              dict(DEFAULT_SERIAL_PARAMS))
+        return key
+
+    def add_serial_interactive(self):
+        """Top bar "Add Serial": add a row and immediately open its
+        Serial connection dialog (same dialog as the row gear button).
+        Cancelling the dialog removes the just-added row again."""
+        if not self._can_manage_channels():
+            return None
+        key = self.add_serial()
+        if key is None or not self._can_configure():
+            return key
+        channel = self.channels[key]
+        dlg = SerialConfigDialog(self, channel["params"])
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self.remove_channel(key)
+            return None
+        self.set_channel_params(key, dlg.get_params())
+        channel["console"].append_message(
+            "SYS", f"Settings updated (Open to connect): "
+                   f"{self._endpoint(channel)}", color=self.theme["sys"])
         return key
 
     def add_ssh(self):

@@ -245,7 +245,7 @@ GROUP_FIELDS = {
     ("dut", "board_os"): [
         ("os_type", "OS type", "Linux"), ("notes", "Notes", "")],
     ("dut", "wifi"): [
-        ("ssid", "DUT SSID", ""), ("interface", "Interface", "wlan0")],
+        ("ssid", "DUT SSID", ""), ("interface", "Interface", "mlan0")],
     ("dut", "bluetooth"): [
         ("name", "BT name", ""), ("bd_addr", "BD address", "")],
     ("dut", "ssh"): [
@@ -285,7 +285,7 @@ NETWORK_FIELDS = [
     ("wired_host_ip", "Host PC wired IP", ""),
     ("wired_gateway", "Router gateway IP", ""),
     ("wifi_mode", "Wireless mode", "hotspot"),
-    ("wifi_dut_iface", "DUT Wi-Fi interface", "wlan0"),
+    ("wifi_dut_iface", "DUT Wi-Fi interface", "mlan0"),
     ("hotspot_ssid", "Hotspot SSID", ""),
     ("hotspot_password", "Hotspot password", ""),
     ("router_ap_ssid", "Router AP SSID", ""),
@@ -308,9 +308,9 @@ NETWORK_MODES = {
     ],
     "wifi": [
         ("hotspot", "Host PC hotspot (no router)",
-         "DUT (wlan0) ~~ Wi-Fi ~~ Host PC AP (netsh)"),
+         "DUT (mlan0) ~~ Wi-Fi ~~ Host PC AP (netsh)"),
         ("router", "Wi-Fi router",
-         "DUT (wlan0) ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
+         "DUT (mlan0) ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
     ],
 }
 

@@ -2021,7 +2021,7 @@ class FCTTestConfigPanel(QWidget):
                 params["mode"] = ("dhcp" if mode.currentText() == "DHCP"
                                   else "static")
             params["iface"] = (str(resolved["iface"])
-                               or ("wlan0" if is_wifi else "eth0"))
+                               or ("mlan0" if is_wifi else "eth0"))
             params["dut_ip"] = str(resolved["dut_ip"])
             params["netmask"] = str(resolved["netmask"] or "255.255.255.0")
             params["gateway"] = str(resolved["gateway"])
@@ -3294,7 +3294,7 @@ class FCTTestConfigPanel(QWidget):
             add(STEP_TYPE_WIFI_SCAN, "wifi", "scan",
                 {"rssi_min": int(w.rssi_min),
                  "dut_rssi_min": int(w.dut_rssi_min),
-                 "scan_via": str(w.scan_via or "host"),
+                 "scan_via": str(w.scan_via or "dut_console"),
                  "timeout_s": int(float(w.scan_timeout))},
                 {"ap_ssid": w.ap_ssid, "dut_ssid": w.dut_ssid})
         if w.ping_enabled:

@@ -17,6 +17,9 @@ the channel read buffers to judge the DUT output.
   - `SSH1` blue.
 - One serial channel always exists; with no project YAML loaded the
   panel is cleared and `Add Serial` / `Add SSH` rebuild rows.
+- `Add Serial` adds a row and immediately opens that row's serial
+  connection settings dialog. Cancelling the dialog removes the
+  just-added row again (no empty phantom row is left behind).
 - Loading a project applies the YAML `console` section: existing
   channels of the same kind are reused in order, missing ones are
   added, and the YAML channel keys are remembered for the pre-FCT

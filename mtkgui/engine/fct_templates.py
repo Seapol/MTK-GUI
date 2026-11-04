@@ -168,7 +168,7 @@ def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
         driver = str(values.get("wifi_driver_load_cmd") or "").strip()
         if driver:
             iface = (str(values.get("wifi_interface") or "").strip()
-                     or "wlan0")
+                     or "mlan0")
             cmd.send = f"{driver}; iw dev {iface} info"
     if (cmd.kind == KIND_OP and params
             and str(params.get("type") or "") == "wifi_connect"):

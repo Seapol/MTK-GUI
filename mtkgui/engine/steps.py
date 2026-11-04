@@ -149,7 +149,7 @@ def wpa_conf_text(ssid: str, password: str) -> str:
 #: user-editable afterwards.
 OP_STEPS[WIFI_CONNECT_OP] = {
     "type": "wifi_connect", "stack": "wpa_supplicant",
-    "iface": "wlan0", "ssid": "", "password": "",
+    "iface": "mlan0", "ssid": "", "password": "",
     "dhcp": True, "dut_ip": "", "netmask": "255.255.255.0",
     "gateway": "", "timeout_s": 60}
 OP_STEPS[LAN_SETUP_OP] = {
@@ -300,7 +300,7 @@ def op_summary(params: dict | None) -> str:
     if t == "dio_read":
         return "24 ch Control IO"
     if t == "wifi_connect":
-        iface = (params or {}).get("iface", "wlan0")
+        iface = (params or {}).get("iface", "mlan0")
         ssid = (params or {}).get("ssid", "")
         return f"{iface} -> {ssid}" if ssid else iface
     if t == "lan_setup":
@@ -344,7 +344,7 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
         return [f"U2355A DIO {p.get('channels', '')} = "
                 f"{p.get('pattern', '')} -> written"]
     if t == "wifi_connect":
-        iface = p.get("iface", "wlan0")
+        iface = p.get("iface", "mlan0")
         return [f"serial console {iface}: driver check",
                 f"wpa_supplicant.conf written (SSID '{p.get('ssid', '')}')",
                 f"{iface}: {'DHCP' if p.get('dhcp', True) else 'static'} "

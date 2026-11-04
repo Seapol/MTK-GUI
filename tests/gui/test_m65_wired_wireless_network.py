@@ -95,7 +95,7 @@ def test_new_fields_are_in_the_yaml_group():
     assert defaults["wifi_enabled"] is True
     assert defaults["wired_mode"] == "direct"
     assert defaults["wifi_mode"] == "hotspot"
-    assert defaults["wifi_dut_iface"] == "wlan0"
+    assert defaults["wifi_dut_iface"] == "mlan0"
 
 
 # -------------------------------------------------- mode-selection page
@@ -156,7 +156,7 @@ def test_old_project_values_get_the_new_defaults(qapp):
     values.update(legacy)
     dlg = RouterNetworkDialog(None, values)
     try:
-        assert dlg.values()["wifi_dut_iface"] == "wlan0"
+        assert dlg.values()["wifi_dut_iface"] == "mlan0"
         # legacy via_ap maps onto the LAN mode (not silently "direct")
         assert dlg.values()["wired_mode"] == "lan"
         assert dlg._cards["wired"]["lan"]._selected
@@ -236,7 +236,7 @@ def test_hotspot_mode_has_start_stop_control(qapp):
         assert dlg.btn_test is None
         assert "hotspot_ssid" in dlg._edits
         assert "hotspot_password" in dlg._edits
-        assert dlg._edits["wifi_dut_iface"].text() == "wlan0"
+        assert dlg._edits["wifi_dut_iface"].text() == "mlan0"
     finally:
         dlg.deleteLater()
 

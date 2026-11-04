@@ -483,7 +483,8 @@ class YamlBuildPage(QWidget):
                         w.rssi_min = int(num(p.get("rssi_min"), w.rssi_min))
                         w.dut_rssi_min = int(num(
                             p.get("dut_rssi_min"), w.dut_rssi_min))
-                        w.scan_via = str(p.get("scan_via", "host") or "host")
+                        w.scan_via = str(p.get("scan_via", "dut_console")
+                                         or "dut_console")
                         w.scan_timeout = num(p.get("timeout_s"),
                                              w.scan_timeout)
                     elif subtest == "ping":

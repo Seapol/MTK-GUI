@@ -68,7 +68,7 @@ def test_template_row1_gets_the_project_driver_load_command():
         "wifi_interface": "wlan0"})
     assert cmds[0].send == "modprobe moal; iw dev wlan0 info"
     plain = load_template_commands(TEMPLATE_WIFI_SCAN, {})
-    assert "iw dev wlan0 info" in plain[0].send
+    assert "iw dev mlan0 info" in plain[0].send
 
 
 def test_template_row2_prefills_plan_a_and_plan_b_credentials():
