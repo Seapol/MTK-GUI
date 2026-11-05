@@ -25,7 +25,7 @@ from mtkgui.gui.yamlbuild.excel_io import (
     import_from_excel,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
-from mtkgui.gui.yamlbuild.channel_allocation import AllocatedRow
+from mtkgui.gui.yamlbuild.channel_allocation import AllocatedRow, UNSET
 from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
     CLOCK_CHANNELS,
@@ -265,6 +265,123 @@ def test_legacy_workbook_keeps_limit_values(tmp_path):
     assert report.errors == []
     assert report.applied_changes == []
     assert target.get_channel_allocation() == before
+
+
+# ------------------------------- M75 sparser real-project row key sets
+#: the 12 structure keys a REAL project row carries (no limit keys)
+_STRUCT_KEYS = ("net", "test_point", "instrument", "channel",
+                "impedance", "power_rails", "voltage", "se_clock_hz",
+                "band", "dio_channel", "digital_input", "digital_output")
+#: keys actually reaching the YAML for a sparse row (UNSET dropped)
+_POWER_EFF_KEYS = {"net", "test_point", "impedance", "power_rails",
+                   "voltage"}
+_CLOCK_EFF_KEYS = {"net", "test_point", "se_clock_hz", "band"}
+_GPIO_EFF_KEYS = {"net", "test_point", "dio_channel"}
+
+
+def _sparse_real_model() -> YamlBuildModel:
+    """REAL project shape: empty no-UI module fields and 12-key
+    allocation rows (no limit keys at all)."""
+    model = _real_project_model()
+    band = next(iter(CLOCK_BANDS.values()))
+
+    def row(**kw):
+        base = {key: UNSET for key in _STRUCT_KEYS}
+        base.update(kw)
+        return base
+
+    model.set_channel_allocation({
+        "power": [row(net="VDD_3V3", test_point="TP1.1",
+                      impedance=DAQM908A_SENSE_CHANNELS[0],
+                      power_rails=U2355A_AI_CHANNELS[0],
+                      voltage=DAQM908A_SENSE_CHANNELS[0])],
+        "clock": [row(net="CLK_24M", test_point="TP3.1",
+                      se_clock_hz=CLOCK_CHANNELS[0], band=band)],
+        "gpio": [row(net="GPIO_RST", test_point="TP2.1",
+                     dio_channel=GPIO_DIO_CHANNELS[0])],
+    })
+    return model
+
+
+def _alloc_rows(model: YamlBuildModel) -> dict:
+    return model.to_effective_dict()["yaml_build"]["channel_allocation"]
+
+
+def test_limit_edit_adds_exactly_its_own_key(tmp_path):
+    """M75: editing one Power limit adds ONE key to that row; the
+    other rows keep their 12 keys and no cross-type key appears."""
+    source = _sparse_real_model()
+    path = str(tmp_path / "sparse.xlsx")
+    export_to_excel(source, path)
+    wb = load_workbook(path)
+    ws = wb["Power"]
+    ws.cell(row=2, column=_header_index(ws, "Nominal (V)")).value = "3.300"
+    wb.save(path)
+
+    target = _sparse_real_model()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert report.applied_changes == ["Power VDD_3V3: nominal_v"]
+    assert report.ignored_changes == []
+    rows = _alloc_rows(target)
+    power = rows["power"][0]
+    assert set(power) == _POWER_EFF_KEYS | {"nominal_v"}
+    assert "nominal_khz" not in power          # no clock key in power
+    assert "lower_v" not in power
+    assert set(rows["clock"][0]) == _CLOCK_EFF_KEYS
+    assert set(rows["gpio"][0]) == _GPIO_EFF_KEYS
+    # UNSET placeholders never reach the YAML (the next save cleans
+    # the legacy "—" keys - see the M75 report)
+    assert UNSET not in target.to_effective_yaml()
+    # the in-memory table keeps its display placeholders for the GUI /
+    # Excel + exactly the one new limit key
+    assert len(target.get_channel_allocation()["power"][0]) == 13
+    assert len(target.get_channel_allocation()["clock"][0]) == 12
+    assert len(target.get_channel_allocation()["gpio"][0]) == 12
+
+
+def test_sparse_round_trip_is_zero_drift(tmp_path):
+    """M75: a REAL 12-key workbook re-imported unchanged applies
+    nothing, ignores nothing and keeps the effective YAML identical."""
+    source = _sparse_real_model()
+    path = str(tmp_path / "sparse.xlsx")
+    export_to_excel(source, path)
+
+    target = _sparse_real_model()
+    before = target.to_effective_yaml()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert report.applied_changes == []
+    assert report.ignored_changes == []
+    assert target.to_effective_yaml() == before
+    for kind in ("power", "clock", "gpio"):
+        assert set(target.get_channel_allocation()[kind][0]) \
+            == set(_STRUCT_KEYS)
+
+
+def test_clock_limit_edit_only_adds_upper_khz(tmp_path):
+    """M75: a Clock Upper edit adds only upper_khz (no power keys)."""
+    source = _sparse_real_model()
+    path = str(tmp_path / "sparse.xlsx")
+    export_to_excel(source, path)
+    wb = load_workbook(path)
+    ws = wb["Clock"]
+    ws.cell(row=2, column=_header_index(ws, "Upper (kHz)")).value \
+        = "24009.000"
+    wb.save(path)
+
+    target = _sparse_real_model()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.applied_changes == ["Clock CLK_24M: upper_khz"]
+    rows = _alloc_rows(target)
+    clock = rows["clock"][0]
+    assert set(clock) == _CLOCK_EFF_KEYS | {"upper_khz"}
+    assert "nominal_v" not in clock
+    assert set(rows["power"][0]) == _POWER_EFF_KEYS
+    assert set(rows["gpio"][0]) == _GPIO_EFF_KEYS
 
 
 # ------------------------------------ M74 no-UI module empty cells

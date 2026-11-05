@@ -46,6 +46,31 @@ _INSTRUMENT_DOC_KEYS = ("daq973a", "m908a_1", "m908a_2", "m907a",
                         "jlink", "instruments")
 
 
+def _without_unset(allocation: dict) -> dict:
+    """M75: drop the UNSET ("—") placeholder keys from every Channel
+    Allocation row before it reaches the YAML.
+
+    The tables keep the placeholder in memory / GUI / Excel for
+    display, but the project YAML must stay lean: a row carries only
+    the keys that are actually configured, so a limit edit adds exactly
+    that one key (never a full cross-type row)."""
+    out: dict = {}
+    for kind, rows in (allocation or {}).items():
+        if not isinstance(rows, list):
+            out[kind] = rows
+            continue
+        clean: list = []
+        for row in rows:
+            if not isinstance(row, dict):
+                clean.append(row)
+                continue
+            clean.append({key: value for key, value in row.items()
+                          if not (isinstance(value, str)
+                                  and value.strip() == UNSET)})
+        out[kind] = clean
+    return out
+
+
 def available_ops(model, virtual: bool = False) -> set[str] | None:
     """Standard operations usable with the project's configured
     resources (M37).
@@ -399,8 +424,12 @@ class YamlBuildModel:
                     self.imported.get("testable_nets", {})),
             }
         # T10 Channel Allocation configuration (project YAML)
+        # M75: UNSET ("—") is GUI / Excel display state - it is never
+        # written to the YAML, so a limit edit adds exactly its own key
+        # and the rows keep their original key sets
         if self.channel_allocation:
-            section["channel_allocation"] = self.channel_allocation
+            section["channel_allocation"] = _without_unset(
+                self.channel_allocation)
         if self.power_rails_up_sequence:
             section["power_rails_up_sequence"] = \
                 self.power_rails_up_sequence

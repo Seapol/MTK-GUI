@@ -11,6 +11,7 @@ listing, no partial overwrites).
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 
 from openpyxl import Workbook, load_workbook
@@ -303,14 +304,13 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     # drive_level columns still imports - the missing field keeps the
     # CURRENT model value (matched by net + test point), never reset.
     # M73 review-only guard: the allocation data stays fully GUI-owned
-    # except for the whitelisted limit fields.  Start from the CURRENT
-    # model so structural values (and fields the sheet does not carry)
-    # are preserved; only limit cells are overwritten.
-    alloc_final: dict[str, list[dict]] = {}
+    # except for the whitelisted limit fields.  M75: start from a
+    # DEEPCOPY of the raw model rows (never rebuild them through
+    # AllocatedRow.to_dict(), which would inject every cross-type field
+    # with the UNSET placeholder) - a limit edit adds exactly its own
+    # key to the matched row and nothing else.
+    alloc_final: dict = copy.deepcopy(model.get_channel_allocation()) or {}
     current = ChannelAllocationData.from_dict(model.get_channel_allocation())
-    for kind, _cols in TABLE_SPECS:
-        alloc_final[kind] = [dict(row.to_dict())
-                             for row in getattr(current, kind)]
     limit_changed = False
     for kind, _cols in TABLE_SPECS:
         sheet = ALLOCATION_SHEET_NAMES[kind]
@@ -332,8 +332,14 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
         status_idx = header.index("Status") if "Status" in header else None
         previous = {str(getattr(row, "net", "")): row
                     for row in getattr(current, kind)}
-        rows_out = alloc_final[kind]
-        by_net = {str(row.get("net", "")): row for row in rows_out}
+        rows_out = alloc_final.get(kind) or []
+        by_net_tp: dict = {}
+        by_net: dict = {}
+        for row in rows_out:
+            row_net = str(row.get("net", ""))
+            by_net.setdefault(row_net, row)
+            by_net_tp.setdefault(
+                (row_net, str(row.get("test_point", ""))), row)
         limit_keys = ALLOC_LIMIT_KEYS[kind]
         structure_keys = tuple(key for key in keys
                                if key not in limit_keys)
@@ -369,31 +375,39 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
                         f"{text!r} not in {'/'.join(allowed)}")
             if report.errors:
                 continue
-            target = by_net.get(net)
+            # M75: match on net + test point first (duplicate nets), then
+            # fall back to the net alone
+            target = (by_net_tp.get(
+                (net, str(cells.get("test_point", ""))))
+                or by_net.get(net))
             if target is None:
                 # a brand-new row has no GUI-owned structure to keep -
                 # it is never created from Excel
                 for key in limit_keys:
                     value = cells.get(key, "")
-                    if key in present and value:
+                    if key in present and value and value != UNSET:
                         report.ignored_changes.append(
                             f"{prefix}: {key} (row not on the model)")
                 continue
             # structural cells are read-only: differences are ignored
+            # (the UNSET placeholder is display state, not an edit)
             for key in structure_keys:
                 if key not in present:
                     continue
                 value = cells.get(key, "")
-                if value and value != str(target.get(key, "")):
+                if (value and value != UNSET
+                        and value != str(target.get(key, ""))):
                     report.ignored_changes.append(
                         f"{prefix}: {key.replace('_', ' ')} "
                         f"({value!r}, read-only)")
-            # only the whitelisted limits are applied
+            # only the whitelisted limits are applied; an UNSET ("—")
+            # cell means "not configured" and never adds a key
             for key in limit_keys:
                 if key not in present:
                     continue         # legacy workbook: keep model value
                 value = cells.get(key, "")
-                if not value or value == str(target.get(key, "")):
+                if (not value or value == UNSET
+                        or value == str(target.get(key, ""))):
                     continue
                 target[key] = value
                 limit_changed = True
