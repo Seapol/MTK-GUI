@@ -278,7 +278,9 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
 
 
 def _console_wait(channel, step: FctStep, ctx: FctContext,
-                  pattern: str) -> FctOutcome:
+                  pattern: str, timeout_s: float = 0.0,
+                  case_sensitive: bool = True,
+                  name_suffix: str = "") -> FctOutcome:
     """WaitFor stage of an interact / dialog step (unified model).
 
     Bounded by ``params.wait_timeout`` (never blocks forever); the
@@ -287,16 +289,81 @@ def _console_wait(channel, step: FctStep, ctx: FctContext,
     caller must NOT send the answer."""
     p = step.params
     wait_step = FctStep(
-        name=f"{step.name} (wait)", step_type=STEP_MESSAGE_CHECK,
+        name=f"{step.name} ({name_suffix or 'wait'})",
+        step_type=STEP_MESSAGE_CHECK,
         channel=step.channel,
-        timeout_s=float(p.get("wait_timeout") or step.timeout_s or 30.0),
+        timeout_s=float(timeout_s or p.get("wait_timeout")
+                        or step.timeout_s or 30.0),
         params={"fct_console": True, "kind": "wait",
                 "expect_pass_re": pattern,
                 "expect_pass_is_regex": bool(p.get("wait_is_regex")),
                 "capture_is_expected": True,
-                "case_sensitive": bool(p.get("case_sensitive", True))})
+                "case_sensitive": bool(
+                    case_sensitive and p.get("case_sensitive", True))})
     ctx.log(f"{step.name}: waiting for console message '{pattern}'")
     return _regex_capture(channel, wait_step, ctx)
+
+
+def _mark_channel(channel) -> None:
+    """M76/D4: remember "now" on a channel so a send+capture row judges
+    ONLY the bytes received after its command (a pre-run boot log must
+    never satisfy the capture keyword)."""
+    mark = getattr(channel, "mark", None)
+    if callable(mark):
+        try:
+            mark()
+        except Exception:                 # noqa: BLE001 - never abort
+            pass
+
+
+def _console_login(step: FctStep, ctx: FctContext,
+                   channel) -> FctOutcome:
+    """M76/D3: the operator-authored DUT login row.
+
+    Wait ``login_prompt`` -> send ``user`` -> wait the password prompt
+    -> send ``password`` (an empty password still sends ONE line
+    break) -> PASS only when ``shell_prompt`` arrives.  The whole
+    sequence is bounded by the row's wait window."""
+    p = dict(step.params.get("fct_console_login") or {})
+    login_prompt = str(p.get("login_prompt") or "login:")
+    user = str(p.get("user") or "")
+    password = str(p.get("password") or "")
+    shell_prompt = str(p.get("shell_prompt") or "#")
+    pass_prompt = str(p.get("password_prompt") or "pass")
+    window = max(float(p.get("timeout_s") or step.timeout_s or 30.0), 0.1)
+    deadline = time.monotonic() + window
+
+    def _wait(pattern: str, label: str) -> FctOutcome:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return FctOutcome(VERDICT_FAIL,
+                              f"TIMEOUT before {label} '{pattern}'")
+        return _console_wait(
+            channel, step, ctx, pattern, timeout_s=left,
+            case_sensitive=False, name_suffix=label)
+
+    _line = console_line
+
+    outcome = _wait(login_prompt, "login prompt")
+    if outcome.verdict != VERDICT_PASS:
+        return outcome
+    ctx.log(f"console send: {user!r} (login user)")
+    _mark_channel(channel)
+    # a login prompt is interactive: write the answer immediately (no
+    # quiet-window drain, which would swallow the password prompt)
+    channel.write(_line(user))
+    outcome = _wait(pass_prompt, "password prompt")
+    if outcome.verdict != VERDICT_PASS:
+        return outcome
+    ctx.log("console send: password (hidden)")
+    _mark_channel(channel)
+    channel.write(_line(password))
+    outcome = _wait(shell_prompt, "shell prompt")
+    if outcome.verdict != VERDICT_PASS:
+        return outcome
+    return FctOutcome(VERDICT_PASS,
+                      f"logged in - matched '{shell_prompt}'",
+                      list(outcome.lines))
 
 
 def _console_dialog(step: FctStep, ctx: FctContext) -> FctOutcome:
@@ -737,6 +804,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # global keyword tables must NOT judge raw DUT output (a boot
         # log contains 'timeout'/'error' words -> false negatives)
         if step.params.get("fct_console"):
+            # M76/D3: the operator-authored DUT login row
+            if step.params.get("fct_console_login"):
+                return _console_login(step, ctx, channel)
             if step.params.get("confirm_enabled"):
                 # LEGACY marker (published before the unified model):
                 # the implicit popup is gone - such a row must be
@@ -764,6 +834,10 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 if step.params.get("send_enabled", True) and \
                         _send_text.strip():
                     ctx.log(f"console send: {_send_text!r}")
+                    # M76/D4: the capture stage must judge only bytes
+                    # received AFTER this command - a pre-run boot log
+                    # can never satisfy the expected keyword
+                    _mark_channel(channel)
                     from .serial_transport import apply_send_hardening
                     apply_send_hardening(channel, console_line(_send_text))
                 else:

@@ -972,6 +972,10 @@ class TestRunner(QObject):
         env = self.env
         send_yes = str(cfg.get("send_yes") or "y")
         send_no = str(cfg.get("send_no") or "n")
+        # M76/D2: the console answer is OPT-IN per row.  Default off so
+        # an existing YAML can never inject 'y' into a login prompt.
+        # The row's verdict does not depend on the send.
+        allow_send = bool(cfg.get("send_console_answer", False))
         if kind == "MessageOK":
             env._log(f"{tag} {name}: operator OK -> PASS "
                      f"(no console action)")
@@ -981,7 +985,13 @@ class TestRunner(QObject):
                 env._log(f"{tag} {name}: operator timeout -> FAIL")
                 return "FAIL"
             payload = send_yes if answer == "yes" else send_no
-            self._fct_message_send(payload, name)
+            if allow_send:
+                self._fct_message_send(payload, name)
+            else:
+                env._log(f"{tag} {name}: operator {answer.capitalize()} "
+                         f"-> PASS (console answer suppressed - "
+                         f"send_console_answer is off)")
+                return "PASS"
             env._log(f"{tag} {name}: operator {answer.capitalize()} "
                      f"-> PASS")
             return "PASS"
@@ -990,10 +1000,19 @@ class TestRunner(QObject):
             env._log(f"{tag} {name}: operator timeout -> FAIL")
             return "FAIL"
         if answer == "go":
-            self._fct_message_send(send_yes, name)
-            env._log(f"{tag} {name}: operator GO -> PASS")
+            if allow_send:
+                self._fct_message_send(send_yes, name)
+                env._log(f"{tag} {name}: operator GO -> PASS")
+            else:
+                env._log(f"{tag} {name}: operator GO -> PASS "
+                         f"(console answer suppressed - "
+                         f"send_console_answer is off)")
             return "PASS"
-        self._fct_message_send(send_no, name)
+        if allow_send:
+            self._fct_message_send(send_no, name)
+        else:
+            env._log(f"{tag} {name}: console answer suppressed "
+                     f"(send_console_answer is off)")
         env._log(f"{tag} {name}: operator STOP -> FAIL (run stops)")
         # the run STOPS: operator-style abort - flagged teardown rows
         # still execute before the run ends

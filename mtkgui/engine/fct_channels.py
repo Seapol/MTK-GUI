@@ -166,6 +166,16 @@ class BoundConsoleChannel:
     def write(self, data: str) -> None:
         self._worker.send(data)
 
+    def mark(self) -> None:
+        """M76/D4: drop everything already popped - a send+capture row
+        judges only output produced after its command."""
+        pop = getattr(self._worker, "pop_lines", None)
+        if callable(pop):
+            try:
+                pop(100000)
+            except Exception:             # noqa: BLE001 - never abort
+                pass
+
     def close(self) -> None:
         pass                            # the console owns the transport
 
@@ -228,6 +238,12 @@ class ConsoleBufferChannel:
         if len(out) < max(1, max_lines) and self._pending.strip():
             out.append(self._pending.rstrip("\r"))
         return out
+
+    def mark(self) -> None:
+        """M76/D4: skip everything already received - the next reads
+        only return bytes that arrive AFTER the command was written."""
+        self._consumed = len(self._mc.get_read_buffer(self._key))
+        self._pending = ""
 
     def close(self) -> None:
         pass                                # the console owns the transport

@@ -881,6 +881,8 @@ class MainWindow(QMainWindow):
         mcw = self.workflow_page.multi_console
         mcw.connection_changed.connect(
             lambda: self.serial_status.sync_channels(mcw.channels))
+        # M76/D6: a manual console send is mirrored into the Event Log
+        mcw.console_log.connect(self._append_event_log)
         self.serial_status.sync_channels(mcw.channels)
 
         # current date (far right)

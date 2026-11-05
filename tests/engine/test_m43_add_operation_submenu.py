@@ -152,7 +152,7 @@ class TestOperationSubmenu:
                   | {WIFI_CONNECT_OP, LAN_SETUP_OP}
                   | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 32
+        assert len(panel._add_actions) == 33   # M76/D3: + DUT login
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu

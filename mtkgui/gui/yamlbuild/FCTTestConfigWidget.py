@@ -91,6 +91,7 @@ from mtkgui.engine.fct_test_config import (
     KIND_SERIAL_PUT,
     KIND_SERIAL_PULL,
     STEP_TYPE_OPERATION,
+    STEP_TYPE_CONSOLE_LOGIN,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
     STEP_TYPE_SFTP_PUT,
@@ -1808,8 +1809,8 @@ class FCTTestConfigPanel(QWidget):
         Unexpected)."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QComboBox, QLineEdit,
-                                        QDoubleSpinBox, QDialogButtonBox,
-                                        QTextEdit)
+                                        QCheckBox, QDoubleSpinBox,
+                                        QDialogButtonBox, QTextEdit)
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
         dlg.setWindowTitle("Operator message editor")
@@ -1870,6 +1871,16 @@ class FCTTestConfigPanel(QWidget):
         send_no = QLineEdit(cmd.send_no or "n")
         form.addRow("Send on Yes / GO:", send_yes)
         form.addRow("Send on No / STOP:", send_no)
+        # M76/D2: opt-in console answer (default off -> never write 'y'
+        # into a login prompt)
+        answer_cb = QCheckBox(
+            "Send the answer to the DUT console (send_console_answer)")
+        answer_cb.setChecked(bool(getattr(cmd, "send_console_answer",
+                                          False)))
+        answer_cb.setToolTip(
+            "Off (default): GO / Yes never writes to the console; "
+            "turn it on only where the DUT really asks a y/n question")
+        form.addRow(answer_cb)
         timeout = QDoubleSpinBox()
         timeout.setRange(0.0, 3600.0)
         timeout.setDecimals(0)
@@ -1905,6 +1916,7 @@ class FCTTestConfigPanel(QWidget):
             cmd.expect_pass_is_regex = False
             cmd.wait_enabled = is_wait_label or bool(cmd.expect_pass)
             cmd.wait_timeout = float(wait_timeout.value())
+            cmd.send_console_answer = answer_cb.isChecked()
             cmd.send_enabled = dialog_style != DIALOG_OK
             if cmd.send_enabled:
                 cmd.send_yes = send_yes.text().strip() or "y"
@@ -2093,6 +2105,27 @@ class FCTTestConfigPanel(QWidget):
         wait_edit = None
         wait_cb = None
         wait_timeout = None
+        login_edits = {}
+        if typ == STEP_TYPE_CONSOLE_LOGIN:
+            # M76/D3: DUT login row parameters
+            login_edits["login_prompt"] = QLineEdit(
+                cmd.login_prompt or "login:")
+            login_edits["login_prompt"].setToolTip(
+                "Console prompt that precedes the user name")
+            form.addRow("Login prompt:", login_edits["login_prompt"])
+            login_edits["user"] = QLineEdit(cmd.login_user or "root")
+            form.addRow("User:", login_edits["user"])
+            login_edits["password"] = QLineEdit(cmd.login_password or "")
+            login_edits["password"].setEchoMode(
+                QLineEdit.EchoMode.Password)
+            login_edits["password"].setPlaceholderText(
+                "empty = just press Enter")
+            form.addRow("Password:", login_edits["password"])
+            login_edits["shell_prompt"] = QLineEdit(
+                cmd.shell_prompt or "#")
+            login_edits["shell_prompt"].setToolTip(
+                "PASS only when this shell prompt arrives")
+            form.addRow("Shell prompt:", login_edits["shell_prompt"])
         if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
             wait_cb = QCheckBox("Enable WaitFor")
             wait_cb.setChecked(cmd.wait_enabled)
@@ -2152,7 +2185,18 @@ class FCTTestConfigPanel(QWidget):
         timeout.setValue(int(cmd.send_timeout if typ in (
             STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET) else (cmd.timeout or 6)))
         timeout.setSuffix(" s")
+        timeout.setToolTip(
+            "Send / capture stage timeout (M76/D5: a WAIT-ONLY row is "
+            "bounded by the Wait timeout instead)")
         form.addRow("Timeout:", timeout)
+        if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
+            if wait_timeout is not None:
+                wait_timeout.setToolTip(
+                    "Governs a WAIT-ONLY row (fallback: Timeout, then 30 s)")
+            hint = QLabel("Wait-only rows are bounded by 'Wait timeout'; "
+                          "send / capture rows by 'Timeout'.")
+            hint.setWordWrap(True)
+            form.addRow(hint)
 
         lay.addLayout(form)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
@@ -2204,6 +2248,14 @@ class FCTTestConfigPanel(QWidget):
             cmd.capture_unexpected = cap_unexp.toPlainText().strip()
             cmd.capture_enabled = bool(cmd.capture_expected
                                        or cmd.capture_unexpected)
+            if login_edits:
+                cmd.login_prompt = (login_edits["login_prompt"]
+                                    .text().strip() or "login:")
+                cmd.login_user = login_edits["user"].text().strip()
+                cmd.login_password = login_edits["password"].text()
+                cmd.shell_prompt = (login_edits["shell_prompt"]
+                                    .text().strip() or "#")
+                cmd.wait_timeout = float(timeout.value())
             if typ not in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
                            STEP_TYPE_CONSOLE_CLI):
                 cmd.timeout = float(timeout.value())

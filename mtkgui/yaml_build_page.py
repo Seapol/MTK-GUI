@@ -395,7 +395,12 @@ class YamlBuildPage(QWidget):
         from mtkgui.engine.fct_test_config import (
             FctSetupCfg,
             FctTestConfig,
+            STEP_TYPE_DELAY,
             STEP_TYPE_FLASH_GUI,
+            STEP_TYPE_SERIAL_PULL,
+            STEP_TYPE_SERIAL_PUT,
+            STEP_TYPE_SFTP_GET,
+            STEP_TYPE_SFTP_PUT,
             build_fct_steps,
         )
         from mtkgui.engine.ref_resolver import (
@@ -478,7 +483,7 @@ class YamlBuildPage(QWidget):
                 # stay exactly where the operator put this row - the
                 # former op_cases list forced every Operation to the
                 # front and destroyed the user-defined order
-                slots.append(("op", _op_command_to_case(cmd)))
+                slots.append(("op", _op_command_to_case(cmd), cmd))
                 continue
             family, subtest = _rf_family(cmd)
             if family:
@@ -554,6 +559,12 @@ class YamlBuildPage(QWidget):
                     if not b.expected_addr:
                         b.expected_addr = str(eq(
                             "equipment.dut.bluetooth.bd_addr", ""))
+                # M76/D1: keep the RF reference row at ITS authored
+                # position - build_fct_steps expands the sub-test right
+                # here (the fallback block then has nothing left to
+                # append, so the RF group no longer runs after cleanup)
+                slots.append(("cmd", len(commands), cmd))
+                commands.append(cmd)
                 continue
             if step_type_label(cmd) == STEP_TYPE_FLASH_GUI:
                 # M64: the FULL executable path, the CLI arguments and the
@@ -568,7 +579,7 @@ class YamlBuildPage(QWidget):
                     eq("equipment.jlink.arguments", "") or "")
                 cmd.flash_gui_prompt = str(
                     eq("equipment.jlink.prompt", "") or "")
-                slots.append(("cmd", len(commands)))
+                slots.append(("cmd", len(commands), cmd))
                 commands.append(cmd)
                 continue
             if str(getattr(cmd, "transport", "") or "") == "ssh":
@@ -589,21 +600,15 @@ class YamlBuildPage(QWidget):
                 # an abort (never a plain body command)
                 post_cmds.append(cmd)
             else:
-                slots.append(("cmd", len(commands)))
+                slots.append(("cmd", len(commands), cmd))
                 commands.append(cmd)
         cfg.console.test_commands = commands
         cfg.console.post_rf_commands = post_cmds
         errors = list(cfg.validate())
         if errors:
             return None, errors
-        lengths, body_steps = self._fct_command_prefixes(cfg)
-        full_steps = build_fct_steps(cfg)
-        # body = console / RF rows, tail = the engine-owned teardown
-        # rows appended after the RF blocks
-        body_count = len(body_steps) - lengths[0]
-        cmd_steps = body_steps[:body_count]
-        rf_fallback = body_steps[body_count:]
-        teardown = full_steps[len(body_steps):]
+        lengths, cmd_steps, rf_fallback, teardown = \
+            self._fct_command_prefixes(cfg)
 
         def _cases(steps: list) -> list:
             if not steps:
@@ -615,29 +620,39 @@ class YamlBuildPage(QWidget):
             return generated
 
         # M72 BLOCKER 1: replay the raw row order - Operations keep
-        # their user-defined position instead of jumping to the front
+        # their user-defined position instead of jumping to the front.
+        # M76/D1: Delay / Serial transfer / SFTP rows keep their authored
+        # kind (no [MessageOK] / [CapturefromConsole] downgrade).
+        authored_kinds = {STEP_TYPE_DELAY, STEP_TYPE_SERIAL_PUT,
+                          STEP_TYPE_SERIAL_PULL, STEP_TYPE_SFTP_PUT,
+                          STEP_TYPE_SFTP_GET}
         cases: list = []
-        for kind, payload in slots:
+        for kind, payload, cmd in slots:
             if kind == "op":
                 cases.append(payload)
                 continue
-            lo = lengths[payload] - lengths[0]
-            hi = lengths[payload + 1] - lengths[0]
-            cases.extend(_cases(cmd_steps[lo:hi]))
+            lo = lengths[payload]
+            hi = lengths[payload + 1]
+            row_cases = _cases(cmd_steps[lo:hi])
+            label = step_type_label(cmd)
+            if label in authored_kinds:
+                for case in row_cases:
+                    case["kind"] = label
+            cases.extend(row_cases)
         cases.extend(_cases(rf_fallback))
         cases.extend(_cases(teardown))
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
 
     def _fct_command_prefixes(self, cfg):
-        """(prefix lengths, body steps) for the ordered case assembly.
+        """(prefix lengths, command steps, RF fallback, teardown).
 
-        ``build_fct_steps`` appends the RF fallback block and the
-        teardown rows after the console body, so building the command
-        PREFIXES gives one constant offset (the RF fallback) and the
-        consecutive differences are exactly the steps owned by one
-        console / RF row.  The body build here excludes the teardown
-        rows (the caller appends them last)."""
+        M76/D1: the prefix builds disable the engine's RF fallback block,
+        so the consecutive length differences are exactly the steps
+        owned by ONE console / RF row (an enabled sub-test without a
+        reference row can no longer shift every following slice).
+        Fallback and teardown are produced separately and appended
+        after the authored rows, unchanged."""
         import copy
 
         from mtkgui.engine.fct_test_config import build_fct_steps
@@ -648,9 +663,17 @@ class YamlBuildPage(QWidget):
         lengths = []
         for i in range(len(cmds) + 1):
             body_cfg.console.test_commands = cmds[:i]
-            lengths.append(len(build_fct_steps(body_cfg)))
+            lengths.append(len(build_fct_steps(
+                body_cfg, include_fallback=False)))
         body_cfg.console.test_commands = cmds
-        return lengths, build_fct_steps(body_cfg)
+        cmd_steps = build_fct_steps(body_cfg, include_fallback=False)
+        fallback = build_fct_steps(body_cfg, include_fallback=True)
+        fallback = fallback[len(cmd_steps):]
+        tail_cfg = copy.copy(cfg)
+        tail_cfg.console = copy.copy(cfg.console)
+        tail_cfg.console.test_commands = []
+        teardown = build_fct_steps(tail_cfg, include_fallback=False)
+        return lengths, cmd_steps, fallback, teardown
 
     def _emit_fct_sequence_legacy(self, params: dict):
         """Legacy ``fct_test_config_yaml`` (pre-M50 project files)."""

@@ -187,9 +187,14 @@ KIND_SERIAL_PUT = "serial_put"  # M46: push a Host PC file to the DUT
                                 # over the SERIAL console
 KIND_SERIAL_PULL = "serial_pull"  # M46: pull a DUT file to the Host PC
                                   # over the SERIAL console
+KIND_CONSOLE_LOGIN = "console_login"  # M76/D3: operator-authored DUT
+                                # login row (login prompt -> user ->
+                                # password prompt -> password -> shell
+                                # prompt); never auto-inserted
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST,
-                 KIND_DELAY, KIND_SERIAL_PUT, KIND_SERIAL_PULL)
+                 KIND_DELAY, KIND_SERIAL_PUT, KIND_SERIAL_PULL,
+                 KIND_CONSOLE_LOGIN)
 
 #: row kinds that never open the serial console (M36 validation): a
 #: console section made only of these needs no port
@@ -240,9 +245,14 @@ STEP_TYPE_BT_TONE = "BT_Tone"
 #: submenu only (never a direct Add Type item).
 STEP_TYPE_SERIAL_PUT = "Serial: Push file to DUT"
 STEP_TYPE_SERIAL_PULL = "Serial: Pull file from DUT"
+#: M76/D3: operator-authored console login operation (login prompt ->
+#: user -> password prompt -> password -> shell prompt).  The system
+#: NEVER inserts it - the operator places it in the sequence.
+STEP_TYPE_CONSOLE_LOGIN = "Console: Login to the DUT"
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
+                    STEP_TYPE_CONSOLE_LOGIN,
                     STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
@@ -765,6 +775,15 @@ class ConsoleCommand:
     serial_baud: int = 0            # kind == serial_put|serial_pull (M46):
                                     # 0 = use the Console Serial baudrate,
                                     # otherwise one Tera Term table rate
+    # M76/D2: opt-in console answer for MessageYesNo / MessageGoStop -
+    # False (default) means GO / STOP never writes to the DUT console,
+    # so an existing YAML stops poisoning a login prompt with 'y'
+    send_console_answer: bool = False
+    # M76/D3: kind == console_login - the DUT login sequence
+    login_prompt: str = "login:"    # wait for this prompt, then user
+    login_user: str = "root"        # user name sent after the prompt
+    login_password: str = ""        # password sent after the pass prompt
+    shell_prompt: str = "#"         # PASS only when this prompt is seen
     # M50: per-step owned parameters (thresholds / tool / count / tone
     # segment ...) and the runtime references to the Equipment node.
     # ``refs`` maps a field key -> dotted path; ``overrides`` maps the
@@ -811,7 +830,12 @@ class ConsoleCommand:
              "flash_gui_arguments": self.flash_gui_arguments,
              "flash_gui_prompt": self.flash_gui_prompt,
              "wait_ms": int(self.wait_ms),
-             "serial_baud": int(self.serial_baud or 0)}
+             "serial_baud": int(self.serial_baud or 0),
+             "send_console_answer": bool(self.send_console_answer),
+             "login_prompt": str(self.login_prompt or ""),
+             "login_user": str(self.login_user or ""),
+             "login_password": str(self.login_password or ""),
+             "shell_prompt": str(self.shell_prompt or "")}
         if self.step_params:
             d["step_params"] = dict(self.step_params)
         if self.refs:
@@ -906,6 +930,12 @@ class ConsoleCommand:
                 flash_gui_prompt=str(c.get("flash_gui_prompt", "")),
                 wait_ms=int(c.get("wait_ms", 1000) or 0),
                 serial_baud=int(c.get("serial_baud", 0) or 0),
+                send_console_answer=bool(
+                    c.get("send_console_answer", False)),
+                login_prompt=str(c.get("login_prompt", "login:") or ""),
+                login_user=str(c.get("login_user", "root") or ""),
+                login_password=str(c.get("login_password", "") or ""),
+                shell_prompt=str(c.get("shell_prompt", "#") or ""),
                 step_params=(dict(c.get("step_params"))
                              if isinstance(c.get("step_params"), dict)
                              else None),
@@ -1004,6 +1034,8 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
         return STEP_TYPE_FLASH_GUI
     if kind == KIND_HOST:
         return STEP_TYPE_CONSOLE_CLI
+    if kind == KIND_CONSOLE_LOGIN:
+        return STEP_TYPE_CONSOLE_LOGIN
     if kind == KIND_MESSAGE:
         style = str(getattr(cmd, "dialog_style", "") or "")
         waits = bool(getattr(cmd, "wait_enabled", False))
@@ -1090,6 +1122,14 @@ def console_command_for_label(label: str,
                               transport="serial", wait_enabled=False,
                               send_enabled=True, capture_enabled=False,
                               host_cmd_windows="", host_cmd="")
+    if label == STEP_TYPE_CONSOLE_LOGIN:
+        return ConsoleCommand(kind=KIND_CONSOLE_LOGIN,
+                              name=name or STEP_TYPE_CONSOLE_LOGIN,
+                              transport="serial", wait_enabled=True,
+                              send_enabled=True, capture_enabled=True,
+                              login_prompt="login:", login_user="root",
+                              login_password="", shell_prompt="#",
+                              timeout=30.0, wait_timeout=30.0)
     if label == STEP_TYPE_CONSOLE_SERIAL:
         return ConsoleCommand(kind="send", name=name or "",
                               transport="serial", wait_enabled=False,
@@ -1769,14 +1809,33 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                 "baud": int(cmd.serial_baud or 0),
                 "console_baud": int(console_baud or 115200)}}))
         return steps
+    # M76/D3: operator-authored DUT login row - wait the login prompt,
+    # send the user, wait the password prompt, send the password, then
+    # PASS only when the shell prompt arrives.  NEVER auto-inserted.
+    if cmd.kind == KIND_CONSOLE_LOGIN:
+        steps.append(FctStep(
+            name=cmd.name or STEP_TYPE_CONSOLE_LOGIN,
+            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+            timeout_s=float(cmd.timeout or 30.0),
+            retries=int(cmd.retries),
+            params={"fct_console": True, "kind": "login",
+                    "fct_console_login": {
+                        "login_prompt": str(cmd.login_prompt or "login:"),
+                        "user": str(cmd.login_user or ""),
+                        "password": str(cmd.login_password or ""),
+                        "shell_prompt": str(cmd.shell_prompt or "#"),
+                        "password_prompt": "pass",
+                        "timeout_s": float(cmd.wait_timeout or
+                                           cmd.timeout or 30.0)}}))
+        return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
     # 2026-10-18): the row WAITS the expected console message from the
     # bound DUT console, THEN notifies the operator.  OK sends nothing
     # (non-blocking), YesNo / GoStop send send_yes / send_no (default y
-    # / n); the row joins the ordered sequence exactly where it is
-    # placed.  Legacy rows without an expected message simply skip the
-    # wait phase.
+    # / n) ONLY when the row opts in (send_console_answer); the row
+    # joins the ordered sequence exactly where it is placed.  Legacy
+    # rows without an expected message simply skip the wait phase.
     if cmd.kind == KIND_MESSAGE:
         steps.append(FctStep(
             name=cmd.name or "Operator message",
@@ -1788,6 +1847,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                     or cmd.name or "Operator message",
                     "send_yes": cmd.send_yes or "y",
                     "send_no": cmd.send_no or "n",
+                    "send_console_answer": bool(
+                        getattr(cmd, "send_console_answer", False)),
                     "message_timeout_s": float(cmd.timeout or 0.0),
                     "console_dialog": True,
                     "wait_pattern": str(cmd.expect_pass or ""),
@@ -1853,10 +1914,17 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     # "(wait)" pre-step + main step split is gone; wait / send /
     # capture are stages of the SAME interact step, so the yaml, the
     # step editor and the Test Work Flow table all show one row.
+    # M76/D5: a WAIT-ONLY row is bounded by wait_timeout (> 0), then
+    # timeout, then 30 s - the send/capture stages keep `timeout`.
+    step_timeout = float(cmd.timeout)
+    if is_wait_only:
+        wait_bound = float(cmd.wait_timeout or 0.0)
+        step_timeout = (wait_bound if wait_bound > 0
+                        else (float(cmd.timeout) or 30.0))
     steps.append(FctStep(
         name=base_name,
         step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-        timeout_s=float(cmd.timeout), retries=int(cmd.retries),
+        timeout_s=step_timeout, retries=int(cmd.retries),
         params=params))
     # An operator confirmation is an EXPLICIT dialog step placed right
     # after the row (model item 3: nothing pops implicitly any more).
@@ -1870,6 +1938,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                     "wait_pattern": "", "wait_timeout": 0.0,
                     "send_yes": cmd.send_yes or cmd.send or "y",
                     "send_no": cmd.send_no or "n",
+                    "send_console_answer": bool(
+                        getattr(cmd, "send_console_answer", False)),
                     "message_timeout_s": float(cmd.timeout or 4.0)}))
     return steps
 
@@ -2063,7 +2133,9 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
 
 
 def build_fct_steps(cfg: FctTestConfig,
-                    channel_key: str = "ser1") -> list:
+                    channel_key: str = "ser1",
+                    include_fallback: bool = True,
+                    include_teardown: bool = True) -> list:
     """FctTestConfig -> ordered list[FctStep] for the work flow.
 
     * console login pairs + test commands: MESSAGE_CHECK steps bound
@@ -2134,30 +2206,35 @@ def build_fct_steps(cfg: FctTestConfig,
             steps.append(_serial_deploy_step(c, channel_key))
     # Backward-compatible fallback: enabled RF sub-tests with NO reference
     # row still expand after the console body in the old fixed order.
-    for kind, subtests in ((KIND_WIFI_TEST, ("scan", "ping", "iperf")),
-                           (KIND_BT_TEST, ("rssi", "pair", "tone"))):
-        family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
-        for subtest in subtests:
-            if (kind, subtest) in expanded:
-                continue
-            sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
-                         if family == "wifi" else
-                         _bt_subtest_steps(cfg, subtest, channel_key))
-            if sub_steps:
-                expanded.add((kind, subtest))
-                _emit_rf(family, sub_steps)
+    # M76/D1: the M50 emitter disables this block for its prefix builds
+    # so the steps of one command row can be sliced exactly (an enabled
+    # sub-test with no reference row would otherwise shift every slice).
+    if include_fallback:
+        for kind, subtests in ((KIND_WIFI_TEST, ("scan", "ping", "iperf")),
+                               (KIND_BT_TEST, ("rssi", "pair", "tone"))):
+            family = "wifi" if kind == KIND_WIFI_TEST else "bluetooth"
+            for subtest in subtests:
+                if (kind, subtest) in expanded:
+                    continue
+                sub_steps = (_wifi_subtest_steps(cfg, subtest, channel_key)
+                             if family == "wifi" else
+                             _bt_subtest_steps(cfg, subtest, channel_key))
+                if sub_steps:
+                    expanded.add((kind, subtest))
+                    _emit_rf(family, sub_steps)
     # Post-RF teardown rows ('shutdown now', stopping the host-side
     # iperf3 server, ...) - appended AFTER the Wi-Fi/BT sections so the
     # DUT stays up while any RF sub-test can still run.  Each row is
     # tagged params.teardown=True so the runner executes it EVEN on an
     # abort (stop_if_failure) — teardown must never be skipped.
-    for cmd in c.post_rf_commands:
-        for step in _console_row_steps(
-                cmd, channel_key, c.ssh_host, c.ssh_username,
-                c.scripts_local_dir, c.scripts_remote_dir,
-                c.pull_remote_dir, c.pull_local_dir, c.baudrate):
-            step.params = dict(step.params or {})
-            step.params["teardown"] = True
-            steps.append(step)
+    if include_teardown:
+        for cmd in c.post_rf_commands:
+            for step in _console_row_steps(
+                    cmd, channel_key, c.ssh_host, c.ssh_username,
+                    c.scripts_local_dir, c.scripts_remote_dir,
+                    c.pull_remote_dir, c.pull_local_dir, c.baudrate):
+                step.params = dict(step.params or {})
+                step.params["teardown"] = True
+                steps.append(step)
     return steps
 

@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontDialog,
     QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
+    QWidget,
 )
 from serial.tools import list_ports
 
@@ -708,6 +709,71 @@ class ChannelRow(QFrame):
         self.btn_console.setEnabled(True)
 
 
+class _InlineChannelView(QWidget):
+    """M76/D6: one visible view per CONNECTED channel inside the
+    Console panel - a title with the channel key, the scrolled output,
+    and a single-line input that sends on Enter."""
+
+    send_text = Signal(str)
+
+    def __init__(self, key, label, accent, theme, parent=None):
+        super().__init__(parent)
+        self.key = key
+        self._theme = dict(theme or {})
+        self.setObjectName("inline_console_view")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self.title = QLabel(f"{key} - {label}")
+        self.title.setStyleSheet(
+            f"background: {accent}; color: #1c2430; font-weight: bold;"
+            " border-radius: 3px; padding: 1px 6px;")
+        layout.addWidget(self.title)
+
+        self.view = QPlainTextEdit()
+        self.view.setReadOnly(True)
+        self.view.setMaximumBlockCount(2000)
+        self.view.setMinimumHeight(110)
+        self.view.setPlaceholderText("(no output yet)")
+        layout.addWidget(self.view, 1)
+
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText(f"Send to {key} - press Enter")
+        self.edit.returnPressed.connect(self._emit)
+        layout.addWidget(self.edit)
+
+        btn = QPushButton("Send")
+        btn.setObjectName("flat")
+        btn.clicked.connect(self._emit)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.edit, 1)
+        row.addWidget(btn)
+        layout.addLayout(row)
+        self.setMinimumHeight(150)
+
+    # ---------------------------------------------------------- data in
+    def append_rx(self, data) -> None:
+        try:
+            text = data.decode("utf-8", "replace") if isinstance(
+                data, (bytes, bytearray)) else str(data)
+        except Exception:                 # noqa: BLE001 - never abort
+            return
+        self.view.appendPlainText(text.replace("\r\n", "\n").rstrip("\n"))
+
+    def append_tx(self, text: str) -> None:
+        self.view.appendPlainText(f"console send: {text!r}")
+
+    # --------------------------------------------------------- data out
+    def _emit(self) -> None:
+        text = self.edit.text()
+        if not text.strip():
+            return
+        self.send_text.emit(text)
+        self.edit.clear()
+
+
 # =========================================================== container
 class MultiConsoleWidget(QGroupBox):
     """Compact 1-4 x serial + 0-1 x SSH console container. Each
@@ -716,6 +782,9 @@ class MultiConsoleWidget(QGroupBox):
 
     # emitted whenever a channel is added / removed / connected / dropped
     connection_changed = Signal()
+    # M76/D6: a manual console send line (mirrors "console send: ..."
+    # into the Event Log)
+    console_log = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__("Console", parent)
@@ -767,6 +836,9 @@ class MultiConsoleWidget(QGroupBox):
         self.rows_layout.setSpacing(4)
         self.rows_layout.addStretch(1)  # rows packed at the top
         self.scroll.setWidget(self.scroll_content)
+        # M76/D6: the panel must never collapse to the button strip -
+        # keep a real output/view area at every window size
+        self.scroll.setMinimumHeight(120)
         layout.addWidget(self.scroll, 1)
 
         # one serial channel always exists
@@ -868,6 +940,19 @@ class MultiConsoleWidget(QGroupBox):
         row.apply_permissions(self._can_manage_channels(),
                               self._can_configure())
 
+        # M76/D6: one inline view (output + single-line input) per
+        # channel, shown while the channel is CONNECTED
+        inline = _InlineChannelView(key, label, accent, self.theme, self)
+        inline.setVisible(False)
+        inline.send_text.connect(lambda text, k=key: self._send_inline(
+            k, text))
+        container = QWidget()
+        box = QVBoxLayout(container)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(2)
+        box.addWidget(row)
+        box.addWidget(inline, 1)
+
         channel = {
             "kind": kind,
             "label": label,
@@ -875,6 +960,8 @@ class MultiConsoleWidget(QGroupBox):
             "console": console,
             "console_window": console_window,
             "row": row,
+            "inline": inline,
+            "container": container,
             "params": params,
             "worker": None,
             "connected": False,
@@ -883,9 +970,9 @@ class MultiConsoleWidget(QGroupBox):
         }
         self.channels[key] = channel
 
-        # insert the row before the trailing stretch
+        # insert the row container before the trailing stretch
         self.rows_layout.insertWidget(
-            self.rows_layout.count() - 1, row)
+            self.rows_layout.count() - 1, container)
 
         console.append_message(
             "SYS",
@@ -901,13 +988,28 @@ class MultiConsoleWidget(QGroupBox):
         channel = self.channels.get(key)
         if not channel:
             return
-        if channel["worker"] and channel["worker"].isRunning():
-            channel["worker"].stop()
+        # M76/D6: Remove must RELEASE the port - always stop the worker
+        # (wait() closes the serial handle in its finally block), even
+        # when the thread state already reports not-running
+        worker = channel.get("worker")
+        if worker is not None:
+            try:
+                worker.stop()
+                worker.wait(3000)
+            except Exception:             # noqa: BLE001 - never abort
+                pass
+            channel["worker"] = None
         channel["console_window"].hide()
-        row = channel["row"]
-        self.rows_layout.removeWidget(row)
-        row.setParent(None)
-        row.deleteLater()
+        container = channel.get("container")
+        if container is not None:
+            self.rows_layout.removeWidget(container)
+            container.setParent(None)
+            container.deleteLater()
+        else:                             # backward-compatible fallback
+            row = channel["row"]
+            self.rows_layout.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
         if channel["kind"] == "ssh":
             self._ssh_open = False
         else:
@@ -1162,6 +1264,10 @@ class MultiConsoleWidget(QGroupBox):
             channel["console"].append_message(
                 "SYS", "Channel disconnected", color=self.theme["sys"])
         channel["row"].set_connected(connected)
+        # M76/D6: the inline view is visible exactly while connected
+        inline = channel.get("inline")
+        if inline is not None:
+            inline.setVisible(bool(connected))
         self.connection_changed.emit()
 
     # ------------------------------------------------------------ RX data
@@ -1175,6 +1281,9 @@ class MultiConsoleWidget(QGroupBox):
         channel["stats"][1] += len(data)
         channel["row"].update_counts(channel["stats"][0],
                                      channel["stats"][1])
+        inline = channel.get("inline")
+        if inline is not None:
+            inline.append_rx(data)
         console = channel["console"]
         if console.check_hex.isChecked():
             text = " ".join(f"{b:02X}" for b in data)
@@ -1183,6 +1292,18 @@ class MultiConsoleWidget(QGroupBox):
             console.append_rx("RX", data)
 
     # ------------------------------------------------------------ sending
+    def _send_inline(self, key, text):
+        """M76/D6: the inline input line of one connected channel."""
+        if not str(text or "").strip():
+            return
+        self.handle_send(key, str(text), False, "crlf")
+        channel = self.channels.get(key)
+        if channel is not None:
+            inline = channel.get("inline")
+            if inline is not None:
+                inline.append_tx(str(text))
+        self.console_log.emit(f"console send: {text!r}")
+
     @staticmethod
     def ending_bytes(ending) -> bytes:
         """Line ending selector -> payload suffix.

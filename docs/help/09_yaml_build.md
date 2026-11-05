@@ -588,6 +588,20 @@ carries its full step marker) and the YAML save is offered.
 configuration with every tab disabled is valid and yields zero
 cases.
 
+### DUT login (plain BSP images)
+
+A plain BSP image boots to a `login:` prompt and does NOT give a root
+shell by itself.  The operator authors the sequence
+**boot wait -> `Console: Login to the DUT` -> tests**; the login row
+waits the login prompt, sends the user, waits the password prompt,
+sends the password (empty = just press Enter) and PASSes when the
+shell prompt appears.  A product image with autologin simply omits
+this row.  The app never inserts it automatically.
+
+`MessageYesNo` / `MessageGoStop` rows write their answer to the DUT
+console only when the row opts in (`send_console_answer`, off by
+default) - otherwise GO / STOP never types into an open login prompt.
+
 **Warning:** an invalid FCT configuration blocks the dialog with
 the error list (`FCT config parse failed: ...` or the validation
 errors, up to 15 shown) - fix the listed problems before applying.

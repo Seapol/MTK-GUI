@@ -123,7 +123,7 @@ class TestUnifiedStructure:
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
     def test_fct_group_sizes(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
-        sizes = {"File Transfer": 4, "Network": 2, "Console": 3,
+        sizes = {"File Transfer": 4, "Network": 2, "Console": 4,
                  "Message (Console)": 3, "Wi-Fi Tests": 3,
                  "Bluetooth Tests": 3, "Flash": 1}
         for title, n in sizes.items():

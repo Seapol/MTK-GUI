@@ -343,19 +343,34 @@ def _run_message(env, kind, op_params, abort_spy=None):
 
 
 def test_yesno_yes_sends_y_and_passes(msg_env):
+    """M76/D2: the console answer is opt-in - with the flag on the old
+    send behaviour is unchanged."""
     msg_env._answers = ["yes"]
     _run_message(msg_env, "MessageYesNo",
                  {"send_yes": "y", "send_no": "n",
+                  "send_console_answer": True,
                   "message_timeout_s": 4.0})
     assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 
-def test_yesno_no_sends_n_and_passes(msg_env):
+def test_gostop_go_with_flag_off_writes_nothing(msg_env):
+    """M76/D2 acceptance: flag off -> ZERO console writes, still PASS."""
+    stops = []
+    msg_env._answers = ["go"]
+    _run_message(msg_env, "MessageGoStop",
+                 {"send_yes": "y", "send_no": "n"}, abort_spy=stops)
+    assert msg_env.multi_console.sent == []
+    assert msg_env.rows[("fct", 0)] == "PASS"
+    assert stops == []
+    assert any("suppressed" in line for line in msg_env._log_lines())
+
+
+def test_yesno_no_with_flag_off_passes_without_send(msg_env):
     msg_env._answers = ["no"]
     _run_message(msg_env, "MessageYesNo", {"send_yes": "y",
                                            "send_no": "n"})
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
+    assert msg_env.multi_console.sent == []
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 
@@ -385,7 +400,8 @@ def test_gostop_go_sends_y_and_passes(msg_env):
     stops = []
     msg_env._answers = ["go"]
     _run_message(msg_env, "MessageGoStop",
-                 {"send_yes": "y", "send_no": "n"}, abort_spy=stops)
+                 {"send_yes": "y", "send_no": "n",
+                  "send_console_answer": True}, abort_spy=stops)
     assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
     assert stops == []                     # the run continues
@@ -395,7 +411,8 @@ def test_gostop_stop_sends_n_fails_and_stops_run(msg_env):
     stops = []
     msg_env._answers = ["stop"]
     _run_message(msg_env, "MessageGoStop",
-                 {"send_yes": "y", "send_no": "n"}, abort_spy=stops)
+                 {"send_yes": "y", "send_no": "n",
+                  "send_console_answer": True}, abort_spy=stops)
     assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "FAIL"
     assert stops == ["operator"]           # the run stops (teardown runs)
@@ -404,7 +421,7 @@ def test_gostop_stop_sends_n_fails_and_stops_run(msg_env):
 def test_message_without_console_logs_honest_drop(msg_env):
     msg_env._answers = ["yes"]
     msg_env.multi_console = None
-    _run_message(msg_env, "MessageYesNo", {})
+    _run_message(msg_env, "MessageYesNo", {"send_console_answer": True})
     assert any("NOT sent" in line for line in msg_env._log_lines())
 
 
@@ -422,10 +439,11 @@ def _run_ict_message(env, kind, answer, abort_spy=None):
     return runner
 
 
-def test_ict_yesno_yes_sends_y_and_passes(msg_env):
+def test_ict_yesno_yes_passes_without_console_answer(msg_env):
+    """M76/D2: ICT message rows obey the same opt-in default."""
     msg_env._answers = ["yes"]
     _run_ict_message(msg_env, "MessageYesNo", "yes")
-    assert msg_env.multi_console.sent == [("VCOM0", b"y\n")]
+    assert msg_env.multi_console.sent == []
     assert msg_env.rows[("ict", 0)] == "PASS"
     assert any(line.startswith("ICT ") for line in msg_env._log_lines())
 
@@ -434,7 +452,7 @@ def test_ict_gostop_stop_fails_and_stops_run(msg_env):
     stops = []
     msg_env._answers = ["stop"]
     _run_ict_message(msg_env, "MessageGoStop", "stop", abort_spy=stops)
-    assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
+    assert msg_env.multi_console.sent == []
     assert msg_env.rows[("ict", 0)] == "FAIL"
     assert stops == ["operator"]
 
@@ -586,7 +604,8 @@ def _console_answer_runner(env, kind, answers, name="Ready?"):
          "from_len": 0, "t0": _time.monotonic(),
          "deadline": _time.monotonic() + 5,
          "message_kind": kind,
-         "cfg": {"send_yes": "y", "send_no": "n"}}
+         "cfg": {"send_yes": "y", "send_no": "n",
+                 "send_console_answer": True}}
     return runner, w
 
 
@@ -613,6 +632,17 @@ def test_console_message_gostop_stop_sends_n_fails_and_stops(msg_env):
     assert msg_env.multi_console.sent == [("VCOM0", b"n\n")]
     assert msg_env.rows[("fct", 0)] == "FAIL"
     assert stops == ["operator"]
+
+
+def test_console_message_gostop_with_flag_off_writes_nothing(msg_env):
+    """M76/D2 acceptance for the Console-domain path: flag off -> the
+    operator GO still PASSes and NOTHING is written to the console."""
+    runner, w = _console_answer_runner(msg_env, "MessageGoStoptoConsole",
+                                       ["go"])
+    w["cfg"].pop("send_console_answer", None)
+    runner._fct_console_message_answer(w)
+    assert msg_env.multi_console.sent == []
+    assert msg_env.rows[("fct", 0)] == "PASS"
 
 
 def test_console_message_yesno_timeout_fails(msg_env):
