@@ -33,7 +33,7 @@ from mtkgui.gui.yamlbuild.power_alloc import (
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.schema import MODULE_FIELDS, module_title
-from mtkgui.gui.yamlbuild.stages import STAGE_KEYS
+from mtkgui.gui.yamlbuild.stages import NO_UI_MODULE_KEYS, STAGE_KEYS
 
 SHEET_NAME = "YamlBuild"
 _HEADERS = ("Module", "Module Key", "Parameter", "Value", "Type",
@@ -280,7 +280,17 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
                 f"for module {key}")
             continue
         spec = specs[param]
-        error = spec.validate(value)
+        # M74: the no-UI modules (rails / clocks / gpios) get their
+        # values from the Test Work Flow page / channel allocation, so
+        # a REAL project may legitimately leave the required text
+        # fields empty.  The publish validation already skips these
+        # modules (NO_UI_MODULE_KEYS); the Excel pass-1 validation must
+        # do the same for EMPTY cells (a filled cell is still
+        # validated normally).  No schema required flag changes.
+        if key in NO_UI_MODULE_KEYS and not str(value or "").strip():
+            error = ""
+        else:
+            error = spec.validate(value)
         if error:
             report.errors.append(f"row {line_no}: {error}")
             continue

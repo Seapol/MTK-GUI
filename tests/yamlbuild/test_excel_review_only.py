@@ -265,3 +265,112 @@ def test_legacy_workbook_keeps_limit_values(tmp_path):
     assert report.errors == []
     assert report.applied_changes == []
     assert target.get_channel_allocation() == before
+
+
+# ------------------------------------ M74 no-UI module empty cells
+def _real_project_model() -> YamlBuildModel:
+    """A REAL project: the no-UI module text fields (Rail Sequence /
+    Clock Definitions / Pin Groups) are EMPTY - their values live on the
+    Test Work Flow page / channel allocation."""
+    model = _model()
+    model.set_params("rails", {**model.get_params("rails"),
+                               "sequence": ""})
+    model.set_params("clocks", {**model.get_params("clocks"),
+                                "clocks": ""})
+    model.set_params("gpios", {**model.get_params("gpios"),
+                               "groups": ""})
+    return model
+
+
+def test_no_ui_modules_empty_round_trip_is_zero_drift(tmp_path):
+    """M74: a REAL project workbook imports without the false
+    "value required" abort; nothing is applied and nothing ignored."""
+    source = _real_project_model()
+    path = str(tmp_path / "real.xlsx")
+    export_to_excel(source, path)
+
+    target = _real_project_model()
+    before_dict = target.to_effective_dict()
+    before_alloc = target.get_channel_allocation()
+    before_params = {key: target.get_params(key) for key in (
+        "rails", "clocks", "gpios", "design_input", "parse_ict",
+        "instruments", "fct_build")}
+    before_states = {key: target.is_enabled(key) for key in before_params}
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert report.applied_changes == []
+    assert report.ignored_changes == []
+    assert target.to_effective_dict() == before_dict
+    assert target.get_channel_allocation() == before_alloc
+    for key, params in before_params.items():
+        assert target.get_params(key) == params
+    for key, state in before_states.items():
+        assert target.is_enabled(key) == state
+
+
+def test_no_ui_modules_filled_cells_are_still_validated(tmp_path):
+    """A FILLED cell of a no-UI module still goes through the normal
+    schema validation - the M74 skip applies to EMPTY cells only."""
+    source = _real_project_model()
+    path = str(tmp_path / "real.xlsx")
+    export_to_excel(source, path)
+    wb = load_workbook(path)
+    ws = wb[SHEET_NAME]
+    for row in ws.iter_rows(min_row=2):
+        if row[2].value == "stabilize_ms":     # Clocks (no-UI) int field
+            row[3].value = "99999"             # above maximum 10000
+    wb.save(path)
+
+    target = _real_project_model()
+    report = import_from_excel(target, path)
+    assert not report.applied
+    assert any("Stabilize Time" in e for e in report.errors)
+
+
+def test_no_ui_empty_plus_limit_edits_applies_limits(tmp_path):
+    """Zero-drift base + Power Nominal / Clock Upper edits -> exactly
+    the two limit changes are applied."""
+    source = _real_project_model()
+    path = str(tmp_path / "real.xlsx")
+    export_to_excel(source, path)
+    wb = load_workbook(path)
+    ws = wb["Power"]
+    ws.cell(row=2, column=_header_index(ws, "Nominal (V)")).value = "3.600"
+    ws = wb["Clock"]
+    ws.cell(row=2, column=_header_index(ws, "Upper (kHz)")).value \
+        = "24009.000"
+    wb.save(path)
+
+    target = _real_project_model()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert report.applied_changes == [
+        "Power VDD_3V3: nominal_v", "Clock CLK_24M: upper_khz"]
+    assert target.get_channel_allocation()["power"][0]["nominal_v"] \
+        == "3.600"
+    assert target.get_channel_allocation()["clock"][0]["upper_khz"] \
+        == "24009.000"
+
+
+def test_no_ui_empty_plus_structure_edit_is_ignored(tmp_path):
+    """Zero-drift base + a structural edit -> ignored, model unchanged
+    (no false abort from the empty no-UI module fields)."""
+    source = _real_project_model()
+    path = str(tmp_path / "real.xlsx")
+    export_to_excel(source, path)
+    wb = load_workbook(path)
+    ws = wb["GPIO"]
+    ws.cell(row=2, column=_header_index(ws, "DIO Channel")).value \
+        = GPIO_DIO_CHANNELS[1]
+    wb.save(path)
+
+    target = _real_project_model()
+    before = target.get_channel_allocation()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert report.applied_changes == []
+    assert target.get_channel_allocation() == before
+    assert any("dio channel" in item for item in report.ignored_changes)
