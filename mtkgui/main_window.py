@@ -2921,7 +2921,20 @@ class MainWindow(QMainWindow):
             # M45b: the M39 validation runs on EVERY write path (apply
             # save yaml + save as new yaml) - a blocking rule stops the
             # save with the fix-hint dialog and nothing is written
-            issues = blocking_issues(validate_project_yaml(config))
+            # M83/C7: the console panel knows which channels are really
+            # connected - the SFTP rule warns when the SSH one is not.
+            mc = getattr(self.workflow_page, "multi_console", None)
+            connected = None
+            if mc is not None and hasattr(mc, "channel_connected"):
+                channels = getattr(mc, "channels", None) or {}
+                connected = {key for key in channels
+                             if mc.channel_connected(key)}
+            all_issues = validate_project_yaml(config,
+                                               connected_keys=connected)
+            for issue in all_issues:
+                if issue.severity != "error":
+                    self._append_event_log(issue.as_line())
+            issues = blocking_issues(all_issues)
             if issues:
                 QMessageBox.warning(self, "Yaml validation failed",
                                     format_issues(issues))

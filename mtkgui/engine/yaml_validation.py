@@ -162,6 +162,77 @@ def rule_retired_network_ops(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_network_ops)
 
 
+#: M83/C7: the exact ERROR text naming the missing SSH channel.
+SFTP_NEEDS_SSH_MESSAGE = ("SSH SFTP steps need at least one SSH channel — "
+                          "add it in the Console panel (Test Work Flow page)")
+
+
+def _row_is_sftp_transfer(row: dict) -> bool:
+    """M83/C7: True when the row is an SSH SFTP push/pull.
+
+    Reads existing row data only (the authored ``kind`` label or the
+    published ``fct_step.params`` kind / action)."""
+    if not isinstance(row, dict):
+        return False
+    kind = str(row.get("kind") or "")
+    if "SFTP" in kind.upper():
+        return True
+    marker = dict((row.get("op_params") or {}).get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    return (str(params.get("kind") or "") in ("sftp_put", "sftp_get")
+            or str(params.get("action") or "") in ("sftp_put", "sftp_get"))
+
+
+def _ssh_channel_entries(doc: dict) -> list:
+    """The project's configured SSH console channels (``console`` section)."""
+    entries = (doc or {}).get("console") or []
+    return [entry for entry in entries
+            if isinstance(entry, dict)
+            and str(entry.get("kind") or "") == "ssh"]
+
+
+def rule_sftp_needs_ssh_channel(doc: dict,
+                                connected_keys=None) -> list[YamlIssue]:
+    """M83/C7: an SFTP row needs a configured SSH channel, and the run
+    needs that channel connected.
+
+    * SFTP row present, no SSH channel in the ``console`` section ->
+      ERROR (the sequence cannot execute the transfer);
+    * SFTP row present, SSH channel configured but none of the
+      configured keys is connected -> warning (a load-time / save-time
+      advisory; the runtime pre-run check refuses the run).
+
+    ``connected_keys`` is the set of channel keys currently connected.
+    ``None`` means "connection state unknown" -> the warning is not
+    emitted (load time never guesses).
+    """
+    workflow = (doc or {}).get("test_workflow") or {}
+    rows = [row for row in (workflow.get("fct_test_cases") or [])
+            if isinstance(row, dict)]
+    sftp_rows = [row for row in rows if _row_is_sftp_transfer(row)]
+    if not sftp_rows:
+        return []
+    entries = _ssh_channel_entries(doc)
+    if not entries:
+        return [YamlIssue(SEVERITY_ERROR, SFTP_NEEDS_SSH_MESSAGE,
+                          "console")]
+    if connected_keys is None:
+        return []
+    # the console section is applied in row order: ssh entries become
+    # ssh1, ssh2 ... (multi_console.apply_yaml_channels)
+    ssh_keys = [f"ssh{i + 1}" for i in range(len(entries))]
+    if any(key in connected_keys for key in ssh_keys):
+        return []
+    return [YamlIssue(
+        SEVERITY_WARNING,
+        "the SSH channel is configured but not connected — connect it in "
+        "the Console panel (Test Work Flow page) before the run",
+        "console")]
+
+
+_RULES.append(rule_sftp_needs_ssh_channel)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,
@@ -244,11 +315,20 @@ def rule_sequence_has_real_test(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_sequence_has_real_test)
 
 
-def validate_project_yaml(doc: dict) -> list[YamlIssue]:
-    """Run every registered rule on a parsed project YAML document."""
+def validate_project_yaml(doc: dict, connected_keys=None) -> list[YamlIssue]:
+    """Run every registered rule on a parsed project YAML document.
+
+    ``connected_keys`` (M83/C7): the console channel keys that are
+    currently connected, passed to the rules that can use it. ``None``
+    means the caller has no runtime state - the rules then report only
+    what the document itself proves."""
     issues: list[YamlIssue] = []
     for rule in _RULES:
-        issues.extend(rule(doc) or [])
+        if "connected_keys" in rule.__code__.co_varnames[
+                :rule.__code__.co_argcount]:
+            issues.extend(rule(doc, connected_keys=connected_keys) or [])
+        else:
+            issues.extend(rule(doc) or [])
     return issues
 
 

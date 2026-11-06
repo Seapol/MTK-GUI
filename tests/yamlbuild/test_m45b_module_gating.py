@@ -341,7 +341,7 @@ def test_load_and_apply_save_run_the_same_rule_set(window, tmp_path,
                       location="test_workflow")
     calls: list = []
 
-    def fake_validate(doc):
+    def fake_validate(doc, **_kwargs):
         calls.append(doc)
         return [issue]
 

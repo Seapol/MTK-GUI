@@ -956,10 +956,13 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             if channel is None:
                 # M77-4: no serial fallback and no silent retry - the
                 # runner carries the exact bind failure reason
+                # M83/C7: an unbound SFTP row names the SSH requirement.
                 reason = str(step.params.get("ssh_bind_error") or "")
                 return FctOutcome(
                     VERDICT_ERROR,
-                    reason or f"channel '{step.channel}' not bound")
+                    reason or (f"no usable SSH channel — the SFTP step "
+                               f"needs '{step.channel}' connected in the "
+                               f"Console panel"))
             return _transfer_span(
                 str(step.params.get("kind")), step,
                 lambda: _run_sftp(step, ctx, channel))

@@ -2133,6 +2133,30 @@ class FCTTestConfigPanel(QWidget):
             # M41: EMPTY fields auto-fill from the Console SFTP submodule
             # dirs (non-empty step values keep their override)
             self._prefill_sftp_dirs(cmd)
+            # M83/C7: the SFTP row runs over the SSH channel of the
+            # Console module - show its endpoint (read-only) and warn
+            # when the Console module has none configured.
+            node = self.equipment_node() or {}
+            ssh = ((node.get("dut") or {}).get("ssh") or {})
+            host = str(ssh.get("host") or "")
+            port = ssh.get("port") or 22
+            endpoint = (f"{host}:{port}" if host else "not configured")
+            channel_line = QLabel(
+                f"SSH channel: {cmd.channel or 'ssh1'} — {endpoint} "
+                "(from Console module)")
+            channel_line.setWordWrap(True)
+            channel_line.setStyleSheet("color: #6b7280;")
+            form.addRow(channel_line)
+            if not host:
+                self.task_log.emit(
+                    "WARNING",
+                    "SSH channel not configured — add the SSH endpoint and "
+                    "the channel in the Console panel (Test Work Flow page)")
+            form.addRow(dlayout.hint(
+                "The transfer runs over the SSH channel selected above; "
+                "the host, port, user and password come from the Equipment "
+                "page. No capture fields: the transfer result is the "
+                "verdict.", dlayout.WIDTH_FORM))
             local_edit = QLineEdit(cmd.local or "")
             remote_edit = QLineEdit(cmd.remote or "")
             if typ == STEP_TYPE_SFTP_PUT:
@@ -2173,23 +2197,23 @@ class FCTTestConfigPanel(QWidget):
             case_cb = QCheckBox("Case Sensitive (uncheck = ignore case)")
             case_cb.setChecked(cmd.case_sensitive)
             form.addRow(case_cb)
-            cap_exp = QTextEdit()
-            cap_exp.setPlainText(cmd.capture_expected or "")
-            cap_exp.setMaximumHeight(60)
-            cap_regex = QCheckBox("Regex")
-            cap_regex.setChecked(bool(
-                cmd.expect_pass_is_regex
-                if typ == STEP_TYPE_CONSOLE_CLI
-                else cmd.expect_fail_is_regex))
-            cap_unexp = QTextEdit()
-            cap_unexp.setPlainText(cmd.capture_unexpected or "")
-            cap_unexp.setMaximumHeight(60)
-            cap_unexp_regex = QCheckBox("Regex")
-            cap_unexp_regex.setChecked(bool(cmd.expect_fail_is_regex))
-            form.addRow("Capture Expected:", cap_exp)
-            form.addRow(cap_regex)
-            form.addRow("Capture Unexpected:", cap_unexp)
-            form.addRow(cap_unexp_regex)
+            if typ == STEP_TYPE_CONSOLE_CLI:
+                # M83/C7: the SFTP editors carry NO capture fields - the
+                # transfer verdict is the transfer result itself.
+                cap_exp = QTextEdit()
+                cap_exp.setPlainText(cmd.capture_expected or "")
+                cap_exp.setMaximumHeight(60)
+                cap_regex = QCheckBox("Regex")
+                cap_regex.setChecked(bool(cmd.expect_pass_is_regex))
+                cap_unexp = QTextEdit()
+                cap_unexp.setPlainText(cmd.capture_unexpected or "")
+                cap_unexp.setMaximumHeight(60)
+                cap_unexp_regex = QCheckBox("Regex")
+                cap_unexp_regex.setChecked(bool(cmd.expect_fail_is_regex))
+                form.addRow("Capture Expected:", cap_exp)
+                form.addRow(cap_regex)
+                form.addRow("Capture Unexpected:", cap_unexp)
+                form.addRow(cap_unexp_regex)
             timeout = QSpinBox()
             timeout.setRange(1, 3600)
             timeout.setValue(int(cmd.send_timeout if typ in (
@@ -2274,14 +2298,18 @@ class FCTTestConfigPanel(QWidget):
                 # regex flag is free for its capture pair.
                 cmd.expect_pass_is_regex = bool(cap_regex.isChecked())
                 cmd.expect_fail_is_regex = bool(cap_unexp_regex.isChecked())
-            else:
-                cmd.expect_fail_is_regex = bool(
-                    cap_regex.isChecked() or cap_unexp_regex.isChecked())
             cmd.case_sensitive = case_cb.isChecked()
-            cmd.capture_expected = cap_exp.toPlainText().strip()
-            cmd.capture_unexpected = cap_unexp.toPlainText().strip()
-            cmd.capture_enabled = bool(cmd.capture_expected
-                                       or cmd.capture_unexpected)
+            if cap_exp is not None:
+                cmd.capture_expected = cap_exp.toPlainText().strip()
+                cmd.capture_unexpected = cap_unexp.toPlainText().strip()
+                cmd.capture_enabled = bool(cmd.capture_expected
+                                           or cmd.capture_unexpected)
+            else:
+                # M83/C7: an SFTP row has no capture fields - a legacy
+                # value is NOT carried into the saved row.
+                cmd.capture_expected = ""
+                cmd.capture_unexpected = ""
+                cmd.capture_enabled = False
             if typ not in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
                            STEP_TYPE_CONSOLE_CLI):
                 cmd.timeout = float(timeout.value())
