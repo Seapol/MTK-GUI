@@ -1597,19 +1597,19 @@ class FCTTestConfigPanel(QWidget):
         console or instrument interaction."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel,
                                         QSpinBox, QDialogButtonBox)
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
         dlg.setWindowTitle("Delay editor")
-        # M42: single-column form - the wait is the only input
-        dlg.setMinimumWidth(380)
-        dlg.setMaximumWidth(400)
+        # M42/C0: single-column form - the wait is the only input
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_SIMPLE)
         outer = QVBoxLayout(dlg)
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel(
+        lay.addWidget(dlayout.hint(
             "Plain wait of N ms - no console or instrument interaction, "
-            "no timeout."))
+            "no timeout.", dlayout.WIDTH_SIMPLE))
         lay.addWidget(QLabel("Delay (wait):"))
         wait_spin = QSpinBox()
         wait_spin.setRange(0, 3_600_000)
@@ -1619,11 +1619,14 @@ class FCTTestConfigPanel(QWidget):
         lay.addWidget(wait_spin)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
+        dlayout.finish(dlg)
         if dlg.exec():
             self._push_history()
             cmd.kind = KIND_DELAY
@@ -1644,11 +1647,12 @@ class FCTTestConfigPanel(QWidget):
                                         QFormLayout, QLabel, QLineEdit,
                                         QPushButton, QDialogButtonBox)
         from mtkgui.engine.serial_transfer import dir_size, estimate_text
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         is_push = cmd.kind == KIND_SERIAL_PUT
         dlg = QDialog(self)
         dlg.setWindowTitle("Serial Push / Pull editor")
-        dlg.setMinimumWidth(760)
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_WIDE)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -1657,12 +1661,12 @@ class FCTTestConfigPanel(QWidget):
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel(
+        lay.addWidget(dlayout.hint(
             "Transfer over the SERIAL console: base64 chunks with marker "
             "ACKs, so console output cannot corrupt the data.  The transfer "
             "uses the Console Serial baudrate from Equipment; a raised rate "
             "is restored on BOTH sides afterwards (a restore failure fails "
-            "the step explicitly)."))
+            "the step explicitly).", dlayout.WIDTH_WIDE))
         form = QFormLayout()
         local_edit = QLineEdit(cmd.local or "")
         local_edit.setPlaceholderText(
@@ -1722,11 +1726,14 @@ class FCTTestConfigPanel(QWidget):
         _refresh_estimate()
         lay.addLayout(form)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
+        dlayout.finish(dlg)
         if dlg.exec():
             self._push_history()
             cmd.local = local_edit.text().strip()
