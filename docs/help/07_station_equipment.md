@@ -74,6 +74,93 @@ are **not yet developed** (placeholder) unless noted:
 page table; connecting and health-checking them from the GUI is
 part of a future iteration.
 
+## Wi-Fi Network Modes
+
+The DUT reaches the network through one of two wireless modes, and the
+mode is a **station-level** choice made on the Equipment page before a
+run. The DUT side is an ordinary `Console_serial` row that runs a DUT
+script; the row carries **no credentials**, only the profile name.
+
+| Mode (Equipment page) | Who is the access point | Host PC behaves as |
+|---|---|---|
+| `Wi-Fi router` | an external Wi-Fi router | joins the same router AP |
+| `Host PC hotspot (no router)` | the Windows host PC itself (`netsh` Hosted Network) | runs the AP |
+
+Two wired modes exist as well (`Direct ... (no router)` and
+`LAN via router`); they carry no Wi-Fi credentials and are covered by
+the block above them.
+
+### Setting up the station side
+
+1. Open `Equipment` and click the `Wired & Wireless Network` block
+   (chapter `05_equipment.md`).
+2. Select the wireless mode. The two wireless modes are mutually
+   exclusive, and the window shows only the fields that belong to the
+   selected one.
+3. `Wi-Fi router` mode: fill `Router AP SSID` and `Router AP password`.
+   The host PC joins that AP and keeps its own link while the DUT joins
+   the same one.
+4. `Host PC hotspot (no router)` mode: fill `Host PC AP SSID` and
+   `Host PC AP password`. The host PC starts the AP with exactly these
+   two values. The field accepts an empty password ("open hotspot"), but
+   the DUT script requires a WPA2 password - leave it filled.
+5. Save the page. These values are station configuration, not per-test
+   data.
+
+### Setting up the DUT side
+
+The DUT script `connect_wifi.sh` (pushed onto the DUT by an earlier
+`Serial Push` row) keeps **both profiles hard-coded** and selects one by
+its first argument:
+
+| Row command | Profile |
+|---|---|
+| `bash /root/fct_assets/connect_wifi.sh router` | external `Wi-Fi router` |
+| `bash /root/fct_assets/connect_wifi.sh hotspot` | `Host PC hotspot (no router)` |
+
+Credentials never appear on the command line. The serial console echoes
+every command, so a credential typed into the row would also land in the
+Console Log and in the DUT PDF report. The argument carries the mode
+only.
+
+The SSID / password inside the script and the two fields of the matching
+Equipment mode must describe the **same** access point. Two checks run at
+build time, both as **warnings** - they never block a build and never change
+the sequence, because the script is what the DUT actually joins at run time:
+
+| Check | Warning when |
+|---|---|
+| profile argument | the `connect_wifi.sh` row carries no `router` / `hotspot` argument (every station would fail at this row) |
+| SSID agreement | the script's SSID for that profile differs from the Equipment `Wi-Fi router` / `Host PC hotspot (no router)` AP SSID |
+
+The second warning names both SSIDs and the field to edit, so one of the two
+can be corrected. The GUI reads the four declaration lines at the top of the
+script (`AP_PROFILE_<PROFILE>_SSID` / `..._PASSWORD`), not the shell bodies;
+the local copy it reads is the one the sequence's `Serial Push` row pushes.
+Without such a push row there is nothing to compare, and the check stays
+silent.
+
+Being a warning, not an error, is deliberate: a mismatch is an operator
+mistake that costs one failed row, not a hazardous action, and the run report
+already shows `ssid=` on the result line.
+
+### Reading the result
+
+| Output line | Meaning |
+|---|---|
+| `WIFI_CONNECTED_OK <ip>/<prefix> profile=<profile> ssid=<ssid>` | the DUT obtained a 192.x address on that profile's AP |
+| `WIFI_CONNECT_FAIL (unknown profile '<arg>'; expected router or hotspot)` | the row has no profile argument, or a wrong one |
+| `WIFI_CONNECT_FAIL (profile '<profile>' is not configured yet)` | that profile has no credentials in the script |
+| `WIFI_CONNECT_FAIL (profile=<profile> ssid=<ssid>: no 192.x address from DHCP)` | the AP was unreachable or DHCP failed |
+
+The result line names the profile and the SSID, so the run report always
+shows which access point the unit was tested against - and never the
+password.
+
+Switching a station between the two wireless modes means changing one
+word in that row and the mode on the Equipment page. The GUI never
+rewrites an authored step.
+
 ## Fixture Hardware
 
 The fixture layer (probe board, ATE fixture control board, press

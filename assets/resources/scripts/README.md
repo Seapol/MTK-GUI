@@ -3,7 +3,7 @@
 Per-test helper scripts pushed to the DUT and executed over the
 console serial channel.
 
-Working examples to copy: `projects/FRDM-IMX93/scripts/`
+Working examples to copy: `projects/FRDM-IMX93/assets_FRDM-IMX93/resources/scripts/`
 - `connect_wifi.sh`   (station connect + power-save off, parameterized)
 - `load_rf_drivers.sh`(driver load + A2DP sink, merged & idempotent)
 

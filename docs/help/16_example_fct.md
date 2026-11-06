@@ -70,8 +70,8 @@ demo chain for FRDM-IMX93:
 | 1 | Power on DUT | (dialog) | Go-Stop dialog, 100 s |
 | 2 | Console login | `root` | `root@imx93frdm` |
 | 3 | Preflight: kernel version | `uname -r` | `6.6.36-lts-next` |
-| 4 | Preflight (fat.py / ALSA / ...) | `sh /root/preflight.sh` | `PREFLIGHT_PASS` |
-| 5 | Load RF drivers | `/root/load_rf_drivers.sh` | `RF drivers loaded OK` |
+| 4 | Preflight (fat.py / ALSA / ...) | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
+| 5 | Load RF drivers | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
 | 6 | Start fat.py (interactive) | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 | tee /root/fat.log` | `FRDM-i.MX93 DUT` |
 | 7 | fat.py: setup confirm | `y` | `Running as root` |
 | 8 | fat.py: MQS earphone tone | `y` | operator confirmed tone |
@@ -80,7 +80,7 @@ demo chain for FRDM-IMX93:
 | 11 | fat.py: RGB LED colors | `y` | operator confirmed all RGB |
 | 12 | fat.py summary | - | `Overall result:` |
 | 13 | Start sshd | `mkdir -p /var/run/sshd; /usr/sbin/sshd` | `SSHD_STARTED` |
-| 14 | Wi-Fi connect to router | `WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh` | `WIFI_CONNECTED_OK` |
+| 14 | Wi-Fi connect (router or hotspot) | `bash /root/fct_assets/connect_wifi.sh router` | `WIFI_CONNECTED_OK` |
 | 15 | DUT Wi-Fi IP check | `ip -4 addr show mlan0` | `inet` |
 | 16 | Ping Host (pre-SFTP) | `ping -I mlan0 -c 4 {{host_ip}}` | `0% packet loss` |
 | 17 | Retrieve fat_result.json (SFTP) | (ssh) | fetched into `DUT Report` |
@@ -112,7 +112,7 @@ Open the **Wi-Fi** tab, tick **Enable Wi-Fi FCT** and fill the three
 panels:
 
 - **DUT**: interface `mlan0`, driver load command
-  `/root/load_rf_drivers.sh`.
+  `sh /root/fct_assets/load_drivers.sh`.
 - **Hotspot AP (router / phone hotspot)**: the AP SSID and password
   (e.g. `ChinaNet-4zEc-5G`).
 - **Host PC**: the host IP (auto-detect from the Host LAN).
@@ -126,109 +126,91 @@ Bluetooth FCT is configured the same way on the **Bluetooth** tab.
 
 ## Step 4 - The DUT-side Linux scripts
 
-The FCT chain calls into a small set of files that must exist on the
-DUT rootfs (`/root/`). The listing below is the **actual state of the
-demo board** (`ls -l /root` on `root@imx93frdm`), cross-checked against
-the commands the YAML sends:
+The FCT chain calls into a small set of files that must exist on the DUT
+rootfs. They are **project assets**: they live in the project's
+`assets_<Project>/` folder (chapter `07_station_equipment.md`,
+`Config assets for projects…`), and ordinary `Serial Push` / SFTP steps
+copy them onto the DUT before the row that runs them. Nothing is
+pre-installed on a production DUT.
+
+The FRDM-IMX93 project asset tree:
 
 ```text
--rw-r--r-- 1 root root    1723  FCT_SETUP.md
--rwx--x--x 1 root root    1891  connect_wifi.sh
--rw-r--r-- 1 root root  127221  fat.log
--rw-r--r-- 1 root root  208649  fat_result.json
-drwxrwxrwx 4 root root    4096  frdm_imx93_board_test/
--rwxr-xr-x 1 root root    2253  load_rf_drivers.sh
--rwxr-xr-x 1 root root    2016  preflight.sh
+projects/FRDM-IMX93/assets_FRDM-IMX93/
+  precheck/01_system_check.sh      fat.py / ALSA / memory / Wi-Fi / BT presence
+  drivers/load_drivers.sh          probe-first Wi-Fi / BT module loader
+  resources/scripts/connect_wifi.sh   station Wi-Fi join (router | hotspot)
+  resources/scripts/bt_conn.sh        BT pairing helper used by BT_Pair
+  resources/audio/                 BT Tone / music wav files
+  resources/config/                static configs (wpa_supplicant, ...)
 ```
 
-| File (on DUT) | Purpose | Invoked by the YAML as | Expected output |
-|---------------|---------|------------------------|-----------------|
-| `/root/preflight.sh` | Preflight checks: kernel version, ALSA mixer, memory, filesystem | `sh /root/preflight.sh` | `PREFLIGHT_PASS` |
-| `/root/load_rf_drivers.sh` | Loads the Wi-Fi / Bluetooth drivers and firmware | `/root/load_rf_drivers.sh` | `RF drivers loaded OK` |
-| `/root/frdm_imx93_board_test/` | BSP board-test package - contains `fat.py` (the interactive FAT menu) | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 | tee /root/fat.log` | menu prompt `FRDM-i.MX93 DUT`, then `Overall result:` |
-| `/root/fat_result.json` | JSON result file written by `fat.py` (re-created on every run) | fetched into `DUT Report` via SFTP (step 17), then **removed on the DUT** | file fetched |
-| `/root/fat.log` | Log file written by `fat.py` via `tee` (re-created on every run) | fetched into `DUT Report` via SFTP (step 18), then **removed on the DUT** | file fetched |
-| `/root/connect_wifi.sh` | Connects `mlan0` to the AP given as env vars | `WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh` | `WIFI_CONNECTED_OK` |
-| `/root/FCT_SETUP.md` | On-board FCT set-up notes (earphone / HDMI / LED wiring, prerequisites) | reference only | - |
+| Asset (in `assets_<Project>/`) | Purpose | Invoked by the row as | Pass marker |
+|---|---|---|---|
+| `precheck/01_system_check.sh` | Pre-flight: kernel, ALSA mixer, memory, filesystems, Wi-Fi / BT interface presence | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
+| `drivers/load_drivers.sh` | Loads the Wi-Fi / Bluetooth modules - probes first, so an already-autoloaded interface is left alone | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
+| `resources/scripts/connect_wifi.sh` | Joins `mlan0` to the station AP; the first argument selects the profile (`router` or `hotspot`), the credentials are inside the script | `bash /root/fct_assets/connect_wifi.sh router` | `WIFI_CONNECTED_OK` |
+| `resources/scripts/bt_conn.sh` | Pairs the DUT with the host BT adapter and runs the L2CAP ping | `sh /root/fct_assets/bt_conn.sh` | `BT_CONN_OK` |
+| `/root/frdm_imx93_board_test/` | BSP board-test package - contains `fat.py` (the interactive FAT menu); not an asset, it ships with the BSP image | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 \| tee /root/fat.log` | menu prompt `FRDM-i.MX93 DUT`, then `Overall result:` |
+| `/root/fat_result.json` | JSON result written by `fat.py` (re-created on every run) | fetched into `DUT Report` via SFTP (step 17), then **removed on the DUT** | file fetched |
+| `/root/fat.log` | Log written by `fat.py` via `tee` (re-created on every run) | fetched into `DUT Report` via SFTP (step 18), then **removed on the DUT** | file fetched |
 | `iperf3` | Throughput server/client (system tool on the DUT rootfs) | used by the Wi-Fi throughput test | - |
 
-The exact `send` strings above come from the project YAML - keep the
-scripts' output markers in sync with the YAML `capture` patterns.
+The `send` strings above come from the project YAML - keep each script's
+final marker in sync with that row's `Capture` pattern. Every script
+prints exactly one *OK* line on success and one *FAIL* line (with the
+offending item) on failure, so the capture pattern is unambiguous.
 
-Reference shapes (your BSP already ships working versions - the shapes
-below only illustrate the ideas):
+### Why no `chmod`
 
-```sh
-# preflight.sh - shape of the on-board version
-#!/bin/sh
-set -e
-echo "kernel: $(uname -r)"
-echo "mem:    $(free -m | awk 'NR==2{print $2}') MB"
-echo "PREFLIGHT_PASS"
-```
+The rows call the interpreter explicitly (`sh …` / `bash …`), which only
+needs **read** permission on the file: no execute bit is required, and a
+`Serial Push` therefore never has to preserve file modes. `bash` rather
+than `sh` is used where the script may need bash semantics; both scripts
+in the tree stay POSIX `sh` so either interpreter works.
 
-```sh
-# load_rf_drivers.sh - shape of the on-board version
-#!/bin/sh
-modprobe moal mod_para=nxp/wifi_mod_para.conf
-sleep 1
-echo "RF drivers loaded OK"
-```
-
-```text
-# frdm_imx93_board_test/ - BSP board-test package (on the demo board)
-# contains fat.py (the interactive FAT menu) plus its helper modules.
-# Invoked by the YAML as:
-#   cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json
-# fat.py runs the MQS tone / HDMI / RGB LED checks with operator
-# confirmations and writes /root/fat_result.json (log via tee to /root/fat.log).
-```
-
-Make the scripts executable on the DUT (only needed after a copy):
-
-```sh
-chmod +x /root/preflight.sh /root/load_rf_drivers.sh /root/connect_wifi.sh
-```
+Do **not** add `chmod +x` rows: they cost a serial round-trip and hide
+the real question (whether the file arrived intact).
 
 ## Step 5 - Copy the files from the host to the DUT
 
-The demo board already ships the whole set (see the `/root` listing
-above - the BSP provides `frdm_imx93_board_test/` with `fat.py`).
-Copying is only needed when you (a) bring up a fresh board, or (b)
-push an updated version of a script. Prerequisite: the DUT runs `sshd`
-(the FCT chain starts it in step 13; for a first copy you can start it
-by hand after logging in over the serial console). Then copy over the
-network:
+In the sequence this is one ordinary row per file: `Serial Push file to
+DUT` (or `SFTP_put` once SSH is up), whose **Local** path is the asset
+inside `projects/<Project>/assets_<Project>/` and whose **Remote** path
+is the folder the console row will name. The GUI copies nothing behind
+your back - when the push row is missing, the console row fails and says
+so.
 
-```sh
-# one file at a time (host shell; replace <DUT_IP> with the DUT address)
-scp /root/preflight.sh root@<DUT_IP>:/root/
-scp /root/load_rf_drivers.sh root@<DUT_IP>:/root/
-scp /root/connect_wifi.sh root@<DUT_IP>:/root/
+The demo chain pushes them to `/root/fct_assets/`; the folder has to
+exist before the first push:
+
+```
+Console_serial:  mkdir -p /root/fct_assets
 ```
 
-```sh
-# the BSP package is a directory - copy it recursively
-scp -r /root/frdm_imx93_board_test root@<DUT_IP>:/root/
-```
+For a fresh board you can do the same by hand once `sshd` is up (the
+chain starts it in step 13; for the very first copy, start it by hand
+over the serial console):
 
 ```sh
-# or interactively with sftp
-sftp root@<DUT_IP>
-put C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\scripts\preflight.sh /root/
-put C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\scripts\load_rf_drivers.sh /root/
-put C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\scripts\connect_wifi.sh /root/
-put -r C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\scripts\frdm_imx93_board_test /root/
-bye
+# host shell, from the repo root; <DUT_IP> is the address the DUT got
+# on the station AP
+scp projects/FRDM-IMX93/assets_FRDM-IMX93/precheck/01_system_check.sh \
+    root@<DUT_IP>:/root/fct_assets/
+scp projects/FRDM-IMX93/assets_FRDM-IMX93/drivers/load_drivers.sh \
+    root@<DUT_IP>:/root/fct_assets/
+scp projects/FRDM-IMX93/assets_FRDM-IMX93/resources/scripts/*.sh \
+    root@<DUT_IP>:/root/fct_assets/
 ```
 
-If the DUT has no network yet, transfer the files over the serial
-console with a terminal that supports ZMODEM (`sz` / `rz`), then
-`chmod +x` them as above.
+`scp` is only a convenience for the very first bring-up: it needs the
+network that the Wi-Fi step is meant to establish, so a cold board is
+normally provisioned over the serial console instead. No `chmod` is
+needed either way - see "Why no `chmod`" above.
 
-Keep the host copies under
-`C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\scripts\` so the YAML
-and the scripts travel together with the project.
+Keep the host copies inside the project's `assets_<Project>/` folder so
+the YAML, the scripts and the credentials travel together with the
+project - one copy, no separate `scripts/` folder.
 
 ## Step 6 - Save the project and export for review
 

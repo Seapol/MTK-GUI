@@ -51,7 +51,7 @@ projects/
 
 ## Reference example (real, working)
 
-`projects/FRDM-IMX93/scripts/` already contains production-quality
+`projects/FRDM-IMX93/assets_FRDM-IMX93/` already contains production-quality
 examples you can copy from:
 
 - `preflight.sh`            -> model for `precheck/`
