@@ -397,12 +397,12 @@ def _console_wait(channel, step: FctStep, ctx: FctContext,
     non-PASS verdict means the awaited prompt never arrived, so the
     caller must NOT send the answer."""
     p = step.params
-    budget_s = _step_budget(step)
+    # M83/C5: the WAIT stage is measured from the step start and is NOT
+    # clamped by the row budget; it uses its own Wait timeout (fallback
+    # the row timeout, then 30 s).  The send / capture stage keeps the
+    # budget (``_step_budget``) and the stall watchdog.
     window = float(timeout_s or p.get("wait_timeout")
-                   or budget_s or 30.0)
-    # M78-2: an internal sub-wait can never outlive the row's budget
-    if budget_s > 0:
-        window = min(window, budget_s)
+                   or step.timeout_s or 30.0)
     # M78-3: operator dialogs are human waits - no stall watchdog there
     dialog = bool(p.get("console_dialog")
                   or step.step_type == STEP_GUI_CONFIRM)

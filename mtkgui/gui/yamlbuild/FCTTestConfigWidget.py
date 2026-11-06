@@ -1976,13 +1976,14 @@ class FCTTestConfigPanel(QWidget):
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QLineEdit, QTextEdit,
                                         QCheckBox, QSpinBox, QComboBox,
-                                        QMessageBox, QDialogButtonBox,
-                                        QWidget)
+                                        QGroupBox, QMessageBox,
+                                        QDialogButtonBox, QWidget)
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         typ = step_type_label(cmd)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{typ} editor")
-        dlg.setMinimumWidth(720)
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_FORM)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -2022,34 +2023,108 @@ class FCTTestConfigPanel(QWidget):
                 "Add or edit channels on the Test Work Flow page Console "
                 "panel (Config DUT Console).", 520))
 
-        wait_edit = None
-        wait_cb = None
-        wait_timeout = None
-        if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
-            wait_cb = QCheckBox("Enable WaitFor")
-            wait_cb.setChecked(cmd.wait_enabled)
-            form.addRow(wait_cb)
+        serial_like = typ in (STEP_TYPE_CONSOLE_SERIAL,
+                              STEP_TYPE_CONSOLE_SSH)
+        wait_edit = wait_regex = wait_timeout = case_cb = None
+        send_edit = cap_regex = cap_unexp_regex = None
+        cap_exp = cap_unexp = timeout = None
+        local_edit = remote_edit = host_edit = None
+        if serial_like:
+            # M83/C5: the checkbox is gone - a stored value with the
+            # legacy checkbox off is REPORTED, never auto-cleared.
+            if not cmd.wait_enabled and str(cmd.expect_pass or "").strip():
+                self.task_log.emit(
+                    "WARNING",
+                    f"{cmd.name}: 'Enable WaitFor' was off but a wait "
+                    "pattern is stored — the pattern was kept; clear it "
+                    "if the row must not wait")
+            if not cmd.send_enabled and str(cmd.send or "").strip():
+                self.task_log.emit(
+                    "WARNING",
+                    f"{cmd.name}: 'Enable Send' was off but a send payload "
+                    "is stored — the payload was kept; clear it if the row "
+                    "must not send")
+            wait_box = QGroupBox("Wait for")
+            wform = QFormLayout(wait_box)
             wait_edit = QLineEdit(cmd.expect_pass or "")
             wait_edit.setPlaceholderText(
-                "Console message expected before sending")
-            form.addRow("WaitFor:", wait_edit)
+                "Console message; empty = no wait stage")
+            wait_regex = QCheckBox("Regex")
+            wait_regex.setChecked(bool(cmd.expect_pass_is_regex))
             wait_timeout = QSpinBox()
             wait_timeout.setRange(1, 3600)
             wait_timeout.setValue(int(cmd.wait_timeout or 10))
             wait_timeout.setSuffix(" s")
-            form.addRow("Wait timeout:", wait_timeout)
+            wait_timeout.setToolTip(
+                "Measured from the moment the step starts")
+            case_cb = QCheckBox("Case Sensitive (uncheck = ignore case)")
+            case_cb.setChecked(cmd.case_sensitive)
+            wform.addRow("Pattern:", wait_edit)
+            wform.addRow(wait_regex)
+            wform.addRow("Wait timeout:", wait_timeout)
+            wform.addRow(case_cb)
 
-        send_edit = None
-        local_edit = remote_edit = None
-        host_edit = None
-        if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
-            send_cb = QCheckBox("Enable Send")
-            send_cb.setChecked(cmd.send_enabled)
-            form.addRow(send_cb)
+            send_box = QGroupBox("Send / Capture")
+            sform = QFormLayout(send_box)
             send_edit = QTextEdit()
             send_edit.setPlainText(cmd.send or "")
             send_edit.setMaximumHeight(90)
-            form.addRow("SendTo:", send_edit)
+            send_edit.setPlaceholderText("Empty = no send stage")
+            cap_exp = QTextEdit()
+            cap_exp.setPlainText(cmd.capture_expected or "")
+            cap_exp.setMaximumHeight(60)
+            cap_regex = QCheckBox("Regex")
+            cap_regex.setChecked(bool(cmd.expect_fail_is_regex))
+            cap_unexp = QTextEdit()
+            cap_unexp.setPlainText(cmd.capture_unexpected or "")
+            cap_unexp.setMaximumHeight(60)
+            cap_unexp_regex = QCheckBox("Regex")
+            cap_unexp_regex.setChecked(bool(cmd.expect_fail_is_regex))
+            timeout = QSpinBox()
+            timeout.setRange(1, 3600)
+            timeout.setValue(int(cmd.timeout or (
+                30 if typ == STEP_TYPE_CONSOLE_SSH else 6)))
+            timeout.setSuffix(" s")
+            timeout.setToolTip(
+                "Measured from the moment the send payload is written")
+            sform.addRow("SendTo:", send_edit)
+            sform.addRow("Capture Expected:", cap_exp)
+            sform.addRow(cap_regex)
+            sform.addRow("Capture Unexpected:", cap_unexp)
+            sform.addRow(cap_unexp_regex)
+            sform.addRow("Timeout:", timeout)
+            form.addRow(wait_box)
+            form.addRow(send_box)
+            if typ == STEP_TYPE_CONSOLE_SSH:
+                node = self.equipment_node() or {}
+                ssh = ((node.get("dut") or {}).get("ssh") or {})
+                host = str(ssh.get("host") or "")
+                port = ssh.get("port") or 22
+                user = str(ssh.get("username") or "")
+                endpoint = QLabel(
+                    f"Remote: {host}:{port}  user: {user}")
+                endpoint.setWordWrap(True)
+                endpoint.setStyleSheet("color: #6b7280;")
+                form.addRow(endpoint)
+                if not host:
+                    self.task_log.emit(
+                        "WARNING", "SSH endpoint not configured in Equipment")
+                order_warn = self._ssh_order_warning(row)
+                if order_warn:
+                    self.task_log.emit("WARNING", f"{cmd.name}: {order_warn}")
+                    warn = QLabel(order_warn)
+                    warn.setWordWrap(True)
+                    warn.setStyleSheet("color: #b45309;")
+                    form.addRow(warn)
+                form.addRow(dlayout.hint(
+                    "SSH depends on the DUT network being up; the host, "
+                    "user and password come from the Equipment page.", 520))
+            else:
+                form.addRow(dlayout.hint(
+                    "An empty Wait pattern means no wait stage; an empty "
+                    "Send payload means no send stage. Wait timeout counts "
+                    "from the step start; Timeout counts from the send.",
+                    520))
         elif typ in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
             # M41: EMPTY fields auto-fill from the Console SFTP submodule
             # dirs (non-empty step values keep their override)
@@ -2068,38 +2143,37 @@ class FCTTestConfigPanel(QWidget):
             host_edit.setMaximumHeight(110)
             form.addRow("Windows cmd:", host_edit)
 
-        case_cb = QCheckBox("Case Sensitive (uncheck = ignore case)")
-        case_cb.setChecked(cmd.case_sensitive)
-        form.addRow(case_cb)
-        cap_exp = QTextEdit()
-        cap_exp.setPlainText(cmd.capture_expected or "")
-        cap_exp.setMaximumHeight(60)
-        cap_unexp = QTextEdit()
-        cap_unexp.setPlainText(cmd.capture_unexpected or "")
-        cap_unexp.setMaximumHeight(60)
-        form.addRow("Capture Expected:", cap_exp)
-        form.addRow("Capture Unexpected:", cap_unexp)
-        timeout = QSpinBox()
-        timeout.setRange(1, 3600)
-        timeout.setValue(int(cmd.send_timeout if typ in (
-            STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET) else (cmd.timeout or 6)))
-        timeout.setSuffix(" s")
-        timeout.setToolTip(
-            "Send / capture stage timeout (M76/D5: a WAIT-ONLY row is "
-            "bounded by the Wait timeout instead)")
-        form.addRow("Timeout:", timeout)
-        if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
-            if wait_timeout is not None:
-                wait_timeout.setToolTip(
-                    "Governs a WAIT-ONLY row (fallback: Timeout, then 30 s)")
-            hint = QLabel("Wait-only rows are bounded by 'Wait timeout'; "
-                          "send / capture rows by 'Timeout'.")
-            hint.setWordWrap(True)
-            form.addRow(hint)
+        if not serial_like:
+            case_cb = QCheckBox("Case Sensitive (uncheck = ignore case)")
+            case_cb.setChecked(cmd.case_sensitive)
+            form.addRow(case_cb)
+            cap_exp = QTextEdit()
+            cap_exp.setPlainText(cmd.capture_expected or "")
+            cap_exp.setMaximumHeight(60)
+            cap_regex = QCheckBox("Regex")
+            cap_regex.setChecked(bool(cmd.expect_fail_is_regex))
+            cap_unexp = QTextEdit()
+            cap_unexp.setPlainText(cmd.capture_unexpected or "")
+            cap_unexp.setMaximumHeight(60)
+            cap_unexp_regex = QCheckBox("Regex")
+            cap_unexp_regex.setChecked(bool(cmd.expect_fail_is_regex))
+            form.addRow("Capture Expected:", cap_exp)
+            form.addRow(cap_regex)
+            form.addRow("Capture Unexpected:", cap_unexp)
+            form.addRow(cap_unexp_regex)
+            timeout = QSpinBox()
+            timeout.setRange(1, 3600)
+            timeout.setValue(int(cmd.send_timeout if typ in (
+                STEP_TYPE_SFTP_PUT,
+                STEP_TYPE_SFTP_GET) else (cmd.timeout or 6)))
+            timeout.setSuffix(" s")
+            form.addRow("Timeout:", timeout)
 
         lay.addLayout(form)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
 
@@ -2125,14 +2199,16 @@ class FCTTestConfigPanel(QWidget):
             self._push_history()
             if channel_combo is not None:
                 cmd.channel = str(channel_combo.currentData() or "")
-            if wait_cb is not None:
-                cmd.wait_enabled = wait_cb.isChecked()
-                cmd.expect_pass = (wait_edit.text().strip()
-                                   if cmd.wait_enabled else "")
+            if serial_like:
+                # M83/C5: emptiness IS the switch (no Enable checkboxes)
+                cmd.expect_pass = wait_edit.text().strip()
+                cmd.wait_enabled = bool(cmd.expect_pass)
+                cmd.expect_pass_is_regex = wait_regex.isChecked()
                 cmd.wait_timeout = float(wait_timeout.value())
-            if send_edit is not None:
-                cmd.send_enabled = send_cb.isChecked()
-                cmd.send = send_edit.toPlainText() if cmd.send_enabled else ""
+                cmd.send = send_edit.toPlainText()
+                cmd.send_enabled = bool(cmd.send.strip())
+                cmd.expect_fail_is_regex = bool(
+                    cap_regex.isChecked() or cap_unexp_regex.isChecked())
                 has_cap = bool(cap_exp.toPlainText().strip()
                                or cap_unexp.toPlainText().strip())
                 if cmd.wait_enabled and not cmd.send_enabled:
@@ -2141,6 +2217,7 @@ class FCTTestConfigPanel(QWidget):
                     cmd.kind = "capture"
                 else:
                     cmd.kind = "send"
+                cmd.timeout = float(timeout.value())
             elif typ in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
                 cmd.kind = (KIND_SFTP_PUT if typ == STEP_TYPE_SFTP_PUT
                             else KIND_SFTP_GET)
@@ -2173,6 +2250,21 @@ class FCTTestConfigPanel(QWidget):
             cmd.refs = refs or None
             cmd.overrides = overrides or None
             self._save_row_cmd(row, cmd)
+        dlayout.finish(dlg)
+
+    def _ssh_order_warning(self, row: int) -> str:
+        """M83/C5: an SSH row placed before any network bring-up row."""
+        for r in range(row):
+            earlier = self._get_row_cmd(r)
+            if earlier is None:
+                continue
+            if earlier.kind in (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
+                                KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+                return ""
+            if "script" in str(earlier.name or "").lower():
+                return ""
+        return ("SSH depends on the DUT network being up — place it after "
+                "the network bring-up rows")
 
     def _edit_regex_cell(self, row: int, col: int, title: str) -> None:
         """Exact / Regex editor dialog with live match test."""

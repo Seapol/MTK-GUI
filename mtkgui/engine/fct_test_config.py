@@ -1174,9 +1174,12 @@ def console_command_for_label(label: str,
                               rf_subtest=subtest, wait_enabled=False,
                               send_enabled=False, capture_enabled=False)
     if label == STEP_TYPE_CONSOLE_SSH:
+        # M83/C5: a NEW SSH row defaults to a 30 s send/capture timeout
+        # (serial keeps 6 s) because the network may still be coming up.
         return ConsoleCommand(kind="send", name=name or "",
                               transport="ssh", wait_enabled=False,
-                              send_enabled=True, capture_enabled=False)
+                              send_enabled=True, capture_enabled=False,
+                              timeout=30.0)
     if label == STEP_TYPE_SFTP_PUT:
         return ConsoleCommand(kind=KIND_SFTP_PUT, name=name or "",
                               transport="ssh", wait_enabled=False,

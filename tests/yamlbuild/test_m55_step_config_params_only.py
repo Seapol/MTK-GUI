@@ -102,7 +102,7 @@ def test_console_serial_dialog_has_only_test_parameters(qapp, monkeypatch):
                  "Connection (runtime reference):"):
         assert not any(gone in t for t in seen["labels"]), gone
     assert seen["overrides"] == []
-    for kept in ("WaitFor:", "Wait timeout:", "SendTo:",
+    for kept in ("Pattern:", "Wait timeout:", "SendTo:",
                  "Capture Expected:", "Capture Unexpected:", "Timeout:"):
         assert any(kept in t for t in seen["labels"]), kept
 
@@ -124,7 +124,7 @@ def test_console_serial_save_seeds_refs_and_keeps_legacy_overrides(
 
 
 def test_ssh_and_sftp_dialogs_hide_the_login_fields(qapp, monkeypatch):
-    for label, kept in ((STEP_TYPE_CONSOLE_SSH, "WaitFor:"),
+    for label, kept in ((STEP_TYPE_CONSOLE_SSH, "Pattern:"),
                         (STEP_TYPE_SFTP_PUT, "Local (Host):"),
                         (STEP_TYPE_SFTP_GET, "Remote (DUT):")):
         panel = _panel()
