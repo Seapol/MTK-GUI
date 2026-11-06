@@ -169,6 +169,17 @@ as its current release.
   `timeout_s`, judges Bluetooth pair / A2DP on the DUT when the host
   CLI is unavailable, and auto-binds the SFTP `ssh` channel over the
   Wi-Fi DUT IP.
+- **M78** (2026-11-06, `develop`) - timeout truth and run purity:
+  one resolved wall-clock budget per step (the old 99999 ms clamp is
+  gone, the Wi-Fi op budget covers association, the hidden 60 s iperf
+  budget is gone, over-budget steps are aborted with
+  `budget exceeded: Xs > Ys -> FAIL`), an application-level stall
+  watchdog (`Tools > FCT Watchdog`, default 8.0 s, 0 = off, persisted
+  across sessions), and **Console buffer semantics** - pressing Run
+  clears the Console display and the channel read buffers before step
+  1, one run reads only bytes produced during that run, the finished
+  log stays on screen, and each report embeds exactly one run's log
+  (see `docs/fct/B4-FCT-Execution-Design.md` §7.1).
 
 
 

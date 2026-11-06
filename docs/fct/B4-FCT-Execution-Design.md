@@ -202,6 +202,33 @@ and record it in the B3 spec §7.1.
 | Console | serial + SSH via existing multi-console workers; SSH password resolution switches to the credential layer (§6) |
 | Overall Result | FctOutcome maps to the table cells: PASS/FAIL/Error/Skip — identical semantics to the ICT column, Overall rollup unchanged |
 
+### 7.1 Console buffer semantics (run purity)
+
+**One run reads only bytes produced during that run.**  The rule was
+agreed early and is now written down because the code drifted once:
+
+- Pressing **Run** clears the Console display and the read buffer of
+  every channel the sequence uses, *before step 1 executes*.  It logs
+  `run <run id> start: console cleared (NNNN bytes discarded)`.
+  The Run press also pins `run_start_offset[key] = 0`; a channel
+  attached midway through the run starts at the byte count it already
+  holds.
+- Every console expectation (`WaitforConsole` / `WaitforCLI` /
+  capture rows / console-message waits) may only match bytes at or
+  after that offset.  Text printed **earlier in the same run** still
+  counts (the boot prompt printed during the Delay row satisfies
+  step 3); text from a previous run or a manual console session never
+  counts (this is what makes a stale `RF drivers loaded OK` PASS
+  impossible).
+- Nothing is cleared at run end: the finished run's log stays on
+  screen for review.  The artifacts written at run end (FCT CSV,
+  report PDF, embedded console log) contain exactly one run's log -
+  the report dumps `buf[run_start_offset:]`.
+- If the previous run's report artifact is missing when Run is pressed
+  (its write failed), the run still starts: one
+  `previous run artifacts not found; discarding NNNN bytes of console
+  evidence` WARNING is logged, never a blocking dialog.
+
 ---
 
 ## 8. Report design (Module B)

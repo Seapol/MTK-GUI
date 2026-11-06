@@ -35,8 +35,8 @@ VERDICT_ERROR = "ERROR"
 VERDICT_SKIP = "SKIP"
 
 #: M78-3 stall watchdog: a step that produced NO new bytes for this
-#: long while still waiting for its positive evidence fails EARLY
-#: (0 disables the watchdog; per-step override ``params.stall_s``).
+#: long while still waiting for its positive evidence fails EARLY.
+#: ONE application-level value (Tools > FCT Watchdog); 0 disables it.
 DEFAULT_STALL_S = 8.0
 
 #: M78-2 scheduling tolerance: the polling loops can overshoot their
@@ -58,13 +58,11 @@ def _step_budget(step) -> float:
         return 0.0
 
 
-def _stall_s(step) -> float:
-    """Effective stall watchdog window (0 = disabled)."""
-    raw = (getattr(step, "params", None) or {}).get("stall_s")
-    if raw is None:
-        return DEFAULT_STALL_S
+def _watchdog_s(ctx) -> float:
+    """Effective app-level stall watchdog window (0 = disabled)."""
     try:
-        return max(0.0, float(raw))
+        return max(0.0, float(getattr(ctx, "watchdog_s",
+                                     DEFAULT_STALL_S) or 0.0))
     except (TypeError, ValueError):
         return DEFAULT_STALL_S
 
@@ -72,19 +70,6 @@ def _stall_s(step) -> float:
 def _watchdog_reason(stall_s: float, budget_s: float) -> str:
     return (f"watchdog: no output for {stall_s:.1f}s "
             f"(budget {budget_s:g}s not reached)")
-
-
-def _channel_history(channel) -> str:
-    """Bytes already buffered on the channel BEFORE the step started
-    (M78-4 ``match_history`` evidence; empty for channels without a
-    history view)."""
-    fn = getattr(channel, "history_text", None)
-    if not callable(fn):
-        return ""
-    try:
-        return str(fn() or "")
-    except Exception:                 # noqa: BLE001 - best effort
-        return ""
 
 
 def _activity_marker(channel):
@@ -187,6 +172,9 @@ class FctContext:
     #: to show a foreground bar for the long serial asset deploy. None
     #: in headless runs (the transfer proceeds without a dialog).
     progress_factory: object = None
+    #: M78-3: application-level stall watchdog window in seconds
+    #: (Tools > FCT Watchdog). 0 disables it. NOT a YAML field.
+    watchdog_s: float = DEFAULT_STALL_S
 
     def log(self, message: str) -> None:
         line = f"[{self.station_id}] [{self.user}] {message}"
@@ -211,16 +199,17 @@ class FctContext:
 
 def _capture_loop(channel, pass_kw: list, fail_kw: list,
                   timeout_s: float, ctx: FctContext,
-                  collected: list, stall_s: float = 0.0,
-                  budget_s: float = 0.0) -> FctOutcome:
+                  collected: list) -> FctOutcome:
     """Bounded drain (B4 §1.2): positive / negative / timeout.
 
-    M78-3: while a POSITIVE keyword is still unmatched, a stretch of
-    ``stall_s`` without new bytes fails the step immediately (the PASS
-    path is untouched - a match still wins the instant it arrives)."""
+    M78-3: while a POSITIVE keyword is still unmatched, a stretch of the
+    app-level watchdog window without new bytes fails the step
+    immediately (the PASS path is untouched - a match still wins the
+    instant it arrives)."""
     deadline = time.monotonic() + max(timeout_s, 0.0)
     last_data = time.monotonic()
     marker = _activity_marker(channel)
+    stall_s = _watchdog_s(ctx)
     while True:
         try:
             got = channel.read_lines(max_lines=200, timeout_s=0.1)
@@ -260,7 +249,7 @@ def _capture_loop(channel, pass_kw: list, fail_kw: list,
                                   f"'{hit}'", list(collected))
         if stall_s > 0 and pass_kw \
                 and (time.monotonic() - last_data) >= stall_s:
-            reason = _watchdog_reason(stall_s, budget_s)
+            reason = _watchdog_reason(stall_s, timeout_s)
             ctx.log(f"{reason} -> FAIL")
             return FctOutcome(VERDICT_FAIL, reason, list(collected))
         if timeout_s and time.monotonic() > deadline:
@@ -294,11 +283,10 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     ("TIMEOUT waiting"), never blocks forever.  Falls back to the
     plain keyword tables when no regex is configured.
 
-    M78-3: an 8 s silent stretch while the positive pattern is still
-    unmatched fails the step early (``params.stall_s`` override, 0
-    disables); a match still wins instantly.  M78-4: with
-    ``match_history`` the PASS may come from pre-step bytes and says so
-    in the log."""
+    M78-3: a silent stretch (the app-level watchdog window) while the
+    positive pattern is still unmatched fails the step early; a match
+    still wins instantly.  M78-4: the run-start clear pins the read
+    offset, so only bytes from THIS run can satisfy the pattern."""
     from .fct_test_runner import match_expectation, _pattern_hit
     p = step.params
     pass_re = str(p.get("expect_pass_re", "") or "")
@@ -310,22 +298,14 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     is_expected = bool(p.get("capture_is_expected", True))
     # End Line shares the main pattern's Regex/Case setting
     end_is_re = pass_is_re if is_expected else fail_is_re
-    stall_s = _stall_s(step)
+    stall_s = _watchdog_s(ctx)
     budget_s = _step_budget(step)
-    watchdog = stall_s > 0 and _expects_positive(step)
-    history = _channel_history(channel)
+    watchdog = (stall_s > 0 and _expects_positive(step)
+                and not bool(p.get("__watchdog_off")))
     collected: list = []
     deadline = time.monotonic() + max(step.timeout_s or 5.0, 0.1)
     last_data = time.monotonic()
     marker = _activity_marker(channel)
-
-    def _pass(reason: str) -> FctOutcome:
-        if history and (
-                (pass_re and _pattern_hit(pass_re, pass_is_re, False, history))
-                or any(k and k in history for k in step.expect_pass)):
-            ctx.log(f"{step.name}: matched pre-step buffered output "
-                    f"(match_history=true)")
-        return FctOutcome(VERDICT_PASS, reason, list(collected))
 
     while True:
         try:
@@ -348,7 +328,9 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                     # step): ANY output means the command reached the
                     # DUT - the caller's timeout still bounds silence
                     if text.strip():
-                        return _pass("output present")
+                        return FctOutcome(VERDICT_PASS,
+                                          "output present",
+                                          list(collected))
                 else:
                     verdict, hit = judge_keywords(
                         got, list(step.expect_pass), list(step.expect_fail))
@@ -366,7 +348,9 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                         pass_re, pass_is_re, case, text):
                     if p.get("parse_summary"):
                         return _fat_summary_outcome(text)
-                    return _pass(f"matched '{pass_re}'")
+                    return FctOutcome(VERDICT_PASS,
+                                      f"matched '{pass_re}'",
+                                      list(collected))
                 if end_line and _pattern_hit(end_line, end_is_re,
                                              case, text):
                     if is_expected:
@@ -433,7 +417,9 @@ def _console_wait(channel, step: FctStep, ctx: FctContext,
                 "capture_is_expected": True,
                 "case_sensitive": bool(
                     case_sensitive and p.get("case_sensitive", True)),
-                "stall_s": 0.0 if dialog else _stall_s(step)})
+                # M78-3: an operator dialog is a human wait - the app
+                # watchdog must not fail its message-arrival phase
+                "__watchdog_off": dialog})
     ctx.log(f"{step.name}: waiting for console message '{pattern}'")
     return _regex_capture(channel, wait_step, ctx)
 
@@ -958,17 +944,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
 
     if step.step_type == STEP_MESSAGE_CHECK:
         channel = ctx.channel_for(step)
-        # M78-4: a Wait/Capture row judges ONLY bytes that arrive after
-        # the step started (delta window).  ``match_history: true`` is
-        # the explicit opt-in for a prompt that legitimately scrolled
-        # past before the row ran (never a default).  A login row is a
-        # multi-stage interaction whose own marks delimit each stage,
-        # so it is not reset here.
-        delta = bool(step.params.get("fct_console")) \
-            and not bool(step.params.get("fct_console_login")) \
-            and not bool(step.params.get("match_history"))
-        if channel is not None and delta:
-            _mark_channel(channel)
+        # M78-4: the run-start clear pins every channel read offset to
+        # 0, so console expectations can only see bytes produced during
+        # THIS run (never a previous run's or a manual session's text).
         # SSH file-transfer rows (sftp_put / sftp_get) run over the SSH
         # channel's SFTP endpoint.  A successful sftp_get ALSO removes
         # the DUT-side file so stale results can never leak into the
@@ -1044,9 +1022,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         if not pass_kw and not fail_kw:
             return FctOutcome(VERDICT_FAIL, "no keywords configured")
         return _capture_loop(channel, pass_kw, fail_kw,
-                             step.timeout_s or 30.0, ctx, [],
-                             stall_s=_stall_s(step),
-                             budget_s=_step_budget(step))
+                             step.timeout_s or 30.0, ctx, [])
 
     if step.step_type == STEP_CLI_RUN:
         channel = _open_channel(step, ctx)
@@ -1054,13 +1030,11 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             return FctOutcome(VERDICT_ERROR, f"channel '{step.channel}' "
                               "not bound")
         ctx.log(f"command sent: {step.command}")
-        # M78-4: judge only the output produced by THIS command
+        # M76/D4: judge only the output produced by THIS command
         _mark_channel(channel)
         channel.write(step.command)
         outcome = _capture_loop(channel, pass_kw, fail_kw,
-                                step.timeout_s or 30.0, ctx, [],
-                                stall_s=_stall_s(step),
-                                budget_s=_step_budget(step))
+                                step.timeout_s or 30.0, ctx, [])
         # joint judgement with the exit code (host CLI only, B4 §4)
         exit_code = getattr(channel, "exit_code", None)
         if exit_code is not None and exit_code != 0 \
@@ -1171,9 +1145,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             _mark_channel(channel)
             channel.write(step.command)
             outcome = _capture_loop(channel, pass_kw, fail_kw,
-                                    step.timeout_s or 30.0, ctx, [],
-                                    stall_s=_stall_s(step),
-                                    budget_s=_step_budget(step))
+                                    step.timeout_s or 30.0, ctx, [])
             if outcome.verdict != VERDICT_PASS:
                 return outcome
         if step.params.get("confirm"):

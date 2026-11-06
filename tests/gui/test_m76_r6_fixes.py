@@ -90,8 +90,9 @@ class _FakeMc:
             self.buf += str(tail).encode()
 
 
-def _console_ctx(channels: dict):
-    return fe.FctContext(channels=channels, log_sink=lambda line: None)
+def _console_ctx(channels: dict, **kw):
+    return fe.FctContext(channels=channels,
+                         log_sink=lambda line: None, **kw)
 
 
 # ------------------------------------------------ D1 authored row order
@@ -281,19 +282,20 @@ def test_wait_only_row_uses_wait_timeout():
 def test_wait_only_row_is_running_at_10s():
     """Acceptance D5: wait_timeout=30 keeps the row RUNNING at 10 s.
 
-    M78-3: the 8 s stall watchdog would fail a silent row first, so this
-    M76 acceptance disables it explicitly (``stall_s: 0``) - the
-    watchdog has its own M78 test."""
+    M78-3: the app-level 8 s watchdog would fail a silent row first, so
+    this M76 acceptance disables it explicitly (``watchdog_s=0``) - the
+    watchdog has its own M78 tests."""
     channel = VirtualFctChannel()
     step = fe.FctStep(
         name="Console - wait for login", step_type="MESSAGE_CHECK",
         channel="ser1", timeout_s=30.0,
-        params={"fct_console": True, "kind": "wait", "stall_s": 0.0,
+        params={"fct_console": True, "kind": "wait",
                 "expect_pass_re": "login:", "capture_is_expected": True})
     result: list = []
     worker = threading.Thread(
         target=lambda: result.append(
-            fe.execute_fct_step(step, _console_ctx({"ser1": channel}))))
+            fe.execute_fct_step(step, _console_ctx({"ser1": channel},
+                                                   watchdog_s=0.0))))
     worker.start()
     time.sleep(10.0)
     assert worker.is_alive(), "row stopped before wait_timeout"

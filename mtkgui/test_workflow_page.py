@@ -663,6 +663,16 @@ class TestWorkFlowPage(QWidget):
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
         self._runner.run_finished.connect(self._on_run_finished)
+        # M78-3: app-level stall watchdog (Tools > FCT Watchdog).  The
+        # main window overwrites it with the persisted value; the engine
+        # re-reads it at every run start.
+        self.fct_watchdog_s = 8.0
+        # M78-4: run-purity bookkeeping - the match window of the
+        # current run and the last report artifact (set by the main
+        # window when the PDF job is scheduled).
+        self.run_start_offsets: dict = {}
+        self.last_report_artifact = ""
+        self.report_artifact_pending = False
         # P3-B2 debug bridge (GUI layer): breakpoint hits and the
         # single-step mode request a pause at the safe step boundary
         # via the runner's public pause() API
@@ -2804,19 +2814,34 @@ class TestWorkFlowPage(QWidget):
 
     # --- RunnerEnv bridge: run-control state rendering -----------------
     def _on_cycle_reset(self):
-        """Engine begins a cycle -> blank defaults + clear Event Log.
+        """Engine begins a cycle -> blank defaults, clear the Console
+        display and record the run-purity match window.
 
-        The engine clears every channel read buffer at this point (see
-        TestRunner._begin_cycle); mark the round boundary in each
-        console window so the operator can tell the rounds apart."""
+        M78-4: the engine cleared every channel read buffer and pinned
+        the run-start offsets BEFORE this signal (still before step 1).
+        The operator's rule: "pressing Run starts a clean DUT log" - the
+        finished run's log is NOT cleared at run end."""
         self.clear_results()
+        self.run_start_offsets = dict(
+            getattr(self._runner, "run_start_offsets", {}) or {})
         for channel in self.multi_console.channels.values():
             console = channel.get("console")
-            if console is not None:
-                console.append_message(
-                    "SYS",
-                    "New run cycle - console RX buffer cleared",
-                    color=self.multi_console.theme["sys"])
+            clear = getattr(console, "clear_all", None)
+            if callable(clear):
+                clear()
+            inline = channel.get("inline")
+            view = getattr(inline, "view", None)
+            if view is not None:
+                view.clear()
+
+    def previous_artifacts_missing(self) -> bool:
+        """M78-4: True when the LAST run's report artifact was expected
+        but never written (a warning at Run press - never a block)."""
+        path = str(getattr(self, "last_report_artifact", "") or "")
+        if not path or getattr(self, "report_artifact_pending", False):
+            return False
+        from pathlib import Path
+        return not Path(path).is_file()
 
     def _on_stage_skipped(self, r, text):
         """Engine marks a disabled Overall Flow stage as Skip."""

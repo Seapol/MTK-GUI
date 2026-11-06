@@ -67,10 +67,6 @@ class VirtualFctChannel:
             raise ChannelClosed("virtual channel closed")
         self.written.append(data)
 
-    def history_text(self) -> str:
-        """M78-4: pre-injected scripted output = the step's history."""
-        return "\n".join(self._lines)
-
     def close(self) -> None:
         self._closed = True
 
@@ -196,15 +192,19 @@ class ConsoleBufferChannel:
 
     kind = "console_buffer"
 
-    def __init__(self, mc, key: str, pump=None) -> None:
+    def __init__(self, mc, key: str, pump=None, start_offset: int = 0) -> None:
         """`pump` (optional callable): injected event-loop pump — the
         multi-console RX reaches the read buffer through QUEUED Qt
         signals, so a blocking capture loop in the GUI thread must
         pump the loop or the buffer starves.  The engine stays
-        Qt-free: the GUI injects ``QApplication.processEvents``."""
+        Qt-free: the GUI injects ``QApplication.processEvents``.
+
+        ``start_offset`` (M78-4): the run-start read offset.  0 right
+        after the Run-press clear; non-zero only for a channel attached
+        midway through the run."""
         self._mc, self._key = mc, key
         self._pump = pump
-        self._consumed = 0                    # bytes taken from mc buffer
+        self._consumed = max(0, int(start_offset))  # bytes excluded
         self._pending = ""                    # un-terminated partial line
 
     def write(self, data) -> None:
@@ -248,13 +248,6 @@ class ConsoleBufferChannel:
         only return bytes that arrive AFTER the command was written."""
         self._consumed = len(self._mc.get_read_buffer(self._key))
         self._pending = ""
-
-    def history_text(self) -> str:
-        """M78-4: the bytes received BEFORE the step started (the
-        ``match_history: true`` evidence window)."""
-        buf = self._mc.get_read_buffer(self._key)
-        tail = buf[self._consumed:].decode("utf-8", "replace")
-        return self._pending + tail
 
     def received_len(self) -> int:
         """M78-3: total bytes received on the transport - the stall

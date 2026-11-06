@@ -161,15 +161,24 @@ class DutReport:
                 getattr(rw, "t_start", 0.0) or 0.0)
 
         # full console transcript dump (per channel RX buffer) for the
-        # PDF appendix; headless / fake pages have no multi_console
+        # PDF appendix; headless / fake pages have no multi_console.
+        # M78-4: only bytes from THIS run - the runner's run-start
+        # offsets exclude anything a previous run (or a manual console
+        # session) printed before the Run press cleared the buffers.
         mc = getattr(page, "multi_console", None)
         channels = getattr(mc, "channels", None) or {}
+        runner = getattr(page, "_runner", None)
+        offsets = dict(getattr(runner, "run_start_offsets", {}) or {})
+        if not offsets:
+            offsets = dict(getattr(page, "run_start_offsets", {}) or {})
         dumps = []
         for key in channels:
             try:
                 raw = mc.get_read_buffer(key)
             except Exception:            # noqa: BLE001 - never re-judge
                 continue
+            start = int(offsets.get(key, 0) or 0)
+            raw = raw[start:]
             if raw:
                 dumps.append(f"===== {key} =====\n"
                              + raw.decode("utf-8", "replace"))

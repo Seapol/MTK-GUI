@@ -67,18 +67,6 @@ def op_verdict_status(verdict: str) -> StepStatus:
     return _OP_VERDICT_STATUS.get(verdict, StepStatus.ERROR)
 
 
-def _console_buffer_len(mc, key: str) -> int:
-    """Current console read-buffer length (0 for console doubles that do
-    not expose the API - headless tests)."""
-    fn = getattr(mc, "get_read_buffer", None)
-    if not callable(fn):
-        return 0
-    try:
-        return len(fn(key))
-    except Exception:                 # noqa: BLE001 - never abort a run
-        return 0
-
-
 #: the DAQ AI step produced by the ICT sequence builder arrives as
 #: kind="test" with this NAME (the Power rails are pre-allocated in
 #: Channel Allocation) - it MUST dispatch to the rail-capture path
@@ -132,6 +120,13 @@ class TestRunner(QObject):
         # run timer polls the channel read buffer until a keyword shows
         # up or the step timeout elapses
         self._fct_console_wait: dict | None = None
+        # M78-3: effective app-level stall watchdog (Tools > FCT
+        # Watchdog), re-read at every run start; 0 disables it.
+        self._watchdog_s = 8.0
+        # M78-4: run-purity offsets - the read position each channel is
+        # allowed to judge from (0 right after the Run-press clear).
+        self.run_start_offsets: dict = {}
+        self.run_id = ""
         # FCT message tests open a modal operator dialog during a real
         # run; the run timer keeps ticking (100 ms) and must not
         # re-enter _run_step while the dialog is open
@@ -1260,7 +1255,8 @@ class TestRunner(QObject):
                              env, "fct_keyword_fail", ()) or ()),
                          dut_report=str(dut_folder()),
                          project_base=_project_base(),
-                         progress_factory=_progress_factory)
+                         progress_factory=_progress_factory,
+                         watchdog_s=self._watchdog_s)
         ch_key = step.channel
         if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
             # M41: a network setup step that emitted a DIFFERENT DUT IP
@@ -1313,8 +1309,15 @@ class TestRunner(QObject):
                     pump = QApplication.processEvents
                 except Exception:             # noqa: BLE001 - headless
                     pump = None
+                # M78-4: a channel attached mid-run starts at the byte
+                # count it already holds; a channel present at Run start
+                # was cleared and pinned to 0 there.
+                if ch_key not in self.run_start_offsets:
+                    self.run_start_offsets[ch_key] = len(
+                        mc.get_read_buffer(ch_key))
                 ctx.channels[ch_key] = ConsoleBufferChannel(
-                    mc, ch_key, pump=pump)
+                    mc, ch_key, pump=pump,
+                    start_offset=self.run_start_offsets[ch_key])
             else:
                 # Virtual: a fresh injectable channel stands in for the
                 # real transport (Virtual mode verifiable, no hardware);
@@ -1519,7 +1522,10 @@ class TestRunner(QObject):
                        else rest.split(",")[0].strip())
             payload = payload.strip().strip("'\"").strip()
             keywords = [q for q in quotes[1:] if q]
-            from_len = len(mc.get_read_buffer(key))
+            # M78-4: the match window starts at the RUN start, not at
+            # this command - text printed earlier in this same run on
+            # this channel is still valid evidence.
+            from_len = self.run_start_offsets.get(key, 0)
             if payload:
                 mc.write_to_channel(key,
                                     (payload + "\r\n").encode("utf-8"))
@@ -1530,7 +1536,6 @@ class TestRunner(QObject):
                 "keywords": keywords, "from_len": from_len,
                 "t0": t0,
                 "budget_s": timeout_ms / 1000.0,
-                "stall_s": 8.0,
                 "deadline": time.monotonic()
                 + max(0.1, timeout_ms / 1000.0),
             }
@@ -1538,12 +1543,10 @@ class TestRunner(QObject):
             return
 
         if kind in ("WaitforConsole", "WaitforCLI"):
-            # M78-4: judge ONLY bytes arriving after this row started;
-            # ``match_history: true`` is the explicit opt-in for a
-            # prompt that scrolled past before the row ran.
-            cfg = (env.fct_op_params[r]
-                   if r < len(env.fct_op_params) else None) or {}
-            match_history = bool(cfg.get("match_history"))
+            # M78-4: the match window is pinned at the RUN start (0
+            # right after the Run-press clear), so text printed EARLIER
+            # in this same run (e.g. the boot prompt during the Delay
+            # row) still counts, while any previous-run text does not.
             keywords = [q for q in quotes if q]
             if not keywords:
                 fallback = console_keyword_fallback(rest)
@@ -1552,20 +1555,12 @@ class TestRunner(QObject):
                      f"{' / '.join(keywords) or 'output'} ...")
             env._log(f"FCT {name}: budget {timeout_ms / 1000.0:g}s "
                      f"(source timeout_ms)")
-            _raw_stall = cfg.get("stall_s")
-            try:
-                stall_s = 8.0 if _raw_stall is None else max(
-                    0.0, float(_raw_stall))
-            except (TypeError, ValueError):
-                stall_s = 8.0
             self._fct_console_wait = {
                 "row": r, "key": key, "name": name,
                 "keywords": keywords,
-                "from_len": (0 if match_history
-                             else len(mc.get_read_buffer(key))),
+                "from_len": self.run_start_offsets.get(key, 0),
                 "t0": t0,
                 "budget_s": timeout_ms / 1000.0,
-                "stall_s": stall_s,
                 "deadline": time.monotonic()
                 + max(0.1, timeout_ms / 1000.0),
             }
@@ -1578,7 +1573,8 @@ class TestRunner(QObject):
         if not keywords:
             fallback = console_keyword_fallback(rest)
             keywords = [fallback] if fallback else []
-        text = mc.get_read_buffer(key).decode("utf-8", "replace")
+        text = mc.get_read_buffer(key)[
+            self.run_start_offsets.get(key, 0):].decode("utf-8", "replace")
         healthy = (not keywords) or any(k in text for k in keywords)
         if healthy:
             finish("PASS", f"FCT {name}: buffer contains "
@@ -1622,16 +1618,14 @@ class TestRunner(QObject):
                  f"{' / '.join(keywords) or 'output'} ...")
         env._log(f"FCT {name}: budget {float(wait_timeout):g}s "
                  f"(source timeout_ms)")
-        # M78-4: the operator-message wait is delta by default too;
-        # ``match_history: true`` opts into the buffered prompt.
+        # M78-4: the match window starts at the RUN start - the message
+        # may legitimately have been printed earlier in this run.
         self._fct_console_wait = {
             "row": r, "key": key, "name": name,
             "keywords": keywords,
-            "from_len": (0 if cfg.get("match_history")
-                         else _console_buffer_len(env.multi_console, key)),
+            "from_len": self.run_start_offsets.get(key, 0),
             "t0": t0,
             "budget_s": float(wait_timeout),
-            "stall_s": 0.0,          # operator gate: never watchdog it
             "deadline": time.monotonic() + max(0.1, float(wait_timeout)),
             "message_kind": kind, "cfg": dict(cfg),
         }
@@ -1717,7 +1711,7 @@ class TestRunner(QObject):
         if now < w["deadline"]:
             # M78-3: the stall watchdog runs INSIDE the wait loop - a
             # silent DUT fails long before the full budget is spent.
-            stall_s = float(w.get("stall_s") or 0.0)
+            stall_s = float(self._watchdog_s or 0.0)
             if (not w.get("message_kind") and stall_s > 0
                     and w["keywords"]
                     and now - w["last_at"] >= stall_s):
@@ -1902,15 +1896,45 @@ class TestRunner(QObject):
     def _begin_cycle(self) -> None:
         env = self.env
         self.reset_results()
-        # new cycle: the console read buffer must hold THIS cycle's DUT
-        # output only.  A buffer carried over from the previous round
-        # makes Waitfor/Capture match the previous round's log while the
-        # new round's output has not arrived yet (cross-round
-        # misjudgement, user report 2026-10-14).
+        # M78-3: ONE application-level watchdog (Tools > FCT Watchdog).
+        # Re-read at every run start; 0 disables it.  NOT a YAML field.
+        try:
+            self._watchdog_s = max(0.0, float(
+                getattr(env, "fct_watchdog_s", 8.0) or 0.0))
+        except (TypeError, ValueError):
+            self._watchdog_s = 8.0
+        # M78-4: pressing Run starts a CLEAN DUT log.  The read buffers
+        # of every channel the sequence will use are cleared and pinned
+        # to offset 0 BEFORE step 1; a previous run's text can never
+        # satisfy the new run's expectations.
         mc = getattr(env, "multi_console", None)
+        discarded = 0
+        self.run_start_offsets = {}
         if mc is not None:
             for key in list(getattr(mc, "channels", {})):
+                try:
+                    discarded += len(mc.get_read_buffer(key))
+                except Exception:            # noqa: BLE001 - headless
+                    pass
                 mc.clear_read_buffer(key)
+                self.run_start_offsets[key] = 0
+        self.run_id = time.strftime("%Y%m%d_%H%M%S")
+        missing = getattr(env, "previous_artifacts_missing", None)
+        try:
+            previous_missing = bool(missing()) if callable(missing) else False
+        except Exception:                    # noqa: BLE001 - never block
+            previous_missing = False
+        if previous_missing:
+            # a warning only - the run must never be refused
+            env._log(
+                f"WARNING: previous run artifacts not found; discarding "
+                f"{discarded} bytes of console evidence")
+        env._log(f"run {self.run_id} start: console cleared "
+                 f"({discarded} bytes discarded)")
+        env._log(f"watchdog {self._watchdog_s:.1f}s "
+                 f"(Tools > FCT Watchdog)")
+        # the page clears the Console display on this signal (still
+        # before step 1; aborts inside step 1 keep the buffer cleared)
         self.cycle_reset.emit()
         env._set_phase("Init...")
         self._interrupted = False
@@ -2230,7 +2254,8 @@ class TestRunner(QObject):
                              env, "fct_keyword_pass", ()) or ()),
                          keyword_fail=list(getattr(
                              env, "fct_keyword_fail", ()) or ()),
-                         dut_report=str(dut_folder()))
+                         dut_report=str(dut_folder()),
+                         watchdog_s=self._watchdog_s)
         # bind console channel (if any teardown needs it)
         needs_console = any(
             FctStep.from_dict(
@@ -2248,8 +2273,12 @@ class TestRunner(QObject):
                     pump = None
                 for key, ch in mc.channels.items():
                     if ch.get("kind") == "serial":
+                        offset = self.run_start_offsets.get(key)
+                        if offset is None:
+                            offset = len(mc.get_read_buffer(key))
+                            self.run_start_offsets[key] = offset
                         ctx.channels[key] = ConsoleBufferChannel(
-                            mc, key, pump=pump)
+                            mc, key, pump=pump, start_offset=offset)
         # ---- execute each teardown row ----
         for r in teardown_indices:
             marker = (env.fct_op_params[r] or {}).get("fct_step") or {}

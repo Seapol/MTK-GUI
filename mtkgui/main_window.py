@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -205,6 +206,42 @@ def save_event_log_level(level, settings=None):
         EVENT_LOG_LEVEL_KEY,
         level if level in (SIMPLIFIED, DETAILED) else DETAILED)
     settings.sync()
+
+
+#: M78-3: application-level FCT stall watchdog (Tools > FCT Watchdog).
+#: NOT a YAML field - one value for the whole application, persisted
+#: across sessions; 0 disables the watchdog.
+FCT_WATCHDOG_KEY = "fct/watchdog_s"
+FCT_WATCHDOG_DEFAULT = 8.0
+FCT_WATCHDOG_MAX = 300.0
+
+
+def load_fct_watchdog_s(settings=None) -> float:
+    """The SAVED watchdog window in seconds (default 8.0; 0 disables)."""
+    if settings is None:
+        settings = QSettings(APP_ORG, APP_NAME)
+    try:
+        raw = settings.value(FCT_WATCHDOG_KEY, FCT_WATCHDOG_DEFAULT)
+    except Exception:                       # noqa: BLE001 - headless
+        return FCT_WATCHDOG_DEFAULT
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return FCT_WATCHDOG_DEFAULT
+    return max(0.0, min(FCT_WATCHDOG_MAX, value))
+
+
+def save_fct_watchdog_s(value, settings=None) -> float:
+    """Persist the Tools > FCT Watchdog value; returns the clamped one."""
+    try:
+        value = max(0.0, min(FCT_WATCHDOG_MAX, float(value)))
+    except (TypeError, ValueError):
+        value = FCT_WATCHDOG_DEFAULT
+    if settings is None:
+        settings = QSettings(APP_ORG, APP_NAME)
+    settings.setValue(FCT_WATCHDOG_KEY, value)
+    settings.sync()
+    return value
 
 
 class StatusLed(QLabel):
@@ -701,6 +738,8 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
 
         self.workflow_page = TestWorkFlowPage()
+        # M78-3: the Tools > FCT Watchdog value (persisted app setting)
+        self.workflow_page.fct_watchdog_s = load_fct_watchdog_s()
         _startup_mark("ui: TestWorkFlowPage built")
         self.tabs.addTab(self.workflow_page, "Test Work Flow")
 
@@ -1276,6 +1315,13 @@ class MainWindow(QMainWindow):
             "read-only built-in template")
         self.act_assets_config.triggered.connect(self._open_assets_config)
         self._assets_dialog = None
+        tools_menu.addSeparator()
+        # M78-3: one application-level stall watchdog value (no YAML field)
+        self.act_fct_watchdog = tools_menu.addAction("FCT Watchdog…")
+        self.act_fct_watchdog.setToolTip(
+            "Stall watchdog window for console / SSH steps and host "
+            "command stdout (0 = off); applies to the next run")
+        self.act_fct_watchdog.triggered.connect(self._configure_fct_watchdog)
         # persistent Tools gateway (lazily created, reused by the
         # batch operations; the run flow builds its own per run)
         self._tools_gateway = None
@@ -1532,6 +1578,10 @@ class MainWindow(QMainWindow):
                                core_id=meta.get("core_id", ""),
                                part=meta.get("part", ""))
             pdf_path = run_dir / dut_pdf.dut_pdf_name(report, meta)
+            # M78-4: remember the artifact this run expects; the next
+            # Run press warns (never blocks) when it was never written.
+            self.workflow_page.last_report_artifact = str(pdf_path)
+            self.workflow_page.report_artifact_pending = True
             # dedup guard: the same run must never be rendered twice
             # (double run_finished / retried trigger would race two
             # workers on the same file)
@@ -1556,11 +1606,15 @@ class MainWindow(QMainWindow):
                 f"failed: {e}")
 
     def _on_dut_pdf_done(self, path: str) -> None:
+        self.workflow_page.report_artifact_pending = False
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] DUT report generated: "
             f"{Path(path).name}")
 
     def _on_dut_pdf_failed(self, error: str) -> None:
+        # M78-4: the artifact was never written -> the next Run will
+        # warn (never block) before clearing the console evidence.
+        self.workflow_page.report_artifact_pending = False
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] DUT report generation "
             f"failed: {error}")
@@ -1638,6 +1692,26 @@ class MainWindow(QMainWindow):
         self._assets_dialog.show()
         self._assets_dialog.raise_()
         self._assets_dialog.activateWindow()
+
+    def _configure_fct_watchdog(self):
+        """M78-3: Tools > FCT Watchdog - ONE app-level numeric setting.
+
+        The stall watchdog window (seconds) applies to console / SSH
+        steps and host-command stdout; 0 disables it.  The value is
+        persisted across sessions and takes effect on the next run."""
+        current = float(getattr(self.workflow_page, "fct_watchdog_s",
+                                FCT_WATCHDOG_DEFAULT) or 0.0)
+        value, ok = QInputDialog.getDouble(
+            self, "FCT Watchdog",
+            "Stall watchdog window (seconds; 0 = off):",
+            current, 0.0, FCT_WATCHDOG_MAX, 1)
+        if not ok:
+            return
+        saved = save_fct_watchdog_s(value)
+        self.workflow_page.fct_watchdog_s = saved
+        shown = "off" if saved <= 0 else f"{saved:g}s"
+        self._append_event_log(
+            f"[Tools] FCT Watchdog: {shown} (applies to the next run)")
 
     def _bind_project_assets(self, project: str, assets_dir: str) -> None:
         """M69: persist the project's assets choice in its shared FCT

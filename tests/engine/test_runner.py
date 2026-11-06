@@ -200,6 +200,8 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"   # timer-driven context
         env.runner = runner
+        runner._begin_cycle()      # M78-4: Run press clears the buffers
+        runner._run_timer.stop()
         runner._exec_fct_row(0, interactive=True)  # SendtoCLI row
         assert env.rows[("fct", 0)] == "RUNNING"
         runner._poll_fct_console()   # scripted DUT replies instantly
@@ -261,6 +263,8 @@ class TestVirtualConsoleSteps:
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
+        runner._begin_cycle()      # M78-4: Run press clears the buffers
+        runner._run_timer.stop()
         runner._exec_fct_row(0, interactive=True)
         # force the deadline into the past, then poll
         runner._fct_console_wait["deadline"] = 0.0
@@ -271,25 +275,28 @@ class TestVirtualConsoleSteps:
         # user report 2026-10-14: round 2's Waitfor/Capture matched the
         # PREVIOUS round's console log (the read buffer was never
         # cleared between runs) while the new round's output had not
-        # arrived yet -> cross-round misjudgement.  The buffer is
-        # cleared at every cycle start now.
+        # arrived yet -> cross-round misjudgement.
         #
-        # M78-4: the wait is delta-only by default, so round 1 opts in
-        # to ``match_history`` (its evidence legitimately predates the
-        # row), while round 2's cleared buffer can never satisfy it.
-        self._connect(env)                  # boot log lands in the buffer
+        # M78-4: pressing Run clears the buffers (manual session text is
+        # gone); round 1 then matches text printed DURING round 1, and
+        # round 2's cleared buffer can never replay round 1's log.
+        self._connect(env)                  # manual session text
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
         env.fct_rows = ["WaitforConsole: VCOM0, 'Boot log OK'"]
         env.fct_kinds = ["WaitforConsole"]
         env.fct_enables = [True]
-        env.fct_op_params[0] = {"match_history": True}
+        runner._begin_cycle()               # Run press: buffer cleared
+        runner._run_timer.stop()
+        env.multi_console.get_read_buffer("VCOM0").extend(
+            b"Boot log OK\n")               # arrives during round 1
         runner._exec_fct_row(0, interactive=True)      # round 1
         runner._poll_fct_console()
         assert env.rows[("fct", 0)] == "PASS"
         # round 2: the stale round-1 log must not satisfy the wait
         runner._begin_cycle()
+        runner._run_timer.stop()
         assert env.multi_console.get_read_buffer("VCOM0") == b""
         runner._exec_fct_row(0, interactive=True)
         assert env.rows[("fct", 0)] == "RUNNING"       # no stale match

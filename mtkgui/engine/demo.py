@@ -330,6 +330,9 @@ class HeadlessEnv:
         self.stages = stages
         self.mode = mode
         self.virtual_mode = mode == "virtual"
+        # M78-3: app-level stall watchdog (headless default = 8.0 s;
+        # tests may override the attribute before start()).
+        self.fct_watchdog_s = 8.0
         # M38: fixture type (MainWindow login global); engine tests and
         # the headless demo default to the ATE fixture
         self.fixture_type = "ATE"
@@ -544,6 +547,11 @@ class HeadlessEnv:
     # run-control rendering
     def _log(self, line: str) -> None:
         print(f"  {line}")
+
+    def previous_artifacts_missing(self) -> bool:
+        """M78-4: headless runs write no DUT report artifact, so there
+        is nothing to warn about (tests override this when needed)."""
+        return False
 
     def _set_phase(self, text):
         pass
