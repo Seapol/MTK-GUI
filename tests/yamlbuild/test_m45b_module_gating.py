@@ -44,14 +44,16 @@ DESIGN_PARAMS = {
 RETIRED_FCT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"port": "/dev/cu.test", "test_commands": [
-        {"name": "Flash FAT Firmware", "send": "flash", "timeout": 5}]},
+        {"name": "Flash FAT Firmware", "channel": "ser1", "send": "flash",
+         "timeout": 5}]},
 }}, sort_keys=False)
 
 #: a minimal VALID FCT-only configuration (one console send row)
 FCT_OK = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"port": "/dev/cu.test", "test_commands": [
-        {"name": "Ping", "send": "echo ok", "timeout": 5}]},
+        {"name": "Ping", "channel": "ser1", "send": "echo ok",
+         "timeout": 5}]},
 }}, sort_keys=False)
 
 

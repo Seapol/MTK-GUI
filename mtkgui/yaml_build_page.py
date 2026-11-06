@@ -219,6 +219,9 @@ class YamlBuildPage(QWidget):
         #: (``equipment:`` dict); wired by the main window.  None = the
         #: step references are syntax-checked only (headless tests).
         self.equipment_provider = None
+        #: M83: the Console panel's channel list for the per-row channel
+        #: combo (None = not wired, e.g. standalone tests)
+        self.console_channels_provider = None
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -897,6 +900,7 @@ class YamlBuildPage(QWidget):
             yaml_model=self.model,
             virtual=self._virtual,
             equipment_provider=self.equipment_provider,
+            console_channels_provider=self.console_channels_provider,
             save_as_cb=lambda values: self._save_as_new_yaml(
                 "fct_build", values))
         if params is None:

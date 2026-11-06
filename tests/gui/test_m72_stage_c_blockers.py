@@ -53,6 +53,7 @@ def _ordered_steps() -> list:
          "op_kind": "op",
          "op_params": {"type": "op", "op": "Power On DUT"}},
         {"type": "Console_serial", "name": "Kernel check",
+         "channel": "ser1",
          "override": {"port": "COM1"}, "send": "uname -r",
          "send_enabled": True, "wait_enabled": False,
          "capture_enabled": True, "capture_expected": "Linux",

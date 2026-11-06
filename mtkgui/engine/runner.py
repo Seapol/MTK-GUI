@@ -1129,15 +1129,17 @@ class TestRunner(QObject):
             mc = getattr(env, "multi_console", None)
             worker = (mc.channels.get(ch_key, {}).get("worker")
                       if mc is not None else None)
-            if worker is None and mc is not None:
-                # B5 fallback: the configured key may not match the
-                # live console set - bind the first CONNECTED serial
-                # channel so the FCT console steps still reach the DUT
-                for key, ch in mc.channels.items():
-                    if (ch.get("kind") == "serial"
-                            and mc.channel_connected(key)):
-                        worker = ch.get("worker")
-                        break
+            if (worker is None and mc is not None and mc.channels
+                    and not getattr(env, "virtual_mode", False)):
+                # M83: NO silent fallback - a row bound to a channel key
+                # that is not open is an ERROR, not a guess.  Virtual mode
+                # keeps its injectable stand-in channel (no hardware).
+                reason = (f"console channel '{ch_key}' is not open — "
+                          f"add/connect it in the Console panel")
+                env._log(f"FCT {name}: {reason}")
+                self._put("fct", r, StepStatus.ERROR, None,
+                          time.monotonic() - t0)
+                return
             if worker is not None:
                 # P3-B5: the multi-console buffer adapter - writes go
                 # through the SerialWorker transport, reads consume the

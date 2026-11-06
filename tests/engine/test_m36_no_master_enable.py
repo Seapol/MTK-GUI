@@ -79,7 +79,8 @@ def test_roundtrip_drops_the_legacy_keys():
 # ---------------------------------------------------------- validation
 def test_serial_row_without_port_is_an_error():
     cfg = FctTestConfig(console=ConsoleCfg(test_commands=[
-        ConsoleCommand(kind="send", name="cmd", send="uname -a")]))
+        ConsoleCommand(kind="send", name="cmd", channel="ser1",
+                       send="uname -a")]))
     assert any("port" in e for e in cfg.validate())
 
 
@@ -95,7 +96,8 @@ def test_rows_that_need_no_serial_accept_an_empty_port():
 def test_module_with_all_subtests_off_is_not_an_error():
     cfg = FctTestConfig(dut_type="linux", console=ConsoleCfg(
         port="/dev/cu.test",
-        test_commands=[ConsoleCommand(kind="send", name="cmd", send="x")]))
+        test_commands=[ConsoleCommand(kind="send", name="cmd",
+                                      channel="ser1", send="x")]))
     assert cfg.validate() == []
     assert [s.name for s in build_fct_steps(cfg)] == ["cmd"]
 

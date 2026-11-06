@@ -128,6 +128,7 @@ def test_m83_build_without_the_type_is_unchanged():
             "baudrate": 115200,
             "test_commands": [{
                 "kind": "send", "name": "Console - kernel version",
+                "channel": "ser1",
                 "wait_enabled": False, "send_enabled": True,
                 "capture_enabled": False, "send": "uname -r",
                 "timeout": 6.0},

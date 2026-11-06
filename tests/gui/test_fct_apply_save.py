@@ -27,8 +27,8 @@ FCT_TEXT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"enabled": True, "port": "/dev/cu.test",
                 "test_commands": [
-                    {"name": "Kernel check", "send": "uname -a",
-                     "timeout": 5}]},
+                    {"name": "Kernel check", "channel": "ser1",
+                     "send": "uname -a", "timeout": 5}]},
     "setup": {"power_mode": "none"},
 }}, sort_keys=False)
 

@@ -135,7 +135,8 @@ class BlockConfigDialog(QDialog):
                  apply_save_cb=None,
                  available_ops=None,
                  save_as_cb=None,
-                 equipment_provider=None) -> None:
+                 equipment_provider=None,
+                 console_channels_provider=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -224,7 +225,8 @@ class BlockConfigDialog(QDialog):
             from mtkgui.gui.yamlbuild.FCTTestConfigWidget import \
                 FCTTestConfigPanel
             self.panel = FCTTestConfigPanel(
-                equipment_provider=equipment_provider)
+                equipment_provider=equipment_provider,
+                console_channels_provider=console_channels_provider)
             self.panel.set_available_ops(available_ops)
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
@@ -375,6 +377,16 @@ class BlockConfigDialog(QDialog):
         """Read + validate every field; None when the input is invalid
         (the error list is shown in the dialog)."""
         if self.panel is not None:
+            # M83: an embedded panel may veto the save (per-row console
+            # channels); its errors are shown like the field errors.
+            check = getattr(self.panel, "validation_errors", None)
+            if callable(check):
+                panel_errors = list(check() or [])
+                if panel_errors:
+                    # inline error label only (no modal: the operator is
+                    # already in the dialog; headless tests never block)
+                    self.error_label.setText("\n".join(panel_errors))
+                    return None
             # Design Input: the embedded panel owns the values
             self._edited = dict(self.panel.values())
         else:

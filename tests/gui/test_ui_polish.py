@@ -172,7 +172,8 @@ fct_test_config:
   console:
     enabled: true
     test_commands:
-      - {name: Kernel check, send: "uname -a", expect_pass: Linux}
+      - {name: Kernel check, channel: ser1, send: "uname -a",
+        expect_pass: Linux}
   wifi:
     enabled: false
   bluetooth:

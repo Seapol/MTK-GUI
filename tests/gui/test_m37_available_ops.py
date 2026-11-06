@@ -118,7 +118,7 @@ def test_empty_available_ops_greys_every_operation(qapp, kind):
     is disabled, the Delay / message entries stay added-able."""
     dlg = _editor(kind, set())
     acts = _op_actions(dlg.btn_add.menu())
-    assert len(acts) == len(OP_STEPS) - len(DIO_OPS) - 2   # M48: 9 ops
+    assert len(acts) == len(OP_STEPS) - len(DIO_OPS)   # M83: 9 ops
     assert all(not act.isEnabled() for act in acts.values())
     op_menu = _submenu(dlg.btn_add.menu(), "Operation")
     others = [act for act in op_menu.actions()

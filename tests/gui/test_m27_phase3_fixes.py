@@ -111,9 +111,10 @@ FCT_TEXT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"enabled": True, "port": "/dev/cu.test",
                 "test_commands": [
-                    {"name": "Kernel check", "send": "uname -a",
-                     "timeout": 5},
+                    {"name": "Kernel check", "channel": "ser1",
+                     "send": "uname -a", "timeout": 5},
                     {"name": "Get fat", "kind": "sftp_get",
+                     "channel": "ssh1",
                      "local": "{{dut_report}}/fat.json",
                      "remote": "/root/fat.json"},
                 ]},

@@ -35,12 +35,16 @@ fct_test_config:
     port: "/dev/cu.usbmodem53930099631"
     baudrate: 115200
     test_commands:
-      - {kind: wait, name: "Wait login prompt", expect_pass: "login:", timeout: 10}
-      - {kind: send, name: "Send root", send: "root", expect_pass: "Password:", timeout: 5}
-      - {kind: send, name: "Send empty password", send: "", expect_pass: "root@imx93frdm", timeout: 5}
-      - {name: Kernel check, send: "uname -a",
+      - {kind: wait, name: "Wait login prompt", channel: ser1,
+         expect_pass: "login:", timeout: 10}
+      - {kind: send, name: "Send root", channel: ser1, send: "root",
+         expect_pass: "Password:", timeout: 5}
+      - {kind: send, name: "Send empty password", channel: ser1,
+         send: "", expect_pass: "root@imx93frdm", timeout: 5}
+      - {name: Kernel check, channel: ser1, send: "uname -a",
          expect_pass: "Linux imx93frdm", expect_fail: "", timeout: 5}
-      - {name: Load RF drivers, send: /root/load_rf_drivers.sh,
+      - {name: Load RF drivers, channel: ser1,
+         send: /root/load_rf_drivers.sh,
          expect_pass: "RF drivers loaded OK", expect_fail: FAILED,
          timeout: 15, retries: 2}
   wifi:
@@ -328,7 +332,7 @@ def test_host_row_roundtrip_and_steps():
         kind="host", name="Start server", host_cmd="iperf3 -s -D",
         host_cmd_windows="start /B iperf3 -s", timeout=15))
     cfg.console.post_rf_commands = [
-        ConsoleCommand(kind="send", name="Shutdown DUT",
+        ConsoleCommand(kind="send", name="Shutdown DUT", channel="ser1",
                        wait_enabled=True, expect_pass="root@imx93frdm",
                        send="shutdown now"),
         ConsoleCommand(kind="host", name="Stop server",
@@ -415,6 +419,7 @@ def bare_config() -> FctTestConfig:
             port="/dev/cu.usbmodem1",
             test_commands=[
                 ConsoleCommand(name="FW version", kind="send",
+                               channel="ser1",
                                send="version", send_enabled=True,
                                capture_enabled=True,
                                expect_fail=r"FW v\d+",
@@ -422,14 +427,15 @@ def bare_config() -> FctTestConfig:
                                capture_is_expected=True),
                 # interactive firmware test: wait prompt -> send yes/no
                 ConsoleCommand(name="Button 1 / LED", kind="send",
-                               send="y",
+                               channel="ser1", send="y",
                                wait_enabled=True, send_enabled=True,
                                capture_enabled=True,
                                expect_pass="PRESS BUTTON 1 THEN CONFIRM",
                                expect_fail="LED1 OK",
                                capture_is_expected=True),
                 ConsoleCommand(name="Boot log capture", kind="capture",
-                               send_enabled=False, capture_enabled=True),
+                               channel="ser1", send_enabled=False,
+                               capture_enabled=True),
             ]),
         wifi=WifiCfg(scan_enabled=True, ap_ssid="DUT-AP"),
         bluetooth=BluetoothCfg(rssi_enabled=True,
@@ -509,7 +515,8 @@ def test_bare_metal_rejects_ssh_transport_and_sftp():
 # ------------------------------------------------- three-stage Wait/Send/Capture
 def _cmd(**kw):
     """A ConsoleCommand with fast timeouts for stage testing."""
-    base = dict(kind="send", wait_timeout=0.4, send_timeout=0.4, timeout=0.4)
+    base = dict(kind="send", channel="ser1", wait_timeout=0.4,
+                send_timeout=0.4, timeout=0.4)
     base.update(kw)
     return ConsoleCommand(**base)
 
@@ -864,7 +871,8 @@ def test_sftp_row_has_no_wait_or_capture():
         def __init__(self): self.puts = []
         def put_file(self, local, remote=""): self.puts.append((local, remote))
     cmd = ConsoleCommand(name="Deploy script", kind="sftp_put",
-                         transport="ssh", local="load_drivers.sh",
+                         transport="ssh", channel="ssh1",
+                         local="load_drivers.sh",
                          remote="/root/load_drivers.sh",
                          wait_enabled=False, send_enabled=True,
                          capture_enabled=False)
@@ -882,20 +890,21 @@ def test_sftp_row_has_no_wait_or_capture():
 
 
 def test_sftp_step_carries_own_ssh_channel_and_endpoint():
-    """M27 P8: an sftp row is emitted with channel='ssh' plus the
+    """M83: an sftp row is emitted with its OWN ``ssh1`` key plus the
     console's ssh_host / ssh_username, so the runner binds an SSH
     channel instead of the serial console."""
     cfg = frdm_config()
     cfg.console.ssh_host = "192.168.10.129"
     cfg.console.ssh_username = "root"
     sftp = ConsoleCommand(name="Get fat_result.json", kind="sftp_get",
-                          transport="ssh", local="{{dut_report}}/fat.json",
+                          transport="ssh", channel="ssh1",
+                          local="{{dut_report}}/fat.json",
                           remote="/root/fat_result.json",
                           wait_enabled=False, send_enabled=True,
                           capture_enabled=False)
     cfg.console.test_commands = [sftp]
     st = build_fct_steps(cfg, channel_key="ser1")[0]
-    assert st.channel == "ssh"
+    assert st.channel == "ssh1"
     assert st.params["kind"] == "sftp_get"
     assert st.params["ssh_host"] == "192.168.10.129"
     assert st.params["ssh_username"] == "root"
@@ -912,14 +921,15 @@ def test_apply_does_not_duplicate_deploy_or_confirm(monkeypatch, tmp_path):
     # a console command whose answer is a legacy confirm_enabled marker
     tone = ConsoleCommand(
         name="fat.py: MQS earphone tone", kind="send", transport="serial",
-        wait_enabled=True, expect_pass=r"Did you hear the \d+ Hz tone\?",
+        channel="ser1", wait_enabled=True, expect_pass=r"Did you hear the \d+ Hz tone\?",
         expect_pass_is_regex=True, send_enabled=True, send="y",
         capture_enabled=True, expect_fail="operator confirmed tone heard",
         timeout=20.0, wait_timeout=120.0, confirm_enabled=True,
         confirm_message="Did you hear the tone?")
     login = ConsoleCommand(
         name="Console login", kind="send", transport="serial",
-        wait_enabled=True, expect_pass="imx93frdm login:",
+        channel="ser1", wait_enabled=True,
+        expect_pass="imx93frdm login:",
         send_enabled=True, send="root", capture_enabled=True,
         expect_fail="root@imx93frdm", timeout=15.0, retries=1)
     cfg.console.test_commands = [login, tone]
@@ -1279,5 +1289,6 @@ def test_validate_accepts_message_row_on_bare_metal():
     """A message row needs no OS: serial default transport, no SFTP."""
     cfg = FctTestConfig(dut_type="bare_metal", console=ConsoleCfg(
         port="/dev/cu.usbmodem1",
-        test_commands=[ConsoleCommand(kind=KIND_MESSAGE, name="ask")]))
+        test_commands=[ConsoleCommand(kind=KIND_MESSAGE, name="ask",
+                                      channel="ser1")]))
     assert cfg.validate() == []

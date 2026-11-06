@@ -122,11 +122,12 @@ def _push_channel(clock: Clock, size: int, *, fail_baud=(),
 def test_serial_rows_map_to_external_tool_steps():
     for label in (STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL):
         cmd = console_command_for_label(label, label)
+        cmd.channel = "ser2"      # M83: the row key wins over any default
         steps = _console_row_steps(cmd, "console_serial")
         assert len(steps) == 1
         step = steps[0]
         assert step.step_type == STEP_EXTERNAL_TOOL
-        assert step.channel == "console_serial"
+        assert step.channel == "ser2"
         spec = step.params["fct_serial_transfer"]
         assert spec["direction"] == ("push"
                                     if cmd.kind == KIND_SERIAL_PUT

@@ -1077,6 +1077,13 @@ class MainWindow(QMainWindow):
         from .project_config import _equipment_to_yaml
         yb.equipment_provider = (
             lambda: _equipment_to_yaml(self._equipment_page.configs))
+        # M83: the Console panel's channels feed the per-row channel combo
+        # (keys follow the Console panel's own add order)
+        yb.console_channels_provider = (
+            lambda: [{"key": key, "kind": str(ch.get("kind") or ""),
+                      "connected": bool(ch.get("connected"))}
+                     for key, ch in self.workflow_page.multi_console
+                     .channels.items()])
         # navigation: merged "Build ICT Test Work Flow Sequence" card
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         yb.test_workflow_requested.connect(self._goto_test_workflow)

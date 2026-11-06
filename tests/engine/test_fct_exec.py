@@ -389,6 +389,7 @@ def test_runner_fct_fail_blocks_overall(qapp):
     FAILs the row (and a failed FCT row keeps Overall honest)."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
+    page.set_mode("Virtual")     # injected virtual output needs Virtual
     seq = build_fct_sequence("e2e-fail", flash_mode=FLASH_CLI,
                              channel="ser1", cli_command="blhost x",
                              cli_done_keyword="success")

@@ -423,7 +423,8 @@ class BlockFlowWidget(QWidget):
                     apply_save_cb=None,
                     virtual: bool = False,
                     save_as_cb=None,
-                    equipment_provider=None):
+                    equipment_provider=None,
+                    console_channels_provider=None):
         """Open the dedicated config dialog for one module.
 
         Args:
@@ -464,7 +465,9 @@ class BlockFlowWidget(QWidget):
                                    apply_save_cb=apply_save_cb,
                                    available_ops=available,
                                    save_as_cb=save_as_cb,
-                                   equipment_provider=equipment_provider)
+                                   equipment_provider=equipment_provider,
+                                   console_channels_provider=
+                                   console_channels_provider)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:

@@ -407,8 +407,9 @@ def _dialog_factories(tmp_path):
     fct_values = {"fct_test_config_yaml": (
         "fct_test_config:\n  dut_type: linux\n  console:\n"
         "    enabled: true\n    test_commands:\n"
-        "      - {name: Kernel check, send: \"uname -a\", "
-        "expect_pass: Linux}\n  wifi: {enabled: false}\n"
+        "      - {name: Kernel check, channel: ser1, "
+        "send: \"uname -a\", expect_pass: Linux}\n"
+        "  wifi: {enabled: false}\n"
         "  bluetooth: {enabled: false}\n")}
 
     return [

@@ -179,6 +179,7 @@ def test_sync_round_trip_preserves_console_config():
             "    test_commands:\n"
             "    - kind: send\n"
             "      name: Console login\n"
+            "      channel: ser1\n"
             "      transport: serial\n"
             "      wait_enabled: true\n"
             "      send_enabled: true\n"
@@ -192,6 +193,7 @@ def test_sync_round_trip_preserves_console_config():
             "      retries: 1\n"
             "    - kind: capture\n"
             "      name: fat.py summary\n"
+            "      channel: ser1\n"
             "      transport: serial\n"
             "      wait_enabled: false\n"
             "      send_enabled: false\n"
@@ -206,6 +208,7 @@ def test_sync_round_trip_preserves_console_config():
             "      retries: 0\n"
             "    - kind: sftp_get\n"
             "      name: Retrieve fat.log (SFTP)\n"
+            "      channel: ssh1\n"
             "      transport: ssh\n"
             "      send_enabled: false\n"
             "      local: /tmp/fat.log\n"
@@ -496,7 +499,8 @@ def test_console_row_step_carries_console_dialog_marker():
     channel, carrying the wait pattern (the new wait-then-prompt model)."""
     from mtkgui.engine.fct_test_config import _console_row_steps
     cmd = ConsoleCommand(kind="message", name="Power on DUT",
-                         dialog_style="gostop", wait_enabled=True,
+                         channel="ser1", dialog_style="gostop",
+                         wait_enabled=True,
                          expect_pass="booting", wait_timeout=15.0,
                          send_enabled=True, timeout=4.0)
     steps = _console_row_steps(cmd, "ser1")
@@ -517,7 +521,8 @@ def test_emit_console_message_kind_has_channel():
     cfg = FctTestConfig.from_dict({
         "dut_type": "linux",
         "console": {"enabled": True, "test_commands": [
-            {"kind": "message", "name": "Ready check", "dialog_style": "ok",
+            {"kind": "message", "name": "Ready check", "channel": "ser1",
+             "dialog_style": "ok",
              "expect_pass": "ready", "wait_enabled": True,
              "wait_timeout": 10.0}]},
         "wifi": {"enabled": False}, "bluetooth": {"enabled": False}})

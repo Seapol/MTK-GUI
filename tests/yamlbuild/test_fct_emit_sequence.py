@@ -113,10 +113,13 @@ def test_message_row_becomes_standard_op_case(page):
         "console": {"enabled": True, "port": "/dev/cu.test",
                     "test_commands": [
                         {"name": "Kernel check", "kind": "send",
+                         "channel": "ser1",
                          "send": "uname -a", "timeout": 5},
                         {"name": "Swap DUT fixture", "kind": "message",
+                         "channel": "ser1",
                          "dialog_style": "yesno", "timeout": 30},
                         {"name": "Ready check", "kind": "message",
+                         "channel": "ser1",
                          "dialog_style": "ok", "timeout": 10}]}},
         "wifi": {"enabled": False}, "bluetooth": {"enabled": False}}
     text = yaml.safe_dump(cfg, sort_keys=False)

@@ -211,6 +211,69 @@ def retired_console_login_message(name: str) -> str:
 _NO_SERIAL_KINDS = (KIND_HOST, KIND_OP, KIND_WIFI_TEST, KIND_BT_TEST,
                     KIND_FLASH_GUI, KIND_DELAY)
 
+#: M83: row kinds that MUST name a console channel
+_CHANNEL_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE, KIND_SFTP_PUT,
+                  KIND_SFTP_GET, KIND_MESSAGE, KIND_SERIAL_PUT,
+                  KIND_SERIAL_PULL)
+
+
+def is_console_row(cmd) -> bool:
+    """True when the row talks to the DUT over a console channel."""
+    return str(getattr(cmd, "kind", "") or "") in _CHANNEL_KINDS
+
+
+def channel_problems(rows: list, channel_keys: list | None = None) -> list:
+    """M83: per-row console channel validation (build-time ERRORs).
+
+    ``channel_keys`` is the set of channels ADDED on the Console panel
+    (connected or not); ``None`` skips the existence / availability
+    checks (the engine callers that have no panel).  The builder never
+    substitutes a default key."""
+    errors: list = []
+    rows = list(rows or [])
+    serial_need = ssh_need = False
+    for index, cmd in enumerate(rows, start=1):
+        if not is_console_row(cmd):
+            continue
+        name = str(getattr(cmd, "name", "") or "")
+        key = str(getattr(cmd, "channel", "") or "").strip()
+        wants_ssh = str(getattr(cmd, "transport", "") or "") == "ssh"
+        if wants_ssh:
+            ssh_need = True
+        else:
+            serial_need = True
+        if not key:
+            errors.append(
+                f"row {index} ({name}): console channel not selected — pick "
+                f"one, or open Config DUT Console to add a channel")
+            continue
+        if wants_ssh and not key.startswith("ssh"):
+            errors.append(
+                f"row {index} ({name}): console channel '{key}' is a serial "
+                f"channel but the row needs an SSH channel")
+            continue
+        if not wants_ssh and key.startswith("ssh"):
+            errors.append(
+                f"row {index} ({name}): console channel '{key}' is an SSH "
+                f"channel but the row is a serial console row")
+            continue
+        if channel_keys is not None and key not in channel_keys:
+            errors.append(
+                f"row {index} ({name}): console channel '{key}' is not "
+                f"configured — add it in Config DUT Console")
+    if channel_keys is not None:
+        keys = [str(k) for k in channel_keys]
+        if serial_need and not any(k.startswith("ser") for k in keys):
+            errors.append(
+                "no console serial channel is configured — click Config DUT "
+                "Console to add one")
+        if ssh_need and not any(k.startswith("ssh") for k in keys):
+            errors.append(
+                "no console SSH channel is configured — add ssh1 in Config "
+                "DUT Console")
+    return errors
+
+
 #: the labels of the merged "FCT test step" Type column (m30 / m30b /
 #: m33).  Each label maps to a ConsoleCommand (or a standard operation)
 #: backing.
@@ -699,6 +762,10 @@ class ConsoleCommand:
     kind: str = "send"              # wait | send | capture | sftp_put |
                                     # sftp_get | message
     name: str = ""
+    #: M83: the console channel this row runs on (``ser1``..``ser4`` |
+    #: ``ssh1``).  Emitted verbatim into ``step.channel`` - the builder
+    #: NEVER substitutes a default, and an empty value is a build ERROR.
+    channel: str = ""
     transport: str = "serial"       # serial | ssh
     wait_enabled: bool = False      # Wait stage on/off
     send_enabled: bool = True       # Send stage on/off
@@ -800,6 +867,7 @@ class ConsoleCommand:
 
     def to_dict(self) -> dict:
         d = {"kind": self.kind, "name": self.name,
+             "channel": str(self.channel or ""),
              "transport": self.transport,
              "enabled": bool(self.enabled),
              "wait_enabled": self.wait_enabled,
@@ -884,6 +952,7 @@ class ConsoleCommand:
             # the row still travels as a ConsoleCommand inside the panel.
             return ConsoleCommand(
                 kind=KIND_OP, name=str(c.get("name", "")),
+                channel=str(c.get("channel", "") or ""),
                 transport=str(c.get("transport", "serial")),
                 enabled=bool(c.get("enabled", True)),
                 op_kind=str(c.get("op_kind", "") or "op"),
@@ -897,6 +966,7 @@ class ConsoleCommand:
         if not legacy:
             return ConsoleCommand(
                 kind=kind, name=str(c.get("name", "")),
+                channel=str(c.get("channel", "") or ""),
                 transport=str(c.get("transport", "serial")),
                 enabled=bool(c.get("enabled", True)),
                 wait_enabled=bool(c.get("wait_enabled", False)),
@@ -956,6 +1026,7 @@ class ConsoleCommand:
             # a flagless dict still restores the dialog style
             return ConsoleCommand(
                 kind=KIND_MESSAGE, name=str(c.get("name", "")),
+                channel=str(c.get("channel", "") or ""),
                 transport=str(c.get("transport", "serial")),
                 wait_enabled=False, send_enabled=False,
                 capture_enabled=False,
@@ -970,6 +1041,7 @@ class ConsoleCommand:
         if kind == "wait":
             return ConsoleCommand(
                 kind="wait", name=str(c.get("name", "")),
+                channel=str(c.get("channel", "") or ""),
                 transport=str(c.get("transport", "serial")),
                 wait_enabled=True, send_enabled=False, capture_enabled=False,
                 send="", expect_pass=old_pass, expect_fail="",
@@ -993,6 +1065,7 @@ class ConsoleCommand:
             cexp, cunexp = "", old_fail
         return ConsoleCommand(
             kind=kind, name=str(c.get("name", "")),
+            channel=str(c.get("channel", "") or ""),
             transport=str(c.get("transport", "serial")),
             wait_enabled=False,
             send_enabled=bool(send) or kind == "send",
@@ -1580,15 +1653,20 @@ class FctTestConfig:
         )
 
     # ---------------------------------------------------------- validation
-    def validate(self) -> list:
+    def validate(self, channel_keys: list | None = None) -> list:
         """Returns a list of error strings (empty = valid).
 
         M36: there are no master enable switches.  The console section is
         active when it holds a port / endpoint / rows, and each RF module
-        is active when at least one of its sub-tests is switched on."""
+        is active when at least one of its sub-tests is switched on.
+
+        M83: ``channel_keys`` is the set of channels ADDED on the Console
+        panel; every console row must name one (empty = ERROR, no default).
+        """
         errors: list = []
         c, w, b = self.console, self.wifi, self.bluetooth
         rows = list(c.test_commands) + list(c.post_rf_commands)
+        errors.extend(channel_problems(rows, channel_keys))
         # M83: the login row type is retired - report it, never convert /
         # drop it (the operator replaces it with Console_serial rows).
         for cmd in rows:
@@ -1761,7 +1839,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             remote = str(cmd.remote or pull_remote_dir or "")
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
-            step_type=STEP_MESSAGE_CHECK, channel="ssh",
+            step_type=STEP_MESSAGE_CHECK, channel=cmd.channel,
             timeout_s=float(cmd.send_timeout),
             retries=int(cmd.retries),
             params={"fct_console": True, "kind": cmd.kind,
@@ -1801,7 +1879,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
-            step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+            step_type=STEP_EXTERNAL_TOOL, channel=cmd.channel,
             timeout_s=float(cmd.timeout or 600.0),
             retries=int(cmd.retries),
             params={"fct_serial_transfer": {
@@ -1823,7 +1901,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind == KIND_MESSAGE:
         steps.append(FctStep(
             name=cmd.name or "Operator message",
-            step_type=STEP_GUI_CONFIRM, channel=channel_key,
+            step_type=STEP_GUI_CONFIRM, channel=cmd.channel,
             timeout_s=float(cmd.wait_timeout or 10.0),
             retries=int(cmd.retries),
             params={"style": cmd.dialog_style or DIALOG_YESNO,
@@ -1907,7 +1985,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                         else (float(cmd.timeout) or 30.0))
     steps.append(FctStep(
         name=base_name,
-        step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+        step_type=STEP_MESSAGE_CHECK, channel=cmd.channel,
         timeout_s=step_timeout, retries=int(cmd.retries),
         params=params))
     # An operator confirmation is an EXPLICIT dialog step placed right

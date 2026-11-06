@@ -2747,6 +2747,37 @@ class TestWorkFlowPage(QWidget):
                 fct += 1
         return ict, fct
 
+    def _console_channel_need(self) -> set:
+        """M83: transport kinds required by the FCT rows (`ser*` / `ssh1`)."""
+        needs: set = set()
+        for step in getattr(self._runner, "_run_steps", []) or []:
+            marker = ((getattr(step, "op_params", None) or {})
+                      .get("fct_step") or {})
+            key = str(marker.get("channel") or "")
+            if key.startswith("ser"):
+                needs.add("serial")
+            elif key.startswith("ssh"):
+                needs.add("ssh")
+        return needs
+
+    def _console_precondition_error(self) -> str:
+        """M83: up-front refusal when a required console channel is offline."""
+        needs = self._console_channel_need()
+        mc = self.multi_console
+        if "serial" in needs and not any(
+                str(ch.get("kind") or "") == "serial"
+                and mc.channel_connected(key)
+                for key, ch in mc.channels.items()):
+            return ("No console serial channel is connected — add or connect "
+                    "one in the Console panel (Config DUT Console).")
+        if "ssh" in needs and not any(
+                str(ch.get("kind") or "") == "ssh"
+                and mc.channel_connected(key)
+                for key, ch in mc.channels.items()):
+            return ("No console SSH channel is connected — add or connect one "
+                    "in the Console panel (Config DUT Console).")
+        return ""
+
     def start_run(self, no_debug=False):
         """Run button: pre-test, then step through every test case.
         Long Run > 1 repeats the whole cycle with a pause in between.
@@ -2782,6 +2813,11 @@ class TestWorkFlowPage(QWidget):
                 "Add at least one test case before running.")
             self._log("Run blocked: no test items "
                       "(ICT and FCT both empty)")
+            return
+        blocked = self._console_precondition_error()
+        if blocked:
+            QMessageBox.warning(self, "Console Not Connected", blocked)
+            self._log(f"Run blocked: {blocked}")
             return
         self._next_serial()
         if not self._pretest():

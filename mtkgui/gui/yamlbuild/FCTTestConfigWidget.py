@@ -847,9 +847,13 @@ class FCTTestConfigPanel(QWidget):
     #: (level, message) Event-Log mirror (T6 panel convention)
     task_log = Signal(str, str)
 
-    def __init__(self, parent=None, equipment_provider=None) -> None:
+    def __init__(self, parent=None, equipment_provider=None,
+                 console_channels_provider=None) -> None:
         super().__init__(parent)
         self.setMinimumWidth(1100)
+        #: M83: the Console panel's channel list (list[dict] with key /
+        #: kind / connected) - None = not wired (standalone / layout audit)
+        self.console_channels_provider = console_channels_provider
         self._legacy: dict = {}             # preserved module params
         self._setup_cfg = FctSetupCfg()
         #: full console node (connection fields + login sequence) kept
@@ -899,6 +903,28 @@ class FCTTestConfigPanel(QWidget):
         self._on_dut_type_changed(self.dut_type.currentText())
 
     # ------------------------------------------------- equipment helpers
+    def console_channels(self) -> list | None:
+        """M83: channels ADDED on the Console panel (None = not wired)."""
+        provider = getattr(self, "console_channels_provider", None)
+        if not callable(provider):
+            return None
+        try:
+            data = provider() or []
+        except Exception:                     # noqa: BLE001 - never crash
+            return None
+        return [dict(entry) for entry in data
+                if isinstance(entry, dict) and entry.get("key")]
+
+    def validation_errors(self) -> list:
+        """M83: per-row console-channel build errors (Apply is blocked)."""
+        from mtkgui.engine.fct_test_config import channel_problems
+        channels = self.console_channels()
+        keys = ([str(entry["key"]) for entry in channels]
+                if channels is not None else None)
+        rows = [self._get_row_cmd(r)
+                for r in range(self.cmd_table.rowCount())]
+        return channel_problems([c for c in rows if c is not None], keys)
+
     def equipment_node(self) -> dict | None:
         """The current project Equipment node (None when not wired)."""
         provider = getattr(self, "equipment_provider", None)
@@ -1915,8 +1941,9 @@ class FCTTestConfigPanel(QWidget):
         unified Expected + Unexpected Capture inputs."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QLineEdit, QTextEdit,
-                                        QCheckBox, QSpinBox,
-                                        QDialogButtonBox, QWidget)
+                                        QCheckBox, QSpinBox, QComboBox,
+                                        QMessageBox, QDialogButtonBox,
+                                        QWidget)
         cmd = self._get_row_cmd(row)
         typ = step_type_label(cmd)
         dlg = QDialog(self)
@@ -1936,6 +1963,30 @@ class FCTTestConfigPanel(QWidget):
         # DUT group - the dialog shows TEST parameters only.
         refs = dict(cmd.refs or {})
         overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
+        # M83: the row's console channel.  Serial rows list only serial
+        # channels, SSH / SFTP rows only the SSH channel; there is NO
+        # "(default - auto)" item - the operator picks the real key.
+        channel_combo = None
+        channels = self.console_channels()
+        if channels is not None and typ in (
+                STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH,
+                STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
+            want = ("ssh" if typ in (STEP_TYPE_CONSOLE_SSH,
+                                     STEP_TYPE_SFTP_PUT,
+                                     STEP_TYPE_SFTP_GET) else "serial")
+            channel_combo = QComboBox()
+            channel_combo.addItem("", "")
+            for entry in channels:
+                if str(entry.get("kind") or "") == want:
+                    channel_combo.addItem(str(entry["key"]),
+                                          str(entry["key"]))
+            index = channel_combo.findData(str(cmd.channel or ""))
+            channel_combo.setCurrentIndex(max(0, index))
+            form.addRow("Console channel:", channel_combo)
+            from mtkgui.gui.yamlbuild import dialog_layout as dlayout
+            form.addRow(dlayout.hint(
+                "Add or edit channels on the Test Work Flow page Console "
+                "panel (Config DUT Console).", 520))
 
         wait_edit = None
         wait_cb = None
@@ -2017,11 +2068,29 @@ class FCTTestConfigPanel(QWidget):
         apply_scroll_to_dialog(dlg, body)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept)
+
+        def _accept_with_channel():
+            if channel_combo is not None \
+                    and not str(channel_combo.currentData() or ""):
+                QMessageBox.warning(
+                    dlg, "Console channel",
+                    "Select a console channel before saving this row.")
+                return
+            dlg.accept()
+
+        buttons.accepted.connect(_accept_with_channel)
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
         if dlg.exec():
+            if channel_combo is not None \
+                    and not str(channel_combo.currentData() or ""):
+                QMessageBox.warning(
+                    dlg, "Console channel",
+                    "Select a console channel before saving this row.")
+                return
             self._push_history()
+            if channel_combo is not None:
+                cmd.channel = str(channel_combo.currentData() or "")
             if wait_cb is not None:
                 cmd.wait_enabled = wait_cb.isChecked()
                 cmd.expect_pass = (wait_edit.text().strip()
