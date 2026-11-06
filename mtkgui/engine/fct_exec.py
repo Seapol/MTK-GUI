@@ -1085,9 +1085,11 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             # behaviour (process CWD, step timeout)
             from ..gui.yamlbuild.fct_build import action_args
             args = action_args(step)
+            # M83/C6: the row's Working directory (Console_cli editor)
+            # wins; the legacy args["cwd"] stays readable.
             res = runner_for(ctx).run(
                 cmd, timeout_s=float(step.timeout_s or 30.0),
-                cwd=str(args.get("cwd") or ""))
+                cwd=str(p.get("cwd") or args.get("cwd") or ""))
             verdict = VERDICT_PASS if res.exit_code == 0 else VERDICT_FAIL
             tail = " | ".join(l.strip() for l in res.lines[-3:]
                               if l.strip())

@@ -1983,7 +1983,11 @@ class FCTTestConfigPanel(QWidget):
         typ = step_type_label(cmd)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{typ} editor")
-        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_FORM)
+        # M83/C6: the CLI editor carries a command plus a directory row,
+        # so it gets the wide tier; the console / SFTP editors stay 560.
+        dlayout.apply_fixed_width(
+            dlg, dlayout.WIDTH_WIDE if typ == STEP_TYPE_CONSOLE_CLI
+            else dlayout.WIDTH_FORM)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -2028,7 +2032,7 @@ class FCTTestConfigPanel(QWidget):
         wait_edit = wait_regex = wait_timeout = case_cb = None
         send_edit = cap_regex = cap_unexp_regex = None
         cap_exp = cap_unexp = timeout = None
-        local_edit = remote_edit = host_edit = None
+        local_edit = remote_edit = host_edit = cwd_edit = None
         if serial_like:
             # M83/C5: the checkbox is gone - a stored value with the
             # legacy checkbox off is REPORTED, never auto-cleared.
@@ -2142,6 +2146,28 @@ class FCTTestConfigPanel(QWidget):
             host_edit.setPlainText(cmd.host_cmd_windows or cmd.host_cmd)
             host_edit.setMaximumHeight(110)
             form.addRow("Windows cmd:", host_edit)
+            # M83/C6: the working directory of the host command.
+            cwd_edit = QLineEdit(cmd.cwd or "")
+            cwd_edit.setPlaceholderText(
+                "Empty = the executable's own directory")
+            cwd_browse = QPushButton("Browse...")
+
+            def _browse_cwd() -> None:
+                from PySide6.QtWidgets import QFileDialog
+                picked = QFileDialog.getExistingDirectory(
+                    self, "Working directory", cwd_edit.text().strip())
+                if picked:
+                    cwd_edit.setText(picked)
+
+            cwd_browse.clicked.connect(_browse_cwd)
+            cwd_row = QHBoxLayout()
+            cwd_row.addWidget(cwd_edit, 1)
+            cwd_row.addWidget(cwd_browse)
+            form.addRow("Working directory:", cwd_row)
+            form.addRow(dlayout.hint(
+                "Empty = the executable's own directory; a relative path "
+                "is relative to that directory; Browse... stores an "
+                "absolute path.", dlayout.WIDTH_WIDE))
 
         if not serial_like:
             case_cb = QCheckBox("Case Sensitive (uncheck = ignore case)")
@@ -2151,7 +2177,10 @@ class FCTTestConfigPanel(QWidget):
             cap_exp.setPlainText(cmd.capture_expected or "")
             cap_exp.setMaximumHeight(60)
             cap_regex = QCheckBox("Regex")
-            cap_regex.setChecked(bool(cmd.expect_fail_is_regex))
+            cap_regex.setChecked(bool(
+                cmd.expect_pass_is_regex
+                if typ == STEP_TYPE_CONSOLE_CLI
+                else cmd.expect_fail_is_regex))
             cap_unexp = QTextEdit()
             cap_unexp.setPlainText(cmd.capture_unexpected or "")
             cap_unexp.setMaximumHeight(60)
@@ -2207,8 +2236,6 @@ class FCTTestConfigPanel(QWidget):
                 cmd.wait_timeout = float(wait_timeout.value())
                 cmd.send = send_edit.toPlainText()
                 cmd.send_enabled = bool(cmd.send.strip())
-                cmd.expect_fail_is_regex = bool(
-                    cap_regex.isChecked() or cap_unexp_regex.isChecked())
                 has_cap = bool(cap_exp.toPlainText().strip()
                                or cap_unexp.toPlainText().strip())
                 if cmd.wait_enabled and not cmd.send_enabled:
@@ -2234,9 +2261,22 @@ class FCTTestConfigPanel(QWidget):
             elif host_edit is not None:
                 cmd.host_cmd_windows = host_edit.toPlainText().strip()
                 cmd.host_cmd = cmd.host_cmd_windows
+                cmd.cwd = cwd_edit.text().strip()
                 cmd.timeout = float(timeout.value())
                 cmd.wait_enabled = False
                 cmd.send_enabled = bool(cmd.host_cmd_windows)
+            if serial_like:
+                # the serial capture pair shares ONE engine flag
+                cmd.expect_fail_is_regex = bool(
+                    cap_regex.isChecked() or cap_unexp_regex.isChecked())
+            elif host_edit is not None:
+                # M83/C6: Console_cli has no wait stage - the Expected
+                # regex flag is free for its capture pair.
+                cmd.expect_pass_is_regex = bool(cap_regex.isChecked())
+                cmd.expect_fail_is_regex = bool(cap_unexp_regex.isChecked())
+            else:
+                cmd.expect_fail_is_regex = bool(
+                    cap_regex.isChecked() or cap_unexp_regex.isChecked())
             cmd.case_sensitive = case_cb.isChecked()
             cmd.capture_expected = cap_exp.toPlainText().strip()
             cmd.capture_unexpected = cap_unexp.toPlainText().strip()

@@ -1453,9 +1453,16 @@ class FctTestRunner:
             exp = getattr(cmd, "capture_expected", "") or ""
             unexp = getattr(cmd, "capture_unexpected", "") or ""
             if exp or unexp:
+                # M83/C6: the Console_cli editor exposes one Regex flag
+                # per capture field - honour both here (no wait stage
+                # exists on a host row, so expect_pass_is_regex is free).
                 v, d = judge_capture(
                     output, exp, unexp,
-                    case_sensitive=getattr(cmd, "case_sensitive", True))
+                    case_sensitive=getattr(cmd, "case_sensitive", True),
+                    expected_is_regex=getattr(
+                        cmd, "expect_pass_is_regex", False),
+                    unexpected_is_regex=getattr(
+                        cmd, "expect_fail_is_regex", False))
                 if v == "FAIL":
                     return "FAIL", d
                 detail = d

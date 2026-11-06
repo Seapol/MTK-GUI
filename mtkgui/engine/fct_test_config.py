@@ -581,7 +581,8 @@ def cases_to_console_commands(cases: list) -> list:
                 "send": "", "retries": int(marker.get("retries", 0) or 0),
                 "timeout": float(marker.get("timeout_s", 30.0) or 30.0),
                 "host_cmd": str(host.get("cmd", "")),
-                "host_cmd_windows": str(host.get("cmd_windows", ""))})
+                "host_cmd_windows": str(host.get("cmd_windows", "")),
+                "cwd": str(host.get("cwd", "") or "")})
             continue
         if str(marker.get("step_type", "")) != "MESSAGE_CHECK":
             continue                    # ops / other non-console rows
@@ -809,6 +810,10 @@ class ConsoleCommand:
                                     # m30: Console_cli is WINDOWS ONLY,
                                     # this field is the primary source
                                     # (host_cmd kept for legacy reads)
+    cwd: str = ""                   # kind == host (M83/C6): working
+                                    # directory of the host command. Empty
+                                    # = the executable's own directory; a
+                                    # relative path is relative to it.
     enabled: bool = True            # False = skip this row (deployment
                                     # toggle: e.g. SSH/iPerf off while the
                                     # bench network is being re-worked)
@@ -910,6 +915,10 @@ class ConsoleCommand:
              "login_user": str(self.login_user or ""),
              "login_password": str(self.login_password or ""),
              "shell_prompt": str(self.shell_prompt or "")}
+        # M83/C6: the CLI working directory travels only when it is set -
+        # an empty value keeps the historic "process CWD" behaviour.
+        if str(self.cwd or "").strip():
+            d["cwd"] = str(self.cwd)
         if self.step_params:
             d["step_params"] = dict(self.step_params)
         if self.refs:
@@ -996,6 +1005,7 @@ class ConsoleCommand:
                 parse_summary=bool(c.get("parse_summary", False)),
                 host_cmd=str(c.get("host_cmd", "")),
                 host_cmd_windows=str(c.get("host_cmd_windows", "")),
+                cwd=str(c.get("cwd", "") or ""),
                 capture_expected=exp, capture_unexpected=unexp,
                 rf_subtest=str(c.get("rf_subtest", "")),
                 flash_gui_path=str(c.get("flash_gui_path", "")),
@@ -1085,6 +1095,7 @@ class ConsoleCommand:
             local=str(c.get("local", "")),
             remote=str(c.get("remote", "")),
             serial_baud=int(c.get("serial_baud", 0) or 0),
+            cwd=str(c.get("cwd", "") or ""),
             capture_expected=cexp, capture_unexpected=cunexp)
 
 
@@ -1825,7 +1836,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             retries=int(cmd.retries),
             params={"fct_host_cmd": {
                 "cmd": cmd.host_cmd,
-                "cmd_windows": cmd.host_cmd_windows}}))
+                "cmd_windows": cmd.host_cmd_windows,
+                "cwd": str(cmd.cwd or "")}}))
         return steps
     # SFTP file-transfer rows: bound to an SSH channel (M27 P8), with
     # the console's ssh endpoint carried on the step (credential layer
