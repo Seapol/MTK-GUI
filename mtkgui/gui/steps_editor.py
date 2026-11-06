@@ -356,7 +356,6 @@ class StepsEditorDialog(QDialog):
             FILE_TRANSFER,
             FLASH,
             MESSAGE_CONSOLE,
-            NETWORK,
             WIFI_TESTS,
             build_add_menu,
         )
@@ -375,7 +374,7 @@ class StepsEditorDialog(QDialog):
         if self._kind == "fct":
             disable = {title: "Add this step in the FCT Sequence table's "
                               "Add menu"
-                       for title in (FILE_TRANSFER, NETWORK, CONSOLE,
+                       for title in (FILE_TRANSFER, CONSOLE,
                                      MESSAGE_CONSOLE, WIFI_TESTS,
                                      BLUETOOTH_TESTS, FLASH)}
         built = build_add_menu(self, self._kind, _on_entry, gate=_gate,

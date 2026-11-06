@@ -30,12 +30,17 @@ steps:
     capture_expected: "Interface mlan0"
     timeout: 15.0
     note: driver_probe - the project driver_load_cmd is pre-filled here
-  - type: Operation
-    op: "Wi-Fi: Connect DUT to AP"
+  - type: Console_serial
+    name: Wi-Fi connect (assets script)
+    wait_enabled: false
+    send_enabled: true
+    send: "sh /root/connect_wifi.sh"
+    capture_enabled: false
+    timeout: 60.0
     note: >
-      row 2 - writes wpa_supplicant.conf (SSID / password / interface
-      from the Equipment config), associates and runs DHCP.  Plan B:
-      use the Host hotspot SSID / password.
+      row 2 - the script writes wpa_supplicant.conf / associates / runs
+      DHCP.  Plan A = router AP, plan B = Host hotspot: both are fixed
+      inside the script, not in the row.
   - type: Console_serial
     name: DUT Wi-Fi address
     wait_enabled: false

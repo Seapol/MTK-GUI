@@ -31,7 +31,6 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_SERIAL_PUT,
 )
-from mtkgui.engine.steps import LAN_SETUP_OP, WIFI_CONNECT_OP  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
     _COL_CMD,
@@ -42,11 +41,9 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 DELAY_LABEL = "Delay — plain wait (ms)"
 MESSAGE_LABELS = (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                   STEP_TYPE_MESSAGE_GOSTOP)
-#: M48: the 9 standard operations (DIO / the two network setups moved
-#: into the ICT-only / FCT-only groups)
-STANDARD_OPS = tuple(n for n in OP_STEPS
-                     if n not in DIO_OPS
-                     and n not in (WIFI_CONNECT_OP, LAN_SETUP_OP))
+#: M48: the 9 standard operations (DIO moved into the ICT-only group;
+#: M83 removed the two network setups)
+STANDARD_OPS = tuple(n for n in OP_STEPS if n not in DIO_OPS)
 
 
 @pytest.fixture(scope="module")
@@ -72,7 +69,7 @@ class TestOperationSubmenu:
         # M48: 9 standard operations + Delay + the three plain messages
         assert len(texts) == 13
         assert "Operation: Custom" not in texts
-        for moved in DIO_OPS + (WIFI_CONNECT_OP, LAN_SETUP_OP):
+        for moved in DIO_OPS:
             assert f"Operation: {moved}" not in texts, moved
         assert STEP_TYPE_SERIAL_PUT not in texts
         assert STEP_TYPE_SERIAL_PULL not in texts
@@ -149,10 +146,9 @@ class TestOperationSubmenu:
                   | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
                   | {f"Operation: {n}" for n in STANDARD_OPS}
                   | set(MESSAGE_LABELS)
-                  | {WIFI_CONNECT_OP, LAN_SETUP_OP}
                   | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 32   # M83: DUT login retired
+        assert len(panel._add_actions) == 30   # M83: login + 2 network ops
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu

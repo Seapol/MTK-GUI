@@ -71,8 +71,14 @@ steps:
     capture_enabled: false
     timeout: 10.0
     note: optional - delete this row when the BSP auto-loads the driver
-  - type: Operation
-    op: "Wi-Fi: Connect DUT to AP"
+  - type: Console_serial
+    name: Console - connect the DUT to the AP
+    wait_enabled: false
+    send_enabled: true
+    send: "sh /root/connect_wifi.sh"
+    capture_enabled: false
+    timeout: 60.0
+    note: the AP SSID / password live in the script (retired network op)
   - type: "SSH SFTP: Push file to DUT"
     name: SFTP - push test assets to the DUT
     local: assets

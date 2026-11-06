@@ -296,17 +296,11 @@ def test_m47_load_template_still_appends_ordinary_rows(qapp):
     assert panel.cmd_table.rowCount() == 9
 
 
-def test_m48_network_add_menu_and_m49b_rssi_rows_survive(qapp):
-    from mtkgui.engine.steps import WIFI_CONNECT_OP
+def test_m49b_rssi_rows_survive(qapp):
     panel = FCTTestConfigPanel(equipment_provider=lambda: EQUIPMENT)
-    assert WIFI_CONNECT_OP in panel._network_add_actions
-    panel._add_operation_row(WIFI_CONNECT_OP)
     panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
     panel._add_row_for_label(STEP_TYPE_BT_RSSI)
     steps = _steps(panel)
-    assert steps[0]["ref"]["ssid"] == \
+    assert steps[0]["ref"]["ap_ssid"] == \
         "equipment.peripherals.wifi.ap_ssid"
-    assert steps[0]["op_params"]["ssid"] == "MTK-AP"
-    assert steps[1]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
-    assert steps[2]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
+    assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"

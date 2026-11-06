@@ -9,14 +9,14 @@ Every entry belongs to exactly one DOMAIN:
 
 * ``standard`` - usable in both sequences (the Operation group);
 * ``ict``      - ICT only (the ICT Measurements group);
-* ``fct``      - FCT only (File Transfer / Network / Console / Message
+* ``fct``      - FCT only (File Transfer / Console / Message
   (Console) / Wi-Fi Tests / Bluetooth Tests / Flash).
 
 A non-applicable domain is GRAYED OUT (disabled, never removed) with a
 tooltip naming the domain, so the operator can see what exists.
 
-Engine catalogs (``OP_STEPS`` / ``NETWORK_OPS`` / ``DIO_OPS`` /
-``STEP_TYPE_*`` / ``KIND_*``) are untouched: only the menu grouping and
+Engine catalogs (``OP_STEPS`` / ``DIO_OPS`` / ``STEP_TYPE_*`` /
+``KIND_*``) are untouched: only the menu grouping and
 ownership live here.
 """
 from __future__ import annotations
@@ -50,10 +50,8 @@ from mtkgui.engine.fct_test_config import (
 )
 from mtkgui.engine.steps import (
     DIO_OPS,
-    LAN_SETUP_OP,
     METHOD_R_GND,
     OP_STEPS,
-    WIFI_CONNECT_OP,
 )
 
 DOMAIN_STANDARD = "standard"
@@ -70,14 +68,13 @@ TARGET_ONLY = {"ict": DOMAIN_FCT, "fct": DOMAIN_ICT}
 OPERATION = "Operation"
 ICT_MEASUREMENTS = "ICT Measurements"
 FILE_TRANSFER = "File Transfer"
-NETWORK = "Network"
 CONSOLE = "Console"
 MESSAGE_CONSOLE = "Message (Console)"
 WIFI_TESTS = "Wi-Fi Tests"
 BLUETOOTH_TESTS = "Bluetooth Tests"
 FLASH = "Flash"
 
-MENU_TITLES = (OPERATION, ICT_MEASUREMENTS, FILE_TRANSFER, NETWORK, CONSOLE,
+MENU_TITLES = (OPERATION, ICT_MEASUREMENTS, FILE_TRANSFER, CONSOLE,
                MESSAGE_CONSOLE, WIFI_TESTS, BLUETOOTH_TESTS, FLASH)
 
 DELAY_LABEL = "Delay — plain wait (ms)"
@@ -102,9 +99,7 @@ def _op_entries(names, group=OPERATION, domain=DOMAIN_STANDARD):
 
 #: the standard Operation group: 9 catalog operations + Delay + the three
 #: plain operator dialogs (M48 moved them out of the Message group)
-STANDARD_OPS = tuple(name for name in OP_STEPS
-                     if name not in DIO_OPS
-                     and name not in (WIFI_CONNECT_OP, LAN_SETUP_OP))
+STANDARD_OPS = tuple(name for name in OP_STEPS if name not in DIO_OPS)
 
 ADD_ENTRIES = tuple(
     _op_entries(STANDARD_OPS) + [
@@ -142,10 +137,6 @@ ADD_ENTRIES = tuple(
                  f"step:{STEP_TYPE_SERIAL_PUT}"),
         AddEntry(FILE_TRANSFER, DOMAIN_FCT, STEP_TYPE_SERIAL_PULL,
                  f"step:{STEP_TYPE_SERIAL_PULL}"),
-        AddEntry(NETWORK, DOMAIN_FCT, WIFI_CONNECT_OP,
-                 f"op:{WIFI_CONNECT_OP}", WIFI_CONNECT_OP),
-        AddEntry(NETWORK, DOMAIN_FCT, LAN_SETUP_OP,
-                 f"op:{LAN_SETUP_OP}", LAN_SETUP_OP),
         AddEntry(CONSOLE, DOMAIN_FCT, STEP_TYPE_CONSOLE_SERIAL,
                  f"step:{STEP_TYPE_CONSOLE_SERIAL}"),
         AddEntry(CONSOLE, DOMAIN_FCT, STEP_TYPE_CONSOLE_SSH,

@@ -27,7 +27,6 @@ import sys
 import yaml
 
 from mtkgui.engine.fct_test_config import (
-    KIND_OP,
     KIND_SERIAL_PULL,
     KIND_SERIAL_PUT,
     KIND_SFTP_GET,
@@ -155,13 +154,12 @@ def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
     """Pre-fill one row from the loaded project's shared parameters.
 
     Only parameters an operator can see on the project page are filled:
-    the Wi-Fi AP SSID / password / interface (``peripherals.wifi``) and
-    the Push / Pull default directories (project ``assets`` / ``outbox``).
-    A missing prefill value leaves the template's own default in place;
-    the operator can edit every filled value afterwards.
+    the DUT Wi-Fi driver load command / interface (``peripherals.wifi``)
+    and the Push / Pull default directories (project ``assets`` /
+    ``outbox``).  A missing prefill value leaves the template's own
+    default in place; the operator can edit every filled value afterwards.
     """
     values = dict(prefill or {})
-    params = cmd.op_params if isinstance(cmd.op_params, dict) else None
     if getattr(cmd, "_template_note", "").startswith("driver_probe"):
         # M66: the DUT Wi-Fi driver load command comes from the project
         # Wi-Fi page; the probe waits for the interface to appear
@@ -170,14 +168,6 @@ def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
             iface = (str(values.get("wifi_interface") or "").strip()
                      or "mlan0")
             cmd.send = f"{driver}; iw dev {iface} info"
-    if (cmd.kind == KIND_OP and params
-            and str(params.get("type") or "") == "wifi_connect"):
-        if str(values.get("wifi_ssid") or "").strip():
-            params["ssid"] = str(values["wifi_ssid"]).strip()
-        if str(values.get("wifi_password") or ""):
-            params["password"] = str(values["wifi_password"])
-        if str(values.get("wifi_interface") or "").strip():
-            params["iface"] = str(values["wifi_interface"]).strip()
     if cmd.kind in (KIND_SFTP_PUT, KIND_SERIAL_PUT) \
             and str(values.get("assets_dir") or "").strip():
         cmd.local = str(values["assets_dir"]).strip()

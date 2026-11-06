@@ -33,18 +33,11 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     ConsoleCfg,
     ConsoleCommand,
     FctTestConfig,
-    KIND_OP,
     KIND_SFTP_GET,
     KIND_SFTP_PUT,
     STEP_TYPE_SFTP_GET,
     STEP_TYPE_SFTP_PUT,
     _console_row_steps,
-)
-from mtkgui.engine.steps import (  # noqa: E402
-    LAN_SETUP_OP,
-    NETWORK_OPS,
-    WIFI_CONNECT_OP,
-    wpa_conf_text,
 )
 from mtkgui.engine.runner import TestRunner as OpTestRunner  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
@@ -61,10 +54,6 @@ def qapp():
 @pytest.fixture()
 def panel(qapp):
     return FCTTestConfigPanel()
-
-
-def _last_cmd(panel) -> ConsoleCommand:
-    return panel._get_row_cmd(panel.cmd_table.rowCount() - 1)
 
 
 # ---------------------------------------------------------------- serial
@@ -188,42 +177,7 @@ def test_sftp_runtime_falls_back_to_console_dirs():
     assert steps[0].params["remote"] == "/root"
 
 
-# ------------------------------------------------------------ wifi setup
-def test_wpa_conf_template_uses_ssid_and_password():
-    text = wpa_conf_text("MTK-AP", "s3cret")
-    assert 'ssid="MTK-AP"' in text
-    assert 'psk="s3cret"' in text
-
-
-def test_wifi_connect_plan_builds_conf_and_commands():
-    plan = host_platform.wifi_connect_plan(
-        {"iface": "wlan0", "ssid": "MTK-AP", "password": "pw",
-         "dhcp": True})
-    assert plan["probe"] == "iw dev wlan0 info"
-    assert plan["prepare"] == ["ip link set wlan0 up"]
-    assert 'ssid="MTK-AP"' in plan["conf_write"]
-    assert 'psk="pw"' in plan["conf_write"]
-    assert plan["connect"] == ("wpa_supplicant -B -i wlan0 -c "
-                              "/tmp/wpa_supplicant.conf")
-    assert plan["net_commands"] == ["dhclient wlan0", "udhcpc -i wlan0"]
-    assert plan["confirm"] == "ip -4 addr show wlan0"
-
-
-def test_wifi_row_plugs_the_equipment_ap_values(qapp):
-    """M50: the Wi-Fi connect row references the Equipment PC Wi-Fi
-    config instead of a deleted Wi-Fi tab."""
-    node = {"equipment": {"peripherals": {
-        "wifi": {"ap_ssid": "MTK-AP", "ap_password": "ap-pw"}}}}
-    panel = FCTTestConfigPanel(equipment_provider=lambda: node)
-    panel._add_operation_row(WIFI_CONNECT_OP)
-    cmd = _last_cmd(panel)
-    assert cmd.kind == KIND_OP
-    assert cmd.op_params["type"] == "wifi_connect"
-    assert cmd.op_params["ssid"] == "MTK-AP"
-    assert cmd.op_params["password"] == "ap-pw"
-    assert cmd.refs["ssid"] == "equipment.peripherals.wifi.ap_ssid"
-
-
+# ------------------------------------------------- Wi-Fi driver / DUT IP
 def test_wifi_driver_missing_is_detected():
     assert host_platform.wifi_driver_ready("No such device", "wlan0") is False
     assert host_platform.wifi_driver_ready("", "wlan0") is False
@@ -237,42 +191,6 @@ def test_parse_dut_ip_skips_loopback_and_link_local():
             "    inet 192.168.1.55/24 brd 192.168.1.255 scope global")
     assert host_platform.parse_dut_ip(text, "wlan0") == "192.168.1.55"
     assert host_platform.parse_dut_ip("inet 127.0.0.1/8", "wlan0") == ""
-
-
-def test_network_ops_bare_metal_gating(panel):
-    """M48: the network-setup ops live in the FCT-only Network submenu
-    (tracked in _network_add_actions)."""
-    wifi_act = panel._network_add_actions[WIFI_CONNECT_OP]
-    lan_act = panel._network_add_actions[LAN_SETUP_OP]
-    assert wifi_act.isEnabled() and lan_act.isEnabled()
-
-    panel.dut_type.setCurrentText("bare_metal")
-    assert not wifi_act.isEnabled() and not lan_act.isEnabled()
-    assert "Linux DUT" in wifi_act.toolTip()
-
-    panel.dut_type.setCurrentText("linux")
-    assert wifi_act.isEnabled() and lan_act.isEnabled()
-
-
-def test_network_ops_always_usable_without_resources(panel):
-    panel.set_available_ops(set())
-    for name in NETWORK_OPS:
-        assert panel._network_add_actions[name].isEnabled()
-    assert not panel._op_add_actions["Operation: Power On DUT"] \
-        .isEnabled()
-
-
-# ------------------------------------------------------------- lan setup
-def test_lan_setup_dhcp_and_static_commands():
-    dhcp = host_platform.lan_setup_plan({"iface": "eth0", "mode": "dhcp"})
-    assert dhcp["net_commands"] == ["dhclient eth0", "udhcpc -i eth0"]
-
-    static = host_platform.lan_setup_plan(
-        {"iface": "eth0", "mode": "static", "dut_ip": "192.168.1.100",
-         "netmask": "255.255.255.0", "gateway": "192.168.1.1"})
-    assert "ip addr add 192.168.1.100/24 dev eth0" in static["net_commands"]
-    assert "ip link set eth0 up" in static["net_commands"]
-    assert "ip route add default via 192.168.1.1" in static["net_commands"]
 
 
 # ---------------------------------------------------- IP mismatch warning

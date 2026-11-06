@@ -3,8 +3,7 @@
 
 BLOCKER 1  ``_emit_fct_steps`` keeps the user row order (an Operation in
            the middle stays there; fct_steps / fct_steps_yaml 1:1).
-BLOCKER 2  ``runner._net_run`` pumps the Qt event loop so queued serial
-           RX reaches the buffer and a live mlan0 probe judges ready.
+BLOCKER 2  retired with the network-setup operations (M83).
 Secondary  configurable SN format, LF-only console ending, _TonePreview
            ``finished`` signal, virtual DUT interface mlan0, no injected
            BT piscan step.
@@ -19,13 +18,11 @@ import yaml  # noqa: E402
 from PySide6.QtGui import QValidator  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from mtkgui.engine import host_platform  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     BluetoothCfg,
     FctTestConfig,
     build_fct_steps,
 )
-from mtkgui.engine.runner import TestRunner  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     _TonePreview,
 )
@@ -52,9 +49,9 @@ def page(qapp):
 def _ordered_steps() -> list:
     return [
         {"type": "Delay", "name": "Delay - boot wait", "wait_ms": 800},
-        {"type": "Operation", "name": "Wi-Fi: Connect DUT to AP",
+        {"type": "Operation", "name": "Power On DUT",
          "op_kind": "op",
-         "op_params": {"type": "op", "op": "Wi-Fi: Connect DUT to AP"}},
+         "op_params": {"type": "op", "op": "Power On DUT"}},
         {"type": "Console_serial", "name": "Kernel check",
          "override": {"port": "COM1"}, "send": "uname -r",
          "send_enabled": True, "wait_enabled": False,
@@ -76,7 +73,7 @@ def test_operation_keeps_its_user_position_after_apply(page):
     # the row order exactly as configured - the old code put both
     # Operation rows in front of the Delay / Console rows
     assert names == [s["name"] for s in steps]
-    assert names[0] != "Wi-Fi: Connect DUT to AP"
+    assert names[0] != "Power On DUT"
 
 
 def test_emitted_steps_and_source_region_are_one_to_one(page):
@@ -95,51 +92,6 @@ def test_emitted_steps_and_source_region_are_one_to_one(page):
     # round trip between the two YAML step regions)
     for case in generated:
         assert isinstance(case["op_params"]["fct_step"], dict)
-
-
-# ------------------------------------------------- BLOCKER 2 event pump
-class _PumpChannel:
-    """A channel whose RX arrives ONLY through the event-loop pump."""
-
-    def __init__(self, queued_payload: str, deliver: bool = True):
-        self.buf = b""
-        self.queued = queued_payload
-        self.deliver = deliver
-        self.written = b""
-
-    def get_read_buffer(self, key):
-        return self.buf
-
-    def write_to_channel(self, key, payload):
-        self.written = payload
-
-    def pump(self):
-        # a queued `data_received` signal delivered by processEvents
-        if self.deliver and self.queued:
-            self.buf += self.queued.encode()
-            self.queued = ""
-
-
-def test_net_run_pumps_the_event_loop_for_a_live_probe(qapp, monkeypatch):
-    channel = _PumpChannel("Interface mlan0\n\ttype managed\n")
-    monkeypatch.setattr(QApplication, "processEvents",
-                        staticmethod(channel.pump))
-    runner = TestRunner(object())
-    text = runner._net_run(channel, "ser1", "iw dev mlan0 info",
-                           wait_s=1.0, quiet_s=0.2)
-    assert "Interface mlan0" in text
-    assert host_platform.wifi_driver_ready(text, "mlan0") is True
-
-
-def test_net_run_without_the_pump_starves_the_buffer(qapp, monkeypatch):
-    channel = _PumpChannel("Interface mlan0\n")
-    monkeypatch.setattr(QApplication, "processEvents",
-                        staticmethod(lambda: None))
-    runner = TestRunner(object())
-    text = runner._net_run(channel, "ser1", "iw dev mlan0 info",
-                           wait_s=0.3, quiet_s=0.2)
-    assert text == ""
-    assert host_platform.wifi_driver_ready(text, "mlan0") is False
 
 
 # ------------------------------------------------ #5 configurable SN

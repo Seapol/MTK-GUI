@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import (QApplication, QCheckBox,  # noqa: E402
+from PySide6.QtWidgets import (QApplication,  # noqa: E402
                                QComboBox, QDialog, QLabel, QLineEdit)
 
 import yaml  # noqa: E402
@@ -33,10 +33,6 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     console_command_for_label,
 )
 from mtkgui.engine.ref_resolver import effective, resolve  # noqa: E402
-from mtkgui.engine.steps import (  # noqa: E402
-    LAN_SETUP_OP,
-    WIFI_CONNECT_OP,
-)
 from mtkgui.equipment_page import GROUP_FIELDS  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
@@ -232,73 +228,7 @@ def test_rf_dialog_hides_every_referenced_field(qapp, monkeypatch):
     panel.deleteLater()
 
 
-# -------------------------------------- §2.5 / §3 network operations
-def test_network_op_dialog_keeps_dhcp_and_timeout_only(qapp, monkeypatch):
-    panel = _panel()
-    panel._add_operation_row(WIFI_CONNECT_OP)
-    seen = {}
-
-    def fake_exec(dlg):
-        seen["labels"] = _labels(dlg)
-        seen["checks"] = [c.text() for c in dlg.findChildren(QCheckBox)]
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
-    panel._edit_current_row(0)
-    for gone in ("Interface:", "AP SSID:", "AP password:", "DUT IP (static):",
-                 "Netmask:", "Gateway:"):
-        assert not any(gone in t for t in seen["labels"]), gone
-    # Wi-Fi keeps its DHCP check (LAN keeps the DHCP | Static combo)
-    assert any("Use DHCP" in t for t in seen["checks"])
-    assert any("Timeout:" in t for t in seen["labels"])
-    cmd = panel._get_row_cmd(0)
-    assert cmd.refs == {
-        "iface": "equipment.dut.wifi.interface",
-        "ssid": "equipment.peripherals.wifi.ap_ssid",
-        "password": "equipment.peripherals.wifi.ap_password",
-        "dut_ip": "equipment.peripherals.router.dut_ip",
-        "netmask": "equipment.peripherals.router.netmask",
-        "gateway": "equipment.peripherals.router.gateway"}
-    params = cmd.op_params
-    assert params["iface"] == "wlan0"
-    assert params["ssid"] == "MTK-AP"
-    assert params["password"] == "secret"
-    assert params["dut_ip"] == "192.168.1.100"
-    assert params["netmask"] == "255.255.255.0"
-    assert params["gateway"] == "192.168.1.1"
-    panel.deleteLater()
-
-
-def test_lan_setup_row_seeds_the_router_refs(qapp):
-    panel = _panel()
-    panel._add_operation_row(LAN_SETUP_OP)
-    refs = panel._get_row_cmd(0).refs
-    assert refs == {"iface": "equipment.dut.wifi.interface",
-                    "dut_ip": "equipment.peripherals.router.dut_ip",
-                    "netmask": "equipment.peripherals.router.netmask",
-                    "gateway": "equipment.peripherals.router.gateway"}
-    panel.deleteLater()
-
-
-def test_lan_setup_dialog_keeps_the_ip_mode_only(qapp, monkeypatch):
-    panel = _panel()
-    panel._add_operation_row(LAN_SETUP_OP)
-    seen = {}
-
-    def fake_exec(dlg):
-        seen["labels"] = _labels(dlg)
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
-    panel._edit_current_row(0)
-    for gone in ("Interface:", "AP SSID:", "AP password:", "DUT IP (static):",
-                 "Netmask:", "Gateway:"):
-        assert not any(gone in t for t in seen["labels"]), gone
-    assert any("IP mode:" in t for t in seen["labels"])
-    assert any("Timeout:" in t for t in seen["labels"])
-    panel.deleteLater()
-
-
+# -------------------------------------- §2.5 Equipment router fields
 def test_equipment_router_group_exposes_netmask_and_gateway(qapp):
     fields = {key: default for key, _label, default
               in GROUP_FIELDS[("peripherals", "router")]}

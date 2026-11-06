@@ -113,6 +113,55 @@ def rule_retired_console_login_rows(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_console_login_rows)
 
 
+def _retired_network_op_name(row: dict) -> str:
+    """M83: the retired op name a legacy row still expands, else ``""``.
+
+    Reads the existing op payload only (``op_params.op`` /
+    ``op_params.type`` and the published ``fct_step.params``); a row
+    named like an op but not carrying it (kind != "op") is left alone."""
+    from .steps import RETIRED_NETWORK_OPS
+    op = dict(row.get("op_params") or {})
+    marker = dict(op.get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    for candidate in (op.get("op"), params.get("op")):
+        text = str(candidate or "")
+        if text in RETIRED_NETWORK_OPS:
+            return text
+    if str(row.get("kind") or "") == "op":
+        name = str(row.get("name") or "")
+        if name in RETIRED_NETWORK_OPS:
+            return name
+    op_type = str(op.get("type") or params.get("type") or "")
+    if op_type == "wifi_connect":
+        return RETIRED_NETWORK_OPS[0]
+    if op_type == "lan_setup":
+        return RETIRED_NETWORK_OPS[1]
+    return ""
+
+
+def rule_retired_network_ops(doc: dict) -> list[YamlIssue]:
+    """M83: the two M41 network-setup operations are retired - a project
+    YAML still carrying one is an ERROR that names the replacement."""
+    from .steps import retired_network_op_message
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            if not isinstance(row, dict):
+                continue
+            name = _retired_network_op_name(row)
+            if not name:
+                continue
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                retired_network_op_message(name),
+                f"{key}[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_retired_network_ops)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

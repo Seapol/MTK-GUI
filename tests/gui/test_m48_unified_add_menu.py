@@ -17,12 +17,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QMenu  # noqa: E402
 
-from mtkgui.engine.steps import (  # noqa: E402
-    DIO_OPS,
-    LAN_SETUP_OP,
-    OP_STEPS,
-    WIFI_CONNECT_OP,
-)
+from mtkgui.engine.steps import DIO_OPS, OP_STEPS  # noqa: E402
 from mtkgui.gui.add_menu import MENU_TITLES, build_add_menu  # noqa: E402
 from mtkgui.gui.steps_editor import StepsEditorDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
@@ -32,14 +27,12 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 DELAY_LABEL = "Delay — plain wait (ms)"
 MESSAGES = ("MessageOK", "MessageYesNo", "MessageGoStop")
 ICT_GROUP = "ICT Measurements"
-FCT_GROUPS = ("File Transfer", "Network", "Console", "Message (Console)",
+FCT_GROUPS = ("File Transfer", "Console", "Message (Console)",
               "Wi-Fi Tests", "Bluetooth Tests", "Flash")
 ICT_TIP = "ICT-only step — not available in an FCT sequence"
 FCT_TIP = "FCT-only step — not available in an ICT sequence"
 
-STANDARD_OPS = tuple(n for n in OP_STEPS
-                     if n not in DIO_OPS
-                     and n not in (WIFI_CONNECT_OP, LAN_SETUP_OP))
+STANDARD_OPS = tuple(n for n in OP_STEPS if n not in DIO_OPS)
 
 
 @pytest.fixture(scope="module")
@@ -86,7 +79,7 @@ def _texts(menu) -> list:
 
 class TestUnifiedStructure:
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
-    def test_nine_grouped_submenus_in_order(self, request, menu_of):
+    def test_grouped_submenus_in_order(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
         assert _top_titles(menu) == list(MENU_TITLES)
 
@@ -105,11 +98,10 @@ class TestUnifiedStructure:
                 assert "Operation: Custom" not in _texts(act.menu())
 
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
-    def test_operation_holds_no_dio_and_no_network_ops(self, request,
-                                                       menu_of):
+    def test_operation_holds_no_dio_ops(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
         texts = _texts(_submenu(menu, "Operation"))
-        for moved in DIO_OPS + (WIFI_CONNECT_OP, LAN_SETUP_OP):
+        for moved in DIO_OPS:
             assert f"Operation: {moved}" not in texts, moved
 
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
@@ -123,14 +115,12 @@ class TestUnifiedStructure:
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
     def test_fct_group_sizes(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
-        sizes = {"File Transfer": 4, "Network": 2, "Console": 4,
+        sizes = {"File Transfer": 4, "Console": 3,
                  "Message (Console)": 3, "Wi-Fi Tests": 3,
                  "Bluetooth Tests": 3, "Flash": 1}
         for title, n in sizes.items():
             texts = _texts(_submenu(menu, title))
             assert len(texts) == n, title
-        assert set(_texts(_submenu(menu, "Network"))) == \
-            {WIFI_CONNECT_OP, LAN_SETUP_OP}
 
 
 class TestDomainGating:

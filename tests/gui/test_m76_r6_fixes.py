@@ -94,9 +94,9 @@ def _console_ctx(channels: dict, **kw):
 # ------------------------------------------------ D1 authored row order
 _AUTHORED_STEPS = [
     {"type": "Delay", "name": "Delay - boot wait", "wait_ms": 800},
-    {"type": "Operation", "name": "Wi-Fi: Connect DUT to AP",
+    {"type": "Operation", "name": "Power On DUT",
      "op_kind": "op",
-     "op_params": {"type": "op", "op": "Wi-Fi: Connect DUT to AP"}},
+     "op_params": {"type": "op", "op": "Power On DUT"}},
     {"type": "Console_serial", "name": "Console - kernel version",
      "override": {"port": "COM1"}, "send": "uname -r",
      "send_enabled": True, "wait_enabled": False,
@@ -123,7 +123,7 @@ def test_apply_keeps_the_authored_order_and_kinds(page):
     # 1:1 positions: Delay / Operation / console / RF / serial / SFTP /
     # cleanup - the RF group must NOT move behind the cleanup row
     assert names[0] == "Delay - boot wait"
-    assert names[1] == "Wi-Fi: Connect DUT to AP"
+    assert names[1] == "Power On DUT"
     assert names[2] == "Console - kernel version"
     assert names.index("Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host)") \
         < names.index("Console - clean up")

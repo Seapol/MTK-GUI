@@ -389,6 +389,12 @@ editor.
 - **Scenario** - a custom op can park a robot arm, switch an
   external relay box or warm up a burner between the standard steps;
   it executes like any op and logs its sub-actions to the Event Log.
+- **Retired (M83)** - `Wi-Fi: Connect DUT to AP` and
+  `LAN: Setup DUT Ethernet` encoded one board's interface /
+  supplicant / DHCP choreography. Use one `Console_serial` row that
+  runs your `assets/` connect script instead (the AP credentials live
+  in the script). A project YAML still carrying the operation is
+  reported as an ERROR; it is never converted or removed.
 
 ## FCT Test Cases
 

@@ -147,7 +147,7 @@ class TestSubmenuStructure:
         for old in OLD_SECTION_TITLES:
             assert old not in titles, old
         for new in ("Operation", "Message (Console)", "File Transfer",
-                    "Network", "Wi-Fi Tests", "Bluetooth Tests"):
+                    "Wi-Fi Tests", "Bluetooth Tests"):
             assert new in titles, new
 
 

@@ -127,9 +127,7 @@ from mtkgui.engine.fct_test_config import (
 from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
 from mtkgui.engine.fct_templates import TEMPLATE_LABELS
-from mtkgui.engine.steps import (LAN_SETUP_OP, NETWORK_OP_TYPES,
-                                 NETWORK_OPS, WIFI_CONNECT_OP,
-                                 op_summary as _op_summary)
+from mtkgui.engine.steps import op_summary as _op_summary
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
 from mtkgui.style import APP_NAME, APP_ORG
 
@@ -1063,32 +1061,6 @@ class FCTTestConfigPanel(QWidget):
         self._push_history()
         cmd = console_command_for_label(STEP_TYPE_OPERATION, op_name)
         cmd.op_params = dict(OP_STEPS.get(op_name) or {})
-        # M55: the connection / addressing values are FIXED runtime
-        # references into Equipment; the row's op_params start from the
-        # current Equipment values and are refreshed on save.
-        if op_name in NETWORK_OPS:
-            cmd.refs = {
-                "iface": "equipment.dut.wifi.interface",
-                "dut_ip": "equipment.peripherals.router.dut_ip",
-                "netmask": "equipment.peripherals.router.netmask",
-                "gateway": "equipment.peripherals.router.gateway",
-            }
-            cmd.op_params["iface"] = str(self._equipment_value(
-                "equipment.dut.wifi.interface", "") or "")
-            cmd.op_params["dut_ip"] = str(self._equipment_value(
-                "equipment.peripherals.router.dut_ip", "") or "")
-            cmd.op_params["netmask"] = str(self._equipment_value(
-                "equipment.peripherals.router.netmask", "") or "")
-            cmd.op_params["gateway"] = str(self._equipment_value(
-                "equipment.peripherals.router.gateway", "") or "")
-        if op_name == WIFI_CONNECT_OP:
-            cmd.refs.update({
-                "ssid": "equipment.peripherals.wifi.ap_ssid",
-                "password": "equipment.peripherals.wifi.ap_password"})
-            cmd.op_params["ssid"] = str(self._equipment_value(
-                "equipment.peripherals.wifi.ap_ssid", "") or "")
-            cmd.op_params["password"] = str(self._equipment_value(
-                "equipment.peripherals.wifi.ap_password", "") or "")
         self._insert_row(cmd)
 
     def _add_serial_transfer_row(self, direction: str) -> None:
@@ -1218,13 +1190,7 @@ class FCTTestConfigPanel(QWidget):
         return name if name in OP_STEPS else None
 
     def _op_usable(self, name: str) -> bool:
-        """True when the operation may be added (M37 availability).
-
-        M41: the network-setup operations need no external resource, so
-        they are always usable (the bare-metal gate is applied separately
-        in :meth:`_sync_op_submenu`)."""
-        if name in NETWORK_OPS:
-            return True
+        """True when the operation may be added (M37 availability)."""
         return self._available_ops is None or name in self._available_ops
 
     @staticmethod
@@ -1239,30 +1205,16 @@ class FCTTestConfigPanel(QWidget):
         return "Configure the required resource first"
 
     def _sync_op_submenu(self) -> None:
-        """M37 gate on the shared Operation entries + M41 bare-metal gate
-        on the shared Network entries (M48)."""
-        combo = getattr(self, "dut_type", None)
-        is_linux = combo is None or combo.currentText() == "linux"
+        """M37 gate on the shared Operation entries."""
         for text, act in getattr(self, "_op_add_actions", {}).items():
             name = self._op_name_for_label(text)
             blocked = name is not None and not self._op_usable(name)
             act.setEnabled(not blocked)
             act.setToolTip(self._op_blocked_tooltip(name) if blocked else "")
-        for act in getattr(self, "_network_add_actions", {}).values():
-            act.setEnabled(is_linux)
-            act.setToolTip("" if is_linux else
-                           ("Bare Metal: no network stack on the DUT - the "
-                            "network setup steps need a Linux DUT"))
 
     def _add_entry_gate(self, entry):
         """M48: per-entry gate applied while the shared menu is built."""
         if not entry.op_name:
-            return None
-        if entry.group == "Network":
-            combo = getattr(self, "dut_type", None)
-            if combo is not None and combo.currentText() != "linux":
-                return (False, "Bare Metal: no network stack on the DUT - "
-                               "the network setup steps need a Linux DUT")
             return None
         if not self._op_usable(entry.op_name):
             return (False, self._op_blocked_tooltip(entry.op_name))
@@ -1323,22 +1275,19 @@ class FCTTestConfigPanel(QWidget):
         # M48: the ONE shared Add menu (same grouped structure as the ICT
         # step editor).  Every submenu entry adds its row DIRECTLY - no
         # nested editor dialog; the ICT-only group stays visible but grayed.
-        from mtkgui.gui.add_menu import NETWORK, OPERATION, build_add_menu
+        from mtkgui.gui.add_menu import OPERATION, build_add_menu
         built = build_add_menu(add, "fct", self._add_for_entry,
                                gate=self._add_entry_gate)
         self._add_menu = built.menu
         self._add_menu_groups = built.submenus
         self._add_actions = {}
         self._op_add_actions = {}
-        self._network_add_actions = {}
         for entry, act in built.entries:
             if entry.domain == "ict":
                 continue        # ICT-only: always disabled here
             self._add_actions[entry.label] = act
             if entry.group == OPERATION:
                 self._op_add_actions[entry.label] = act
-            elif entry.group == NETWORK:
-                self._network_add_actions[entry.label] = act
         add.setMenu(built.menu)
         add.clicked.connect(self._add_console_row)
 
@@ -1574,11 +1523,7 @@ class FCTTestConfigPanel(QWidget):
             self._edit_rf_row(row)
             return
         if cmd.kind == KIND_OP:
-            if str((cmd.op_params or {}).get("type") or "") \
-                    in NETWORK_OP_TYPES:
-                self._edit_network_op_row(row)
-            else:
-                self._edit_operation_row(row)
+            self._edit_operation_row(row)
         elif cmd.kind == KIND_DELAY:
             self._edit_delay_row(row)
         elif cmd.kind == KIND_FLASH_GUI:
@@ -1938,122 +1883,6 @@ class FCTTestConfigPanel(QWidget):
             cmd.capture_enabled = bool(cmd.capture_expected
                                        or cmd.capture_unexpected)
             self._save_row_cmd(row, cmd)
-
-    def _edit_network_op_row(self, row: int) -> None:
-        """M41/M55: editor for the two DUT network-setup operations.
-
-        The hardware / addressing values (interface, AP SSID / password,
-        DUT IP / netmask / gateway) are FIXED runtime references into
-        Equipment and have no editable fields here; the dialog keeps the
-        step-owned test parameters: DHCP or Static IP mode and Timeout.
-        """
-        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                        QLabel, QCheckBox, QComboBox,
-                                        QSpinBox, QDialogButtonBox)
-        cmd = self._get_row_cmd(row)
-        params = dict(cmd.op_params or {})
-        is_wifi = str(params.get("type") or "") == "wifi_connect"
-        title = WIFI_CONNECT_OP if is_wifi else LAN_SETUP_OP
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"{title} editor")
-        dlg.setMinimumWidth(620)
-        from PySide6.QtCore import Qt
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.raise_()
-        dlg.activateWindow()
-        outer = QVBoxLayout(dlg)
-        body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
-        note = QLabel(
-            "Runs on the DUT SERIAL console (works before any network "
-            "exists).  Recommended: right after Power On / Init / Fixture, "
-            "before any Console_ssh / SFTP step - added manually, never "
-            "automatic.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #6b7280;")
-        lay.addWidget(note)
-        form = QFormLayout()
-        dhcp_cb = mode = None
-        if is_wifi:
-            dhcp_cb = QCheckBox("Use DHCP (uncheck = static IP)")
-            dhcp_cb.setChecked(bool(params.get("dhcp", True)))
-            form.addRow(dhcp_cb)
-        else:
-            mode = QComboBox()
-            mode.addItems(["DHCP", "Static"])
-            mode.setCurrentText("DHCP" if str(params.get("mode") or "dhcp")
-                                .lower() != "static" else "Static")
-            form.addRow("IP mode:", mode)
-        timeout = QSpinBox()
-        timeout.setRange(1, 3600)
-        timeout.setValue(int(params.get("timeout_s") or 60))
-        timeout.setSuffix(" s")
-        form.addRow("Timeout:", timeout)
-        lay.addLayout(form)
-        host_ip = str(((self.equipment_node() or {}).get("peripherals")
-                       or {}).get("wifi", {}).get("host_ip") or "")
-        subnet = QLabel(
-            "Static IP must be in the same subnet as the Host PC "
-            f"(Host PC IP: {host_ip or 'not detected'})")
-        subnet.setWordWrap(True)
-        subnet.setStyleSheet("color: #6b7280;")
-        lay.addWidget(subnet)
-        # M34: body scrolls, OK / Cancel stays outside (always visible)
-        apply_scroll_to_dialog(dlg, body)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok
-                                   | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        outer.addWidget(buttons)
-        if dlg.exec():
-            self._push_history()
-            params["type"] = "wifi_connect" if is_wifi else "lan_setup"
-            params["stack"] = str(params.get("stack") or "wpa_supplicant")
-            refs = dict(cmd.refs or {})
-            resolved = {
-                "iface": self._equipment_value(
-                    "equipment.dut.wifi.interface", ""),
-                "dut_ip": self._equipment_value(
-                    "equipment.peripherals.router.dut_ip", ""),
-                "netmask": self._equipment_value(
-                    "equipment.peripherals.router.netmask", ""),
-                "gateway": self._equipment_value(
-                    "equipment.peripherals.router.gateway", ""),
-            }
-            refs.setdefault("iface", "equipment.dut.wifi.interface")
-            refs.setdefault("dut_ip", "equipment.peripherals.router.dut_ip")
-            refs.setdefault("netmask",
-                            "equipment.peripherals.router.netmask")
-            refs.setdefault("gateway",
-                            "equipment.peripherals.router.gateway")
-            if is_wifi:
-                resolved["ssid"] = self._equipment_value(
-                    "equipment.peripherals.wifi.ap_ssid", "")
-                resolved["password"] = self._equipment_value(
-                    "equipment.peripherals.wifi.ap_password", "")
-                refs.setdefault("ssid",
-                                "equipment.peripherals.wifi.ap_ssid")
-                refs.setdefault("password",
-                                "equipment.peripherals.wifi.ap_password")
-                params["ssid"] = str(resolved["ssid"])
-                params["password"] = str(resolved["password"])
-                params["dhcp"] = dhcp_cb.isChecked()
-            else:
-                params["mode"] = ("dhcp" if mode.currentText() == "DHCP"
-                                  else "static")
-            params["iface"] = (str(resolved["iface"])
-                               or ("mlan0" if is_wifi else "eth0"))
-            params["dut_ip"] = str(resolved["dut_ip"])
-            params["netmask"] = str(resolved["netmask"] or "255.255.255.0")
-            params["gateway"] = str(resolved["gateway"])
-            params["timeout_s"] = int(timeout.value())
-            cmd.kind = KIND_OP
-            cmd.op_kind = "op"
-            cmd.op_params = params
-            cmd.refs = refs
-            self._save_row_cmd(row, cmd)
-        dlg.deleteLater()
 
     def _edit_operation_row(self, row: int) -> None:
         """M53: a standard Operation row is ONE action plus its

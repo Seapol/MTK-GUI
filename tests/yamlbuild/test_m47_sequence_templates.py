@@ -73,7 +73,7 @@ LINUX_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
                STEP_TYPE_OPERATION, STEP_TYPE_DELAY,
                STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SERIAL,
                STEP_TYPE_SERIAL_PUT, STEP_TYPE_CONSOLE_SERIAL,
-               STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_OPERATION,
+               STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SERIAL,
                STEP_TYPE_SFTP_PUT, STEP_TYPE_WIFI_PING,
                STEP_TYPE_WIFI_IPERF,
                STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE,
@@ -136,7 +136,7 @@ class TestTemplateFiles:
         assert rows[4].expect_pass == "login:"
         assert rows[5].send == "uname -r"
         assert rows[5].capture_enabled
-        assert rows[9].op_params["type"] == "wifi_connect"
+        assert rows[9].send == "sh /root/connect_wifi.sh"
 
     def test_template_document_carries_name_and_steps(self):
         data = load_template(TEMPLATE_BARE_METAL)
@@ -329,7 +329,7 @@ class TestTemplatePrefill:
     def test_defaults_when_project_carries_nothing(self, panel):
         panel._load_template(TEMPLATE_LINUX)
         rows = _rows(panel)
-        assert rows[9].op_params["ssid"] == ""        # Wi-Fi connect op
+        assert rows[9].send == "sh /root/connect_wifi.sh"   # connect script
         assert rows[6].remote == "/root"              # serial push dest
         assert rows[6].local == "assets"              # template default
 
@@ -338,10 +338,9 @@ class TestTemplatePrefill:
         assert panel.cmd_table.rowCount() == 0
         panel._load_template(TEMPLATE_LINUX)
         rows = _rows(panel)
-        connect = rows[9].op_params
-        assert connect["ssid"] == "FCT_AP"
-        assert connect["password"] == "secret"
-        assert connect["iface"] == "mlan0"
+        # the connect row runs a script - credentials are not injected
+        assert rows[9].send == "sh /root/connect_wifi.sh"
+        assert rows[9].op_params is None
         assert rows[6].remote == "/root"
         assert rows[6].local != ""                    # project assets dir
         assert rows[15].remote == "/root"             # serial pull source

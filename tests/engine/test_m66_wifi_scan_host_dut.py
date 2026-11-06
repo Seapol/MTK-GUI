@@ -57,9 +57,9 @@ def test_wifi_scan_template_is_registered_and_operator_only():
     cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {})
     assert len(cmds) == 4
     assert [c.name for c in cmds] == [
-        "Wi-Fi driver load & ready", "Wi-Fi: Connect DUT to AP",
+        "Wi-Fi driver load & ready", "Wi-Fi connect (assets script)",
         "DUT Wi-Fi address", "Wi-Fi Scan / RSSI (Host <-> DUT)"]
-    assert [c.kind for c in cmds] == ["send", "op", "send", "wifi_test"]
+    assert [c.kind for c in cmds] == ["send", "send", "send", "wifi_test"]
 
 
 def test_template_row1_gets_the_project_driver_load_command():
@@ -71,20 +71,18 @@ def test_template_row1_gets_the_project_driver_load_command():
     assert "iw dev mlan0 info" in plain[0].send
 
 
-def test_template_row2_prefills_plan_a_and_plan_b_credentials():
+def test_template_row2_runs_the_assets_script():
+    """M83: the retired connect op is one Console_serial row; the AP
+    credentials live in the script, never injected into the row."""
     cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {
         "wifi_ssid": "Factory-AP", "wifi_password": "secret",
         "wifi_interface": "wlan0"})
-    op = cmds[1].op_params
-    assert op["type"] == "wifi_connect"
-    assert op["ssid"] == "Factory-AP"
-    assert op["password"] == "secret"
-    assert op["iface"] == "wlan0"
-    # plan B: the same row with the Host hotspot values (operator edit)
+    assert cmds[1].kind == "send"
+    assert cmds[1].send == "sh /root/connect_wifi.sh"
+    assert cmds[1].op_params is None
     plan_b = apply_prefill(cmds[1], {"wifi_ssid": "MTK-HOTSPOT",
                                      "wifi_password": "hotspot-pw"})
-    assert plan_b.op_params["ssid"] == "MTK-HOTSPOT"
-    assert plan_b.op_params["password"] == "hotspot-pw"
+    assert plan_b.send == "sh /root/connect_wifi.sh"
 
 
 def test_template_row4_defaults_to_the_dut_side_verdict():

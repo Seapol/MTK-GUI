@@ -6,10 +6,10 @@ form: prefer the parameterized scripts (env vars / step params).
 
 ## wpa_supplicant.conf.template
 
-Reference wpa_supplicant config for an NXP i.MX Linux DUT.  The
-`Wi-Fi: Connect DUT to AP` step generates its own conf from the
-Wi-Fi page (SSID/password), so this template is for manual /
-custom use.  Generate a per-SSID conf with:
+Reference wpa_supplicant config for an NXP i.MX Linux DUT.  A
+`Console_serial` row running your own connect script owns the
+credentials now, so this template is for manual / custom use.
+Generate a per-SSID conf with:
 
 ```sh
 wpa_passphrase <SSID> <PASSWORD> > /tmp/wpa.conf

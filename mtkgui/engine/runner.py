@@ -45,7 +45,6 @@ from .steps import (
     expand_dio_channels,
     dio_name,
     op_instrument_abbr,
-    op_status_lines,
     parse_console_step,
 )
 
@@ -447,10 +446,6 @@ class TestRunner(QObject):
         # M7: U2355A DIO ops - inject the allocated control-net map and
         # run the DIO Write isolation preflight (Read is read-only)
         op_type = (params or {}).get("type")
-        # M41: the DUT network setup steps run DUT-side commands over
-        # the SERIAL console (no network exists yet) - never the gateway
-        if op_type in ("wifi_connect", "lan_setup"):
-            return self._run_network_op(tag, name, dict(params or {}))
         if op_type in ("dio_read", "dio_out"):
             rows = self._control_io_rows()
             if virtual and getattr(env, "rack", None) is not None:
@@ -511,161 +506,6 @@ class TestRunner(QObject):
                                        " | ".join(out.lines) or "FAIL")
                 env._log(f"{tag} op {name}: Fail")
                 return "Fail"
-        env._log(f"{tag} op {name}: Done")
-        return "Done"
-
-    # ------------------------------------------- M41 DUT network setup
-    def _net_run(self, mc, key: str, command: str,
-                 wait_s: float = 8.0, quiet_s: float = 0.6) -> str:
-        """Send one DUT command over the serial console and collect its
-        output: waits until the channel has been quiet for `quiet_s`
-        (or the `wait_s` budget is spent).  Returns the text."""
-        from .fct_exec import console_line
-        if not str(command or "").strip():
-            return ""
-        # M72 BLOCKER 2: the serial RX reaches the multi-console read
-        # buffer ONLY through queued Qt signals (SerialWorker is a
-        # QThread).  This blocking loop runs on the GUI thread, so it
-        # must pump the event loop every iteration - same pattern as
-        # ConsoleBufferChannel.read_lines (pump=QApplication.
-        # processEvents).  Without it the buffer starves and the live
-        # mlan0 probe text never arrives before the readiness check.
-        pump = None
-        try:
-            from PySide6.QtWidgets import QApplication
-            pump = QApplication.processEvents
-        except Exception:                 # noqa: BLE001 - headless
-            pump = None
-        start = len(mc.get_read_buffer(key))
-        mc.write_to_channel(key, console_line(str(command)).encode("utf-8"))
-        deadline = time.monotonic() + max(0.1, float(wait_s))
-        text, last_change = "", None
-        while time.monotonic() < deadline:
-            if pump is not None:
-                try:
-                    pump()
-                except Exception:         # noqa: BLE001 - app closing
-                    pump = None
-            current = mc.get_read_buffer(key)[start:].decode(
-                "utf-8", "replace")
-            if current != text:
-                text, last_change = current, time.monotonic()
-            elif last_change is not None \
-                    and time.monotonic() - last_change >= quiet_s:
-                break
-            time.sleep(0.05)
-        return text
-
-    def _run_network_op(self, tag: str, name: str, params: dict) -> str:
-        """Execute one network-setup op ("Wi-Fi: Connect DUT to AP" /
-        "LAN: Setup DUT Ethernet") over the DUT SERIAL console.
-
-        Returns "Done" / "Fail" / "Error" like every other op.  The
-        emitted DUT IP is stored on the environment (`fct_dut_ip`) so
-        the SSH/SFTP steps can warn about a console-DUT-IP mismatch."""
-        from . import host_platform
-        env = self.env
-        plan = (host_platform.lan_setup_plan(params)
-                if params.get("type") == "lan_setup"
-                else host_platform.wifi_connect_plan(params))
-        mc = getattr(env, "multi_console", None)
-        key = self._pick_serial_channel() if mc is not None else None
-        if mc is None or key is None:
-            self._last_op_error = "no connected serial console"
-            env._log(f"{tag} op {name}: no connected serial console "
-                     f"channel -> Error")
-            return "Error"
-        iface = plan["iface"]
-        # M78-1/M78-2: ONE budget covers the WHOLE op - the prepare /
-        # probe / conf_write / connect stages draw from the SAME wall
-        # clock as the address polling (D2).  Every internal sub-wait is
-        # clamped by the remaining budget.
-        budget_s = float(plan.get("timeout_s") or 60.0)
-        started = time.time()
-        deadline = started + max(1.0, budget_s)
-
-        def _left(cap: float) -> float:
-            return max(0.05, min(float(cap), deadline - time.time()))
-
-        def _overrun() -> bool:
-            return time.time() >= deadline
-
-        def _abort_budget() -> str:
-            elapsed = time.time() - started
-            self._last_op_error = (f"timeout after {elapsed:.1f}s "
-                                   f"(budget {budget_s:.0f}s)")
-            env._log(f"{tag} op {name}: budget exceeded: {elapsed:.1f}s > "
-                     f"{budget_s:.0f}s -> FAIL")
-            return "Fail"
-
-        env._log(f"{tag} op {name}: waiting for {iface} IPv4 "
-                 f"up to {budget_s:.0f}s")
-        if plan["type"] == "wifi_connect":
-            for command in plan["prepare"]:
-                if _overrun():
-                    return _abort_budget()
-                self._net_run(mc, key, command, wait_s=_left(6.0))
-            if _overrun():
-                return _abort_budget()
-            info = self._net_run(mc, key, plan["probe"], wait_s=_left(6.0))
-            if not host_platform.wifi_driver_ready(info, iface):
-                if _overrun() and not info:
-                    return _abort_budget()
-                self._last_op_error = "Wi-Fi driver not ready"
-                env._log(f"{tag} op {name}: Wi-Fi driver not ready "
-                         f"({iface}) -> Fail")
-                return "Fail"
-            # 2. wpa_supplicant.conf from the Wi-Fi page SSID / password
-            if _overrun():
-                return _abort_budget()
-            self._net_run(mc, key, plan["conf_write"], wait_s=_left(8.0))
-            # 3. associate
-            if _overrun():
-                return _abort_budget()
-            self._net_run(mc, key, plan["connect"], wait_s=_left(20.0))
-        # 4. DHCP / static address, then confirm the emitted DUT IP.
-        # M77-2: DHCP association completes asynchronously, so the
-        # address stage polls the confirm command until the deadline.
-        ip = ""
-        for command in plan["net_commands"]:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            out = self._net_run(mc, key, command,
-                                wait_s=min(15.0, remaining))
-            ip = host_platform.parse_dut_ip(out, iface) or ip
-            if ip:
-                break
-        poll = 0
-        while not ip and time.time() < deadline:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            poll += 1
-            out = self._net_run(mc, key, plan["confirm"],
-                                wait_s=min(6.0, remaining))
-            ip = host_platform.parse_dut_ip(out, iface)
-            if ip:
-                break
-            pause = min(1.0, max(0.0, deadline - time.time()))
-            if pause > 0:
-                time.sleep(pause)
-        if not ip:
-            if _overrun():
-                elapsed = time.time() - started
-                env._log(f"{tag} op {name}: budget exceeded: "
-                         f"{elapsed:.1f}s > {budget_s:.0f}s -> FAIL")
-            self._last_op_error = f"no IPv4 address on {iface}"
-            env._log(f"{tag} op {name}: no IPv4 address on {iface} "
-                     f"-> Fail")
-            return "Fail"
-        env.fct_dut_ip = ip
-        elapsed = time.time() - started
-        env._log(f"{tag} op {name}: IPv4 {ip} acquired after "
-                 f"{elapsed:.1f}s (poll {max(poll, 1)})")
-        for line in op_status_lines(name, params):
-            env._log(f"{tag} op {name}: {line}")
-        env._log(f"{tag} op {name}: DUT IP {ip} ({iface})")
         env._log(f"{tag} op {name}: Done")
         return "Done"
 

@@ -22,12 +22,6 @@ from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
 
 import mtkgui.widgets.multi_console as mc_mod  # noqa: E402
 from mtkgui.engine import fct_templates  # noqa: E402
-from mtkgui.engine.steps import (  # noqa: E402
-    OP_STEPS,
-    WIFI_CONNECT_OP,
-    op_status_lines,
-    op_summary,
-)
 from mtkgui.equipment_page import (  # noqa: E402
     GROUP_FIELDS,
     NETWORK_FIELDS,
@@ -185,13 +179,6 @@ def test_driver_probe_fallback_interface_is_mlan0():
         fct_templates.TEMPLATE_WIFI_SCAN,
         {"wifi_driver_load_cmd": "modprobe moal"})[0]
     assert "iw dev mlan0 info" in cmd.send
-
-
-def test_wifi_connect_defaults_are_mlan0():
-    assert OP_STEPS[WIFI_CONNECT_OP]["iface"] == "mlan0"
-    assert op_summary({"type": "wifi_connect"}) == "mlan0"
-    assert op_status_lines(WIFI_CONNECT_OP, {})[0].startswith(
-        "serial console mlan0:")
 
 
 def test_equipment_dut_interface_defaults_are_mlan0():

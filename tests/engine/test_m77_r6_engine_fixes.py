@@ -2,13 +2,12 @@
 """M77 - R6 engine fixes.
 
 1 Host ping is Windows-portable (ping_cmd count + dual-dialect loss regex).
-2 Wi-Fi connect consumes the configured timeout_s by polling the IPv4.
+2 (retired with the network-setup ops in M83).
 3 Windows Bluetooth rows are judged on the DUT side (never a bare ERROR).
 4 SFTP auto-binds the ssh channel to the DUT Wi-Fi IP (no serial fallback).
 """
 from __future__ import annotations
 
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -94,109 +93,6 @@ def test_wifi_ping_stage1_access_denied_still_fails(monkeypatch):
                   if r.name == "Wi-Fi Ping: Host -> AP")
     assert stage1.verdict == "FAIL"
     assert "100.0%" in stage1.detail
-
-
-# ------------------------------------------- M77-2 Wi-Fi connect budget
-class _FakeMc:
-    def __init__(self, responder):
-        self.channels = {"ser1": {"kind": "serial", "connected": True}}
-        self.buf = b""
-        self.responder = responder
-
-    def channel_connected(self, _key):
-        return True
-
-    def get_read_buffer(self, _key):
-        return self.buf
-
-    def write_to_channel(self, _key, payload):
-        cmd = payload.decode("utf-8", "replace").strip()
-        self.buf += self.responder(cmd).encode()
-
-
-class _FakeEnv:
-    def __init__(self, mc):
-        self.multi_console = mc
-        self.fct_dut_ip = ""
-        self.logs: list = []
-
-    def _log(self, line):
-        self.logs.append(line)
-
-
-def _wifi_params(timeout_s: float) -> dict:
-    return {"type": "wifi_connect", "iface": "mlan0",
-            "ssid": "lab-ap", "password": "lab-pass",
-            "timeout_s": timeout_s}
-
-
-def _fast_probe(cmd: str) -> str:
-    """Short replies so each `_net_run` leaves its quiet window fast."""
-    if cmd.startswith("iw dev"):
-        return "Interface mlan0\n\ttype managed\n"
-    if cmd.startswith("dhclient") or cmd.startswith("udhcpc") \
-            or cmd.startswith("ip link"):
-        return "udhcpc: started, lease pending\n"
-    if cmd.startswith("cat >") or cmd.startswith("wpa_supplicant") \
-            or cmd.startswith("killall"):
-        return "started\n"
-    return ""
-
-
-def test_wifi_connect_polls_until_the_configured_budget():
-    """Confirm answers twice with no IP, then an IP on the 3rd poll."""
-    polls = {"n": 0}
-
-    def responder(cmd):
-        if cmd.startswith("ip -4 addr show"):
-            polls["n"] += 1
-            if polls["n"] >= 3:
-                return "    inet 192.168.71.12/24 scope global mlan0\n"
-            return "2: mlan0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n"
-        return _fast_probe(cmd)
-
-    mc = _FakeMc(responder)
-    env = _FakeEnv(mc)
-    runner = TestRunner(env)
-    t0 = time.time()
-    verdict = runner._run_network_op(
-        # M78-2: the budget now covers prepare/probe/connect too, so a
-        # 3-poll acquisition needs more than the old polling-only window
-        "FCT", "Wi-Fi: Connect DUT to AP", _wifi_params(12.0))
-    elapsed = time.time() - t0
-    assert verdict == "Done"
-    assert env.fct_dut_ip == "192.168.71.12"
-    # more than a single pass proves the polling loop
-    assert polls["n"] >= 3
-    assert elapsed > 2.0
-    assert any("IPv4 192.168.71.12 acquired" in line
-               for line in env.logs)
-
-
-def test_wifi_connect_fails_after_the_budget():
-    """Never an IP -> Fail at ~timeout_s (no premature 5 s give-up)."""
-    def responder(cmd):
-        if cmd.startswith("ip -4 addr show"):
-            return "2: mlan0: <BROADCAST,MULTICAST,UP> mtu 1500 state UP\n"
-        return _fast_probe(cmd)
-
-    mc = _FakeMc(responder)
-    env = _FakeEnv(mc)
-    runner = TestRunner(env)
-    t0 = time.time()
-    verdict = runner._run_network_op(
-        "FCT", "Wi-Fi: Connect DUT to AP", _wifi_params(2.0))
-    elapsed = time.time() - t0
-    assert verdict == "Fail"
-    assert "no IPv4 address on mlan0" in runner._last_op_error
-    assert elapsed >= 1.8
-    assert elapsed <= 5.0
-
-
-def test_wifi_connect_timeout_defaults_to_60():
-    """A plan without timeout_s keeps the documented 60 s budget."""
-    plan = hp.wifi_connect_plan({"type": "wifi_connect"})
-    assert plan["timeout_s"] == 60.0
 
 
 # --------------------------------------------- M77-3 DUT-side Bluetooth
