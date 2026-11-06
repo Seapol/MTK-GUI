@@ -188,6 +188,15 @@ exist before the first push:
 Console_serial:  mkdir -p /root/fct_assets
 ```
 
+Where a file ends up is decided by the push row, not by this chapter:
+a **single-file** push lands directly in the Remote folder
+(`/root/fct_assets/connect_wifi.sh`), while pushing a **whole folder**
+lands one level deeper under that folder's own name (`local:
+assets_FRDM-IMX93/resources/scripts` + `remote: /root/fct_assets` ->
+`/root/fct_assets/scripts/`). The console row must name the path the
+push row actually creates - a mismatch shows up as a run-time "not
+found" on the first step that runs the script.
+
 For a fresh board you can do the same by hand once `sshd` is up (the
 chain starts it in step 13; for the very first copy, start it by hand
 over the serial console):

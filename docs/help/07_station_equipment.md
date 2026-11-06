@@ -115,7 +115,7 @@ its first argument:
 
 | Row command | Profile |
 |---|---|
-| `bash /root/fct_assets/connect_wifi.sh router` | external `Wi-Fi router` |
+`bash /root/fct_assets/connect_wifi.sh router` | external `Wi-Fi router` |
 | `bash /root/fct_assets/connect_wifi.sh hotspot` | `Host PC hotspot (no router)` |
 
 Credentials never appear on the command line. The serial console echoes
