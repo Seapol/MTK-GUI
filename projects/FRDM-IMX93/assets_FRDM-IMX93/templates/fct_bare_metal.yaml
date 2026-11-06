@@ -1,0 +1,39 @@
+# M47 reference template - Bare Metal DUT (RTOS firmware, serial console only).
+#
+# Every entry below becomes ONE ordinary row of the FCT Sequence table
+# (editable / removable / reorderable).  The app never loads this on its
+# own: the operator presses "Load Template" -> "Bare Metal DUT".
+template:
+  name: Bare Metal DUT
+  description: >
+    Instruments -> fixture -> power -> serial core-circuit query -> Wi-Fi
+    scan / Bluetooth RSSI -> power off -> fixture release.
+steps:
+  - type: Operation
+    op: Init Instruments
+  - type: Operation
+    op: Fixture Clamp Down
+    note: optional - delete this row when the bench has no clamp
+  - type: Operation
+    op: Power On DUT
+  - type: Delay
+    name: Delay - firmware boot wait
+    wait_ms: 3000
+  - type: Console_serial
+    name: Console - core-circuit firmware query
+    wait_enabled: false
+    send_enabled: true
+    send: "at+fwver"
+    capture_enabled: true
+    capture_expected: "OK"
+    timeout: 6.0
+    note: >
+      wait / send / capture are each optional: edit or clear any segment.
+      Replace at+fwver and OK with the firmware's own query and response.
+  - type: Wifi_Scan
+  - type: BT_RSSI
+  - type: Operation
+    op: Power Off DUT
+  - type: Operation
+    op: Fixture Release
+    note: optional
