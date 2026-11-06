@@ -640,23 +640,38 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                       "info", list(collected))
 
 
-def bind_sftp_channel(step: FctStep, ctx: FctContext) -> bool:
-    """Bind an SshFctChannel for an sftp step (M27 P8).
+def bind_sftp_channel(step: FctStep, ctx: FctContext,
+                      endpoint: dict | None = None) -> bool:
+    """Bind an SshFctChannel for an sftp step (M27 P8 / M77-4).
 
-    The step carries its OWN ssh endpoint (``params.ssh_host`` /
-    ``params.ssh_username``); the password comes from the credential
-    layer (``fct_ssh_<host>``), never the YAML.  Returns True when the
-    channel was bound, False when no host is configured (the executor
-    then reports a clean "channel not bound" ERROR).
+    Default (no ``endpoint``): the step carries its OWN ssh endpoint
+    (``params.ssh_host`` / ``params.ssh_username``); the password comes
+    from the credential layer (``fct_ssh_<host>``), never the YAML.
+    M77-4: an explicit ``endpoint`` dict (``host`` / ``username`` /
+    ``password``) lets the runner auto-bind to the DUT's Wi-Fi address
+    (``fct_dut_ip``) with the ``equipment.dut.ssh`` values; an empty
+    password is passed through as a real answer.
+
+    Returns True when the channel was bound, False when no host is
+    configured (the executor then reports a clean ERROR).
     """
-    host = str((step.params or {}).get("ssh_host") or "").strip()
-    if not host:
-        return False
+    params = step.params or {}
+    if endpoint is None:
+        host = str(params.get("ssh_host") or "").strip()
+        if not host:
+            return False
+        username = str(params.get("ssh_username") or "root")
+        password = None                   # credential layer
+    else:
+        host = str(endpoint.get("host") or "").strip()
+        if not host:
+            return False
+        username = str(endpoint.get("username") or "root")
+        password = str(endpoint.get("password") or "")
     from .fct_channels import SshFctChannel
     ctx.channels[step.channel or "ssh"] = SshFctChannel(
-        host=host,
-        username=str((step.params or {}).get("ssh_username") or "root"),
-        credential_ref=f"fct_ssh_{host}")
+        host=host, username=username,
+        credential_ref=f"fct_ssh_{host}", password=password)
     return True
 
 
@@ -786,6 +801,13 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         # next run (2026-10-27 user direction: fetch fat_result.json /
         # fat.log into DUT Report, then clear them on the DUT).
         if step.params.get("kind") in ("sftp_put", "sftp_get"):
+            if channel is None:
+                # M77-4: no serial fallback and no silent retry - the
+                # runner carries the exact bind failure reason
+                reason = str(step.params.get("ssh_bind_error") or "")
+                return FctOutcome(
+                    VERDICT_ERROR,
+                    reason or f"channel '{step.channel}' not bound")
             return _transfer_span(
                 str(step.params.get("kind")), step,
                 lambda: _run_sftp(step, ctx, channel))

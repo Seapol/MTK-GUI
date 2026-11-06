@@ -178,6 +178,40 @@ Every entry follows the same structure: **Symptom** → possible
   2. Operator accounts must re-enter them after the reset (see
      docs/fct/B3 spec section 7.2).
 
+## Q17: Which Windows firewall rules does the FCT bench need?
+
+The Host->AP ping and the iperf3 throughput test need two inbound
+rules.  Add them once during bench setup.
+
+**Method A - netsh (administrator PowerShell):**
+
+```
+netsh advfirewall firewall add rule name="MTK-FCT ICMPv4 In" dir=in action=allow protocol=icmpv4:8,any profile=any
+netsh advfirewall firewall add rule name="MTK-FCT iperf3 5201 In" dir=in action=allow protocol=TCP localport=5201 profile=any
+```
+
+Both return `Ok` on success.
+
+**Method B - Windows Defender Firewall GUI:**
+
+Inbound rule -> Custom -> All programs -> Protocol ICMPv4 / ICMP type 8
+(echo request) for the first rule; Protocol TCP, local port 5201 for
+the second; Profile = All.
+
+**Verification (administrator PowerShell):**
+
+```
+netsh advfirewall firewall show rule name="MTK-FCT ICMPv4 In"
+netsh advfirewall firewall show rule name="MTK-FCT iperf3 5201 In"
+```
+
+Expect `Enabled: Yes` and the protocol/port fields to match.
+
+**Note:** an **unelevated** shell cannot add these rules -
+`netsh advfirewall firewall add rule` and `Start-Process -Verb RunAs`
+both fail without elevation, so the operator must run an administrator
+shell once during bench setup.
+
 ## Still stuck?
 
 - Check `11_reports_logs.md` for the exact log/CSV locations.

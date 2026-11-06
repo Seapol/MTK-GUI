@@ -351,7 +351,7 @@ class SshFctChannel:
     def __init__(self, host: str, username: str, credential_ref: str,
                  port: int = 22, timeout: float = 10.0,
                  connect_timeout: float = 10.0,
-                 remote_dir: str = "") -> None:
+                 remote_dir: str = "", password: "str | None" = None) -> None:
         import paramiko                                # baseline dep
         self._paramiko = paramiko
         self._host, self._port = host, int(port)
@@ -364,24 +364,30 @@ class SshFctChannel:
         self._client = None
         self._sftp = None
         self._pending = None
-        self._auth(credential_ref)
+        self._auth(credential_ref, password)
 
-    def _auth(self, credential_ref: str) -> None:
+    def _auth(self, credential_ref: str, password_override=None) -> None:
         from .credentials import CredentialUnavailable, get_credential
         self._client = self._paramiko.SSHClient()
         self._client.set_missing_host_key_policy(
             self._paramiko.AutoAddPolicy())   # lab station, known host
         password, warning = "", ""
-        try:
-            password, warning = get_credential(credential_ref)
-        except CredentialUnavailable:
-            pass                              # fall through to agent/key
+        if password_override is not None:
+            # M77-4: explicit endpoint (equipment.dut.ssh) - an EMPTY
+            # password is a real answer for a root DUT, so it is passed
+            # through as "" instead of falling back to agent/key auth
+            password = str(password_override)
+        else:
+            try:
+                password, warning = get_credential(credential_ref)
+            except CredentialUnavailable:
+                pass                          # fall through to agent/key
         kwargs: dict = dict(hostname=self._host, port=self._port,
                             username=self._username,
                             timeout=self._connect_timeout,
                             allow_agent=True, look_for_keys=True)
-        if password:
-            kwargs["password"] = password
+        if password or password_override is not None:
+            kwargs["password"] = password     # "" is a valid root password
         try:
             self._client.connect(**kwargs)
         except Exception as exc:              # noqa: BLE001 - auth/net

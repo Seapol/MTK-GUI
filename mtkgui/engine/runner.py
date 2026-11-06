@@ -582,22 +582,48 @@ class TestRunner(QObject):
             self._net_run(mc, key, plan["conf_write"], wait_s=8.0)
             # 3. associate
             self._net_run(mc, key, plan["connect"], wait_s=20.0)
-        # 4. DHCP / static address, then confirm the emitted DUT IP
+        # 4. DHCP / static address, then confirm the emitted DUT IP.
+        # M77-2: the step's configured timeout_s is the WHOLE budget -
+        # DHCP association completes asynchronously, so the address
+        # stage polls the confirm command until the deadline instead of
+        # giving up after one quiet-window read.
+        timeout_s = float(plan.get("timeout_s") or 60.0)
+        deadline = time.time() + max(1.0, timeout_s)
+        env._log(f"{tag} op {name}: waiting for {iface} IPv4 "
+                 f"up to {timeout_s:.0f}s")
         ip = ""
         for command in plan["net_commands"]:
-            out = self._net_run(mc, key, command, wait_s=15.0)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            out = self._net_run(mc, key, command,
+                                wait_s=min(15.0, remaining))
             ip = host_platform.parse_dut_ip(out, iface) or ip
             if ip:
                 break
-        if not ip:
-            ip = host_platform.parse_dut_ip(
-                self._net_run(mc, key, plan["confirm"], wait_s=10.0), iface)
+        poll = 0
+        while not ip and time.time() < deadline:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            poll += 1
+            out = self._net_run(mc, key, plan["confirm"],
+                                wait_s=min(6.0, remaining))
+            ip = host_platform.parse_dut_ip(out, iface)
+            if ip:
+                break
+            pause = min(1.0, max(0.0, deadline - time.time()))
+            if pause > 0:
+                time.sleep(pause)
         if not ip:
             self._last_op_error = f"no IPv4 address on {iface}"
             env._log(f"{tag} op {name}: no IPv4 address on {iface} "
                      f"-> Fail")
             return "Fail"
         env.fct_dut_ip = ip
+        elapsed = time.time() - (deadline - max(1.0, timeout_s))
+        env._log(f"{tag} op {name}: IPv4 {ip} acquired after "
+                 f"{elapsed:.1f}s (poll {max(poll, 1)})")
         for line in op_status_lines(name, params):
             env._log(f"{tag} op {name}: {line}")
         env._log(f"{tag} op {name}: DUT IP {ip} ({iface})")
@@ -1019,6 +1045,76 @@ class TestRunner(QObject):
         self.abort(trigger="operator")
         return "FAIL"
 
+    # ------------------------------------------- M77-4 SSH channel auto-bind
+    def _equipment_ssh(self) -> dict:
+        """``equipment.dut.ssh`` values from the live Equipment page.
+
+        Headless runs / no window return {} (the auto-bind then relies
+        on ``fct_dut_ip`` and an empty root password)."""
+        env = self.env
+        try:
+            win = env.window() if callable(
+                getattr(env, "window", None)) else None
+            page = getattr(win, "equipment_page", None)
+            configs = getattr(page, "configs", None)
+            if not configs:
+                return {}
+            from ..project_config import _equipment_to_yaml
+            node = _equipment_to_yaml(configs) or {}
+            return dict((node.get("dut") or {}).get("ssh") or {})
+        except Exception:                     # noqa: BLE001 - headless
+            return {}
+
+    def _fct_ssh_endpoint(self, step) -> dict:
+        """Resolve the SSH endpoint for one SFTP row (M77-4).
+
+        A console SSH endpoint on the step wins verbatim.  Otherwise
+        ``equipment.dut.ssh.ip`` is used when set, else ``fct_dut_ip``
+        (the Wi-Fi address produced by the Wi-Fi connect step).  Never
+        a hard-coded address."""
+        params = step.params or {}
+        explicit = str(params.get("ssh_host") or "").strip()
+        eq = self._equipment_ssh()
+        user = str(params.get("ssh_username")
+                   or eq.get("username") or "root")
+        if explicit:
+            return {"host": explicit, "username": user,
+                    "password": None,
+                    "source": "console ssh endpoint"}
+        eq_ip = str(eq.get("ip") or "").strip()
+        if eq_ip:
+            host, source = eq_ip, "equipment.dut.ssh.ip"
+        else:
+            host = str(getattr(self.env, "fct_dut_ip", "") or "").strip()
+            source = "fct_dut_ip over Wi-Fi"
+        return {"host": host, "username": user,
+                "password": str(eq.get("password") or ""),
+                "source": source}
+
+    def _bind_fct_ssh(self, step, ctx, name: str) -> bool:
+        """Auto-bind the ``ssh`` channel for an SFTP row (M77-4).
+
+        Failure reasons are stored on the step (``ssh_bind_error``) so
+        the executor reports them verbatim; never falls back to serial."""
+        endpoint = self._fct_ssh_endpoint(step)
+        if not endpoint["host"]:
+            step.params["ssh_bind_error"] = (
+                "no DUT Wi-Fi IP; run the Wi-Fi connect step before SFTP")
+            self.env._log(f"FCT {name}: {step.params['ssh_bind_error']}")
+            return False
+        from .fct_exec import bind_sftp_channel
+        try:
+            bind_sftp_channel(step, ctx, endpoint=endpoint)
+        except Exception as exc:              # noqa: BLE001 - auth/net
+            step.params["ssh_bind_error"] = (
+                f"ssh channel open failed: {exc}")
+            self.env._log(f"FCT {name}: {step.params['ssh_bind_error']}")
+            return False
+        self.env._log(
+            f"SSH channel auto-bound to {endpoint['host']}:22 "
+            f"(source: {endpoint['source']})")
+        return True
+
     def _exec_fct_b3(self, r: int, name: str, marker: dict,
                      t0: float, interactive: bool) -> None:
         """Execute one published fct_build step (B4 §2): the four step
@@ -1087,13 +1183,20 @@ class TestRunner(QObject):
             # A connect failure leaves the channel unbound so the
             # executor reports a clean ERROR (no serial fallback).
             try:
-                bound = bind_sftp_channel(step, ctx)
-                if not bound:
-                    env._log(
-                        f"FCT {name}: no ssh_host on the sftp step - "
-                        "cannot open an SFTP channel")
+                if str(step.params.get("ssh_host") or "").strip():
+                    # a Console-panel SSH endpoint wins verbatim
+                    bound = bind_sftp_channel(step, ctx)
+                    if not bound:
+                        env._log(
+                            f"FCT {name}: no ssh_host on the sftp step - "
+                            "cannot open an SFTP channel")
+                else:
+                    # M77-4: auto-bind to the DUT Wi-Fi address
+                    bound = self._bind_fct_ssh(step, ctx, name)
             except Exception as exc:       # noqa: BLE001 - auth/net
-                env._log(f"FCT {name}: ssh channel open failed: {exc}")
+                step.params["ssh_bind_error"] = (
+                    f"ssh channel open failed: {exc}")
+                env._log(f"FCT {name}: {step.params['ssh_bind_error']}")
         elif ch_key:
             mc = getattr(env, "multi_console", None)
             worker = (mc.channels.get(ch_key, {}).get("worker")

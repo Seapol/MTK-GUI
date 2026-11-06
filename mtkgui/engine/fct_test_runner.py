@@ -1076,11 +1076,13 @@ class FctTestRunner:
                     "cannot determine AP/gateway IP",
                     duration=time.time() - t0))
             else:
+                # M77-1: platform-aware ping (Windows -n / else -c);
+                # the loss regex matches both dialects and a missing
+                # match still falls back to 100% -> FAIL
+                from .host_platform import PING_LOSS_RE, ping_cmd
                 res = host_runner.run(
-                    "ping -c {count} {ip}",
-                    {"count": w.ping_count, "ip": ap_ip},
-                    regex_extracts={"loss_pct":
-                                    r"(\d+(?:\.\d+)?)% packet loss"},
+                    ping_cmd(ap_ip, w.ping_count),
+                    regex_extracts={"loss_pct": PING_LOSS_RE},
                     timeout_s=max(w.ping_count + 15, 30))
                 loss = float(res.items.get("loss_pct", "100"))
                 results.append(FctStepResult(
@@ -1148,6 +1150,112 @@ class FctTestRunner:
                         duration=duration))
         return results
 
+    # ------------------------------------------- M77-3 DUT-side BT judge
+    def _bt_dut_cmd(self, serial, cmd: str, label: str,
+                    timeout: float = 6.0) -> str:
+        """Best-effort DUT console command output + one evidence line
+        per received line (the DUT Report console log carries it)."""
+        verdict, text = _console_probe(serial, cmd, r"__m77_never__",
+                                       timeout)
+        self.log(f"{label}: $ {cmd}")
+        for line in [x.strip() for x in text.splitlines() if x.strip()][-8:]:
+            self.log(f"{label}: {line}")
+        return text
+
+    def _bt_dut_pair(self, serial, b, label: str, timeout: float):
+        """Adapter UP/RUNNING + an established link, judged on the DUT."""
+        t0 = time.time()
+        hci = self._bt_dut_cmd(serial, "hciconfig hci0", label, timeout)
+        m = re.search(r"BD Address:\s*([0-9A-Fa-f:]{17})", hci)
+        adapter_ok = bool(m) and any(
+            "UP" in line and "RUNNING" in line for line in hci.splitlines())
+        if not adapter_ok:
+            return FctStepResult(
+                label, "FAIL", "hciconfig hci0: adapter not UP/RUNNING",
+                duration=time.time() - t0)
+        addr = str(b.expected_addr or "") or (m.group(1) if m else "")
+        info = self._bt_dut_cmd(
+            serial, (f"bluetoothctl info {addr}" if addr
+                     else "bluetoothctl list"), label, timeout)
+        connected = "Connected: yes" in info
+        paired_ok = ("Paired: yes" in info) or ("Paired:" not in info)
+        detail = f"link {addr or '(any)'} connected"
+        link_ok = connected and paired_ok
+        if not link_ok:
+            con = self._bt_dut_cmd(serial, "hcitool con", label, timeout)
+            link_ok = "ACL" in con and (not addr or addr.lower()
+                                        in con.lower())
+            if link_ok:
+                detail = "link via hcitool con (ACL)"
+        if not link_ok:
+            first = next((ln for ln in info.splitlines() if ln.strip()),
+                         "no link evidence")
+            return FctStepResult(label, "FAIL",
+                                 f"{detail or 'no link'}: {first.strip()}",
+                                 duration=time.time() - t0)
+        return FctStepResult(label, "PASS", detail,
+                             duration=time.time() - t0)
+
+    def _bt_dut_a2dp(self, serial, b, label: str, timeout: float):
+        """An A2DP/Pulse sink on the DUT plus a connected link."""
+        t0 = time.time()
+        sinks = self._bt_dut_cmd(serial, "pactl list short sinks",
+                                 label, timeout)
+        if not re.search(r"\bsink\b", sinks, re.I) \
+                or "not found" in sinks.lower():
+            sinks = self._bt_dut_cmd(serial, "aplay -l", label, timeout)
+        addr = str(b.expected_addr or "")
+        info = self._bt_dut_cmd(
+            serial, (f"bluetoothctl info {addr}" if addr
+                     else "bluetoothctl info"), label, timeout)
+        sink_ok = bool(re.search(r"\bsink\b|a2dp|output", sinks, re.I)) \
+            and "not found" not in sinks.lower()
+        linked = "Connected: yes" in info
+        if not sink_ok and not linked:
+            return FctStepResult(
+                label, "FAIL",
+                "A2DP sink not observable on DUT: pactl/aplay unavailable",
+                duration=time.time() - t0)
+        if not sink_ok:
+            return FctStepResult(label, "FAIL",
+                                 "no A2DP/Pulse sink on the DUT",
+                                 duration=time.time() - t0)
+        if not linked:
+            return FctStepResult(label, "FAIL",
+                                 "bluetoothctl: no Connected: yes",
+                                 duration=time.time() - t0)
+        return FctStepResult(label, "PASS",
+                             "A2DP sink present + link connected",
+                             duration=time.time() - t0)
+
+    def _bt_dut_rssi(self, serial, b, label: str, timeout: float):
+        """Optional RSSI telemetry read on the DUT; unavailable -> SKIP."""
+        t0 = time.time()
+        addr = str(b.expected_addr or "")
+        text = self._bt_dut_cmd(
+            serial, (f"hcitool rssi {addr}" if addr
+                     else "hciconfig -a"), label, timeout)
+        m = re.search(r"RSSI return value:\s*(-?\d+)", text) \
+            or re.search(r"RSSI:\s*(-?\d+)", text)
+        if not m:
+            self.log(f"{label}: SKIP - RSSI not available on the DUT")
+            return FctStepResult(label, "SKIP",
+                                 "RSSI not available on the DUT",
+                                 duration=time.time() - t0)
+        rssi = float(m.group(1))
+        return FctStepResult(
+            label, "PASS" if rssi >= b.rssi_min else "FAIL",
+            f"RSSI {rssi} dBm vs min {b.rssi_min}",
+            duration=time.time() - t0)
+
+    def _bt_dut_side(self, serial, mode: str, b, label: str,
+                     timeout: float):
+        if mode == "pair_connect":
+            return self._bt_dut_pair(serial, b, label, timeout)
+        if mode == "a2dp_sink":
+            return self._bt_dut_a2dp(serial, b, label, timeout)
+        return self._bt_dut_rssi(serial, b, label, timeout)
+
     def run_bluetooth(self, serial, host_runner, human_confirm=None) -> list:
         """Bluetooth sub-tests: RSSI (both DUT kinds), Pair & Connect and
         A2DP Tone/Music (Linux only), each through the B4 adapter."""
@@ -1159,8 +1267,16 @@ class FctTestRunner:
             self.log("Bluetooth skipped: no host runner bound")
             return results
         from .rf_adapters import BluetoothAdapter
+        from .host_platform import platform_key
+        # M77-3: Windows has no built-in classic-BT CLI - judge the rows
+        # from DUT state over the serial console (macOS/Linux unchanged)
+        dut_side = platform_key() == "windows" and serial is not None
 
         def _run(mode: str, label: str, timeout: float):
+            if dut_side:
+                results.append(self._bt_dut_side(
+                    serial, mode, b, label, timeout))
+                return
             t0 = time.time()
             # m23: platform-aware backend; Windows has no built-in
             # classic-BT CLI -> bt_backend_cmds() raises

@@ -161,6 +161,14 @@ as its current release.
   configurable**: `build_windows.ps1 -OutDir <path>` packages
   anywhere (`-SkipProjects` excludes the projects data, `-KeepRunning`
   skips the GUI auto-stop).
+- **M77** (2026-11-06, `develop`) - Windows real-hardware runbook
+  cross-reference: see `16 · Example Build of FCT Test Case`
+  ("Windows real-hardware runbook") and `14 · FAQ` **Q17** for the
+  Windows firewall setup; the same milestone makes the host ping
+  cross-platform, makes the Wi-Fi connect step really consume its
+  `timeout_s`, judges Bluetooth pair / A2DP on the DUT when the host
+  CLI is unavailable, and auto-binds the SFTP `ssh` channel over the
+  Wi-Fi DUT IP.
 
 
 

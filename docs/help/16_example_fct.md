@@ -241,6 +241,50 @@ and the scripts travel together with the project.
 3. Iterate on the captured patterns / limits and re-export until the
    plan is approved, then publish `Draft` -> `Final`.
 
+## Windows real-hardware runbook
+
+### 1. DUT power-cycle timing (the first FCT row)
+
+The first FCT row is a `MessageOKtoConsole` operator gate with the
+`gostop` style.  Press **Run**, the GO / STOP dialog appears, then:
+
+1. **Power the DUT on.**
+2. **Wait for the `login:` prompt (~25 s on the FRDM-IMX93 BSP).**
+3. **Press GO.**
+
+Pressing GO before the prompt is up leaves the carriage return in the
+U-Boot window and can abort autoboot.  For this project the GO answer
+is a carriage return (`send_yes: "\r"`), not `y`; keep
+`send_console_answer` on only for rows the DUT really answers.
+
+### 2. `Console_cli` step that starts the Host iperf3 server
+
+The throughput test needs an iperf3 server on the Host PC.  Author a
+`SendtoCLI` / `Console_cli` row with `host_cmd: "iperf3 -s -D"`
+(Windows: the bundled `iperf3.exe`, e.g.
+`"C:\MTK All-in-One\MTK-GUI\dist\MTK_GUI\_internal\iperf3.exe -s -D"`).
+
+- The host runner **kills the process after `timeout_s`** (default
+  30 s), so a long-running server **must** be detached (`-D`, or
+  `start /b`) - never foreground, otherwise the server dies with the
+  step.
+- The server port (5201) must be allowed inbound by Windows Defender
+  Firewall (see `14_faq.md`, Q17).
+
+### 3. SSH pull of `fat.log` over Wi-Fi
+
+The SFTP row uses the SSH channel.  When no SSH console is bound, the
+engine auto-binds it to the DUT's **Wi-Fi** address (`fct_dut_ip`,
+produced by the Wi-Fi connect step) with the `equipment.dut.ssh`
+credentials, pulls `/root/fat.log` into `{{dut_report}}` and deletes
+the remote copy afterwards.
+
+DUT-side preconditions: `sshd` listening on `:22`, root login allowed
+(an empty root password is supported), and `/root/fat.log` present
+(for example `dmesg > /root/fat.log`).  Without a Wi-Fi IP the row is
+an ERROR (`no DUT Wi-Fi IP; run the Wi-Fi connect step before SFTP`) -
+it never falls back to the serial console.
+
 ## Summary - the FCT build loop
 
 - Load the YAML -> configure the Console message chain -> (optional)

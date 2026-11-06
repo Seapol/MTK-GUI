@@ -852,12 +852,25 @@ def lan_setup_plan(params: dict | None) -> dict:
 # ---------------------------------------------------------------------------
 # M41 SSH three-layer diagnosis: network -> TCP 22 -> auth
 # ---------------------------------------------------------------------------
-def ping_cmd(host: str) -> str:
-    """One-shot ping command for the Host PC's platform."""
+#: M77-1: packet-loss token, both dialects (Linux "0% packet loss",
+#: Windows "Lost = 0 (0% loss)")
+PING_LOSS_RE = r"(\d+(?:\.\d+)?)%\s*(?:packet\s*)?loss"
+
+
+def ping_cmd(host: str, count: int = 1) -> str:
+    """Ping command for the Host PC's platform.
+
+    ``count`` defaults to 1 so every existing call site keeps the
+    one-shot command; Windows uses ``-n``, every other host ``-c``.
+    """
+    try:
+        count = max(1, int(count))
+    except (TypeError, ValueError):
+        count = 1
     key = platform_key()
     if key == "windows":
-        return f"ping -n 1 {host}"
-    return f"ping -c 1 {host}"
+        return f"ping -n {count} {host}"
+    return f"ping -c {count} {host}"
 
 
 def ping_host(host: str, timeout_s: float = 4.0) -> bool:
