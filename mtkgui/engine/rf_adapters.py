@@ -87,7 +87,10 @@ class WifiAdapter:
         self.warmup_packets = int(cfg.get("warmup_packets", 3))
         self.assoc_wait_s = float(cfg.get("assoc_wait_s", 8))
         self.run_iperf = bool(cfg.get("iperf3", False))
-        self.iperf_timeout_s = float(cfg.get("iperf_timeout_s", 60))
+        # M78-1/D3: the iperf budget defaults to the ROW budget - the old
+        # constant 60 s silently shadowed a short declared timeout.
+        self.iperf_timeout_s = float(cfg.get("iperf_timeout_s")
+                                     or cfg.get("timeout_s") or 60)
         self.timeout_s = float(cfg.get("timeout_s", 60))
         self.cmds = _backend_section(rf_cfg, "wifi")
         self._runner = runner

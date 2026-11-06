@@ -92,11 +92,118 @@ def _wait_ms(case: dict) -> int:
     return 100
 
 
-def _timeout_ms(case: dict) -> int:
+#: M78-1: one wall-clock budget per step.  op rows fall back to 60 s,
+#: every other row to 30 s (the documented defaults).
+DEFAULT_OP_BUDGET_S = 60.0
+DEFAULT_STEP_BUDGET_S = 30.0
+
+#: typed sub-timeouts that used to shadow the row's own budget (M78-1
+#: requirement 3).  They only apply when the row carries no explicit
+#: ``timeout_s`` / ``timeout_ms``.
+TYPED_TIMEOUT_FIELDS = ("rf_timeout_s", "iperf_timeout_s", "pair_timeout",
+                        "rssi_timeout", "scan_timeout", "tone_timeout")
+
+
+def _budget_seconds(field: str, value):
+    """A raw candidate value -> seconds (None = not a usable candidate).
+
+    ``timeout_ms`` is converted to seconds; an explicit ``0`` is a valid
+    answer (0 = wait forever / unlimited, the historic dialog rule)."""
     try:
-        return max(1000, min(99999, int(case.get("timeout_ms", 5000))))
+        raw = float(value)
     except (TypeError, ValueError):
-        return 5000
+        return None
+    if raw < 0:
+        return None
+    return raw / 1000.0 if field.endswith("_ms") else raw
+
+
+def _find_typed(params: dict, key: str):
+    """First configured value of a typed sub-timeout in any params
+    layer (step params, the embedded RF config, the rendered args)."""
+    if not isinstance(params, dict):
+        return None
+    sources = (params, params.get("fct_rf"), params.get("args"),
+               (params.get("fct_step") or {}).get("params"))
+    for source in sources:
+        if isinstance(source, dict) and source.get(key) not in (None, ""):
+            return source.get(key)
+    return None
+
+
+def resolve_step_budget(case: dict, op: bool = False,
+                        log=None) -> tuple:
+    """The ONE wall-clock budget (seconds) of one step (M78-1).
+
+    Precedence:
+    * op rows: ``op_params.timeout_s`` -> ``timeout_s`` ->
+      ``timeout_ms``/1000 -> ``args.timeout_s`` -> 60
+    * every other row: ``timeout_s`` -> ``timeout_ms``/1000 -> a typed
+      sub-timeout (``rf_timeout_s`` / ``iperf_timeout_s`` /
+      ``pair_timeout`` / ``rssi_timeout`` / ...) -> 30
+
+    When two candidates are present and disagree by more than 10 %, ONE
+    warning names both fields and the winner (a conflict is never
+    resolved silently).  Returns ``(budget_s, source, warning)``;
+    ``log`` (optional callable) receives the warning."""
+    case = dict(case or {})
+    op_params = dict(case.get("op_params") or {})
+    params = dict(case.get("params") or {})
+    args = dict(params.get("args") or case.get("args") or {})
+    items: list = []
+    if op:
+        items = [("op_params.timeout_s", op_params.get("timeout_s")),
+                 ("timeout_s", case.get("timeout_s")),
+                 ("timeout_ms", case.get("timeout_ms")),
+                 ("args.timeout_s", args.get("timeout_s"))]
+    else:
+        items = [("timeout_s", case.get("timeout_s")),
+                 ("timeout_ms", case.get("timeout_ms"))]
+        for key in TYPED_TIMEOUT_FIELDS:
+            value = _find_typed({**params, "fct_step": case},
+                                key)
+            if value is None:
+                value = case.get(key)
+            if value is not None:
+                items.append((key, value))
+    present: list = []
+    for field, value in items:
+        seconds = _budget_seconds(field, value)
+        if seconds is not None:
+            present.append((field, seconds))
+    # an explicit 0 (= wait forever) only wins when NOTHING positive is
+    # declared; a positive row budget always outranks a 0 marker default
+    positive = [item for item in present if item[1] > 0]
+    if positive:
+        present = positive
+    default = DEFAULT_OP_BUDGET_S if op else DEFAULT_STEP_BUDGET_S
+    if not present:
+        return default, "default", ""
+    winner_field, winner_s = present[0]
+    warning = ""
+    if winner_s > 0:
+        for field, seconds in present[1:]:
+            if seconds <= 0:
+                continue
+            if abs(seconds - winner_s) > winner_s * 0.1:
+                warning = (f"WARNING: conflicting timeout fields - "
+                           f"{winner_field}={winner_s:g}s wins over "
+                           f"{field}={seconds:g}s (>10% difference)")
+                break
+    if warning and callable(log):
+        log(warning)
+    return winner_s, winner_field, warning
+
+
+def _timeout_ms(case: dict, op: bool = False) -> int:
+    """Row timeout in milliseconds from the single budget resolver
+    (M78-1: the old ``min(99999, ...)`` silent clamp is gone - a
+    declared 600000 ms budget reaches the step unchanged)."""
+    budget, _source, _warning = resolve_step_budget(case, op=op)
+    if budget <= 0:
+        return 0
+    # 0.1 ms resolution; no artificial ceiling (D1)
+    return int(round(budget * 1000))
 
 
 def _ict_steps(config: dict, stage: str) -> list[TestStep]:
@@ -111,7 +218,7 @@ def _ict_steps(config: dict, stage: str) -> list[TestStep]:
                           or OP_STEPS.get(name, {}))
             steps.append(TestStep(
                 stage, "op", name, op_params=params,
-                wait_ms=_wait_ms(case), timeout_ms=_timeout_ms(case),
+                wait_ms=_wait_ms(case), timeout_ms=_timeout_ms(case, op=True),
                 enable=bool(case.get("enable", True))))
             continue
         steps.append(TestStep(
@@ -135,7 +242,8 @@ def _fct_steps(config: dict, stage: str) -> list[TestStep]:
                   if case.get("op_params") else None)
         steps.append(TestStep(
             stage, kind, name, op_params=params,
-            wait_ms=_wait_ms(case), timeout_ms=_timeout_ms(case),
+            wait_ms=_wait_ms(case),
+            timeout_ms=_timeout_ms(case, op=kind == "op"),
             enable=bool(case.get("enable", True))))
     return steps
 

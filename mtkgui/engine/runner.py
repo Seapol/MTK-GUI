@@ -66,6 +66,19 @@ def op_verdict_status(verdict: str) -> StepStatus:
     """Map a :meth:`TestRunner._run_op` verdict to the row status."""
     return _OP_VERDICT_STATUS.get(verdict, StepStatus.ERROR)
 
+
+def _console_buffer_len(mc, key: str) -> int:
+    """Current console read-buffer length (0 for console doubles that do
+    not expose the API - headless tests)."""
+    fn = getattr(mc, "get_read_buffer", None)
+    if not callable(fn):
+        return 0
+    try:
+        return len(fn(key))
+    except Exception:                 # noqa: BLE001 - never abort a run
+        return 0
+
+
 #: the DAQ AI step produced by the ICT sequence builder arrives as
 #: kind="test" with this NAME (the Power rails are pre-allocated in
 #: Channel Allocation) - it MUST dispatch to the rail-capture path
@@ -568,29 +581,56 @@ class TestRunner(QObject):
                      f"channel -> Error")
             return "Error"
         iface = plan["iface"]
-        # 1. Wi-Fi driver check (link up + `iw dev <iface> info`)
+        # M78-1/M78-2: ONE budget covers the WHOLE op - the prepare /
+        # probe / conf_write / connect stages draw from the SAME wall
+        # clock as the address polling (D2).  Every internal sub-wait is
+        # clamped by the remaining budget.
+        budget_s = float(plan.get("timeout_s") or 60.0)
+        started = time.time()
+        deadline = started + max(1.0, budget_s)
+
+        def _left(cap: float) -> float:
+            return max(0.05, min(float(cap), deadline - time.time()))
+
+        def _overrun() -> bool:
+            return time.time() >= deadline
+
+        def _abort_budget() -> str:
+            elapsed = time.time() - started
+            self._last_op_error = (f"timeout after {elapsed:.1f}s "
+                                   f"(budget {budget_s:.0f}s)")
+            env._log(f"{tag} op {name}: budget exceeded: {elapsed:.1f}s > "
+                     f"{budget_s:.0f}s -> FAIL")
+            return "Fail"
+
+        env._log(f"{tag} op {name}: waiting for {iface} IPv4 "
+                 f"up to {budget_s:.0f}s")
         if plan["type"] == "wifi_connect":
             for command in plan["prepare"]:
-                self._net_run(mc, key, command, wait_s=6.0)
-            info = self._net_run(mc, key, plan["probe"], wait_s=6.0)
+                if _overrun():
+                    return _abort_budget()
+                self._net_run(mc, key, command, wait_s=_left(6.0))
+            if _overrun():
+                return _abort_budget()
+            info = self._net_run(mc, key, plan["probe"], wait_s=_left(6.0))
             if not host_platform.wifi_driver_ready(info, iface):
+                if _overrun() and not info:
+                    return _abort_budget()
                 self._last_op_error = "Wi-Fi driver not ready"
                 env._log(f"{tag} op {name}: Wi-Fi driver not ready "
                          f"({iface}) -> Fail")
                 return "Fail"
             # 2. wpa_supplicant.conf from the Wi-Fi page SSID / password
-            self._net_run(mc, key, plan["conf_write"], wait_s=8.0)
+            if _overrun():
+                return _abort_budget()
+            self._net_run(mc, key, plan["conf_write"], wait_s=_left(8.0))
             # 3. associate
-            self._net_run(mc, key, plan["connect"], wait_s=20.0)
+            if _overrun():
+                return _abort_budget()
+            self._net_run(mc, key, plan["connect"], wait_s=_left(20.0))
         # 4. DHCP / static address, then confirm the emitted DUT IP.
-        # M77-2: the step's configured timeout_s is the WHOLE budget -
-        # DHCP association completes asynchronously, so the address
-        # stage polls the confirm command until the deadline instead of
-        # giving up after one quiet-window read.
-        timeout_s = float(plan.get("timeout_s") or 60.0)
-        deadline = time.time() + max(1.0, timeout_s)
-        env._log(f"{tag} op {name}: waiting for {iface} IPv4 "
-                 f"up to {timeout_s:.0f}s")
+        # M77-2: DHCP association completes asynchronously, so the
+        # address stage polls the confirm command until the deadline.
         ip = ""
         for command in plan["net_commands"]:
             remaining = deadline - time.time()
@@ -616,12 +656,16 @@ class TestRunner(QObject):
             if pause > 0:
                 time.sleep(pause)
         if not ip:
+            if _overrun():
+                elapsed = time.time() - started
+                env._log(f"{tag} op {name}: budget exceeded: "
+                         f"{elapsed:.1f}s > {budget_s:.0f}s -> FAIL")
             self._last_op_error = f"no IPv4 address on {iface}"
             env._log(f"{tag} op {name}: no IPv4 address on {iface} "
                      f"-> Fail")
             return "Fail"
         env.fct_dut_ip = ip
-        elapsed = time.time() - (deadline - max(1.0, timeout_s))
+        elapsed = time.time() - started
         env._log(f"{tag} op {name}: IPv4 {ip} acquired after "
                  f"{elapsed:.1f}s (poll {max(poll, 1)})")
         for line in op_status_lines(name, params):
@@ -884,8 +928,21 @@ class TestRunner(QObject):
         if kind == "op":
             # standard operation step: move fixture / PSU state, log
             # every sub-action, Done / Fail / Ignore or Error
-            params = (env.fct_op_params[r]
-                      if r < len(env.fct_op_params) else None)
+            params = dict((env.fct_op_params[r]
+                           if r < len(env.fct_op_params) else None) or {})
+            # M78-1: the published case row's timeout_ms is the op's
+            # declared budget - hand it to the op runner (the network
+            # ops then clamp every internal stage by it).
+            from .sequence import resolve_step_budget
+            case_ms = (env.fct_timeouts[r]
+                       if r < len(env.fct_timeouts) else None)
+            if case_ms not in (None, ""):
+                budget, source, _warn = resolve_step_budget(
+                    {"op_params": params, "timeout_ms": case_ms},
+                    op=True, log=env._log)
+                params.setdefault("timeout_s", float(budget))
+                env._log(f"FCT {name}: budget {float(budget):g}s "
+                         f"(source {source})")
             verdict = self._run_op("FCT", name, params, interactive)
             status = op_verdict_status(verdict)
             self._put("fct", r, status,
@@ -1121,7 +1178,11 @@ class TestRunner(QObject):
         types run through the fct_exec executor with the keyword
         tables; GUI_CONFIRM answers via the operator dialog
         (interactive) or a simulated GO (run_demo / smoke)."""
-        from ..gui.yamlbuild.fct_build import FctStep
+        from ..gui.yamlbuild.fct_build import (
+            STEP_GUI_CONFIRM,
+            STEP_MESSAGE_CHECK,
+            FctStep,
+        )
         from .fct_channels import ConsoleBufferChannel, VirtualFctChannel
         from .fct_exec import (
             VERDICT_ERROR,
@@ -1135,6 +1196,37 @@ class TestRunner(QObject):
         env = self.env
         _stop_flag = {"stop": False}   # GoStop STOP -> the run stops
         step = FctStep.from_dict(marker)
+        # M78-1: resolve the ONE budget from the published case row
+        # (fct_step.timeout_s / case timeout_ms / op params) and make it
+        # the executor's truth; a conflicting pair warns once.  Operator
+        # gates keep their documented "wait forever" semantics - only
+        # their console-message wait stage is time-bounded.
+        from .sequence import resolve_step_budget
+        _case_ms = (getattr(env, "fct_timeouts", [])[r]
+                    if r < len(getattr(env, "fct_timeouts", [])) else None)
+        _p = step.params or {}
+        _human_gate = (
+            (step.step_type == STEP_GUI_CONFIRM and not _p.get("op"))
+            or (step.step_type == STEP_MESSAGE_CHECK and not step.channel
+                and not _p.get("fct_console")))
+        if _human_gate:
+            budget_s, budget_source = 0.0, "human gate (wait forever)"
+        elif float(step.timeout_s or 0.0) <= 0 \
+                and _case_ms in (None, "", 1000):
+            # an explicit "no timeout" marker with only the emitter's
+            # synthetic 1 s case value keeps the documented unlimited
+            # semantics (a real positive row budget always wins instead)
+            budget_s, budget_source = 0.0, "no timeout (marker 0)"
+        else:
+            budget_s, budget_source, _warn = resolve_step_budget(
+                {"timeout_s": step.timeout_s, "timeout_ms": _case_ms,
+                 "op_params": dict(_p), "params": dict(_p)},
+                op=bool(_p.get("op")), log=env._log)
+        step.timeout_s = float(budget_s)
+        step.params["__budget_source"] = budget_source
+        if step.params.get("op"):
+            # the standard-op runner reads timeout_s from the op params
+            step.params.setdefault("timeout_s", float(budget_s))
         station, user = "", ""
         try:
             from ..gui import identity
@@ -1437,6 +1529,8 @@ class TestRunner(QObject):
                 "row": r, "key": key, "name": name,
                 "keywords": keywords, "from_len": from_len,
                 "t0": t0,
+                "budget_s": timeout_ms / 1000.0,
+                "stall_s": 8.0,
                 "deadline": time.monotonic()
                 + max(0.1, timeout_ms / 1000.0),
             }
@@ -1444,18 +1538,34 @@ class TestRunner(QObject):
             return
 
         if kind in ("WaitforConsole", "WaitforCLI"):
-            # search the whole accumulated buffer: the boot log may
-            # already contain the expected keyword (no virtual fault)
+            # M78-4: judge ONLY bytes arriving after this row started;
+            # ``match_history: true`` is the explicit opt-in for a
+            # prompt that scrolled past before the row ran.
+            cfg = (env.fct_op_params[r]
+                   if r < len(env.fct_op_params) else None) or {}
+            match_history = bool(cfg.get("match_history"))
             keywords = [q for q in quotes if q]
             if not keywords:
                 fallback = console_keyword_fallback(rest)
                 keywords = [fallback] if fallback else []
             env._log(f"FCT {name}: waiting for "
                      f"{' / '.join(keywords) or 'output'} ...")
+            env._log(f"FCT {name}: budget {timeout_ms / 1000.0:g}s "
+                     f"(source timeout_ms)")
+            _raw_stall = cfg.get("stall_s")
+            try:
+                stall_s = 8.0 if _raw_stall is None else max(
+                    0.0, float(_raw_stall))
+            except (TypeError, ValueError):
+                stall_s = 8.0
             self._fct_console_wait = {
                 "row": r, "key": key, "name": name,
-                "keywords": keywords, "from_len": 0,
+                "keywords": keywords,
+                "from_len": (0 if match_history
+                             else len(mc.get_read_buffer(key))),
                 "t0": t0,
+                "budget_s": timeout_ms / 1000.0,
+                "stall_s": stall_s,
                 "deadline": time.monotonic()
                 + max(0.1, timeout_ms / 1000.0),
             }
@@ -1510,9 +1620,18 @@ class TestRunner(QObject):
                             if r < len(env.fct_timeouts) else 10000) / 1000.0
         env._log(f"FCT {name}: waiting for console message "
                  f"{' / '.join(keywords) or 'output'} ...")
+        env._log(f"FCT {name}: budget {float(wait_timeout):g}s "
+                 f"(source timeout_ms)")
+        # M78-4: the operator-message wait is delta by default too;
+        # ``match_history: true`` opts into the buffered prompt.
         self._fct_console_wait = {
             "row": r, "key": key, "name": name,
-            "keywords": keywords, "from_len": 0, "t0": t0,
+            "keywords": keywords,
+            "from_len": (0 if cfg.get("match_history")
+                         else _console_buffer_len(env.multi_console, key)),
+            "t0": t0,
+            "budget_s": float(wait_timeout),
+            "stall_s": 0.0,          # operator gate: never watchdog it
             "deadline": time.monotonic() + max(0.1, float(wait_timeout)),
             "message_kind": kind, "cfg": dict(cfg),
         }
@@ -1577,6 +1696,13 @@ class TestRunner(QObject):
                          f"-> Error")
             return
         buf = mc.get_read_buffer(w["key"])
+        now = time.monotonic()
+        if "last_len" not in w:
+            w["last_len"] = w.get("from_len", 0)
+            w["last_at"] = w.get("t0", now)
+        if len(buf) != w["last_len"]:
+            w["last_len"] = len(buf)
+            w["last_at"] = now
         text = buf[w["from_len"]:].decode("utf-8", "replace")
         if w["keywords"] and any(k in text for k in w["keywords"]):
             if w.get("message_kind"):
@@ -1588,7 +1714,18 @@ class TestRunner(QObject):
                     "PASS", f"FCT {w['name']}: found "
                             f"{' / '.join(w['keywords'])} -> PASS")
             return
-        if time.monotonic() < w["deadline"]:
+        if now < w["deadline"]:
+            # M78-3: the stall watchdog runs INSIDE the wait loop - a
+            # silent DUT fails long before the full budget is spent.
+            stall_s = float(w.get("stall_s") or 0.0)
+            if (not w.get("message_kind") and stall_s > 0
+                    and w["keywords"]
+                    and now - w["last_at"] >= stall_s):
+                budget = float(w.get("budget_s") or 0.0)
+                self._finish_console_wait(
+                    "FAIL",
+                    f"FCT {w['name']}: watchdog: no output for "
+                    f"{stall_s:.1f}s (budget {budget:g}s not reached)")
             return  # keep waiting
         if len(buf) - w["from_len"] == 0:
             self.env._instrument_error("DAQ")

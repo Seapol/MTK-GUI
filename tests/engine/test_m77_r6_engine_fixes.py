@@ -160,7 +160,9 @@ def test_wifi_connect_polls_until_the_configured_budget():
     runner = TestRunner(env)
     t0 = time.time()
     verdict = runner._run_network_op(
-        "FCT", "Wi-Fi: Connect DUT to AP", _wifi_params(6.0))
+        # M78-2: the budget now covers prepare/probe/connect too, so a
+        # 3-poll acquisition needs more than the old polling-only window
+        "FCT", "Wi-Fi: Connect DUT to AP", _wifi_params(12.0))
     elapsed = time.time() - t0
     assert verdict == "Done"
     assert env.fct_dut_ip == "192.168.71.12"

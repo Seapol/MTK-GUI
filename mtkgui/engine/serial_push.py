@@ -179,7 +179,8 @@ def push_file(channel, local_path: str, remote_path: str, *,
 # ---------------------------------------------------------------------------
 def push_bundle(channel, files: list, *, log=None, progress=None,
                 prompt_re=DEFAULT_PROMPT, high_baud: int = HIGH_BAUD,
-                default_baud: int = DEFAULT_BAUD) -> list:
+                default_baud: int = DEFAULT_BAUD,
+                deadline: float = 0.0) -> list:
     """Deploy several files in one high-speed session.
 
     ``files`` is a list of dicts:
@@ -208,6 +209,12 @@ def push_bundle(channel, files: list, *, log=None, progress=None,
     try:
         _send("stty -echo", "stty -echo")
         for spec in files:
+            # M78-2: never START another file after the row budget is
+            # spent (the in-flight file finishes so the DUT console stays
+            # in a clean heredoc-free state)
+            if deadline and time.monotonic() >= deadline:
+                raise PushError(
+                    f"push budget exceeded before {spec['remote']}")
             res = push_file(channel, spec["local"], spec["remote"],
                             log=_log, progress=progress, prompt_re=prompt_re)
             if spec.get("unzip"):

@@ -67,6 +67,10 @@ class VirtualFctChannel:
             raise ChannelClosed("virtual channel closed")
         self.written.append(data)
 
+    def history_text(self) -> str:
+        """M78-4: pre-injected scripted output = the step's history."""
+        return "\n".join(self._lines)
+
     def close(self) -> None:
         self._closed = True
 
@@ -244,6 +248,19 @@ class ConsoleBufferChannel:
         only return bytes that arrive AFTER the command was written."""
         self._consumed = len(self._mc.get_read_buffer(self._key))
         self._pending = ""
+
+    def history_text(self) -> str:
+        """M78-4: the bytes received BEFORE the step started (the
+        ``match_history: true`` evidence window)."""
+        buf = self._mc.get_read_buffer(self._key)
+        tail = buf[self._consumed:].decode("utf-8", "replace")
+        return self._pending + tail
+
+    def received_len(self) -> int:
+        """M78-3: total bytes received on the transport - the stall
+        watchdog compares this counter (the repeated PARTIAL prompt line
+        returned by every read is NOT new traffic)."""
+        return len(self._mc.get_read_buffer(self._key))
 
     def close(self) -> None:
         pass                                # the console owns the transport

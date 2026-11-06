@@ -52,7 +52,8 @@ class TestStepLoading:
             {"name": "CapturefromCLI: 'OK' (expected)"})
         step = load_sequence(cfg)[1].steps[-1]
         assert step.kind == "CapturefromCLI"
-        assert step.wait_ms == 100 and step.timeout_ms == 5000
+        # M78-1: the documented default budget for a non-op row is 30 s
+        assert step.wait_ms == 100 and step.timeout_ms == 30000
         assert step.enable is True
 
     def test_as_ict_tuple_shape(self):

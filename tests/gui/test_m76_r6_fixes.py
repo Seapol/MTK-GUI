@@ -279,12 +279,16 @@ def test_wait_only_row_uses_wait_timeout():
 
 
 def test_wait_only_row_is_running_at_10s():
-    """Acceptance D5: wait_timeout=30 keeps the row RUNNING at 10 s."""
+    """Acceptance D5: wait_timeout=30 keeps the row RUNNING at 10 s.
+
+    M78-3: the 8 s stall watchdog would fail a silent row first, so this
+    M76 acceptance disables it explicitly (``stall_s: 0``) - the
+    watchdog has its own M78 test."""
     channel = VirtualFctChannel()
     step = fe.FctStep(
         name="Console - wait for login", step_type="MESSAGE_CHECK",
         channel="ser1", timeout_s=30.0,
-        params={"fct_console": True, "kind": "wait",
+        params={"fct_console": True, "kind": "wait", "stall_s": 0.0,
                 "expect_pass_re": "login:", "capture_is_expected": True})
     result: list = []
     worker = threading.Thread(

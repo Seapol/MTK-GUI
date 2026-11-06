@@ -273,6 +273,10 @@ class TestVirtualConsoleSteps:
         # cleared between runs) while the new round's output had not
         # arrived yet -> cross-round misjudgement.  The buffer is
         # cleared at every cycle start now.
+        #
+        # M78-4: the wait is delta-only by default, so round 1 opts in
+        # to ``match_history`` (its evidence legitimately predates the
+        # row), while round 2's cleared buffer can never satisfy it.
         self._connect(env)                  # boot log lands in the buffer
         runner = TestRunner(env)
         runner.state = "running"
@@ -280,6 +284,7 @@ class TestVirtualConsoleSteps:
         env.fct_rows = ["WaitforConsole: VCOM0, 'Boot log OK'"]
         env.fct_kinds = ["WaitforConsole"]
         env.fct_enables = [True]
+        env.fct_op_params[0] = {"match_history": True}
         runner._exec_fct_row(0, interactive=True)      # round 1
         runner._poll_fct_console()
         assert env.rows[("fct", 0)] == "PASS"
