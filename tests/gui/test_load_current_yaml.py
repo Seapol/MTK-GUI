@@ -50,7 +50,11 @@ def window(qapp):
 
 def _make_ict_ready(window):
     """Parsed nets + full channel allocation + enabled build modules
-    (the blocks 01-04 readiness state)."""
+    (the blocks 01-04 readiness state).
+
+    M79: this is an ICT-only project, so the (empty) FCT stage is
+    disabled - an enabled empty sequence would be a validation error."""
+    window.workflow_page.set_overall_en([True, False])
     model = window.yaml_build_page.model
     model.imported["testable_nets"] = {
         "3V3": {"category": "Power", "members": ["U1.5"]},
@@ -220,11 +224,16 @@ def test_zero_test_items_block_run(window, monkeypatch):
 
 
 def test_save_without_test_items_asks(window, monkeypatch, tmp_path):
-    """Saving a YAML with no usable test items asks for confirmation:
-    No cancels the save, Yes checkpoints the working file."""
+    """Saving a YAML with no usable test items asks for confirmation;
+    No cancels.  M79: even Yes cannot write it - a sequence without a
+    real test is a blocking validation error."""
     page = window.workflow_page
     assert page.test_item_counts() == (0, 0)
     out = tmp_path / "empty.yaml"
+    warned: list = []
+    monkeypatch.setattr(
+        "mtkgui.main_window.QMessageBox.warning",
+        lambda *a, **k: warned.append(a) or 0)
     answers = iter([QMessageBox.StandardButton.No])
     monkeypatch.setattr(
         "mtkgui.main_window.QMessageBox.question",
@@ -236,9 +245,10 @@ def test_save_without_test_items_asks(window, monkeypatch, tmp_path):
     monkeypatch.setattr(
         "mtkgui.main_window.QMessageBox.question",
         lambda *a, **k: next(answers))
-    window._save_yaml_to(str(out))
-    assert out.exists()
-    assert window._project_path == str(out)
+    assert window._save_yaml_to(str(out)) is False
+    assert not out.exists()
+    assert warned, "the M79 validation error dialog never appeared"
+    assert window._project_path is None
 
 
 def test_close_clears_run_state(window, monkeypatch):

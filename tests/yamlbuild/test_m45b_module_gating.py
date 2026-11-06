@@ -55,6 +55,17 @@ FCT_OK = yaml.safe_dump({"fct_test_config": {
 }}, sort_keys=False)
 
 
+def _make_valid_project(window):
+    """M79: a saveable project needs at least one real test.
+
+    The tests below exercise the Product Information / save plumbing,
+    so give the window an FCT-only project with one console test row
+    (the ICT stage is disabled, which M79 exempts)."""
+    window.workflow_page.set_overall_en([False, True])
+    window.yaml_build_page.model.set_params(
+        "fct_build", {"fct_test_config_yaml": FCT_OK})
+
+
 @pytest.fixture(scope="module")
 def qapp():
     return QApplication.instance() or QApplication([])
@@ -247,6 +258,7 @@ def test_apply_save_prompts_and_writes_product(window, tmp_path,
     """Missing Product Information -> modal prompt; OK with a Part
     Number writes ``product:`` and the save proceeds."""
     from mtkgui import main_window as mw
+    _make_valid_project(window)        # M79: a saveable project
     monkeypatch.setattr(QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Yes)
     asked: list = []
@@ -270,6 +282,7 @@ def test_apply_save_cancel_prompt_writes_nothing(window, tmp_path,
                                                  monkeypatch):
     """Cancel on the Product Information prompt aborts the save."""
     from mtkgui import main_window as mw
+    _make_valid_project(window)        # M79: a saveable project
     monkeypatch.setattr(QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Yes)
     monkeypatch.setattr(mw, "ask_product_information",
@@ -282,6 +295,7 @@ def test_apply_save_cancel_prompt_writes_nothing(window, tmp_path,
 def test_existing_product_does_not_prompt(window, tmp_path, monkeypatch):
     """A project that already carries a Part Number saves silently."""
     from mtkgui import main_window as mw
+    _make_valid_project(window)        # M79: a saveable project
     monkeypatch.setattr(QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Yes)
     asked: list = []
@@ -298,10 +312,9 @@ def test_fct_only_project_hits_the_same_product_prompt(window, tmp_path,
     """Product identity is project-level: an FCT-only project (no ICT
     content at all) prompts exactly like an ICT project."""
     from mtkgui import main_window as mw
+    _make_valid_project(window)        # M79: FCT-only, one real test
     monkeypatch.setattr(QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Yes)
-    window.yaml_build_page.model.set_params(
-        "fct_build", {"fct_test_config_yaml": FCT_OK})
     prompted: list = []
     monkeypatch.setattr(
         mw, "ask_product_information",

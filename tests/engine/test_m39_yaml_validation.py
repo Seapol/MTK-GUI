@@ -30,23 +30,27 @@ def test_clean_document_passes():
 
 def test_retired_flash_fat_in_ict_is_an_error():
     doc = _doc(ict=[{"name": "Init Instruments", "kind": "op"},
-                    {"name": "Flash FAT Firmware", "kind": "op"}])
+                    {"name": "R-GND - TP_P01", "kind": "R-GND"},
+                    {"name": "Flash FAT Firmware", "kind": "op"}],
+               fct=[{"name": "MessageGoStop", "kind": "MessageGoStop"}])
     issues = yv.validate_project_yaml(doc)
     assert len(issues) == 1
     issue = issues[0]
     assert issue.severity == yv.SEVERITY_ERROR
-    assert issue.location == "ict_test_cases[1].name"
+    assert issue.location == "ict_test_cases[2].name"
     assert "delete the row 'Flash FAT Firmware'" in issue.message
     assert "ict: ict_test_cases" in issue.message
     assert "replace it with a Flash_GUI step" in issue.message
 
 
 def test_retired_flash_oobe_in_fct_is_an_error():
-    doc = _doc(fct=[{"name": "Flash OOBE Firmware", "kind": "op"}])
+    doc = _doc(ict=[{"name": "R-GND - TP_P01", "kind": "R-GND"}],
+               fct=[{"name": "MessageGoStop", "kind": "MessageGoStop"},
+                    {"name": "Flash OOBE Firmware", "kind": "op"}])
     issues = yv.validate_project_yaml(doc)
     assert len(issues) == 1
     assert issues[0].severity == yv.SEVERITY_ERROR
-    assert issues[0].location == "fct_test_cases[0].name"
+    assert issues[0].location == "fct_test_cases[1].name"
     assert "Flash OOBE Firmware" in issues[0].message
 
 
@@ -63,7 +67,8 @@ def test_retired_rows_in_both_sequences_are_reported():
 
 def test_other_steps_are_unaffected():
     doc = _doc(ict=[{"name": "Fixture Clamp Down", "kind": "op"},
-                    {"name": "Power On DUT", "kind": "op"}],
+                    {"name": "Power On DUT", "kind": "op"},
+                    {"name": "R-GND - TP_P01", "kind": "R-GND"}],
                fct=[{"name": "Flash_GUI", "kind": "Flash_GUI"},
                     {"name": "Delay", "kind": "Delay"}])
     assert yv.validate_project_yaml(doc) == []
@@ -104,7 +109,8 @@ def test_load_path_reports_retired_step(tmp_path):
     path.write_text(
         "product: {part_number: TEST-0001}\n"
         "test_workflow:\n"
-        "  ict_test_cases: []\n"
+        "  ict_test_cases:\n"
+        "    - {name: R-GND - TP_P01, kind: R-GND}\n"
         "  fct_test_cases:\n"
         "    - {name: Flash FAT Firmware, kind: op}\n"
         "    - {name: MessageGoStop, kind: MessageGoStop}\n",

@@ -59,6 +59,8 @@ def _sandbox_cwd(tmp_path, monkeypatch):
 @pytest.fixture()
 def window(qapp):
     w = MainWindow(role="Supervisor", mode="Real", fixture="ATE")
+    # M79: the FCT-only flows here keep the (empty) ICT stage disabled
+    w.workflow_page.set_overall_en([False, True])
     yield w
     w.close()
     w.deleteLater()

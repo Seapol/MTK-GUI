@@ -79,6 +79,88 @@ def rule_retired_flash_steps(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_flash_steps)
 
 
+#: M79: row kinds that only report that the step ran / were skipped.
+#: They can never judge the DUT itself, so they do not make a sequence
+#: a "real test" sequence.  Everything else (console capture / wait,
+#: WIFI, Bluetooth, SFTP, SendtoCLI with expectations, human-confirm
+#: gates, external-tool message checks, ICT measurements) counts.
+_NON_TEST_KINDS = frozenset({
+    "op", "delay", "messageok", "messageoktoconsole",
+})
+
+#: stage name fragment -> (canonical label, sequence key)
+_STAGE_SECTIONS = (
+    ("ict", "ICT", "ict_test_cases"),
+    ("fct", "FCT", "fct_test_cases"),
+)
+
+
+def _row_is_real_test(row: dict) -> bool:
+    """True when the row can produce a PASS/FAIL about the DUT.
+
+    Not a real test: a skipped / disabled row (runs as Ignore), an
+    ``op`` row (reports Done), a Delay, and a notice-only MessageOK
+    row.  The check reads EXISTING row data only - no new YAML field."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("skip") is True or row.get("enable") is False:
+        return False
+    marker = ((row.get("op_params") or {}).get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    if params.get("skip") is True or params.get("op"):
+        return False
+    if params.get("fct_delay_ms") is not None:
+        return False
+    kind = str(row.get("kind") or marker.get("step_type")
+               or marker.get("type") or "").strip().lower()
+    return kind not in _NON_TEST_KINDS
+
+
+def rule_sequence_has_real_test(doc: dict) -> list[YamlIssue]:
+    """M79: every ENABLED, explicitly configured stage must contain at
+    least one real test (a row that can judge the DUT, not only report
+    Done / Ignore).  A disabled stage (and a stage with no sequence
+    section at all) is exempt."""
+    from .sequence import _stage_flow
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    checked: set = set()
+    for entry in _stage_flow(doc or {}):
+        if not entry.get("enable", True):
+            continue
+        low = str(entry.get("stage") or "").lower()
+        label, key = "", ""
+        for fragment, canonical, section in _STAGE_SECTIONS:
+            if fragment in low:
+                label, key = canonical, section
+                break
+        if not key or key in checked:
+            continue
+        if key not in workflow:
+            # no sequence configured for this stage -> nothing to judge
+            continue
+        checked.add(key)
+        rows = [row for row in (workflow.get(key) or [])
+                if isinstance(row, dict)]
+        if not rows:
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                f"{label} sequence is empty - no test is defined",
+                key))
+            continue
+        if not any(_row_is_real_test(row) for row in rows):
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                f"{label} sequence contains no valid test (every row is "
+                f"Done / Ignore / Delay / notice) - add at least one real "
+                f"test",
+                key))
+    return issues
+
+
+_RULES.append(rule_sequence_has_real_test)
+
+
 def validate_project_yaml(doc: dict) -> list[YamlIssue]:
     """Run every registered rule on a parsed project YAML document."""
     issues: list[YamlIssue] = []
