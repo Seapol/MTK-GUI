@@ -570,6 +570,11 @@ removed from the workflow:
   right pane of this page; publishing goes through the top
   `Build Draft YAML` / `Release Final YAML` buttons (see
   *Publishing* below).
+- **`Console: Login to the DUT` step type**: retired - it encoded one
+  specific board's login choreography. Use 2-3 `Console_serial` rows
+  instead (wait the login prompt, send the user name, send the
+  password, wait the shell prompt). A project YAML that still carries
+  the row is reported as an ERROR; it is never converted or removed.
 
 Old project files / YAML plans carrying the retired modules load
 cleanly - the entries are dropped silently.
@@ -591,12 +596,11 @@ cases.
 ### DUT login (plain BSP images)
 
 A plain BSP image boots to a `login:` prompt and does NOT give a root
-shell by itself.  The operator authors the sequence
-**boot wait -> `Console: Login to the DUT` -> tests**; the login row
-waits the login prompt, sends the user, waits the password prompt,
-sends the password (empty = just press Enter) and PASSes when the
-shell prompt appears.  A product image with autologin simply omits
-this row.  The app never inserts it automatically.
+shell by itself.  The operator authors the login with ordinary
+`Console_serial` rows: **boot wait -> wait for `login:` -> send the
+user name -> send the password (empty = just press Enter) -> wait for
+the shell prompt -> tests**.  A product image with autologin simply
+omits these rows.  The app never inserts them automatically.
 
 `MessageYesNo` / `MessageGoStop` rows write their answer to the DUT
 console only when the row opts in (`send_console_answer`, off by

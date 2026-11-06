@@ -44,7 +44,7 @@ class TestDelayModel:
         # M43: Delay is no longer a standalone Add-menu Type item (it
         # lives in the Operation submenu); the kind stays valid
         assert STEP_TYPE_DELAY not in STEP_TYPE_LABELS
-        assert len(STEP_TYPE_LABELS) == 20   # M76/D3: + DUT login
+        assert len(STEP_TYPE_LABELS) == 19   # M83: DUT login retired
         cmd = console_command_for_label(STEP_TYPE_DELAY, "Delay")
         assert cmd.kind == KIND_DELAY
         assert cmd.wait_ms == 1000
@@ -204,7 +204,7 @@ class TestAddMenus:
                   | {WIFI_CONNECT_OP, LAN_SETUP_OP}
                   | {"Delay — plain wait (ms)"})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 33   # M76/D3: + DUT login
+        assert len(panel._add_actions) == 32   # M83: DUT login retired
         for label in direct:
             if label.startswith("Operation: ") or label in (
                     WIFI_CONNECT_OP, LAN_SETUP_OP, "Delay — plain wait (ms)"):

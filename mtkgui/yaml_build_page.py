@@ -395,6 +395,8 @@ class YamlBuildPage(QWidget):
         from mtkgui.engine.fct_test_config import (
             FctSetupCfg,
             FctTestConfig,
+            RETIRED_CONSOLE_LOGIN_TYPE,
+            retired_console_login_message,
             STEP_TYPE_DELAY,
             STEP_TYPE_FLASH_GUI,
             STEP_TYPE_SERIAL_PULL,
@@ -477,6 +479,11 @@ class YamlBuildPage(QWidget):
         for step in raw_steps:
             cmd = _command_from_step_dict(step)
             if cmd is None:
+                raw_type = str(step.get("type") or "")
+                if raw_type == RETIRED_CONSOLE_LOGIN_TYPE:
+                    # M83: report the retired row - never convert it
+                    return None, [retired_console_login_message(
+                        str(step.get("name") or ""))]
                 return None, [f"unknown FCT step type "
                               f"{step.get('type')!r}"]
             if step_type_label(cmd) == "Operation":

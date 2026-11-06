@@ -31,7 +31,6 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_BT_RSSI,
     STEP_TYPE_BT_TONE,
     STEP_TYPE_CONSOLE_CLI,
-    STEP_TYPE_CONSOLE_LOGIN,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
     STEP_TYPE_FLASH_GUI,
@@ -153,9 +152,6 @@ ADD_ENTRIES = tuple(
                  f"step:{STEP_TYPE_CONSOLE_SSH}"),
         AddEntry(CONSOLE, DOMAIN_FCT, STEP_TYPE_CONSOLE_CLI,
                  f"step:{STEP_TYPE_CONSOLE_CLI}"),
-        # M76/D3: operator-authored DUT login row (never auto-inserted)
-        AddEntry(CONSOLE, DOMAIN_FCT, STEP_TYPE_CONSOLE_LOGIN,
-                 f"step:{STEP_TYPE_CONSOLE_LOGIN}"),
         AddEntry(MESSAGE_CONSOLE, DOMAIN_FCT, STEP_TYPE_MESSAGE_OK_WAIT,
                  f"step:{STEP_TYPE_MESSAGE_OK_WAIT}"),
         AddEntry(MESSAGE_CONSOLE, DOMAIN_FCT, STEP_TYPE_MESSAGE_YESNO_WAIT,

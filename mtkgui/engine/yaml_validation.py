@@ -79,6 +79,40 @@ def rule_retired_flash_steps(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_flash_steps)
 
 
+def _carries_retired_console_login(row: dict) -> bool:
+    """M83: True when a project row still expands the retired login step.
+
+    The published marker carries ``params.fct_console_login`` (the
+    built step) or ``params.kind == "login"``; both name the removed
+    row type.  Read-only: nothing here rewrites the row."""
+    marker = ((row.get("op_params") or {}).get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    return (bool(params.get("fct_console_login"))
+            or str(params.get("kind") or "") == "login")
+
+
+def rule_retired_console_login_rows(doc: dict) -> list[YamlIssue]:
+    """M83: ``Console: Login to the DUT`` is retired - a project YAML
+    still carrying the row is an ERROR that names the replacement."""
+    from .fct_test_config import retired_console_login_message
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            if not isinstance(row, dict) or not _carries_retired_console_login(
+                    row):
+                continue
+            name = str(row.get("name") or "").strip()
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                retired_console_login_message(name),
+                f"{key}[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_retired_console_login_rows)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

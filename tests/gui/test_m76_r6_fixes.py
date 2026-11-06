@@ -3,7 +3,7 @@
 
 D1 Apply_Save keeps the authored step order (RF group at its row).
 D2 MessageGoStop console answer is opt-in (send_console_answer).
-D3 operator-authored Console: Login to the DUT row.
+D3 login-step executor (the step TYPE itself was retired in M83).
 D4 send+capture rows judge only bytes received after the send.
 D5 wait-only rows are bounded by wait_timeout.
 D6 the Console panel renders one view per connected channel.
@@ -26,18 +26,14 @@ from mtkgui.engine.fct_channels import (  # noqa: E402
     VirtualFctChannel,
 )
 from mtkgui.engine.fct_test_config import (  # noqa: E402
-    KIND_CONSOLE_LOGIN,
-    STEP_TYPE_CONSOLE_LOGIN,
     STEP_TYPE_DELAY,
     STEP_TYPE_SERIAL_PUT,
     STEP_TYPE_SFTP_GET,
-    ConsoleCommand,
     FctTestConfig,
     build_fct_steps,
     console_command_for_label,
 )
 from mtkgui.engine.sequence import _fct_steps  # noqa: E402
-from mtkgui.gui.add_menu import ADD_ENTRIES  # noqa: E402
 from mtkgui.widgets.multi_console import MultiConsoleWidget  # noqa: E402
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
@@ -156,48 +152,7 @@ def test_apply_is_stable_and_engine_order_matches(page):
     assert executed == [c["name"] for c in cases]
 
 
-# --------------------------------------------- D3 operator-authored login
-def test_console_login_is_selectable_in_the_add_menu():
-    labels = [entry.label for entry in ADD_ENTRIES]
-    assert STEP_TYPE_CONSOLE_LOGIN in labels
-
-
-def test_console_login_defaults_and_dict_round_trip():
-    cmd = console_command_for_label(STEP_TYPE_CONSOLE_LOGIN, "Login")
-    assert cmd.kind == KIND_CONSOLE_LOGIN
-    assert cmd.login_prompt == "login:" and cmd.login_user == "root"
-    assert cmd.shell_prompt == "#"
-    cmd.login_user = "root"
-    cmd.login_password = "secret"
-    cmd.shell_prompt = "root@imx93frdm:~#"
-    cmd.timeout = 45.0
-    data = cmd.to_dict()
-    back = ConsoleCommand._from_dict_v2(dict(data))
-    assert back.kind == KIND_CONSOLE_LOGIN
-    assert back.login_prompt == "login:"
-    assert back.login_user == "root"
-    assert back.login_password == "secret"
-    assert back.shell_prompt == "root@imx93frdm:~#"
-    assert back.timeout == 45.0
-
-
-def test_console_login_survives_the_yaml_apply(page):
-    """The login row travels through fct_steps_yaml -> generated cases
-    with every parameter intact (the marker carries the step)."""
-    steps = [{"type": STEP_TYPE_CONSOLE_LOGIN, "name": "Login to the DUT",
-              "override": {"port": "COM4"}, "login_prompt": "login:",
-              "login_user": "root", "login_password": "pw",
-              "shell_prompt": "#", "timeout": 45}]
-    cases = _emit(page, steps)
-    assert len(cases) == 1
-    marker = cases[0]["op_params"]["fct_step"]
-    login = marker["params"]["fct_console_login"]
-    assert login["login_prompt"] == "login:"
-    assert login["user"] == "root"
-    assert login["password"] == "pw"
-    assert login["shell_prompt"] == "#"
-
-
+# ------------------------------------------------ D3 login-step executor
 def test_console_login_step_executes_the_sequence():
     mc = _FakeMc("imx93frdm login: ", replies={
         "root": "Password: ",

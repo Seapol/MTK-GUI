@@ -187,14 +187,24 @@ KIND_SERIAL_PUT = "serial_put"  # M46: push a Host PC file to the DUT
                                 # over the SERIAL console
 KIND_SERIAL_PULL = "serial_pull"  # M46: pull a DUT file to the Host PC
                                   # over the SERIAL console
-KIND_CONSOLE_LOGIN = "console_login"  # M76/D3: operator-authored DUT
-                                # login row (login prompt -> user ->
-                                # password prompt -> password -> shell
-                                # prompt); never auto-inserted
 CONSOLE_KINDS = (KIND_WAIT, KIND_SEND, KIND_CAPTURE,
                  KIND_SFTP_PUT, KIND_SFTP_GET, KIND_MESSAGE, KIND_HOST,
-                 KIND_DELAY, KIND_SERIAL_PUT, KIND_SERIAL_PULL,
-                 KIND_CONSOLE_LOGIN)
+                 KIND_DELAY, KIND_SERIAL_PUT, KIND_SERIAL_PULL)
+
+#: M83: the retired "Console: Login to the DUT" row.  The kind / label /
+#: editor / Add-menu entry / builder path are gone; a project YAML that
+#: still carries the row is REPORTED (never converted, never dropped) so
+#: the operator replaces it with Console_serial rows.
+RETIRED_CONSOLE_LOGIN_KIND = "console_login"
+RETIRED_CONSOLE_LOGIN_TYPE = "Console: Login to the DUT"
+
+
+def retired_console_login_message(name: str) -> str:
+    """M83: the exact blocking message for a legacy login row."""
+    return (f"step '{name}': step type '{RETIRED_CONSOLE_LOGIN_TYPE}' was "
+            "retired — replace it with Console_serial rows (login prompt → "
+            "send user → send password → shell prompt)")
+
 
 #: row kinds that never open the serial console (M36 validation): a
 #: console section made only of these needs no port
@@ -245,14 +255,9 @@ STEP_TYPE_BT_TONE = "BT_Tone"
 #: submenu only (never a direct Add Type item).
 STEP_TYPE_SERIAL_PUT = "Serial: Push file to DUT"
 STEP_TYPE_SERIAL_PULL = "Serial: Pull file from DUT"
-#: M76/D3: operator-authored console login operation (login prompt ->
-#: user -> password prompt -> password -> shell prompt).  The system
-#: NEVER inserts it - the operator places it in the sequence.
-STEP_TYPE_CONSOLE_LOGIN = "Console: Login to the DUT"
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
-                    STEP_TYPE_CONSOLE_LOGIN,
                     STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                     STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
                     STEP_TYPE_MESSAGE_YESNO_WAIT,
@@ -779,7 +784,8 @@ class ConsoleCommand:
     # False (default) means GO / STOP never writes to the DUT console,
     # so an existing YAML stops poisoning a login prompt with 'y'
     send_console_answer: bool = False
-    # M76/D3: kind == console_login - the DUT login sequence
+    # M83: the login step TYPE is retired - these fields stay readable so
+    # a legacy row loads and is REPORTED (never silently converted).
     login_prompt: str = "login:"    # wait for this prompt, then user
     login_user: str = "root"        # user name sent after the prompt
     login_password: str = ""        # password sent after the pass prompt
@@ -1034,8 +1040,6 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
         return STEP_TYPE_FLASH_GUI
     if kind == KIND_HOST:
         return STEP_TYPE_CONSOLE_CLI
-    if kind == KIND_CONSOLE_LOGIN:
-        return STEP_TYPE_CONSOLE_LOGIN
     if kind == KIND_MESSAGE:
         style = str(getattr(cmd, "dialog_style", "") or "")
         waits = bool(getattr(cmd, "wait_enabled", False))
@@ -1122,14 +1126,6 @@ def console_command_for_label(label: str,
                               transport="serial", wait_enabled=False,
                               send_enabled=True, capture_enabled=False,
                               host_cmd_windows="", host_cmd="")
-    if label == STEP_TYPE_CONSOLE_LOGIN:
-        return ConsoleCommand(kind=KIND_CONSOLE_LOGIN,
-                              name=name or STEP_TYPE_CONSOLE_LOGIN,
-                              transport="serial", wait_enabled=True,
-                              send_enabled=True, capture_enabled=True,
-                              login_prompt="login:", login_user="root",
-                              login_password="", shell_prompt="#",
-                              timeout=30.0, wait_timeout=30.0)
     if label == STEP_TYPE_CONSOLE_SERIAL:
         return ConsoleCommand(kind="send", name=name or "",
                               transport="serial", wait_enabled=False,
@@ -1593,6 +1589,13 @@ class FctTestConfig:
         errors: list = []
         c, w, b = self.console, self.wifi, self.bluetooth
         rows = list(c.test_commands) + list(c.post_rf_commands)
+        # M83: the login row type is retired - report it, never convert /
+        # drop it (the operator replaces it with Console_serial rows).
+        for cmd in rows:
+            if str(getattr(cmd, "kind", "")) == RETIRED_CONSOLE_LOGIN_KIND:
+                name = str(getattr(cmd, "name", "")
+                           or RETIRED_CONSOLE_LOGIN_TYPE)
+                errors.append(retired_console_login_message(name))
         console_active = bool(c.port.strip() or c.ssh_host.strip()
                               or rows)
         if self.dut_type not in ("bare_metal", "linux"):
@@ -1808,25 +1811,6 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                 "remote": str(cmd.remote or ""),
                 "baud": int(cmd.serial_baud or 0),
                 "console_baud": int(console_baud or 115200)}}))
-        return steps
-    # M76/D3: operator-authored DUT login row - wait the login prompt,
-    # send the user, wait the password prompt, send the password, then
-    # PASS only when the shell prompt arrives.  NEVER auto-inserted.
-    if cmd.kind == KIND_CONSOLE_LOGIN:
-        steps.append(FctStep(
-            name=cmd.name or STEP_TYPE_CONSOLE_LOGIN,
-            step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-            timeout_s=float(cmd.timeout or 30.0),
-            retries=int(cmd.retries),
-            params={"fct_console": True, "kind": "login",
-                    "fct_console_login": {
-                        "login_prompt": str(cmd.login_prompt or "login:"),
-                        "user": str(cmd.login_user or ""),
-                        "password": str(cmd.login_password or ""),
-                        "shell_prompt": str(cmd.shell_prompt or "#"),
-                        "password_prompt": "pass",
-                        "timeout_s": float(cmd.wait_timeout or
-                                           cmd.timeout or 30.0)}}))
         return steps
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction

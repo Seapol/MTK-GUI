@@ -91,7 +91,6 @@ from mtkgui.engine.fct_test_config import (
     KIND_SERIAL_PUT,
     KIND_SERIAL_PULL,
     STEP_TYPE_OPERATION,
-    STEP_TYPE_CONSOLE_LOGIN,
     STEP_TYPE_CONSOLE_SERIAL,
     STEP_TYPE_CONSOLE_SSH,
     STEP_TYPE_SFTP_PUT,
@@ -2112,27 +2111,6 @@ class FCTTestConfigPanel(QWidget):
         wait_edit = None
         wait_cb = None
         wait_timeout = None
-        login_edits = {}
-        if typ == STEP_TYPE_CONSOLE_LOGIN:
-            # M76/D3: DUT login row parameters
-            login_edits["login_prompt"] = QLineEdit(
-                cmd.login_prompt or "login:")
-            login_edits["login_prompt"].setToolTip(
-                "Console prompt that precedes the user name")
-            form.addRow("Login prompt:", login_edits["login_prompt"])
-            login_edits["user"] = QLineEdit(cmd.login_user or "root")
-            form.addRow("User:", login_edits["user"])
-            login_edits["password"] = QLineEdit(cmd.login_password or "")
-            login_edits["password"].setEchoMode(
-                QLineEdit.EchoMode.Password)
-            login_edits["password"].setPlaceholderText(
-                "empty = just press Enter")
-            form.addRow("Password:", login_edits["password"])
-            login_edits["shell_prompt"] = QLineEdit(
-                cmd.shell_prompt or "#")
-            login_edits["shell_prompt"].setToolTip(
-                "PASS only when this shell prompt arrives")
-            form.addRow("Shell prompt:", login_edits["shell_prompt"])
         if typ in (STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SSH):
             wait_cb = QCheckBox("Enable WaitFor")
             wait_cb.setChecked(cmd.wait_enabled)
@@ -2255,14 +2233,6 @@ class FCTTestConfigPanel(QWidget):
             cmd.capture_unexpected = cap_unexp.toPlainText().strip()
             cmd.capture_enabled = bool(cmd.capture_expected
                                        or cmd.capture_unexpected)
-            if login_edits:
-                cmd.login_prompt = (login_edits["login_prompt"]
-                                    .text().strip() or "login:")
-                cmd.login_user = login_edits["user"].text().strip()
-                cmd.login_password = login_edits["password"].text()
-                cmd.shell_prompt = (login_edits["shell_prompt"]
-                                    .text().strip() or "#")
-                cmd.wait_timeout = float(timeout.value())
             if typ not in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
                            STEP_TYPE_CONSOLE_CLI):
                 cmd.timeout = float(timeout.value())
