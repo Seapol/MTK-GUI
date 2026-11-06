@@ -846,6 +846,8 @@ class FCTTestConfigPanel(QWidget):
 
     #: (level, message) Event-Log mirror (T6 panel convention)
     task_log = Signal(str, str)
+    #: M81/C4: "Config DUT Console" navigation request (panel values)
+    console_config_requested = Signal(dict)
 
     def __init__(self, parent=None, equipment_provider=None,
                  console_channels_provider=None) -> None:
@@ -890,6 +892,15 @@ class FCTTestConfigPanel(QWidget):
         head = QHBoxLayout()
         head.addWidget(QLabel("DUT OS Firmware:"))
         head.addWidget(self.dut_type)
+        # M81/C4: pure navigation to the Console panel - hidden until a
+        # consumer (the block dialog) wires a handler.
+        self.btn_console = QPushButton("Config DUT Console")
+        self.btn_console.setToolTip(
+            "A console serial channel is required before the sequence can "
+            "build. Click to open the Console panel.")
+        self.btn_console.clicked.connect(self._request_console_config)
+        self.btn_console.hide()
+        head.addWidget(self.btn_console)
         head.addStretch(1)
         lay.addLayout(head)
         lay.addWidget(self.dut_hint)
@@ -903,6 +914,29 @@ class FCTTestConfigPanel(QWidget):
         self._on_dut_type_changed(self.dut_type.currentText())
 
     # ------------------------------------------------- equipment helpers
+    def set_console_config_handler(self, handler) -> None:
+        """M81/C4: show the jump button when a consumer is wired."""
+        self._console_config_handler = handler if callable(handler) else None
+        self.btn_console.setVisible(self._console_config_handler is not None)
+
+    def _snapshot_values(self) -> dict:
+        """Read the panel into module params WITHOUT touching undo / rows."""
+        steps = [_step_dict_from_command(self._get_row_cmd(r))
+                 for r in range(self.cmd_table.rowCount())]
+        node = {"fct": {"dut_type": self.dut_type.currentText(),
+                        "steps": steps,
+                        "runtime": self._runtime_node()}}
+        out = dict(self._legacy)
+        out["fct_steps_yaml"] = yaml.safe_dump(
+            node, sort_keys=False, allow_unicode=True)
+        return out
+
+    def _request_console_config(self) -> None:
+        """Emit a pure value snapshot - no undo / table / YAML side effect."""
+        if getattr(self, "_console_config_handler", None) is None:
+            return
+        self.console_config_requested.emit(self._snapshot_values())
+
     def console_channels(self) -> list | None:
         """M83: channels ADDED on the Console panel (None = not wired)."""
         provider = getattr(self, "console_channels_provider", None)

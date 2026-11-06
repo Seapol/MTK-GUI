@@ -207,6 +207,9 @@ class YamlBuildPage(QWidget):
     #: the main window refreshes the sequence views and saves the
     #: project yaml WITHOUT closing the dialog (no save prompt)
     fct_sequence_applied = Signal(list)
+    #: M81/C4: the FCT dialog's "Config DUT Console" jump - navigation
+    #: only (the edits were already stored in memory by the page)
+    console_config_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         """Create the page (model + panes + buttons)."""
@@ -222,6 +225,9 @@ class YamlBuildPage(QWidget):
         #: M83: the Console panel's channel list for the per-row channel
         #: combo (None = not wired, e.g. standalone tests)
         self.console_channels_provider = None
+        #: M81/C4: set by the console jump; open_fct_sequence returns
+        #: without any validation popup after the tab switch
+        self._console_jump_requested = False
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -391,6 +397,16 @@ class YamlBuildPage(QWidget):
         if str((params or {}).get("fct_steps_yaml") or "").strip():
             return self._emit_fct_steps(params)
         return self._emit_fct_sequence_legacy(params)
+
+    def _fct_console_config_jump(self, values: dict) -> None:
+        """M81/C4: keep the edits in memory, then go to the Console panel.
+
+        No file write, no validation run, no ``fct_sequence_ready`` emit.
+        """
+        if isinstance(values, dict) and values:
+            self.model.set_params("fct_build", dict(values))
+        self._console_jump_requested = True
+        self.console_config_requested.emit()
 
     def _emit_fct_steps(self, params: dict):
         """M50: new ``fct.steps`` schema -> project-YAML FCT cases."""
@@ -901,8 +917,12 @@ class YamlBuildPage(QWidget):
             virtual=self._virtual,
             equipment_provider=self.equipment_provider,
             console_channels_provider=self.console_channels_provider,
+            console_config_cb=self._fct_console_config_jump,
             save_as_cb=lambda values: self._save_as_new_yaml(
                 "fct_build", values))
+        if self._console_jump_requested:
+            self._console_jump_requested = False
+            return
         if params is None:
             return
         self.model.set_params("fct_build", params)

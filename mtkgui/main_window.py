@@ -1087,6 +1087,8 @@ class MainWindow(QMainWindow):
         # navigation: merged "Build ICT Test Work Flow Sequence" card
         # -> Test Work Flow tab, cursor on the ICT Test Cases table
         yb.test_workflow_requested.connect(self._goto_test_workflow)
+        # M81/C4: FCT dialog "Config DUT Console" -> the console panel
+        yb.console_config_requested.connect(self._goto_console)
         # the page-level "Close Yaml" / "Load current yaml" buttons
         # run the SAME slots as the File menu actions
         yb.close_yaml_requested.connect(self.close_yaml)
@@ -2367,6 +2369,19 @@ class MainWindow(QMainWindow):
         table.setFocus()
         table.setCurrentCell(0, 1)
         table.scrollToTop()
+
+    def _goto_console(self):
+        """M81/C4: switch to the Test Work Flow page and focus the DUT
+        console panel (Add Serial / Add SSH).  Navigation only."""
+        _startup_mark("page switch -> Console", category="page")
+        self.tabs.setCurrentWidget(self.workflow_page)
+        mc = self.workflow_page.multi_console
+        mc.show()
+        target = getattr(mc, "btn_add_serial", None)
+        (target or mc).setFocus()
+        self._append_event_log(
+            "Console: configure the DUT serial/SSH channel here "
+            "(Add Serial / Add SSH)")
 
     def _fill_ict_sequence(self, steps, enables=None, waits=None,
                            timeouts=None):

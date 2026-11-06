@@ -136,7 +136,8 @@ class BlockConfigDialog(QDialog):
                  available_ops=None,
                  save_as_cb=None,
                  equipment_provider=None,
-                 console_channels_provider=None) -> None:
+                 console_channels_provider=None,
+                 console_config_cb=None) -> None:
         """Create the dialog for one module.
 
         Args:
@@ -230,6 +231,7 @@ class BlockConfigDialog(QDialog):
             self.panel.set_available_ops(available_ops)
             self.panel.set_values(params or {})
             self.panel.task_log.connect(self._panel_log)
+            self.set_console_config_handler(console_config_cb)
             body_lay.addWidget(self.panel)
             # M27 P4: the FCT panel demands 1100 px (8-column step
             # editor); give the dialog a width that satisfies it and mark
@@ -307,6 +309,27 @@ class BlockConfigDialog(QDialog):
         # the values the dialog opened with
         self._initial_values = self._current_values()
         lay.addWidget(buttons)
+
+    def set_console_config_handler(self, cb) -> None:
+        """M81/C4: wire the "Config DUT Console" jump (FCT panel only)."""
+        panel = self.panel
+        setter = getattr(panel, "set_console_config_handler", None)
+        if not callable(setter):
+            return
+        setter(cb)
+        if cb is None:
+            return
+        signal = getattr(panel, "console_config_requested", None)
+        if signal is None:
+            return
+
+        def _jump(values):
+            # navigation only: the handler stores the edits in memory and
+            # switches tabs; close the dialog so the modal does not block.
+            cb(values)
+            self.reject()
+
+        signal.connect(_jump)
 
     # ------------------------------------------------- panel log mirror
     def _panel_log(self, level: str, message: str) -> None:
