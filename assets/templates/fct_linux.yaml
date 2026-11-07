@@ -49,10 +49,17 @@ steps:
     capture_expected: "Linux"
     timeout: 6.0
     note: send + capture - replace Linux with the expected kernel string
+  - type: Console_serial
+    name: Console - create the asset folder on the DUT
+    wait_enabled: false
+    send_enabled: true
+    send: "mkdir -p /root/fct_assets"
+    capture_enabled: false
+    timeout: 10.0
   - type: "Serial: Push file to DUT"
     name: Serial - push test assets to the DUT
-    local: assets
-    remote: /root
+    local: assets/resources/scripts/connect_wifi.sh
+    remote: /root/fct_assets/connect_wifi.sh
     timeout: 600.0
   - type: Console_serial
     name: Console - RF driver presence
@@ -75,8 +82,9 @@ steps:
     name: Console - connect the DUT to the AP
     wait_enabled: false
     send_enabled: true
-    send: "sh /root/connect_wifi.sh"
-    capture_enabled: false
+    send: "bash /root/fct_assets/connect_wifi.sh router"
+    capture_enabled: true
+    capture_expected: "WIFI_CONNECTED_OK"
     timeout: 60.0
     note: the AP SSID / password live in the script (retired network op)
   - type: "SSH SFTP: Push file to DUT"

@@ -34,8 +34,9 @@ steps:
     name: Wi-Fi connect (assets script)
     wait_enabled: false
     send_enabled: true
-    send: "sh /root/connect_wifi.sh"
-    capture_enabled: false
+    send: "bash /root/fct_assets/connect_wifi.sh router"
+    capture_enabled: true
+    capture_expected: "WIFI_CONNECTED_OK"
     timeout: 60.0
     note: >
       row 2 - the script writes wpa_supplicant.conf / associates / runs

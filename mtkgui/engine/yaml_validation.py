@@ -17,6 +17,8 @@ the load proceeds.
 """
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 
 SEVERITY_ERROR = "error"
@@ -160,6 +162,125 @@ def rule_retired_network_ops(doc: dict) -> list[YamlIssue]:
 
 
 _RULES.append(rule_retired_network_ops)
+
+
+#: M83/C2b: the network profile a connect_wifi.sh row joins, mapped to
+#: the Equipment card name + the SSID field it must match.
+CONNECT_WIFI_PROFILES = {
+    "router": ("Wi-Fi router", "router_ap_ssid"),
+    "hotspot": ("Host PC hotspot (no router)", "hotspot_ssid"),
+}
+
+#: M83/C2b: a connect_wifi.sh row without a profile argument.
+CONNECT_WIFI_NO_PROFILE_MESSAGE = (
+    "connect_wifi.sh row has no network profile argument — add 'router' or "
+    "'hotspot' after the script path, otherwise the run fails at Connect "
+    "DUT to AP")
+
+
+def _row_send_text(row: dict) -> str:
+    """The command text of one row, read from the authored model or the
+    published ``fct_step`` marker (whatever the row carries)."""
+    if not isinstance(row, dict):
+        return ""
+    marker = dict((row.get("op_params") or {}).get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    texts = (row.get("send"), marker.get("command"), params.get("send"))
+    return "\n".join(text for text in texts
+                     if isinstance(text, str) and text)
+
+
+def _connect_wifi_profile(text: str) -> str:
+    """``router`` / ``hotspot`` when the row passes one after the path."""
+    match = re.search(r"connect_wifi\.sh\s+(router|hotspot)\b", text)
+    return match.group(1) if match else ""
+
+
+def _connect_wifi_rows(doc: dict):
+    """(section key, index, row, send text) for every connect_wifi.sh row."""
+    workflow = (doc or {}).get("test_workflow") or {}
+    for _label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            text = _row_send_text(row)
+            if "connect_wifi.sh" in text:
+                yield key, index, row, text
+
+
+def _connect_wifi_script_text(doc: dict) -> str:
+    """The project's ``connect_wifi.sh`` text, or ``""`` when the project
+    carries no assets copy (the built-in template is never compared)."""
+    part = str(((doc or {}).get("product") or {}).get("part_number")
+               or "").strip()
+    if not part:
+        return ""
+    from .assets_config import custom_assets_dir, legacy_assets_dir
+    for folder in (custom_assets_dir(part), legacy_assets_dir(part)):
+        path = os.path.join(folder, "resources", "scripts",
+                            "connect_wifi.sh")
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            continue
+    return ""
+
+
+def _equipment_ssid(doc: dict, field: str) -> str:
+    router = (((doc or {}).get("equipment") or {}).get("peripherals")
+              or {}).get("router") or {}
+    return str(router.get(field) or "").strip()
+
+
+def rule_connect_wifi_needs_profile(doc: dict) -> list[YamlIssue]:
+    """M83/C2b: a connect_wifi.sh row must name the profile it joins."""
+    issues: list[YamlIssue] = []
+    for key, index, _row, text in _connect_wifi_rows(doc):
+        if _connect_wifi_profile(text):
+            continue
+        issues.append(YamlIssue(
+            SEVERITY_WARNING, CONNECT_WIFI_NO_PROFILE_MESSAGE,
+            f"{key}[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_connect_wifi_needs_profile)
+
+
+def rule_connect_wifi_ssid_matches_equipment(doc: dict,
+                                             script_text=None) -> list[YamlIssue]:
+    """M83/C2b: the profile's SSID in the script must match Equipment.
+
+    Only the SSID is compared; a password never leaves the script and an
+    empty Equipment SSID is C11's own warning (not double-reported)."""
+    from .assets_config import parse_ap_profile_values
+    script = (_connect_wifi_script_text(doc) if script_text is None
+              else str(script_text))
+    if not script:
+        return []
+    values = parse_ap_profile_values(script)
+    issues: list[YamlIssue] = []
+    for key, index, _row, text in _connect_wifi_rows(doc):
+        profile = _connect_wifi_profile(text)
+        if not profile:
+            continue
+        card, field = CONNECT_WIFI_PROFILES[profile]
+        script_ssid = values.get(f"AP_PROFILE_{profile.upper()}_SSID", "")
+        equipment_ssid = _equipment_ssid(doc, field)
+        if not script_ssid or not equipment_ssid:
+            continue
+        if script_ssid == equipment_ssid:
+            continue
+        issues.append(YamlIssue(
+            SEVERITY_WARNING,
+            f"connect_wifi.sh profile '{profile}' joins SSID "
+            f"'{script_ssid}' but the Equipment page '{card}' AP SSID is "
+            f"'{equipment_ssid}' — the DUT joins the script's AP; update "
+            "one of the two",
+            f"{key}[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_connect_wifi_ssid_matches_equipment)
 
 
 #: M83/C7: the exact ERROR text naming the missing SSH channel.
@@ -669,20 +790,27 @@ def rule_sequence_has_real_test(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_sequence_has_real_test)
 
 
-def validate_project_yaml(doc: dict, connected_keys=None) -> list[YamlIssue]:
+def validate_project_yaml(doc: dict, connected_keys=None,
+                          script_text=None) -> list[YamlIssue]:
     """Run every registered rule on a parsed project YAML document.
 
     ``connected_keys`` (M83/C7): the console channel keys that are
     currently connected, passed to the rules that can use it. ``None``
     means the caller has no runtime state - the rules then report only
-    what the document itself proves."""
+    what the document itself proves.
+
+    ``script_text`` (M83/C2b): the project's ``connect_wifi.sh`` text,
+    passed to the rules that compare the script against Equipment. ``None``
+    lets the rule read the project assets copy itself."""
     issues: list[YamlIssue] = []
     for rule in _RULES:
-        if "connected_keys" in rule.__code__.co_varnames[
-                :rule.__code__.co_argcount]:
-            issues.extend(rule(doc, connected_keys=connected_keys) or [])
-        else:
-            issues.extend(rule(doc) or [])
+        names = rule.__code__.co_varnames[:rule.__code__.co_argcount]
+        kwargs = {}
+        if "connected_keys" in names:
+            kwargs["connected_keys"] = connected_keys
+        if "script_text" in names:
+            kwargs["script_text"] = script_text
+        issues.extend(rule(doc, **kwargs) or [])
     return issues
 
 

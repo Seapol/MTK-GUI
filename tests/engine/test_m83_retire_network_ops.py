@@ -16,6 +16,7 @@ from mtkgui.engine import host_platform as hp
 from mtkgui.engine import steps
 from mtkgui.engine.yaml_validation import (
     SEVERITY_ERROR,
+    SEVERITY_WARNING,
     blocking_issues,
     validate_project_yaml,
 )
@@ -124,3 +125,45 @@ def test_m83_templates_do_not_reference_network_ops():
             encoding="utf-8")
         assert WIFI not in text, label
         assert LAN not in text, label
+
+
+# ------------------------------------- C2b: profile argument + SSID check
+def _connect_doc(send: str, router_ssid: str = "") -> dict:
+    row = {"name": "Console - connect the DUT to the AP",
+           "kind": "Console_serial",
+           "op_params": {"fct_step": {"name": "Console - connect the DUT to "
+                             "the AP", "params": {"send": send}}}}
+    return {
+        "product": {"part_number": "TEST-0001"},
+        "equipment": {"peripherals": {"router": {
+            "router_ap_ssid": router_ssid}}},
+        "test_workflow": {"fct_test_cases": [row]},
+    }
+
+
+def test_m83_connect_wifi_row_without_profile_is_warning():
+    issues = [i for i in validate_project_yaml(
+        _connect_doc("sh /root/connect_wifi.sh")) if i.location
+        == "fct_test_cases[0].name"]
+    assert len(issues) == 1
+    assert issues[0].severity == SEVERITY_WARNING
+    assert issues[0].message == (
+        "connect_wifi.sh row has no network profile argument — add 'router' "
+        "or 'hotspot' after the script path, otherwise the run fails at "
+        "Connect DUT to AP")
+
+
+def test_m83_connect_wifi_ssid_mismatch_is_warning():
+    issues = [i for i in validate_project_yaml(
+        _connect_doc("bash /root/fct_assets/connect_wifi.sh router",
+                     router_ssid="Equipment-AP"),
+        script_text="AP_PROFILE_ROUTER_SSID='Script-AP'\n"
+                    "AP_PROFILE_ROUTER_PASSWORD='never-compared'\n")
+        if i.location == "fct_test_cases[0].name"]
+    assert len(issues) == 1
+    assert issues[0].severity == SEVERITY_WARNING
+    assert issues[0].message == (
+        "connect_wifi.sh profile 'router' joins SSID 'Script-AP' but the "
+        "Equipment page 'Wi-Fi router' AP SSID is 'Equipment-AP' — the DUT "
+        "joins the script's AP; update one of the two")
+    assert "never-compared" not in issues[0].message

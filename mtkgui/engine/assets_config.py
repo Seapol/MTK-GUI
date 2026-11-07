@@ -9,11 +9,33 @@ Qt-free so the filesystem behaviour is unit-testable; the GUI lives in
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 
 #: custom folder name prefix (assets_<Project>)
 ASSETS_PREFIX = "assets_"
+
+#: M83/C2b: the only lines the GUI reads from ``connect_wifi.sh``.
+#: One name, one equals sign, one quoted value, one line.
+AP_PROFILE_LINE_RE = re.compile(
+    r"^AP_PROFILE_(ROUTER|HOTSPOT)_(SSID|PASSWORD)='?(.*?)'?$")
+
+
+def parse_ap_profile_values(text: str) -> dict:
+    """``{"AP_PROFILE_ROUTER_SSID": "...", ...}`` from connect_wifi.sh.
+
+    Only the four declaration lines are read; a missing line is absent
+    from the result (never defaulted).  The script stays the single
+    owner of the values."""
+    values = {}
+    for line in str(text or "").splitlines():
+        match = AP_PROFILE_LINE_RE.match(line)
+        if not match:
+            continue
+        values[f"AP_PROFILE_{match.group(1)}_{match.group(2)}"] = \
+            match.group(3)
+    return values
 
 
 def builtin_assets_dir() -> str:

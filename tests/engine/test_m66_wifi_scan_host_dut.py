@@ -78,11 +78,11 @@ def test_template_row2_runs_the_assets_script():
         "wifi_ssid": "Factory-AP", "wifi_password": "secret",
         "wifi_interface": "wlan0"})
     assert cmds[1].kind == "send"
-    assert cmds[1].send == "sh /root/connect_wifi.sh"
+    assert cmds[1].send == "bash /root/fct_assets/connect_wifi.sh router"
     assert cmds[1].op_params is None
     plan_b = apply_prefill(cmds[1], {"wifi_ssid": "MTK-HOTSPOT",
                                      "wifi_password": "hotspot-pw"})
-    assert plan_b.send == "sh /root/connect_wifi.sh"
+    assert plan_b.send == "bash /root/fct_assets/connect_wifi.sh router"
 
 
 def test_template_row4_defaults_to_the_dut_side_verdict():

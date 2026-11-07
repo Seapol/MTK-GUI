@@ -30,6 +30,7 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     KIND_MESSAGE,
     KIND_OP,
     KIND_SERIAL_PULL,
+    KIND_SERIAL_PUT,
     KIND_SFTP_PUT,
     KIND_WIFI_TEST,
     STEP_TYPE_BT_PAIR,
@@ -72,10 +73,10 @@ BARE_METAL_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
 LINUX_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
                STEP_TYPE_OPERATION, STEP_TYPE_DELAY,
                STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SERIAL,
-               STEP_TYPE_SERIAL_PUT, STEP_TYPE_CONSOLE_SERIAL,
+               STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_SERIAL_PUT,
                STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SERIAL,
-               STEP_TYPE_SFTP_PUT, STEP_TYPE_WIFI_PING,
-               STEP_TYPE_WIFI_IPERF,
+               STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_SFTP_PUT,
+               STEP_TYPE_WIFI_PING, STEP_TYPE_WIFI_IPERF,
                STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE,
                STEP_TYPE_SERIAL_PULL, STEP_TYPE_CONSOLE_SERIAL,
                STEP_TYPE_OPERATION, STEP_TYPE_OPERATION]
@@ -127,16 +128,17 @@ class TestTemplateFiles:
         assert rows[5].kind == KIND_WIFI_TEST and rows[5].rf_subtest == "scan"
         assert rows[6].kind == KIND_BT_TEST and rows[6].rf_subtest == "rssi"
 
-    def test_linux_template_has_nineteen_rows_in_order(self):
+    def test_linux_template_has_twenty_rows_in_order(self):
         rows = load_template_commands(TEMPLATE_LINUX)
-        assert len(rows) == 19
+        assert len(rows) == 20
         assert [step_type_label(c) for c in rows] == LINUX_TYPES
         # row 5 = wait only, row 6 = send + capture (Console model §4)
         assert rows[4].wait_enabled and not rows[4].send_enabled
         assert rows[4].expect_pass == "login:"
         assert rows[5].send == "uname -r"
         assert rows[5].capture_enabled
-        assert rows[9].send == "sh /root/connect_wifi.sh"
+        assert rows[6].send == "mkdir -p /root/fct_assets"
+        assert rows[10].send == "bash /root/fct_assets/connect_wifi.sh router"
 
     def test_template_document_carries_name_and_steps(self):
         data = load_template(TEMPLATE_BARE_METAL)
@@ -329,9 +331,9 @@ class TestTemplatePrefill:
     def test_defaults_when_project_carries_nothing(self, panel):
         panel._load_template(TEMPLATE_LINUX)
         rows = _rows(panel)
-        assert rows[9].send == "sh /root/connect_wifi.sh"   # connect script
-        assert rows[6].remote == "/root"              # serial push dest
-        assert rows[6].local == "assets"              # template default
+        assert rows[10].send == "bash /root/fct_assets/connect_wifi.sh router"
+        assert rows[7].remote == "/root/fct_assets/connect_wifi.sh"
+        assert rows[7].local == "assets/resources/scripts/connect_wifi.sh"
 
     def test_project_values_prefill_the_loaded_rows(self, panel):
         panel.set_values({"fct_test_config_yaml": PROJECT_YAML})
@@ -339,11 +341,28 @@ class TestTemplatePrefill:
         panel._load_template(TEMPLATE_LINUX)
         rows = _rows(panel)
         # the connect row runs a script - credentials are not injected
-        assert rows[9].send == "sh /root/connect_wifi.sh"
-        assert rows[9].op_params is None
-        assert rows[6].remote == "/root"
-        assert rows[6].local != ""                    # project assets dir
-        assert rows[15].remote == "/root"             # serial pull source
+        assert rows[10].send == "bash /root/fct_assets/connect_wifi.sh router"
+        assert rows[10].op_params is None
+        assert rows[7].remote == "/root/fct_assets/connect_wifi.sh"
+        assert rows[7].local != ""                    # project assets dir
+        assert rows[16].remote == "/root"             # serial pull source
+
+    def test_m83_template_single_file_push_keeps_its_sub_path(self):
+        rows = load_template_commands(
+            TEMPLATE_LINUX, {"assets_dir": "/proj/assets_FRDM-IMX93"})
+        push = [c for c in rows
+                if step_type_label(c) == STEP_TYPE_SERIAL_PUT][0]
+        assert push.local == ("/proj/assets_FRDM-IMX93/resources/scripts/"
+                              "connect_wifi.sh")
+
+    def test_m83_template_directory_push_still_gets_the_assets_dir(self):
+        from mtkgui.engine.fct_templates import apply_prefill
+
+        cmd = ConsoleCommand(kind=KIND_SERIAL_PUT, name="push",
+                             local="assets")
+        assert apply_prefill(
+            cmd, {"assets_dir": "/proj/assets_FRDM-IMX93"}).local == \
+            "/proj/assets_FRDM-IMX93"
 
     def test_prefill_never_touches_non_referenced_fields(self, panel):
         panel.set_values({"fct_test_config_yaml": PROJECT_YAML})

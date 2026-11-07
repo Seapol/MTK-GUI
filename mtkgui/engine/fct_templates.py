@@ -150,6 +150,17 @@ def command_for_step(step: dict) -> ConsoleCommand:
     return cmd
 
 
+def _prefill_dir(local: str, base: str, prefix: str) -> str:
+    """``assets`` -> ``<base>`` and ``assets/x`` -> ``<base>/x`` (same for
+    ``outbox``); anything else keeps the template's own value."""
+    local = str(local or "").strip()
+    if local == prefix:
+        return base
+    if local.startswith(prefix + "/"):
+        return base.rstrip("/") + "/" + local[len(prefix) + 1:]
+    return local
+
+
 def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
     """Pre-fill one row from the loaded project's shared parameters.
 
@@ -170,10 +181,14 @@ def apply_prefill(cmd: ConsoleCommand, prefill: dict) -> ConsoleCommand:
             cmd.send = f"{driver}; iw dev {iface} info"
     if cmd.kind in (KIND_SFTP_PUT, KIND_SERIAL_PUT) \
             and str(values.get("assets_dir") or "").strip():
-        cmd.local = str(values["assets_dir"]).strip()
+        # M83/C2b: a template may push ONE file below the assets tree
+        # (``assets/resources/scripts/connect_wifi.sh``)
+        cmd.local = _prefill_dir(cmd.local, str(values["assets_dir"]).strip(),
+                                 "assets")
     if cmd.kind in (KIND_SFTP_GET, KIND_SERIAL_PULL) \
             and str(values.get("outbox_dir") or "").strip():
-        cmd.local = str(values["outbox_dir"]).strip()
+        cmd.local = _prefill_dir(cmd.local, str(values["outbox_dir"]).strip(),
+                                 "outbox")
     return cmd
 
 
