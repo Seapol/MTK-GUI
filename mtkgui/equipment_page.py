@@ -2417,7 +2417,6 @@ _MODE_FIELD_LABELS = {
                ("wired_host_port", "Host PC LAN Port"),
                ("wired_host_ip", "Host PC IP")],
     "lan": [("wired_dut_ports", "DUT Port(s)"),
-            ("wired_eth_ports", "Ethernet Port(s)"),
             ("wired_host_port", "Host PC RJ45 Port"),
             ("wired_host_ip", "Host PC wired IP"),
             ("wifi_host_ip", "Host PC Wi-Fi IP"),
@@ -2430,8 +2429,22 @@ _MODE_FIELD_LABELS = {
                ("router_ap_ssid", "Router AP SSID"),
                ("router_ap_password", "Router AP password"),
                ("wifi_host_ip", "Host PC Wi-Fi IP"),
-               ("wired_host_ip", "Host PC wired IP"),
                ("wifi_gateway", "Router gateway IP")],
+}
+
+#: M80-12: exact mode dialog titles (wired vs wireless distinguished)
+MODE_TITLES = {
+    "direct": "Wired (RJ45) - Direct (no router)",
+    "lan": "Wired (RJ45) - LAN via router",
+    "hotspot": "Wireless (AP hotspot) - Host PC hotspot (no router)",
+    "router": "Wireless (AP hotspot) - Wi-Fi router",
+}
+
+#: M80-10: exact field hints
+_MODE_FIELD_HINTS = {
+    "router_ap_password": "the DUT also uses it when joining the same AP",
+    "wifi_dut_iface": "login to the DUT and run 'ifconfig' to read the "
+                      "interface name (e.g. mlan0)",
 }
 
 _MODE_NAMES = {"direct": "Direct (no router)", "lan": "LAN via router",
@@ -2449,7 +2462,9 @@ class _RouterModeDialog(QDialog):
         self._mode = mode
         self._values = dict(values or {})
         self._on_save = on_save
-        self.setWindowTitle(f"{NETWORK_TITLE} - {_MODE_NAMES.get(mode, mode)}")
+        self._auto_detected = set()
+        self.setWindowTitle(MODE_TITLES.get(mode, f"{NETWORK_TITLE} - "
+                                            f"{_MODE_NAMES.get(mode, mode)}"))
         fit_dialog(self, 640, 540)
         root = QVBoxLayout(self)
         body = QWidget()
@@ -2476,6 +2491,8 @@ class _RouterModeDialog(QDialog):
             # bounded fields: two modules fit side by side without a
             # horizontal scrollbar / oversized stretched rows
             edit.setMaximumWidth(400)
+            if key in _MODE_FIELD_HINTS:
+                edit.setToolTip(_MODE_FIELD_HINTS[key])
             if key in ("wired_dut_ports", "wired_eth_ports",
                        "wifi_dut_iface"):
                 edit.setPlaceholderText("typed by hand from the DUT (ifconfig)")
@@ -2538,6 +2555,44 @@ class _RouterModeDialog(QDialog):
         if self.btn_test is not None:
             self.btn_test.clicked.connect(self._test_connection)
         self.btn_apply.clicked.connect(self._apply_save)
+        # M80-10/11: run the detect path once when the dialog opens
+        QTimer.singleShot(0, self, qt_safe(self._auto_detect_on_open))
+
+    # --------------------------------------------- M80-10/11 auto-detect
+    def _auto_detect_on_open(self):
+        from .engine import host_platform
+        try:
+            self._fill_auto(host_platform.detect_host_network() or {})
+        except Exception:                    # noqa: BLE001 - best effort
+            pass
+
+    def _mark_auto(self, key):
+        edit = self._edits.get(key)
+        if edit is None:
+            return
+        self._auto_detected.add(key)
+        tooltip = edit.toolTip().strip()
+        edit.setToolTip(f"{tooltip} - auto-detected" if tooltip
+                        else "auto-detected")
+
+    def _fill_auto(self, info: dict):
+        """Fill the auto-detected fields from one detect result."""
+        if self._mode == "router":
+            ssid = str((info or {}).get("wifi_ssid") or "").strip()
+            edit = self._edits.get("router_ap_ssid")
+            if ssid and edit is not None:
+                if not edit.text().strip():
+                    edit.setText(ssid)
+                self._mark_auto("router_ap_ssid")
+        if self._mode == "lan":
+            for key, source in (("wired_host_port", "wired_port"),
+                                ("wired_host_ip", "wired_ip"),
+                                ("wired_gateway", "gateway")):
+                value = str((info or {}).get(source) or "").strip()
+                edit = self._edits.get(key)
+                if value and edit is not None:
+                    edit.setText(value)
+                    self._mark_auto(key)
 
     # ---------------------------------------------------------- helpers
     def _report(self, ok: bool, message: str):
@@ -2585,15 +2640,25 @@ class _RouterModeDialog(QDialog):
             if self._mode in ("direct", "lan") and port:
                 if "wired_host_port" in self._edits:
                     self._edits["wired_host_port"].setText(port)
-            if self._mode in ("direct", "lan", "router") and wired:
+                    self._mark_auto("wired_host_port")
+            if self._mode in ("direct", "lan") and wired:
                 if "wired_host_ip" in self._edits:
                     self._edits["wired_host_ip"].setText(wired)
+                    self._mark_auto("wired_host_ip")
             if self._mode in ("lan", "hotspot", "router") and wifi:
                 if "wifi_host_ip" in self._edits:
                     self._edits["wifi_host_ip"].setText(wifi)
+                    self._mark_auto("wifi_host_ip")
             gateway_key = _MODE_GATEWAY_KEY.get(self._mode)
             if gateway_key and gw:
                 self._edits[gateway_key].setText(gw)
+                self._mark_auto(gateway_key)
+            ssid = str(info.get("wifi_ssid") or "").strip()
+            if self._mode == "router" and ssid and \
+                    "router_ap_ssid" in self._edits \
+                    and not self._edits["router_ap_ssid"].text().strip():
+                self._edits["router_ap_ssid"].setText(ssid)
+                self._mark_auto("router_ap_ssid")
             if not (wired or wifi or gw or port):
                 self._report(False, "Auto Detect found nothing - fill the "
                                     "Host PC fields in by hand.")
@@ -2731,6 +2796,7 @@ class RouterNetworkDialog(QDialog):
         self._panels = {}
         self._cards = {"wired": {}, "wifi": {}}
         self._hints = {}
+        self._edit_buttons = {}
         for module in ("wired", "wifi"):
             panel = QGroupBox("Wired (RJ45)" if module == "wired"
                               else "Wireless (AP hotspot)")
@@ -2746,7 +2812,7 @@ class RouterNetworkDialog(QDialog):
                 card = _ModeCard(key, name, desc, key)
                 card.set_selected(key == current)
                 card.clicked.connect(
-                    lambda chosen, m=module: self._select_and_open(m, chosen))
+                    lambda chosen, m=module: self._select(m, chosen))
                 card.doubleClicked.connect(
                     lambda chosen, m=module: self._open_mode(m, chosen))
                 self._cards[module][key] = card
@@ -2758,6 +2824,13 @@ class RouterNetworkDialog(QDialog):
             hint.setWordWrap(True)
             self._hints[module] = hint
             pl.addWidget(hint)
+            edit_btn = QPushButton("Edit")
+            edit_btn.setToolTip("Open the selected mode's configuration")
+            edit_btn.clicked.connect(
+                lambda _=False, m=module: self._open_mode(
+                    m, self._current_mode(m)))
+            self._edit_buttons[module] = edit_btn
+            pl.addWidget(edit_btn)
             modules.addWidget(panel, 1)
         lay.addLayout(modules, 2)
 
@@ -2811,6 +2884,15 @@ class RouterNetworkDialog(QDialog):
         self._open_mode(module, mode)
 
     def _open_mode(self, module, mode):
+        """M80-12: open one mode's dialog; the sibling mode inside the
+        same module is mutually exclusive, so its fields are cleared
+        before editing."""
+        self._select(module, mode)
+        for other_key, _name, _desc in NETWORK_MODES[module]:
+            if other_key == mode:
+                continue
+            for key, _label in _MODE_FIELD_LABELS.get(other_key, []):
+                self._values[key] = ""
         dlg = _RouterModeDialog(self, mode, self._values,
                                 on_save=self._absorb_values)
         dlg.exec()
@@ -2829,11 +2911,23 @@ class RouterNetworkDialog(QDialog):
         self.accept()
 
     def values(self) -> dict:
-        data = dict(self._values)
+        # M80-12: the saved dict carries the SELECTED mode's fields only
+        # (plus the enabled flags); unselected mode keys are not written.
+        # Non-mode group keys (dut_ip / netmask / legacy router_ip ...)
+        # pass through, so old YAML values stay untouched.
+        data = {}
+        mode_keys = {key for labels in _MODE_FIELD_LABELS.values()
+                     for key, _label in labels}
+        for key, value in self._values.items():
+            if key not in mode_keys and key != "bt_scan_targets":
+                data[key] = value
         for module in ("wired", "wifi"):
+            mode = self._current_mode(module)
             data[f"{module}_enabled"] = bool(
                 self._panels[module].isChecked())
-            data[f"{module}_mode"] = self._current_mode(module)
+            data[f"{module}_mode"] = mode
+            for key, _label in _MODE_FIELD_LABELS.get(mode, []):
+                data[key] = self._values.get(key, "")
         # legacy compatibility for the FCT LAN Setup / Wi-Fi Connect steps
         data["setup_mode"] = ("direct"
                               if data.get("wired_mode") == "direct"
@@ -4116,7 +4210,7 @@ class EquipmentPage(QWidget):
         holder = {}
 
         def save(new_values):
-            groups[group] = dict(new_values)
+            groups[group].update(dict(new_values))
             dialog = holder.get("dlg")
             scan = dialog.scan_targets() if dialog is not None else ""
             self._mirror_network_peripherals(groups[group], scan)
@@ -4126,7 +4220,7 @@ class EquipmentPage(QWidget):
         holder["dlg"] = dlg
         dlg.exec()
         if dlg.result() == QDialog.DialogCode.Accepted:
-            groups[group] = dlg.values()
+            groups[group].update(dict(dlg.values()))
             self._mirror_network_peripherals(groups[group],
                                              dlg.scan_targets())
 

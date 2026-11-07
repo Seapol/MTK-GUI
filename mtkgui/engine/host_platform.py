@@ -912,10 +912,15 @@ def detect_host_network() -> dict:
 
     Returns the same keys as :func:`parse_ipconfig`; a platform without
     the commands returns empty values (the operator fills by hand).
-    """
+    M80-10: ``wifi_ssid`` is the SSID the Host PC is currently
+    associated to (the Router AP of the ``router`` mode)."""
     key = platform_key()
     if key == "windows":
-        return parse_ipconfig(run_link_cmd("ipconfig"))
+        data = parse_ipconfig(run_link_cmd("ipconfig"))
+        ssid = _parse_win_ssid(
+            run_link_cmd("netsh wlan show interfaces"))
+        data["wifi_ssid"] = ssid or ""
+        return data
     if key == "mac":
         ports = parse_mac_hardware_ports(
             run_link_cmd("networksetup -listallhardwareports"))
@@ -924,12 +929,14 @@ def detect_host_network() -> dict:
             run_link_cmd("route -n get default"))
         wired_dev = ports.get("wired", "")
         wifi_dev = ports.get("wifi", "")
+        ssid, _iface = parse_mac_wifi(run_link_cmd(
+            "system_profiler SPAirPortDataType", timeout_s=20))
         return {"wired_ip": addresses.get(wired_dev, ""),
                 "wifi_ip": addresses.get(wifi_dev, ""),
                 "wired_port": wired_dev, "wifi_port": wifi_dev,
-                "gateway": gateway}
+                "gateway": gateway, "wifi_ssid": ssid or ""}
     return {"wired_ip": "", "wifi_ip": "", "wired_port": "",
-            "wifi_port": "", "gateway": ""}
+            "wifi_port": "", "gateway": "", "wifi_ssid": ""}
 
 
 def parse_hostednetwork_status(text: str) -> str:
