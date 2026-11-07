@@ -244,9 +244,9 @@ The first FCT row is a `MessageOKtoConsole` operator gate with the
 3. **Press GO.**
 
 Pressing GO before the prompt is up leaves the carriage return in the
-U-Boot window and can abort autoboot.  For this project the GO answer
-is a carriage return (`send_yes: "\r"`), not `y`; keep
-`send_console_answer` on only for rows the DUT really answers.
+U-Boot window and can abort autoboot.  For this project use a
+`MessageGoStoptoConsole` row with `send_yes: "\r"` - only the
+`*toConsole` kinds write to the console.
 
 ### 2. `Console_cli` step that starts the Host iperf3 server
 

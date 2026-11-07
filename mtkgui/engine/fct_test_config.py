@@ -118,6 +118,42 @@ DEFAULT_FLASH_GUI_MESSAGE = (
     "Flash GUI has been launched. Handle it. When you finished, press "
     "Go if flash success, press Stop if flash failure or error.")
 
+#: M83/C8: default console payload of a MessageOKtoConsole row (user
+#: direction 2026-11-06: "any key is fine, ok is the default").
+DEFAULT_MESSAGE_SEND_OK = "ok"
+
+#: M83/C8: the six Message kinds (three plain + three *toConsole).
+PLAIN_MESSAGE_KINDS = ("MessageOK", "MessageYesNo", "MessageGoStop")
+CONSOLE_MESSAGE_KINDS = ("MessageOKtoConsole", "MessageYesNotoConsole",
+                         "MessageGoStoptoConsole")
+MESSAGE_KINDS = PLAIN_MESSAGE_KINDS + CONSOLE_MESSAGE_KINDS
+
+#: the editor Type labels for the *toConsole kinds (underscored form)
+MESSAGE_CONSOLE_STEP_LABELS = ("MessageOK_to_Console",
+                               "MessageYesNo_to_Console",
+                               "MessageGoStop_to_Console")
+#: Type label -> the case-kind spelling used by the engine
+LEGACY_MESSAGE_KIND_ALIASES = {
+    "MessageOK_to_Console": "MessageOKtoConsole",
+    "MessageYesNo_to_Console": "MessageYesNotoConsole",
+    "MessageGoStop_to_Console": "MessageGoStoptoConsole",
+}
+
+
+def normalize_message_kind(kind: str) -> str:
+    """Fold the editor Type label onto the case-kind spelling."""
+    text = str(kind or "")
+    return LEGACY_MESSAGE_KIND_ALIASES.get(text, text)
+
+
+def kind_writes_console(kind: str) -> bool:
+    """M83/C8: True only for the three ``*toConsole`` Message kinds.
+
+    The single predicate both engine paths use: a plain Message kind
+    must NEVER write to any console (serial or SSH).  Accepts both the
+    case-kind spelling and the editor Type label."""
+    return normalize_message_kind(kind) in CONSOLE_MESSAGE_KINDS
+
 
 def flash_gui_message(cmd) -> str:
     """M64: the operator prompt of a Flash_GUI row.
@@ -381,8 +417,7 @@ _CASE_MESSAGE_STYLES = {"MessageOK": DIALOG_OK,
                         "MessageGoStoptoConsole": DIALOG_GOSTOP}
 
 #: message kinds whose row waits for a console message first
-_CONSOLE_MESSAGE_KINDS = ("MessageOKtoConsole", "MessageYesNotoConsole",
-                          "MessageGoStoptoConsole")
+_CONSOLE_MESSAGE_KINDS = CONSOLE_MESSAGE_KINDS
 
 
 def _case_marker(case: dict) -> dict:
@@ -420,8 +455,6 @@ def _message_command_from_case(case: dict) -> dict:
         "name": display or name,
         "transport": "serial",
         "dialog_style": style,
-        "send_yes": str(params.get("send_yes") or "y"),
-        "send_no": str(params.get("send_no") or "n"),
         # forward map stores `confirm_message or name` in params.message
         # - a message equal to the row name means the dialog text was
         # empty (round-trips back to "")
@@ -439,12 +472,21 @@ def _message_command_from_case(case: dict) -> dict:
         "capture_enabled": False,
         "retries": int(marker.get("retries", 0) or 0),
     }
+    # M83/C8: the answer payloads belong to the *toConsole kinds only.
+    if is_console:
+        cmd["send_yes"] = str(params.get("send_yes") or "y")
+        cmd["send_no"] = str(params.get("send_no") or "n")
+        if kind == "MessageOKtoConsole":
+            cmd["send_ok"] = str(params.get("send_ok")
+                                 if params.get("send_ok") is not None
+                                 else DEFAULT_MESSAGE_SEND_OK)
     if style == DIALOG_OK:
         cmd["timeout"] = 0.0 if not is_console else \
             float(params.get("message_timeout_s") or 4.0)
     else:
         cmd["timeout"] = float(params.get("message_timeout_s") or 4.0)
-        cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
+        if is_console:
+            cmd["send"] = f"{cmd['send_yes']} / {cmd['send_no']}"
     return cmd
 
 
@@ -852,10 +894,10 @@ class ConsoleCommand:
     serial_baud: int = 0            # kind == serial_put|serial_pull (M46):
                                     # 0 = use the Console Serial baudrate,
                                     # otherwise one Tera Term table rate
-    # M76/D2: opt-in console answer for MessageYesNo / MessageGoStop -
-    # False (default) means GO / STOP never writes to the DUT console,
-    # so an existing YAML stops poisoning a login prompt with 'y'
-    send_console_answer: bool = False
+    # M83/C8: the console payload of a MessageOKtoConsole row. Free text
+    # (default "ok"); an empty value means "send nothing". Only the
+    # *toConsole kinds ever write it - plain kinds never touch a console.
+    send_ok: str = DEFAULT_MESSAGE_SEND_OK
     # M83: the login step TYPE is retired - these fields stay readable so
     # a legacy row loads and is REPORTED (never silently converted).
     login_prompt: str = "login:"    # wait for this prompt, then user
@@ -890,8 +932,6 @@ class ConsoleCommand:
              "confirm_enabled": self.confirm_enabled,
              "confirm_message": self.confirm_message,
              "dialog_style": self.dialog_style,
-             "send_yes": self.send_yes,
-             "send_no": self.send_no,
              "timeout": float(self.timeout),
              "wait_timeout": float(self.wait_timeout),
              "send_timeout": float(self.send_timeout),
@@ -910,11 +950,23 @@ class ConsoleCommand:
              "flash_gui_prompt": self.flash_gui_prompt,
              "wait_ms": int(self.wait_ms),
              "serial_baud": int(self.serial_baud or 0),
-             "send_console_answer": bool(self.send_console_answer),
              "login_prompt": str(self.login_prompt or ""),
              "login_user": str(self.login_user or ""),
              "login_password": str(self.login_password or ""),
              "shell_prompt": str(self.shell_prompt or "")}
+        # M83/C8: the answer payloads belong to the *toConsole Message
+        # kinds only.  A plain Message kind never writes to a console, so
+        # serialising send_yes / send_no for it would make every reload
+        # look like a legacy row (and emit a false warning).
+        if self.kind != KIND_MESSAGE or kind_writes_console(
+                step_type_label(self)):
+            d["send_yes"] = self.send_yes
+            d["send_no"] = self.send_no
+        if (self.kind == KIND_MESSAGE
+                and step_type_label(self) in MESSAGE_CONSOLE_STEP_LABELS
+                and normalize_message_kind(step_type_label(self))
+                == "MessageOKtoConsole"):
+            d["send_ok"] = str(self.send_ok or "")
         # M83/C6: the CLI working directory travels only when it is set -
         # an empty value keeps the historic "process CWD" behaviour.
         if str(self.cwd or "").strip():
@@ -1016,8 +1068,8 @@ class ConsoleCommand:
                 flash_gui_prompt=str(c.get("flash_gui_prompt", "")),
                 wait_ms=int(c.get("wait_ms", 1000) or 0),
                 serial_baud=int(c.get("serial_baud", 0) or 0),
-                send_console_answer=bool(
-                    c.get("send_console_answer", False)),
+                send_ok=(str(c["send_ok"]) if "send_ok" in c
+                         else DEFAULT_MESSAGE_SEND_OK),
                 login_prompt=str(c.get("login_prompt", "login:") or ""),
                 login_user=str(c.get("login_user", "root") or ""),
                 login_password=str(c.get("login_password", "") or ""),
@@ -1908,12 +1960,11 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     # Console-domain operator-dialog rows (MessageOKtoConsole /
     # MessageYesNotoConsole / MessageGoStoptoConsole, user direction
     # 2026-10-18): the row WAITS the expected console message from the
-    # bound DUT console, THEN notifies the operator.  OK sends nothing
-    # (non-blocking), YesNo / GoStop send send_yes / send_no (default y
-    # / n) ONLY when the row opts in (send_console_answer); the row
-    # joins the ordered sequence exactly where it is placed.  Legacy
-    # rows without an expected message simply skip the wait phase.
+    # bound DUT console, THEN notifies the operator.  M83/C8: the
+    # six-kind label travels as ``message_kind`` - only the *toConsole
+    # kinds write to the console; a plain kind never does.
     if cmd.kind == KIND_MESSAGE:
+        message_kind = normalize_message_kind(step_type_label(cmd))
         steps.append(FctStep(
             name=cmd.name or "Operator message",
             step_type=STEP_GUI_CONFIRM, channel=cmd.channel,
@@ -1922,10 +1973,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             params={"style": cmd.dialog_style or DIALOG_YESNO,
                     "message": cmd.confirm_message
                     or cmd.name or "Operator message",
+                    "message_kind": message_kind,
                     "send_yes": cmd.send_yes or "y",
                     "send_no": cmd.send_no or "n",
-                    "send_console_answer": bool(
-                        getattr(cmd, "send_console_answer", False)),
+                    "send_ok": str(cmd.send_ok or ""),
                     "message_timeout_s": float(cmd.timeout or 0.0),
                     "console_dialog": True,
                     "wait_pattern": str(cmd.expect_pass or ""),
@@ -2015,8 +2066,6 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                     "wait_pattern": "", "wait_timeout": 0.0,
                     "send_yes": cmd.send_yes or cmd.send or "y",
                     "send_no": cmd.send_no or "n",
-                    "send_console_answer": bool(
-                        getattr(cmd, "send_console_answer", False)),
                     "message_timeout_s": float(cmd.timeout or 4.0)}))
     return steps
 

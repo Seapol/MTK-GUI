@@ -602,9 +602,11 @@ user name -> send the password (empty = just press Enter) -> wait for
 the shell prompt -> tests**.  A product image with autologin simply
 omits these rows.  The app never inserts them automatically.
 
-`MessageYesNo` / `MessageGoStop` rows write their answer to the DUT
-console only when the row opts in (`send_console_answer`, off by
-default) - otherwise GO / STOP never types into an open login prompt.
+Only the three `*toConsole` Message kinds (`MessageOKtoConsole`,
+`MessageYesNotoConsole`, `MessageGoStoptoConsole`) write to the DUT
+console; the plain `MessageOK` / `MessageYesNo` / `MessageGoStop`
+kinds never do (the removed `send_console_answer` opt-in is reported
+as a warning and ignored).
 
 **Warning:** an invalid FCT configuration blocks the dialog with
 the error list (`FCT config parse failed: ...` or the validation

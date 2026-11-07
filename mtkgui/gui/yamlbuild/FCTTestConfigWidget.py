@@ -116,6 +116,7 @@ from mtkgui.engine.fct_test_config import (
     BluetoothCfg,
     ConsoleCfg,
     ConsoleCommand,
+    DEFAULT_MESSAGE_SEND_OK,
     FctSetupCfg,
     FctTestConfig,
     WifiCfg,
@@ -1820,12 +1821,13 @@ class FCTTestConfigPanel(QWidget):
         Unexpected)."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QComboBox, QLineEdit,
-                                        QCheckBox, QDoubleSpinBox,
+                                        QDoubleSpinBox, QGroupBox,
                                         QDialogButtonBox, QTextEdit)
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
         dlg.setWindowTitle("Operator message editor")
-        dlg.setMinimumWidth(620)
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_FORM)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -1834,13 +1836,11 @@ class FCTTestConfigPanel(QWidget):
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel(
-            "Operator dialog: MessageOK only acks; MessageYesNo sends "
-            "yes / no (PASS either way); MessageGoStop GO continues and "
-            "STOP stops the run.  The *_to_Console variants first WAIT "
-            "the expected console message, then notify the operator. "
-            "Capture uses the unified rule: Expected must be found, "
-            "Unexpected must NOT be found."))
+        lay.addWidget(dlayout.hint(
+            "MessageOK only acknowledges. MessageYesNo: Yes PASSes, No "
+            "FAILs (the run continues). MessageGoStop: GO PASSes, STOP "
+            "FAILs and stops the run. Only the *toConsole kinds write to "
+            "the console; the plain kinds never do.", dlayout.WIDTH_FORM))
         form = QFormLayout()
         self._msg_style_items = (
             (STEP_TYPE_MESSAGE_OK, DIALOG_OK, False),
@@ -1865,40 +1865,37 @@ class FCTTestConfigPanel(QWidget):
         msg.setPlaceholderText("Text shown to the operator "
                                "(empty = row name)")
         form.addRow("Message text:", msg)
-        # the row WAITS this console message BEFORE the operator is
-        # notified (empty = no wait; only meaningful for *_to_Console)
+        # M83/C8: ONE Console group; live only for the *toConsole kinds.
+        console_box = QGroupBox("Console")
+        cform = QFormLayout(console_box)
         expected = QLineEdit(cmd.expect_pass or "")
         expected.setPlaceholderText(
             "Console message to wait for (empty = wait disabled)")
-        form.addRow("Expected (wait) message:", expected)
+        cform.addRow("Expected (wait) message:", expected)
         wait_timeout = QDoubleSpinBox()
         wait_timeout.setRange(0.0, 3600.0)
         wait_timeout.setDecimals(0)
         wait_timeout.setSuffix(" s")
         wait_timeout.setSpecialValueText("off")
         wait_timeout.setValue(float(max(cmd.wait_timeout, 0.0)))
-        form.addRow("Wait timeout:", wait_timeout)
+        cform.addRow("Wait timeout:", wait_timeout)
         send_yes = QLineEdit(cmd.send_yes or "y")
         send_no = QLineEdit(cmd.send_no or "n")
-        form.addRow("Send on Yes / GO:", send_yes)
-        form.addRow("Send on No / STOP:", send_no)
-        # M76/D2: opt-in console answer (default off -> never write 'y'
-        # into a login prompt)
-        answer_cb = QCheckBox(
-            "Send the answer to the DUT console (send_console_answer)")
-        answer_cb.setChecked(bool(getattr(cmd, "send_console_answer",
-                                          False)))
-        answer_cb.setToolTip(
-            "Off (default): GO / Yes never writes to the console; "
-            "turn it on only where the DUT really asks a y/n question")
-        form.addRow(answer_cb)
+        cform.addRow("Send on Yes / GO:", send_yes)
+        cform.addRow("Send on No / STOP:", send_no)
+        send_ok = QLineEdit(str(getattr(cmd, "send_ok", "")
+                                or DEFAULT_MESSAGE_SEND_OK))
+        send_ok.setPlaceholderText(
+            "Payload sent after OK (empty = send nothing)")
+        cform.addRow("Send on OK:", send_ok)
+        ok_label = cform.labelForField(send_ok)
         timeout = QDoubleSpinBox()
         timeout.setRange(0.0, 3600.0)
         timeout.setDecimals(0)
         timeout.setSuffix(" s")
         timeout.setSpecialValueText("off (wait forever)")
         timeout.setValue(float(max(cmd.timeout, 0.0)))
-        form.addRow("Timeout:", timeout)
+        cform.addRow("Timeout:", timeout)
         # unified Capture (judged on the operator answer + console lines)
         cap_exp = QTextEdit()
         cap_exp.setPlainText(cmd.capture_expected or "")
@@ -1906,11 +1903,29 @@ class FCTTestConfigPanel(QWidget):
         cap_unexp = QTextEdit()
         cap_unexp.setPlainText(cmd.capture_unexpected or "")
         cap_unexp.setMaximumHeight(60)
-        form.addRow("Capture Expected:", cap_exp)
-        form.addRow("Capture Unexpected:", cap_unexp)
+        cform.addRow("Capture Expected:", cap_exp)
+        cform.addRow("Capture Unexpected:", cap_unexp)
+
+        def _sync_kind() -> None:
+            label = self._msg_style_items[
+                style.currentIndex()][0]
+            is_console = label in (STEP_TYPE_MESSAGE_OK_WAIT,
+                                   STEP_TYPE_MESSAGE_YESNO_WAIT,
+                                   STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+            console_box.setEnabled(is_console)
+            show_ok = label == STEP_TYPE_MESSAGE_OK_WAIT
+            if ok_label is not None:
+                ok_label.setVisible(show_ok)
+            send_ok.setVisible(show_ok)
+
+        style.currentIndexChanged.connect(lambda _i: _sync_kind())
+        _sync_kind()
+        form.addRow(console_box)
         lay.addLayout(form)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
@@ -1918,31 +1933,34 @@ class FCTTestConfigPanel(QWidget):
         outer.addWidget(buttons)
         if dlg.exec():
             self._push_history()
-            _lbl, dialog_style, _wait = self._msg_style_items[
+            label, dialog_style, wait_label = self._msg_style_items[
                 style.currentIndex()]
-            is_wait_label = _wait
+            is_console = label in (STEP_TYPE_MESSAGE_OK_WAIT,
+                                   STEP_TYPE_MESSAGE_YESNO_WAIT,
+                                   STEP_TYPE_MESSAGE_GOSTOP_WAIT)
             cmd.dialog_style = dialog_style
             cmd.confirm_message = msg.text().strip()
             cmd.expect_pass = expected.text().strip()
             cmd.expect_pass_is_regex = False
-            cmd.wait_enabled = is_wait_label or bool(cmd.expect_pass)
+            # an *toConsole row stays an *toConsole row even with an
+            # empty wait pattern (the kind is carried by wait_enabled)
+            cmd.wait_enabled = wait_label
             cmd.wait_timeout = float(wait_timeout.value())
-            cmd.send_console_answer = answer_cb.isChecked()
-            cmd.send_enabled = dialog_style != DIALOG_OK
-            if cmd.send_enabled:
+            if is_console:
+                cmd.send_enabled = dialog_style != DIALOG_OK
                 cmd.send_yes = send_yes.text().strip() or "y"
                 cmd.send_no = send_no.text().strip() or "n"
-                cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
-            else:
-                cmd.send_yes = "y"
-                cmd.send_no = "n"
-                cmd.send = ""
+                cmd.send = (f"{cmd.send_yes} / {cmd.send_no}"
+                            if cmd.send_enabled else "")
+            if label == STEP_TYPE_MESSAGE_OK_WAIT:
+                cmd.send_ok = send_ok.text().strip()
             cmd.timeout = float(timeout.value())
             cmd.capture_expected = cap_exp.toPlainText().strip()
             cmd.capture_unexpected = cap_unexp.toPlainText().strip()
             cmd.capture_enabled = bool(cmd.capture_expected
                                        or cmd.capture_unexpected)
             self._save_row_cmd(row, cmd)
+        dlayout.finish(dlg)
 
     def _edit_operation_row(self, row: int) -> None:
         """M53: a standard Operation row is ONE action plus its

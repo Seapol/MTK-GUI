@@ -233,6 +233,115 @@ def rule_sftp_needs_ssh_channel(doc: dict,
 _RULES.append(rule_sftp_needs_ssh_channel)
 
 
+#: M83/C8: the removed opt-in key.
+LEGACY_SEND_CONSOLE_ANSWER_MSG = (
+    "send_console_answer was removed — the answer is sent only by the "
+    "*toConsole kinds")
+#: M83/C8: answer payloads stored on a plain Message kind are ignored.
+LEGACY_PLAIN_PAYLOAD_MSG = (
+    "send_yes / send_no are ignored — a plain Message kind never writes "
+    "to the console")
+
+
+def _is_plain_message_row(row: dict) -> bool:
+    """True when the row is one of the three plain Message kinds."""
+    from .fct_test_config import PLAIN_MESSAGE_KINDS
+    label = str(row.get("type") or row.get("kind") or "")
+    if label in PLAIN_MESSAGE_KINDS:
+        return True
+    if label.lower() == "message":
+        # a ConsoleCommand-shaped row: the kind is carried by the wait
+        # flag (a *toConsole row always waits)
+        return not bool(row.get("wait_enabled", False))
+    return False
+
+
+def _legacy_message_rows(doc: dict):
+    """Every stored Message-row mapping the document carries (yielded as
+    ``(location, name, mapping)``).  Reads existing keys only."""
+    import yaml as _yaml
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        marker = dict((row.get("op_params") or {}).get("fct_step") or {})
+        params = dict(marker.get("params") or {})
+        # the published case carries the six-kind label - expose it to
+        # the plain-row check without adding a new YAML field
+        params.setdefault("kind", str(row.get("kind") or marker.get("type")
+                                      or ""))
+        if str(marker.get("step_type") or "") == "GUI_CONFIRM" \
+                or str(row.get("kind") or "") in (
+                    "MessageOK", "MessageYesNo", "MessageGoStop",
+                    "MessageOKtoConsole", "MessageYesNotoConsole",
+                    "MessageGoStoptoConsole"):
+            yield (f"fct_test_cases[{index}]",
+                   str(row.get("name") or marker.get("name") or ""), params)
+    state = (doc or {}).get("yaml_build_state") or {}
+    params = (((state.get("modules") or {}).get("fct_build") or {})
+              .get("params")) or {}
+    text = str(params.get("fct_steps_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        for index, step in enumerate(fct.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            if str(step.get("type") or "") in (
+                    "MessageOK", "MessageYesNo", "MessageGoStop",
+                    "MessageOKtoConsole", "MessageYesNotoConsole",
+                    "MessageGoStoptoConsole"):
+                yield (f"fct_steps_yaml.steps[{index}]",
+                       str(step.get("name") or ""), step)
+    text = str(params.get("fct_test_config_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        cfg = (node.get("fct_test_config")
+               if isinstance(node, dict) else None) or {}
+        for index, cmd in enumerate(
+                (cfg.get("console") or {}).get("test_commands") or []):
+            if isinstance(cmd, dict) and str(cmd.get("kind") or "") == "message":
+                yield (f"test_commands[{index}]",
+                       str(cmd.get("name") or ""), cmd)
+
+
+def rule_legacy_message_console_keys(doc: dict) -> list[YamlIssue]:
+    """M83/C8: report the removed console-answer keys.
+
+    * ``send_console_answer`` present -> warning; the value is ignored.
+    * a PLAIN Message row still carrying ``send_yes`` / ``send_no`` ->
+      one warning per row; the values are ignored, never stripped.
+    """
+    issues: list[YamlIssue] = []
+    seen: set = set()
+    for location, name, row in _legacy_message_rows(doc):
+        if "send_console_answer" in row:
+            key = ("removed", name)
+            if key not in seen:
+                seen.add(key)
+                issues.append(YamlIssue(SEVERITY_WARNING,
+                                        LEGACY_SEND_CONSOLE_ANSWER_MSG,
+                                        location))
+        if (_is_plain_message_row(row)
+                and ("send_yes" in row or "send_no" in row)):
+            key = ("payload", name)
+            if key not in seen:
+                seen.add(key)
+                issues.append(YamlIssue(
+                    SEVERITY_WARNING,
+                    f"row {name!r}: {LEGACY_PLAIN_PAYLOAD_MSG}", location))
+    return issues
+
+
+_RULES.append(rule_legacy_message_console_keys)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

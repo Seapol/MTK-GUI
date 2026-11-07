@@ -852,89 +852,125 @@ class TestRunner(QObject):
                   else StepStatus.ERROR,
                   None, time.monotonic() - t0)
 
-    def _fct_message_send(self, payload: str, name: str) -> None:
-        """Send one operator-answer payload to the bound DUT console
-        (the first connected serial channel - the same binding the
-        console FCT methods use).  No channel connected: the payload
-        is dropped with an honest log line."""
+    def _fct_message_send(self, payload: str, name: str, channel: str = "",
+                          kind: str = "") -> None:
+        """Send one operator-answer payload to the row's OWN console
+        channel (M83/C8: no "first connected serial" guess any more).
+
+        The payload is written verbatim through ``console_line()`` (one
+        ``\n``, no ``\\r``), exactly like an operator typing it.  A row
+        without a connected channel logs an honest drop line and never
+        downgrades to another port."""
+        prefix = f"{kind}: " if kind else ""
+        text = str(payload or "")
+        if not text:
+            self.env._log(f"{prefix}send payload is empty — nothing sent")
+            return
         mc = getattr(self.env, "multi_console", None)
-        key = self._pick_serial_channel() if mc is not None else None
-        if mc is None or key is None or not payload:
-            self.env._log(f"FCT {name}: no connected serial console - "
-                          f"payload {payload!r} NOT sent")
+        if mc is None or not str(channel or ""):
+            self.env._log(f"{prefix}no console channel on the row — "
+                          f"payload {text!r} NOT sent")
+            return
+        connected = getattr(mc, "channel_connected", None)
+        if callable(connected) and not connected(channel):
+            self.env._log(f"{prefix}channel '{channel}' is not connected — "
+                          f"payload {text!r} NOT sent")
             return
         # ONE '\n' terminator, no leading byte (M22h): a pty with
         # ICRNL turns "\r\n" into two line breaks and the DUT's next
         # input() would consume the empty one.
         from .fct_exec import console_line
-        mc.write_to_channel(key, console_line(payload).encode("utf-8"))
-        self.env._log(f"FCT {name}: sent {payload!r} to the DUT console")
+        mc.write_to_channel(channel, console_line(text).encode("utf-8"))
+        self.env._log(f"{prefix}sent {text!r} to {channel}")
 
     def _fct_message_action(self, kind: str, name: str, answer: str,
-                            cfg: dict, tag: str = "FCT") -> str:
-        """User-direction 2026-10-14 semantics for the three operator
-        message kinds:
+                            cfg: dict, tag: str = "FCT",
+                            channel: str = "", stop_run: bool = True) -> str:
+        """M83/C8 semantics for the six Message kinds.
 
-        - MessageOK: acknowledge only - no console action, PASS.
-        - MessageYesNo: Yes sends ``send_yes`` (default y), No sends
-          ``send_no`` (default n); the step PASSes either way; a
-          timeout sends nothing and FAILs.
-        - MessageGoStop: GO sends ``send_yes`` (y) -> PASS and the run
-          continues; STOP sends ``send_no`` (n) -> the step FAILs and
-          the run STOPS (operator-style abort, teardown rows run).
+        A PLAIN kind (MessageOK / MessageYesNo / MessageGoStop) never
+        writes to a console.  A ``*toConsole`` kind writes ``send_yes``
+        on Yes / GO, ``send_no`` on No / STOP and ``send_ok`` (default
+        ``ok``) on OK, to the row's own ``channel``.
+
+        - MessageOK(*toConsole): PASS, run continues.
+        - MessageYesNo(*toConsole): Yes PASS; No FAIL (run CONTINUES);
+          timeout FAIL.
+        - MessageGoStop(*toConsole): GO PASS; STOP FAIL + run stops;
+          timeout FAIL + run stops.
 
         ``tag`` is the log prefix ("FCT" by default; "ICT" for the
-        STANDARD message rows an ICT sequence may carry - M48).
+        STANDARD message rows an ICT sequence may carry - M48, whose
+        semantics are out of M83 scope and stay unchanged).
 
         Returns the row verdict ("PASS" / "FAIL")."""
         env = self.env
+        from .fct_test_config import kind_writes_console, \
+            normalize_message_kind
+        kind = normalize_message_kind(kind)
         send_yes = str(cfg.get("send_yes") or "y")
         send_no = str(cfg.get("send_no") or "n")
-        # M76/D2: the console answer is OPT-IN per row.  Default off so
-        # an existing YAML can never inject 'y' into a login prompt.
-        # The row's verdict does not depend on the send.
-        allow_send = bool(cfg.get("send_console_answer", False))
-        if kind == "MessageOK":
-            env._log(f"{tag} {name}: operator OK -> PASS "
-                     f"(no console action)")
-            return "PASS"
-        if kind == "MessageYesNo":
+        send_ok = str(cfg.get("send_ok")
+                      if cfg.get("send_ok") is not None else "ok")
+        writes = (tag == "FCT") and kind_writes_console(kind)
+        base = (kind[:-len("toConsole")] if str(kind).endswith("toConsole")
+                else str(kind))
+        if tag != "FCT":
+            # ICT rows (M48) keep their pre-M83 semantics verbatim.
+            if base == "MessageOK":
+                env._log(f"{tag} {name}: operator OK -> PASS")
+                return "PASS"
+            if base == "MessageYesNo":
+                if answer == "timeout":
+                    env._log(f"{tag} {name}: operator timeout -> FAIL")
+                    return "FAIL"
+                env._log(f"{tag} {name}: operator "
+                         f"{answer.capitalize()} -> PASS")
+                return "PASS"
             if answer == "timeout":
                 env._log(f"{tag} {name}: operator timeout -> FAIL")
                 return "FAIL"
-            payload = send_yes if answer == "yes" else send_no
-            if allow_send:
-                self._fct_message_send(payload, name)
-            else:
-                env._log(f"{tag} {name}: operator {answer.capitalize()} "
-                         f"-> PASS (console answer suppressed - "
-                         f"send_console_answer is off)")
+            if answer == "go":
+                env._log(f"{tag} {name}: operator GO -> PASS")
                 return "PASS"
-            env._log(f"{tag} {name}: operator {answer.capitalize()} "
-                     f"-> PASS")
+            env._log(f"{tag} {name}: operator STOP -> FAIL (run stops)")
+            self.abort(trigger="operator")
+            return "FAIL"
+        if base == "MessageOK":
+            if writes:
+                self._fct_message_send(send_ok, name, channel, kind)
+            env._log(f"{tag} {name}: operator OK -> PASS")
             return "PASS"
-        # MessageGoStop
+        if base == "MessageYesNo":
+            if answer == "timeout":
+                env._log(f"{tag} {name}: operator timeout -> FAIL")
+                return "FAIL"
+            if answer == "yes":
+                if writes:
+                    self._fct_message_send(send_yes, name, channel, kind)
+                env._log(f"{tag} {name}: operator Yes -> PASS")
+                return "PASS"
+            if writes:
+                self._fct_message_send(send_no, name, channel, kind)
+            env._log(f"{tag} {name}: operator No -> FAIL")
+            return "FAIL"                    # FAIL, run continues
+        # MessageGoStop / MessageGoStoptoConsole
         if answer == "timeout":
-            env._log(f"{tag} {name}: operator timeout -> FAIL")
+            env._log(f"{tag} {name}: operator timeout -> FAIL (run stops)")
+            if stop_run:
+                self.abort(trigger="operator")
             return "FAIL"
         if answer == "go":
-            if allow_send:
-                self._fct_message_send(send_yes, name)
-                env._log(f"{tag} {name}: operator GO -> PASS")
-            else:
-                env._log(f"{tag} {name}: operator GO -> PASS "
-                         f"(console answer suppressed - "
-                         f"send_console_answer is off)")
+            if writes:
+                self._fct_message_send(send_yes, name, channel, kind)
+            env._log(f"{tag} {name}: operator GO -> PASS")
             return "PASS"
-        if allow_send:
-            self._fct_message_send(send_no, name)
-        else:
-            env._log(f"{tag} {name}: console answer suppressed "
-                     f"(send_console_answer is off)")
+        if writes:
+            self._fct_message_send(send_no, name, channel, kind)
         env._log(f"{tag} {name}: operator STOP -> FAIL (run stops)")
-        # the run STOPS: operator-style abort - flagged teardown rows
-        # still execute before the run ends
-        self.abort(trigger="operator")
+        if stop_run:
+            # operator-style abort - flagged teardown rows still run
+            self.abort(trigger="operator")
         return "FAIL"
 
     # ------------------------------------------- M77-4 SSH channel auto-bind
@@ -1172,96 +1208,79 @@ class TestRunner(QObject):
                 ctx.channels[ch_key] = ch
         if (step.step_type == "GUI_CONFIRM"
                 and step.params.get("console_dialog")):
-            # Console-domain operator dialog (user direction 2026-10-18):
-            # fct_exec waits the expected console message first (see
-            # fct_exec._console_dialog), then calls this hook.  OK sends
-            # nothing (non-blocking), YesNo sends y / n and PASSes either
-            # way, GoStop sends y (PASS) or n (FAIL + run stops); a
-            # timeout FAILs and stops the run.
-            _ck = {"ok": "MessageOKtoConsole",
-                   "yesno": "MessageYesNotoConsole"}.get(
-                str(step.params.get("style") or ""),
-                "MessageGoStoptoConsole")
+            # Console-domain operator dialog: fct_exec waits the expected
+            # console message first (fct_exec._console_dialog), then
+            # calls this hook.  M83/C8: the SIX-kind label travels in
+            # params["message_kind"]; only the *toConsole kinds write to
+            # the row's own channel, plain kinds never do.
+            _ck = str(step.params.get("message_kind") or "")
+            if _ck:
+                from .fct_test_config import normalize_message_kind
+                _ck = normalize_message_kind(_ck)
+            if not _ck:
+                _style = str(step.params.get("style") or "")
+                _ck = {"ok": "MessageOKtoConsole",
+                       "yesno": "MessageYesNotoConsole"}.get(
+                    _style, "MessageGoStoptoConsole")
             _ct = str(step.params.get("message")
                       or f"Confirm: {step.name}")
-            _cy = str(step.params.get("send_yes") or "y")
-            _cn = str(step.params.get("send_no") or "n")
             _ctm = float(step.params.get("message_timeout_s") or 0.0)
+            _chan = str(step.channel or "")
+            _cfg = {"send_yes": str(step.params.get("send_yes") or "y"),
+                    "send_no": str(step.params.get("send_no") or "n"),
+                    "send_ok": str(step.params.get("send_ok")
+                                   if step.params.get("send_ok") is not None
+                                   else "ok")}
 
-            def _ask(_s, _k=_ck, _t=_ct, _y=_cy, _n=_cn, _m=_ctm):
+            def _ask(_s, _k=_ck, _t=_ct, _m=_ctm, _c=_chan, _cfg=_cfg):
                 if not interactive:
                     env._log("human answer GO (simulated)")
                     return True
                 if _k == "MessageOKtoConsole":
                     self._fct_message_notice(_t)
+                    self._fct_message_send(_cfg["send_ok"], _t, _c, _k)
                     return True
                 answer = env._fct_message_dialog(_k, _t, timeout_s=_m)
-                if _k == "MessageYesNotoConsole":
-                    if answer in ("yes", "no"):
-                        self._fct_message_send(
-                            _y if answer == "yes" else _n, _t)
-                        return True
+                verdict = self._fct_message_action(
+                    _k, _t, str(answer).lower(), dict(_cfg), channel=_c,
+                    stop_run=False)
+                if verdict != "PASS" and _k == "MessageGoStoptoConsole":
+                    # STOP / timeout: the run stops after this step
                     _stop_flag["stop"] = True
-                    env._log(f"FCT {_t}: operator timeout -> FAIL "
-                             f"(run stops)")
-                    return False
-                if answer == "go":
-                    self._fct_message_send(_y, _t)
-                    return True
-                if answer == "stop":
-                    self._fct_message_send(_n, _t)
-                    _stop_flag["stop"] = True
-                    env._log(f"FCT {_t}: operator STOP -> FAIL "
-                             f"(run stops)")
-                    return False
-                _stop_flag["stop"] = True
-                env._log(f"FCT {_t}: operator timeout -> FAIL "
-                         f"(run stops)")
-                return False
+                return verdict == "PASS"
             ctx.human_confirm = _ask
         elif step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
             if interactive:
-                # dialog style travels in params ("style": ok | yesno |
-                # gostop) — the FCT Sequence message rows pick the
-                # operator dialog; plain GUI_CONFIRM steps keep GoStop
+                # plain operator dialog: the M83/C8 invariant - a plain
+                # Message kind NEVER writes to any console
                 _kind = {"ok": "MessageOK",
                          "yesno": "MessageYesNo"}.get(
                     str(step.params.get("style") or ""), "MessageGoStop")
                 _text = str(step.params.get("message")
                             or f"Confirm: {step.name}")
-                _send_yes = str(step.params.get("send_yes") or "y")
-                _send_no = str(step.params.get("send_no") or "n")
                 _tmo = float(step.params.get("message_timeout_s") or 0.0)
 
-                def _ask(_s, _k=_kind, _t=_text):
-                    # user direction 2026-10-14: the answer drives the
-                    # console - YesNo sends y / n (PASS either way),
-                    # GoStop sends y (PASS) or n (FAIL + the run
-                    # stops); MessageOK does nothing but acknowledge;
-                    # a timeout sends nothing and FAILs the step
+                def _ask(_s, _k=_kind, _t=_text, _m=_tmo):
                     answer = env._fct_message_dialog(
-                        _k, _t, timeout_s=_tmo)
+                        _k, _t, timeout_s=_m)
                     if _k == "MessageOK":
                         return answer == "ok"
-                    if _k == "MessageYesNo":
-                        if answer in ("yes", "no"):
-                            self._fct_message_send(
-                                _send_yes if answer == "yes"
-                                else _send_no, _t)
-                            return True
-                        env._log(f"FCT {_t}: operator timeout -> FAIL")
-                        return False
-                    if answer == "go":
-                        self._fct_message_send(_send_yes, _t)
-                        return True
                     if answer == "stop":
-                        self._fct_message_send(_send_no, _t)
                         _stop_flag["stop"] = True
                         env._log(f"FCT {_t}: operator STOP -> FAIL "
                                  f"(run stops)")
                         return False
-                    env._log(f"FCT {_t}: operator timeout -> FAIL")
-                    return False
+                    if answer == "go":
+                        return True
+                    if answer == "timeout" and _k == "MessageGoStop":
+                        # M83/C8: a GoStop timeout FAILs and STOPS the run
+                        _stop_flag["stop"] = True
+                        env._log(f"FCT {_t}: operator timeout -> FAIL "
+                                 f"(run stops)")
+                        return False
+                    # Yes: PASS (run continues); No / timeout: FAIL
+                    # (M83/C8: No is FAIL now, the run CONTINUES)
+                    return answer == "yes"
             else:                            # run_demo: simulated GO
                 def _ask(s):
                     env._log("human answer GO (simulated)")
@@ -1436,8 +1455,11 @@ class TestRunner(QObject):
         op_params (`expect_pass`) or from the quoted segment of the
         step name."""
         env = self.env
-        cfg = (env.fct_op_params[r]
-               if r < len(env.fct_op_params) else None) or {}
+        op = (env.fct_op_params[r]
+              if r < len(env.fct_op_params) else None) or {}
+        cfg = op
+        # M83/C8: the operator answer goes to the row's own channel.
+        channel = str((op.get("fct_step") or {}).get("channel") or "")
         quotes, rest = parse_console_step(name)
         expected = str(cfg.get("expect_pass") or "").strip()
         if not expected:
@@ -1470,35 +1492,35 @@ class TestRunner(QObject):
             "budget_s": float(wait_timeout),
             "deadline": time.monotonic() + max(0.1, float(wait_timeout)),
             "message_kind": kind, "cfg": dict(cfg),
+            "channel": channel,
         }
         self._put("fct", r, StepStatus.RUNNING)
 
     def _fct_console_message_answer(self, w: dict) -> None:
         """Phase 2 of a Console-domain operator dialog: the expected
         console message has arrived.  MessageOKtoConsole shows a
-        non-blocking OK notice and sends nothing (Console NOT blocked);
-        MessageGoStoptoConsole / MessageYesNotoConsole pop the modal
-        Go / Stop (or Yes / No) dialog - the operator answer blocks the
-        Console within the timeout - then send y / n to the Console."""
+        non-blocking OK notice then sends ``send_ok``; the YesNo / GoStop
+        toConsole kinds pop the modal dialog and send the answer to the
+        row's OWN channel (M83/C8)."""
         env = self.env
         kind, name = w["message_kind"], w["name"]
         cfg = w.get("cfg") or {}
+        channel = str(w.get("channel") or "")
         self._fct_console_wait = None
         t0 = w["t0"]
         if kind == "MessageOKtoConsole":
             # non-blocking notice, no console command: the run does not
             # stop for the OK click
             self._fct_message_notice(name)
-            verdict = self._fct_message_action("MessageOK", name, "ok",
-                                               cfg)
+            verdict = self._fct_message_action("MessageOKtoConsole", name,
+                                               "ok", cfg, channel=channel)
         else:
-            plain = ("MessageYesNo" if kind == "MessageYesNotoConsole"
-                     else "MessageGoStop")
             answer = env._fct_message_dialog(
                 kind, name,
                 timeout_s=float(cfg.get("timeout")
                                 or cfg.get("message_timeout_s") or 0.0))
-            verdict = self._fct_message_action(plain, name, answer, cfg)
+            verdict = self._fct_message_action(kind, name, answer, cfg,
+                                               channel=channel)
         self._put("fct", w["row"],
                   StepStatus.PASS if verdict == "PASS"
                   else StepStatus.FAIL if verdict == "FAIL"
