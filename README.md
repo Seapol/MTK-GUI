@@ -4,6 +4,19 @@ A cross-platform **manufacturing test tool** built with Python and PySide6. It c
 
 Development happens on macOS while the real test station runs on Windows. To keep bring-up time on the production floor minimal, the application ships with a complete **Virtual mode** (virtual instruments, fixture, PSU, DUT, Wi-Fi/Bluetooth and fault injection) that reproduces the entire station behaviour without any hardware attached — see [Virtual mode](#virtual-mode).
 
+## Where to read what
+
+| If you want to… | Read |
+|---|---|
+| install the tool on Windows, build the exe from source, deploy a station | [`WINDOWS_DEPLOY_EN.md`](WINDOWS_DEPLOY_EN.md) |
+| understand branches, commits and how a release tag is cut | [`docs/git_workflow.md`](docs/git_workflow.md) |
+| cut and mirror a release (repository owner only) | [`docs/release_and_mirror.md`](docs/release_and_mirror.md) |
+| see what changed in each released version | [`docs/help/version_history.md`](docs/help/version_history.md) |
+| use the application itself | in-app **Help** (chapters 1-16) |
+
+`WINDOWS_DEPLOY_EN.md` is the single Windows guide: the older `WINDOWS_DEPLOY.md` and its predecessor were merged
+into it and removed on 2026-11-07.
+
 ## Final test rack
 
 | Instrument | Role | Interface |
@@ -289,11 +302,11 @@ QT_QPA_PLATFORM=offscreen python -u smoke_test.py
 | macOS | `bash scripts/build_macos.sh` | `dist/MTK_GUI.app` |
 | Linux | `bash scripts/build_linux.sh` | `dist/MTK_GUI/MTK_GUI` |
 
-Each script creates the `mtk_gui` virtual environment if needed, installs dependencies and runs the build. The Windows script builds from `MTK_GUI_windows.spec`, which **bundles the `config/` folder into the package** (`_internal/config/`, where the packaged app looks for it first) and also packs the distributable zip.
+Each script creates the `.venv` virtual environment if needed, installs dependencies and runs the build. The Windows script builds from `MTK_GUI_windows.spec`, which **bundles the `config/` folder into the package** (`_internal/config/`, where the packaged app looks for it first) and also packs the distributable zip.
 
 ### Option 2 — manual build
 
-Create and activate the `mtk_gui` environment and install the requirements first, then:
+Create and activate the `.venv` environment (`py -3 -m venv .venv` on Windows, `python3.12 -m venv .venv` elsewhere) and install the requirements first, then:
 
 **Windows (recommended — bundles the `config/` folder):**
 
@@ -341,7 +354,7 @@ The workflow uses `MTK_GUI_windows.spec`, so the `config/` folder is bundled aut
 
 ## Syncing code between the Mac (dev) and Windows (build) machines
 
-The repository lives on GitHub; both machines share the same `main` branch. Core rule: **commit and push from whichever side you edited, then pull on the other.**
+The repository lives on GitHub; both machines work on the same `develop` branch (`main` is retired — see [`docs/git_workflow.md`](docs/git_workflow.md)). Core rule: **commit and push from whichever side you edited, then pull on the other.**
 
 **after code changes:**
 
@@ -359,7 +372,7 @@ git pull
 scripts\build_windows.bat
 ```
 
-`dist/` and `mtk_gui/` are not tracked by git (see `.gitignore`), so **re-run the build script after every pull** — the existing `.exe` still contains the old code until rebuilt.
+`dist/`, `.venv/` and `__pycache__/` are not tracked by git (see `.gitignore`), so **re-run the build script after every pull** — the existing `.exe` still contains the old code until rebuilt.
 
 Notes:
 

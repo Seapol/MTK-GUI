@@ -5,27 +5,22 @@ Simplified GitFlow for multi TRAE SOLO parallel development.
 ## Branch Structure
 
 ```
-main                 protected release branch (tracks origin/main)
- └── develop         integration branch (created from main)
-      └── feature/*  one feature branch per TRAE SOLO session
+develop              integration + release branch (the only long-lived branch)
+ └── feature/*       one feature branch per TRAE SOLO session
 ```
+
+`main` is **retired**. It still exists on GitHub, more than 500 commits behind, and nothing is merged into it.
+Do not push to it, do not merge into it, do not tag on it. The Bitbucket mirror declares `develop` as its main
+branch for exactly this reason: showing the stale `main` would hand readers months-old code.
 
 ## Branch Rules & Protection Notes
 
-### main — Release Branch (Protected)
-- **No direct commit allowed.** Never commit to `main` directly.
-- Only updated by merging `develop` **after integration test passes**.
-- Every commit on `main` should be releasable / buildable.
-- On GitHub, enable branch protection for `main`:
-  *Settings → Branches → Add branch protection rule → Branch name pattern: `main`*
-  - Require a pull request before merging (or at minimum: block force push, block direct push)
-  - Do not allow force pushes / deletions
-
-### develop — Integration Branch
-- Created from `main`; the default working base for all development.
+### develop — Integration and Release Branch
+- The default working base for all development, and the branch every release tag is cut on.
 - `feature/*` branches merge here for **cross-module integration test**.
 - Merge features into `develop` only after the feature's own smoke test passes.
-- Run the full integration test (GUI startup + smoke test) before merging `develop` → `main`.
+- On GitHub, protect it: block force pushes and deletions. Direct commits from the owner are expected; a
+  release is a commit on `develop` plus an annotated tag, not a merge into another branch.
 
 ### feature/* — Feature Branches
 - **One feature branch per TRAE SOLO session.** Never share a branch across sessions.
@@ -62,13 +57,21 @@ git push origin develop
 git branch -d feature/<topic>
 ```
 
-### Release: merge develop into main (after integration test passes)
+### Release: tag `develop`, publish, then mirror
 ```bash
-git checkout main
-git merge --no-ff develop
-git tag -a v<version> -m "Release v<version>"
-git push origin main --tags
+# 1. version bump + history entry, in one commit (see docs/release_and_mirror.md P1-P2)
+git commit -m "Release v1.0.0.1"
+git tag -a v1.0.0.1 -m "Release v1.0.0.1"
+
+# 2. publish to GitHub - the branch that carries the tag, nothing else
+git push origin develop --follow-tags
 ```
+
+The mirror push to Bitbucket, the permission model and the verification steps live in
+[`release_and_mirror.md`](release_and_mirror.md). Two refs reach the mirror: `develop` and the release tag.
+`git push --mirror` is never used.
+
+`__version__` in `mtkgui/__init__.py` is the single source of truth, and the tag must be byte-identical to it.
 
 ## Sync Between Machines (Mac dev ↔ Windows build)
 
