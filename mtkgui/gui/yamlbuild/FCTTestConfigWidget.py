@@ -3634,4 +3634,12 @@ def _command_from_step_dict(step: dict):
     cmd.step_params = params or None
     cmd.refs = refs or None
     cmd.overrides = overrides or None
+    if cmd.kind == KIND_OP and isinstance(cmd.op_params, dict):
+        # M83/C10: a legacy op row is normalised to the Equipment keys
+        # in memory (unknown values stay for the build-time ERROR).
+        from mtkgui.engine.instruments import normalize_instrument_list
+        values = cmd.op_params.get("instruments")
+        if isinstance(values, list):
+            cmd.op_params = dict(cmd.op_params)
+            cmd.op_params["instruments"] = normalize_instrument_list(values)
     return cmd

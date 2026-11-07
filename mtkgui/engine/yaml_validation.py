@@ -413,6 +413,75 @@ def rule_legacy_operation_fields(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_legacy_operation_fields)
 
 
+#: M83/C10: instrument identity is the Equipment key.
+INSTRUMENT_KEYS_HINT = "daq973a / u2355a / psu / jlink"
+
+
+def _op_instrument_rows(doc: dict):
+    """Yield ``(location, name, op_params)`` for every operation row."""
+    import yaml as _yaml
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        op = dict(row.get("op_params") or {})
+        if str(op.get("type") or "") in ("instruments", "reset"):
+            yield (f"fct_test_cases[{index}]", str(row.get("name") or ""), op)
+    state = (doc or {}).get("yaml_build_state") or {}
+    params = (((state.get("modules") or {}).get("fct_build") or {})
+              .get("params")) or {}
+    text = str(params.get("fct_steps_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        for index, step in enumerate(fct.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            op = dict(step.get("op_params") or {})
+            if str(op.get("type") or "") in ("instruments", "reset"):
+                yield (f"fct_steps_yaml.steps[{index}]",
+                       str(step.get("name") or ""), op)
+
+
+def rule_instrument_keys(doc: dict) -> list[YamlIssue]:
+    """M83/C10: only the Equipment keys are valid instrument values.
+
+    A legacy abbreviation is reported as a warning (the model is
+    normalised in memory); an unmapped value is a build ERROR."""
+    from .instruments import INSTRUMENT_ALIASES, normalize_instrument_key
+    issues: list[YamlIssue] = []
+    seen: set = set()
+    for location, name, op in _op_instrument_rows(doc):
+        values = op.get("instruments") or []
+        unknown = [value for value in values
+                   if normalize_instrument_key(value) is None]
+        legacy = [value for value in values
+                  if str(value) in INSTRUMENT_ALIASES]
+        key = ("unknown", name)
+        if unknown and key not in seen:
+            seen.add(key)
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                f"op row {name!r}: unknown instrument "
+                f"{unknown[0]!r} — use the equipment keys "
+                f"({INSTRUMENT_KEYS_HINT})", location))
+        key = ("legacy", name)
+        if legacy and key not in seen:
+            seen.add(key)
+            issues.append(YamlIssue(
+                SEVERITY_WARNING,
+                f"op row {name!r}: legacy instrument abbreviations "
+                f"{legacy} are normalised to the equipment keys",
+                location))
+    return issues
+
+
+_RULES.append(rule_instrument_keys)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

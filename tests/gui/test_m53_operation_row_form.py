@@ -114,14 +114,15 @@ def test_instruments_multi_select_round_trip(panel, monkeypatch):
 
     def fake_exec(widget):
         for cb in widget.findChildren(QCheckBox):
-            if cb.text() in ("DAQM", "DAQ", "PSU"):
-                cb.setChecked(cb.text() in ("DAQM", "PSU"))
+            key = cb.property("instrument_key")
+            if key in ("daq973a", "u2355a", "psu"):
+                cb.setChecked(key in ("daq973a", "psu"))
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_operation_row(row)
     assert panel._row_cmd(row).op_params == {
-        "type": "instruments", "instruments": ["DAQM", "PSU"]}
+        "type": "instruments", "instruments": ["daq973a", "psu"]}
 
 
 def test_legacy_unknown_name_is_preserved(panel, monkeypatch):

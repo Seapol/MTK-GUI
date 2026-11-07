@@ -42,6 +42,50 @@ _INSTRUMENT_KEYS = {
     "JLINK": "jlink",    # J-Link flash probe
 }
 
+#: M83/C10: instrument identity = the Equipment key (never an abbr).
+INSTRUMENT_KEYS = ("daq973a", "u2355a", "psu", "jlink")
+
+#: M83/C10: the full device name + model the GUI shows (a configured
+#: ``equipment.<key>.fields.Model`` wins).
+INSTRUMENT_MODEL_DEFAULTS = {
+    "daq973a": "Keysight DAQ973A (mainframe + DAQM908A / DAQM907A modules)",
+    "u2355a": "Keysight U2355A USB DAQ",
+    "psu": "Keysight N5747A DC Power Supply",
+    "jlink": "Segger J-Link",
+}
+
+#: M83/C10: legacy abbreviations -> Equipment key (normalised on load).
+INSTRUMENT_ALIASES = dict(_INSTRUMENT_KEYS)
+
+#: M83/C10: the ONLY parameters the engine can push, per Equipment key:
+#: param label -> driver writer method.  Anything else is reported as
+#: "no SCPI writer — not pushed".
+INSTRUMENT_PARAM_WRITERS = {
+    "psu": {"Voltage set (V)": "set_voltage",
+            "Current limit (A)": "set_current"},
+}
+
+
+def normalize_instrument_key(value) -> str | None:
+    """M83/C10: one stored value -> Equipment key (None = unknown)."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    low = text.lower()
+    if low in INSTRUMENT_KEYS:
+        return low
+    return INSTRUMENT_ALIASES.get(text) or INSTRUMENT_ALIASES.get(text.upper())
+
+
+def normalize_instrument_list(values) -> list:
+    """M83/C10: normalise known abbreviations, keep unknown values as-is
+    (so the build-time ERROR can name them)."""
+    out: list = []
+    for value in (values or []):
+        key = normalize_instrument_key(value)
+        out.append(key if key is not None else value)
+    return out
+
 
 class DriverUnavailable(RuntimeError):
     """mtkgui.drivers is not importable (T1 branch not merged yet)."""
@@ -158,22 +202,40 @@ class RealGateway:
         raise self._module.InstrumentConfigError(
             f"equipment.{key}: no 'Address' field in the project YAML")
 
-    def _driver(self, abbr: str):
-        """Open (and cache) one driver by instrument abbreviation."""
-        if abbr in self._drivers:
-            return self._drivers[abbr]
+    def _instrument_params(self, key: str) -> dict:
+        """M83/C10: ``equipment.<key>.params`` - the Equipment page
+        setpoints (strings coerced defensively)."""
+        entry = self._equipment.get(key) or {}
+        raw = dict(entry.get("params") or {})
+        return {str(label): value for label, value in raw.items()
+                if str(label).strip()}
+
+    def _instrument_model(self, key: str) -> str:
+        """M83/C10: the full device name + model (never an abbreviation)."""
+        configured = str(self._instrument_cfg(key).get("Model") or "").strip()
+        return configured or INSTRUMENT_MODEL_DEFAULTS.get(key, str(key))
+
+    def _driver(self, name: str):
+        """Open (and cache) one driver by Equipment key (a legacy
+        abbreviation is accepted and normalised, M83/C10)."""
+        key = normalize_instrument_key(name) or str(name)
+        if key in self._drivers:
+            return self._drivers[key]
         mod = self._require_module()
-        key = _INSTRUMENT_KEYS[abbr]
-        if abbr == "DAQM":
+        if key == "daq973a":
             drv = mod.DAQ973ADriver()
-        elif abbr == "DAQ":
+        elif key == "u2355a":
             drv = mod.U2355ADriver()
-        elif abbr == "PSU":
+        elif key == "psu":
             drv = mod.N5747ADriver()
-        else:  # JLINK
+        elif key == "jlink":
             drv = mod.JLinkDriver()
+        else:
+            raise mod.InstrumentConfigError(
+                f"unknown instrument {name!r} — use the equipment keys "
+                "(daq973a / u2355a / psu / jlink)")
         drv.open(self._address(key), self._instrument_cfg(key))
-        self._drivers[abbr] = drv
+        self._drivers[key] = drv
         return drv
 
     def close(self) -> None:
@@ -194,9 +256,10 @@ class RealGateway:
             Event Log.
         """
         try:
-            key = _INSTRUMENT_KEYS.get(abbr, abbr)
-            self._driver(abbr)
-            return True, f"{abbr} connected ({self._address(key)})"
+            key = normalize_instrument_key(abbr) or str(abbr)
+            self._driver(key)
+            return True, f"{self._instrument_model(key)} connected " \
+                         f"({self._address(key)})"
         except Exception as exc:  # noqa: BLE001 - outcome, not crash
             return False, f"{abbr} init failed: {exc}"
 
@@ -207,15 +270,17 @@ class RealGateway:
             (ok, line) - the line is a human-readable result for the
             Event Log.
         """
-        drv = self._drivers.pop(abbr, None)
+        key = normalize_instrument_key(abbr) or str(abbr)
+        model = INSTRUMENT_MODEL_DEFAULTS.get(key, str(abbr))
+        drv = self._drivers.pop(key, None)
         if drv is None:
-            return True, f"{abbr} was not connected"
+            return True, f"{model} was not connected"
         try:
             drv.close()
-            return True, f"{abbr} disconnected"
+            return True, f"{model} disconnected"
         except Exception as exc:  # noqa: BLE001 - keep the session
-            self._drivers[abbr] = drv
-            return False, f"{abbr} close failed: {exc}"
+            self._drivers[key] = drv
+            return False, f"{model} close failed: {exc}"
 
     # ------------------------------------------------------- op steps
     KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "power",
@@ -278,25 +343,82 @@ class RealGateway:
         return mod.InstrumentError if mod is not None else RuntimeError
 
     def _op_instruments(self, p: dict, reset: bool) -> GatewayOutcome:
+        """M83/C10: Init / Reset Instruments over the Equipment keys.
+
+        Init: reset (*RST / *CLS where the driver provides it) -> push
+        every configured param -> *IDN? verification.
+        Reset: reset + *IDN? for EVERY selected instrument (no push).
+        Verdict vocabulary is exactly Done / Error; an unknown value is
+        an Error (never a swallowed line)."""
         mod = self._require_module()
-        lines = []
-        for abbr in p.get("instruments", []):
-            key = _INSTRUMENT_KEYS.get(abbr)
+        lines: list = []
+        for raw in (p.get("instruments") or []):
+            key = normalize_instrument_key(raw)
             if key is None:
-                lines.append(f"{abbr}: unknown instrument key")
+                return GatewayOutcome("Error", lines=lines + [
+                    f"unknown instrument {raw!r} — use the equipment keys "
+                    "(daq973a / u2355a / psu / jlink)"])
+            model = self._instrument_model(key)
+            try:
+                drv = self._driver(key)
+            except mod.InstrumentError as exc:
+                return GatewayOutcome("Error", lines=lines + [
+                    f"{model}: open failed: {exc}"])
+            try:
+                drv.reset()
+            except mod.InstrumentError as exc:
+                return GatewayOutcome("Error", lines=lines + [
+                    f"{model}: reset failed: {exc}"])
+            if not reset:
+                params = self._instrument_params(key)
+                if not params:
+                    lines.append(f"{model}: no params configured in "
+                                 "Equipment — reset only")
+                else:
+                    try:
+                        lines.extend(
+                            self._push_params(key, model, drv, params))
+                    except self._err_base() as exc:
+                        return GatewayOutcome("Error",
+                                              lines=lines + [str(exc)])
+            try:
+                idn = str(drv.identify())
+            except mod.InstrumentError as exc:
+                return GatewayOutcome("Error", lines=lines + [
+                    f"{model}: identify failed: {exc}"])
+            configured = str(self._instrument_cfg(key).get("Model") or "")
+            if configured and configured.lower() not in idn.lower() \
+                    and idn.lower() not in configured.lower():
+                lines.append(f"WARNING {model}: configured model "
+                             f"{configured!r} does not match *IDN? {idn!r}")
+            lines.append(f"{model}: {'reset' if reset else 'init'} OK "
+                         f"({idn})")
+        return GatewayOutcome("Done", lines=lines or ["init OK"])
+
+    def _push_params(self, key: str, model: str, drv, params: dict) -> list:
+        """Push every configured param through its known SCPI writer.
+
+        A param without a writer is REPORTED, never silently pretended:
+        ``"<model>: '<param>' has no SCPI writer — not pushed"``."""
+        writers = INSTRUMENT_PARAM_WRITERS.get(key) or {}
+        lines: list = []
+        for label, value in params.items():
+            method = writers.get(label)
+            if not method:
+                lines.append(f"{model}: {label!r} has no SCPI writer — "
+                             "not pushed")
                 continue
             try:
-                drv = self._driver(abbr)
-                idn = drv.identify()
-                if reset and abbr == "PSU":
-                    drv.reset()
-                lines.append(f"{abbr} {'reset' if reset else 'init'} OK: "
-                             f"{idn}")
-            except mod.InstrumentError as exc:
-                lines.append(f"{abbr} {'reset' if reset else 'init'} "
-                             f"failed: {exc}")
-                return GatewayOutcome("Error", lines=lines)
-        return GatewayOutcome("Done", lines=lines or ["init OK"])
+                getattr(drv, method)(float(str(value)))
+                lines.append(f"{model}: {label} = {float(str(value)):g} "
+                             "pushed")
+            except (TypeError, ValueError):
+                lines.append(f"{model}: {label!r} value {value!r} is not "
+                             "numeric — not pushed")
+            except self._err_base() as exc:
+                raise self._err_base()(
+                    f"{model}: {method} failed: {exc}")
+        return lines
 
     def _fixture_channel(self, p: dict) -> str:
         """Fixture DIO channel from op_params or the equipment section."""
@@ -406,10 +528,10 @@ class RealGateway:
                               lines=[value_line] + lines)
 
     def _psu_setpoints(self) -> dict:
-        """M83/C9: the N5747A setpoints - the ONLY source is
+        """M83/C9/C10: the N5747A setpoints - the ONLY source is
         ``equipment.psu.params``.  Missing / non-numeric values are a
         config ERROR naming the exact keys (never a default)."""
-        params = dict((self._equipment.get("psu") or {}).get("params") or {})
+        params = self._instrument_params("psu")
         keys = ("Voltage set (V)", "Current limit (A)")
         values = {}
         missing = []
@@ -487,8 +609,17 @@ class RealGateway:
                 f"-> {verdict}")
         if verdict == "FAIL":
             line = f"{name}: {text} out of limit ({lo_s}..{hi_s}) -> FAIL"
-        return GatewayOutcome(verdict, value=value, text=text,
-                              lines=[line])
+        lines = [line]
+        # M83/C10: measurement params live in Equipment; a configured
+        # value the driver cannot write is REPORTED (never silent).
+        key = "u2355a" if ("CLK2" in str(name) or "CLK3" in str(name)
+                           or unit == "ch") else "daq973a"
+        writers = INSTRUMENT_PARAM_WRITERS.get(key) or {}
+        for label in self._instrument_params(key):
+            if label not in writers:
+                lines.append(f"{self._instrument_model(key)}: {label!r} "
+                             "has no SCPI writer — not pushed")
+        return GatewayOutcome(verdict, value=value, text=text, lines=lines)
 
     def _measure(self, kind: str, name: str, unit: str, mod) -> float:
         """Dispatch one reading to the matching driver method."""

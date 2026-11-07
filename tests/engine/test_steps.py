@@ -28,8 +28,8 @@ class TestOpCatalog:
         step = op_step("Power On DUT")
         assert step[0] == "op"
         assert step[1] == "Power On DUT"
-        assert step[6] == {"type": "power", "voltage": 5.0,
-                           "current": 1.0}
+        # M83/C9: a power row carries its state only (no setpoints)
+        assert step[6] == {"type": "power", "state": "on"}
 
     def test_op_step_params_are_copies(self):
         a, b = op_step("Power On DUT"), op_step("Power On DUT")
@@ -39,12 +39,16 @@ class TestOpCatalog:
         assert op_step("Custom Op")[6] == {}
 
     def test_op_summary_variants(self):
+        # M83/C10: the summary shows the model names, not abbreviations
         assert op_summary({"type": "instruments",
-                           "instruments": ["DAQM", "PSU"]}) == "DAQM+PSU"
+                           "instruments": ["daq973a", "psu"]}) == \
+            "DAQ973A+PSU"
         assert op_summary({"type": "fixture", "signal": "press",
                            "level": "H"}) == "press=H"
         assert op_summary({"type": "power", "voltage": 5.0,
                            "current": 1.0}) == "5V/1A"
+        assert op_summary({"type": "power", "state": "on"}) == \
+            "ON (Equipment setpoints)"
         assert op_summary(None) == ""
 
     def test_op_status_lines_per_type(self):

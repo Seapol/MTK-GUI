@@ -131,18 +131,44 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
             dlg, dlayout.WIDTH_SIMPLE if t == "power"
             else dlayout.WIDTH_FORM)
         if t in ("instruments", "reset"):
-            chosen = set(params.get("instruments", []) or [])
+            # M83/C10: the checklist shows the FULL device name + model
+            # (never an abbreviation); the slot modules are not
+            # selectable - the DAQ973A mainframe owns them.
+            from mtkgui.engine.instruments import (
+                INSTRUMENT_KEYS, INSTRUMENT_MODEL_DEFAULTS,
+                normalize_instrument_list)
+            chosen = set(normalize_instrument_list(
+                params.get("instruments", []) or []))
             row = QWidget()
             h = QHBoxLayout(row)
             h.setContentsMargins(0, 0, 0, 0)
             checks = []
-            for inst in ("DAQM", "DAQ", "PSU"):
-                cb = QCheckBox(inst)
-                cb.setChecked(not chosen or inst in chosen)
+
+            def _model(key: str) -> str:
+                entry = ((equipment or {}).get(key) or {})
+                configured = str((entry.get("fields") or {}).get("Model")
+                                 or "").strip()
+                return configured or INSTRUMENT_MODEL_DEFAULTS[key]
+
+            for key in INSTRUMENT_KEYS:
+                cb = QCheckBox(_model(key))
+                cb.setProperty("instrument_key", key)
+                cb.setChecked(not chosen or key in chosen)
                 h.addWidget(cb)
                 checks.append(cb)
             fields["instruments"] = checks
             param_form.addRow("Instruments:", row)
+            if equipment is not None:
+                for key in INSTRUMENT_KEYS:
+                    setpoints = dict(
+                        (((equipment.get(key) or {}).get("params")) or {}))
+                    summary = " · ".join(
+                        f"{label}: {value}"
+                        for label, value in setpoints.items())
+                    label = QLabel(summary or
+                                   "no params configured in Equipment")
+                    label.setWordWrap(True)
+                    param_form.addRow(f"{_model(key)}:", label)
         elif t == "fixture":
             sig = QComboBox()
             sig.addItems(["press", "inpos", "estop"])
@@ -250,7 +276,8 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
     t = current_type()
     if t in ("instruments", "reset"):
         new_params = {"type": t, "instruments": [
-            cb.text() for cb in fields["instruments"]
+            str(cb.property("instrument_key"))
+            for cb in fields["instruments"]
             if cb.isChecked()]}
     elif t == "fixture":
         new_params = {"type": "fixture",

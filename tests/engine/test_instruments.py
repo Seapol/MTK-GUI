@@ -70,10 +70,12 @@ class TestDriverAvailability:
 
 class TestOpSteps:
     def test_instruments_init_identifies(self, gw, scripted_drivers):
+        # M83/C10: legacy abbreviations are accepted and normalised
         out = gw.execute_op("Init Instruments", {
             "type": "instruments", "instruments": ["DAQM", "PSU"]})
         assert out.verdict == "Done"
-        assert any("DAQM init OK" in ln for ln in out.lines)
+        assert any("Keysight DAQ973A" in ln and "init OK" in ln
+                   for ln in out.lines)
         # addresses came from the YAML equipment section
         assert ("open", "DAQ973A", "GPIB0::9::INSTR") in \
             scripted_drivers._record.calls

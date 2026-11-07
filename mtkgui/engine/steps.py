@@ -81,10 +81,13 @@ def console_keyword_fallback(rest: str) -> str:
 # Event Log when the step executes.  "type" selects the parameter UI and
 # the log wording (instruments / reset / fixture / power / dio_*).
 OP_STEPS: dict[str, dict] = {
+    # M83/C10: instrument identity is the Equipment KEY (never an abbr)
     "Init Instruments": {
-        "type": "instruments", "instruments": ["DAQM", "DAQ", "PSU"]},
+        "type": "instruments",
+        "instruments": ["daq973a", "u2355a", "psu"]},
     "Reset Instruments": {
-        "type": "reset", "instruments": ["DAQM", "DAQ", "PSU"]},
+        "type": "reset",
+        "instruments": ["daq973a", "u2355a", "psu"]},
     "Fixture Clamp Down": {
         "type": "fixture", "signal": "press", "level": "H"},
     "Fixture Release": {
@@ -240,7 +243,14 @@ def op_summary(params: dict | None) -> str:
     """Short parameter summary for the sequence list label."""
     t = (params or {}).get("type")
     if t in ("instruments", "reset"):
-        return "+".join((params or {}).get("instruments", []))
+        # M83/C10: show the full device label, never an abbreviation
+        from .instruments import normalize_instrument_list
+        keys = normalize_instrument_list(
+            (params or {}).get("instruments", []))
+        return "+".join(
+            {"daq973a": "DAQ973A", "u2355a": "U2355A",
+             "psu": "PSU", "jlink": "J-Link"}.get(str(k), str(k))
+            for k in keys)
     if t == "fixture":
         summary = f"{(params or {}).get('signal', '')}=" \
                   f"{(params or {}).get('level', '')}"

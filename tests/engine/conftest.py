@@ -215,6 +215,9 @@ def scripted_drivers():
             return [[3.3 if i > n // 4 else 0.0 for i in range(n)]
                     for _ in channels]
 
+        def reset(self):
+            rec.calls.append(("reset", "U2355A"))
+
     class N5747ADriver:
         def __init__(self, transport=None):
             self.on = False
