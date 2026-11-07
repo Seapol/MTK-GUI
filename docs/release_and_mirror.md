@@ -4,6 +4,16 @@ Who this is for: the repository owner, on the Mac that holds the working clone. 
 releases are cut and where the Bitbucket mirror is pushed. TE members never run any of this — they read the
 mirror and build from it (see [`../WINDOWS_DEPLOY_EN.md`](../WINDOWS_DEPLOY_EN.md)).
 
+The split between the two documents is deliberate and worth stating plainly:
+
+- **This file** — you, and only you. It turns a finished `develop` into a release tag and a read-only mirror.
+- **[`../WINDOWS_DEPLOY_EN.md`](../WINDOWS_DEPLOY_EN.md)** — you and every TE member. It covers installing on a
+  Windows PC, building the exe, and deploying a factory station.
+
+When a TE member asks for push access to the mirror, the answer is no, and the route is section 12 of the shared
+guide: they fork into their own repository and develop there. Granting Write "temporarily" is how the mirror stops
+being a mirror.
+
 Related documents:
 
 | Document | Audience | What it covers |

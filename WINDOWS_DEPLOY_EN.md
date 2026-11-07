@@ -4,12 +4,26 @@ One self-contained document for a Windows PC: get the source, install the toolch
 Written for every TE member — whether you build on your own PC, run a station on the floor, or do both.
 Run commands in **PowerShell** (CMD equivalents are noted where they matter).
 
+## Start here — which path is yours
+
+Two different jobs share this guide. Pick yours; you do not need the other half.
+
+| Your situation | What you need on that machine | Read |
+|---|---|---|
+| **A. Your own Windows PC** — you build the exe yourself, or you develop features for your project | Python, Git, VC++ runtime, then a working `dist\MTK_GUI\` | sections 1–9, then section 12 once you change code |
+| **B. A factory station PC** — it only runs tests | the finished `MTK_GUI\` folder copied onto it. No Git, no Python, no build tools | section 10 only |
+| **Both** — you build on your PC and feed a station | A first, then the copy step in section 10 | 1–9, then 10 |
+
+Path B never needs the source, and path A never needs the station. If you are on path B and the folder you were
+given looks incomplete, the fix is to get a complete `dist\MTK_GUI\` from whoever built it (section 10), not to
+install Python on the station.
+
 **Document control**
 
 | Field | Value |
 |---|---|
-| Document revision | **R1** |
-| Last updated | 2026-11-07 22:15 CST |
+| Document revision | **R2** |
+| Last updated | 2026-11-07 22:40 CST |
 | Applies to app version | `v1.0.0.0` — develop, pre-release baseline |
 | Applies to code commit | `174000c` / `174000c1bba3cb77833b672327aed202de5d15c6` |
 | Release tag | none yet — the first release will be `v1.0.0.1` |
@@ -17,6 +31,7 @@ Run commands in **PowerShell** (CMD equivalents are noted where they matter).
 
 ## Contents
 
+- [Start here — which path is yours](#start-here--which-path-is-yours)
 - [0. What this repository is](#0-what-this-repository-is)
 - [1. Access rules](#1-access-rules)
 - [2. Build PC requirements](#2-build-pc-requirements)
@@ -275,6 +290,13 @@ MTK_GUI\
 └── _internal\         <- all dependencies; separating it breaks the app
 ```
 
+**How the folder reaches the station**
+
+- Build it on a build PC (sections 1–9) and copy it over the network — the normal route when the two machines can see each other.
+- Or carry it on a USB stick prepared by whoever built it. Either way copy the whole `MTK_GUI\` folder; copying `MTK_GUI.exe` by itself produces an application that cannot start.
+- Record the version the folder carries before copying (`Help → About` shows `__version__` and the build facts). A station has no git history, so the version inside the folder is the only identity the installation has.
+- Replacing a station already in use: exit MTK_GUI normally first (`File → Exit`, then wait until the process is gone). Copying over a running exe fails with a file-in-use error, and force-killing the GUI can leave a half-written report in `DUT Report\`.
+
 ### 10.1 Station PC hardware
 
 | Item | Minimum | Recommended | Note |
@@ -412,6 +434,9 @@ git pull --ff-only
 
 `--ff-only` keeps the mirror moving forward only; if it refuses, the owner republished — re-clone instead of merging.
 
+On a **station** an update is not a pull: there is no clone to pull into. Exit the GUI normally and replace the
+whole `MTK_GUI\` folder (section 10), then confirm the new version in `Help → About`.
+
 ---
 
 ## 12. If you need to develop
@@ -500,6 +525,7 @@ dist\MTK_GUI\MTK_GUI.exe
 
 | Rev | Date (CST) | App version | Code commit | Change |
 |---|---|---|---|---|
+| R2 | 2026-11-07 22:40 | `v1.0.0.0` | `174000c` | Added "Start here" routing that separates the two deployments (own Windows PC vs factory station) before the reader begins; documented how the package reaches a station, the version-identity rule and how to replace a live station |
 | R1 | 2026-11-07 22:15 | `v1.0.0.0` | `174000c` | Landed as the repository's canonical Windows guide (`WINDOWS_DEPLOY_EN.md`, replacing the 198-line earlier version). Corrected four statements that no longer matched the code: `yaml_plan\` is fully retired (it is no longer a bundled example folder and Case I/O exports to `export\`), the `.bat` and `.ps1` now share `.venv` (no competing `mtk_gui\` venv), the spec's required-data list, and the demo-plan regeneration command. Figures 1 and 2 now ship under `docs/images\` |
 | R0 | 2026-11-07 16:47 | `v1.0.0.0` | `35df1ed` | Baseline. Consolidated guide: repository access (one-way mirror, read-only), toolchain install, Windows build, station hardware / drivers / roles, troubleshooting, and the project-folder model of section 10.4 |
 
