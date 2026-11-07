@@ -144,6 +144,46 @@ Being a warning, not an error, is deliberate: a mismatch is an operator
 mistake that costs one failed row, not a hazardous action, and the run report
 already shows `ssid=` on the result line.
 
+### Writing the script from the Equipment page
+
+The script and the Equipment page carry the same four values, so the GUI can
+copy one into the other. Select the project in **Tools → Config assets for
+projects…**, open `resources/scripts/connect_wifi.sh` in the file editor and
+press **Sync from Equipment…**:
+
+![Sync from Equipment](images/19_07_sync_from_equipment.png)
+
+The window lists one row per value:
+
+| Row | Script line | Equipment field |
+|---|---|---|
+| Router AP SSID | `AP_PROFILE_ROUTER_SSID` | `Wi-Fi router` → Router AP SSID |
+| Router AP password | `AP_PROFILE_ROUTER_PASSWORD` | `Wi-Fi router` → Router AP password |
+| Hotspot SSID | `AP_PROFILE_HOTSPOT_SSID` | `Host PC hotspot (no router)` → Hotspot SSID |
+| Hotspot password | `AP_PROFILE_HOTSPOT_PASSWORD` | `Host PC hotspot (no router)` → Hotspot password |
+
+How the write behaves:
+
+- Tick only the rows you want to copy. An unticked row is left alone, and a
+  row whose two sides already agree is reported as in sync even when it is
+  ticked - pressing Apply twice changes nothing.
+- The direction is one way, Equipment page → script. Nothing is ever read
+  back from the script into the Equipment page.
+- Only those four `AP_PROFILE_*` lines change: comments, shell bodies and
+  every other line are written back byte for byte.
+- Passwords stay masked. Tick **Show values** when you need to read them.
+- The built-in assets are read-only, so sync refuses with `built-in assets
+  are read-only - create the project assets first`. Create the project
+  assets folder before you sync.
+- No backup copy is written. The script is a project asset and belongs in
+  your version control, so commit the file before you sync if you want to
+  keep the previous values.
+- The `host PC sees:` line is a hint only: it reports whether the host
+  adapter currently hears that SSID. It never ticks a row, never overwrites
+  a value, and the scan can take a few seconds before the window is ready.
+  Sync also clears the existing SSID warning on the next build, because the
+  two sides now agree.
+
 ### Reading the result
 
 | Output line | Meaning |

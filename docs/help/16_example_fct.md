@@ -47,23 +47,23 @@ The project loads and the product metadata is filled automatically:
 ## Step 2 - Build the FCT sequence (Block 05 · Build FCT)
 
 Go to the **Yaml Build** tab and click the **05 · Build FCT Test Work
-Flow Sequence** card. The FCT editor opens with four tabs:
-`Console` / `Wi-Fi` / `Bluetooth` / `Sequence`.
+Flow Sequence** card. The editor is one page: the ordered step table plus the
+buttons underneath it (`Add` / `Load Template` / `Clean up` / `Remove` /
+`Duplicate` / `Edit` / `Move Up` / `Move Down` / `Undo` / `Redo`).
 
-### Console tab - the serial message chain
+![FCT sequence editor - one page, one row per step](images/19_03_fct_sequence.png)
 
-Tick **Enable Console FCT**, set the **Port** (the COM port the DUT
-serial is on; the demo YAML stores the macOS path
-`/dev/cu.usbmodem53930099631` - change it to the Windows COM port of
-your board) and the **Baudrate** (`115200`).
+Every step is one row, whatever its kind: a standard operation
+(`Init Instruments`, `Fixture Clamp Down`, `Power On/Off DUT`, `Delay`), a
+console exchange (`Console_serial`, `Console_ssh`, `Console_cli`, `Message`),
+a file transfer (`Serial: Push file to DUT`, `SSH SFTP: Push/Pull file`), or a
+radio test (`Wifi_Scan`, `Wifi_Ping`, `Wifi_Iperf`, `BT_RSSI`, `BT_Pair`,
+`BT_Tone`). Double-click a row to open its editor. `WaitFor` is the prompt the
+console must show before the text is sent, `SendTo` is the text itself and
+`Capture` is the pattern that must appear for the step to pass; every row
+carries its own timeout.
 
-![FCT sequence editor - Console tab](images/19_03_fct_sequence.png)
-
-The **Test commands** table is the ordered message chain. Each row has
-a name, the console (`serial` / `ssh` / `message`), the **WaitFor**
-prompt before sending, the **SendTo** text, the **Capture** pattern
-that must appear for the step to pass, plus **Timeout / Retry**. The
-demo chain for FRDM-IMX93:
+The demo chain for FRDM-IMX93:
 
 | # | Step | Send | Capture (pass marker) |
 |---|------|------|------------------------|
@@ -72,7 +72,7 @@ demo chain for FRDM-IMX93:
 | 3 | Preflight: kernel version | `uname -r` | `6.6.36-lts-next` |
 | 4 | Preflight (fat.py / ALSA / ...) | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
 | 5 | Load RF drivers | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
-| 6 | Start fat.py (interactive) | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 | tee /root/fat.log` | `FRDM-i.MX93 DUT` |
+| 6 | Start fat.py (interactive) | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 \| tee /root/fat.log` | `FRDM-i.MX93 DUT` |
 | 7 | fat.py: setup confirm | `y` | `Running as root` |
 | 8 | fat.py: MQS earphone tone | `y` | operator confirmed tone |
 | 9 | fat.py: HDMI visual | `y` | operator confirmed HDMI |
@@ -88,50 +88,80 @@ demo chain for FRDM-IMX93:
 | 19 | Start iperf3 server (Host CLI) | (host) | server up |
 | 20 | FCT done. | (dialog) | OK dialog |
 
-Steps 8-11 are **operator dialogs**: the GUI asks the operator to
-confirm what is heard / seen (tone, HDMI picture, RGB colours) - the
-test waits up to 300 s per dialog.
+Rows 8-11 are **operator dialogs**: the GUI asks you to confirm what you hear
+or see (tone, HDMI picture, RGB colours) and the row waits up to 300 s for
+that answer. Row 19 runs on the host, so it is a `Console_cli` row pointed at
+the host shell rather than at the DUT console.
 
-### Sequence tab - standard operations
+### Load a template
 
-The **Sequence** tab holds the standard operations that run BEFORE the
-console / Wi-Fi / Bluetooth body: `Init Instruments`, `Fixture`,
-`Power`, `Flash FAT / OOBE Firmware` and `Delay` steps. Add them with
-the `Add` button and order them with `Move Up` / `Move Down`.
+`Load Template` fills the table from a bundled sequence instead of building it
+row by row. Pick one of three:
 
-![FCT Sequence tab - standard operations & flashing](images/19_04_fct_sequence_tab.png)
+| Template | What it sets up |
+|---|---|
+| `Bare Metal DUT` | bare-metal DUT: operations only, plus serial console, `Wifi_Scan`, `BT_RSSI` - no Linux shell, no file transfer |
+| `Linux DUT` | Linux BSP DUT, full chain: operations, console login, asset folder, `Serial Push`, `SSH SFTP`, Wi-Fi and Bluetooth tests |
+| `Wifi_Scan (Host<->DUT)` | short Wi-Fi radio run: driver load, asset folder, `Serial Push`, Wi-Fi connect, address check, `Wifi_Scan` |
 
-Flashing the FAT / OOBE firmware is part of FCT: the flashing step
-runs the third-party programmer (GUI flash then an operator Pass/Fail
-dialog, or a CLI flash whose return message is parsed) and the result
-feeds the FCT verdict.
+![The Wi-Fi scan template in the sequence table](images/19_08_wifi_scan_template.png)
 
-## Step 3 - Configure Wi-Fi FCT (optional)
+A template is a starting point, not a finished sequence: after it loads,
+`Remove` the rows your product does not need and `Edit` the ones it does. The
+templates ship with the settings a standard board needs - the `wifi_scan` one
+already contains the `mkdir -p /root/fct_assets` row and the `Serial Push` row
+that put `connect_wifi.sh` on the DUT before the row that runs it, so the
+sequence works on a clean DUT straight from the template. Chapter "Step 5"
+below describes the same push for a sequence you build by hand.
 
-Open the **Wi-Fi** tab, tick **Enable Wi-Fi FCT** and fill the three
-panels:
+### Standard operations come first
 
-- **DUT**: interface `mlan0`, driver load command
-  `sh /root/fct_assets/load_drivers.sh`.
-- **Hotspot AP (router / phone hotspot)**: the AP SSID and password
-  (e.g. `ChinaNet-4zEc-5G`).
-- **Host PC**: the host IP (auto-detect from the Host LAN).
-- Tests: `1. Scan / RSSI test` (RSSI min, e.g. `-70 dBm`),
-  `2. Ping test` (ping count, e.g. `20`), `3. iPerf throughput test`
-  (tool `iperf3`, min throughput, duration).
+The standard operations sit at the top of the same table, before any console
+row: `Init Instruments`, `Fixture Clamp Down` / `Fixture Release`, `Power On
+DUT` / `Power Off DUT` and `Delay`. Add them with the `Add` menu and order
+them with `Move Up` / `Move Down`; the GUI never inserts a row on its own.
 
-![Wi-Fi FCT configuration](images/19_05_wifi_config.png)
+Flashing the FAT / OOBE firmware is part of FCT: the flashing step runs the
+third-party programmer (GUI flash, then an operator Pass/Fail dialog, or a CLI
+flash whose return message is parsed) and the result feeds the FCT verdict.
 
-Bluetooth FCT is configured the same way on the **Bluetooth** tab.
+## Step 3 - Configure the Wi-Fi rows (optional)
+
+Wi-Fi FCT is four ordinary rows, each with its own editor - there is no
+Wi-Fi enable switch and no separate Wi-Fi page:
+
+| Row type | What it does | Parameters you set on the row |
+|---|---|---|
+| `Console_serial` / `Console_ssh` | load the driver and join the AP by running the project script | nothing Wi-Fi specific: the `SendTo` text is `bash /root/fct_assets/connect_wifi.sh router` (or `hotspot`), and that argument picks the credentials inside the script |
+| `Wifi_Scan` | scan the AP from the DUT and check the RSSI | RSSI min (e.g. `-70` dBm), scan via `dut_console`, timeout |
+| `Wifi_Ping` | ping the host over the DUT Wi-Fi link | ping count (e.g. `20`), timeout |
+| `Wifi_Iperf` | throughput against the host `iperf3` server | tool `iperf3`, min throughput, duration, timeout |
+
+The AP SSID and password are **not** typed on the row: they live in the
+project script (`resources/scripts/connect_wifi.sh`) and in the Equipment
+page, and the build compares the two (chapter `07_station_equipment.md`). The
+host IP comes from the Equipment `DUT Wi-Fi` / `Host PC` fields, so change the
+station there, not in the sequence.
+
+Bluetooth rows (`BT_RSSI`, `BT_Pair`, `BT_Tone`) are configured the same way
+- one row, one editor.
 
 ## Step 4 - The DUT-side Linux scripts
 
 The FCT chain calls into a small set of files that must exist on the DUT
 rootfs. They are **project assets**: they live in the project's
-`assets_<Project>/` folder (chapter `07_station_equipment.md`,
-`Config assets for projects…`), and ordinary `Serial Push` / SFTP steps
-copy them onto the DUT before the row that runs them. Nothing is
-pre-installed on a production DUT.
+`assets_<Project>/` folder and ordinary `Serial Push` / SFTP steps copy them
+onto the DUT before the row that runs them. Nothing is pre-installed on a
+production DUT.
+
+![Config assets for projects - the project folder, its files and the sync button](images/19_06_assets_config.png)
+
+Open **Tools → Config assets for projects…** to create the folder from the
+read-only built-in template (`Create from built-in`), to edit a file in place
+(`Edit File…`), and - once the folder exists - to press **Sync from
+Equipment…** and copy the station AP values into `connect_wifi.sh`. The
+built-in template itself is never modified; every project owns its own copy.
+
 
 The FRDM-IMX93 project asset tree:
 
