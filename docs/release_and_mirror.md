@@ -4,6 +4,11 @@ Who this is for: the repository owner, on the Mac that holds the working clone. 
 releases are cut and where the Bitbucket mirror is pushed. TE members never run any of this — they read the
 mirror and build from it (see [`../WINDOWS_DEPLOY_EN.md`](../WINDOWS_DEPLOY_EN.md)).
 
+**This is a reference document, not a pipeline.** Reading it changes nothing. It does not touch how the
+application is developed or how day-to-day work is committed and pushed — that stays exactly as
+[`git_workflow.md`](git_workflow.md) describes. Nothing here runs on its own; every step is a command you choose
+to type when you decide to publish a release, and the steps below only become relevant at that moment.
+
 The split between the two documents is deliberate and worth stating plainly:
 
 - **This file** — you, and only you. It turns a finished `develop` into a release tag and a read-only mirror.

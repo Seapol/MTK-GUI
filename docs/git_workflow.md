@@ -73,6 +73,14 @@ The mirror push to Bitbucket, the permission model and the verification steps li
 
 `__version__` in `mtkgui/__init__.py` is the single source of truth, and the tag must be byte-identical to it.
 
+Daily work is unaffected by any of this: branch, commit and push to `develop` exactly as in the sections above.
+A release adds two things only — a version bump with its history entry, and one annotated tag. No release, no tag:
+work keeps flowing to `develop` as before.
+
+[`release_and_mirror.md`](release_and_mirror.md) is a reference for the owner, kept in the repository so the
+procedure does not have to be reconstructed from memory. It prescribes nothing about development or about ordinary
+pushes.
+
 ## Sync Between Machines (Mac dev ↔ Windows build)
 
 - Modifying side commits and pushes; the other side pulls.
