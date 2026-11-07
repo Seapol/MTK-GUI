@@ -10,6 +10,10 @@ The split between the two documents is deliberate and worth stating plainly:
 - **[`../WINDOWS_DEPLOY_EN.md`](../WINDOWS_DEPLOY_EN.md)** — you and every TE member. It covers installing on a
   Windows PC, building the exe, and deploying a factory station.
 
+All development happens on GitHub. Bitbucket is the company's code repository and serves exactly one purpose: to
+publish the shared read-only copy inside the company. Nothing is ever developed there, and nothing ever flows from
+it back to GitHub — not by a push, not by a merge, not by a patch copied by hand.
+
 When a TE member asks for push access to the mirror, the answer is no, and the route is section 12 of the shared
 guide: they fork into their own repository and develop there. Granting Write "temporarily" is how the mirror stops
 being a mirror.
@@ -35,7 +39,7 @@ Related documents:
 | GitHub (development source) | `git@github.com:Seapol/MTK-GUI.git`, private, the single `origin` |
 | Published head | `174000c` (`develop`), 27 commits published, 0 pending |
 | Mirror clone | `~/GitHub/Repos/mtk-gui-mirror` — **not created yet** |
-| Bitbucket repository | **not created yet**; set `BB_URL` when it exists |
+| Bitbucket repository | the **company** code repository, under the workspace `BB_URL` will point at. **Not created yet.** Mirror target only |
 | First release tag | **none yet** — the first release will be `v1.0.0.1` |
 | App version today | `v1.0.0.0` (`mtkgui/__init__.py`) |
 
@@ -73,7 +77,7 @@ target that does not exist locally. Exactly two refs travel per release: `refs/h
 
 ## 3. One-time setup (A1–A5)
 
-### A1. Create an empty Bitbucket repository
+### A1. Create an empty repository in the company workspace
 
 Create it with **no** README, **no** `.gitignore`, no licence template. A repository with an initial commit makes
 the first push a non-fast-forward and forces a `--force` on day one — which is exactly the habit this runbook
