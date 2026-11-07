@@ -919,8 +919,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             # flash GUI on the HOST PC before the Go / Stop prompt.
             path = str(step.params.get("flash_gui_path") or "").strip()
             if not path:
-                return FctOutcome(VERDICT_FAIL,
-                                  "flash GUI path not configured")
+                return FctOutcome(
+                    VERDICT_FAIL,
+                    "Equipment has no Flash Tool Path configured")
             from .fct_test_runner import _flash_gui_process_running
             args = str(step.params.get("flash_gui_arguments") or "")
             if _flash_gui_process_running(path):

@@ -533,6 +533,60 @@ def rule_bt_pair_zero_count(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_bt_pair_zero_count)
 
 
+#: M83/C12: the row-level flash keys are retired.
+LEGACY_FLASH_PATH_MSG = ("flash_gui_path is ignored — set the Flash Tool "
+                         "Path on the Equipment page (HOST PC)")
+LEGACY_FLASH_MESSAGE_MSG = ("flash_gui_message was merged into "
+                            "flash_gui_prompt — the prompt keeps its value")
+
+
+def rule_legacy_flash_gui_keys(doc: dict) -> list[YamlIssue]:
+    """M83/C12: report the retired flash-row keys (warnings only)."""
+    import yaml as _yaml
+    issues: list[YamlIssue] = []
+    seen: set = set()
+
+    def _check(location: str, name: str, row: dict) -> None:
+        if "flash_gui_path" in row and ("path", name) not in seen:
+            seen.add(("path", name))
+            issues.append(YamlIssue(SEVERITY_WARNING,
+                                    LEGACY_FLASH_PATH_MSG, location))
+        if "flash_gui_message" in row and ("msg", name) not in seen:
+            seen.add(("msg", name))
+            issues.append(YamlIssue(SEVERITY_WARNING,
+                                    LEGACY_FLASH_MESSAGE_MSG, location))
+
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        marker = dict((row.get("op_params") or {}).get("fct_step") or {})
+        params = dict(marker.get("params") or {})
+        _check(f"fct_test_cases[{index}]",
+               str(row.get("name") or marker.get("name") or ""), params)
+    state = (doc or {}).get("yaml_build_state") or {}
+    module = (((state.get("modules") or {}).get("fct_build") or {})
+              .get("params")) or {}
+    text = str(module.get("fct_steps_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        for index, step in enumerate(fct.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            if str(step.get("type") or "") != "Flash_GUI":
+                continue
+            _check(f"fct_steps_yaml.steps[{index}]",
+                   str(step.get("name") or ""), step)
+    return issues
+
+
+_RULES.append(rule_legacy_flash_gui_keys)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

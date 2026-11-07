@@ -156,17 +156,15 @@ def kind_writes_console(kind: str) -> bool:
 
 
 def flash_gui_message(cmd) -> str:
-    """M64: the operator prompt of a Flash_GUI row.
+    """M83/C12: the ONE operator prompt of a Flash_GUI row.
 
-    An explicitly typed step message wins; otherwise the prompt configured
-    on the Equipment page (``equipment.jlink.prompt``) is used, and
-    ``DEFAULT_FLASH_GUI_MESSAGE`` stays the final fallback.
-    """
-    explicit = str(getattr(cmd, "flash_gui_message", "") or "").strip()
-    if explicit and explicit != DEFAULT_FLASH_GUI_MESSAGE:
-        return explicit
+    ``flash_gui_prompt`` is the surviving key; a legacy
+    ``flash_gui_message`` is migrated into it when the row is edited
+    (never rewritten on load), and ``DEFAULT_FLASH_GUI_MESSAGE`` stays
+    the final fallback."""
     prompt = str(getattr(cmd, "flash_gui_prompt", "") or "").strip()
-    return prompt or DEFAULT_FLASH_GUI_MESSAGE
+    legacy = str(getattr(cmd, "flash_gui_message", "") or "").strip()
+    return prompt or legacy or DEFAULT_FLASH_GUI_MESSAGE
 
 #: default per-command timeout (spec §4.1: commands 5 s, driver load
 #: 15 s, Wi-Fi join 30 s — configured per row)
@@ -879,15 +877,17 @@ class ConsoleCommand:
                                     # the Wi-Fi/BT sub-test this reference
                                     # row expands to at its sequence
                                     # position (empty for non-RF rows)
-    flash_gui_path: str = ""        # kind == flash_gui (m33): third-party
-                                    # flash GUI executable (empty = FAIL)
+    flash_gui_path: str = ""        # kind == flash_gui (m33): TRANSIENT
+                                    # value resolved from the Equipment
+                                    # "Flash Tool Path" at build / run time
+                                    # (M83/C12: never saved into a row)
     flash_gui_message: str = DEFAULT_FLASH_GUI_MESSAGE
-                                    # kind == flash_gui: operator prompt
-                                    # shown with the Go / Stop dialog
+                                    # legacy prompt key (read only; merged
+                                    # into flash_gui_prompt on edit - C12)
     flash_gui_arguments: str = ""   # kind == flash_gui (M64): CLI arguments
                                     # appended after the executable
-    flash_gui_prompt: str = ""      # kind == flash_gui (M64): Equipment
-                                    # prompt (empty = use DEFAULT)
+    flash_gui_prompt: str = ""      # kind == flash_gui (M64/C12): the ONE
+                                    # operator prompt key (empty = DEFAULT)
     wait_ms: int = 1000             # kind == delay (M35): fixed wait in
                                     # milliseconds; the step timeout bounds
                                     # the maximum execution time
@@ -944,8 +944,9 @@ class ConsoleCommand:
              "capture_expected": self.capture_expected,
              "capture_unexpected": self.capture_unexpected,
              "rf_subtest": self.rf_subtest,
-             "flash_gui_path": self.flash_gui_path,
-             "flash_gui_message": self.flash_gui_message,
+             # M83/C12: flash_gui_path / flash_gui_message are NOT
+             # serialised (the path comes from Equipment, the message
+             # was merged into flash_gui_prompt)
              "flash_gui_arguments": self.flash_gui_arguments,
              "flash_gui_prompt": self.flash_gui_prompt,
              "wait_ms": int(self.wait_ms),

@@ -35,26 +35,37 @@ def _flash_cmd(**kw) -> ConsoleCommand:
 
 
 def _config(*cmds: ConsoleCommand) -> FctTestConfig:
-    return FctTestConfig.from_dict({
+    cfg = FctTestConfig.from_dict({
         "dut_type": "linux",
         "console": {"enabled": True, "port": "COM1", "baudrate": 115200,
                     "test_commands": [c.to_dict() for c in cmds]},
     })
+    # M83/C12: the path (and the legacy prompt) are TRANSIENT - the
+    # project YAML never carries them, so the legacy runner tests set
+    # them on the in-memory rows exactly like the Equipment resolver does.
+    for cmd, src in zip(cfg.console.test_commands, cmds):
+        cmd.flash_gui_path = src.flash_gui_path
+        cmd.flash_gui_message = src.flash_gui_message
+        cmd.flash_gui_prompt = src.flash_gui_prompt
+    return cfg
 
 
 # --------------------------------------------------------------- model
 class TestFlashGuiModel:
     def test_fields_roundtrip(self):
+        # M83/C12: the prompt is the ONE persisted message key; the
+        # path (Equipment) and the legacy message key are not saved.
         cmd = ConsoleCommand(kind=KIND_FLASH_GUI, name="Flash",
+                             flash_gui_prompt="custom prompt",
                              flash_gui_path=FLASH_PATH,
-                             flash_gui_message="custom prompt")
+                             flash_gui_message="legacy prompt")
         data = cmd.to_dict()
-        assert data["flash_gui_path"] == FLASH_PATH
-        assert data["flash_gui_message"] == "custom prompt"
+        assert data["flash_gui_prompt"] == "custom prompt"
+        assert "flash_gui_path" not in data
+        assert "flash_gui_message" not in data
         back = ConsoleCommand._from_dict_v2(data)
         assert back.kind == KIND_FLASH_GUI
-        assert back.flash_gui_path == FLASH_PATH
-        assert back.flash_gui_message == "custom prompt"
+        assert back.flash_gui_prompt == "custom prompt"
 
     def test_label_mapping(self):
         cmd = ConsoleCommand(kind=KIND_FLASH_GUI)
@@ -80,7 +91,7 @@ class TestFlashGuiExecution:
         results = r.run_console(object())
         assert len(results) == 1
         assert results[0].verdict == "FAIL"
-        assert "not configured" in results[0].detail
+        assert "Flash Tool Path" in results[0].detail
 
     def test_launch_failure_fails(self, monkeypatch):
         monkeypatch.setattr(runner_mod, "_flash_gui_process_running",
@@ -156,6 +167,8 @@ class TestFlashGuiExecution:
             "console": {"enabled": False,
                         "test_commands": [_flash_cmd().to_dict()]},
         })
+        # M83/C12: path is resolved transiently (Equipment truth)
+        cfg.console.test_commands[0].flash_gui_path = FLASH_PATH
         runner = FctTestRunner(cfg, log_sink=lambda _m: None)
         runner._human_confirm = lambda _m: True
         results = runner.run_console(None)
@@ -202,7 +215,9 @@ class TestFlashGuiPanel:
         panel._add_row_for_label(STEP_TYPE_FLASH_GUI)
         cmd = panel._get_row_cmd(row)
         assert cmd.kind == KIND_FLASH_GUI
-        assert panel.cmd_table.item(row, _COL_CMD).text() == "(no path)"
+        # M83/C12: the path is the Equipment truth, never a row value
+        assert panel.cmd_table.item(row, _COL_CMD).text() == \
+            "(Equipment Flash Tool Path)"
 
     def test_editor_has_path_and_message_fields(self, panel, monkeypatch):
         from PySide6.QtWidgets import (QDialog, QLabel, QLineEdit, QTextEdit)
@@ -213,16 +228,11 @@ class TestFlashGuiPanel:
 
         def fake_exec(dlg):
             assert dlg.windowTitle() == "Flash_GUI editor"
-            # M55: the J-Link executable is a FIXED runtime reference -
-            # no override box, just a read-only hint line
+            labels = [w.text() for w in dlg.findChildren(QLabel)]
+            # M83/C12: read-only Equipment path, one prompt field
+            assert any("HOST PC ▸ Flash Tool Path" in t for t in labels)
             assert not [e for e in dlg.findChildren(QLineEdit)
                         if "override" in e.placeholderText()]
-            labels = [w.text() for w in dlg.findChildren(QLabel)]
-            assert any("configured in Equipment "
-                       "(Flash Tool/Programmer)" in t for t in labels)
-            line = next(e for e in dlg.findChildren(QLineEdit)
-                        if "flash GUI" in e.placeholderText())
-            line.setText(FLASH_PATH)
             text = dlg.findChildren(QTextEdit)[0]
             text.setPlainText("custom prompt")
             return QDialog.DialogCode.Accepted
@@ -231,10 +241,8 @@ class TestFlashGuiPanel:
         panel._edit_current_row(row)
         cmd = panel._get_row_cmd(row)
         assert cmd.kind == KIND_FLASH_GUI
-        assert cmd.flash_gui_path == FLASH_PATH
-        assert cmd.flash_gui_message == "custom prompt"
-        assert cmd.refs["jlink"] == "equipment.jlink.executable_path"
-        assert panel.cmd_table.item(row, _COL_CMD).text() == FLASH_PATH
+        assert cmd.flash_gui_prompt == "custom prompt"
+        assert panel.cmd_table.item(row, _COL_CMD).text() == "custom prompt"
 
 
 # --------------------------------------------- retired legacy flash ops

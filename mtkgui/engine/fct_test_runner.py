@@ -761,7 +761,7 @@ class FctTestRunner:
         direction: one flash GUI instance per run)."""
         path = str(getattr(cmd, "flash_gui_path", "") or "").strip()
         if not path:
-            return "FAIL", "flash GUI path not configured"
+            return "FAIL", "Equipment has no Flash Tool Path configured"
         exe = os.path.basename(path)
         if _flash_gui_process_running(path):
             self.log(f"flash GUI '{exe}' already running - "

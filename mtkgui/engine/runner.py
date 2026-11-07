@@ -974,11 +974,8 @@ class TestRunner(QObject):
         return "FAIL"
 
     # ------------------------------------------- M77-4 SSH channel auto-bind
-    def _equipment_ssh(self) -> dict:
-        """``equipment.dut.ssh`` values from the live Equipment page.
-
-        Headless runs / no window return {} (the auto-bind then relies
-        on ``fct_dut_ip`` and an empty root password)."""
+    def _equipment_node(self) -> dict:
+        """The live project Equipment node ({} when headless)."""
         env = self.env
         try:
             win = env.window() if callable(
@@ -988,10 +985,22 @@ class TestRunner(QObject):
             if not configs:
                 return {}
             from ..project_config import _equipment_to_yaml
-            node = _equipment_to_yaml(configs) or {}
-            return dict((node.get("dut") or {}).get("ssh") or {})
+            return _equipment_to_yaml(configs) or {}
         except Exception:                     # noqa: BLE001 - headless
             return {}
+
+    def _flash_tool_path(self) -> str:
+        """M83/C12: the Equipment "HOST PC ▸ Flash Tool Path"."""
+        node = self._equipment_node()
+        host = (node.get("host") or {})
+        return str((host.get("params") or {}).get("flash_tool") or "").strip()
+
+    def _equipment_ssh(self) -> dict:
+        """``equipment.dut.ssh`` values from the live Equipment page.
+
+        Headless runs / no window return {} (the auto-bind then relies
+        on ``fct_dut_ip`` and an empty root password)."""
+        return dict((self._equipment_node().get("dut") or {}).get("ssh") or {})
 
     def _fct_ssh_endpoint(self, step) -> dict:
         """Resolve the SSH endpoint for one SFTP row (M77-4).
@@ -1067,6 +1076,12 @@ class TestRunner(QObject):
         env = self.env
         _stop_flag = {"stop": False}   # GoStop STOP -> the run stops
         step = FctStep.from_dict(marker)
+        if "flash_gui_prompt" in step.params or \
+                "flash_gui_path" in step.params:
+            # M83/C12: the executable is resolved from the Equipment
+            # "HOST PC ▸ Flash Tool Path" at RUN time - a stale copy on
+            # the published row is never used.
+            step.params["flash_gui_path"] = self._flash_tool_path()
         # M78-1: resolve the ONE budget from the published case row
         # (fct_step.timeout_s / case timeout_ms / op params) and make it
         # the executor's truth; a conflicting pair warns once.  Operator

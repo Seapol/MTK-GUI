@@ -593,18 +593,23 @@ class YamlBuildPage(QWidget):
                 commands.append(cmd)
                 continue
             if step_type_label(cmd) == STEP_TYPE_FLASH_GUI:
-                # M64: the FULL executable path, the CLI arguments and the
-                # operator prompt come from the Equipment config at run
-                # time; an override / inline path still wins.
-                path = str(eq("equipment.jlink.executable_path", ""))
+                # M64/M83/C12: the executable is the Equipment
+                # "HOST PC ▸ Flash Tool Path"; the legacy J-Link path
+                # stays as a fallback for old projects.  The operator
+                # prompt is the ONE flash_gui_prompt key.
+                host = ((equipment or {}).get("host") or {})
+                path = str((host.get("params") or {}).get("flash_tool")
+                           or "").strip()
                 if (cmd.overrides or {}).get("jlink"):
-                    cmd.flash_gui_path = str(cmd.overrides["jlink"])
-                elif not cmd.flash_gui_path and path:
-                    cmd.flash_gui_path = path
+                    path = str(cmd.overrides["jlink"])
+                elif not path:
+                    path = str(eq("equipment.jlink.executable_path", ""))
+                cmd.flash_gui_path = path
                 cmd.flash_gui_arguments = str(
                     eq("equipment.jlink.arguments", "") or "")
-                cmd.flash_gui_prompt = str(
-                    eq("equipment.jlink.prompt", "") or "")
+                if not str(cmd.flash_gui_prompt or "").strip():
+                    cmd.flash_gui_prompt = str(
+                        eq("equipment.jlink.prompt", "") or "")
                 slots.append(("cmd", len(commands), cmd))
                 commands.append(cmd)
                 continue

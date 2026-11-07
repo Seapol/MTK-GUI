@@ -74,6 +74,7 @@ from mtkgui.engine.fct_test_config import (
     BT_MODES,
     BW_TOOLS,
     DEFAULT_FLASH_GUI_MESSAGE,
+    flash_gui_message,
     WIFI_MODES,
     WIFI_SCAN_VIA,
     DIALOG_GOSTOP,
@@ -1772,6 +1773,8 @@ class FCTTestConfigPanel(QWidget):
             "the step explicitly).", dlayout.WIDTH_WIDE))
         form = QFormLayout()
         local_edit = QLineEdit(cmd.local or "")
+        # M83/C12: fixed-width inputs with Browse... beside them
+        local_edit.setFixedWidth(480)
         local_edit.setPlaceholderText(
             "Host PC file or folder" if is_push else "Host PC destination")
         browse = QPushButton("Browse...")
@@ -1796,11 +1799,14 @@ class FCTTestConfigPanel(QWidget):
         local_row.addWidget(browse)
         form.addRow("Local (Host PC):", local_row)
         remote_edit = QLineEdit(cmd.remote or "/root/")
+        remote_edit.setFixedWidth(480)
         remote_edit.setPlaceholderText(
             "DUT target path (file or folder)")
         form.addRow("Remote (DUT):", remote_edit)
+        # M83/C12: the estimate moved from a form label into a bottom hint
         est_label = QLabel("")
-        form.addRow("Estimated time (read-only):", est_label)
+        est_label.setWordWrap(True)
+        est_label.setStyleSheet("color: #6b7280;")
 
         def _console_baud() -> int:
             """M55: the Console Serial baudrate comes from Equipment."""
@@ -1813,21 +1819,25 @@ class FCTTestConfigPanel(QWidget):
         def _refresh_estimate() -> None:
             rate = _console_baud()
             if not rate:
-                est_label.setText("—")
+                est_label.setText("Estimated time: —")
                 return
             if is_push:
                 size = dir_size(local_edit.text().strip())
                 if size:
-                    est_label.setText(f"{estimate_text(size, rate)} "
-                                      f"({size} bytes @ {rate})")
+                    est_label.setText(
+                        f"Estimated time: {estimate_text(size, rate)} "
+                        f"({size} bytes @ {rate})")
                 else:
-                    est_label.setText("n/a (no local source yet)")
+                    est_label.setText(
+                        "Estimated time: n/a (no local source yet)")
             else:
-                est_label.setText("n/a (remote size unknown until run)")
+                est_label.setText(
+                    "Estimated time: n/a (remote size unknown until run)")
 
         local_edit.textChanged.connect(lambda _t: _refresh_estimate())
         _refresh_estimate()
         lay.addLayout(form)
+        lay.addWidget(est_label)
         apply_scroll_to_dialog(dlg, body)
         dlayout.disable_horizontal_scroll(
             getattr(body, "_m34_scroll_wrapper", None))
@@ -1849,15 +1859,16 @@ class FCTTestConfigPanel(QWidget):
         dlg.deleteLater()
 
     def _edit_flash_gui_row(self, row: int) -> None:
-        """Flash_GUI editor (M33): the third-party flash GUI executable
-        and the operator Go / Stop prompt."""
+        """Flash_GUI editor (M33/M83/C12): the executable is a read-only
+        Equipment value; the operator prompt is the ONE message field."""
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                        QLabel, QLineEdit, QTextEdit,
-                                        QDialogButtonBox)
+                                        QLabel, QDoubleSpinBox,
+                                        QDialogButtonBox, QTextEdit)
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
         dlg.setWindowTitle("Flash_GUI editor")
-        dlg.setMinimumWidth(720)
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_FORM)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.raise_()
@@ -1866,32 +1877,46 @@ class FCTTestConfigPanel(QWidget):
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel(
+        lay.addWidget(dlayout.hint(
             "Launches the third-party flash GUI (or reuses it when it is "
-            "already running), then asks the operator: Go = flash "
-            "success (run continues), Stop = flash failed (run stops). "
-            "An empty GUI path fails the row."))
+            "already running), then asks the operator: Go = flash success "
+            "(run continues), Stop = flash failed (run stops).",
+            dlayout.WIDTH_FORM))
         form = QFormLayout()
-        # M55/M64: the flash tool executable is a FIXED runtime reference
-        # into Equipment - the editor only shows a read-only hint line.
-        refs = dict(cmd.refs or {})
-        overrides = dict(cmd.overrides or {})   # legacy rows keep theirs
-        hint = QLabel("Flash GUI executable: configured in Equipment "
-                      "(Flash Tool/Programmer).")
-        hint.setStyleSheet("color: #6b7280;")
-        form.addRow("Flash Tool/Programmer executable:", hint)
-        path_edit = QLineEdit(cmd.flash_gui_path or "")
-        path_edit.setPlaceholderText(
-            "Third-party flash GUI executable (full path)")
-        form.addRow("GUI path:", path_edit)
+        node = self.equipment_node() or {}
+        host_params = dict((node.get("host") or {}).get("params") or {})
+        tool_path = str(host_params.get("flash_tool") or "").strip()
+        path_label = QLabel(
+            f"{tool_path or '—'}   (Equipment ▸ HOST PC ▸ Flash Tool Path)")
+        path_label.setWordWrap(True)
+        path_label.setStyleSheet("color: #6b7280;")
+        form.addRow("Flash Tool Path:", path_label)
+        if not tool_path:
+            warn = QLabel(
+                "Equipment has no Flash Tool Path configured — the step "
+                "will fail until it is set on the Equipment page.")
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #b45309;")
+            form.addRow(warn)
         msg_edit = QTextEdit()
-        msg_edit.setPlainText(cmd.flash_gui_message
-                              or DEFAULT_FLASH_GUI_MESSAGE)
+        # M83/C12: flash_gui_message is migrated into the prompt field on
+        # the first operator edit (never rewritten on load)
+        msg_edit.setPlainText(cmd.flash_gui_prompt
+                              or flash_gui_message(cmd))
         msg_edit.setMaximumHeight(90)
-        form.addRow("Message:", msg_edit)
+        form.addRow("Operator message:", msg_edit)
+        answer_timeout = QDoubleSpinBox()
+        answer_timeout.setRange(0.0, 3600.0)
+        answer_timeout.setDecimals(0)
+        answer_timeout.setSuffix(" s")
+        answer_timeout.setSpecialValueText("off (wait forever)")
+        answer_timeout.setValue(float(max(cmd.timeout or 0.0, 0.0)))
+        form.addRow("Answer timeout:", answer_timeout)
         lay.addLayout(form)
         # M34: body scrolls, OK / Cancel stays outside (always visible)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
@@ -1900,16 +1925,14 @@ class FCTTestConfigPanel(QWidget):
         if dlg.exec():
             self._push_history()
             cmd.kind = KIND_FLASH_GUI
-            cmd.flash_gui_path = path_edit.text().strip()
-            cmd.flash_gui_message = (
+            cmd.flash_gui_prompt = (
                 msg_edit.toPlainText().strip() or DEFAULT_FLASH_GUI_MESSAGE)
-            refs.setdefault("jlink", "equipment.jlink.executable_path")
-            cmd.refs = refs
-            cmd.overrides = overrides or None
+            cmd.timeout = float(answer_timeout.value())
             cmd.wait_enabled = False
             cmd.send_enabled = False
             cmd.capture_enabled = False
             self._save_row_cmd(row, cmd)
+        dlayout.finish(dlg)
         dlg.deleteLater()
 
     def _edit_message_cell(self, row: int) -> None:
@@ -3329,7 +3352,8 @@ class FCTTestConfigPanel(QWidget):
             self._set_cell(r, _COL_CAPTURE, "", editable=False)
             self._set_cell(r, _COL_TIMEOUT, "-", editable=False)
             self._set_cell(r, _COL_CMD,
-                           cmd.flash_gui_path or "(no path)",
+                           cmd.flash_gui_prompt
+                           or "(Equipment Flash Tool Path)",
                            editable=False)
             return
         if typ in (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET):
