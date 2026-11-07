@@ -1590,6 +1590,9 @@ class TestRunner(QObject):
         if now < w["deadline"]:
             # M78-3: the stall watchdog runs INSIDE the wait loop - a
             # silent DUT fails long before the full budget is spent.
+            # WATCHDOG SCOPE: CAN fail a keyword wait on a console
+            # channel; MUST NEVER fail an operator message row
+            # (``message_kind`` is excluded here).
             stall_s = float(self._watchdog_s or 0.0)
             if (not w.get("message_kind") and stall_s > 0
                     and w["keywords"]
@@ -1777,6 +1780,9 @@ class TestRunner(QObject):
         self.reset_results()
         # M78-3: ONE application-level watchdog (Tools > FCT Watchdog).
         # Re-read at every run start; 0 disables it.  NOT a YAML field.
+        # WATCHDOG SCOPE: CAN fail console / SSH / host-output steps that
+        # wait for positive evidence; MUST NEVER fail operator dialogs,
+        # expected-absence rows, or Delay / op steps.
         try:
             self._watchdog_s = max(0.0, float(
                 getattr(env, "fct_watchdog_s", 8.0) or 0.0))

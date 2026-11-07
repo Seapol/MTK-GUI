@@ -87,7 +87,11 @@ def _activity_marker(channel):
 def _expects_positive(step) -> bool:
     """True when the step waits for a POSITIVE pattern (watchdog-eligible).
     An expected=no / clean-window row has no positive evidence to
-    await, so the stall watchdog must never fail it."""
+    await, so the stall watchdog must never fail it.
+
+    WATCHDOG SCOPE: it CAN fail console / SSH / host-output steps that
+    wait for positive evidence; it MUST NEVER fail operator dialogs,
+    expected-absence rows, or Delay / op steps."""
     p = step.params or {}
     if not bool(p.get("capture_is_expected", True)):
         return False
@@ -205,7 +209,11 @@ def _capture_loop(channel, pass_kw: list, fail_kw: list,
     M78-3: while a POSITIVE keyword is still unmatched, a stretch of the
     app-level watchdog window without new bytes fails the step
     immediately (the PASS path is untouched - a match still wins the
-    instant it arrives)."""
+    instant it arrives).
+
+    WATCHDOG SCOPE: this loop only runs for positive-evidence waits, so
+    it CAN fail a silent console / SSH / host-output step; rows that
+    expect silence or an absence of errors are never routed here."""
     deadline = time.monotonic() + max(timeout_s, 0.0)
     last_data = time.monotonic()
     marker = _activity_marker(channel)

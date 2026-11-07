@@ -244,6 +244,96 @@ def save_fct_watchdog_s(value, settings=None) -> float:
     return value
 
 
+class FctWatchdogDialog(QDialog):
+    """M83/C13: the Tools > FCT Watchdog dialog explains itself.
+
+    Same application-level setting as M78-3 (no YAML key): the window
+    is the maximum silence tolerated per step; 0 turns it off."""
+
+    def __init__(self, value: float, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout,
+                                       QVBoxLayout, QWidget)
+        from .gui.dialog_sizing import apply_scroll_to_dialog
+        from .gui.yamlbuild import dialog_layout as dlayout
+        self.setWindowTitle("FCT Watchdog")
+        dlayout.apply_fixed_width(self, dlayout.WIDTH_FORM)
+        outer = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.spin = QDoubleSpinBox()
+        self.spin.setRange(0.0, FCT_WATCHDOG_MAX)
+        self.spin.setSingleStep(0.5)
+        self.spin.setDecimals(1)
+        self.spin.setSuffix(" s")
+        self.spin.setSpecialValueText(
+            "Off — every step waits its own Timeout")
+        self.spin.setValue(float(value or 0.0))
+        self.preview = QLabel()
+        self.preview.setWordWrap(True)
+        self.preview.setStyleSheet("color: #6b7280;")
+        self.spin.valueChanged.connect(lambda _v: self._sync_preview())
+        form = QFormLayout()
+        form.addRow("Stall watchdog window:", self.spin)
+        lay.addLayout(form)
+        lay.addWidget(self.preview)
+        lay.addWidget(self._explanation())
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
+        apply_scroll_to_dialog(self, body)
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        outer.addWidget(self._buttons)
+        self._buttons.button(QDialogButtonBox.Ok).setDefault(True)
+        self._sync_preview()
+
+    def _sync_preview(self) -> None:
+        value = float(self.spin.value())
+        if value <= 0:
+            self.preview.setText(
+                "Off — every step waits for its own Timeout (Message and "
+                "Flash_GUI dialogs still wait for the operator).")
+        else:
+            self.preview.setText(
+                f"{value:g} s — a step that goes silent fails after about "
+                f"{value:g} s; its own Timeout stays the hard upper limit.")
+
+    def _explanation(self) -> QLabel:
+        text = (
+            "<p><b>What it does</b><br>"
+            "While a step waits for the DUT to print something (a "
+            "console/SSH prompt, a script's OK line, a host command's "
+            "output), this window is the maximum silence tolerated. If "
+            "that many seconds pass with <b>no new output at all</b>, the "
+            "step is failed immediately instead of sitting until its own "
+            "Timeout.</p>"
+            "<p><b>Why it exists</b><br>"
+            "A dead board, a dropped serial line or a hung script shows "
+            "up in ~8 s instead of 30–60 s, so the operator learns about "
+            "it while it still matters.</p>"
+            "<p><b>What it never affects</b><br>"
+            "• Operator message dialogs (Message / Flash_GUI / Confirm) — "
+            "a human may take minutes to answer, so it never fails those.<br>"
+            "• Steps that expect silence or only look for absence of "
+            "errors.<br>"
+            "• 0 turns it off entirely — then only each step's own Timeout "
+            "applies.</p>"
+            "<p><b>Where it lives</b><br>"
+            "An application setting, not part of the project YAML. It is "
+            "saved with the GUI and re-read at every Run start, so a change "
+            "applies to the next run.</p>")
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.TextFormat.RichText)
+        return label
+
+    def value(self) -> float:
+        return float(self.spin.value())
+
+
 class StatusLed(QLabel):
     """Round connection-state indicator light."""
 
@@ -1328,8 +1418,8 @@ class MainWindow(QMainWindow):
         # M78-3: one application-level stall watchdog value (no YAML field)
         self.act_fct_watchdog = tools_menu.addAction("FCT Watchdog…")
         self.act_fct_watchdog.setToolTip(
-            "Stall watchdog window for console / SSH steps and host "
-            "command stdout (0 = off); applies to the next run")
+            "Fail a step early when the DUT stops talking (0 = off; "
+            "applies to the next run)")
         self.act_fct_watchdog.triggered.connect(self._configure_fct_watchdog)
         # persistent Tools gateway (lazily created, reused by the
         # batch operations; the run flow builds its own per run)
@@ -1703,20 +1793,18 @@ class MainWindow(QMainWindow):
         self._assets_dialog.activateWindow()
 
     def _configure_fct_watchdog(self):
-        """M78-3: Tools > FCT Watchdog - ONE app-level numeric setting.
+        """M78-3/M83/C13: Tools > FCT Watchdog - ONE app-level numeric
+        setting explained in a small dialog (width tier 560).
 
         The stall watchdog window (seconds) applies to console / SSH
         steps and host-command stdout; 0 disables it.  The value is
         persisted across sessions and takes effect on the next run."""
         current = float(getattr(self.workflow_page, "fct_watchdog_s",
                                 FCT_WATCHDOG_DEFAULT) or 0.0)
-        value, ok = QInputDialog.getDouble(
-            self, "FCT Watchdog",
-            "Stall watchdog window (seconds; 0 = off):",
-            current, 0.0, FCT_WATCHDOG_MAX, 1)
-        if not ok:
+        dlg = FctWatchdogDialog(current, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        saved = save_fct_watchdog_s(value)
+        saved = save_fct_watchdog_s(dlg.value())
         self.workflow_page.fct_watchdog_s = saved
         shown = "off" if saved <= 0 else f"{saved:g}s"
         self._append_event_log(
