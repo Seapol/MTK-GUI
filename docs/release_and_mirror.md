@@ -42,13 +42,22 @@ Related documents:
 |---|---|
 | Working clone | `~/GitHub/Repos/mtk-gui`, branch `develop` |
 | GitHub (development source) | `git@github.com:Seapol/MTK-GUI.git`, private, the single `origin` |
-| Published head | `29c3fe1` (`develop`), 0 pending. The three commits above `174000c` are documentation only |
+| Published head | whatever `git rev-parse origin/develop` reports — `deebbb7` when this paragraph was written |
 | Mirror clone | `~/GitHub/Repos/mtk-gui-mirror` — **not created yet** |
 | Bitbucket repository | the **company** code repository, under the workspace `BB_URL` will point at. **Not created yet.** Mirror target only |
 | First release tag | **none yet** — the first release will be `v1.0.0.1` |
 | App version today | `v1.0.0.0` (`mtkgui/__init__.py`) |
 
 Everything in sections 3 and 4 up to A5 has to happen once, in this order, before the first release.
+
+**Three values in this file are still blanks.** When the company repository exists, these are the only edits
+needed here — nothing else in the document depends on them:
+
+1. `BB_URL` in A1 — the exact clone URL, SSH preferred (`git@bitbucket.org:<workspace>/<repo>.git`). Every other
+   command refers to `$BB_URL`, so it is written once and reused.
+2. The Bitbucket row of the table above — workspace and repository slug, so the file states a fact rather than a
+   promise.
+3. A5 — the actual permission list: which group gets Read, and confirmation that nobody but the owner has Write.
 
 ---
 
