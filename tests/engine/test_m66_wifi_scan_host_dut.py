@@ -55,11 +55,15 @@ def test_wifi_scan_template_is_registered_and_operator_only():
     assert template_path(TEMPLATE_WIFI_SCAN).endswith("fct_wifi_scan.yaml")
     # loading is an explicit call - nothing loads it at import time
     cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {})
-    assert len(cmds) == 4
+    assert len(cmds) == 6
     assert [c.name for c in cmds] == [
-        "Wi-Fi driver load & ready", "Wi-Fi connect (assets script)",
-        "DUT Wi-Fi address", "Wi-Fi Scan / RSSI (Host <-> DUT)"]
-    assert [c.kind for c in cmds] == ["send", "send", "send", "wifi_test"]
+        "Wi-Fi driver load & ready",
+        "Console - create the asset folder on the DUT",
+        "Serial - push test assets to the DUT",
+        "Wi-Fi connect (assets script)", "DUT Wi-Fi address",
+        "Wi-Fi Scan / RSSI (Host <-> DUT)"]
+    assert [c.kind for c in cmds] == ["send", "send", "serial_put",
+                                      "send", "send", "wifi_test"]
 
 
 def test_template_row1_gets_the_project_driver_load_command():
@@ -77,19 +81,33 @@ def test_template_row2_runs_the_assets_script():
     cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {
         "wifi_ssid": "Factory-AP", "wifi_password": "secret",
         "wifi_interface": "wlan0"})
-    assert cmds[1].kind == "send"
-    assert cmds[1].send == "bash /root/fct_assets/connect_wifi.sh router"
-    assert cmds[1].op_params is None
-    plan_b = apply_prefill(cmds[1], {"wifi_ssid": "MTK-HOTSPOT",
+    assert cmds[3].kind == "send"
+    assert cmds[3].send == "bash /root/fct_assets/connect_wifi.sh router"
+    assert cmds[3].op_params is None
+    plan_b = apply_prefill(cmds[3], {"wifi_ssid": "MTK-HOTSPOT",
                                      "wifi_password": "hotspot-pw"})
     assert plan_b.send == "bash /root/fct_assets/connect_wifi.sh router"
 
 
+def test_m83_wifi_scan_template_pushes_the_script_before_it_runs():
+    cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {
+        "assets_dir": "/proj/assets_FRDM-IMX93"})
+    mkdir = next(index for index, cmd in enumerate(cmds)
+                 if "mkdir -p /root/fct_assets" in cmd.send)
+    push = next(index for index, cmd in enumerate(cmds)
+                if cmd.remote == "/root/fct_assets/connect_wifi.sh")
+    connect = next(index for index, cmd in enumerate(cmds)
+                   if "connect_wifi.sh router" in cmd.send)
+    assert mkdir < push < connect
+    assert cmds[push].local.endswith("resources/scripts/connect_wifi.sh")
+    assert cmds[push].local.startswith("/proj/assets_FRDM-IMX93")
+
+
 def test_template_row4_defaults_to_the_dut_side_verdict():
     cmds = load_template_commands(TEMPLATE_WIFI_SCAN, {})
-    assert cmds[3].rf_subtest == "scan"
-    assert cmds[3].step_params["scan_via"] == "dut_console"
-    assert cmds[3].step_params["rssi_min"] == -70
+    assert cmds[5].rf_subtest == "scan"
+    assert cmds[5].step_params["scan_via"] == "dut_console"
+    assert cmds[5].step_params["rssi_min"] == -70
 
 
 # ----------------------------------------- Wifi_Scan default = DUT link

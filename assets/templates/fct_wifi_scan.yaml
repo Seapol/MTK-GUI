@@ -31,6 +31,19 @@ steps:
     timeout: 15.0
     note: driver_probe - the project driver_load_cmd is pre-filled here
   - type: Console_serial
+    name: Console - create the asset folder on the DUT
+    wait_enabled: false
+    send_enabled: true
+    send: "mkdir -p /root/fct_assets"
+    capture_enabled: false
+    timeout: 10.0
+    note: row 1 - the folder the next push lands in
+  - type: "Serial: Push file to DUT"
+    name: Serial - push test assets to the DUT
+    local: assets/resources/scripts/connect_wifi.sh
+    remote: /root/fct_assets/connect_wifi.sh
+    timeout: 600.0
+  - type: Console_serial
     name: Wi-Fi connect (assets script)
     wait_enabled: false
     send_enabled: true
