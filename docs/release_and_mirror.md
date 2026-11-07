@@ -37,7 +37,7 @@ Related documents:
 |---|---|
 | Working clone | `~/GitHub/Repos/mtk-gui`, branch `develop` |
 | GitHub (development source) | `git@github.com:Seapol/MTK-GUI.git`, private, the single `origin` |
-| Published head | `174000c` (`develop`), 27 commits published, 0 pending |
+| Published head | `29c3fe1` (`develop`), 0 pending. The three commits above `174000c` are documentation only |
 | Mirror clone | `~/GitHub/Repos/mtk-gui-mirror` — **not created yet** |
 | Bitbucket repository | the **company** code repository, under the workspace `BB_URL` will point at. **Not created yet.** Mirror target only |
 | First release tag | **none yet** — the first release will be `v1.0.0.1` |
