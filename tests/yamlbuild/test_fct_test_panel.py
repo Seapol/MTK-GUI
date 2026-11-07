@@ -118,7 +118,7 @@ def test_legacy_config_imports_into_single_page_rows(qapp):
     assert kernel["expect_fail"] == "Linux imx93frdm"
     # shared values now travel as Equipment references + step overrides
     assert steps[1]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
+        "equipment.peripherals.router.router_ap_ssid"
     assert steps[1]["override"]["ap_ssid"] == "FRDM-IMX93-DUT"
     assert steps[1]["rssi_min"] == -70
     assert steps[2]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"

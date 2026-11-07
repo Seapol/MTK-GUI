@@ -337,8 +337,8 @@ generic `test` row type.
 ### Real Mode and Instrument Availability
 
 In Real mode ICT steps are never simulated. Every instrument-touching
-step needs a connected rack session - connect from the Equipment page
-or with `Tools > Set All instruments > Connect all` (see
+step needs a connected rack session - the run opens it automatically
+from the Equipment page configuration when you press Run (see
 `05_equipment.md`).
 
 - Without a connection, `R-GND`, `Power Voltage`,
@@ -649,9 +649,10 @@ Everything else follows the supervisor-granted permission keys:
   adjust the format rule in the Settings menu; both fields empty means
   no check.
 - **ICT steps show Error in Real mode** - no instrument rack is
-  connected (or an instrument call failed). Connect the instruments
-  (Equipment page or `Tools > Set All instruments > Connect all`);
-  the Event Log carries the exact reason for each step.
+  connected (or an instrument call failed). Press Run again after
+  fixing the Equipment page configuration - the run opens every
+  configured instrument itself; the Event Log carries the exact
+  reason for each step.
 - **Console Connect Failed popup** - the pre-FCT auto-connect could
   not open every console channel; the run stops. Check the console
   parameters and connections (see `10_console.md`), then run again.

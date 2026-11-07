@@ -65,7 +65,9 @@ def make_config() -> dict:
         "equipment": {
             "daq973a": {"fields": {"Address": "GPIB0::9::INSTR"}},
             "u2355a": {"fields": {"Address": "USB0::U2355A::INSTR"}},
-            "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"}},
+            "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"},
+                    "params": {"Voltage set (V)": 5.0,
+                               "Current limit (A)": 1.0}},
             "jlink": {"fields": {"Address": "/usr/bin/JLinkExe"}},
             "fixture": {"fields": {"Channel": "DIO16"}},
         },

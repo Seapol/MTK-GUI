@@ -80,7 +80,7 @@ def test_accept_called_last(window, monkeypatch):
 
 def test_child_dialogs_destroyed_and_deferred_delete_flushed(
         window, monkeypatch):
-    """Steps 1-3: child dialogs get deleteLater, then ONLY the
+    """Steps 1-2: child dialogs get deleteLater, then ONLY the
     DeferredDelete queue is flushed.
 
     Regression guard (macOS SIGSEGV on close, 5/5 identical stacks:
@@ -109,26 +109,6 @@ def test_child_dialogs_destroyed_and_deferred_delete_flushed(
     assert child in deleted
     assert sent == [QEvent.Type.DeferredDelete]
     assert pumped == []          # full event-loop pump is forbidden
-
-
-def test_worker_bindings_disconnected(window):
-    """Step 1 with a cached batch worker: its signal is disconnected
-    (twice - the second pass exercises the tolerant already-connected
-    path) without raising."""
-    from mtkgui.main_window import _ToolsBatchWorker
-    worker = _ToolsBatchWorker("Connect all", [], None, {})
-    window._tools_thread = worker
-    window._cleanup_child_dialogs()
-    window._cleanup_child_dialogs()      # already disconnected: tolerated
-    window._tools_thread = None
-
-
-def test_cleanup_tolerates_missing_thread(window, monkeypatch):
-    """No cached worker -> cleanup still completes (no AttributeError)."""
-    monkeypatch.delattr(window, "_tools_thread", raising=False)
-    monkeypatch.setattr(QApplication, "processEvents",
-                        staticmethod(lambda *a, **k: None))
-    window._cleanup_child_dialogs()          # must not raise
 
 
 def test_real_close_event_via_qt(window, monkeypatch):

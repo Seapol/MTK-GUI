@@ -47,9 +47,9 @@ the rightmost menu).
 - **Settings**: `Operator Permissions…` (supervisor only),
   `Auto-SN` (checkable), `Serial Number Format Check...`,
   `Virtual Fault Injection...` (Virtual mode only).
-- **Tools**: `Set All instruments` with the batch entries
-  `Connect all`, `Disconnect all`, `Reset all`,
-  `Test all connections`.
+- **Tools**: `Performance Timing Log`, `Config assets for projects…`,
+  and `FCT Watchdog…`. Instruments are opened automatically when you
+  press Run; connect them individually on the Instruments panel.
 - **Run**: Visual Studio style shortcuts - Run (F5),
   Run Without Debug (Ctrl+F5), Stop (Shift+F5),
   Restart (Ctrl+Shift+F5), Step (F10), Step Into (F11),

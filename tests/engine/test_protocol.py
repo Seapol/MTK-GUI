@@ -127,9 +127,10 @@ class TestGatewayPreValidation:
     def test_known_op_carries_proto_audit_line(self, tmp_path,
                                                 monkeypatch,
                                                 scripted_drivers):
-        gw = RealGateway({"psu": {"fields": {"Address": "/dev/x"}}})
-        out = gw.execute_op("Power On", {"type": "power",
-                                         "state": "on", "voltage": 5.0})
+        gw = RealGateway({"psu": {"fields": {"Address": "/dev/x"},
+                                  "params": {"Voltage set (V)": 5.0,
+                                             "Current limit (A)": 1.0}}})
+        out = gw.execute_op("Power On", {"type": "power", "state": "on"})
         assert out.verdict == "Done"
         assert out.lines[-1].startswith("[INSTR_PROTO] op=power")
         assert "verdict=Done" in out.lines[-1]

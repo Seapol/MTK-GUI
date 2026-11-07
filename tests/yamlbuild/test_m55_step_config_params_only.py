@@ -191,12 +191,15 @@ def test_flash_gui_dialog_shows_the_equipment_hint_only(qapp, monkeypatch):
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
-    assert any("configured in Equipment (Flash Tool/Programmer)" in t
+    # C12: the tool path is read from the Equipment page, so the dialog
+    # only reports it (and warns when the Equipment value is missing)
+    assert any("(Equipment \u25b8 HOST PC \u25b8 Flash Tool Path)" in t
+               for t in seen["labels"])
+    assert any("Equipment has no Flash Tool Path configured" in t
                for t in seen["labels"])
     assert not any("ref: equipment.jlink" in t for t in seen["labels"])
     assert seen["overrides"] == []
-    assert panel._get_row_cmd(0).refs["jlink"] == \
-        "equipment.jlink.executable_path"
+    assert panel._get_row_cmd(0).refs is None
     panel.deleteLater()
 
 

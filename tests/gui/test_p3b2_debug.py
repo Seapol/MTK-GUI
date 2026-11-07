@@ -32,8 +32,17 @@ def page(qapp):
     w.multi_console.set_virtual_mode(True)
     w._runner.fct_connect_timeout = 5.0
     # Message* FCT rows would open a modal operator dialog (blocks the
-    # offscreen tests): simulate the operator answer instead
-    w._fct_message_dialog = lambda kind, name, timeout_s=0.0: "PASS"
+    # offscreen tests): simulate the operator answer instead.  M83/C8:
+    # a YesNo row PASSes on "yes", a GoStop row on "go", an OK row on
+    # "ok" - any other answer is a No / STOP (FAIL).
+    def _operator_answer(kind, name, timeout_s=0.0):
+        if str(kind).startswith("MessageGoStop"):
+            return "go"
+        if str(kind).startswith("MessageOK"):
+            return "ok"
+        return "yes"
+
+    w._fct_message_dialog = _operator_answer
     # shorten the FCT console wait rows (no simulated DUT worker behind
     # the channel in this environment) so the runs stay fast
     w.fct_timeouts = [600] * len(w.fct_timeouts)

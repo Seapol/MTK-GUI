@@ -486,75 +486,6 @@ class DialogCenterer(QObject):
         return False
 
 
-class _ToolsBatchWorker(QThread):
-    """Background runner for one Tools > Set All instruments batch.
-
-    Reuses the engine RealGateway public API only (execute_op with
-    the instruments/reset op types + close) - no engine change.  The
-    gateway is created lazily and cached on the main window so
-    Connect all / Disconnect all / Reset all / Test all connections
-    operate on the same session.
-    """
-
-    finished_sig = Signal(str, list, bool)
-
-    def __init__(self, action: str, abbrs: list, gateway,
-                 equipment: dict) -> None:
-        """Prepare one batch run.
-
-        Args:
-            action:    One of Connect all / Disconnect all /
-                       Reset all / Test all connections.
-            abbrs:     Configured instrument abbreviations.
-            gateway:   Cached RealGateway or None (created lazily).
-            equipment: Verified equipment configuration from the
-                       project YAML.
-        """
-        super().__init__()
-        self.action = action
-        self.abbrs = abbrs
-        self.equipment = equipment
-        self.gateway = gateway
-
-    def run(self) -> None:
-        """Execute the batch and emit the outcome (never raises)."""
-        ok, lines = True, []
-        _label = f"instr: batch {self.action}"
-        _startup_begin(_label, category="instr")
-        try:
-            from .engine.instruments import RealGateway
-            gw = self.gateway
-            if gw is None:
-                gw = RealGateway(self.equipment)
-            if self.action == "Disconnect all":
-                gw.close()
-                lines.append("all instrument connections closed")
-            else:
-                if self.action == "Test all connections":
-                    # reconnect from scratch = a real connection test
-                    gw.close()
-                result = gw.execute_op(
-                    "Init Instruments",
-                    {"type": "instruments", "instruments": self.abbrs})
-                lines.extend(result.lines or [])
-                ok = result.verdict != "Error"
-                if ok and self.action == "Reset all":
-                    result = gw.execute_op(
-                        "Reset Instruments",
-                        {"type": "reset", "instruments": self.abbrs})
-                    lines.extend(result.lines or [])
-                    ok = result.verdict != "Error"
-                if ok:
-                    lines.append(f"{self.action}: all instruments OK")
-            self.gateway = gw
-        except Exception as exc:  # noqa: BLE001 - report, never crash
-            ok = False
-            lines.append(f"batch operation failed: {exc}")
-        finally:
-            _startup_end(_label)
-        self.finished_sig.emit(self.action, lines, ok)
-
-
 class _ComboWheelGuard(QObject):
     """App-wide guard (user direction): the mouse wheel must NOT
     change a CLOSED dropdown OR a numeric spin box - scrolling over
@@ -830,6 +761,11 @@ class MainWindow(QMainWindow):
         self.workflow_page = TestWorkFlowPage()
         # M78-3: the Tools > FCT Watchdog value (persisted app setting)
         self.workflow_page.fct_watchdog_s = load_fct_watchdog_s()
+        # M83/C14: the Run press opens the instrument rack itself
+        self.workflow_page.equipment_configs_provider = (
+            lambda: self.equipment_page.configs)
+        self.workflow_page.instruments_connected.connect(
+            self._on_instruments_connected)
         _startup_mark("ui: TestWorkFlowPage built")
         self.tabs.addTab(self.workflow_page, "Test Work Flow")
 
@@ -1368,32 +1304,6 @@ class MainWindow(QMainWindow):
         # Report -> Help (rightmost).  The menu bar is built once and
         # never reordered by page, project or window state.
         tools_menu = self.menuBar().addMenu("Tools")
-        set_all = tools_menu.addMenu("Set All instruments")
-        set_all.setToolTip("Batch operations on all instruments "
-                           "configured in the project YAML")
-        self.act_connect_all = set_all.addAction("Connect all")
-        self.act_connect_all.setToolTip(
-            "Batch connect all configured instruments and read the "
-            "identification")
-        self.act_connect_all.triggered.connect(
-            lambda: self._tools_batch("Connect all"))
-        self.act_disconnect_all = set_all.addAction("Disconnect all")
-        self.act_disconnect_all.setToolTip(
-            "Batch close all instrument connections")
-        self.act_disconnect_all.triggered.connect(
-            lambda: self._tools_batch("Disconnect all"))
-        self.act_reset_all = set_all.addAction("Reset all")
-        self.act_reset_all.setToolTip(
-            "Batch reset all configured instruments")
-        self.act_reset_all.triggered.connect(
-            lambda: self._tools_batch("Reset all"))
-        self.act_test_all = set_all.addAction("Test all connections")
-        self.act_test_all.setToolTip(
-            "Reconnect and identify every instrument to verify the "
-            "connections")
-        self.act_test_all.triggered.connect(
-            lambda: self._tools_batch("Test all connections"))
-        tools_menu.addSeparator()
         # M51 §3: full-lifecycle performance log switch.  The checkbox
         # reflects the SAVED setting (next start), never the running
         # session - toggling must not open / close the log mid-session.
@@ -1421,10 +1331,10 @@ class MainWindow(QMainWindow):
             "Fail a step early when the DUT stops talking (0 = off; "
             "applies to the next run)")
         self.act_fct_watchdog.triggered.connect(self._configure_fct_watchdog)
-        # persistent Tools gateway (lazily created, reused by the
-        # batch operations; the run flow builds its own per run)
+        # shared instrument session reused by the Instruments panel and
+        # published to the workflow page (M83/C14: the Run press opens
+        # its own rack when no session exists)
         self._tools_gateway = None
-        self._tools_thread = None
         # one-shot paint-time vertical floor lock (see paintEvent)
         self._vmin_locked = False
 
@@ -1489,115 +1399,6 @@ class MainWindow(QMainWindow):
                                  self._open_version_history)
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self._open_about)
-
-    # ------------------------------------------------- V4.0 Tools batch
-    _TOOL_ABBRS = ("DAQM", "DAQ", "PSU")
-
-    #: status-bar abbreviation -> the Equipment page config keys that
-    # implement it (user report: the lookup used the ABBREVIATIONS as
-    # config keys - daq973a / u2355a / psu - and never matched, so
-    # 'No instruments are configured' popped up on a valid project)
-    _TOOL_KEYS = {
-        "DAQM": ("daq973a",),
-        "DAQ": ("u2355a",),
-        "PSU": ("psu",),
-    }
-
-    def _configured_instruments(self) -> list[str]:
-        """Instrument abbreviations configured in the current project.
-
-        Returns:
-            Abbreviations whose underlying Equipment-page config keys
-            exist (the verified YAML equipment section), in fixed
-            order.
-        """
-        configs = getattr(self.equipment_page, "configs", {}) or {}
-
-        def _configured(abbr):
-            return any(k in configs and (
-                (configs.get(k) or {}).get("fields")
-                or (configs.get(k) or {}).get("connection"))
-                for k in self._TOOL_KEYS.get(abbr, ()))
-
-        return [k for k in self._TOOL_ABBRS if _configured(k)]
-
-    def _tools_batch(self, action: str) -> None:
-        """Tools > Set All instruments: run one batch operation over
-        every instrument configured in the project YAML.
-
-        The batch runs on a worker thread (the UI never freezes on
-        slow instruments); results land in the Event Log, failures
-        pop up with Equipment-page guidance.
-        """
-        abbrs = self._configured_instruments()
-        if not abbrs:
-            QMessageBox.warning(
-                self, "Set All instruments",
-                "No instruments are configured in the project "
-                "YAML.\n\nPlease go to the Equipment page and check "
-                "the instrument configuration, ports and connection "
-                "parameters first.")
-            return
-        if self.mode == "Virtual":
-            # Virtual mode: there is no real rack - the RealGateway
-            # would fail on the missing 'Address' YAML field even
-            # though every Equipment-page dialog connects virtually.
-            # Report the virtual result directly (no worker thread).
-            lines = [f"{abbr} connect OK (virtual)" for abbr in abbrs] \
-                if action == "Connect all" else \
-                [f"{abbr} OK (virtual)" for abbr in abbrs]
-            self._tools_batch_done(action, lines, True)
-            return
-        if self._tools_thread is not None and self._tools_thread.isRunning():
-            QMessageBox.information(
-                self, "Set All instruments",
-                "A batch operation is already running - please wait "
-                "for it to finish.")
-            return
-        self._append_event_log(
-            f"[Tools] {action}: start ({', '.join(abbrs)})")
-        self.statusBar().showMessage(f"{action}…")
-        self._tools_thread = _ToolsBatchWorker(
-            action, abbrs, self._tools_gateway,
-            dict(self.equipment_page.configs))
-        self._tools_thread.finished_sig.connect(self._tools_batch_done)
-        self._tools_thread.start()
-
-    def _tools_batch_done(self, action: str, lines: list,
-                          ok: bool) -> None:
-        """Batch result: log every line, popup failures with
-        Equipment-page guidance."""
-        if self._tools_thread is not None:
-            # keep the gateway session (opened drivers) for reuse
-            self._tools_gateway = self._tools_thread.gateway
-        # the RUN path shares this gateway session: Real-mode ICT
-        # measurement rows / standard ops / rail capture go through it.
-        # Without a connected gateway they fail honestly (Real mode
-        # never simulates) - so hand it to the workflow page here and
-        # retract it on Disconnect all.
-        self.workflow_page.gateway = (
-            None if action == "Disconnect all" else self._tools_gateway)
-        for line in lines:
-            self._append_event_log(f"[Tools] {action}: {line}")
-        # the status-bar LEDs follow the batch result (same truth as
-        # the Equipment page connect state)
-        state = {"Connect all": "connected",
-                 "Disconnect all": "disconnected"}.get(action)
-        if state:
-            for abbr in self._configured_instruments():
-                if abbr in self.instr_status.states:
-                    self.instr_status.set_state(abbr, state)
-        if ok:
-            self.statusBar().showMessage(f"{action}: OK", 5000)
-        else:
-            self.statusBar().showMessage(f"{action}: FAILED", 5000)
-            QMessageBox.warning(
-                self, f"{action} failed",
-                "One or more instruments could not be operated.\n\n"
-                "Please go to the Equipment page and check the "
-                "instrument configuration, ports and connection "
-                "parameters.\n\n"
-                + "\n".join(lines))
 
     def _set_perf_timing_enabled(self, checked: bool) -> None:
         """M51 §3: persist the Tools switch; it applies on the NEXT start.
@@ -3280,6 +3081,18 @@ class MainWindow(QMainWindow):
         else:
             self._update_run_progress(0, 0)
 
+    #: M83/C14: Equipment key -> status-bar LED abbreviation (jlink has
+    #: no LED - the flash probe is not a measurement instrument)
+    _LED_KEY = {"daq973a": "DAQM", "u2355a": "DAQ", "psu": "PSU"}
+
+    def _on_instruments_connected(self, states):
+        """M83/C14: the Run press opened the rack -> paint the status-bar
+        LEDs (the truth the deleted Tools batch painted)."""
+        for key, state in dict(states or {}).items():
+            abbr = self._LED_KEY.get(key)
+            if abbr and state == "connected":
+                self.instr_status.set_state(abbr, "connected")
+
     def _on_instrument_connection(self, key, connected):
         """Equipment page instrument dialog connect / disconnect ->
         sync the matching status-bar LED (user report: never synced).
@@ -3406,6 +3219,8 @@ class MainWindow(QMainWindow):
         # instances, flush the Qt event queue (mitigates the harmless
         # macOS IMKCFRunLoopWakeUpReliable mach-port noise on exit)
         self._cleanup_child_dialogs()
+        # M83/C14: release the Run-owned instrument rack
+        self.workflow_page._release_rack()
         # --- original close workflow (preserved verbatim) -----------
         # remember the user's window geometry for the next start
         self._remember_geometry()
@@ -3424,35 +3239,20 @@ class MainWindow(QMainWindow):
         # exceptions).  Crash-safe and once-only; a session that started
         # with logging OFF emits nothing.
         _perf_timing_summary()
-        # step 4: accept the close
+        # accept the close
         event.accept()
 
     def _cleanup_child_dialogs(self):
         """Ordered resource cleanup before the window goes away.
 
-        Step 1: disconnect every custom signal/slot binding of cached
-        child workers (the Tools batch thread); Step 2: explicitly
-        destroy all child dialog instances; Step 3: flush the pending
-        Qt event queue so no queued callback outlives the window.
+        Step 1: explicitly destroy all child dialog instances; Step 2:
+        flush the pending Qt event queue so no queued callback
+        outlives the window.
         """
-        # step 1 - disconnect custom bindings (batch worker)
-        thread = getattr(self, "_tools_thread", None)
-        if thread is not None:
-            import warnings
-            with warnings.catch_warnings():
-                # a never-connected worker would warn "Failed to
-                # disconnect (None)" - harmless, silence it
-                warnings.simplefilter("ignore", RuntimeWarning)
-                try:
-                    thread.finished_sig.disconnect()
-                except (RuntimeError, TypeError):
-                    pass                  # already disconnected
-            if thread.isRunning():
-                thread.wait(2000)
-        # step 2 - destroy every child dialog instance explicitly
+        # step 1 - destroy every child dialog instance explicitly
         for dialog in self.findChildren(QDialog):
             dialog.deleteLater()
-        # step 3 - flush ONLY the deferred deletes.  A full
+        # step 2 - flush ONLY the deferred deletes.  A full
         # QApplication.processEvents() pump here activates pending
         # timers whose context-less callbacks touch widgets destroyed
         # in this same flush -> SIGSEGV on close (5/5 identical macOS

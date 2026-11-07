@@ -260,9 +260,8 @@ row-level configuration of each method.
    `05_equipment.md`, Step-by-Step: Connect an Instrument).
 2. Click `Connect`, then `Test Connection` (the `*IDN?` check) -
    the status LED and the status-bar lights follow.
-3. Or run `Tools > Set All instruments > Connect all` to connect
-   the whole rack at once - the live session is handed to the Test
-   Work Flow page for Real-mode runs.
+3. Or press Run - the Test Work Flow page opens every configured
+   instrument itself and hands the live session to the run.
 
 Real mode never simulates: without a connected rack the affected
 steps report `Error` and the Event Log carries the reason (see

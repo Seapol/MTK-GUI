@@ -83,22 +83,18 @@ Configuration functions - mostly supervisor territory.
 
 ## Tools Menu
 
-One submenu: **Set All instruments** with four batch operations
-over every instrument configured in the project YAML. The batch
-runs on a worker thread (the UI never freezes), every result line
-lands in the Event Log and the status-bar LEDs follow the result.
-Failures pop up an error dialog naming the instrument (see chapter
-`06_instruments.md`). Every batch action except `Disconnect all`
-also hands the live instrument session to the Test Work Flow page
-for Real-mode runs.
+- **Performance Timing Log** (checkable) - write the full-lifecycle
+  performance timing log (`logs/_startup_timing.log`). The change
+  takes effect on the next GUI restart.
+- **Config assets for projects…** - create / edit the project-owned
+  assets folder copied from the read-only built-in template.
+- **FCT Watchdog…** - one application-level stall watchdog value
+  applied to the next run (`0` = off; every FCT step then waits its
+  own Timeout).
 
-- **Connect all** - batch connect of every configured instrument
-  plus identification read.
-- **Disconnect all** - batch close of all connections; the run
-  gateway is detached again.
-- **Reset all** - batch reset of every configured instrument.
-- **Test all connections** - reconnect + `*IDN?` identify every
-  instrument to verify the wiring.
+There is **no** instrument batch submenu. Instruments are opened
+automatically when you press Run; connect them individually on the
+Instruments panel (see chapter `06_instruments.md`).
 
 ## Run Menu
 
@@ -174,6 +170,6 @@ covers the file formats).
 | Settings > Serial Number Format Check... | gated | `sn_format_check` |
 | Settings > Virtual Fault Injection... | Virtual mode + supervisor only | - |
 | Run menu | available (Run / Stop stay available for every role) | run-policy entries follow `run_policy_stop_failure` / `run_policy_stop_short` |
-| Tools > Set All instruments | available | equipment windows follow `equipment_config` |
+| Tools > FCT Watchdog… | available | `run_policy_stop_failure` / `run_policy_stop_short` |
 | Report menu | available | - |
 | Help menu | available | - |

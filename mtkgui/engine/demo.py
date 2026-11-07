@@ -199,6 +199,11 @@ def _install_scripted_drivers(force: bool = True):
         def identify(self):
             return "SCRIPTED-DRIVER (offline demo)"
 
+        def reset(self):
+            """Every instrument answers the rack reset (Init / Reset
+            Instruments) - scripted: nothing to reset."""
+            return None
+
     class DAQ973ADriver(_ScriptedDriver):
         def measure_resistance_2w(self, channels, **kw):
             return MeasurementResult(

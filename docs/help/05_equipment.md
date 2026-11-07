@@ -203,15 +203,13 @@ Equipment page - never hard-coded in test steps.
   module carries the mirrored values and every later workflow step
   references them read-only. Connection / test results mirror back
   to the shared status hub and the status-bar LEDs.
-- **`Tools > Set All instruments`** runs batch operations
-  (`Connect all`, `Disconnect all`, `Reset all`,
-  `Test all connections`) over every instrument configured in the
-  project YAML. The batch runs on a worker thread (the UI never
-  freezes), every result line lands in the Event Log and the
-  status-bar LEDs follow the batch result. Every batch action except
-  `Disconnect all` also hands the live instrument session to the
-  Test Work Flow page - a Real-mode run then measures through the
-  connected rack; `Disconnect all` detaches it again.
+- **The run opens the instrument rack itself.** Pressing Run
+  connects every instrument configured here (one Event Log line per
+  instrument) before step 1 and hands the live session to the Test
+  Work Flow page - no manual pre-connect click is needed. A failing
+  instrument refuses the run with an error dialog naming the check
+  to do (port / address / power). Instruments can also be connected
+  individually on the Instruments panel; that session is reused.
 
 ## Permissions and Modes
 
@@ -241,14 +239,14 @@ Equipment page - never hard-coded in test steps.
 
 - `Error: no hardware (demo)` on Connect - the demo build has no
   VISA layer; use Virtual mode for a simulated link.
-- `No instruments are configured in the project YAML` from
-  `Tools > Set All instruments` - go to the Equipment page first and
-  check the instrument configuration, ports and connection
-  parameters.
+- `No instruments are configured`: the run found nothing to open -
+  go to the Equipment page first and check the instrument
+  configuration, ports and connection parameters.
 - ICT steps report `Error` and the Event Log says
-  `no instrument gateway connected (Real mode)` - the run started
-  without a rack session; run `Tools > Set All instruments >
-  Connect all` (or connect from this page) and start the run again.
+  `no instrument gateway connected (Real mode)` - the run had no
+  rack session: check the Equipment page (port / address / power)
+  and start the run again (the run connects every configured
+  instrument itself).
 - Configuration windows refuse to open - your account is an
   Operator; ask the supervisor to grant the equipment configuration
   permission.

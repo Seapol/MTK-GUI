@@ -612,6 +612,9 @@ class TestWorkFlowPage(QWidget):
     # sequence edit source (this page's table is a read-only result view)
     ict_build_requested = Signal()
     fct_build_requested = Signal()
+    # M83/C14: the Run-start rack connect -> the status-bar instrument
+    # LEDs (dict of Equipment key -> "connected")
+    instruments_connected = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -630,6 +633,11 @@ class TestWorkFlowPage(QWidget):
         # Virtual mode hardware rack (DAQ973A / U2355A / N5747A / fixture
         # simulation); None in Real mode until the SCPI drivers land
         self.rack = None
+        # M83/C14: the live Real-mode instrument session (opened by the
+        # Run press or published by the Instruments panel).
+        self.gateway = None
+        # callable -> the Equipment page configs (set by MainWindow)
+        self.equipment_configs_provider = None
         self.cycle_times = []
         # production statistics: per PRODUCT (one complete test cycle),
         # not per individual test item
@@ -2819,6 +2827,8 @@ class TestWorkFlowPage(QWidget):
             QMessageBox.warning(self, "Console Not Connected", blocked)
             self._log(f"Run blocked: {blocked}")
             return
+        if not self._ensure_rack_for_run():
+            return
         self._next_serial()
         if not self._pretest():
             return
@@ -2845,8 +2855,87 @@ class TestWorkFlowPage(QWidget):
     def stop_run(self):
         """Stop button: interrupt the run. Remaining test items are left
         blank and the Overall Result is IGNORE (engine, TestRunner.abort;
-        the page renders the interrupted state via _on_run_finished)."""
+        the page renders the interrupted state via _on_run_finished).
+        M83/C14: the Run-owned instrument session is released."""
+        self._release_rack()
         self._runner.abort()
+
+    # ------------------------------------------- M83/C14 run-start rack
+    def _rack_configs(self) -> dict:
+        provider = getattr(self, "equipment_configs_provider", None)
+        if callable(provider):
+            try:
+                return dict(provider() or {})
+            except Exception:                 # noqa: BLE001 - never crash
+                return {}
+        return {}
+
+    def _ensure_rack_for_run(self) -> bool:
+        """M83/C14: open the instrument rack before step 1.
+
+        Reuses a live session published by the Instruments panel;
+        otherwise builds the gateway and connects every configured
+        instrument (one log line each).  Any failure REFUSES the run -
+        never a silent per-row Error at step k.  Virtual mode keeps its
+        simulated rack (no real gateway is opened)."""
+        if bool(getattr(self, "virtual_mode", False)):
+            return True
+        if getattr(self, "gateway", None) is not None:
+            self._log("[Run] instruments: reusing the open session")
+            return True
+        from mtkgui.engine.instruments import (
+            INSTRUMENT_MODEL_DEFAULTS,
+            RealGateway,
+            configured_instrument_keys,
+        )
+        configs = self._rack_configs()
+        keys = configured_instrument_keys(configs)
+        if not keys:
+            return True
+        gw = RealGateway(configs)
+        opened: dict = {}
+        for key in keys:
+            model = INSTRUMENT_MODEL_DEFAULTS.get(key, key)
+            result = gw.execute_op(
+                "Init Instruments",
+                {"type": "instruments", "instruments": [key]})
+            if result.verdict == "Error":
+                failure = (result.lines[-1] if result.lines
+                           else f"{model}: open failed")
+                self._log(f"[Run] instruments: cannot open {model}")
+                try:
+                    gw.close()
+                except Exception:             # noqa: BLE001 - best effort
+                    pass
+                QMessageBox.warning(
+                    self, "Instrument Rack",
+                    "Cannot open the instrument rack: "
+                    f"{failure}. Check the Equipment page (port / "
+                    "address / power).")
+                return False
+            idn = ""
+            for line in result.lines:
+                if "init OK" in line:
+                    idn = line.split("(", 1)[-1].rstrip(")")
+                    break
+            self._log(f"[Run] {model}: connected (*IDN? = {idn})")
+            opened[key] = "connected"
+        self.gateway = gw
+        self._log(f"[Run] instruments: opened {len(opened)} instrument(s)")
+        self.instruments_connected.emit(dict(opened))
+        return True
+
+    def _release_rack(self) -> None:
+        """Close the Run-owned instrument session (Stop / app exit)."""
+        gw = getattr(self, "gateway", None)
+        if gw is None:
+            return
+        try:
+            gw.close()
+        except Exception:                     # noqa: BLE001 - best effort
+            pass
+        self.gateway = None
+        self._log("[Run] instruments: closed")
 
     # --- RunnerEnv bridge: run-control state rendering -----------------
     def _on_cycle_reset(self):

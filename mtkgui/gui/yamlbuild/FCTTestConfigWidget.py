@@ -1806,6 +1806,8 @@ class FCTTestConfigPanel(QWidget):
         # M83/C12: the estimate moved from a form label into a bottom hint
         est_label = QLabel("")
         est_label.setWordWrap(True)
+        est_label.setMaximumWidth(
+            dlayout.WIDTH_WIDE - 2 * dlayout.HINT_MARGIN)
         est_label.setStyleSheet("color: #6b7280;")
 
         def _console_baud() -> int:

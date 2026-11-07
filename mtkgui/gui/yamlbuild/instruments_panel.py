@@ -75,8 +75,8 @@ class InstrumentsPanel(QWidget):
         note = QLabel(
             "Instrument parameters live on the Equipment page. This "
             "window connects / disconnects each instrument "
-            "independently (the same connection kernel as Tools > "
-            "Set All instruments).")
+            "independently; the run opens the configured rack itself "
+            "when you press Run.")
         note.setObjectName("muted")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -185,23 +185,28 @@ class InstrumentsPanel(QWidget):
         return None
 
     def _gateway(self, mw):
-        """The shared RealGateway session (reuses the Tools batch
-        cache on the main window; created lazily from the Equipment
-        page configs)."""
+        """The shared RealGateway session (reuses the session cached
+        on the main window; created lazily from the Equipment page
+        configs)."""
         gw = getattr(mw, "_tools_gateway", None)
         if gw is None:
             from mtkgui.engine.instruments import RealGateway
             gw = RealGateway(mw.equipment_page.configs)
             mw._tools_gateway = gw
+            # M83/C14: the run executes through workflow_page.gateway -
+            # a panel-connected rack is the same session as the Run's
+            page = getattr(mw, "workflow_page", None)
+            if page is not None:
+                page.gateway = gw
         return gw
 
     def _toggle_row(self, state: dict) -> None:
         """Individual Connect / Disconnect for ONE instrument row.
 
         Real mode: opens / closes the actual driver via the shared
-        RealGateway session (same machinery as Tools > Set All
-        instruments).  Virtual mode: reports the virtual result - no
-        real rack exists.  Standalone (tests): GUI-only state paint."""
+        RealGateway session.  Virtual mode: reports the virtual
+        result - no real rack exists.  Standalone (tests): GUI-only
+        state paint."""
         abbr = _ROW_ABBRS.get(state["key"])
         mw = self._main_window()
         if state["connected"]:

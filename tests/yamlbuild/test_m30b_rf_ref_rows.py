@@ -92,7 +92,7 @@ def test_add_menu_has_rf_groups_and_bare_metal_gating(qapp):
 
 def _equipment_node():
     return {"equipment": {"peripherals": {
-        "wifi": {"ap_ssid": "MTK-AP", "ap_password": "pw"},
+        "router": {"router_ap_ssid": "MTK-AP"},
         "bluetooth": {"scan_targets": "MTK-DUT"}}}}
 
 
@@ -134,7 +134,7 @@ def test_rf_rows_round_trip_through_the_message_schema(qapp):
              .get("fct") or {}).get("steps") or []
     assert [s["type"] for s in steps] == [STEP_TYPE_WIFI_SCAN, STEP_TYPE_BT_RSSI]
     assert steps[0]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
+        "equipment.peripherals.router.router_ap_ssid"
     assert steps[0]["rssi_min"] == -70
     assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
 

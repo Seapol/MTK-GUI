@@ -139,7 +139,7 @@ def test_panel_wifi_subtests_reach_values_without_a_master(qapp):
     assert [s["type"] for s in steps] == [STEP_TYPE_WIFI_SCAN,
                                           STEP_TYPE_BT_RSSI]
     assert steps[0]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
+        "equipment.peripherals.router.router_ap_ssid"
     assert steps[0]["ref"]["dut_ssid"] == "equipment.dut.wifi.ssid"
     assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
     assert steps[1]["ref"]["addr"] == "equipment.dut.bluetooth.bd_addr"

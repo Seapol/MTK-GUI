@@ -87,6 +87,22 @@ def normalize_instrument_list(values) -> list:
     return out
 
 
+def configured_instrument_keys(configs: dict) -> list:
+    """M83/C14: every instrument present under ``equipment.*`` with a
+    non-empty connection (the same set the Equipment page shows as
+    configured).  Returns the Equipment keys in fixed order."""
+    keys: list = []
+    for key in INSTRUMENT_KEYS:
+        cfg = (configs or {}).get(key) or {}
+        connection = dict(cfg.get("connection") or {})
+        fields = dict(cfg.get("fields") or {})
+        address = str(connection.get("address")
+                      or fields.get("Address") or "").strip()
+        if address:
+            keys.append(key)
+    return keys
+
+
 class DriverUnavailable(RuntimeError):
     """mtkgui.drivers is not importable (T1 branch not merged yet)."""
 

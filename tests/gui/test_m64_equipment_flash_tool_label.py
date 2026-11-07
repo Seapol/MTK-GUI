@@ -169,15 +169,21 @@ def test_legacy_refs_still_load():
 
 
 # ------------------------------------------- prompt chain + arguments
-def test_prompt_falls_back_to_the_equipment_prompt():
+def test_prompt_prefers_the_step_prompt_and_keeps_the_legacy_fallback():
     cmd = ConsoleCommand(kind=KIND_FLASH_GUI, flash_gui_path="/x",
                          flash_gui_message="",
                          flash_gui_prompt="Equipment prompt")
     assert flash_gui_message(cmd) == "Equipment prompt"
+    # C12: the step prompt wins; a legacy flash_gui_message is the
+    # fallback when the step carries no prompt
     explicit = ConsoleCommand(kind=KIND_FLASH_GUI,
                               flash_gui_message="custom step message",
                               flash_gui_prompt="Equipment prompt")
-    assert flash_gui_message(explicit) == "custom step message"
+    assert flash_gui_message(explicit) == "Equipment prompt"
+    legacy = ConsoleCommand(kind=KIND_FLASH_GUI,
+                            flash_gui_message="legacy message",
+                            flash_gui_prompt="")
+    assert flash_gui_message(legacy) == "legacy message"
     bare = ConsoleCommand(kind=KIND_FLASH_GUI, flash_gui_message="")
     assert flash_gui_message(bare) == DEFAULT_FLASH_GUI_MESSAGE
 
