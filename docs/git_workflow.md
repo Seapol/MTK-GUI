@@ -59,7 +59,7 @@ git branch -d feature/<topic>
 
 ### Release: tag `develop`, publish, then mirror
 ```bash
-# 1. version bump + history entry, in one commit (see docs/release_and_mirror.md P1-P2)
+# 1. version bump + history entry, in one commit
 git commit -m "Release v1.0.0.1"
 git tag -a v1.0.0.1 -m "Release v1.0.0.1"
 
@@ -67,9 +67,9 @@ git tag -a v1.0.0.1 -m "Release v1.0.0.1"
 git push origin develop --follow-tags
 ```
 
-The mirror push to Bitbucket, the permission model and the verification steps live in
-[`release_and_mirror.md`](release_and_mirror.md). Two refs reach the mirror: `develop` and the release tag.
-`git push --mirror` is never used.
+The mirror push to Bitbucket, the permission model and the verification steps are documented in the owner's
+runbook, which is **deliberately not in this repository** — a file here is every colleague's file once the mirror
+exists. Two refs reach the mirror: `develop` and the release tag. `git push --mirror` is never used.
 
 `__version__` in `mtkgui/__init__.py` is the single source of truth, and the tag must be byte-identical to it.
 
@@ -77,9 +77,8 @@ Daily work is unaffected by any of this: branch, commit and push to `develop` ex
 A release adds two things only — a version bump with its history entry, and one annotated tag. No release, no tag:
 work keeps flowing to `develop` as before.
 
-[`release_and_mirror.md`](release_and_mirror.md) is a reference for the owner, kept in the repository so the
-procedure does not have to be reconstructed from memory. It prescribes nothing about development or about ordinary
-pushes.
+The owner's runbook prescribes nothing about development or about ordinary pushes, and it is not needed to
+work on this repository: build, commit and push without ever reading it.
 
 ## Sync Between Machines (Mac dev ↔ Windows build)
 

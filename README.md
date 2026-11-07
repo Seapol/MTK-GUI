@@ -10,7 +10,6 @@ Development happens on macOS while the real test station runs on Windows. To kee
 |---|---|
 | install the tool on Windows, build the exe from source, deploy a station | [`WINDOWS_DEPLOY_EN.md`](WINDOWS_DEPLOY_EN.md) |
 | understand branches, commits and how a release tag is cut | [`docs/git_workflow.md`](docs/git_workflow.md) |
-| cut and mirror a release (repository owner only) | [`docs/release_and_mirror.md`](docs/release_and_mirror.md) |
 | see what changed in each released version | [`docs/help/version_history.md`](docs/help/version_history.md) |
 | use the application itself | in-app **Help** (chapters 1-16) |
 
