@@ -169,7 +169,7 @@ spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库�
 虚拟环境没激活，先执行 `.venv\Scripts\activate`。
 
 **用户自己的 YAML 计划文件**
-`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。包内 `yaml_plan/examples/` 现在只含 DUT 脚本资产（`dut_scripts/`，SFTP 部署用）；demo 计划不再内置，需要时用 `scripts\build_frdm_fct_demo_yaml.py` 重新生成。
+`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。DUT 侧脚本现在随每个项目的 assets 目录一起打包（`_internal\projects\<Project>\assets_<Project>\`），旧树 `yaml_plan/examples/dut_scripts/` 已删除；demo 计划不再内置，需要时用 `scripts\build_frdm_fct_demo_yaml.py` 重新生成。
 
 ---
 

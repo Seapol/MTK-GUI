@@ -135,13 +135,16 @@ The Linux BSP must ensure Wi-Fi and Bluetooth drivers are loaded after boot. Two
 - Add driver modules to `/etc/modules-load.d/`
 - Or add to init script
 
-**Option B: Manual load via Host PC**
-- BSP team provides a shell script, e.g. `/opt/load_rf_drivers.sh`
-- Host PC sends command via SSH/serial:
+**Option B: Manual load from the project asset**
+- The script ships with the project assets:
+  `assets_<Project>/drivers/load_drivers.sh` (edit its module list, do not add
+  a new script under `/opt`)
+- The sequence pushes it to `/root/fct_assets/load_drivers.sh` and runs
   ```bash
-  sh /opt/load_rf_drivers.sh
+  bash /root/fct_assets/load_drivers.sh
   ```
-- Wait for drivers to be ready before running RF tests
+- It probes first and only loads what is missing, so it is safe on every boot.
+  Wait for `DRIVERS_OK` before running RF tests.
 
 #### 4.2.2 Network Configuration
 
@@ -216,7 +219,7 @@ Wait Linux boot complete (10–30s)
     ↓
 SSH connect to DUT (keyring credentials)
     ↓
-[Optionally] Load RF drivers: sh /opt/load_rf_drivers.sh
+[Optionally] Load RF drivers: bash /root/fct_assets/load_drivers.sh   -> DRIVERS_OK
     ↓
 Wi-Fi test: connect AP / ping / iperf3
 Bluetooth test: connect + A2DP audio playback + GUI_CONFIRM
@@ -339,7 +342,7 @@ wifi:
   enabled: true
   mode: "rssi_only"           # rssi_only | full_stack
   interface: "mlan0"          # wlan0 | mlan0 (configurable)
-  driver_load_cmd: "/root/load_rf_drivers.sh"
+  driver_load_cmd: "/root/fct_assets/load_drivers.sh"   # the pushed asset script
   rssi_min: -70
   # full_stack only:
   ssid: "TP-LINK_F68E_AP"

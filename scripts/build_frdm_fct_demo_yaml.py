@@ -59,7 +59,7 @@ block 07) -> Apply and Save path:
   * ICT disabled (FCT only - the board is already powered, no rack
     instruments, no ATE fixture, no flashing);
   * DUT OS/Firmware = linux (FRDM-IMX93, Yocto, u-blox/NXP Wi-Fi+BT);
-  * Console (serial 115200): tolerant login -> preflight -> load RF
+  * Console (serial 115200): tolerant login -> pre-check -> load RF
     drivers -> prepare A2DP sink -> run interactive fat.py (operator
     confirms each physical check) -> fat verdict -> start sshd -> bring
     up the Wi-Fi station -> DUT IP evidence -> SFTP-get fat_result.json
@@ -95,7 +95,7 @@ ROUTER_PASSWORD = "dgu3vcgs"
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: expected kernel release (uname -r) of the DUT firmware.  On a DUT
 #: firmware upgrade only THIS value changes - the kernel check is a
-#: standalone console row in the yaml (NOT inside preflight.sh), so the
+#: standalone console row in the yaml (NOT inside the pre-check script), so the
 #: shipped script never needs editing.
 DUT_KERNEL_VERSION = "6.6.36-lts-next"
 OUT_DIR = ROOT / "yaml_plan" / "examples" / "frdm-imx93"
@@ -109,7 +109,7 @@ SFTP_LANDING = str(OUT_DIR / "_run_work" / "fat_result.json")
 SHELL_PROMPT = r"root@imx93frdm"
 
 
-def console_row(name, *, kind="send", transport="serial",
+def console_row(name, *, kind="send", transport="serial", channel="",
                 wait=False, send_on=True, capture=False,
                 send="", wait_pat="", wait_regex=False,
                 cap_pat="", cap_regex=False, cap_expected=True,
@@ -125,6 +125,9 @@ def console_row(name, *, kind="send", transport="serial",
     operator's Yes sends the answer line, No fails the unit."""
     row = {
         "kind": kind, "name": name, "transport": transport,
+        # M83: every console row names its channel explicitly - there is no
+        # "auto" fallback any more, an unset channel is a build-time ERROR.
+        "channel": channel or ("ssh1" if transport == "ssh" else "ser1"),
         "enabled": bool(enabled),
         "wait_enabled": wait, "send_enabled": send_on,
         "capture_enabled": capture,
@@ -181,6 +184,7 @@ def message_row(name, *, style, timeout=0.0, send_yes="y", send_no="n",
     send_no (user direction 2026-10-14)."""
     return {
         "kind": "message", "name": name, "transport": "serial",
+        "channel": "ser1",     # M83: a message row names its channel too
         "enabled": bool(enabled),
         "wait_enabled": False, "send_enabled": style != "ok",
         "capture_enabled": False,
@@ -229,7 +233,7 @@ FCT_TEST_CONFIG = {
                 wait_timeout=60, retries=1,
                 send="root\n\n", send_timeout=4,
                 cap_pat="root@imx93frdm", cap_timeout=15),
-            # 2) Kernel version - STANDALONE (NOT inside preflight.sh): the
+            # 2) Kernel version - STANDALONE (NOT inside the pre-check script): the
             #    expected release is editable here (DUT_KERNEL_VERSION) so
             #    a DUT firmware upgrade only touches the yaml.  `uname -r`
             #    prints the full kernel release; capture pins it.
@@ -239,29 +243,26 @@ FCT_TEST_CONFIG = {
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=10,
                 send="uname -r",
                 cap_pat=DUT_KERNEL_VERSION, cap_timeout=10),
-            # ---- environment preflight ----------------------------------
-            # ONE DUT-side script (/root/preflight.sh) merges fat.py
-            # assets / ALSA card / HDMI monitor; every item emits
-            # [n/3] PASS/FAIL and the script ends with PREFLIGHT_PASS
-            # (exit 0) or PREFLIGHT_FAIL (exit 1).  All OK -> PASS.
-            # Future firmware-independent preflight items append to it.
+            # ---- environment pre-check ---------------------------------
+            # ONE DUT-side script, shipped in the project assets and pushed
+            # by the sequence: precheck/01_system_check.sh.  It reports the
+            # kernel / board model / disk / memory and whether the Wi-Fi and
+            # BT interfaces exist, printing PRECHECK_OK or PRECHECK_FAIL.
             console_row(
-                "Preflight (fat.py / ALSA / HDMI)",
+                "Pre-check (system / Wi-Fi / BT interfaces)",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=10,
-                send="sh /root/preflight.sh",
-                cap_pat="PREFLIGHT_PASS", cap_timeout=15),
-            # 6) Load Wi-Fi/BT RF drivers + prepare the A2DP sink
-            #    (pipewire + NoInputNoOutput agent + discoverable +
-            #    trust host - merged from the former start_bt_audio.sh;
-            #    the pipewire/wireplumber/agent sleeps total ~12 s, so
-            #    the capture window is 60 s)
+                send="bash /root/fct_assets/01_system_check.sh",
+                cap_pat="PRECHECK_OK", cap_timeout=15),
+            # 6) Load the Wi-Fi / BT interfaces if the BSP did not already.
+            #    drivers/load_drivers.sh probes first, so it is safe on a
+            #    board whose firmware autoloads the modules.
             console_row(
                 "Load RF drivers",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="/root/load_rf_drivers.sh",
-                cap_pat="RF drivers loaded OK", cap_timeout=60,
+                send="bash /root/fct_assets/load_drivers.sh",
+                cap_pat="DRIVERS_OK", cap_timeout=60,
                 retries=1),
             # ---- interactive fat.py (Wait -> MessageYesNo -> Send) ----
             # 8) Launch the REAL fat.py in the console foreground.  The wait
@@ -365,15 +366,15 @@ FCT_TEST_CONFIG = {
                      "| grep -q ':22 ' && echo SSHD_\"STARTED\"",
                 cap_pat="SSHD_STARTED", cap_timeout=10),
             # 16) Bring Wi-Fi up as a STATION joined to the factory
-            #     router (Host and DUT then share one LAN).  SSID and
-            #     password come from the yaml {{ssid}} / {{password}} -
-            #     per-site deployment variables.
+            #     router (Host and DUT then share one LAN).  The profile
+            #     argument picks the credential pair hard-coded in the
+            #     script - nothing about the AP travels on the command line,
+            #     so the password never reaches the console log or the PDF.
             console_row(
                 "Wi-Fi connect to router",
                 wait=True, send_on=True, capture=True,
                 wait_pat=SHELL_PROMPT, wait_regex=True, wait_timeout=30,
-                send="WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' "
-                     "sh /root/connect_wifi.sh",
+                send="bash /root/fct_assets/connect_wifi.sh router",
                 cap_pat="WIFI_CONNECTED_OK", cap_timeout=45.0,
                 retries=1),
             # 17) DUT Wi-Fi IP evidence (the harness resolves the SFTP
@@ -558,6 +559,22 @@ def main() -> int:
                    "bytesize_key": "8", "parity_key": "None",
                    "stopbits_key": "1", "flow_control": False},
     }]
+    # an SSH channel for the SFTP rows (C7 makes it a build-time ERROR to
+    # have an SFTP row and no SSH channel).  Placeholder host on purpose:
+    # it is a demo plan, the real address comes from the DUT.
+    config["console"].append({
+        "kind": "ssh",
+        "params": {"host": "192.168.10.10", "port": 22,
+                   "username": "root", "password": ""},
+    })
+
+    # ICT is not part of this plan: leaving the stage enabled with an empty
+    # sequence is an ERROR by design (an enabled stage must define a test).
+    config.setdefault("test_workflow", {})["overall_flow"] = [
+        {"stage": "ICT", "enable": False},
+        {"stage": "FCT", "enable": True},
+    ]
+
     config["fct_test_config"] = cfg.to_dict()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -46,18 +46,22 @@ If BSP team provides a driver load script:
 # Then run:
 systemctl restart systemd-modules-load
 
-# Option B: Manual load via script
-sh /opt/load_wifi_drivers.sh
+# Option B: Manual load via the project asset (handles Wi-Fi and BT)
+bash /root/fct_assets/load_drivers.sh
 ```
+
+`load_drivers.sh` probes first and only loads what is missing, so it is safe
+to run on every boot. Edit the module list at the top of
+`assets_<Project>/drivers/load_drivers.sh` rather than shipping a new script.
 
 ### 2.3 Verify Wi-Fi interface
 
 ```bash
-# Should show wlan0 with MAC address
-ip link show wlan0
+# The interface name comes from the BSP (mlan0 on FRDM-IMX93, wlan0 on most others)
+ip link show mlan0
 
 # Scan available networks (station mode test)
-iw dev wlan0 scan | grep SSID
+iw dev mlan0 scan | grep SSID
 ```
 
 ---
@@ -82,8 +86,8 @@ lsmod | grep -i btusb
 modprobe btusb
 modprobe bluetooth
 
-# Or via BSP script
-sh /opt/load_bt_drivers.sh
+# Or via the project asset (same script as the Wi-Fi case)
+bash /root/fct_assets/load_drivers.sh
 
 # Verify
 hciconfig hci0
@@ -284,54 +288,41 @@ After flash, DUT should boot into OOBE image. Verify via serial console:
 
 ---
 
-## 8. Pre-Test Summary Script
+## 8. Pre-test check and driver scripts
 
-BSP engineer can run this script on DUT before FCT:
+These are not separate BSP deliverables: like every other DUT-side script they
+live inside the project assets folder and are pushed by the sequence.
 
-```bash
-#!/bin/bash
-# /opt/fct_precheck.sh
+| File in `assets_<Project>/` | DUT path after the push | Marker on success |
+|---|---|---|
+| `precheck/01_system_check.sh` | `/root/fct_assets/01_system_check.sh` | `PRECHECK_OK wifi_if=…` / `PRECHECK_OK bt_if=…` |
+| `drivers/load_drivers.sh` | `/root/fct_assets/load_drivers.sh` | `DRIVERS_OK wifi_if=…` / `DRIVERS_OK bt_if=…` |
 
-echo "=== FCT Pre-Check ==="
-echo ""
+A single-file push lands in the Remote folder; pushing a whole folder lands
+one level deeper, under the folder's own name (`local: .../resources/scripts`
++ `remote: /root/fct_assets` -> `/root/fct_assets/scripts/`). The User Guide
+chapter "Example FCT sequence" states the same rule.
 
-echo "[1] System:"
-uname -a
-echo ""
+The sequence runs them through `Console_serial` rows that name the
+interpreter, and captures the marker:
 
-echo "[2] Network interfaces:"
-ip link show
-echo ""
-
-echo "[3] Wi-Fi interface:"
-ip link show wlan0 || echo "wlan0 NOT FOUND"
-echo ""
-
-echo "[4] Bluetooth controller:"
-hciconfig hci0 || echo "hci0 NOT FOUND"
-echo ""
-
-echo "[5] SSH server:"
-systemctl is-active sshd || echo "sshd NOT RUNNING"
-echo ""
-
-echo "[6] IP address:"
-ip addr show eth0 | grep "inet " || echo "No eth0 IP"
-echo ""
-
-echo "=== Pre-Check Complete ==="
+```
+mkdir -p /root/fct_assets                                  (once, before the first push)
+bash /root/fct_assets/01_system_check.sh; echo RC=$?       Capture: PRECHECK_OK
+bash /root/fct_assets/load_drivers.sh; echo RC=$?          Capture: DRIVERS_OK
+bash /root/fct_assets/connect_wifi.sh router; echo RC=$?   Capture: WIFI_CONNECTED_OK
 ```
 
-Save as `/opt/fct_precheck.sh`, make executable:
-```bash
-chmod +x /opt/fct_precheck.sh
-```
+No `chmod` step: an explicit interpreter needs only the read bit, and
+`bash <file>` also survives a CRLF line ending or a missing shebang.
+`connect_wifi.sh` calls `load_drivers.sh` itself when the interface is
+missing, so a station whose driver is already loaded can skip the driver row.
 
 ---
 
 ## 9. Notes for BSP Team
 
-- **Driver loading**: If Wi-Fi/Bluetooth drivers are not auto-loaded at boot, provide `/opt/load_wifi_drivers.sh` and `/opt/load_bt_drivers.sh`. mtk-gui can call these via SSH.
+- **Driver loading**: if the modules are not auto-loaded at boot, edit the module list at the top of `assets_<Project>/drivers/load_drivers.sh`. Do not add new scripts under `/opt` - the asset tree is the single place the sequence pushes from.
 - **Auto-load recommended**: Best practice is adding modules to `/etc/modules-load.d/` so no manual step needed.
 - **SSH must be enabled**: Required for SCP file transfer and remote command execution.
 - **A2DP sink**: Required only if Bluetooth audio playback test is needed.

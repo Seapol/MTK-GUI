@@ -41,11 +41,13 @@ FCT_TEST_CONFIG = {
             {"wait_for": "root@imx93frdm"},
         ],
         "test_commands": [
-            {"name": "Kernel check", "send": "uname -a",
+            # M83: a console row must name its channel (no auto fallback)
+            {"name": "Kernel check", "channel": "ser1", "send": "uname -a",
              "expect_pass": "Linux imx93frdm", "expect_fail": "",
              "timeout": 5, "retries": 1},
-            {"name": "Load RF drivers", "send": "/root/load_rf_drivers.sh",
-             "expect_pass": "RF drivers loaded OK",
+            {"name": "Load RF drivers", "channel": "ser1",
+             "send": "bash /root/fct_assets/load_drivers.sh",
+             "expect_pass": "DRIVERS_OK",
              "expect_fail": "FAILED", "timeout": 15, "retries": 2},
         ],
     },
@@ -53,7 +55,7 @@ FCT_TEST_CONFIG = {
         "enabled": True,
         "mode": "rssi_only",
         "interface": "mlan0",
-        "driver_load_cmd": "/root/load_rf_drivers.sh",
+        "driver_load_cmd": "bash /root/fct_assets/load_drivers.sh",
         "ssid": DUT_SSID,
         "rssi_min": -70,
         "gateway": "192.168.10.1",
@@ -147,6 +149,14 @@ def main() -> int:
     }]
     # top-level fct_test_config (readable documentation node)
     config["fct_test_config"] = cfg.to_dict()
+
+    # ICT is not part of this plan: leaving the stage enabled with an empty
+    # sequence is an ERROR by design (an enabled stage must define a test).
+    config.setdefault("test_workflow", {})["overall_flow"] = [
+        {"stage": "ICT", "enable": False},
+        {"stage": "FCT", "enable": True},
+    ]
+
 
     out_dir = Path("projects/FRDM-IMX93")
     out_dir.mkdir(parents=True, exist_ok=True)

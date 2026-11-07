@@ -173,7 +173,7 @@ Make sure the build command is run from the repo root (the directory containing 
 The virtual environment is not activated — run `.venv\Scripts\activate` first.
 
 **User's own YAML plan files**
-User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The packaged `yaml_plan/examples/` now only carries the DUT script assets (`dut_scripts/`, used by SFTP provisioning); demo plans are no longer bundled — regenerate with `scripts\build_frdm_fct_demo_yaml.py` when needed.
+User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The DUT-side scripts now travel with each project's assets folder (`_internal\projects\<Project>\assets_<Project>\`) - the old `yaml_plan/examples/dut_scripts/` tree is gone. Demo plans are not bundled; regenerate with `scripts\build_frdm_fct_demo_yaml.py` when needed.
 
 **Report output folders (since 2026-10-17)**
 Every counted DUT run immediately generates its report next to the exe, under `MTK_GUI\DUT Report\`: each DUT gets an IDENTITY folder named `Part#_CoreID_Batch#_SN_<timestamp>` containing the raw DAQ waveform CSV, the certificate PDF and the MES detail CSV — every file name carries the same identity fields. Event logs live in `MTK_GUI\Event Report\` (one .log per session). The Report menu items **DUT Report / Event Log / DAQ CSV Data** open these folders directly; the folder names can be changed in **Report → Report Folder…** (persisted in `report_folders.json` next to the exe).
