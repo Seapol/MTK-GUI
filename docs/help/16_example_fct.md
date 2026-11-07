@@ -25,16 +25,14 @@ production products.
     port on Windows (e.g. `COM4`) or `/dev/cu.usbmodem...` on macOS.
   - Optional: Ethernet / Wi-Fi link between the DUT and the host for
     the file copy and the throughput tests.
-- The demo project YAML exists on disk:
-
-```text
-C:\MTK All-in-One\MTK-GUI\projects\FRDM-IMX93\FRDM-IMX93_94611_Demo-FCT_rev_1.0.5_Draft.yaml
-```
+- A project YAML to work on. The screenshots below use the FRDM-IMX93 demo
+  project; if your `projects\FRDM-IMX93\` folder holds no YAML yet, build one
+  in chapter `09_yaml_build.md` and save it there.
 
 ## Step 1 - Load the project YAML
 
-Open **File > Load Yaml...**, navigate to `projects\FRDM-IMX93` and
-open the demo YAML.
+Open **File > Load Yaml...**, navigate to `projects\FRDM-IMX93` inside your
+MTK-GUI folder and open the demo YAML.
 
 ![Load dialog pointed at the FRDM-IMX93 folder](images/19_01_load_yaml_imx93.png)
 
@@ -283,7 +281,7 @@ U-Boot window and can abort autoboot.  For this project use a
 The throughput test needs an iperf3 server on the Host PC.  Author a
 `SendtoCLI` / `Console_cli` row with `host_cmd: "iperf3 -s -D"`
 (Windows: the bundled `iperf3.exe`, e.g.
-`"C:\MTK All-in-One\MTK-GUI\dist\MTK_GUI\_internal\iperf3.exe -s -D"`).
+`"<MTK-GUI>\dist\MTK_GUI\_internal\iperf3.exe -s -D"`).
 
 - The host runner **kills the process after `timeout_s`** (default
   30 s), so a long-running server **must** be detached (`-D`, or
