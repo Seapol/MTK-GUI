@@ -16,7 +16,9 @@ from mtkgui.engine.instruments import (
 EQUIPMENT = {
     "daq973a": {"fields": {"Address": "GPIB0::9::INSTR"}},
     "u2355a": {"fields": {"Address": "USB0::U2355A::INSTR"}},
-    "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"}},
+    "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"},
+            "params": {"Voltage set (V)": "12.0",
+                       "Current limit (A)": "2.0", "OVP (V)": "15.0"}},
     "jlink": {"fields": {"Address": "JLinkExe"}},
     "fixture": {"fields": {"Channel": "DIO16"}},
     "measure_channels": {"TP_P01": "CH101", "CLK1": "TOTAL1"},
@@ -83,11 +85,19 @@ class TestOpSteps:
         assert ("reset", "PSU") in scripted_drivers._record.calls
 
     def test_power_on_with_readback(self, gw, scripted_drivers):
+        # M83/C9: the setpoints come from equipment.psu.params
         out = gw.execute_op("Power On DUT", {
-            "type": "power", "voltage": 5.0, "current": 1.0})
+            "type": "power", "state": "on"})
         assert out.verdict == "Done"
-        assert ("set_v", 5.0) in scripted_drivers._record.calls
+        assert ("set_v", 12.0) in scripted_drivers._record.calls
         assert ("out_on",) in scripted_drivers._record.calls
+
+    def test_power_on_without_psu_params_errors(self, scripted_drivers):
+        g = RealGateway({"psu": {"fields": {"Address": "TCPIP0::x"}}})
+        out = g.execute_op("Power On DUT", {
+            "type": "power", "state": "on"})
+        assert out.verdict == "Error"
+        assert "equipment.psu.params" in out.lines[0]
 
     def test_power_off(self, gw, scripted_drivers):
         out = gw.execute_op("Power Off DUT", {"type": "power"})

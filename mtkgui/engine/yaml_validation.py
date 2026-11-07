@@ -342,6 +342,77 @@ def rule_legacy_message_console_keys(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_legacy_message_console_keys)
 
 
+#: M83/C9: legacy power setpoints vs the Equipment truth.
+LEGACY_POWER_SETPOINT_MSG = ("voltage/current in the step are superseded by "
+                             "equipment.psu.params")
+#: M83/C9: the two dead scheduling fields.
+LEGACY_OP_WAIT_MSG = ("op_wait_ms/op_timeout_ms are not consumed — removed "
+                      "from the editor")
+
+
+def _power_row_has_setpoints(op: dict) -> bool:
+    return (isinstance(op, dict)
+            and str(op.get("type") or "") == "power"
+            and ("voltage" in op or "current" in op))
+
+
+def rule_legacy_operation_fields(doc: dict) -> list[YamlIssue]:
+    """M83/C9: report the dead / superseded operation-row fields."""
+    import yaml as _yaml
+    issues: list[YamlIssue] = []
+    seen: set = set()
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        op = dict(row.get("op_params") or {})
+        if _power_row_has_setpoints(op):
+            name = str(row.get("name") or "")
+            key = ("power", name)
+            if key not in seen:
+                seen.add(key)
+                issues.append(YamlIssue(
+                    SEVERITY_WARNING,
+                    f"row {index + 1} ({name}): "
+                    f"{LEGACY_POWER_SETPOINT_MSG}",
+                    f"fct_test_cases[{index}].op_params"))
+    state = (doc or {}).get("yaml_build_state") or {}
+    params = (((state.get("modules") or {}).get("fct_build") or {})
+              .get("params")) or {}
+    text = str(params.get("fct_steps_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        for index, step in enumerate(fct.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            name = str(step.get("name") or "")
+            if "op_wait_ms" in step or "op_timeout_ms" in step:
+                key = ("wait", name)
+                if key not in seen:
+                    seen.add(key)
+                    issues.append(YamlIssue(
+                        SEVERITY_WARNING,
+                        f"op row {name!r}: {LEGACY_OP_WAIT_MSG}",
+                        f"fct_steps_yaml.steps[{index}]"))
+            if _power_row_has_setpoints(step.get("op_params") or {}):
+                key = ("power", name)
+                if key not in seen:
+                    seen.add(key)
+                    issues.append(YamlIssue(
+                        SEVERITY_WARNING,
+                        f"row {index + 1} ({name}): "
+                        f"{LEGACY_POWER_SETPOINT_MSG}",
+                        f"fct_steps_yaml.steps[{index}].op_params"))
+    return issues
+
+
+_RULES.append(rule_legacy_operation_fields)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

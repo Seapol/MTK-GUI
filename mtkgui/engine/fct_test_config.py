@@ -981,8 +981,9 @@ class ConsoleCommand:
             d["op_kind"] = self.op_kind or "op"
             d["op_params"] = (dict(self.op_params)
                               if self.op_params else None)
-            d["op_wait_ms"] = int(self.op_wait_ms)
-            d["op_timeout_ms"] = int(self.op_timeout_ms)
+            # M83/C9: op_wait_ms / op_timeout_ms are dead fields - a new
+            # save never emits them (a legacy file keeps them for the
+            # load-time warning only).
         return d
 
     @staticmethod

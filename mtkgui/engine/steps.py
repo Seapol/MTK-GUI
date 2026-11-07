@@ -95,10 +95,12 @@ OP_STEPS: dict[str, dict] = {
         "type": "fixture", "signal": "inpos", "level": "L"},
     "Fixture E-Stop Healthy": {
         "type": "fixture", "signal": "estop", "level": "L"},
+    # M83/C9: a power row is a PASSIVE state carrier - the N5747A
+    # setpoints come from equipment.psu.params, never from the row.
     "Power On DUT": {
-        "type": "power", "voltage": 5.0, "current": 1.0},
+        "type": "power", "state": "on"},
     "Power Off DUT": {
-        "type": "power"},
+        "type": "power", "state": "off"},
     # M7: U2355A DIO bank standard operations (digital input / output).
     # Read is reference-only (no judgement); Write drives the bank and
     # is guarded by the isolation preflight in the runner.
@@ -251,9 +253,15 @@ def op_summary(params: dict | None) -> str:
         if unexpected:
             summary += f" Unexpected {unexpected}"
         return summary
-    if t == "power" and "voltage" in (params or {}):
-        return (f"{params['voltage']:g}V/"
-                f"{params.get('current', 0):g}A")
+    if t == "power":
+        # M83/C9: a legacy row still carrying voltage/current renders
+        # them (read-only truth); a new row shows its state instead.
+        if "voltage" in (params or {}):
+            return (f"{params['voltage']:g}V/"
+                    f"{params.get('current', 0):g}A")
+        return ("ON (Equipment setpoints)"
+                if str((params or {}).get("state") or "") == "on"
+                else "OFF")
     if t == "dio_out":
         return (f"{(params or {}).get('channels', '')} = "
                 f"{(params or {}).get('pattern', '')}")

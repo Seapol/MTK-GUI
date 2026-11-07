@@ -951,14 +951,51 @@ class FCTTestConfigPanel(QWidget):
                 if isinstance(entry, dict) and entry.get("key")]
 
     def validation_errors(self) -> list:
-        """M83: per-row console-channel build errors (Apply is blocked)."""
+        """M83: per-row console-channel + power-setpoint build errors
+        (Apply is blocked)."""
         from mtkgui.engine.fct_test_config import channel_problems
         channels = self.console_channels()
         keys = ([str(entry["key"]) for entry in channels]
                 if channels is not None else None)
         rows = [self._get_row_cmd(r)
                 for r in range(self.cmd_table.rowCount())]
-        return channel_problems([c for c in rows if c is not None], keys)
+        errors = channel_problems([c for c in rows if c is not None], keys)
+        errors.extend(self._power_setpoint_errors())
+        return errors
+
+    def _power_setpoint_errors(self) -> list:
+        """M83/C9: a Power On DUT row needs numeric N5747A setpoints in
+        ``equipment.psu.params`` - strict build ERROR, never a default.
+
+        ``None`` equipment node (provider not wired) = cannot judge."""
+        node = self.equipment_node()
+        if node is None:
+            return []
+        psu = ((node.get("psu") or {}).get("params")) or {}
+        errors: list = []
+        for index in range(self.cmd_table.rowCount()):
+            cmd = self._get_row_cmd(index)
+            if cmd is None or cmd.kind != KIND_OP:
+                continue
+            p = dict(cmd.op_params or {})
+            if str(p.get("type") or "") != "power":
+                continue
+            is_on = (str(p.get("state") or "").lower() == "on"
+                     or "power on" in str(cmd.name or "").lower())
+            if not is_on:
+                continue
+            missing = []
+            for key in ("Voltage set (V)", "Current limit (A)"):
+                try:
+                    float(psu.get(key))
+                except (TypeError, ValueError):
+                    missing.append(key)
+            if missing:
+                errors.append(
+                    f"row {index + 1} ({cmd.name}): equipment.psu.params "
+                    f"missing {' / '.join(repr(k) for k in missing)} — "
+                    "set the N5747A setpoints on the Equipment page")
+        return errors
 
     def equipment_node(self) -> dict | None:
         """The current project Equipment node (None when not wired)."""
@@ -1976,7 +2013,8 @@ class FCTTestConfigPanel(QWidget):
             bool(cmd.enabled),
             int(cmd.op_wait_ms or 100),
             int(cmd.op_timeout_ms or 5000),
-            title=f"Step {row + 1} — Edit (Operation)")
+            title=f"Step {row + 1} — Edit (Operation)",
+            equipment=self.equipment_node())
         if result is None:
             return
         name, params, enabled, wait, timeout = result

@@ -51,17 +51,41 @@ from ..engine import (
 ICT_MESSAGE_KINDS = ("MessageOK", "MessageYesNo", "MessageGoStop")
 
 
+def _power_row_is_on(name: str, params: dict) -> bool:
+    """M83/C9: Power On/Off from the op name, then the state key."""
+    low = str(name or "").lower()
+    if "power on" in low:
+        return True
+    if "power off" in low:
+        return False
+    return str((params or {}).get("state") or "").strip().lower() == "on"
+
+
+def _fmt_setpoint(value) -> str:
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
-                        title=None):
+                        title=None, equipment=None,
+                        config_equipment_cb=None):
     """M53: reusable per-type OPERATION parameter form.
 
     A standard operation step is ONE action plus its parameters - the same
     form is opened by the shared sequence editor (ICT / FCT legacy rows)
     and by the FCT single-page table, never wrapped in a nested step list.
 
+    M83/C9: the dialog carries NO Enable / Wait / Timeout controls (the
+    fields are dead and are no longer editable); the passed-in values are
+    echoed back unchanged.  A Power On DUT row is a passive state carrier:
+    its setpoints are shown read-only from ``equipment.psu.params``.
+
     Returns ``(name, params, enable, wait, timeout)`` on accept (``params``
     is ``None`` when the type carries no parameters) or ``None`` on cancel.
     """
+    from mtkgui.gui.yamlbuild import dialog_layout as dlayout
     params = dict(params or {})
     dlg = QDialog(parent)
     dlg.setWindowTitle(title or "Edit (Operation)")
@@ -101,6 +125,11 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
         while param_form.rowCount():
             param_form.removeRow(0)
         t = current_type()
+        # M83/C9 layout: the power dialogs are compact (420), the
+        # instrument / fixture forms use the 560 tier.
+        dlayout.apply_fixed_width(
+            dlg, dlayout.WIDTH_SIMPLE if t == "power"
+            else dlayout.WIDTH_FORM)
         if t in ("instruments", "reset"):
             chosen = set(params.get("instruments", []) or [])
             row = QWidget()
@@ -137,21 +166,40 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
             param_form.addRow("Expect (read):", expect)
             param_form.addRow("Unexpected (read):", unexpected)
         elif t == "power":
-            if "voltage" in params or \
-                    op_combo.currentText().strip() == "Power On DUT":
-                volt = QDoubleSpinBox()
-                volt.setRange(0.0, 60.0)
-                volt.setDecimals(2)
-                volt.setSuffix(" V")
-                volt.setValue(float(params.get("voltage", 5.0)))
-                curr = QDoubleSpinBox()
-                curr.setRange(0.0, 12.5)
-                curr.setDecimals(2)
-                curr.setSuffix(" A")
-                curr.setValue(float(params.get("current", 1.0)))
-                fields["voltage"], fields["current"] = volt, curr
-                param_form.addRow("Voltage:", volt)
-                param_form.addRow("Current limit:", curr)
+            # M83/C9: a PASSIVE state carrier - no setpoint inputs.
+            if _power_row_is_on(op_combo.currentText(), params):
+                psu = dict(((equipment or {}).get("psu") or {})
+                           .get("params") or {})
+                volt = psu.get("Voltage set (V)")
+                curr = psu.get("Current limit (A)")
+                ovp = psu.get("OVP (V)")
+                line = QLabel(
+                    f"Voltage {_fmt_setpoint(volt)} V · Current limit "
+                    f"{_fmt_setpoint(curr)} A · OVP {_fmt_setpoint(ovp)} V  "
+                    f"(from Equipment ▸ N5747A)")
+                line.setWordWrap(True)
+                param_form.addRow(line)
+                param_form.addRow(QLabel(
+                    "Setpoints are configured on the Equipment page "
+                    "(N5747A)."))
+                missing = []
+                for key, value in (("Voltage set (V)", volt),
+                                   ("Current limit (A)", curr)):
+                    try:
+                        float(value)
+                    except (TypeError, ValueError):
+                        missing.append(key)
+                if missing:
+                    warn = QLabel(
+                        "WARNING: equipment.psu.params has no numeric "
+                        + " / ".join(repr(key) for key in missing))
+                    warn.setWordWrap(True)
+                    warn.setStyleSheet("color: #b45309;")
+                    param_form.addRow(warn)
+                if callable(config_equipment_cb):
+                    btn = QPushButton("Config Equipment")
+                    btn.clicked.connect(config_equipment_cb)
+                    param_form.addRow(btn)
             else:
                 param_form.addRow(
                     QLabel("N5747A output OFF — no setpoints."))
@@ -180,21 +228,10 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
     op_combo.currentTextChanged.connect(lambda _t: rebuild_params())
     rebuild_params()
 
-    enable_cb = QCheckBox()
-    enable_cb.setChecked(bool(enable))
-    wait_spin = QSpinBox()
-    wait_spin.setRange(0, 99999)
-    wait_spin.setValue(int(wait))
-    wait_spin.setSuffix(" ms")
-    timeout_spin = QSpinBox()
-    timeout_spin.setRange(0, 999999)
-    timeout_spin.setValue(int(timeout))
-    timeout_spin.setSuffix(" ms")
-    meta = QFormLayout()
-    meta.addRow("Enable:", enable_cb)
-    meta.addRow("Wait:", wait_spin)
-    meta.addRow("Timeout:", timeout_spin)
-    body_lay.addLayout(meta)
+    # M83/C9: the Enable / Wait / Timeout controls are REMOVED from the
+    # Operation dialog (the fields are dead); the incoming values are
+    # echoed back unchanged so legacy enabled:false keeps its effect.
+    body_lay.addStretch(0)
     # M34: the form scrolls on small windows; OK / Cancel stays outside
     apply_scroll_to_dialog(dlg, body)
 
@@ -226,10 +263,12 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
         if unexpected:
             new_params["unexpected"] = unexpected
     elif t == "power":
-        new_params = {"type": "power"}
-        if "voltage" in fields:
-            new_params["voltage"] = fields["voltage"].value()
-            new_params["current"] = fields["current"].value()
+        # M83/C9: the state comes from the chosen step name; a legacy
+        # voltage/current pair is NEVER written back (opening a Power
+        # Off row must not re-energise the DUT).
+        new_params = {
+            "type": "power",
+            "state": ("on" if _power_row_is_on(new_name, params) else "off")}
     elif t == "dio_out":
         new_params = {
             "type": "dio_out",
@@ -241,8 +280,8 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
         new_params = {"type": "dio_read"}
     else:
         new_params = None
-    return (new_name, new_params, enable_cb.isChecked(),
-            wait_spin.value(), timeout_spin.value())
+    # Enable / Wait / Timeout have no controls any more - echo them.
+    return (new_name, new_params, bool(enable), int(wait), int(timeout))
 
 
 class StepsEditorDialog(QDialog):

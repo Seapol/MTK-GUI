@@ -74,17 +74,11 @@ def test_operation_row_opens_the_parameter_form(panel, monkeypatch):
 
 
 def test_power_setpoints_round_trip(panel, monkeypatch):
-    """Voltage / current, enable, wait and timeout are written back."""
+    """M83/C9: a power row saves its STATE only - no setpoints, and the
+    Enable / Wait / Timeout echoes stay unchanged."""
     row = _add_op(panel, "Power On DUT")
 
     def fake_exec(widget):
-        volts = widget.findChildren(QDoubleSpinBox)
-        volts[0].setValue(12.34)
-        volts[1].setValue(2.5)
-        spins = widget.findChildren(QSpinBox)
-        spins[0].setValue(250)
-        spins[1].setValue(9000)
-        widget.findChildren(QCheckBox)[0].setChecked(False)
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
@@ -93,10 +87,9 @@ def test_power_setpoints_round_trip(panel, monkeypatch):
     assert cmd.name == "Power On DUT"
     assert cmd.kind == KIND_OP
     assert cmd.op_kind == "op"
-    assert cmd.enabled is False
-    assert (cmd.op_wait_ms, cmd.op_timeout_ms) == (250, 9000)
-    assert cmd.op_params == {"type": "power", "voltage": 12.34,
-                             "current": 2.5}
+    assert cmd.enabled is True
+    assert (cmd.op_wait_ms, cmd.op_timeout_ms) == (100, 5000)
+    assert cmd.op_params == {"type": "power", "state": "on"}
 
 
 def test_fixture_params_round_trip(panel, monkeypatch):
@@ -166,8 +159,6 @@ def test_cancel_leaves_the_row_unchanged(panel, monkeypatch):
     before_params = dict(before.op_params or {})
 
     def fake_exec(widget):
-        volts = widget.findChildren(QDoubleSpinBox)
-        volts[0].setValue(30.0)
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)

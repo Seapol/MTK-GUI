@@ -261,7 +261,7 @@ class RealGateway:
             if t == "fixture":
                 return self._op_fixture(p)
             if t == "power":
-                return self._op_power(p)
+                return self._op_power(p, name)
             if t == "dio_out":
                 return self._op_dio_out(p)
             if t == "dio_read":
@@ -405,21 +405,65 @@ class RealGateway:
         return GatewayOutcome("Done", value=value, text=value_line,
                               lines=[value_line] + lines)
 
-    def _op_power(self, p: dict) -> GatewayOutcome:
+    def _psu_setpoints(self) -> dict:
+        """M83/C9: the N5747A setpoints - the ONLY source is
+        ``equipment.psu.params``.  Missing / non-numeric values are a
+        config ERROR naming the exact keys (never a default)."""
+        params = dict((self._equipment.get("psu") or {}).get("params") or {})
+        keys = ("Voltage set (V)", "Current limit (A)")
+        values = {}
+        missing = []
+        for key in keys:
+            try:
+                values[key] = float(params.get(key))
+            except (TypeError, ValueError):
+                missing.append(key)
+        if missing:
+            raise self._module.InstrumentConfigError(
+                "equipment.psu.params: no numeric "
+                + " / ".join(repr(key) for key in missing)
+                + " — set the N5747A setpoints on the Equipment page")
+        return values
+
+    def _op_power(self, p: dict, name: str = "") -> GatewayOutcome:
+        """M83/C9: Power On/Off from the row STATE, not from a fake
+        voltage key.
+
+        Classification order: ``params["state"]`` -> the op name ->
+        legacy ``"voltage"`` in params (transitional, with a warning).
+        Power ON reads ``equipment.psu.params``; Power OFF only turns
+        the output off (it can never energise the DUT)."""
         mod = self._require_module()
         drv = self._driver("PSU")
-        if "voltage" in p:
-            drv.set_voltage(float(p["voltage"]))
-            drv.set_current(float(p.get("current", 0.0)))
-            drv.output_on()
-            readback = drv.measure_voltage()
-            return GatewayOutcome(
-                "Done", value=readback.value,
-                lines=[f"N5747A set {p['voltage']:.2f} V / "
-                       f"{p.get('current', 0.0):.2f} A -> output ON, "
-                       f"readback {readback.value:g} V"])
-        drv.output_off()
-        return GatewayOutcome("Done", lines=["N5747A output OFF"])
+        lines: list = []
+        state = str(p.get("state") or "").strip().lower()
+        low_name = str(name or "").lower()
+        if state not in ("on", "off"):
+            if "power on" in low_name:
+                state = "on"
+            elif "power off" in low_name:
+                state = "off"
+        if state not in ("on", "off") and "voltage" in p:
+            # transitional only: new rows never carry voltage/current
+            state = "on"
+        if "voltage" in p or "current" in p:
+            lines.append(
+                "WARNING legacy power row carries voltage/current — "
+                "superseded by equipment.psu.params")
+        if state != "on":
+            drv.output_off()
+            return GatewayOutcome("Done", lines=lines + ["N5747A output OFF"])
+        setpoints = self._psu_setpoints()
+        volt = setpoints["Voltage set (V)"]
+        curr = setpoints["Current limit (A)"]
+        drv.set_voltage(volt)
+        drv.set_current(curr)
+        drv.output_on()
+        readback = drv.measure_voltage()
+        lines.append(f"N5747A set {volt:.2f} V / {curr:.2f} A "
+                     f"(equipment.psu.params) -> output ON, "
+                     f"readback {readback.value:g} V")
+        return GatewayOutcome("Done", value=readback.value, lines=lines)
 
     # ------------------------------------------------- measurement rows
     def measure_row(self, kind: str, name: str, unit: str, lo_s: str,
