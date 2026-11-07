@@ -22,8 +22,8 @@ install Python on the station.
 
 | Field | Value |
 |---|---|
-| Document revision | **R2** |
-| Last updated | 2026-11-07 22:40 CST |
+| Document revision | **R3** |
+| Last updated | 2026-11-07 22:33 CST |
 | Applies to app version | `v1.0.0.0` — develop, pre-release baseline |
 | Applies to code commit | `174000c` / `174000c1bba3cb77833b672327aed202de5d15c6` |
 | Release tag | none yet — the first release will be `v1.0.0.1` |
@@ -65,10 +65,14 @@ This is the **release distribution repository** maintained by the MTK GUI tool o
 
 | Ref | Content | Stability |
 |---|---|---|
-| branch `develop` | the newest published release state | moves forward with each release |
+| branch `develop` | the newest published release state | republished at each release — a pointer, not a history line |
 | tag `v1.0.x.y` | one exact released build | immutable |
 
 No feature branches, no pull requests, no CI. It is a distribution channel, not a workspace.
+
+**It also carries no history.** Each release arrives as a single commit whose tree is exactly the released state, so
+`git log` on this repository shows one entry per release and nothing older. That is deliberate: anything removed
+from the tree during development — a superseded note, a file that was deleted on purpose — never reaches you.
 
 <img src="docs/images/01_release_flow.png" alt="Release and distribution flow" width="700">
 
@@ -429,10 +433,13 @@ If the PC has no GPIB card, use a **USB-to-GPIB adapter** (e.g. Keysight 82357B)
 cd mtk-gui
 git fetch --tags --prune
 git switch develop
-git pull --ff-only
+git reset --hard origin/develop
 ```
 
-`--ff-only` keeps the mirror moving forward only; if it refuses, the owner republished — re-clone instead of merging.
+`git reset --hard` rather than `git pull` on purpose: the release branch is republished, not extended, so it does not
+fast-forward. Because this clone is a build source and not your workspace, there is nothing local to lose — if you
+had edited files here, they belong in your own repository (section 12). To work on a specific release instead of the
+newest one: `git switch --detach tags/v1.0.x.y`.
 
 On a **station** an update is not a pull: there is no clone to pull into. Exit the GUI normally and replace the
 whole `MTK_GUI\` folder (section 10), then confirm the new version in `Help → About`.
@@ -525,6 +532,7 @@ dist\MTK_GUI\MTK_GUI.exe
 
 | Rev | Date (CST) | App version | Code commit | Change |
 |---|---|---|---|---|
+| R3 | 2026-11-07 22:33 | `v1.0.0.0` | `174000c` | The mirror now ships **one snapshot commit per release and no history**: the release branch is republished rather than extended. Documented what that means for you - `git log` shows a single entry, and anything removed from the tree during development never reaches this repository. The update procedure changed accordingly: `git reset --hard origin/develop` instead of `git pull --ff-only`, plus `git switch --detach tags/v1.0.x.y` to pin one release |
 | R2 | 2026-11-07 22:40 | `v1.0.0.0` | `174000c` | Added "Start here" routing that separates the two deployments (own Windows PC vs factory station) before the reader begins; documented how the package reaches a station, the version-identity rule and how to replace a live station |
 | R1 | 2026-11-07 22:15 | `v1.0.0.0` | `174000c` | Landed as the repository's canonical Windows guide (`WINDOWS_DEPLOY_EN.md`, replacing the 198-line earlier version). Corrected four statements that no longer matched the code: `yaml_plan\` is fully retired (it is no longer a bundled example folder and Case I/O exports to `export\`), the `.bat` and `.ps1` now share `.venv` (no competing `mtk_gui\` venv), the spec's required-data list, and the demo-plan regeneration command. Figures 1 and 2 now ship under `docs/images\` |
 | R0 | 2026-11-07 16:47 | `v1.0.0.0` | `35df1ed` | Baseline. Consolidated guide: repository access (one-way mirror, read-only), toolchain install, Windows build, station hardware / drivers / roles, troubleshooting, and the project-folder model of section 10.4 |

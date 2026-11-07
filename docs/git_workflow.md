@@ -67,9 +67,15 @@ git tag -a v1.0.0.1 -m "Release v1.0.0.1"
 git push origin develop --follow-tags
 ```
 
-The mirror push to Bitbucket, the permission model and the verification steps are documented in the owner's
-runbook, which is **deliberately not in this repository** — a file here is every colleague's file once the mirror
-exists. Two refs reach the mirror: `develop` and the release tag. `git push --mirror` is never used.
+What reaches the mirror is **one snapshot commit per release, and no history at all**: a single root commit
+carrying exactly the tagged tree, plus the release tag. Nothing older travels — no feature branches, no
+intermediate commits, and no file that was ever deleted from the tree. That is deliberate: history cannot be
+un-published, so a history-carrying mirror would hand every reader everything ever committed, including material
+that was removed on purpose.
+
+The mirror command itself, the permission model and the verification steps are in the owner's runbook, which is
+**not in this repository** — a file here is every colleague's file once the mirror exists. `git push --mirror` is
+never used on either side.
 
 `__version__` in `mtkgui/__init__.py` is the single source of truth, and the tag must be byte-identical to it.
 
