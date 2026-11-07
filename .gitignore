@@ -57,8 +57,10 @@ mtkgui/config/sharepoint_upload.json
 *$py.class
 
 # virtual environments (mtk_gui/ handled above)
-.venv/
-venv/
+# .venv is written without the trailing slash so a symlink to an
+# out-of-tree venv (~/.venvs/mtk-gui) is ignored too, not just a folder.
+.venv
+venv
 env/
 
 # build artifacts
