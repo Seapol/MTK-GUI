@@ -1587,7 +1587,9 @@ class MainWindow(QMainWindow):
         if self._assets_dialog is None:
             from mtkgui.gui.assets_config_dialog import AssetsConfigDialog
             self._assets_dialog = AssetsConfigDialog(
-                self, bind_callback=self._bind_project_assets)
+                self, bind_callback=self._bind_project_assets,
+                equipment_provider=self._equipment_network_values,
+                host_scan_provider=self._host_wifi_scan_hit)
         self._assets_dialog.refresh()
         self._assets_dialog.show()
         self._assets_dialog.raise_()
@@ -1610,6 +1612,28 @@ class MainWindow(QMainWindow):
         shown = "off" if saved <= 0 else f"{saved:g}s"
         self._append_event_log(
             f"[Tools] FCT Watchdog: {shown} (applies to the next run)")
+
+    def _equipment_network_values(self) -> dict:
+        """M83/C15: the Wired & Wireless Network values the assets sync
+        reads (Equipment page -> connect_wifi.sh)."""
+        cfg = (getattr(self, "equipment_page", None) or object())
+        configs = getattr(cfg, "configs", {}) or {}
+        entry = configs.get("peripherals") or {}
+        return dict((entry.get("groups") or {}).get("router") or {})
+
+    @staticmethod
+    def _host_wifi_scan_hit(ssid: str):
+        """``(ssid, percent)`` when the Host PC sees *ssid*, else ``None``
+        (M83/C15: a hint only - it never pre-ticks a sync row)."""
+        from mtkgui.engine import host_rf
+        try:
+            found = host_rf.wifi_scan([str(ssid)], timeout_s=8)
+        except Exception:                    # noqa: BLE001 - hint only
+            return None
+        rssi = found.get(str(ssid))
+        if rssi is None:
+            return None
+        return ssid, max(0, min(100, 2 * (int(rssi) + 100)))
 
     def _bind_project_assets(self, project: str, assets_dir: str) -> None:
         """M69: persist the project's assets choice in its shared FCT
