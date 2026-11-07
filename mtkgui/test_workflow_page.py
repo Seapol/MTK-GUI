@@ -884,6 +884,8 @@ class TestWorkFlowPage(QWidget):
         fct_split.setChildrenCollapsible(False)
         fct_split.addWidget(self._build_fct())
         self.multi_console = MultiConsoleWidget()
+        self.multi_console.channels_changed.connect(
+            self._mirror_console_channels)
         fct_split.addWidget(self.multi_console)
         _startup_mark("twf: fct + console built")
         fct_split.setStretchFactor(0, 1)   # FCT 50%
@@ -2859,6 +2861,41 @@ class TestWorkFlowPage(QWidget):
         M83/C14: the Run-owned instrument session is released."""
         self._release_rack()
         self._runner.abort()
+
+    # --------------------------------- M80-6e console -> equipment mirror
+    def _mirror_console_channels(self) -> None:
+        """M80-6e: the Console rows stay the single edit source; mirror
+        them into ``equipment.dut.console.*`` / ``equipment.dut.ssh.*``
+        so the FCT step references keep resolving."""
+        provider = getattr(self, "equipment_configs_provider", None)
+        if not callable(provider):
+            return
+        try:
+            configs = dict(provider() or {})
+        except Exception:                    # noqa: BLE001 - never crash
+            return
+        dut = configs.get("dut") or {}
+        groups = dut.setdefault("groups", {})
+        channels = getattr(self.multi_console, "channels", {}) or {}
+        serial_key = next(
+            (key for key, channel in channels.items()
+             if channel.get("kind") == "serial"), None)
+        serial = dict((channels.get(serial_key) or {}).get("params") or {})
+        groups["console"] = {
+            "channel": serial_key or "",
+            "port": str(serial.get("port") or ""),
+            "baud": str(serial.get("baudrate") or ""),
+            "parity": str(serial.get("parity") or "None"),
+        }
+        ssh_key = next(
+            (key for key, channel in channels.items()
+             if channel.get("kind") == "ssh"), None)
+        ssh = dict((channels.get(ssh_key) or {}).get("params") or {})
+        groups["ssh"] = {
+            "ip": str(ssh.get("host") or ""),
+            "username": str(ssh.get("username") or ""),
+            "password": str(ssh.get("password") or ""),
+        }
 
     # ------------------------------------------- M83/C14 run-start rack
     def _rack_configs(self) -> dict:

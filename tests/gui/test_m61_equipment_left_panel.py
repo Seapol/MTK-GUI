@@ -68,8 +68,11 @@ def test_name_label_plus_button_fit_the_column(page):
         for key, label, _kind, _source in entries:
             name = _name_label(page, key, label)
             btn = page.entry_buttons[key]["config"]
-            assert name.minimumWidth() == 130, key
-            assert name.minimumWidth() + btn.width() <= ROW_CONTENT_PX, key
+            # M80-1: no elision at the computed default width; the
+            # tooltip carries the full text on a narrow drag
+            assert name.toolTip() == label, key
+            assert name.sizeHint().width() + btn.width() \
+                + 2 * 6 <= page.computed_left_width, key
             checked += 1
     assert checked
 

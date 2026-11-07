@@ -782,6 +782,9 @@ class MultiConsoleWidget(QGroupBox):
 
     # emitted whenever a channel is added / removed / connected / dropped
     connection_changed = Signal()
+    # M80-6e: the channel definition changed (add / remove / params) -
+    # the workflow page mirrors it into the equipment DUT console/SSH
+    channels_changed = Signal()
     # M76/D6: a manual console send line (mirrors "console send: ..."
     # into the Event Log)
     console_log = Signal(str)
@@ -982,6 +985,7 @@ class MultiConsoleWidget(QGroupBox):
             color=self.theme["sys"])
         self._refresh_actions()
         self.connection_changed.emit()
+        self.channels_changed.emit()
 
     def remove_channel(self, key):
         """Close and remove a channel row (can remove all)."""
@@ -1019,6 +1023,7 @@ class MultiConsoleWidget(QGroupBox):
         del self.channels[key]
         self._refresh_actions()
         self.connection_changed.emit()
+        self.channels_changed.emit()
 
     def remove_current(self):
         """Remove the last channel (backward compat)."""
@@ -1082,6 +1087,7 @@ class MultiConsoleWidget(QGroupBox):
         merged.update(params or {})
         channel["params"] = merged
         channel["row"].update_params(merged)
+        self.channels_changed.emit()
 
     def _on_row_params_changed(self, key):
         """An inline field in the row changed: merge into channel params."""
@@ -1090,6 +1096,7 @@ class MultiConsoleWidget(QGroupBox):
         row = self.channels[key]["row"]
         partial = row.get_inline_params()
         self.channels[key]["params"].update(partial)
+        self.channels_changed.emit()
 
     # ------------------------------------------------------- YAML channels
     def yaml_channels(self):

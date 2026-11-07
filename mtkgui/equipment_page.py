@@ -22,6 +22,7 @@ from PySide6.QtGui import (
     QColor,
     QCursor,
     QFont,
+    QFontMetrics,
     QGuiApplication,
     QImage,
     QPainter,
@@ -49,7 +50,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -209,19 +212,14 @@ LEFT_ENTRIES = (
     ("Fixture", (
         ("control_board", "ATE Fixture Control Board", "form",
          ("control_board", None)),
-        ("fixture", "Fixture Probe Board", "form", ("fixture", None)),
     )),
     ("DUT", (
-        ("dut_os", "DUT Board OS", "form", ("dut", "board_os")),
-        ("dut_wifi", "DUT Wi-Fi", "form", ("dut", "wifi")),
-        ("dut_bt", "DUT Bluetooth", "form", ("dut", "bluetooth")),
-        ("dut_ssh", "SSH Login", "form", ("dut", "ssh")),
+        ("dut_interface", "DUT Interface", "form", ("dut", "interface")),
         ("dut_console", "DUT Console", "form", ("dut", "console")),
     )),
     ("Peripherals", (
-        ("pc_wifi", "PC Wi-Fi", "form", ("peripherals", "wifi")),
-        ("pc_bt", "PC Bluetooth", "form", ("peripherals", "bluetooth")),
-        ("router", "Wired & Wireless Network", "form", ("peripherals", "router")),
+        ("router", "Wired & Wireless Network", "form",
+         ("peripherals", "router")),
         ("jlink", "Flash Tool/Programmer", "form", ("jlink", None)),
     )),
 )
@@ -230,20 +228,22 @@ LEFT_ENTRIES = (
 #: tool is a third-party GUI and deliberately has NO lamp.
 INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
 
-#: M50 §4: peripheral / DUT configs that expose a Test Connection button
+#: M50 §4 / M80: peripheral configs that expose a Test Connection button
 #: (availability check for a SAMPLE DUT / host setup - the real per-unit
-#: verification runs inside the FCT Sequence steps).  M64: the flash tool
-#: uses its own Self-Test button instead (it launches the tool).
-_TESTABLE_FORM_KEYS = ("pc_wifi", "pc_bt", "router",
-                       "dut_wifi", "dut_bt", "dut_ssh", "dut_console")
+#: verification runs inside the FCT Sequence steps).  M80-6c/9 dropped
+#: the DUT Wi-Fi / Bluetooth / PC Wi-Fi / PC Bluetooth probes; the
+#: network dialog owns its own probe.
+_TESTABLE_FORM_KEYS = ("router",)
 
-# M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
-# editable fields (field key, label, default).  The YAML carries these
-# as nested keys (``equipment.dut.ssh.ip`` ...) so FCT steps can
-# reference them at runtime (M50).
+#: M80-1: left column width clamp (px)
+LEFT_COLUMN_MIN_PX = 320
+LEFT_COLUMN_MAX_PX = 480
+
+#: M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
+#: editable fields (field key, label, default).  The YAML carries these
+#: as nested keys (``equipment.dut.ssh.ip`` ...) so FCT steps can
+#: reference them at runtime (M50).
 GROUP_FIELDS = {
-    ("dut", "board_os"): [
-        ("os_type", "OS type", "Linux"), ("notes", "Notes", "")],
     ("dut", "wifi"): [
         ("ssid", "DUT SSID", ""), ("interface", "Interface", "mlan0")],
     ("dut", "bluetooth"): [
@@ -254,6 +254,12 @@ GROUP_FIELDS = {
     ("dut", "console"): [
         ("channel", "Console channel", ""), ("port", "Serial port", ""),
         ("baud", "Baud rate", "115200"), ("parity", "Parity", "None")],
+    # M80-6b: one DUT Interface dialog edits Wi-Fi / Bluetooth / LAN
+    ("dut", "interface"): [
+        ("ssid", "DUT SSID", ""), ("wifi_interface", "DUT Wi-Fi interface",
+                                   "mlan0"),
+        ("bt_name", "BT name", ""), ("bd_addr", "BD address", ""),
+        ("ethernet_ports", "Ethernet port(s)", "")],
     ("peripherals", "wifi"): [
         ("ap_ssid", "AP SSID", ""), ("ap_ip", "AP IP", ""),
         ("host_ip", "Host IP", ""), ("ap_password", "AP password", "")],
@@ -314,13 +320,22 @@ NETWORK_MODES = {
     ],
 }
 
-#: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2)
-DIO_FIELDS = [
-    ("press", "Press cylinder", "DIO01"),
-    ("inpos", "Cylinder in-position", "DIO02"),
-    ("presence", "DUT presence", "DIO03"),
-    ("estop", "E-stop healthy", "DIO04"),
+#: M80-5: canonical DIO channel vocabulary of the control board
+#: (same set as steps.py "DIO01-DIO08")
+DIO_CHANNELS = tuple(f"DIO{index:02d}" for index in range(1, 9))
+
+#: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2):
+#: (signal key, label, default channel, default direction)
+DIO_SIGNALS = [
+    ("press", "Press cylinder", "DIO01", "output"),
+    ("inpos", "Cylinder in-position", "DIO02", "output"),
+    ("presence", "DUT presence", "DIO03", "output"),
+    ("estop", "E-stop healthy", "DIO04", "input"),
 ]
+
+#: legacy 3-tuple view (channel only) still read by the old ``dio:`` map
+DIO_FIELDS = [(key, label, channel)
+              for key, label, channel, _direction in DIO_SIGNALS]
 
 #: M64: the third-party GUI flash tool as a CATEGORY ("J-Link" is only
 #: one concrete tool of it).  The config carries the FULL executable
@@ -395,7 +410,6 @@ DIAGRAM_LINES = {
     "psu_detail": ["±OUT -> VIN+ / VIN−",
                    "±S -> 4-wire remote sense",
                    "V/I readback ≈1% (trend)"],
-    "fixture": ["128 pinhole pins", "single-point star ground plane"],
     "control_board": ["Port 1/2 open-drain", "4 signals used of 16"],
     "cell_press": ["H = press/clamp", "L = release"],
     "cell_inpos": ["H = locked", "L = unlocked"],
@@ -586,7 +600,7 @@ def _mock_configs():
         },
         # ---- layer 3 -----------------------------------------------------
         "fixture": {
-            "title": "Fixture Probe Board",
+            "title": "Fixture",
             "fields": [
                 ("Board", "Probe board with star ground plane"),
                 ("Probe pins", "128 pinhole pins"),
@@ -605,7 +619,12 @@ def _mock_configs():
             ],
             # M49a §5: the 4 DIO signals (Press / In-Position / DUT
             # Presence / E-Stop) are part of the control-board config.
-            "dio": {key: default for key, _label, default in DIO_FIELDS},
+            # M80-5: channel + direction, stored as control_board.signals.
+            "groups": {
+                "signals": {
+                    key: {"channel": channel, "direction": direction}
+                    for key, _label, channel, direction in DIO_SIGNALS},
+            },
         },
         "cell_press": {
             "title": "[OUT] Press Cylinder",
@@ -653,11 +672,16 @@ def _mock_configs():
                 ("GPIO nets", "TP_GPIO0 - TP_GPIO23"),
                 ("Reference", "stress / strain gauge"),
             ],
-            # M49a §5: the DUT group (board OS / Wi-Fi / Bluetooth /
-            # SSH login / console) - DUT = remote, Host PC = local.
-            "groups": {name: _default_group("dut", name)
-                       for name in ("board_os", "wifi", "bluetooth",
-                                    "ssh", "console")},
+            # M49a §5: the DUT group (Wi-Fi / Bluetooth / SSH login /
+            # console).  M80: board OS and the separate Wi-Fi / Bluetooth
+            # entries are gone - "interface" edits all three blocks.
+            "groups": {
+                "wifi": _default_group("dut", "wifi"),
+                "bluetooth": _default_group("dut", "bluetooth"),
+                "ssh": _default_group("dut", "ssh"),
+                "console": _default_group("dut", "console"),
+                "interface": {"ethernet": {"ports": ""}},
+            },
         },
         "grp_power": {
             "title": "Power Nets TP_P1-P80",
@@ -2027,10 +2051,249 @@ class _GroupConfigDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# M80-6b: one "DUT Interface" dialog editing Wi-Fi / Bluetooth / Ethernet
+# ---------------------------------------------------------------------------
+def normalise_dut_ports(text) -> str:
+    """Comma list of RJ45 port names: trim, drop empties, de-duplicate
+    and keep only ``[A-Za-z0-9._-]``.  Empty is legal (= no wired link)."""
+    import re
+    seen = []
+    for token in str(text or "").split(","):
+        token = token.strip()
+        if not token or not re.fullmatch(r"[A-Za-z0-9._-]+", token):
+            continue
+        if token not in seen:
+            seen.append(token)
+    return ",".join(seen)
+
+
+class DutInterfaceDialog(QDialog):
+    """M80-6b: DUT Wi-Fi + Bluetooth + Ethernet in one dialog.
+
+    The three blocks keep their existing YAML paths (``dut.wifi.*`` /
+    ``dut.bluetooth.*`` / ``dut.interface.ethernet.ports``); the DUT IP
+    is single-sourced in ``peripherals.router.dut_ip`` and only shown
+    read-only here."""
+
+    def __init__(self, parent, wifi: dict, bluetooth: dict,
+                 ethernet_ports: str, dut_ip: str):
+        super().__init__(parent)
+        self.setWindowTitle(f"DUT Interface - Configuration")
+        fit_dialog(self, 640, 520)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        self._wifi = {}
+        wifi_box = QGroupBox("DUT Wi-Fi")
+        wform = QFormLayout(wifi_box)
+        wform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for key, label, default in GROUP_FIELDS[("dut", "wifi")]:
+            edit = QLineEdit(str((wifi or {}).get(key, default) or ""))
+            edit.setPlaceholderText(default or "optional")
+            self._wifi[key] = edit
+            wform.addRow(f"{label}:", edit)
+        lay.addWidget(wifi_box)
+
+        self._bt = {}
+        bt_box = QGroupBox("DUT Bluetooth")
+        bform = QFormLayout(bt_box)
+        bform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for key, label, default in GROUP_FIELDS[("dut", "bluetooth")]:
+            edit = QLineEdit(str((bluetooth or {}).get(key, default) or ""))
+            edit.setPlaceholderText(default or "optional")
+            self._bt[key] = edit
+            bform.addRow(f"{label}:", edit)
+        lay.addWidget(bt_box)
+
+        lan_box = QGroupBox("DUT Ethernet (RJ45)")
+        lform = QFormLayout(lan_box)
+        lform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.edit_ports = QLineEdit(str(ethernet_ports or ""))
+        self.edit_ports.setPlaceholderText("eth0,eth1")
+        lform.addRow("Ethernet port(s):", self.edit_ports)
+        dut_ip_edit = QLineEdit(str(dut_ip or ""))
+        dut_ip_edit.setReadOnly(True)
+        dut_ip_edit.setPlaceholderText("set on Wired & Wireless Network")
+        lform.addRow("DUT IP (read-only):", dut_ip_edit)
+        lay.addWidget(lan_box)
+
+        note = QLabel(
+            "DUT IP stays single-sourced on the Wired & Wireless Network "
+            "page; this dialog only edits the DUT-side identifiers.")
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        apply_scroll_to_dialog(self, body)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def values(self) -> dict:
+        return {
+            "wifi": {key: edit.text().strip()
+                     for key, edit in self._wifi.items()},
+            "bluetooth": {key: edit.text().strip()
+                          for key, edit in self._bt.items()},
+            "ethernet_ports": normalise_dut_ports(self.edit_ports.text()),
+        }
+
+
+# ---------------------------------------------------------------------------
+# M80-5: ATE fixture control board - DIO channel + direction
+# ---------------------------------------------------------------------------
+class _ControlBoardDialog(QDialog):
+    """Four signal rows: DIO channel combo + exclusive Input / Output.
+
+    Gated by the instrument status hub: the Config button and this
+    dialog's OK stay disabled until DAQ973A is connected and its Test
+    Connection result is OK."""
+
+    #: exact gating tooltip required by the directive
+    GATE_TOOLTIP = "Connect DAQ973A Mainframe first"
+
+    def __init__(self, parent, title, signals: dict, ready: bool):
+        super().__init__(parent)
+        self.setWindowTitle(f"{title} - DIO signals")
+        fit_dialog(self, 720, 460)
+        self._ready = bool(ready)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        self.gate_label = QLabel(self.GATE_TOOLTIP)
+        self.gate_label.setObjectName("warn")
+        self.gate_label.setVisible(not self._ready)
+        lay.addWidget(self.gate_label)
+
+        grid = QGridLayout()
+        grid.addWidget(QLabel("Signal"), 0, 0)
+        grid.addWidget(QLabel("DIO channel"), 0, 1)
+        grid.addWidget(QLabel("Direction"), 0, 2)
+        self._rows = {}
+        for row, (key, label, default_channel, default_dir) in enumerate(
+                DIO_SIGNALS, start=1):
+            saved = dict((signals or {}).get(key) or {})
+            channel = str(saved.get("channel", default_channel) or "")
+            direction = str(saved.get("direction", default_dir)
+                            or default_dir).lower()
+            grid.addWidget(QLabel(f"{label}:"), row, 0)
+            combo = QComboBox()
+            combo.setEditable(False)
+            combo.addItem("")
+            combo.addItems(list(DIO_CHANNELS))
+            combo.setCurrentText(channel if channel in DIO_CHANNELS else "")
+            grid.addWidget(combo, row, 1)
+            direction_row = QHBoxLayout()
+            radio_in = QRadioButton("Input")
+            radio_out = QRadioButton("Output")
+            (radio_in if direction == "input" else radio_out).setChecked(True)
+            direction_row.addWidget(radio_in)
+            direction_row.addWidget(radio_out)
+            direction_row.addStretch(1)
+            grid.addLayout(direction_row, row, 2)
+            self._rows[key] = (combo, radio_in, radio_out)
+        grid.setColumnStretch(1, 1)
+        lay.addLayout(grid)
+
+        self.error_label = QLabel("")
+        self.error_label.setObjectName("warn")
+        self.error_label.setWordWrap(True)
+        lay.addWidget(self.error_label)
+        note = QLabel(
+            "Empty channel = signal not wired.  Two signals may not share "
+            "one DIO channel.  Direction defaults: outputs except "
+            "E-stop healthy (input).")
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        apply_scroll_to_dialog(self, body)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        self.btn_ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self.btn_ok.setEnabled(self._ready)
+        self.btn_ok.setToolTip("" if self._ready else self.GATE_TOOLTIP)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def validate(self) -> list:
+        """Blocking duplicate-channel errors (M80-5)."""
+        errors = []
+        used = {}
+        for key, (combo, _radio_in, _radio_out) in self._rows.items():
+            channel = combo.currentText().strip()
+            if not channel:
+                continue
+            if channel in used:
+                _other_key, other_label = used[channel]
+                label = next(label for name, label, _c, _d in DIO_SIGNALS
+                             if name == key)
+                errors.append(
+                    f"Duplicate DIO channel {channel}: '{other_label}' and "
+                    f"'{label}' cannot share it")
+            else:
+                used[channel] = (key, next(
+                    label for name, label, _c, _d in DIO_SIGNALS
+                    if name == key))
+        return errors
+
+    def values(self) -> dict:
+        out = {}
+        for key, (combo, radio_in, _radio_out) in self._rows.items():
+            out[key] = {"channel": combo.currentText().strip(),
+                        "direction": "input" if radio_in.isChecked()
+                                     else "output"}
+        return out
+
+    def _accept(self):
+        errors = self.validate()
+        if errors:
+            self.error_label.setText("\n".join(errors))
+            return
+        self.accept()
+
+
+# ---------------------------------------------------------------------------
+# M80-8: read-only Host PC Bluetooth information
+# ---------------------------------------------------------------------------
+def host_bluetooth_block(parent=None) -> QGroupBox:
+    """Read-only Host PC Bluetooth name / address; never raises and
+    never writes YAML.  A failed probe renders ``unavailable``."""
+    box = QGroupBox("Host PC Bluetooth")
+    lay = QFormLayout(box)
+    lay.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+    name_edit = QLineEdit("")
+    addr_edit = QLineEdit("")
+    for edit in (name_edit, addr_edit):
+        edit.setReadOnly(True)
+    try:
+        from .engine import host_platform
+        name, address = host_platform.host_bt_identity()
+    except Exception:                        # noqa: BLE001 - read-only info
+        name, address = "", ""
+    name_edit.setText(str(name or "") or "unavailable")
+    addr_edit.setText(str(address or "") or "unavailable")
+    lay.addRow("Host Bluetooth name:", name_edit)
+    lay.addRow("Host Bluetooth address:", addr_edit)
+    return box
+
+
+# ---------------------------------------------------------------------------
 # M65: "Wired & Wireless Network" - mode-selection page + per-mode dialogs
 # ---------------------------------------------------------------------------
 class _TopologyDiagram(QWidget):
     """Small schematic topology drawing of one network mode."""
+
+    #: M80-7: minimum topology font size (pt)
+    FONT_PT = 10.0
 
     def __init__(self, topology: str, parent=None):
         super().__init__(parent)
@@ -2067,7 +2330,7 @@ class _TopologyDiagram(QWidget):
             painter.setPen(QColor("#2b3445"))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             font = QFont(self.font())
-            font.setPointSizeF(8.0)
+            font.setPointSizeF(self.FONT_PT)
             painter.setFont(font)
             painter.drawText(x, top, box_w, box_h,
                              Qt.AlignmentFlag.AlignCenter, name)
@@ -2080,7 +2343,7 @@ class _TopologyDiagram(QWidget):
         for (x1, y1), (x2, _y2) in zip(centers, centers[1:]):
             painter.drawLine(x1 + box_w // 2, y1, x2 - box_w // 2, y1)
         font = QFont(self.font())
-        font.setPointSizeF(7.5)
+        font.setPointSizeF(self.FONT_PT)
         painter.setFont(font)
         painter.setPen(QColor("#6b7280"))
         caption = {
@@ -2097,6 +2360,7 @@ class _ModeCard(QFrame):
     """Clickable radio-style mode card (diagram + name + description)."""
 
     clicked = Signal(str)
+    doubleClicked = Signal(str)
 
     def __init__(self, mode_key: str, name: str, description: str,
                  topology: str, parent=None):
@@ -2104,8 +2368,12 @@ class _ModeCard(QFrame):
         self.mode_key = mode_key
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumWidth(240)
+        # M80-7: 12 px card padding, 12 px inter-card spacing and a real
+        # minimum height so a maximised dialog grows the cards
+        self.setMinimumHeight(170)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(12)
         lay.addWidget(_TopologyDiagram(topology))
         title = QLabel(name)
         font = QFont(title.font())
@@ -2137,6 +2405,10 @@ class _ModeCard(QFrame):
     def mousePressEvent(self, event):                # noqa: N802 - Qt
         self.clicked.emit(self.mode_key)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):          # noqa: N802 - Qt
+        self.doubleClicked.emit(self.mode_key)
+        super().mouseDoubleClickEvent(event)
 
 
 #: (field key, shown label) per network mode
@@ -2450,6 +2722,9 @@ class RouterNetworkDialog(QDialog):
             "PC <-> DUT end-to-end tests.")
         note.setObjectName("muted")
         note.setWordWrap(True)
+        # M80-7: the wrapped note must not swallow the spare height
+        note.setSizePolicy(QSizePolicy.Policy.Preferred,
+                           QSizePolicy.Policy.Maximum)
         lay.addWidget(note)
 
         modules = QHBoxLayout()
@@ -2472,9 +2747,11 @@ class RouterNetworkDialog(QDialog):
                 card.set_selected(key == current)
                 card.clicked.connect(
                     lambda chosen, m=module: self._select_and_open(m, chosen))
+                card.doubleClicked.connect(
+                    lambda chosen, m=module: self._open_mode(m, chosen))
                 self._cards[module][key] = card
-                cards.addWidget(card)
-            pl.addLayout(cards)
+                cards.addWidget(card, 1)
+            pl.addLayout(cards, 1)
             hint = QLabel(
                 f"Current selection: {_MODE_NAMES.get(current, current)}")
             hint.setObjectName("muted")
@@ -2482,9 +2759,23 @@ class RouterNetworkDialog(QDialog):
             self._hints[module] = hint
             pl.addWidget(hint)
             modules.addWidget(panel, 1)
-        lay.addLayout(modules)
+        lay.addLayout(modules, 2)
+
+        # M80-8/9: read-only Host PC Bluetooth identity + the one editable
+        # scan-target field (peripherals.bluetooth.scan_targets)
+        lay.addWidget(host_bluetooth_block(self))
+        scan_box = QGroupBox("Host PC Bluetooth scan targets")
+        scan_form = QFormLayout(scan_box)
+        scan_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.edit_scan_targets = QLineEdit(
+            str(self._values.get("bt_scan_targets") or ""))
+        self.edit_scan_targets.setPlaceholderText("DUT-BT or AA:BB:CC:DD:EE:FF")
+        scan_form.addRow("Scan targets:", self.edit_scan_targets)
+        lay.addWidget(scan_box)
 
         apply_scroll_to_dialog(self, body)
+        # M80-7: no empty band above the note / under the cards
+        lay.addStretch(1)
         bottom = QHBoxLayout()
         btn_save = QPushButton("Apply && Save YAML")
         btn_save.setToolTip(
@@ -2517,9 +2808,15 @@ class RouterNetworkDialog(QDialog):
 
     def _select_and_open(self, module, mode):
         self._select(module, mode)
+        self._open_mode(module, mode)
+
+    def _open_mode(self, module, mode):
         dlg = _RouterModeDialog(self, mode, self._values,
                                 on_save=self._absorb_values)
         dlg.exec()
+
+    def scan_targets(self) -> str:
+        return self.edit_scan_targets.text().strip()
 
     def _absorb_values(self, data):
         self._values.update(dict(data or {}))
@@ -2704,7 +3001,7 @@ class _InstrumentDialog(QDialog):
     self_test_changed = Signal(str, bool)
 
     def __init__(self, parent, title, fields, key, virtual, manual=False,
-                 config=None):
+                 config=None, last_size=None):
         super().__init__(parent)
         self._key = key
         self._virtual = virtual
@@ -2712,6 +3009,7 @@ class _InstrumentDialog(QDialog):
         self._connected = False
         # persisted connection / parameter configuration (YAML-backed)
         self._config = dict(config or {})
+        self._last_size = last_size
         self.setWindowTitle(f"{title} - Configuration")
         fit_dialog(self, 920, 720)
         root = QVBoxLayout(self)
@@ -2719,30 +3017,9 @@ class _InstrumentDialog(QDialog):
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 0, 0, 0)
 
-        # 1 ---------------------------------------------------- information
-        info = QGroupBox("Instrument Information")
-        form = QFormLayout(info)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        for label, value in fields:
-            edit = QLineEdit(value)
-            edit.setReadOnly(True)
-            form.addRow(f"{label}:", edit)
-        body_lay.addWidget(info)
-
-        # 2 ------------------------------------------------------ parameters
-        saved_params = self._config.get("params") or {}
-        params = QGroupBox("Parameter Configuration")
-        pform = QFormLayout(params)
-        pform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self._param_edits = []
-        for label, value in _INSTRUMENT_PARAMS[key]:
-            edit = QLineEdit(str(saved_params.get(label, value)))
-            self._param_edits.append(edit)
-            pform.addRow(f"{label}:", edit)
-        body_lay.addWidget(params)
-
-        # 3 ------------------------------------------------------- connection
+        # 1 ------------------------------------------------------- connection
         conn = QGroupBox("Connection")
+        self._conn_group = conn
         cv = QVBoxLayout(conn)
         cform = QFormLayout()
         cform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -2753,13 +3030,20 @@ class _InstrumentDialog(QDialog):
         saved_conn = self._config.get("connection") or {}
         if saved_conn.get("interface") in _INSTRUMENT_CONN[key]:
             self._iface.setCurrentText(str(saved_conn["interface"]))
-        self._address = QLineEdit()
-        self._address.setText(str(
-            saved_conn.get("address")
-            or _INSTRUMENT_CONN[key][self._iface.currentText()]))
+        # M80-3: editable address combo + Refresh (scan or known defaults)
+        self._address = QComboBox()
+        self._address.setEditable(True)
+        self._address.setMinimumWidth(320)
+        saved_address = str(saved_conn.get("address") or "").strip()
+        self._fill_known_addresses(saved_address)
+        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.setToolTip("Scan the selected interface for addresses")
+        address_row = QHBoxLayout()
+        address_row.addWidget(self._address, 1)
+        address_row.addWidget(self.btn_refresh)
         self._iface.currentTextChanged.connect(self._iface_changed)
         cform.addRow("Interface:", self._iface)
-        cform.addRow("Address:", self._address)
+        cform.addRow("Address:", self._layout_widget(address_row))
         cv.addLayout(cform)
 
         crow = QHBoxLayout()
@@ -2779,8 +3063,22 @@ class _InstrumentDialog(QDialog):
         cv.addLayout(crow)
         body_lay.addWidget(conn)
 
-        # 4 ------------------------------------------- control & simple tests
+        # 2 ------------------------------------------------------ parameters
+        saved_params = self._config.get("params") or {}
+        params = QGroupBox("Parameter Configuration")
+        self._param_group = params
+        pform = QFormLayout(params)
+        pform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._param_edits = []
+        for label, value in _INSTRUMENT_PARAMS[key]:
+            edit = QLineEdit(str(saved_params.get(label, value)))
+            self._param_edits.append(edit)
+            pform.addRow(f"{label}:", edit)
+        body_lay.addWidget(params)
+
+        # 3 ------------------------------------------- control & simple tests
         ctl = QGroupBox("Control && Simple Tests")
+        self._ctl_group = ctl
         # Manual fixture mode: IO control is globally disabled (the
         # operator performs every hardware action by hand)
         ctl.setEnabled(not manual)
@@ -2810,12 +3108,45 @@ class _InstrumentDialog(QDialog):
         self._output.setPlaceholderText("Action / test results appear here ...")
         cl.addWidget(self._output, 1)
         body_lay.addWidget(ctl, 1)
-        # the information / parameter groups stay compact; the log
-        # group above absorbs the resize
+
+        # 4 ------------------------------------ information (collapsible)
+        info = QGroupBox("Instrument Information")
+        self._info_group = info
+        info_lay = QVBoxLayout(info)
+        toggle = QToolButton()
+        toggle.setText("Show instrument information")
+        toggle.setCheckable(True)
+        toggle.setChecked(False)
+        toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toggle.setArrowType(Qt.ArrowType.RightArrow)
+        info_lay.addWidget(toggle)
+        info_content = QWidget()
+        form = QFormLayout(info_content)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        for label, value in fields:
+            edit = QLineEdit(value)
+            edit.setReadOnly(True)
+            form.addRow(f"{label}:", edit)
+        info_content.setVisible(False)
+        info_lay.addWidget(info_content)
+        self._info_content = info_content
+
+        def _toggle_info(checked):
+            info_content.setVisible(bool(checked))
+            toggle.setArrowType(Qt.ArrowType.DownArrow if checked
+                                else Qt.ArrowType.RightArrow)
+            toggle.setText("Hide instrument information" if checked
+                           else "Show instrument information")
+
+        toggle.toggled.connect(_toggle_info)
+        body_lay.addWidget(info)
         body_lay.setStretch(0, 0)
         body_lay.setStretch(1, 0)
-        body_lay.setStretch(2, 0)
-        body_lay.setStretch(3, 1)
+        body_lay.setStretch(2, 1)
+        body_lay.setStretch(3, 0)
+        # M80-2: Connection first, Instrument Information last
+        self._group_order = (conn, params, ctl, info)
 
         note = QLabel(_mode_note("Virtual" if virtual else "Real",
                                  instrument=True))
@@ -2832,13 +3163,93 @@ class _InstrumentDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+        self._fit_to_content(body)
         self.btn_connect.clicked.connect(self._connect)
         self.btn_disconnect.clicked.connect(self._disconnect)
         self.btn_test.clicked.connect(self._test_connection)
+        self.btn_refresh.clicked.connect(
+            lambda: self._scan_addresses(self._address.currentText()))
+        # M80-3: exactly one automatic scan when the dialog opens
+        QTimer.singleShot(0, self, qt_safe(self._scan_addresses))
+
+    @staticmethod
+    def _layout_widget(layout):
+        widget = QWidget()
+        widget.setLayout(layout)
+        return widget
+
+    def _fit_to_content(self, body):
+        """M80-2: open at content size, clamped to 98 % of the screen
+        with a 980x860 floor; a remembered size (same instrument key)
+        wins, still clamped."""
+        hint = body.sizeHint()
+        screen = self.screen().availableGeometry() if self.screen() else None
+        max_w = int(screen.width() * 0.98) if screen else hint.width()
+        max_h = int(screen.height() * 0.98) if screen else hint.height()
+        width = max(980, min(max_w, hint.width()))
+        height = max(860, min(max_h, hint.height()))
+        if self._last_size is not None:
+            size = self._last_size
+            width = max(980, min(max_w, int(size.width())))
+            height = max(860, min(max_h, int(size.height())))
+        self.resize(width, height)
 
     # ------------------------------------------------------------ helpers
+    def _fill_known_addresses(self, saved: str = ""):
+        """Populate the editable address combo with the saved value and
+        the known defaults of the selected interface."""
+        self._address.clear()
+        known = [str((self._config.get("connection") or {}).get("address")
+                     or "").strip(),
+                 str(_INSTRUMENT_CONN[self._key].get(
+                     self._iface.currentText(), "")) if hasattr(
+                     self, "_iface") else ""]
+        for value in known + [saved]:
+            if value and self._address.findText(value) < 0:
+                self._address.addItem(value)
+        if saved:
+            self._address.setCurrentText(saved)
+        else:
+            default = str(_INSTRUMENT_CONN[self._key].get(
+                self._iface.currentText() if hasattr(self, "_iface") else "",
+                ""))
+            if default:
+                self._address.setCurrentText(default)
+
+    def _scan_addresses(self, keep: str = ""):
+        """M80-3: best-effort VISA scan; a missing runtime falls back to
+        the known defaults and logs exactly one line."""
+        keep = str(keep or self._address.currentText() or "").strip()
+        wanted = self._iface.currentText()
+        addresses = []
+        try:
+            import pyvisa                          # noqa: F401
+        except ImportError:
+            self._log("no VISA runtime found - showing known addresses only")
+            fallback = str(_INSTRUMENT_CONN[self._key].get(wanted, ""))
+            addresses = [fallback] if fallback else []
+        else:
+            try:
+                manager = pyvisa.ResourceManager()
+                addresses = [str(item) for item
+                             in manager.list_resources()]
+            except Exception as exc:              # noqa: BLE001 - best effort
+                self._log(f"address scan failed: {exc}")
+                fallback = str(_INSTRUMENT_CONN[self._key].get(wanted, ""))
+                addresses = [fallback] if fallback else []
+        for address in addresses:
+            if address and self._address.findText(address) < 0:
+                self._address.addItem(address)
+        if keep and self._address.findText(keep) < 0:
+            self._address.addItem(keep)
+        if keep:
+            self._address.setCurrentText(keep)
+
     def _iface_changed(self, text):
-        self._address.setText(_INSTRUMENT_CONN[self._key].get(text, ""))
+        default = _INSTRUMENT_CONN[self._key].get(text, "")
+        if default and self._address.findText(default) < 0:
+            self._address.addItem(default)
+        self._address.setCurrentText(default)
 
     def _log(self, text):
         self._output.appendPlainText(text)
@@ -2851,7 +3262,7 @@ class _InstrumentDialog(QDialog):
         saved project connects directly (user direction)."""
         cfg["connection"] = {
             "interface": self._iface.currentText(),
-            "address": self._address.text().strip(),
+            "address": self._address.currentText().strip(),
         }
         cfg["params"] = {
             label: edit.text().strip()
@@ -2874,7 +3285,7 @@ class _InstrumentDialog(QDialog):
         self.btn_connect.setEnabled(False)
 
     def _connect(self):
-        addr = self._address.text().strip()
+        addr = self._address.currentText().strip()
         self.btn_connect.setEnabled(False)
         self._conn_state.setText("Connecting ...")
         self._log(f"Connecting to {addr} ...")
@@ -3006,8 +3417,14 @@ class EquipmentPage(QWidget):
         # with the modal dialog - reopening showed Disconnected again)
         self._instrument_connections: dict[str, bool] = {}
         self._instrument_selftest: dict[str, bool] = {}
+        # M80-2: last dialog size per instrument key (page state, not YAML)
+        self._instrument_sizes: dict[str, object] = {}
+        # M80-1: computed left-column width (see _left_column_width)
+        self.computed_left_width = 320
         # entry key -> row widgets (Config button)
         self.entry_buttons: dict[str, dict[str, QPushButton]] = {}
+        # entry key -> name label (M80-1 tooltip / width assertions)
+        self.entry_labels: dict[str, QLabel] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -3022,6 +3439,12 @@ class EquipmentPage(QWidget):
         # entries are globally disabled (set from MainWindow on login)
         self._manual_fixture = False
         self._build()
+        # M80-5: the control-board gate follows the shared hub
+        from mtkgui.gui.yamlbuild.instrument_status import HUB
+        HUB.subscribe(self._refresh_control_board_gate)
+        self.destroyed.connect(
+            lambda *_: HUB.unsubscribe(self._refresh_control_board_gate))
+        self._refresh_control_board_gate()
 
     def set_manual_fixture(self, manual):
         """Manual fixture mode -> block fixture / IO-control entries."""
@@ -3072,8 +3495,14 @@ class EquipmentPage(QWidget):
         self.splitter.addWidget(self.right_panel)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        # M54 §3: default left column = 25 % (1:3), diagram 75 %
-        self.splitter.setSizes([1, 3])
+        # M80-1: default at the computed width (longest surviving label +
+        # Config button + row/scrollbar margins, clamped 320..480)
+        self.computed_left_width = self._left_column_width()
+        # the computed width is the DEFAULT; a drag may still narrow the
+        # column down to the floor (labels keep their full-text tooltip)
+        self.left_list.setMinimumWidth(LEFT_COLUMN_MIN_PX // 2)
+        self.splitter.setSizes([self.computed_left_width,
+                               self.computed_left_width * 3])
         self.splitter.splitterMoved.connect(
             lambda _pos, _idx: self._enforce_splitter_clamp())
         layout.addWidget(self.splitter, 1)
@@ -3155,6 +3584,16 @@ class EquipmentPage(QWidget):
         outer.addWidget(self.left_list, 1)
         return panel
 
+    def _left_column_width(self) -> int:
+        """M80-1: left column = longest label + Config + margins."""
+        metrics = QFontMetrics(self.font())
+        longest = max(
+            [metrics.horizontalAdvance(label) + 8
+             for _group, entries in LEFT_ENTRIES
+             for _key, label, _kind, _source in entries] or [0])
+        width = longest + 92 + 40
+        return max(LEFT_COLUMN_MIN_PX, min(LEFT_COLUMN_MAX_PX, width))
+
     def _entry_row(self, entry):
         """One left-column row: label + Config only (M54 §1 - the Test /
         self-test actions live INSIDE the Config dialogs)."""
@@ -3162,14 +3601,16 @@ class EquipmentPage(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
-        name.setMinimumWidth(130)
+        # M80-1: never elide; the tooltip carries the full text when the
+        # operator drags the splitter narrower than the label
+        name.setToolTip(label)
+        name.setWordWrap(False)
+        self.entry_labels[key] = name
         row.addWidget(name)
         row.addStretch(1)
         buttons = {}
         btn_cfg = QPushButton("Config")
-        # M61 §1: 92 px fits "Config" with the app QSS padding
-        # (7px 16px) - the former 72 px clipped the label; 130 + 92
-        # stays inside the ~226 px content width of the left column
+        # M61 §1: 92 px fits "Config" with the app QSS padding (7px 16px)
         btn_cfg.setFixedWidth(92)
         btn_cfg.clicked.connect(
             lambda _=False, k=key: self.open_entry(k))
@@ -3307,9 +3748,9 @@ class EquipmentPage(QWidget):
                             abbr="PSU", icon="psu")
 
         # ============ layer 3: fixture band =============================
-        fixture = self._add_block("fixture", 60, 560, 1320, 210,
-                                  mode="band", fill=GRAY_FILL)
-        fixture.setZValue(-2)
+        # M80-4: the probe-board diagram block, its label and icon are
+        # removed (UI only - equipment.fixture stays in the schema and
+        # every engine branch is untouched)
         # ground plane bar
         _rect(self.scene, 110, 740, 1220, 14, "#e2e8f0", border="#94a3b8",
               z=-2)
@@ -3367,19 +3808,6 @@ class EquipmentPage(QWidget):
         _polyline(self.scene, [QPointF(940, 448), QPointF(940, 478),
                                QPointF(1030, 478), QPointF(1030, 1026)],
                   color=TEAL, width=2.2)
-
-        # free-space description (right side of the fixture band, clear of
-        # the signal trunks); lines end before the x=1320 ground drop and
-        # the probe-board icon sits below with clearance
-        _text(self.scene, "Fixture Probe Board", 1145, 584, color=TEXT,
-              size=12, bold=True)
-        _text(self.scene, "128 pinhole pins", 1145, 612, color=SUB,
-              size=10.5)
-        _text(self.scene, "star ground plane", 1145, 634, color=SUB,
-              size=10.5)
-        _text(self.scene, "power nets TP_P1-P80", 1145, 656,
-              color=SUB, size=10.5)
-        self.scene.addItem(IconItem("fixture", 1148, 676, 54))
 
         # ============ layer 2 children ==================================
         self._add_block("m908a_1", 76, 314, 152, 152, icon="m908a",
@@ -3508,6 +3936,21 @@ class EquipmentPage(QWidget):
             QMessageBox.information(
                 self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
             return
+        # M80-5/6b/6e: the merged / pointer entries have their own dialogs
+        if entry_key == "control_board":
+            if not self._control_board_ready():
+                QMessageBox.information(
+                    self, "ATE Fixture Control Board",
+                    _ControlBoardDialog.GATE_TOOLTIP)
+                return
+            self._open_dio_entry(self.configs["control_board"])
+            return
+        if entry_key == "dut_interface":
+            self._open_dut_interface()
+            return
+        if entry_key == "dut_console":
+            self._open_console_pointer()
+            return
         if owner in _INSTRUMENT_CONN and group is None:
             self._open_instrument(owner)
             return
@@ -3530,7 +3973,8 @@ class EquipmentPage(QWidget):
         cfg = self.configs[key]
         dlg = _InstrumentDialog(self, cfg["title"], cfg["fields"], key,
                                 self.virtual_mode,
-                                manual=self._manual_fixture, config=cfg)
+                                manual=self._manual_fixture, config=cfg,
+                                last_size=self._instrument_sizes.get(key))
         # the connect state lives on the PAGE (user report: it died
         # with the modal dialog); live LED sync to the status bar
         dlg.set_connected(self._instrument_connections.get(key, False))
@@ -3541,8 +3985,98 @@ class EquipmentPage(QWidget):
             lambda _sig_key, passed, k=key:
             self._set_instrument_selftest(k, passed))
         dlg.exec()
+        self._instrument_sizes[key] = dlg.size()
         self._instrument_connections[key] = dlg._connected
         dlg.apply_to_config(cfg)
+
+    # ------------------------------------- M80-5 control-board gating
+    @staticmethod
+    def _control_board_ready() -> bool:
+        """DAQ973A connected AND its Test Connection result is OK."""
+        from mtkgui.gui.yamlbuild.instrument_status import HUB
+        snapshot = HUB.snapshot()
+        return (bool(snapshot.get("connected"))
+                and snapshot.get("test_connection") == "OK")
+
+    def _refresh_control_board_gate(self) -> None:
+        try:
+            button = (self.entry_buttons.get("control_board")
+                      or {}).get("config")
+            if button is None:
+                return
+            ready = self._control_board_ready()
+            button.setEnabled(ready)
+            button.setToolTip("" if ready
+                              else _ControlBoardDialog.GATE_TOOLTIP)
+        except RuntimeError:                 # page already deleted
+            pass
+
+    @staticmethod
+    def _control_signals(cfg: dict) -> dict:
+        """Signal values from ``signals`` or the legacy ``dio`` map."""
+        groups = (cfg or {}).get("groups") or {}
+        saved = dict(groups.get("signals") or {})
+        legacy = dict((cfg or {}).get("dio") or {})
+        out = {}
+        for key, _label, default_channel, default_dir in DIO_SIGNALS:
+            entry = dict(saved.get(key) or {})
+            channel = str(entry.get("channel")
+                          or legacy.get(key)
+                          or (cfg or {}).get(key) or "")
+            direction = str(entry.get("direction") or default_dir).lower()
+            if direction not in ("input", "output"):
+                direction = default_dir
+            out[key] = {"channel": channel, "direction": direction}
+        return out
+
+    # --------------------------------------------- M80-6b DUT Interface
+    def _router_group(self) -> dict:
+        return (((self.configs.get("peripherals") or {}).get("groups")
+                 or {}).get("router") or {})
+
+    def _dut_groups(self) -> dict:
+        cfg = self.configs.setdefault("dut", {"title": "DUT Board"})
+        return cfg.setdefault("groups", {})
+
+    def apply_dut_interface(self, wifi: dict, bluetooth: dict,
+                            ports: str) -> None:
+        """Write the three DUT Interface blocks on their existing paths."""
+        groups = self._dut_groups()
+        groups["wifi"] = {
+            key: str((wifi or {}).get(key, default) or "")
+            for key, _label, default in GROUP_FIELDS[("dut", "wifi")]}
+        groups["bluetooth"] = {
+            key: str((bluetooth or {}).get(key, default) or "")
+            for key, _label, default in GROUP_FIELDS[("dut", "bluetooth")]}
+        groups["interface"] = {
+            "ethernet": {"ports": normalise_dut_ports(ports)}}
+        self.apply_save_requested.emit()
+
+    def _open_dut_interface(self):
+        groups = self._dut_groups()
+        wifi = dict(groups.get("wifi") or _default_group("dut", "wifi"))
+        bluetooth = dict(groups.get("bluetooth")
+                         or _default_group("dut", "bluetooth"))
+        ports = str(((groups.get("interface") or {}).get("ethernet")
+                     or {}).get("ports") or "")
+        dut_ip = str(self._router_group().get("dut_ip") or "")
+        dlg = DutInterfaceDialog(self, wifi, bluetooth, ports, dut_ip)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            values = dlg.values()
+            self.apply_dut_interface(values["wifi"], values["bluetooth"],
+                                     values["ethernet_ports"])
+
+    # --------------------------------------------- M80-6e DUT Console
+    def _open_console_pointer(self):
+        """DUT Console is a pointer to the Test Work Flow Console panel."""
+        QMessageBox.information(
+            self, "DUT Console",
+            "Configure the DUT console in Test Work Flow -> Console.")
+        window = self.window()
+        tabs = getattr(window, "tabs", None)
+        workflow = getattr(window, "workflow_page", None)
+        if tabs is not None and workflow is not None:
+            tabs.setCurrentWidget(workflow)
 
     def _open_group_entry(self, owner, group, entry_key=None):
         cfg = self.configs.setdefault(owner, {"title": owner})
@@ -3574,16 +4108,54 @@ class EquipmentPage(QWidget):
             merged["wired_mode"] = (
                 "lan" if str(merged.get("setup_mode") or "") == "via_ap"
                 else "direct")
+        # M80-9: the one editable scan-target field lives in the dialog
+        saved_bt = ((self.configs.get("peripherals") or {}).get("groups")
+                    or {}).get("bluetooth") or {}
+        merged["bt_scan_targets"] = str(saved_bt.get("scan_targets") or "")
         groups[group] = merged
+        holder = {}
 
         def save(new_values):
             groups[group] = dict(new_values)
+            dialog = holder.get("dlg")
+            scan = dialog.scan_targets() if dialog is not None else ""
+            self._mirror_network_peripherals(groups[group], scan)
             self.apply_save_requested.emit()
 
         dlg = RouterNetworkDialog(self, merged, save_callback=save)
+        holder["dlg"] = dlg
         dlg.exec()
         if dlg.result() == QDialog.DialogCode.Accepted:
             groups[group] = dlg.values()
+            self._mirror_network_peripherals(groups[group],
+                                             dlg.scan_targets())
+
+    def _mirror_network_peripherals(self, router_values: dict,
+                                    scan_targets: str = "") -> None:
+        """M80-9: one-way mirror from the network dialog into the legacy
+        reference paths (``peripherals.wifi.*`` /
+        ``peripherals.bluetooth.*``).  No ref is rewired."""
+        cfg = self.configs.setdefault("peripherals",
+                                      {"title": "Test Peripherals"})
+        groups = cfg.setdefault("groups", {})
+        wifi = dict(groups.get("wifi")
+                    or _default_group("peripherals", "wifi"))
+        wifi["ap_ssid"] = str(router_values.get("hotspot_ssid") or "")
+        wifi["ap_password"] = str(router_values.get("hotspot_password") or "")
+        wifi["host_ip"] = str(router_values.get("wifi_host_ip") or "")
+        groups["wifi"] = wifi
+        bluetooth = dict(groups.get("bluetooth")
+                         or _default_group("peripherals", "bluetooth"))
+        if scan_targets:
+            bluetooth["scan_targets"] = str(scan_targets)
+        try:
+            from .engine import host_platform
+            adapter, _address = host_platform.host_bt_identity()
+        except Exception:                    # noqa: BLE001 - derived only
+            adapter = ""
+        if adapter:
+            bluetooth["adapter"] = str(adapter)
+        groups["bluetooth"] = bluetooth
 
     def _open_plain_entry(self, owner, cfg, entry_key=None):
         if owner == "control_board":
@@ -3614,14 +4186,14 @@ class EquipmentPage(QWidget):
             dlg.apply_to_config(cfg)
 
     def _open_dio_entry(self, cfg):
-        """ATE Fixture Control Board: base info + the 4 DIO signals."""
-        values = cfg.setdefault("dio",
-                                {key: default
-                                 for key, _label, default in DIO_FIELDS})
-        dlg = _GroupConfigDialog(self, f"{cfg['title']} - DIO signals",
-                                 DIO_FIELDS, values)
+        """M80-5: ATE Fixture Control Board - channel + direction rows."""
+        dlg = _ControlBoardDialog(self, cfg["title"],
+                                  self._control_signals(cfg),
+                                  self._control_board_ready())
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            cfg["dio"] = dlg.values()
+            cfg.setdefault("groups", {})["signals"] = dlg.values()
+            cfg.pop("dio", None)
+            self.apply_save_requested.emit()
 
     def _set_instrument_selftest(self, key, passed):
         """M54 §1: the self-test runs INSIDE the instrument Config dialog;

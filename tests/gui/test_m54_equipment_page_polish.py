@@ -126,7 +126,13 @@ def test_control_board_dialog_has_no_test_connection(page, monkeypatch):
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
-    page.open_entry("control_board")
+    from mtkgui.gui.yamlbuild.instrument_status import HUB
+    HUB.set_connected(True)
+    HUB.set_test_connection("OK")
+    try:
+        page.open_entry("control_board")
+    finally:
+        HUB.disconnect()
     dlg = captured["dlg"]
     try:
         assert not hasattr(dlg, "test_button")

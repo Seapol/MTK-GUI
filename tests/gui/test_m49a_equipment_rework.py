@@ -103,7 +103,7 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 # ---------------------------------------------------------------------------
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
-        ("Instruments", 3), ("Fixture", 2), ("DUT", 5), ("Peripherals", 4)]
+        ("Instruments", 3), ("Fixture", 1), ("DUT", 2), ("Peripherals", 2)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
@@ -249,19 +249,22 @@ def test_grouped_equipment_state_round_trips(page):
     page.configs["peripherals"]["groups"]["router"] = {
         "setup_mode": "via_ap", "router_ip": "10.0.0.1",
         "dut_ip": "10.0.0.2"}
-    page.configs["control_board"]["dio"]["press"] = "DIO09"
+    page.configs["control_board"]["groups"]["signals"]["press"]["channel"] = \
+        "DIO09"
 
     equipment = project_config._equipment_to_yaml(page.configs)
     assert equipment["dut"]["ssh"]["ip"] == "192.168.1.60"
     assert equipment["peripherals"]["router"]["setup_mode"] == "via_ap"
-    assert equipment["control_board"]["dio"]["press"] == "DIO09"
+    assert equipment["control_board"]["signals"]["press"]["channel"] == \
+        "DIO09"
 
     restored = project_config._equipment_from_yaml(
         pyyaml.safe_load(pyyaml.safe_dump(equipment)))
     assert restored["dut"]["groups"]["ssh"]["username"] == "root"
     assert restored["peripherals"]["groups"]["router"]["setup_mode"] == \
         "via_ap"
-    assert restored["control_board"]["dio"]["press"] == "DIO09"
+    assert restored["control_board"]["groups"]["signals"]["press"][
+        "channel"] == "DIO09"
     assert restored["jlink"]["params"]["executable_path"] == ""
 
 

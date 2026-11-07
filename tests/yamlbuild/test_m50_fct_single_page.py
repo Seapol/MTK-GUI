@@ -278,7 +278,7 @@ def test_each_testable_equipment_config_has_a_test_button(qapp):
         for key in _TESTABLE_FORM_KEYS:
             assert set(page.entry_buttons[key]) == {"config"}, key
         # a non-testable config keeps Config only
-        assert "test" not in page.entry_buttons["fixture"]
+        assert "test" not in page.entry_buttons["jlink"]
         # the shared dialog helper exposes Test Connection when a probe
         # is supplied and stays plain without one
         with_probe = _GroupConfigDialog(page, "probe", [("ip", "IP", "")],
