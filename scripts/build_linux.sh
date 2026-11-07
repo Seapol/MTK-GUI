@@ -7,17 +7,17 @@
 set -e
 cd "$(dirname "$0")/.."
 
-if [ ! -x "mtk_gui/bin/python" ]; then
-    echo "[1/3] Creating virtual environment 'mtk_gui' ..."
-    python3 -m venv mtk_gui
+if [ ! -x ".venv/bin/python" ]; then
+    echo "[1/3] Creating virtual environment '.venv' ..."
+    python3 -m venv .venv
 fi
 
 echo "[2/3] Installing dependencies ..."
-mtk_gui/bin/python -m pip install --upgrade pip
-mtk_gui/bin/pip install -r requirements.txt
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
 
 echo "[3/3] Building with PyInstaller ..."
-mtk_gui/bin/pyinstaller --noconfirm --windowed --name MTK_GUI \
+.venv/bin/pyinstaller --noconfirm --windowed --name MTK_GUI \
     --collect-submodules serial main.py
 
 echo ""

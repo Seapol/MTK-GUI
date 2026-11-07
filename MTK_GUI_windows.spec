@@ -8,7 +8,6 @@ Bundled data:
 
 * config/permissions.json          -> _internal/config
 * config/*.xlsx (sample netlists)  -> _internal/config
-* yaml_plan/examples               -> _internal/yaml_plan/examples
 * resources (logo / version.json)  -> _internal/resources
 * docs/help (16 guide chapters, images, version history)
                                    -> _internal/docs/help
@@ -60,7 +59,6 @@ datas = [
     ('config/permissions.json', 'config'),
     ('config/FRDM-IMX93_Nets.xlsx', 'config'),
     ('config/Nets_Template.xlsx', 'config'),
-    ('yaml_plan/examples', 'yaml_plan/examples'),
     ('resources', 'resources'),
     # M46: the project-assets TEMPLATE ships inside _internal/assets.
     ('assets', 'assets'),
@@ -98,9 +96,6 @@ def _is_run_artifact(dest: str) -> bool:
     """True for bundle-relative paths that are runtime products, never
     source material."""
     low = dest.replace("\\", "/")
-    if (low.startswith("yaml_plan/examples")
-            and low.endswith(".json")):
-        return True            # real-board dumps in the example tree
     return (low.endswith(".pyc")
             or "/__pycache__/" in low
             or "/_run_work/" in low

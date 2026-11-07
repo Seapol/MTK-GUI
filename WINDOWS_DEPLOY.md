@@ -142,10 +142,10 @@ MTK_GUI\         <- 整个文件夹一起拷，缺一不可
 **两个前提 + 一条说明：**
 
 - 测试机建议装**英文版 Windows**：Wi-Fi/吞吐步骤按英文输出解析 `netsh`/`ping`，中文系统可能解析失败。
-- 用户自建的 YAML 计划文件放 `MTK_GUI\yaml_plan\`（exe 旁边），随用随放，不用重新打包。
+- 用户自建的 YAML 计划文件按**项目**存放：`MTK_GUI\_internal\projects\<Product>\`（或 File → Open / Save As 选任意目录），随用随放，不用重新打包。
 - **报告输出目录（2026-10-17 起）**：每台 DUT 测完立即自动生成报告，输出到 exe 同路径下 `MTK_GUI\DUT Report\`——每台 DUT 一个**身份文件夹**（文件夹名 = `Part#_CoreID_Batch#_SN_时间戳`，DAQ 原始波形 CSV 与 DUT 证书 PDF、MES 明细 CSV 都在其中，文件名同样携带全部身份信息）。事件日志在 `MTK_GUI\Event Report\`（每会话一个 .log）。Report 菜单的 **DUT Report / Event Log / DAQ CSV Data** 直接打开对应文件夹；文件夹名字可在 **Report → Report Folder…** 修改（保存在 exe 旁 `report_folders.json`）。
 - **Real mode 运行前必须先连仪器**（2026-10-14 起）：Tools → Connect all 建立 Instrument Gateway 后才能 Run；未连接时 ICT 测量行 / 标准操作 / 电源时序采集一律报 **Error**（设备故障停机策略生效），不再出现无 Measured 值的假 PASS。Virtual mode 不受影响。
-- **仓库不再内置示例计划 / `yaml_plan\`（2026-10-14 起整体移出版本库）**：FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`），或直接拷贝手上的计划文件；真实产品计划放在 `projects\` 目录（已纳入版本库）。
+- **`yaml_plan\` 工作区已退役（2026-11-07）**：计划文件一律放在 `projects\` 下按产品分目录（已纳入版本库并随包分发）。FRDM-IMX93 FCT demo 计划用 `python scripts\build_frdm_fct_demo_yaml.py` 现场重新生成（输出 `projects\FRDM-IMX93\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`），或直接拷贝手上的计划文件。
 
 **版本号显示 v1.0.0.0？**
 
@@ -160,8 +160,10 @@ spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库�
 - `config/permissions.json`
 - `config/FRDM-IMX93_Nets.xlsx`
 - `config/Nets_Template.xlsx`
-- `yaml_plan/examples`
 - `resources`
+- `assets`
+- `docs/help`
+- `projects`
 
 确认是在仓库根目录执行的打包命令（目录下能看到 `MTK_GUI_windows.spec`）。
 
@@ -169,7 +171,7 @@ spec 引用了以下文件，必须随代码一起拉下来（已在 git 仓库�
 虚拟环境没激活，先执行 `.venv\Scripts\activate`。
 
 **用户自己的 YAML 计划文件**
-`yaml_plan/` 中用户自建的测试计划不在打包产物里，部署后需手动放到 exe 同级的 `yaml_plan/` 目录。DUT 侧脚本现在随每个项目的 assets 目录一起打包（`_internal\projects\<Project>\assets_<Project>\`），旧树 `yaml_plan/examples/dut_scripts/` 已删除；demo 计划不再内置，需要时用 `scripts\build_frdm_fct_demo_yaml.py` 重新生成。
+计划文件按产品存放在 `projects\<Product>\`（已随包分发到 `_internal\projects\`）。DUT 侧脚本随每个项目的 assets 目录一起打包（`_internal\projects\<Project>\assets_<Project>\`）。demo 计划不在包里时，用 `scripts\build_frdm_fct_demo_yaml.py` 重新生成到 `projects\FRDM-IMX93\`。
 
 ---
 

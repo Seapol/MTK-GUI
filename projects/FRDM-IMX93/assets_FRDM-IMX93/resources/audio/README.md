@@ -8,5 +8,6 @@ project music belongs HERE.
 
 You may copy your own files, e.g.:
 ```bash
-cp resources/music/2026-10-30_09-48-46.wav projects/<YourProduct>/assets/resources/audio/
+cp assets/resources/audio/2026-10-30_09-48-46.wav \
+   projects/<YourProduct>/assets/resources/audio/
 ```

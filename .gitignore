@@ -10,6 +10,9 @@ dist/
 dist_win/
 # generated User Guide HTML site (docs/help/*.md is the source of truth)
 docs/help/_build/
+# 2026-11-07: vendor instrument manuals (29 MB of PDF) are reference material
+# for writing the User Guide, not source - keep them out of git.
+docs/instruments/
 
 # runtime output
 logs/
@@ -26,12 +29,9 @@ report_folders.json
 # quick commands: per-station runtime storage (built-in defaults apply
 # when the file is missing)
 config/commands.json
-# real-board fat.py run artifacts (never ship in the Windows package)
-yaml_plan/examples/**/fat_result.json
-# yaml plan workspace: runtime/demo products only (not versioned)
-yaml_plan/*
-# 2026-11-07: deprecated publish target - plans belong to a project folder
-# under projects/, so a Draft/Final built in the source tree is scratch
+# 2026-11-07: the yaml_plan/ workspace is retired - plans live in a project
+# folder under projects/. Nothing is shipped from it any more.
+# deprecated publish target - a Draft/Final built in the source tree is scratch
 config/plans/
 mtkgui/config/yamlbuild_state.json
 # per-station runtime state (SharePoint cookies / statistics) - never ship

@@ -61,9 +61,9 @@ from mtkgui.gui import identity
 
 YAML_PATH = Path(os.environ.get(
     "MTK_FCT_YAML",
-    str(ROOT / "yaml_plan" / "examples" / "imx93frdm"
+    str(ROOT / "projects" / "FRDM-IMX93"
         / "FRDM-IMX93_FCT_Demo_v1.0.2.yaml")))
-OUT_DIR = ROOT / "yaml_plan" / "examples" / "imx93frdm"
+OUT_DIR = ROOT / "projects" / "FRDM-IMX93" / "_run_work"
 HEADLESS = os.environ.get("MTK_FCT_HEADLESS") == "1"
 
 

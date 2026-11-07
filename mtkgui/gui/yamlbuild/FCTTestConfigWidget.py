@@ -317,11 +317,11 @@ def rf_primary_path(family: str, subtest: str, key: str) -> str:
     return paths[0] if paths else ""
 
 
-#: M45: default tone wav and the default Browse folder (the owner drops
-#: music / custom wavs into resources/music/; the bundled
-#: assets/resources/audio/ template stays browsable as reference).
+#: M45: default tone wav and the default Browse folder (project music /
+#: custom wavs live in the assets template's ``resources/audio/``; a
+#: project's own ``assets/resources/audio/`` is browsable as well).
 DEFAULT_TONE_WAV = "resources/tones/tone_1khz_6s.wav"
-TONE_BROWSE_DIR = os.path.join("resources", "music")
+TONE_BROWSE_DIR = os.path.join("assets", "resources", "audio")
 #: DUT-side BT driver probe markers (echo + shell output both contain
 #: ``__BT_DONE__``; two occurrences = the shell actually ran the probe).
 BT_PROBE_CMD = ("echo __BT_PING__; (ls /sys/class/bluetooth 2>/dev/null; "
@@ -3119,7 +3119,7 @@ class FCTTestConfigPanel(QWidget):
 
                     def _browse(_f=False, e=edit) -> None:
                         picked, _hint = QFileDialog.getOpenFileName(
-                            self, "Tone wav", e.text() or "resources/music")
+                            self, "Tone wav", e.text() or TONE_BROWSE_DIR)
                         if picked:
                             e.setText(picked)
 

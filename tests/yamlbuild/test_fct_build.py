@@ -36,8 +36,8 @@ from mtkgui.gui.yamlbuild.fct_build import (
 )
 
 EXAMPLES = (
-    "yaml_plan/examples/fct_sequence_gui_flash.yaml",
-    "yaml_plan/examples/fct_sequence_cli_flash.yaml",
+    "docs/fct/examples/fct_sequence_gui_flash.yaml",
+    "docs/fct/examples/fct_sequence_cli_flash.yaml",
 )
 
 

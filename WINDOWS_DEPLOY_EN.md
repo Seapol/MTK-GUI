@@ -147,9 +147,9 @@ MTK_GUI\         <- copy the whole folder, nothing may be missing
 **Two prerequisites + one note:**
 
 - The test PC should run an **English Windows** locale: the Wi-Fi/throughput steps parse `netsh`/`ping` output expecting English text; other locales may fail to parse.
-- User-created YAML test plans go into `MTK_GUI\yaml_plan\` (next to the exe); add them anytime without rebuilding.
+- User-created YAML test plans live per **project**: `MTK_GUI\_internal\projects\<Product>\` (or any folder via File -> Open / Save As); add them anytime without rebuilding.
 - **Real mode requires the instruments to be connected before Run** (since 2026-10-14): establish the Instrument Gateway via Tools → Connect all first. Without it, ICT measurement rows / standard ops / the power-rails capture all report **Error** (equipment-fault stop policy) — a fake PASS with an empty Measured cell is no longer possible. Virtual mode is unaffected.
-- **No sample plans / `yaml_plan\` ship with the repo anymore** (2026-10-14: `yaml_plan\` is now fully excluded from version control). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `yaml_plan\examples\imx93frdm\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`), or simply copy your own plan file; real product plans live under `projects\` (now versioned).
+- **The `yaml_plan\` workspace is retired (2026-11-07)**: every plan lives in its product folder under `projects\` (versioned and shipped). Regenerate the FRDM-IMX93 FCT demo plan on demand with `python scripts\build_frdm_fct_demo_yaml.py` (writes `projects\FRDM-IMX93\FRDM-IMX93_FCT_Demo_v1.0.5.yaml`), or simply copy your own plan file.
 
 **Status bar shows v1.0.0.0?**
 
@@ -164,8 +164,10 @@ The spec references the following files; they must be pulled with the code (alre
 - `config/permissions.json`
 - `config/FRDM-IMX93_Nets.xlsx`
 - `config/Nets_Template.xlsx`
-- `yaml_plan/examples`
 - `resources`
+- `assets`
+- `docs/help`
+- `projects`
 
 Make sure the build command is run from the repo root (the directory containing `MTK_GUI_windows.spec`).
 
@@ -173,7 +175,7 @@ Make sure the build command is run from the repo root (the directory containing 
 The virtual environment is not activated — run `.venv\Scripts\activate` first.
 
 **User's own YAML plan files**
-User-created test plans in `yaml_plan/` are not part of the build output; after deployment, place them manually in the `yaml_plan/` folder next to the exe. The DUT-side scripts now travel with each project's assets folder (`_internal\projects\<Project>\assets_<Project>\`) - the old `yaml_plan/examples/dut_scripts/` tree is gone. Demo plans are not bundled; regenerate with `scripts\build_frdm_fct_demo_yaml.py` when needed.
+Test plans live per product in `projects\<Product>\` (shipped into `_internal\projects\`). The DUT-side scripts travel with each project's assets folder (`_internal\projects\<Project>\assets_<Project>\`). If a demo plan is missing from the package, regenerate it with `scripts\build_frdm_fct_demo_yaml.py` into `projects\FRDM-IMX93\`.
 
 **Report output folders (since 2026-10-17)**
 Every counted DUT run immediately generates its report next to the exe, under `MTK_GUI\DUT Report\`: each DUT gets an IDENTITY folder named `Part#_CoreID_Batch#_SN_<timestamp>` containing the raw DAQ waveform CSV, the certificate PDF and the MES detail CSV — every file name carries the same identity fields. Event logs live in `MTK_GUI\Event Report\` (one .log per session). The Report menu items **DUT Report / Event Log / DAQ CSV Data** open these folders directly; the folder names can be changed in **Report → Report Folder…** (persisted in `report_folders.json` next to the exe).

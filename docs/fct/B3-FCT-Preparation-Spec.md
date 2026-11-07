@@ -331,8 +331,8 @@ tests; lossless for the fields the legacy shape carries (legacy
 1. this document (D1/D2/D4 + spec + integration points);
 2. `mtkgui/gui/yamlbuild/fct_build.py` — data model, validation,
    skeleton generation, YAML (de)serialization, project-cases mapping;
-3. `yaml_plan/examples/fct_sequence_gui_flash.yaml` — Path G example;
-4. `yaml_plan/examples/fct_sequence_cli_flash.yaml` — Path C example;
+3. `docs/fct/examples/fct_sequence_gui_flash.yaml` — Path G example;
+4. `docs/fct/examples/fct_sequence_cli_flash.yaml` — Path C example;
 5. `tests/yamlbuild/test_fct_build.py` — model / round-trip /
    generation / loader-compatibility tests;
 6. the decision sign-off table below.

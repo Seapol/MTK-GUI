@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the 'MTK Common Platform' introduction deck (10-min management overview).
 
-Run:  ./mtk_gui/bin/python scripts/make_intro_ppt.py
+Run:  python scripts/make_intro_ppt.py
 Output: MTK_Common_Platform_Intro.pptx (repo root)
 """
 import os

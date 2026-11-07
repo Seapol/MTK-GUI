@@ -28,7 +28,9 @@ from mtkgui.engine.casegen.sync import sync_review_excel
 from .case_store import CaseStore
 from .theme import StyleSpec
 
-DEFAULT_EXPORT_DIR = "yaml_plan/review"
+#: fallback export folder when the page has no project YAML; normally the
+#: review Excel lands in ``review/`` next to the project YAML itself.
+DEFAULT_EXPORT_DIR = "export"
 
 
 class CaseIOPage(QWidget):
@@ -88,9 +90,13 @@ class CaseIOPage(QWidget):
             return None
         path = self.export_edit.text().strip()
         if not path:
-            os.makedirs(DEFAULT_EXPORT_DIR, exist_ok=True)
+            dest_dir = DEFAULT_EXPORT_DIR
+            if self.yaml_path:
+                dest_dir = os.path.join(os.path.dirname(self.yaml_path),
+                                        "review") or DEFAULT_EXPORT_DIR
+            os.makedirs(dest_dir, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            path = os.path.join(DEFAULT_EXPORT_DIR, f"ICT_REVIEW_{ts}.xlsx")
+            path = os.path.join(dest_dir, f"ICT_REVIEW_{ts}.xlsx")
         try:
             count = export_review_excel(cfg, path)
         except Exception as exc:  # unreadable YAML / no write permission

@@ -305,11 +305,11 @@ print("run gate (no yaml) ok")
 from mtkgui.project_config import load_config, apply_config
 # KNOWN ISSUE - IGNORED (user direction 2026-10-14): the 96317 demo
 # project reference below is NOT VALID and projects/96317/... does
-# not exist (demo plans moved to config/plans/, regenerate on
-# demand).  Everything from here to the end of the file depends on
-# it, so smoke stops at this point by design until the demo plan
-# provisioning is re-pointed.  The verification gate is the pytest
-# suite (tests/), which is green.
+# not exist (every plan now lives in a product folder under projects/;
+# config/plans/ and the old yaml_plan/ workspace are retired).
+# Everything from here to the end of the file depends on it, so smoke
+# stops at this point by design until the demo plan provisioning is
+# re-pointed.  The verification gate is the pytest suite (tests/).
 cfg = load_config(str(Path(
     "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
 apply_config(cfg, wf, w.equipment_page)

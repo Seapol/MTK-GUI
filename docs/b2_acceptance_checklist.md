@@ -58,7 +58,7 @@
 
 ### B1 部署
 - [ ] Windows `git pull` + venv + 依赖安装（PySide6 6.10.3）
-- [ ] PyInstaller 按 `MTK_GUI_windows.spec` 打包：`_internal/config`（permissions.json + 2 xlsx）、`_internal/yaml_plan/examples`、`_internal/resources` 在位；**用户运行产物不入包**
+- [ ] PyInstaller 按 `MTK_GUI_windows.spec` 打包：`_internal/config`（permissions.json + 2 xlsx）、`_internal/resources`、`_internal/assets`、`_internal/docs/help`、`_internal/projects` 在位；**用户运行产物不入包**
 - [ ] exe 启动正常；高 DPI 缩放显示复核（字体、布局无截断）
 - [ ] SmartScreen / 防病毒误报评估
 

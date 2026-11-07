@@ -3,7 +3,7 @@
 
 Renders the application to PNG files (no display needed):
 
-    QT_QPA_PLATFORM=offscreen ./mtk_gui/bin/python scripts/capture_preview.py
+    QT_QPA_PLATFORM=offscreen python scripts/capture_preview.py
 
 Output:
     preview/equipment.png      - Equipment block diagram (Real mode)

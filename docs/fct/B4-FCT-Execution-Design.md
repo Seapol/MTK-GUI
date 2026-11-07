@@ -166,7 +166,7 @@ binaries are environment-provided, never shipped):
 
 RF is NOT a special engine (D1-A): every RF item is one of the four
 step types; the iperf3 / Wi-Fi / Bluetooth examples in
-`yaml_plan/examples/fct_sequence_*.yaml` are the executable
+`docs/fct/examples/fct_sequence_*.yaml` are the executable
 adaptations.
 
 ---

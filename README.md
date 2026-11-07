@@ -145,9 +145,8 @@ mtk-gui/
 ├── config/
 │   ├── permissions.json                    # Role / permission config
 │   └── *_Nets.xlsx                         # Test-point net list
-├── yaml_plan/
-│   ├── examples/                           # 8 official demo plans (shipped)
-│   └── *.yaml                              # User's own plans (NOT shipped)
+├── projects/                               # One folder per product: YAML plan
+│                                           #   + assets_<Product>/ bundle
 ├── mtkgui/
 │   ├── main_window.py         # Main window, menus, mode/role integration
 │   ├── equipment_page.py      # Equipment block diagram + config dialogs
@@ -187,14 +186,14 @@ mtk-gui/
 
 ## Run from source
 
-The virtual environment is named **`mtk_gui`** on every platform.
+The virtual environment is named **`.venv`** on every platform (git-ignored; the builds below create it on demand).
 
 ### Windows (CMD / PowerShell)
 
 ```bat
 cd mtk-gui
-py -3 -m venv mtk_gui
-mtk_gui\Scripts\activate
+py -3 -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
@@ -203,8 +202,8 @@ python main.py
 
 ```bash
 cd mtk-gui
-python3 -m venv mtk_gui
-source mtk_gui/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
@@ -228,7 +227,7 @@ in per-channel popup windows.
 Offscreen previews (no display needed):
 
 ```bash
-QT_QPA_PLATFORM=offscreen ./mtk_gui/bin/python scripts/capture_preview.py
+QT_QPA_PLATFORM=offscreen python scripts/capture_preview.py
 ```
 
 Output: `preview/equipment.png`, `preview/test_workflow.png`,
@@ -272,11 +271,11 @@ regression suite:
 - pre-FCT connection gating and YAML round-trip.
 
 ```bash
-QT_QPA_PLATFORM=offscreen ./mtk_gui/bin/python -u smoke_test.py
+QT_QPA_PLATFORM=offscreen python -u smoke_test.py
 ```
 
 `ALL SMOKE TESTS PASSED` indicates success. On Windows use
-`QT_QPA_PLATFORM=offscreen mtk_gui\Scripts\python.exe -u smoke_test.py`.
+`QT_QPA_PLATFORM=offscreen .venv\Scripts\python.exe -u smoke_test.py`.
 
 ## Packaging with PyInstaller
 

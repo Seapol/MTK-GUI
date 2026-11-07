@@ -12,7 +12,7 @@ The only headless shortcut: the final "FCT done." operator dialog is
 auto-answered (env._fct_message_dialog monkeypatched) - every other
 step runs for real.
 
-Usage: ./mtk_gui/bin/python scripts/run_frdm_fct.py [yaml_path]
+Usage: python scripts/run_frdm_fct.py [yaml_path]
 """
 from __future__ import annotations
 

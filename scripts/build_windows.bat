@@ -7,9 +7,9 @@ REM         dist\MTK_GUI_win64.zip     (ready-to-copy package)
 REM ============================================================
 cd /d "%~dp0\.."
 
-if not exist "mtk_gui\Scripts\python.exe" (
-    echo [1/4] Creating virtual environment "mtk_gui" ...
-    py -3 -m venv mtk_gui
+if not exist ".venv\Scripts\python.exe" (
+    echo [1/4] Creating virtual environment ".venv" ...
+    py -3 -m venv .venv
     if errorlevel 1 (
         echo Failed to create the virtual environment. Install Python 3.9+ first.
         pause
@@ -18,11 +18,11 @@ if not exist "mtk_gui\Scripts\python.exe" (
 )
 
 echo [2/4] Installing dependencies ...
-mtk_gui\Scripts\python -m pip install --upgrade pip
-mtk_gui\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\pip install -r requirements.txt
 
 echo [3/4] Building with PyInstaller (spec bundles the config folder) ...
-mtk_gui\Scripts\pyinstaller --noconfirm MTK_GUI_windows.spec
+.venv\Scripts\pyinstaller --noconfirm MTK_GUI_windows.spec
 if errorlevel 1 (
     echo Build failed.
     pause
