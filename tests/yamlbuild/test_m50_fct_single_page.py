@@ -75,7 +75,11 @@ EQUIPMENT = {"equipment": {
             "wifi": {"ssid": "MTK-DUT-AP", "interface": "wlan0"},
             "bluetooth": {"name": "MTK-DUT", "bd_addr": "AA:BB:CC:DD:EE:FF"}},
     "peripherals": {"wifi": {"ap_ssid": "MTK-AP",
-                             "ap_password": "secret"}},
+                             "ap_password": "secret"},
+                    "router": {"router_ap_ssid": "MTK-AP",
+                               "hotspot_ssid": "MTK-AP",
+                               "wifi_host_ip": "192.168.1.10",
+                               "dut_ip": "192.168.1.50"}},
 }}
 
 
@@ -152,7 +156,9 @@ def test_rf_step_dialog_seeds_the_references_on_accept(qapp, monkeypatch):
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
     step = _steps(panel)[0]
-    assert step["ref"]["ap_ssid"] == "equipment.peripherals.wifi.ap_ssid"
+    # M83/C11: the primary source is the M65 Router AP SSID
+    assert step["ref"]["ap_ssid"] == \
+        "equipment.peripherals.router.router_ap_ssid"
     assert step["ref"]["dut_ssid"] == "equipment.dut.wifi.ssid"
     assert "override" not in step
 
@@ -237,7 +243,7 @@ def test_valid_schema_round_trips_through_load_and_emit(qapp):
     # the rows keep their runtime references across the round-trip
     steps = _steps(panel)
     assert steps[0]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
+        "equipment.peripherals.router.router_ap_ssid"
     assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
 
 
@@ -302,5 +308,5 @@ def test_m49b_rssi_rows_survive(qapp):
     panel._add_row_for_label(STEP_TYPE_BT_RSSI)
     steps = _steps(panel)
     assert steps[0]["ref"]["ap_ssid"] == \
-        "equipment.peripherals.wifi.ap_ssid"
+        "equipment.peripherals.router.router_ap_ssid"
     assert steps[1]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"

@@ -48,6 +48,36 @@ EQUIPMENT_PATHS = {
                                                "- Router IP", "text"),
     "equipment.peripherals.router.dut_ip": ("Wired & Wireless Network - "
                                             "DUT IP", "text"),
+    # M83/C11: the M65 wired / wireless module fields (the editable
+    # source of the FCT Wi-Fi step identity)
+    "equipment.peripherals.router.router_ap_ssid": (
+        "Wired & Wireless Network - Router AP SSID", "text"),
+    "equipment.peripherals.router.router_ap_password": (
+        "Wired & Wireless Network - Router AP password", "text"),
+    "equipment.peripherals.router.hotspot_ssid": (
+        "Wired & Wireless Network - Hotspot SSID", "text"),
+    "equipment.peripherals.router.hotspot_password": (
+        "Wired & Wireless Network - Hotspot password", "text"),
+    "equipment.peripherals.router.wifi_host_ip": (
+        "Wired & Wireless Network - Host PC Wi-Fi IP", "text"),
+    "equipment.peripherals.router.wifi_gateway": (
+        "Wired & Wireless Network - Router gateway IP (Wi-Fi)", "text"),
+    "equipment.peripherals.router.wired_host_ip": (
+        "Wired & Wireless Network - Host PC wired IP", "text"),
+    "equipment.peripherals.router.wired_gateway": (
+        "Wired & Wireless Network - Router gateway IP", "text"),
+    "equipment.peripherals.router.wired_dut_ports": (
+        "Wired & Wireless Network - DUT port(s)", "text"),
+    "equipment.peripherals.router.wired_host_port": (
+        "Wired & Wireless Network - Host PC LAN port", "text"),
+    "equipment.peripherals.router.wired_eth_ports": (
+        "Wired & Wireless Network - Ethernet port(s)", "text"),
+    "equipment.peripherals.router.wired_mode": (
+        "Wired & Wireless Network - Wired mode", "text"),
+    "equipment.peripherals.router.wifi_mode": (
+        "Wired & Wireless Network - Wireless mode", "text"),
+    "equipment.peripherals.router.wifi_dut_iface": (
+        "Wired & Wireless Network - DUT Wi-Fi interface", "text"),
     # M55: static addressing sources for LAN Setup / Wi-Fi Connect
     "equipment.peripherals.router.netmask": ("Wired & Wireless Network - "
                                              "Netmask", "text"),

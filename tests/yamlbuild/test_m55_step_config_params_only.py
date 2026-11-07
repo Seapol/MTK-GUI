@@ -202,6 +202,7 @@ def test_flash_gui_dialog_shows_the_equipment_hint_only(qapp, monkeypatch):
 
 # ---------------------------------------------------------- §2.4 RF rows
 def test_rf_dialog_hides_every_referenced_field(qapp, monkeypatch):
+    """M83/C11: referenced fields are shown READ-ONLY (never editable)."""
     panel = _panel()
     panel._add_row_for_label(STEP_TYPE_WIFI_SCAN)
     seen = {}
@@ -213,9 +214,15 @@ def test_rf_dialog_hides_every_referenced_field(qapp, monkeypatch):
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_current_row(0)
-    # referenced AP / DUT SSID: no UI, no override
-    assert not any("AP SSID:" in t or "DUT SSID:" in t
-                   for t in seen["labels"])
+    # referenced AP / DUT SSID: a read-only truth row, no override box
+    read_only = [t for t in seen["labels"] if "Equipment ▸" in t]
+    assert len(read_only) >= 2            # AP SSID + DUT SSID rows
+    # the legacy per-Wi-Fi AP SSID still resolves as a fallback
+    assert any("MTK-AP" in t
+               and "Equipment ▸ Wired & Wireless Network" in t
+               for t in read_only)
+    assert any("MTK-DUT-AP" in t and "Equipment ▸ DUT" in t
+               for t in read_only)
     assert not any("effective:" in t for t in seen["labels"])
     assert seen["overrides"] == []
     # step-owned fields stay editable
@@ -223,7 +230,7 @@ def test_rf_dialog_hides_every_referenced_field(qapp, monkeypatch):
     assert any("Scan via (host / dut_console):" in t
                for t in seen["labels"])
     assert panel._get_row_cmd(0).refs == {
-        "ap_ssid": "equipment.peripherals.wifi.ap_ssid",
+        "ap_ssid": "equipment.peripherals.router.router_ap_ssid",
         "dut_ssid": "equipment.dut.wifi.ssid"}
     panel.deleteLater()
 

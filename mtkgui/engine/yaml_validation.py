@@ -482,6 +482,57 @@ def rule_instrument_keys(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_instrument_keys)
 
 
+def rule_bt_pair_zero_count(doc: dict) -> list[YamlIssue]:
+    """M83/C11: a BT Pair row with l2ping <= 0 disables the data-path
+    check - report it (warning only, the row still runs the pair)."""
+    import yaml as _yaml
+    issues: list[YamlIssue] = []
+    seen: set = set()
+
+    def _check(location: str, name: str, params: dict, subtest: str) -> None:
+        count = int(params.get("l2ping", 0) or 0)
+        if subtest == "pair" and count <= 0 and name not in seen:
+            seen.add(name)
+            issues.append(YamlIssue(
+                SEVERITY_WARNING,
+                f"row {name!r}: L2CAP ping count is {count} — l2ping "
+                "disabled (the pair itself still runs)", location))
+
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        marker = dict((row.get("op_params") or {}).get("fct_step") or {})
+        params = dict(marker.get("params") or {})
+        subtest = str((marker.get("params") or {}).get("rf_subtest")
+                      or row.get("rf_subtest") or "")
+        if subtest == "pair" or "pair" in str(row.get("kind") or "").lower():
+            _check(f"fct_test_cases[{index}]",
+                   str(row.get("name") or marker.get("name") or ""),
+                   params, "pair")
+    state = (doc or {}).get("yaml_build_state") or {}
+    module = (((state.get("modules") or {}).get("fct_build") or {})
+              .get("params")) or {}
+    text = str(module.get("fct_steps_yaml") or "")
+    if text.strip():
+        try:
+            node = _yaml.safe_load(text) or {}
+        except _yaml.YAMLError:
+            node = {}
+        fct = (node.get("fct") if isinstance(node, dict) else None) or {}
+        for index, step in enumerate(fct.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            if "pair" not in str(step.get("type") or "").lower():
+                continue
+            _check(f"fct_steps_yaml.steps[{index}]",
+                   str(step.get("name") or ""), dict(step), "pair")
+    return issues
+
+
+_RULES.append(rule_bt_pair_zero_count)
+
+
 #: M79: row kinds that only report that the step ran / were skipped.
 #: They can never judge the DUT itself, so they do not make a sequence
 #: a "real test" sequence.  Everything else (console capture / wait,

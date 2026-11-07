@@ -255,6 +255,67 @@ _RF_SUBTEST_TIMEOUT_ATTRS = {
     # Start..End segment) - the reference row renders "-".
 }
 
+#: M83/C11: ONE mapping table - every Wi-Fi / Bluetooth identity field
+#: resolves against exactly these Equipment paths (first non-empty wins).
+#: M65 network modules are the editable source; the legacy keys stay as
+#: fallbacks so an old project keeps resolving.  Never point a field at
+#: a key the Equipment page no longer edits.
+#:
+#: (wifi, scan)  AP SSID  -> router_ap_ssid / hotspot_ssid / legacy ap_ssid
+#:               DUT SSID -> equipment.dut.wifi.ssid
+#: (wifi, ping)  Target   -> equipment.peripherals.router.dut_ip
+#: (wifi, iperf) Host IP  -> wifi_host_ip / legacy peripherals.wifi.host_ip
+#: (bt, rssi)    BT name  -> equipment.dut.bluetooth.name
+#:               BD addr  -> equipment.dut.bluetooth.bd_addr
+#: (bt, pair)    BT name  -> equipment.dut.bluetooth.name
+RF_EQUIPMENT_KEYS = {
+    ("wifi", "scan"): {
+        "ap_ssid": ("equipment.peripherals.router.router_ap_ssid",
+                    "equipment.peripherals.router.hotspot_ssid",
+                    "equipment.peripherals.wifi.ap_ssid"),
+        "dut_ssid": ("equipment.dut.wifi.ssid",),
+    },
+    ("wifi", "ping"): {
+        "target": ("equipment.peripherals.router.dut_ip",),
+    },
+    ("wifi", "iperf"): {
+        "target": ("equipment.peripherals.router.wifi_host_ip",
+                   "equipment.peripherals.wifi.host_ip"),
+    },
+    ("bluetooth", "rssi"): {
+        "bt_name": ("equipment.dut.bluetooth.name",),
+        "addr": ("equipment.dut.bluetooth.bd_addr",),
+    },
+    ("bluetooth", "pair"): {
+        "bt_name": ("equipment.dut.bluetooth.name",),
+    },
+}
+
+#: Equipment section a path belongs to (shown in the read-only row).
+RF_EQUIPMENT_SECTIONS = (
+    ("equipment.peripherals.", "Wired & Wireless Network"),
+    ("equipment.dut.bluetooth.", "DUT"),
+    ("equipment.dut.wifi.", "DUT"),
+    ("equipment.dut.", "DUT"),
+    ("equipment.jlink.", "J-Link"),
+)
+
+
+def rf_equipment_section(path: str) -> str:
+    """Human Equipment section of one reference path (M83/C11)."""
+    text = str(path or "")
+    for prefix, section in RF_EQUIPMENT_SECTIONS:
+        if text.startswith(prefix):
+            return section
+    return "Equipment"
+
+
+#: M83/C11: the primary (first) path of one RF identity field.
+def rf_primary_path(family: str, subtest: str, key: str) -> str:
+    paths = (RF_EQUIPMENT_KEYS.get((family, subtest)) or {}).get(key) or ()
+    return paths[0] if paths else ""
+
+
 #: M45: default tone wav and the default Browse folder (the owner drops
 #: music / custom wavs into resources/music/; the bundled
 #: assets/resources/audio/ template stays browsable as reference).
@@ -2847,7 +2908,7 @@ class FCTTestConfigPanel(QWidget):
     _RF_FIELDS = {
         ("wifi", "scan"): (
             ("ap_ssid", "AP SSID", "text",
-             "equipment.peripherals.wifi.ap_ssid", ""),
+             "equipment.peripherals.router.router_ap_ssid", ""),
             ("dut_ssid", "DUT SSID", "text",
              "equipment.dut.wifi.ssid", ""),
             ("rssi_min", "AP RSSI min (dBm)", "int", None, -70),
@@ -2864,7 +2925,7 @@ class FCTTestConfigPanel(QWidget):
         ),
         ("wifi", "iperf"): (
             ("target", "Host server IP", "text",
-             "equipment.peripherals.wifi.host_ip", ""),
+             "equipment.peripherals.router.wifi_host_ip", ""),
             ("tool", "Tool (iperf2 / iperf3)", "text", None, "iperf3"),
             ("min_mbps", "Min throughput (Mbps)", "float", None, 10.0),
             ("duration", "Duration", "int", None, 10),
@@ -2884,13 +2945,13 @@ class FCTTestConfigPanel(QWidget):
             ("bt_name", "DUT BT name", "text",
              "equipment.dut.bluetooth.name", ""),
             ("script", "Pair script", "text", None, "bt_conn.sh"),
-            ("l2ping", "L2CAP ping count", "int", None, 0),
+            ("l2ping", "L2CAP ping count", "int", None, 1),
             ("timeout_s", "Timeout", "int", None, 15),
         ),
         ("bluetooth", "tone"): (
+            # M83/C11: the Segment slider is the ONLY range input -
+            # Start / End spin boxes are removed (they were dead).
             ("file", "Tone wav", "file", None, DEFAULT_TONE_WAV),
-            ("start_s", "Start", "float", None, 0.0),
-            ("end_s", "End", "float", None, 6.0),
         ),
     }
 
@@ -2940,8 +3001,12 @@ class FCTTestConfigPanel(QWidget):
                 return (f"DUT BT name={val('bt_name', '(BT name ref)')}, "
                         f"RSSI\u2265{p.get('rssi_min', -70)}")
             if subtest == "pair":
-                return (f"{p.get('script', 'bt_conn.sh') or 'bt_conn.sh'}, "
-                        f"L2CAP\u00d7{p.get('l2ping', 0)}")
+                count = int(p.get("l2ping", 0) or 0)
+                text = (f"{p.get('script', 'bt_conn.sh') or 'bt_conn.sh'}, "
+                        f"L2CAP\u00d7{count}")
+                if count <= 0:
+                    text += " (l2ping disabled)"
+                return text
             if subtest == "tone":
                 tone = str(p.get("file") or DEFAULT_TONE_WAV)
                 return (f"{os.path.basename(tone)}, "
@@ -2957,16 +3022,17 @@ class FCTTestConfigPanel(QWidget):
         return "-"
 
     def _edit_rf_row(self, row: int) -> None:
-        """M50/M55 per-test config dialog for an RF reference row.
+        """M50/M55/M83 per-test config dialog for an RF reference row.
 
-        Referenced fields (AP SSID / DUT SSID / target IP / host server
-        IP / DUT BT name / BD address) are FIXED runtime references into
-        the Equipment configuration and have NO UI here; the dialog only
-        edits the step-owned test parameters."""
+        Hardware identity fields (AP SSID / DUT SSID / target IP / host
+        server IP / DUT BT name / BD address) are read-only rows resolved
+        from the Equipment page (M83/C11: never silently hidden); the
+        dialog only edits the step-owned TEST parameters."""
         from PySide6.QtWidgets import (QDialog, QDialogButtonBox,
                                         QFileDialog, QFormLayout,
-                                        QLineEdit, QVBoxLayout,
+                                        QLabel, QLineEdit, QVBoxLayout,
                                         QHBoxLayout, QPushButton)
+        from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         family, subtest = self._rf_family(cmd)
         spec = self._RF_FIELDS.get((family, subtest))
@@ -2978,7 +3044,7 @@ class FCTTestConfigPanel(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle(
             f"{step_type_label(cmd)} step config")
-        dlg.setMinimumWidth(680)
+        dlayout.apply_fixed_width(dlg, dlayout.WIDTH_FORM)
         from PySide6.QtCore import Qt
         dlg.setWindowModality(Qt.ApplicationModal)
         outer = QVBoxLayout(dlg)
@@ -2987,17 +3053,35 @@ class FCTTestConfigPanel(QWidget):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         editors: dict = {}
         tone_parts = {}
+        missing: list = []
         for key, label, kind, ref_path, default in spec:
             if ref_path:
-                # M55: pure runtime reference - no ref / effective /
-                # override rows in the dialog
-                refs.setdefault(key, ref_path)
+                # M83/C11: read-only truth row, prefixed with its source
+                primary = rf_primary_path(family, subtest, key) or ref_path
+                refs.setdefault(key, primary)
+                value, path = self._rf_equipment_value(
+                    family, subtest, key)
+                section = rf_equipment_section(path or primary)
+                if value:
+                    text = f"{value}   (Equipment ▸ {section})"
+                else:
+                    text = f"—   (not set in Equipment ▸ {section})"
+                    missing.append(f"{label} ({section})")
+                row_label = QLabel(text)
+                row_label.setWordWrap(True)
+                row_label.setStyleSheet("color: #6b7280;")
+                form.addRow(f"{label}:", row_label)
                 continue
             if kind in ("int", "float"):
                 spin = QDoubleSpinBox()
                 spin.setDecimals(1 if kind == "float" else 0)
                 spin.setRange(-1_000_000.0, 1_000_000.0)
                 spin.setValue(float(params.get(key, default) or 0))
+                if (family, subtest) == ("bluetooth", "pair") \
+                        and key == "l2ping":
+                    # M83/C11: a ping count of 0 disables the check ->
+                    # the editor only accepts >= 1
+                    spin.setMinimum(1.0)
                 editors[key] = spin
                 form.addRow(f"{label}:", spin)
             else:
@@ -3019,12 +3103,33 @@ class FCTTestConfigPanel(QWidget):
                     form.addRow(f"{label}:", row_lay)
                 else:
                     form.addRow(f"{label}:", edit)
-        # M45: BT Tone keeps the local Start/End segment preview
+        if (family, subtest) == ("bluetooth", "pair"):
+            # M83/C11: the pair script runs THROUGH the console serial
+            channel = str(cmd.channel or "ser1")
+            chan_label = QLabel(
+                f"Console channel: {channel} (from Console module)")
+            chan_label.setWordWrap(True)
+            chan_label.setStyleSheet("color: #6b7280;")
+            form.addRow(chan_label)
+            form.addRow(dlayout.hint(
+                "The pair script runs through the console serial channel "
+                "(not over the host Bluetooth adapter).", dlayout.WIDTH_FORM))
+        # M45/M83: BT Tone keeps the local Start/End segment preview;
+        # the slider is the ONLY range input.
         if (family, subtest) == ("bluetooth", "tone"):
             slider = _ToneRangeSlider(float(params.get("end_s", 6.0) or 6.0))
             slider.set_values(float(params.get("start_s", 0.0) or 0.0),
                               float(params.get("end_s", 6.0) or 6.0))
             form.addRow("Segment:", slider)
+            readout = QLabel()
+            readout.setWordWrap(True)
+
+            def _update_range(start, end, out=readout) -> None:
+                out.setText(f"Start {start:.1f} s — End {end:.1f} s")
+
+            slider.changed.connect(_update_range)
+            _update_range(slider.start_s(), slider.end_s())
+            form.addRow("Segment range:", readout)
             preview = _TonePreview(self)
             meter = QProgressBar()
             meter.setRange(0, 100)
@@ -3046,7 +3151,17 @@ class FCTTestConfigPanel(QWidget):
             prow.addWidget(meter, 1)
             form.addRow("Preview:", prow)
             tone_parts = {"slider": slider, "preview": preview}
+        if missing:
+            # M83/C11: one warning banner; it never blocks OK
+            banner = QLabel(
+                "Missing in Equipment: " + "; ".join(missing)
+                + ". Set them on the Equipment page.")
+            banner.setWordWrap(True)
+            banner.setStyleSheet("color: #b45309;")
+            form.addRow(banner)
         apply_scroll_to_dialog(dlg, body)
+        dlayout.disable_horizontal_scroll(
+            getattr(body, "_m34_scroll_wrapper", None))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok
                                    | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
@@ -3056,9 +3171,11 @@ class FCTTestConfigPanel(QWidget):
             self._push_history()
             for key, label, kind, ref_path, default in spec:
                 if ref_path:
-                    # M55: the reference map is seeded on save; legacy
-                    # overrides are left untouched
-                    refs.setdefault(key, ref_path)
+                    # M55/M83: the reference map is seeded on save with
+                    # the primary Equipment path; legacy overrides are
+                    # left untouched
+                    refs.setdefault(
+                        key, rf_primary_path(family, subtest, key) or ref_path)
                     continue
                 widget = editors[key]
                 if kind == "text":
@@ -3077,7 +3194,18 @@ class FCTTestConfigPanel(QWidget):
             cmd.refs = refs
             cmd.overrides = overrides or None
             self._save_row_cmd(row, cmd)
+        dlayout.finish(dlg)
         dlg.deleteLater()
+
+    def _rf_equipment_value(self, family: str, subtest: str,
+                            key: str) -> tuple:
+        """(value, path) of one RF identity field, first non-empty wins."""
+        paths = (RF_EQUIPMENT_KEYS.get((family, subtest)) or {}).get(key) or ()
+        for path in paths:
+            value = self._equipment_value(path)
+            if value not in (None, ""):
+                return str(value), path
+        return "", (paths[0] if paths else "")
 
     # ------------------------------------------------------- helpers
     # ------------------------------------------------- row model (UserRole)

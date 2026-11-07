@@ -351,4 +351,5 @@ class TestTemplatePrefill:
         rows = _rows(panel)
         assert rows[4].send == "at+fwver"
         assert rows[4].capture_expected == "OK"
-        assert rows[2].op_params["voltage"] == 5.0
+        # M83/C9: a Power On row is a passive state carrier
+        assert rows[2].op_params["state"] == "on"
