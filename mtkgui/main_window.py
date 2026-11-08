@@ -59,7 +59,8 @@ from .gui.event_log_levels import (
     strip_leading_stamp,
 )
 from .gui.dialog_sizing import fit_dialog
-from .gui.progress_dialog import ProgressDialog, busy_progress
+from .gui.progress_dialog import ProgressBridge, ProgressDialog, busy_progress
+from .gui.render_client import ReportRenderClient
 from .permissions import (
     FIXTURE_ATE,
     FIXTURE_MANUAL,
@@ -570,6 +571,13 @@ class MainWindow(QMainWindow):
         self._session_reports: list = []
         self._report_workers: set = set()
         self._report_jobs: set = set()
+        # M81: the certificate renders in a CHILD process, so the foreground
+        # progress bar actually repaints (an in-process render holds the GIL)
+        self._report_bridge = ProgressBridge(self, "Generating DUT report")
+        self._render_client = ReportRenderClient(self)
+        self._render_client.progress.connect(self._on_render_progress)
+        self._render_client.finished.connect(qt_safe(self._on_render_finished))
+        self._render_client.failed.connect(qt_safe(self._on_render_failed))
         self._last_batch = None
 
         # M14 F1: apply the GUI theme BEFORE any widget is created.  A
@@ -1432,18 +1440,15 @@ class MainWindow(QMainWindow):
             if str(pdf_path) in self._report_jobs:
                 return
             self._report_jobs.add(str(pdf_path))
-            html, images, chart_spec = dut_pdf.report_pdf_payload(report, meta)
-            worker = dut_pdf.PdfRenderWorker(html, images, pdf_path,
-                                             chart_spec)
-            worker.done.connect(qt_safe(self._on_dut_pdf_done))
-            worker.failed.connect(qt_safe(self._on_dut_pdf_failed))
-            worker.fitted.connect(qt_safe(self._on_dut_pdf_fitted))
-            worker.finished.connect(
-                lambda w=worker, p=str(pdf_path):
-                (self._report_workers.discard(w),
-                 self._report_jobs.discard(p)))
-            self._report_workers.add(worker)
-            worker.start()
+            # M81: the render runs in a child process so this window never
+            # freezes; the foreground bridge stays repaintable meanwhile.
+            self.workflow_page.begin_report()
+            self._report_bridge.stage(0, "DUT report: preparing")
+            self._append_event_log(
+                f"[{datetime.now():%H:%M:%S}] DUT report: rendering "
+                f"{report.serial_no or 'n/a'}")
+            from dataclasses import asdict
+            self._render_client.render(asdict(report), meta, str(pdf_path))
         except Exception as e:                   # noqa: BLE001
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] DUT report generation "
@@ -1471,6 +1476,28 @@ class MainWindow(QMainWindow):
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] DUT report auto-fit: body "
                 f"font reduced to {pt} pt (content wider than A4)")
+
+    def _on_render_progress(self, done: int, total: int) -> None:
+        """Child render progress -> the foreground dialog (5 … 95 %)."""
+        self._report_bridge.stage(
+            5 + int(90 * done / max(1, total)),
+            f"DUT report: page {done}/{total}")
+
+    def _on_render_finished(self, path: str) -> None:
+        self._report_jobs.discard(str(path))
+        self._report_bridge.stage(100, "DUT report: done")
+        self.workflow_page.end_report()
+        self._on_dut_pdf_fitted(self._render_client.last_font_pt)
+        self._on_dut_pdf_done(path)
+
+    def _on_render_failed(self, message: str) -> None:
+        artifact = str(getattr(self.workflow_page, "last_report_artifact",
+                               "") or "")
+        if artifact:
+            self._report_jobs.discard(artifact)
+        self._report_bridge.stage(100, "DUT report: failed")
+        self.workflow_page.end_report()
+        self._on_dut_pdf_failed(message)
 
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture (B4 §8.3 trigger): every counted
@@ -3114,6 +3141,8 @@ class MainWindow(QMainWindow):
         # instances, flush the Qt event queue (mitigates the harmless
         # macOS IMKCFRunLoopWakeUpReliable mach-port noise on exit)
         self._cleanup_child_dialogs()
+        # M81: no report renderer child may outlive the window
+        self._render_client.shutdown()
         # M83/C14: release the Run-owned instrument rack
         self.workflow_page._release_rack()
         # --- original close workflow (preserved verbatim) -----------

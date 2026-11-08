@@ -197,3 +197,49 @@ def test_client_render_keeps_main_thread_stall_under_200ms(
     gaps = [later - earlier for earlier, later in zip(ticks, ticks[1:])]
     assert gaps, "the heartbeat never ticked"
     assert max(gaps) < 0.200, f"main thread stalled {max(gaps) * 1000:.0f} ms"
+
+
+# -------------------------------------------------------------------- C3
+def test_generate_dut_report_uses_child_process_not_a_thread(
+        tmp_path, qapp, monkeypatch):
+    from types import SimpleNamespace
+
+    from mtkgui.gui import dut_pdf
+    from mtkgui.main_window import MainWindow
+
+    calls = {"render": [], "stage": [], "begin": 0, "log": []}
+    page = SimpleNamespace(
+        product_info=lambda: {"part": "P", "core_id": "C", "batch": "B"},
+        rail_csv_path=None,
+        last_report_artifact="",
+        report_artifact_pending=False,
+        begin_report=lambda: calls.__setitem__(
+            "begin", calls["begin"] + 1))
+    fake = SimpleNamespace(
+        workflow_page=page,
+        _report_jobs=set(),
+        _report_workers=set(),
+        _report_bridge=SimpleNamespace(
+            stage=lambda pct, label: calls["stage"].append((pct, label))),
+        _render_client=SimpleNamespace(
+            render=lambda *args: calls["render"].append(args) or True),
+        _append_event_log=lambda *args, **kwargs: calls["log"].append(args),
+        _on_dut_pdf_done=lambda *args: None,
+        _on_dut_pdf_failed=lambda *args: None,
+    )
+    created = []
+    monkeypatch.setattr(dut_pdf, "PdfRenderWorker",
+                        lambda *args, **kwargs: created.append(args))
+
+    MainWindow._generate_dut_report_files(fake, _report())
+    assert calls["begin"] == 1
+    assert fake._report_workers == set()
+    assert created == [], "a worker thread must not be created any more"
+    assert calls["render"], "the child client must receive the job"
+    report_dict, meta, path = calls["render"][0]
+    assert report_dict["serial_no"] == "SN-M81-001"
+    assert len(report_dict["items"]) == 4
+    assert meta["part"] == "P"
+    assert path.endswith(".pdf")
+    assert any("DUT report: rendering" in str(entry)
+               for entry in calls["log"])

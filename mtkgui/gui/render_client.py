@@ -32,6 +32,9 @@ class ReportRenderClient(QObject):
         self._ready = False
         self._retried = False
         self._shutting_down = False
+        #: body point size the last finished render chose (8 = no shrink);
+        #: the main window mirrors it into the AUTO-FIT event-log line
+        self.last_font_pt = 8.0
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(int(JOB_TIMEOUT_S * 1000))
@@ -146,6 +149,7 @@ class ReportRenderClient(QObject):
             self.progress.emit(int(event.get("done") or 0),
                                int(event.get("total") or 0))
         elif kind == "done":
+            self.last_font_pt = float(event.get("pt") or 8.0)
             self._finish_ok(str(event.get("path") or self._job["path"]))
         elif kind == "error":
             self._finish_failed(str(event.get("msg")
