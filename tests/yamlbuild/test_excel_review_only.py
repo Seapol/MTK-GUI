@@ -110,17 +110,43 @@ def test_export_is_protected_and_column_locked(tmp_path):
             ws = wb[sheet]
             assert ws.protection.sheet is True, sheet
             assert ws.protection.password is None, sheet
-        # YamlBuild: every column read-only (incl. Enabled / Remarks)
-        ws = wb[SHEET_NAME]
-        for idx in range(1, ws.max_column + 1):
-            header = ws.cell(row=1, column=idx)
-            assert str(header.value).endswith(READONLY_SUFFIX)
-            assert _rgb(header) == READONLY_FILL_RGB
-            cell = ws.cell(row=2, column=idx)
-            assert cell.protection.locked is True
-            assert _rgb(cell) == READONLY_FILL_RGB
     finally:
         wb.close()
+
+
+def test_parameter_sheet_locks_everything_but_numbers(tmp_path):
+    """M91: on the YamlBuild sheet only a numeric Value cell is editable."""
+    path = str(tmp_path / "numbers.xlsx")
+    export_to_excel(_model(), path)
+    wb = load_workbook(path)
+    try:
+        ws = wb[SHEET_NAME]
+        value_col = _header_index(ws, "Value")
+        header = ws.cell(row=1, column=value_col)
+        assert header.value == "Value" + EDITABLE_SUFFIX
+        assert _rgb(header) == EDITABLE_FILL_RGB
+        assert header.protection.locked is False
+        for idx in range(1, ws.max_column + 1):
+            if idx == value_col:
+                continue
+            other = ws.cell(row=1, column=idx)
+            assert str(other.value).endswith(READONLY_SUFFIX)
+            assert _rgb(other) == READONLY_FILL_RGB
+            assert other.protection.locked is True
+        for ftype, editable in (("float", True), ("int", True),
+                                ("text", False), ("bool", False),
+                                ("choice", False), ("str", False)):
+            row = next(r for r in range(2, ws.max_row + 1)
+                       if str(ws.cell(row=r, column=5).value) == ftype)
+            cell = ws.cell(row=row, column=value_col)
+            assert cell.protection.locked is (not editable), ftype
+            assert _rgb(cell) == (EDITABLE_FILL_RGB if editable
+                                  else READONLY_FILL_RGB), ftype
+        assert ws.protection.sheet is True
+        assert ws.protection.password is None
+    finally:
+        wb.close()
+
 
 
 def test_export_unlocks_only_the_limit_columns(tmp_path):
@@ -176,8 +202,8 @@ def test_import_applies_limits_and_ignores_structure(tmp_path):
     wb[SHEET_NAME].cell(
         row=next(r for r in range(2, wb[SHEET_NAME].max_row + 1)
                  if wb[SHEET_NAME].cell(row=r, column=3).value
-                 == "on_voltage_v"),
-        column=4).value = "9.0"
+                 == "sequence"),
+        column=4).value = "VDD:0.0"
     wb.save(path)
 
     target = _model()
@@ -195,10 +221,42 @@ def test_import_applies_limits_and_ignores_structure(tmp_path):
     assert power["impedance"] == DAQM908A_SENSE_CHANNELS[0]
     assert target.get_channel_allocation()["gpio"][0]["op_type"] \
         == "U2355A DIO Write"
-    # YamlBuild review-only: the module value stays, difference ignored
+    # YamlBuild: the structural (text) value stays, difference ignored
     assert target.get_params("rails") == before_params
     assert any("test point" in item for item in report.ignored_changes)
-    assert any("YamlBuild" in item for item in report.ignored_changes)
+    assert any("YamlBuild rails.sequence" in item
+               for item in report.ignored_changes)
+
+
+def test_import_applies_an_edited_number(tmp_path):
+    """M91: a numeric Value cell is applied; text / enable stay ignored."""
+    path = str(tmp_path / "numbers.xlsx")
+    export_to_excel(_model(), path)
+    wb = load_workbook(path)
+    ws = wb[SHEET_NAME]
+
+    def _row(param):
+        return next(r for r in range(2, ws.max_row + 1)
+                    if ws.cell(row=r, column=3).value == param)
+
+    ws.cell(row=_row("on_voltage_v"), column=4).value = "9.0"
+    ws.cell(row=_row("sequence"), column=4).value = "VDD:0.0"
+    module_row = next(r for r in range(2, ws.max_row + 1)
+                      if ws.cell(row=r, column=2).value == "clocks"
+                      and ws.cell(row=r, column=3).value == "__module__")
+    ws.cell(row=module_row, column=10).value = "False"
+    wb.save(path)
+
+    target = _model()
+    report = import_from_excel(target, path)
+    assert report.applied, report.errors
+    assert report.errors == []
+    assert "YamlBuild rails.on_voltage_v" in report.applied_changes
+    assert target.get_params("rails")["on_voltage_v"] == "9.0"
+    assert target.get_params("rails")["sequence"] == "VDD:0.0\nVDDCORE:0.2"
+    assert "YamlBuild rails.sequence" in report.ignored_changes
+    assert target.is_enabled("clocks") is True
+    assert "YamlBuild clocks.enabled" in report.ignored_changes
 
 
 def test_import_missing_net_aborts_without_applying(tmp_path):

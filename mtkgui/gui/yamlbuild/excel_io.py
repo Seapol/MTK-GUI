@@ -33,12 +33,20 @@ from mtkgui.gui.yamlbuild.power_alloc import (
     U2355A_AI_CHANNELS,
 )
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
-from mtkgui.gui.yamlbuild.schema import MODULE_FIELDS, module_title
+from mtkgui.gui.yamlbuild.schema import (
+    MODULE_FIELDS,
+    T_FLOAT,
+    T_INT,
+    module_title,
+)
 from mtkgui.gui.yamlbuild.stages import NO_UI_MODULE_KEYS, STAGE_KEYS
 
 SHEET_NAME = "YamlBuild"
 _HEADERS = ("Module", "Module Key", "Parameter", "Value", "Type",
             "Required", "Min", "Max", "Choices", "Enabled", "Remarks")
+#: 1-based columns of the two cells the M91 per-cell lock reads
+_VALUE_COLUMN = 4
+_TYPE_COLUMN = 5
 
 # ------------------------------------------------------------------
 # item 18: Channel Allocation three-table sheets (Power / Clock /
@@ -82,6 +90,11 @@ READONLY_SUFFIX = " (Read-only \u2014 edit in MTK GUI)"
 EDITABLE_SUFFIX = " (editable \u2014 limits only)"
 READONLY_FILL_RGB = "D9D9D9"
 EDITABLE_FILL_RGB = "FFF2CC"
+
+#: parameter types whose Value cell is editable in Excel (M91).  Numbers only:
+#: limits, nominals, timings and counts.  Free text / enums / booleans stay
+#: read-only so an Excel edit can never reshape a YAML section.
+PARAM_EDITABLE_TYPES = (T_INT, T_FLOAT)
 
 #: per-cell dropdown enum validation (import pass 1)
 _ALLOC_POOLS = {
@@ -160,6 +173,33 @@ def _style_sheet(ws: Worksheet, editable_columns: set) -> None:
     ws.protection.sheet = True
 
 
+def _style_param_sheet(ws: Worksheet) -> None:
+    """M91: per-cell lock on the parameter sheet.
+
+    The header row keeps the read-only suffix everywhere except ``Value``;
+    a data row's ``Value`` cell is editable only when its ``Type`` cell is
+    ``int`` or ``float``.  Every other cell (Module / Module Key / Parameter /
+    Required / Min / Max / Choices / Enabled / Remarks) stays grey and locked,
+    so the sheet cannot grow, shrink or reshape a module from Excel.
+    """
+    max_col = ws.max_column
+    for idx in range(1, max_col + 1):
+        header = ws.cell(row=1, column=idx)
+        editable = idx == _VALUE_COLUMN
+        base = _base_header(header.value)
+        suffix = EDITABLE_SUFFIX if editable else READONLY_SUFFIX
+        header.value = base + suffix
+        _style_cell(header, editable)
+    for row_index in range(2, ws.max_row + 1):
+        type_text = str(ws.cell(row=row_index, column=_TYPE_COLUMN).value
+                        or "").strip().lower()
+        editable_row = type_text in PARAM_EDITABLE_TYPES
+        for idx in range(1, max_col + 1):
+            cell = ws.cell(row=row_index, column=idx)
+            _style_cell(cell, editable_row and idx == _VALUE_COLUMN)
+    ws.protection.sheet = True
+
+
 def _alloc_editable_columns(kind: str) -> set:
     """1-based column indices of the whitelisted limit fields."""
     limits = ALLOC_LIMIT_KEYS[kind]
@@ -218,9 +258,9 @@ def export_to_excel(model: YamlBuildModel, path: str) -> int:
             aw.append([values[key] for key in keys])
             rows += 1
         _style_sheet(aw, _alloc_editable_columns(kind))
-    # M73: the YamlBuild sheet is a pure review sheet - nothing on it
-    # may be edited in Excel (all cells grey / locked)
-    _style_sheet(ws, set())
+    # M91: numeric YamlBuild parameters are editable in Excel; every
+    # non-numeric cell stays grey / locked (structure is never adjustable)
+    _style_param_sheet(ws)
     wb.save(path)
     return rows
 
@@ -259,6 +299,7 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     # pass 1: validate everything
     parsed: dict[str, dict[str, str]] = {}
+    numeric: dict[str, dict[str, str]] = {}
     enabled: dict[str, bool] = {}
     for line_no, row in enumerate(rows, start=2):
         values = ["" if v is None else str(v).strip() for v in row]
@@ -296,6 +337,9 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
             report.errors.append(f"row {line_no}: {error}")
             continue
         parsed.setdefault(key, {})[param] = value
+        # M91: remember which entries are numbers (the only editable ones)
+        if spec.ftype in PARAM_EDITABLE_TYPES:
+            numeric.setdefault(key, {})[param] = value
     # item 18: the three Channel Allocation sheets (Power / Clock /
     # GPIO) - optional (legacy workbooks stay importable); every
     # config cell must carry a valid dropdown enum value (no free
@@ -415,12 +459,17 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     wb.close()
     if report.errors:
         return report
-    # YamlBuild sheet: review-only - validated above, never applied
+    # YamlBuild sheet: numeric parameters are applied (M91), everything else
+    # stays review-only so the sheet can never reshape a YAML section.
     for key, params in parsed.items():
         current_params = model.get_params(key)
         for name, value in params.items():
             if str(current_params.get(name, "")) != str(value):
-                report.ignored_changes.append(f"YamlBuild {key}.{name}")
+                if name in numeric.get(key, {}):
+                    model.set_params(key, {name: value})
+                    report.applied_changes.append(f"YamlBuild {key}.{name}")
+                else:
+                    report.ignored_changes.append(f"YamlBuild {key}.{name}")
     for key, state in enabled.items():
         if model.is_enabled(key) != state:
             report.ignored_changes.append(f"YamlBuild {key}.enabled")

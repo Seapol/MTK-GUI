@@ -141,9 +141,8 @@ def test_unknown_module_rejected():
 
 
 def test_excel_round_trip(tmp_path):
-    """M73: the YamlBuild sheet is REVIEW-ONLY - export -> import keeps
-    the target model untouched (no parameter / enable overwrite) and
-    reports the differences as ignored."""
+    """M91: numeric YamlBuild parameters are applied; structure and the
+    enable flags stay review-only."""
     model = make_model()
     model.set_enabled("clocks", False)
     model.set_params("rails", {
@@ -159,20 +158,24 @@ def test_excel_round_trip(tmp_path):
     assert export_to_excel(model, path) > 10
 
     other = make_model(enabled=False)
-    before = other.to_effective_dict()
+    before_sequence = other.get_params("rails")["sequence"]
     before_states = {key: other.is_enabled(key)
                      for key in ("clocks", "rails", "design_input")}
     report = import_from_excel(other, path)
     assert report.applied, report.errors
     assert report.errors == []
-    # review-only: nothing on the YamlBuild sheet is applied
-    assert report.imported == 0
-    assert other.to_effective_dict() == before
+    # only the two numeric differences are applied
+    assert report.imported == 2
+    assert report.applied_changes == [
+        "YamlBuild rails.voltage_tolerance_pct",
+        "YamlBuild rails.sample_rate_hz"]
+    assert other.get_params("rails")["voltage_tolerance_pct"] == "0.2"
+    assert other.get_params("rails")["sample_rate_hz"] == "2000"
+    # structural values and enable flags are never touched
+    assert other.get_params("rails")["sequence"] == before_sequence
+    assert report.ignored_changes == ["YamlBuild clocks.enabled"]
     for key, state in before_states.items():
         assert other.is_enabled(key) == state
-    # every differing value is surfaced as an ignored change
-    assert report.ignored_changes
-    assert any("YamlBuild" in item for item in report.ignored_changes)
 
 
 def _allocated_model() -> YamlBuildModel:
