@@ -243,3 +243,53 @@ def test_generate_dut_report_uses_child_process_not_a_thread(
     assert path.endswith(".pdf")
     assert any("DUT report: rendering" in str(entry)
                for entry in calls["log"])
+
+
+# -------------------------------------------------------------------- C4
+def test_report_busy_blocks_start_run(qapp, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+
+    shown, logged = [], []
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *args, **kwargs: shown.append(args) or 0)
+    page = TestWorkFlowPage()
+    monkeypatch.setattr(page, "_log", lambda text: logged.append(text))
+    try:
+        page.begin_report()
+        assert page.report_busy is True
+        assert page.btn_run.isEnabled() is False
+        page.start_run()
+        assert shown, "Run must warn instead of starting"
+        assert shown[0][1] == "DUT Report Still Rendering"
+        assert shown[0][2] == (
+            "The previous DUT report is still being generated.\n"
+            "Wait for it to finish before starting the next run.")
+        assert logged == ["Run blocked: previous DUT report is still "
+                          "rendering"]
+        assert page.run_state != "running"
+    finally:
+        page.end_report()
+        page.deleteLater()
+
+
+def test_report_busy_releases_after_finish(qapp):
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+
+    page = TestWorkFlowPage()
+    try:
+        page.begin_report()
+        assert page.btn_run.isEnabled() is False
+        page.end_report()
+        assert page.report_busy is False
+        assert page.btn_run.isEnabled() is True
+        # a run that is still in progress keeps the button disabled
+        page.run_state = "running"
+        page.begin_report()
+        page.end_report()
+        assert page.btn_run.isEnabled() is False
+        page.run_state = "idle"
+        page.btn_run.setEnabled(True)
+    finally:
+        page.deleteLater()

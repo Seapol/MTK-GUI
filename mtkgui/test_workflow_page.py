@@ -681,6 +681,8 @@ class TestWorkFlowPage(QWidget):
         self.run_start_offsets: dict = {}
         self.last_report_artifact = ""
         self.report_artifact_pending = False
+        # M81: reports rendering right now (the Run button waits for them)
+        self._report_jobs_running = 0
         # P3-B2 debug bridge (GUI layer): breakpoint hits and the
         # single-step mode request a pause at the safe step boundary
         # via the runner's public pause() API
@@ -2788,6 +2790,23 @@ class TestWorkFlowPage(QWidget):
                     "in the Console panel (Config DUT Console).")
         return ""
 
+    # ---------------------------------------------------- M81 report gate
+    def begin_report(self):
+        """A DUT report started rendering: the Run button waits for it."""
+        self._report_jobs_running += 1
+        self.btn_run.setEnabled(False)
+
+    def end_report(self):
+        """One DUT report finished: re-enable Run unless a run is active."""
+        self._report_jobs_running = max(0, self._report_jobs_running - 1)
+        if self.run_state != "running":
+            self.btn_run.setEnabled(True)
+
+    @property
+    def report_busy(self) -> bool:
+        """True while at least one DUT report is still being generated."""
+        return self._report_jobs_running > 0
+
     def start_run(self, no_debug=False):
         """Run button: pre-test, then step through every test case.
         Long Run > 1 repeats the whole cycle with a pause in between.
@@ -2796,6 +2815,13 @@ class TestWorkFlowPage(QWidget):
         no_debug=True (Ctrl+F5, Run Without Debug): breakpoints are
         ignored for this run (GUI-layer flag only)."""
         if self.run_state == "running":
+            return
+        if self.report_busy:
+            QMessageBox.information(
+                self, "DUT Report Still Rendering",
+                "The previous DUT report is still being generated.\n"
+                "Wait for it to finish before starting the next run.")
+            self._log("Run blocked: previous DUT report is still rendering")
             return
         if not self.project_path:
             QMessageBox.warning(
