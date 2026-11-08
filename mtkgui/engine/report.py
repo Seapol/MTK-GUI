@@ -33,6 +33,21 @@ def _clean(value) -> str:
     return text.strip()
 
 
+def _pulled_fat_log(runner) -> str:
+    """Text of the newest non-empty ``fat.log`` this run pulled (else "")."""
+    for path in reversed(list(getattr(runner, "run_pulled_files", None) or [])):
+        if Path(str(path)).name != "fat.log":
+            continue
+        try:
+            text = Path(str(path)).read_text(encoding="utf-8",
+                                             errors="replace")
+        except OSError:
+            continue
+        if text.strip():
+            return text
+    return ""
+
+
 @dataclass
 class ReportItem:
     """One judged test row in the DUT report."""
@@ -81,6 +96,9 @@ class DutReport:
     rails: list = field(default_factory=list)
     rail_duration: float = 0.0
     rail_t_start: float = 0.0
+    #: where the console transcript came from: "" (nothing collected),
+    #: "fat.log" (a DUT log this run pulled) or "console" (channel dump)
+    console_source: str = ""
 
     # ------------------------------------------------------------- build
     @classmethod
@@ -171,6 +189,13 @@ class DutReport:
         offsets = dict(getattr(runner, "run_start_offsets", {}) or {})
         if not offsets:
             offsets = dict(getattr(page, "run_start_offsets", {}) or {})
+        # M80-F: a run that pulled fat.log uses it as the console record -
+        # it is the DUT's own execution trace, not a mix of channels.
+        fat_text = _pulled_fat_log(runner)
+        if fat_text:
+            report.console_log = fat_text
+            report.console_source = "fat.log"
+            return report
         dumps = []
         for key in channels:
             try:
@@ -183,6 +208,7 @@ class DutReport:
                 dumps.append(f"===== {key} =====\n"
                              + raw.decode("utf-8", "replace"))
         report.console_log = "\n".join(dumps)
+        report.console_source = "console"
         return report
 
     # ------------------------------------------------------------- output

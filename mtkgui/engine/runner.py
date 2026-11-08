@@ -125,6 +125,8 @@ class TestRunner(QObject):
         # M78-4: run-purity offsets - the read position each channel is
         # allowed to judge from (0 right after the Run-press clear).
         self.run_start_offsets: dict = {}
+        # M80-F: local paths this run pulled from the DUT (fat.log preference)
+        self.run_pulled_files: list = []
         self.run_id = ""
         # FCT message tests open a modal operator dialog during a real
         # run; the run timer keeps ticking (100 ms) and must not
@@ -1147,6 +1149,7 @@ class TestRunner(QObject):
                          dut_report=str(dut_folder()),
                          project_base=_project_base(),
                          progress_factory=_progress_factory,
+                         pulled_files=self.run_pulled_files,
                          watchdog_s=self._watchdog_s)
         ch_key = step.channel
         if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
@@ -1795,6 +1798,7 @@ class TestRunner(QObject):
         mc = getattr(env, "multi_console", None)
         discarded = 0
         self.run_start_offsets = {}
+        self.run_pulled_files.clear()
         if mc is not None:
             for key in list(getattr(mc, "channels", {})):
                 try:
@@ -2140,6 +2144,7 @@ class TestRunner(QObject):
                          keyword_fail=list(getattr(
                              env, "fct_keyword_fail", ()) or ()),
                          dut_report=str(dut_folder()),
+                         pulled_files=self.run_pulled_files,
                          watchdog_s=self._watchdog_s)
         # bind console channel (if any teardown needs it)
         needs_console = any(

@@ -176,6 +176,9 @@ class FctContext:
     #: to show a foreground bar for the long serial asset deploy. None
     #: in headless runs (the transfer proceeds without a dialog).
     progress_factory: object = None
+    #: M80-F: DUT files this run pulled to the host (local paths, newest
+    #: last).  The report prefers the newest ``fat.log`` among them.
+    pulled_files: list = field(default_factory=list)
     #: M78-3: application-level stall watchdog window in seconds
     #: (Tools > FCT Watchdog). 0 disables it. NOT a YAML field.
     watchdog_s: float = DEFAULT_STALL_S
@@ -1418,6 +1421,9 @@ def _run_sftp(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
                 parent = os.path.dirname(os.path.abspath(local))
                 os.makedirs(parent, exist_ok=True)
             _call_with_timeout(channel.get_file, timeout_s, remote, local)
+            # M80-F: remember what this run pulled; the report prefers the
+            # newest fat.log over the console dump
+            ctx.pulled_files.append(str(local))
             if args.get("remove_remote_file", True) \
                     and hasattr(channel, "remove_file"):
                 try:

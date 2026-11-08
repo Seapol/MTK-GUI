@@ -7,6 +7,8 @@ pulled fat.log and the full transcript always lands in an ASCII dump file.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from mtkgui.report_console import (
     DEFAULT_BG,
     DEFAULT_FG,
@@ -100,3 +102,47 @@ def test_dim_text_keeps_3_0_contrast_and_stays_darker_than_normal():
     assert contrast(dim, DEFAULT_BG) >= 3.0
     assert luminance(dim) < luminance(normal)
     assert contrast(normal, DEFAULT_BG) >= 4.5
+
+
+# -------------------------------------------------------------------- C3
+def _page(runner, mc=None):
+    """Minimal Test Work Flow stub (empty tables, no console channels)."""
+    return SimpleNamespace(
+        ict_steps=[], fct_rows=[],
+        multi_console=mc or SimpleNamespace(
+            channels={}, get_read_buffer=lambda key: b""),
+        _runner=runner)
+
+
+def test_fat_log_is_preferred_when_the_run_pulled_one(tmp_path):
+    from mtkgui.engine.report import DutReport
+
+    older = tmp_path / "run1" / "fat.log"
+    older.parent.mkdir()
+    older.write_text("OLD RUN\n", encoding="utf-8")
+    newest = tmp_path / "run2" / "fat.log"
+    newest.parent.mkdir()
+    newest.write_text("FAT VERDICT PASS\nline2\n", encoding="utf-8")
+    other = tmp_path / "notes.txt"
+    other.write_text("not a fat log\n", encoding="utf-8")
+    runner = SimpleNamespace(run_start_offsets={}, run_pulled_files=[
+        str(older), str(other), str(newest)])
+    report = DutReport.from_session(_page(runner))
+    assert report.console_source == "fat.log"
+    assert report.console_log == "FAT VERDICT PASS\nline2\n"
+
+
+def test_console_dump_is_used_when_no_fat_log(tmp_path):
+    from mtkgui.engine.report import DutReport
+
+    pulled = tmp_path / "assets.tar"
+    pulled.write_text("", encoding="utf-8")
+    mc = SimpleNamespace(
+        channels={"console": object()},
+        get_read_buffer=lambda key: b"\x1b[32mhello\x1b[0m")
+    runner = SimpleNamespace(run_start_offsets={},
+                             run_pulled_files=[str(pulled)])
+    report = DutReport.from_session(_page(runner, mc))
+    assert report.console_source == "console"
+    assert report.console_log.startswith("===== console =====")
+    assert "hello" in report.console_log
