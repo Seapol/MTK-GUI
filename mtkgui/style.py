@@ -23,6 +23,10 @@ Theme tokens:
     verdicts        big PASS / FAIL / RUNNING / IGNORE verdict colors
 """
 
+import base64
+import tempfile
+from pathlib import Path
+
 from PySide6.QtCore import QSettings
 
 from .theme import is_dark, text_on_dark, text_on_light
@@ -295,6 +299,7 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     background-color: @accent;
     border-color: @accent;
+    image: url("@check_icon");
 }
 /* the checkable item views (multi-select popups etc.) need the same
    explicit indicator rules - otherwise the check mark degenerates
@@ -311,6 +316,7 @@ QListView::indicator:checked, QListWidget::indicator:checked,
 QTreeWidget::indicator:checked, QTreeView::indicator:checked {
     background-color: @accent;
     border-color: @accent;
+    image: url("@check_icon");
 }
 QLabel { background-color: transparent; }
 QLabel#muted { color: @muted; }
@@ -453,11 +459,69 @@ QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 """
 
 
+# M93: the checked indicator used to be a solid accent square with no
+# glyph, so "checked" was conveyed by colour only.  A 15x15 transparent
+# check mark is written to the per-user temp folder and referenced from
+# the stylesheet, because the frozen bundle does not ship mtkgui/assets
+# (MTK_GUI_windows.spec datas only carries the root assets/ template)
+# and this module promises "packaging needs no assets".  The mark colour
+# follows accent_text, whose >= 4.5:1 contrast on accent is already
+# enforced by audit_theme().
+_TICK_PNG = {
+    "white": (
+        "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA"
+        "mUlEQVQokd3QoQoCQRSF4QXBIKxFi1gMigaDL2L0mXweDYLRYBGbYBIsgiAYfILP4A3LsuiuweCB"
+        "gWHu+X+4kyT/H4wwR/Mb8OaVWRWwh0uAK9TzhSFqBWAHpwA3aOQL0xgus1a0cIjZvnBXDHCP0gJ1"
+        "pNjF2xHtd3tNMoI1tnE/o1vmY7ICuKL/EcwJHnHGpcGMIEVaGfxZnvEWzHrS3aKzAAAAAElFTkSu"
+        "QmCC"
+    ),
+    "dark": (
+        "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAB"
+        "E0lEQVQokd2QO08CURCFv7krJD4umnVJZCk0EVncWFj76G228z/5YyiMFQnBQnqtDBCDiQUGbYii"
+        "USPsvTa6QYKJNBaebubkO5kz8P+lc8WS9otHrlvIAMxMA4pQB7LxrHMBlNVvwKWV0poSakAWofK4"
+        "6JwAJLD2gwBwxsG51c2cUaZmIS9QnzdPhzQa7wms/UIk2FbGD44Jw3QSmC8tp4bDKrAO9tx5M1G3"
+        "23358hWAqFQL6IGNMg+DMmGY9rxAC6ZirWwBTWvloNdr90evkqRXfmPbWDkFXJAq2AVgB7gZKPZe"
+        "O1e345VkdPgeAMAdKt7vd67bkx4p44vPgDMAEzu7z/fNy0ngj/K8QHteoKeC/lQf8ytRNAeVRBgA"
+        "AAAASUVORK5CYII="
+    ),
+}
+_TICK_CACHE: dict[str, str] = {}
+
+
+def _tick_bucket(accent_text: str) -> str:
+    """Which check-mark variant sits on this theme's accent fill:
+    'white' when accent_text is a light colour, 'dark' otherwise."""
+    name = accent_text.lstrip("#")
+    r, g, b = (int(name[i:i + 2], 16) for i in (0, 2, 4))
+    light_mark = (0.2126 * r + 0.7152 * g + 0.0722 * b) >= 128
+    return "white" if light_mark else "dark"
+
+
+def _tick_icon(accent_text: str) -> str:
+    """Filesystem url() for the check-mark PNG; '' when it cannot be
+    written (the indicator then falls back to the plain accent fill)."""
+    bucket = _tick_bucket(accent_text)
+    if bucket in _TICK_CACHE:
+        return _TICK_CACHE[bucket]
+    try:
+        folder = Path(tempfile.gettempdir()) / "mtkgui_qss"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"check_{bucket}.png"
+        data = base64.b64decode(_TICK_PNG[bucket])
+        if not path.exists() or path.stat().st_size != len(data):
+            path.write_bytes(data)
+        _TICK_CACHE[bucket] = path.as_posix()
+    except OSError:
+        _TICK_CACHE[bucket] = ""
+    return _TICK_CACHE[bucket]
+
+
 def build_qss(name="Light"):
     """Full application stylesheet for the theme `name` (tokens are
     substituted into the template via @name placeholders)."""
     t = GUI_THEMES.get(name, GUI_THEMES["Light"])
     t = dict(t, accent_hover=t.get("accent_hover", _hover(t["accent"])))
+    t["check_icon"] = _tick_icon(t["accent_text"])
     qss = _TEMPLATE
     # longest token first: "@accent_text" / "@accent_press" must be
     # replaced before "@accent", or their leftovers become invalid
