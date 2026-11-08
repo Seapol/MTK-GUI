@@ -36,6 +36,7 @@ from mtkgui.ict.netparse.export_testplan import (
 )
 from mtkgui.gui.yamlbuild.channel_allocation import UNSET
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
+from mtkgui.ict.netparse.testpoints import select_test_points
 
 #: rail colour palette (same one the Test Work Flow page uses)
 PALETTE = ("#ef4444", "#22c55e", "#3b82f6", "#f59e0b",
@@ -91,11 +92,6 @@ def _summary_value(rows: list, label: str) -> str:
 
 def _tokens(text) -> list[str]:
     return [tok for tok in str(text or "").split() if tok]
-
-
-def _first_token(text) -> str:
-    tokens = _tokens(text)
-    return tokens[0] if tokens else ""
 
 
 def _number(value) -> float | None:
@@ -226,7 +222,9 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         if not net:
             continue
         nominal = _number(row.get("Nominal (V)"))
-        test_point = _first_token(row.get("Test Point(s)"))
+        # M91: keep EVERY test point of the row (the workbook cell may name
+        # several); YAML stored only the first one and lost the rest.
+        test_point = " ".join(_sheet_test_points(row))
         rail = rail_by_name.get(net)
         if rail is None:
             rail = {"name": net,
@@ -303,7 +301,7 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         if not net:
             continue
         khz = _number(row.get("Nominal (kHz)"))
-        test_point = _first_token(row.get("Test Point(s)"))
+        test_point = " ".join(_sheet_test_points(row))
         entry = clock_by_net.get(net)
         if entry is None:
             lower = _number(row.get("Lower limit (kHz)"))
@@ -375,7 +373,7 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         net = str(row.get("Net") or "").strip()
         if not net:
             continue
-        test_point = _first_token(row.get("Test Point(s)"))
+        test_point = " ".join(_sheet_test_points(row))
         entry = gpio_by_net.get(net)
         if entry is None:
             entry = {"net": net, "test_point": test_point}
@@ -468,11 +466,35 @@ def _snapshot(project: str, sheets: dict,
               result: ParseNetsResult | None) -> dict:
     """The YAML-stored Test Plan snapshot (evidence survives re-export).
 
+    Two sources are merged, sheet evidence first: the workbook rows are the
+    only place that carries a row's ``Test Point(s)`` cell and they exist even
+    when the caller supplied no parse result (File > Import ICT Test from
+    Excel to Yaml).  A parse result, when present, adds the classification
+    evidence (confidence / provenance / sub_class / input_rail / members).
+
     Categories use the FIXED names this module's rebuild understands
     (``Power`` / ``SE-Clock`` / ``Control IO`` / ``GND`` / ``Others``) -
     never the GUI label constants.
     """
     records: dict = {}
+    # sheet evidence: one record per net, with EVERY test point of that net
+    for sheet, category in _NET_SHEETS:
+        for row in sheets.get(sheet, []):
+            net = _row_net(row)
+            if not net:
+                continue
+            entry = records.setdefault(net, {
+                "category": category,
+                "confidence": "",
+                "provenance": "",
+                "sub_class": _row_sub_class(row),
+                "input_rail": False,
+                "members": [net],
+                "test_points": []})
+            for point in _sheet_test_points(row):
+                if point not in entry["test_points"]:
+                    entry["test_points"].append(point)
+    # parse evidence: classification + members (never drops a sheet point)
     if result is not None:
         for category, bucket in (("Power", result.power),
                                  ("SE-Clock", result.clock),
@@ -480,14 +502,23 @@ def _snapshot(project: str, sheets: dict,
                                  ("GND", result.gnd),
                                  ("Others", result.others)):
             for rec in bucket:
-                records[rec.name] = {
+                entry = records.setdefault(rec.name, {
                     "category": category,
-                    "confidence": rec.confidence or "",
-                    "provenance": rec.provenance or "",
-                    "sub_class": rec.sub_class or "",
-                    "input_rail": bool(rec.input_rail),
-                    "members": list(rec.members),
-                }
+                    "confidence": "",
+                    "provenance": "",
+                    "sub_class": "",
+                    "input_rail": False,
+                    "members": [rec.name],
+                    "test_points": []})
+                entry["category"] = category
+                entry["confidence"] = rec.confidence or ""
+                entry["provenance"] = rec.provenance or ""
+                entry["sub_class"] = rec.sub_class or ""
+                entry["input_rail"] = bool(rec.input_rail)
+                entry["members"] = list(rec.members) or [rec.name]
+                if not entry["test_points"]:
+                    _best, kept = select_test_points(rec.members)
+                    entry["test_points"] = [t for t in kept if t]
     return {
         "project_name": project,
         "source": result.source if result is not None else "",
@@ -495,6 +526,49 @@ def _snapshot(project: str, sheets: dict,
         "records": records,
         "sheets": {name: rows for name, rows in sheets.items()},
     }
+
+
+#: sheet -> snapshot category (the names _result_from_snapshot understands)
+_NET_SHEETS = ((SHEET_POWER, "Power"),
+               (SHEET_CLOCK, "SE-Clock"),
+               (SHEET_CONTROL_IO, "Control IO"),
+               (SHEET_GND, "GND"),
+               (SHEET_OTHERS, "Others"))
+
+
+def _sheet_test_points(row: dict) -> list[str]:
+    """Every test point named in one Test Plan row.
+
+    The owner header is ``Test Point(s)`` (mtkgui/ict/netparse/export_testplan.py:45)
+    and may carry several points separated by spaces, commas or semicolons; the
+    GND sheet uses the lowercase ``test_point`` key.  A row without the cell
+    yields an empty list, never ``[""]``.
+    """
+    for key, value in row.items():
+        normal = (str(key).strip().lower().replace("_", "")
+                  .replace(" ", "").replace("(s)", ""))
+        if normal == "testpoint":
+            text = str(value or "")
+            break
+    else:
+        text = ""
+    return [t for t in text.replace(";", " ").replace(",", " ").split() if t]
+
+
+def _row_net(row: dict) -> str:
+    """The net name of one Test Plan row (``Net`` or the lowercase ``net``)."""
+    for key, value in row.items():
+        if str(key).strip().lower() == "net":
+            return str(value or "").strip()
+    return ""
+
+
+def _row_sub_class(row: dict) -> str:
+    """The ``sub_class`` / ``sub_class(pcb/chassis/shield)`` cell of a row."""
+    for key, value in row.items():
+        if str(key).strip().lower().startswith("sub_class"):
+            return str(value or "").strip()
+    return ""
 
 
 # ------------------------------------------------------ YAML -> output
@@ -713,6 +787,13 @@ def yaml_to_testplan(model: YamlBuildModel, xlsx_path: str,
         result = _result_from_model(model)
         report.append("source: YAML testable nets + channel allocation")
     overrides = _yaml_overrides(model)
+    # M91: a test point list stored in the snapshot survives the round trip.
+    # YAML (the production truth) wins; the snapshot only fills the gap.
+    for net, info in ((model.ict_test_plan or {}).get("records") or {}).items():
+        points = [str(t) for t in (info.get("test_points") or []) if str(t)]
+        if points:
+            overrides.setdefault(net, {}).setdefault(
+                "test_point", " ".join(points))
     limits = _wide_limits(result)
     project = str(model.get_params("design_input").get("product_id")
                   or "").strip()

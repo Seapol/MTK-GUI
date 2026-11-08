@@ -70,6 +70,27 @@ def _rows(path, sheet):
     return list(workbook[sheet].iter_rows(min_row=2, values_only=True))
 
 
+def _net_count(path) -> int:
+    """Data rows across the five net sheets (read from the workbook)."""
+    workbook = openpyxl.load_workbook(path)
+    total = sum(max(0, workbook[sheet].max_row - 1)
+                for sheet in (SHEET_POWER, SHEET_CLOCK, SHEET_CONTROL_IO,
+                              SHEET_GND, SHEET_OTHERS))
+    workbook.close()
+    return total
+
+
+def _workbook_with_five_points(tmp_path) -> str:
+    """A workbook whose Power sheet names five test points on one net."""
+    path = _workbook(tmp_path, "five_points.xlsx")
+    workbook = openpyxl.load_workbook(path)
+    workbook[SHEET_POWER].append(
+        ["DC_5V_IN", "TP72.1 TP72.2 TP72.3 TP72.4 TP72.5",
+         "", "5.0", "", "", "", ""])
+    workbook.save(path)
+    return path
+
+
 def test_import_populates_yaml(tmp_path):
     model = YamlBuildModel()
     xlsx = _workbook(tmp_path)
@@ -220,6 +241,55 @@ def test_blank_yaml_cell_is_filled(tmp_path):
     assert float(rail["nominal_v"]) == 3.3
     assert any(line.startswith("filled power rail VDD_3V3")
                for line in model.testplan_sync_report)
+
+
+def test_workbook_only_import_stores_every_record(tmp_path):
+    """Defect 1: File > Import ICT Test from Excel to Yaml keeps every row.
+
+    The import path supplies NO parse result, so before M91 the stored
+    snapshot held zero records and the re-exported workbook was empty.
+    """
+    model = YamlBuildModel()
+    xlsx = _workbook(tmp_path)
+    expected = _net_count(xlsx)          # counted from the fixture itself
+    _import_plan(model, xlsx)            # no result= argument
+    assert len(model.ict_test_plan["records"]) == expected
+
+
+def test_every_test_point_of_one_net_survives(tmp_path):
+    """Defect 2: five points on one net must not collapse to the first."""
+    points = ["TP72.1", "TP72.2", "TP72.3", "TP72.4", "TP72.5"]
+    model = YamlBuildModel()
+    xlsx = _workbook_with_five_points(tmp_path)
+    _import_plan(model, xlsx)
+    assert model.ict_test_plan["records"]["DC_5V_IN"]["test_points"] == points
+
+    out = str(tmp_path / "five_points_out.xlsx")
+    _export_plan(model, out, str(tmp_path / "five_points_out.md"))
+    for row in _rows(out, SHEET_POWER):
+        if row[0] == "DC_5V_IN":
+            assert row[1] == " ".join(points)
+            return
+    raise AssertionError("DC_5V_IN missing from the re-exported Power sheet")
+
+
+def test_yaml_test_point_still_wins_over_the_snapshot(tmp_path):
+    """The snapshot only fills a gap - a YAML value is never overridden."""
+    model = YamlBuildModel()
+    _import_plan(model, _workbook_with_five_points(tmp_path))
+    allocation = model.get_channel_allocation()
+    for row in allocation["power"]:
+        if row["net"] == "DC_5V_IN":
+            row["test_point"] = "TP_SITE.1"
+    model.set_channel_allocation(allocation)
+
+    out = str(tmp_path / "yaml_wins_points.xlsx")
+    _export_plan(model, out, str(tmp_path / "yaml_wins_points.md"))
+    for row in _rows(out, SHEET_POWER):
+        if row[0] == "DC_5V_IN":
+            assert row[1] == "TP_SITE.1"
+            return
+    raise AssertionError("DC_5V_IN missing from the re-exported Power sheet")
 
 
 def test_gui_buttons_present():
