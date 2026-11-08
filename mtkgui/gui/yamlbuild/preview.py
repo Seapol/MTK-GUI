@@ -63,7 +63,7 @@ class YamlPreviewWidget(QWidget):
         lay.addWidget(self.editor, 1)
 
         self.error_bar = QLabel("")
-        self.error_bar.setStyleSheet("color: #b91c1c;")
+        self.error_bar.setProperty("tone", "error")
         self.error_bar.setWordWrap(True)
         self.error_bar.setVisible(False)
         lay.addWidget(self.error_bar)
@@ -127,7 +127,7 @@ class YamlPreviewWidget(QWidget):
         # FAIL: error hint, the operator's text stays for correction
         messages = "; ".join(msg for msg, _ in result.errors)
         self.error_bar.setText(f"YAML invalid: {messages}")
-        self.error_bar.setStyleSheet("color: #b91c1c;")
+        self.error_bar.setProperty("tone", "error")
         self.error_bar.setVisible(True)
         self._mark_error_lines(result.error_lines())
 

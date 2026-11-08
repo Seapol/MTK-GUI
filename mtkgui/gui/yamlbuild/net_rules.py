@@ -103,7 +103,7 @@ class NetRulesEditorDialog(QDialog):
         body_lay.addLayout(form)
 
         self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #b91c1c;")
+        self.error_label.setProperty("tone", "error")
         self.error_label.setWordWrap(True)
         body_lay.addWidget(self.error_label)
 
@@ -175,7 +175,7 @@ class NetRulesEditorDialog(QDialog):
 
         self._learn_conflicts = QLabel("")
         self._learn_conflicts.setWordWrap(True)
-        self._learn_conflicts.setStyleSheet("color: #b45309;")
+        self._learn_conflicts.setProperty("tone", "warn")
         v.addWidget(self._learn_conflicts)
 
         form = QFormLayout()
@@ -221,7 +221,10 @@ class NetRulesEditorDialog(QDialog):
                 "font-weight: bold;")
         except re.error as exc:
             result.setText("Invalid")
-            result.setStyleSheet("color: #dc2626; font-weight: bold;")
+            # drop the success branch's inline colour, then use the tone
+            result.setStyleSheet("")
+            result.setProperty("tone", "error")
+            result.setProperty("emphasis", True)
             result.setToolTip(str(exc))
 
     def _reset_default(self) -> None:

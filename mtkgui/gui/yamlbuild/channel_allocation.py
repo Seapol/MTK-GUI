@@ -1301,9 +1301,9 @@ class ChannelAllocationPage(QWidget):
             more = (f" (+{len(conflicts) - 5} more)"
                     if len(conflicts) > 5 else "")
             text += f" - CONFLICT: {detail}{more}"
-            self.lbl_summary.setStyleSheet("color: #b91c1c;")
+            self.lbl_summary.setProperty("tone", "error")
         else:
-            self.lbl_summary.setStyleSheet("")
+            self.lbl_summary.setProperty("tone", "")
         self.lbl_summary.setText(text)
 
     def _summary_text(self) -> str:

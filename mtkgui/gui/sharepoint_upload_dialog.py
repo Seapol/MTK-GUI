@@ -231,7 +231,7 @@ class SharePointSignInDialog(QDialog):
         self.session_cookies.append(current)
         if not self.signed_in:
             self.signed_in = True
-            self.status.setStyleSheet("color:#1d7a3c;")
+            self.status.setProperty("tone", "ok")
             self.status.setText("Signed in — close this window")
         return True
 
@@ -537,7 +537,7 @@ class SharePointUploadDialog(QDialog):
         """Show the persisted session (if any) as the sign-in status."""
         if self.virtual or not (self._session and self._session.cookies):
             return
-        self.signin_status.setStyleSheet("color:#1d7a3c;")
+        self.signin_status.setProperty("tone", "ok")
         self.signin_status.setText(
             f"Signed in as {self._session.user or 'signed-in user'} — "
             "SharePoint test-data upload ready")
@@ -765,7 +765,7 @@ class SharePointUploadDialog(QDialog):
             cookies=list(cookies))
         session.save(self._state_root / SESSION_NAME)
         self._session = session
-        self.signin_status.setStyleSheet("color:#1d7a3c;")
+        self.signin_status.setProperty("tone", "ok")
         self.signin_status.setText(
             f"Signed in as {session.user} — SharePoint test-data upload "
             "ready")
@@ -795,13 +795,13 @@ class SharePointUploadDialog(QDialog):
             except TransportError as exc:
                 problems = [str(exc)]
         if problems:
-            self.conn_status.setStyleSheet("color:#d35400;")
+            self.conn_status.setProperty("tone", "warn")
             self.conn_status.setText("FAIL: " + "; ".join(problems))
             self._log(f"sharepoint test connection: FAIL "
                       f"({'; '.join(problems)})")
         else:
             tag = " (virtual)" if self.virtual else ""
-            self.conn_status.setStyleSheet("color:#1d7a3c;")
+            self.conn_status.setProperty("tone", "ok")
             self.conn_status.setText(
                 f"OK{tag}: reachable, folder writable")
             self._log(f"sharepoint test connection: OK{tag}")

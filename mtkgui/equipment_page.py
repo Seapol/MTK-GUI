@@ -3645,7 +3645,7 @@ class EquipmentPage(QWidget):
         self.scene = QGraphicsScene(0, 0, W, H)
         self.view = BlockDiagramView(self.scene, self._on_block_clicked)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setStyleSheet("border:1px solid #d4d9e0;")
+        self.view.setProperty("tone", "bordered")
         return self.view
 
     def _build_left_panel(self):

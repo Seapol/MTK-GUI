@@ -253,7 +253,7 @@ class BlockConfigDialog(QDialog):
                                  (f" ({spec.unit})" if spec.unit else "")
                                  + ":", editor)
         self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #b91c1c;")
+        self.error_label.setProperty("tone", "error")
         self.error_label.setWordWrap(True)
         body_lay.addWidget(self.error_label)
         # block 02: formal net pre-analysis (T8 Parse Nets for ICT)

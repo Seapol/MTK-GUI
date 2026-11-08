@@ -125,7 +125,7 @@ class StatisticsDialog(QDialog):
         # corrupt-history / empty-source notice (hidden when clean)
         self.warning_label = QLabel("", self)
         self.warning_label.setWordWrap(True)
-        self.warning_label.setStyleSheet("color:#e5b13a;")
+        self.warning_label.setProperty("tone", "warn")
         self.warning_label.setVisible(False)
         body_lay.addWidget(self.warning_label)
 

@@ -951,7 +951,7 @@ class FCTTestConfigPanel(QWidget):
         self.dut_type.currentTextChanged.connect(self._on_dut_type_changed)
         self.dut_hint = QLabel("")
         self.dut_hint.setWordWrap(True)
-        self.dut_hint.setStyleSheet("color: #6b7280;")
+        self.dut_hint.setProperty("tone", "muted")
         head = QHBoxLayout()
         head.addWidget(QLabel("DUT OS Firmware:"))
         head.addWidget(self.dut_type)
@@ -1144,7 +1144,7 @@ class FCTTestConfigPanel(QWidget):
             "dialog text. Capture uses ONE rule every step: Expected must "
             "be found, Unexpected must NOT be found.")
         cmd_hint.setWordWrap(True)
-        cmd_hint.setStyleSheet("color: #6b7280;")
+        cmd_hint.setProperty("tone", "muted")
         lay.addWidget(cmd_hint)
         lay.addWidget(QLabel("FCT test step:"))
         self.cmd_table = QTableWidget(0, 8)
@@ -1808,7 +1808,7 @@ class FCTTestConfigPanel(QWidget):
         est_label.setWordWrap(True)
         est_label.setMaximumWidth(
             dlayout.WIDTH_WIDE - 2 * dlayout.HINT_MARGIN)
-        est_label.setStyleSheet("color: #6b7280;")
+        est_label.setProperty("tone", "muted")
 
         def _console_baud() -> int:
             """M55: the Console Serial baudrate comes from Equipment."""
@@ -1891,14 +1891,14 @@ class FCTTestConfigPanel(QWidget):
         path_label = QLabel(
             f"{tool_path or '—'}   (Equipment ▸ HOST PC ▸ Flash Tool Path)")
         path_label.setWordWrap(True)
-        path_label.setStyleSheet("color: #6b7280;")
+        path_label.setProperty("tone", "muted")
         form.addRow("Flash Tool Path:", path_label)
         if not tool_path:
             warn = QLabel(
                 "Equipment has no Flash Tool Path configured — the step "
                 "will fail until it is set on the Equipment page.")
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #b45309;")
+            warn.setProperty("tone", "warn")
             form.addRow(warn)
         msg_edit = QTextEdit()
         # M83/C12: flash_gui_message is migrated into the prompt field on
@@ -2250,7 +2250,7 @@ class FCTTestConfigPanel(QWidget):
                 endpoint = QLabel(
                     f"Remote: {host}:{port}  user: {user}")
                 endpoint.setWordWrap(True)
-                endpoint.setStyleSheet("color: #6b7280;")
+                endpoint.setProperty("tone", "muted")
                 form.addRow(endpoint)
                 if not host:
                     self.task_log.emit(
@@ -2260,7 +2260,7 @@ class FCTTestConfigPanel(QWidget):
                     self.task_log.emit("WARNING", f"{cmd.name}: {order_warn}")
                     warn = QLabel(order_warn)
                     warn.setWordWrap(True)
-                    warn.setStyleSheet("color: #b45309;")
+                    warn.setProperty("tone", "warn")
                     form.addRow(warn)
                 form.addRow(dlayout.hint(
                     "SSH depends on the DUT network being up; the host, "
@@ -2287,7 +2287,7 @@ class FCTTestConfigPanel(QWidget):
                 f"SSH channel: {cmd.channel or 'ssh1'} — {endpoint} "
                 "(from Console module)")
             channel_line.setWordWrap(True)
-            channel_line.setStyleSheet("color: #6b7280;")
+            channel_line.setProperty("tone", "muted")
             form.addRow(channel_line)
             if not host:
                 self.task_log.emit(
@@ -3094,7 +3094,7 @@ class FCTTestConfigPanel(QWidget):
                     missing.append(f"{label} ({section})")
                 row_label = QLabel(text)
                 row_label.setWordWrap(True)
-                row_label.setStyleSheet("color: #6b7280;")
+                row_label.setProperty("tone", "muted")
                 form.addRow(f"{label}:", row_label)
                 continue
             if kind in ("int", "float"):
@@ -3134,7 +3134,7 @@ class FCTTestConfigPanel(QWidget):
             chan_label = QLabel(
                 f"Console channel: {channel} (from Console module)")
             chan_label.setWordWrap(True)
-            chan_label.setStyleSheet("color: #6b7280;")
+            chan_label.setProperty("tone", "muted")
             form.addRow(chan_label)
             form.addRow(dlayout.hint(
                 "The pair script runs through the console serial channel "
@@ -3182,7 +3182,7 @@ class FCTTestConfigPanel(QWidget):
                 "Missing in Equipment: " + "; ".join(missing)
                 + ". Set them on the Equipment page.")
             banner.setWordWrap(True)
-            banner.setStyleSheet("color: #b45309;")
+            banner.setProperty("tone", "warn")
             form.addRow(banner)
         apply_scroll_to_dialog(dlg, body)
         dlayout.disable_horizontal_scroll(

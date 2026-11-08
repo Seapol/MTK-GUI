@@ -48,7 +48,7 @@ def hint(text: str, parent_width: int, muted: bool = True) -> QLabel:
     label.setWordWrap(True)
     label.setMaximumWidth(max(80, int(parent_width) - 2 * HINT_MARGIN))
     if muted:
-        label.setStyleSheet("color: #6b6b6b;")
+        label.setProperty("tone", "muted")
     return label
 
 

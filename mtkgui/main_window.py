@@ -273,7 +273,7 @@ class FctWatchdogDialog(QDialog):
         self.spin.setValue(float(value or 0.0))
         self.preview = QLabel()
         self.preview.setWordWrap(True)
-        self.preview.setStyleSheet("color: #6b7280;")
+        self.preview.setProperty("tone", "muted")
         self.spin.valueChanged.connect(lambda _v: self._sync_preview())
         form = QFormLayout()
         form.addRow("Stall watchdog window:", self.spin)

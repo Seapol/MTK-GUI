@@ -123,6 +123,11 @@ for _name, _theme in GUI_THEMES.items():
                              if is_dark(_theme["card"])
                              else text_on_light(_muted))
 
+# M94: semantic label tones derived from the contrast-checked verdicts
+for _theme in GUI_THEMES.values():
+    _theme["text_ok"] = _theme["verdicts"]["ok"]
+    _theme["text_bad"] = _theme["verdicts"]["bad"]
+
 _TEMPLATE = """
 QWidget {
     font-size: 15px;
@@ -324,6 +329,14 @@ QLabel#muted { color: @muted; }
 QLabel#strong { color: @text; font-weight: bold; }
 QLabel#accent_label { color: @link; font-weight: bold; }
 QLabel#warn { color: @warn; }
+/* M94: semantic label tones.  Widgets carry a `tone` property instead of
+   an inline colour, so the theme can repaint them on every switch. */
+QLabel[tone="muted"] { color: @muted; }
+QLabel[tone="warn"] { color: @warn; }
+QLabel[tone="error"] { color: @text_bad; }
+QLabel[tone="ok"] { color: @text_ok; }
+QLabel[tone="error"][emphasis="true"] { font-weight: bold; }
+QGraphicsView[tone="bordered"] { border: 1px solid @border; }
 
 /* M67: date / calendar / message-box families were not themed and
    could fall back to the system palette on the dark themes. */

@@ -220,7 +220,7 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
                         "WARNING: equipment.psu.params has no numeric "
                         + " / ".join(repr(key) for key in missing))
                     warn.setWordWrap(True)
-                    warn.setStyleSheet("color: #b45309;")
+                    warn.setProperty("tone", "warn")
                     param_form.addRow(warn)
                 if callable(config_equipment_cb):
                     btn = QPushButton("Config Equipment")
