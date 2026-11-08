@@ -7,6 +7,14 @@ Run with: python main.py
 import sys
 from pathlib import Path
 
+# M81: the DUT report renderer runs in THIS same executable as a child
+# process (--render-pdf) and must not pay the QtWebEngine import, so the
+# dispatch sits before the preload below.
+if "--render-pdf" in sys.argv:
+    from mtkgui.render_proc import main as _render_main
+
+    raise SystemExit(_render_main())
+
 import mtkgui.startup_timing as _timing
 
 # QtWebEngine MUST be loaded before QApplication is created (M13):

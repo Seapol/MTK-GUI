@@ -648,7 +648,8 @@ def report_pdf_payload(report, meta=None) -> tuple:
 
 
 def _render_pdf(html: str, images: dict, path: Path,
-                font_scale: float = 1.0) -> float:
+                font_scale: float = 1.0,
+                on_page=None) -> float:
     """Lay out ``html`` and print it to an A4 PDF (safe on a worker
     thread: only QTextDocument / QPdfWriter are touched).
 
@@ -704,6 +705,8 @@ def _render_pdf(html: str, images: dict, path: Path,
     # paged layout: the document flows into body-sized pages
     doc.setPageSize(QSizeF(body_w, body_h))
     n_pages = max(1, doc.pageCount())
+    if on_page is not None:
+        on_page(0, n_pages)          # the caller learns the total first
 
     painter = QPainter(writer)
     ctx = QAbstractTextDocumentLayout.PaintContext()
@@ -729,6 +732,8 @@ def _render_pdf(html: str, images: dict, path: Path,
         ctx.clip = QRectF(0.0, i * body_h, body_w, body_h)
         layout.draw(painter, ctx)
         painter.restore()
+        if on_page is not None:
+            on_page(i + 1, n_pages)
     painter.end()
     return chosen
 
