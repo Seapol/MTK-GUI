@@ -1282,16 +1282,20 @@ class MainWindow(QMainWindow):
         # persisted and re-applied on the next login.  Operators keep
         # the entries VISIBLE but disabled (simplified only).
         settings_menu.addSeparator()
+        # M90: the two display levels live in one compact submenu, so the
+        # Settings menu keeps a single row for them.  Behaviour is
+        # unchanged: exclusive pair, persisted, role gated.
+        self.event_log_menu = settings_menu.addMenu("Event Log")
         self._event_log_group = QActionGroup(self)
         self._event_log_group.setExclusive(True)
-        self.act_event_log_simplified = settings_menu.addAction(
-            "Event Log: Simplified")
+        self.act_event_log_simplified = self.event_log_menu.addAction(
+            "Simplified")
         self.act_event_log_simplified.setCheckable(True)
         self._event_log_group.addAction(self.act_event_log_simplified)
         self.act_event_log_simplified.triggered.connect(
             lambda _checked=False: self._set_event_log_level(SIMPLIFIED))
-        self.act_event_log_detailed = settings_menu.addAction(
-            "Event Log: Detailed")
+        self.act_event_log_detailed = self.event_log_menu.addAction(
+            "Detailed")
         self.act_event_log_detailed.setCheckable(True)
         self._event_log_group.addAction(self.act_event_log_detailed)
         self.act_event_log_detailed.triggered.connect(
@@ -1905,7 +1909,7 @@ class MainWindow(QMainWindow):
             level=IMPORTANT)
 
     def _set_event_log_level(self, level):
-        """Settings > Event Log: Simplified / Detailed (M11 F3).
+        """Settings > Event Log submenu (Simplified / Detailed) (M11 F3).
 
         Supervisor-only: the choice is persisted so the next login
         keeps it.  An Operator trigger (programmatic or a stale menu)

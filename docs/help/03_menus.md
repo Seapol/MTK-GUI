@@ -80,6 +80,15 @@ Configuration functions - mostly supervisor territory.
   with a Supervisor account. Opens the fault-injection configuration
   (Virtual Test Fail Ratio 0-100 %, Virtual Equipment Error 0-100
   %). *Dialog: Virtual Fault Injection window.*
+- **Event Log** - submenu with the two exclusive display levels:
+  `Simplified` and `Detailed`. `Detailed` shows every event with its
+  timestamp; `Simplified` hides the chatty DEBUG lines and keeps the
+  ones that matter (verdicts, warnings, errors, important steps).
+  Switching applies immediately and is remembered for the next login.
+  The session auto-save file in `Event Report` always records every
+  line regardless of the level, so switching never loses history.
+  On Operator accounts both items are disabled - Operators always get
+  `Simplified`.
 
 ## Tools Menu
 

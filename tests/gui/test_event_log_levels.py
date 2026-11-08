@@ -190,12 +190,12 @@ def test_invalid_saved_value_falls_back_to_detailed(tmp_settings):
 
 
 def test_operator_menu_entries_disabled(qapp):
-    """Operator: both actions stay VISIBLE but disabled, simplified is
-    checked, and the tooltip explains why."""
+    """Operator: both actions stay PRESENT in the Event Log submenu but
+    disabled, simplified is checked, and the tooltip explains why."""
     w = MainWindow(role=ROLE_OPERATOR, mode="Real")
     try:
-        assert w.act_event_log_simplified.isVisible()
-        assert w.act_event_log_detailed.isVisible()
+        assert w.act_event_log_simplified in w.event_log_menu.actions()
+        assert w.act_event_log_detailed in w.event_log_menu.actions()
         assert not w.act_event_log_simplified.isEnabled()
         assert not w.act_event_log_detailed.isEnabled()
         assert w.act_event_log_detailed.toolTip() == OPERATOR_EVENT_LOG_TIP
@@ -244,6 +244,23 @@ def _org():
 def _app():
     from mtkgui.style import APP_NAME
     return APP_NAME
+
+
+def test_settings_event_log_is_one_submenu(qapp):
+    """M90: Settings carries ONE Event Log submenu, not two top-level
+    rows, and the two levels are its only items."""
+    w = MainWindow(role=ROLE_SUPERVISOR, mode="Real")
+    try:
+        labels = [a.text() for a in w.settings_menu.actions()]
+        assert "Event Log: Simplified" not in labels
+        assert "Event Log: Detailed" not in labels
+        assert w.event_log_menu.title() == "Event Log"
+        assert w.event_log_menu.menuAction() in w.settings_menu.actions()
+        assert [a.text() for a in w.event_log_menu.actions()] == [
+            "Simplified", "Detailed"]
+    finally:
+        w.close()
+        w.deleteLater()
 
 
 # ---------------------------------------------------------------------------
