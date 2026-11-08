@@ -3226,6 +3226,14 @@ class MainWindow(QMainWindow):
         self._cleanup_child_dialogs()
         # M81: no report renderer child may outlive the window
         self._render_client.shutdown()
+        # M86-F1: no upload may outlive the window - a running QThread
+        # destroyed with its parent can abort the process on exit
+        for worker in list(self._shopfloor_workers):
+            if worker.isRunning():
+                if not worker.wait(3000):
+                    worker.terminate()
+                    worker.wait(1000)
+            self._shopfloor_workers.discard(worker)
         # M83/C14: release the Run-owned instrument rack
         self.workflow_page._release_rack()
         # --- original close workflow (preserved verbatim) -----------

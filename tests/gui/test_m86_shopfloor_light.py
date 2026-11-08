@@ -2,6 +2,8 @@
 """M86-C5: shopfloor light + the three retry moments (fake transport only)."""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -109,6 +111,37 @@ def test_exit_does_not_clear_the_light(qapp):
         assert "succeeded" in window.shopfloor_led.toolTip()
         window.close()
         assert sharepoint_store.load_state()["light"] == "ok"
+    finally:
+        window.deleteLater()
+
+
+def test_close_waits_for_the_upload_worker(qapp, tmp_path):
+    from mtkgui.main_window import MainWindow
+    from mtkgui.permissions import FIXTURE_ATE, ROLE_SUPERVISOR
+
+    class SlowSharePoint(FakeSharePoint):
+        def put(self, path, data):
+            time.sleep(2.0)
+            return super().put(path, data)
+
+    sharepoint_store.save_state(light="ok")
+    window = MainWindow(role=ROLE_SUPERVISOR, fixture=FIXTURE_ATE)
+    target = tmp_path / "DUT_PASS_SN1.pdf"
+    target.write_bytes(b"%PDF")
+    worker = ShopfloorUploadWorker(
+        [str(target)], SECTION, state_dir=tmp_path / "state",
+        transport=SlowSharePoint())
+    try:
+        window._shopfloor_workers.add(worker)
+        worker.start()
+        deadline = time.monotonic() + 5.0
+        while not worker.isRunning() and time.monotonic() < deadline:
+            qapp.processEvents()
+        assert worker.isRunning()
+        window.close()
+        assert worker.isRunning() is False
+        assert worker not in window._shopfloor_workers
+        assert sharepoint_store.load_state()["light"] != "off"
     finally:
         window.deleteLater()
 
