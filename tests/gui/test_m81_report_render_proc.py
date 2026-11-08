@@ -121,3 +121,79 @@ def test_render_child_returns_error_line_without_exiting(tmp_path):
                and line.get("path") == str(tmp_path / "after_error.pdf")
                for line in lines)
     assert (tmp_path / "after_error.pdf").is_file()
+
+
+# -------------------------------------------------------------------- C2
+def _pump(app, predicate, timeout_s: float) -> bool:
+    """Spin the event loop until *predicate* is true or the timeout expires."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.005)
+    app.processEvents()
+    return predicate()
+
+
+def _long_report():
+    report = _report()
+    report.console_log = ("A" * 78 + "\n") * 1500      # ~120 000 chars
+    return report
+
+
+def test_render_client_times_out_and_recovers(tmp_path, qapp):
+    from mtkgui.gui.render_client import ReportRenderClient
+
+    client = ReportRenderClient()
+    client._timer.setInterval(50)      # test knob - do not wait a minute
+    events = []
+    client.failed.connect(lambda msg: events.append(("failed", msg)))
+    client.finished.connect(lambda path: events.append(("finished", path)))
+    try:
+        assert client.render(asdict(_long_report()), {},
+                             tmp_path / "timed_out.pdf")
+        assert _pump(qapp, lambda: bool(events), 20.0), "no timeout reported"
+        assert events[0] == ("failed", "DUT report renderer timed out after 60 s")
+        assert client.busy is False
+        # the next job spawns a fresh child; the interval is back to normal
+        client._timer.setInterval(60_000)
+        client.render(asdict(_report()), {}, tmp_path / "recovered.pdf")
+        assert _pump(qapp, lambda: len(events) == 2, 30.0), "no recovery"
+        assert events[1] == ("finished", str(tmp_path / "recovered.pdf"))
+        assert (tmp_path / "recovered.pdf").is_file()
+    finally:
+        client.shutdown()
+
+
+def test_client_render_keeps_main_thread_stall_under_200ms(
+        tmp_path, qapp):
+    import time
+
+    from PySide6.QtCore import QTimer
+
+    from mtkgui.gui.render_client import ReportRenderClient
+
+    ticks: list[float] = []
+    heart = QTimer()
+    heart.setInterval(10)
+    heart.timeout.connect(lambda: ticks.append(time.monotonic()))
+    heart.start()
+
+    client = ReportRenderClient()
+    done: list[str] = []
+    client.finished.connect(done.append)
+    try:
+        client.render(asdict(_long_report()), {},
+                      tmp_path / "responsive.pdf")
+        assert _pump(qapp, lambda: bool(done), 60.0), "render did not finish"
+    finally:
+        heart.stop()
+        client.shutdown()
+    assert done[0] == str(tmp_path / "responsive.pdf")
+    assert (tmp_path / "responsive.pdf").is_file()
+    gaps = [later - earlier for earlier, later in zip(ticks, ticks[1:])]
+    assert gaps, "the heartbeat never ticked"
+    assert max(gaps) < 0.200, f"main thread stalled {max(gaps) * 1000:.0f} ms"
