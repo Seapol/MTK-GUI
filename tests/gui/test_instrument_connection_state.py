@@ -165,7 +165,7 @@ def test_instrument_config_round_trips_through_yaml(page):
     dlg = _InstrumentDialog(page, "U2355A", [("Model", "U2355A")],
                             "u2355a", virtual=True)
     try:
-        dlg._address.setText("USB0::0x2A8D::INSTR")
+        dlg._address.setCurrentText("USB0::0x2A8D::INSTR")
         dlg.apply_to_config(page.configs["u2355a"])
     finally:
         dlg.deleteLater()
@@ -186,7 +186,7 @@ def test_instrument_config_round_trips_through_yaml(page):
                              "u2355a", virtual=True,
                              config=restored["u2355a"])
     try:
-        assert dlg2._address.text() == "USB0::0x2A8D::INSTR"
+        assert dlg2._address.currentText() == "USB0::0x2A8D::INSTR"
     finally:
         dlg2.deleteLater()
 

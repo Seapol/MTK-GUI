@@ -570,7 +570,9 @@ def test_m80_save_writes_only_selected_mode(qapp):
     assert values["wired_gateway"] == "10.0.0.1"
     assert values["router_ap_ssid"] == "Factory-AP"
     assert "wired_eth_ports" not in values
-    assert "hotspot_ssid" not in values
+    # M80-C3: an unselected mode's key that came from the input survives;
+    # the selected mode's own field set is unchanged.
+    assert values["hotspot_ssid"] == "stale"
     assert values["wired_enabled"] is True
     assert values["wifi_enabled"] is True
 
@@ -600,3 +602,66 @@ def test_m80_fct_refs_still_resolve(page):
     assert "fixture" in doc["equipment"]
     restored = project_config._equipment_from_yaml(doc["equipment"])
     assert "fixture" in restored
+
+
+# ===================================================== M80-C2 / C3 guards
+class _MirrorMc:
+    def __init__(self, channels):
+        self.channels = channels
+
+
+class _MirrorShim:
+    def __init__(self, channels, configs):
+        self.multi_console = _MirrorMc(channels)
+        self.equipment_configs_provider = lambda: configs
+
+
+def test_m80_console_mirror_keeps_ssh_when_no_ssh_channel(qapp):
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+
+    configs = _mock_configs()
+    configs["dut"]["groups"]["ssh"] = {
+        "ip": "192.168.1.60", "username": "root", "password": "secret"}
+    shim = _MirrorShim({"ser1": {"kind": "serial",
+                                 "params": {"port": "COM7",
+                                            "baudrate": 115200}}}, configs)
+    TestWorkFlowPage._mirror_console_channels(shim)
+    assert configs["dut"]["groups"]["ssh"] == {
+        "ip": "192.168.1.60", "username": "root", "password": "secret"}
+    # the serial channel exists, so the console group IS updated
+    assert configs["dut"]["groups"]["console"]["port"] == "COM7"
+    equipment = project_config._equipment_to_yaml(configs)
+    assert equipment["dut"]["ssh"]["ip"] == "192.168.1.60"
+
+
+def test_m80_console_mirror_keeps_console_when_no_serial_channel(qapp):
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+
+    configs = _mock_configs()
+    configs["dut"]["groups"]["console"] = {
+        "channel": "ser1", "port": "COM5", "baud": "115200",
+        "parity": "None"}
+    shim = _MirrorShim({"ssh1": {"kind": "ssh",
+                                 "params": {"host": "192.168.1.60",
+                                            "username": "root"}}}, configs)
+    TestWorkFlowPage._mirror_console_channels(shim)
+    assert configs["dut"]["groups"]["console"]["port"] == "COM5"
+    assert configs["dut"]["groups"]["ssh"]["ip"] == "192.168.1.60"
+
+
+def test_m80_save_keeps_unselected_mode_keys(qapp):
+    dlg = RouterNetworkDialog(None, {
+        "wired_mode": "direct", "wired_dut_ports": "eth0",
+        "wired_host_port": "COM3", "wired_host_ip": "10.0.0.9",
+        "wired_gateway": "10.0.0.1"}, None)
+    try:
+        values = dlg.values()
+    finally:
+        dlg.deleteLater()
+    # the unselected LAN key that came from the input survives
+    assert values["wired_gateway"] == "10.0.0.1"
+    assert values["wired_dut_ports"] == "eth0"
+    assert values["wired_host_port"] == "COM3"
+    assert values["wired_host_ip"] == "10.0.0.9"
+    # a key that was never in the YAML is not created out of nothing
+    assert "router_ap_ssid" not in values

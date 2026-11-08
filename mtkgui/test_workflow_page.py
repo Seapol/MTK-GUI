@@ -2880,22 +2880,25 @@ class TestWorkFlowPage(QWidget):
         serial_key = next(
             (key for key, channel in channels.items()
              if channel.get("kind") == "serial"), None)
-        serial = dict((channels.get(serial_key) or {}).get("params") or {})
-        groups["console"] = {
-            "channel": serial_key or "",
-            "port": str(serial.get("port") or ""),
-            "baud": str(serial.get("baudrate") or ""),
-            "parity": str(serial.get("parity") or "None"),
-        }
+        if serial_key:
+            serial = dict((channels.get(serial_key) or {}).get("params")
+                          or {})
+            groups["console"] = {
+                "channel": serial_key,
+                "port": str(serial.get("port") or ""),
+                "baud": str(serial.get("baudrate") or ""),
+                "parity": str(serial.get("parity") or "None"),
+            }
         ssh_key = next(
             (key for key, channel in channels.items()
              if channel.get("kind") == "ssh"), None)
-        ssh = dict((channels.get(ssh_key) or {}).get("params") or {})
-        groups["ssh"] = {
-            "ip": str(ssh.get("host") or ""),
-            "username": str(ssh.get("username") or ""),
-            "password": str(ssh.get("password") or ""),
-        }
+        if ssh_key:
+            ssh = dict((channels.get(ssh_key) or {}).get("params") or {})
+            groups["ssh"] = {
+                "ip": str(ssh.get("host") or ""),
+                "username": str(ssh.get("username") or ""),
+                "password": str(ssh.get("password") or ""),
+            }
 
     # ------------------------------------------- M83/C14 run-start rack
     def _rack_configs(self) -> dict:

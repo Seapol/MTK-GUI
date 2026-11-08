@@ -2771,6 +2771,8 @@ class RouterNetworkDialog(QDialog):
 
     def __init__(self, parent, values, save_callback=None):
         super().__init__(parent)
+        # M80-C3: snapshot BEFORE any mode edit can clear a sibling field
+        self._initial_values = dict(values or {})
         self._values = dict(values or {})
         self._save_callback = save_callback
         self.setWindowTitle(f"{NETWORK_TITLE} - Configuration")
@@ -2928,6 +2930,22 @@ class RouterNetworkDialog(QDialog):
             data[f"{module}_mode"] = mode
             for key, _label in _MODE_FIELD_LABELS.get(mode, []):
                 data[key] = self._values.get(key, "")
+        # M80-C3: keep the sibling mode's stored keys.  A mode edit clears
+        # them in self._values, so copy back from the __init__ snapshot -
+        # only keys that came from the project YAML and that the selected
+        # mode does not write itself.
+        for module in ("wired", "wifi"):
+            selected = data[f"{module}_mode"]
+            selected_keys = {key for key, _label
+                             in _MODE_FIELD_LABELS.get(selected, [])}
+            for mode_key, _name, _desc in NETWORK_MODES[module]:
+                if mode_key == selected:
+                    continue
+                for key, _label in _MODE_FIELD_LABELS.get(mode_key, []):
+                    if key in selected_keys:
+                        continue
+                    if key in self._initial_values:
+                        data[key] = self._initial_values[key]
         # legacy compatibility for the FCT LAN Setup / Wi-Fi Connect steps
         data["setup_mode"] = ("direct"
                               if data.get("wired_mode") == "direct"
