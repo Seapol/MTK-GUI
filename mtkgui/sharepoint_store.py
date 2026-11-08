@@ -162,14 +162,17 @@ def _segment(text) -> str:
 def identity_folder() -> str:
     """The remote identity segment - never empty, never a path separator."""
     try:
-        candidates = (identity.identity_prefix(), identity.get_user(),
-                      identity.get_station_id())
-    except Exception:                     # noqa: BLE001 - never block upload
-        candidates = ()
-    for candidate in candidates:
-        name = _segment(candidate)
+        station = _segment(identity.get_station_id())
+        user = _segment(identity.get_user())
+        name = "-".join(part for part in (station, user) if part)
         if name:
             return name
+        for candidate in (identity.get_user(), identity.get_station_id()):
+            name = _segment(candidate)
+            if name:
+                return name
+    except Exception:                     # noqa: BLE001 - never block upload
+        pass
     return "operator"
 
 

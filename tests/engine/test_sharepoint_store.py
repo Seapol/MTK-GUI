@@ -62,6 +62,25 @@ def test_identity_folder_is_never_empty(monkeypatch):
     assert "|" not in name and "[" not in name
 
 
+def test_identity_folder_is_station_and_user(monkeypatch):
+    monkeypatch.setattr(store.identity, "get_station_id",
+                        lambda: "STATION-01")
+    monkeypatch.setattr(store.identity, "get_user", lambda: "te01")
+    assert store.identity_folder() == "STATION-01-te01"
+
+    monkeypatch.setattr(store.identity, "get_user", lambda: "")
+    assert store.identity_folder() == "STATION-01"
+
+    monkeypatch.setattr(store.identity, "get_station_id", lambda: "")
+    assert store.identity_folder() == "operator"
+
+    monkeypatch.setattr(store.identity, "get_station_id", lambda: "ST:A|T")
+    monkeypatch.setattr(store.identity, "get_user", lambda: "u/s")
+    name = store.identity_folder()
+    assert name
+    assert not any(char in name for char in "[]|/\\:")
+
+
 def test_legacy_config_is_migrated_once_and_kept(monkeypatch, tmp_path):
     legacy = tmp_path / "legacy" / "sharepoint_upload.json"
     legacy.parent.mkdir()
