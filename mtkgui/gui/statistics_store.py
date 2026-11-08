@@ -2,22 +2,27 @@
 """Statistics data model (M10-FIX4 F1).
 
 One :class:`RunRecord` per counted unit; the append-only history lives
-in ``config/statistics/runs.json``.  The module is pure data (no Qt) so
-both the run-end hook and the statistics dialog share one source of
-truth, and the numbers stay testable without a GUI.
+in ``work/statistics/<PROJECT>/<YYYY-MM>.jsonl`` (one JSON object per
+line, one shard per month).  The module is pure data (no Qt) so both the
+run-end hook and the statistics dialog share one source of truth, and
+the numbers stay testable without a GUI.
 """
 from __future__ import annotations
 
 import json
+import os
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-#: append-only history file (module config dir - same convention as the
-#: SharePoint / virtual-fault config files)
-RUNS_PATH = (Path(__file__).resolve().parents[1] / "config" / "statistics"
-             / "runs.json")
+from mtkgui import report_paths
+
+#: pre-M87 history (module config dir, a JSON array) - migrated once
+LEGACY_HISTORY_PATH = (Path(__file__).resolve().parents[1] / "config"
+                       / "statistics" / "runs.json")
+
+_MIGRATED = False
 
 VERDICT_PASS = "PASS"
 VERDICT_FAIL = "FAIL"
@@ -86,51 +91,139 @@ class RunRecord:
 
 
 # ---------------------------------------------------------------- history
-def load_runs(path=None) -> tuple[list[RunRecord], str]:
-    """Read the history file.
+def runs_dir() -> Path:
+    """``<work>/statistics/<PROJECT>/`` - survives a package upgrade."""
+    return report_paths.work_dir() / "statistics" / report_paths.project_key()
 
-    Returns ``(records, warning)``; a missing file is normal (no
-    warning), a corrupt file yields an empty history plus the reason
-    so the caller can log it - never an exception."""
-    target = Path(path) if path is not None else RUNS_PATH
+
+def runs_path(month: str | None = None) -> Path:
+    """The month shard: ``runs_dir()/<YYYY-MM>.jsonl``."""
+    name = month or datetime.now().strftime("%Y-%m")
+    return runs_dir() / f"{name}.jsonl"
+
+
+def _read_shard(target: Path) -> tuple[list[RunRecord], int]:
+    """``(records, corrupt_line_count)`` for one JSON Lines shard."""
     try:
         raw = target.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return [], ""
-    except OSError as exc:
-        return [], f"statistics history unreadable: {exc}"
-    try:
-        data = json.loads(raw)
-    except ValueError as exc:
-        return [], f"statistics history corrupt, starting fresh: {exc}"
-    if not isinstance(data, list):
-        return [], "statistics history corrupt, starting fresh: not an array"
+        return [], 0
     records: list[RunRecord] = []
-    for item in data:
-        try:
-            records.append(RunRecord.from_dict(item))
-        except (TypeError, ValueError):
+    corrupt = 0
+    for line in raw.splitlines():
+        if not line.strip():
             continue
-    return records, ""
+        try:
+            data = json.loads(line)
+        except ValueError:
+            corrupt += 1
+            continue
+        try:
+            records.append(RunRecord.from_dict(data))
+        except (TypeError, ValueError):
+            corrupt += 1
+    return records, corrupt
+
+
+def load_runs(path=None) -> tuple[list[RunRecord], str]:
+    """Read the history (JSON Lines).
+
+    With *path* read that one shard, otherwise every ``*.jsonl`` shard
+    in :func:`runs_dir` in name order.  Returns ``(records, warning)``;
+    a missing file/directory is normal (no warning), a corrupt line is
+    skipped with a warning, an unreadable file reports the reason -
+    never an exception."""
+    if path is not None:
+        targets = [Path(path)]
+    else:
+        try:
+            targets = sorted(p for p in runs_dir().glob("*.jsonl")
+                             if p.is_file())
+        except OSError as exc:
+            return [], f"statistics history unreadable: {exc}"
+        if not targets:
+            return [], ""
+    records: list[RunRecord] = []
+    corrupt = 0
+    for target in targets:
+        try:
+            shard_records, shard_corrupt = _read_shard(target)
+        except OSError as exc:
+            return records, f"statistics history unreadable: {exc}"
+        records.extend(shard_records)
+        corrupt += shard_corrupt
+    warning = (f"statistics history has {corrupt} corrupt line(s), skipped"
+               if corrupt else "")
+    return records, warning
 
 
 def append_run(record: RunRecord, path=None) -> Path | None:
-    """Append one record (create the dir/file on demand).
+    """Append one JSON line to the month shard (never rewrite it).
 
-    Returns the written path, or None when the write failed; a corrupt
-    existing file is replaced by a fresh array (never a crash)."""
-    target = Path(path) if path is not None else RUNS_PATH
-    records, _warning = load_runs(target)
-    records.append(record)
+    Returns the written path, or None when the write failed - the run
+    itself must never be blocked by statistics."""
+    global _MIGRATED
+    if path is None and not _MIGRATED:
+        _MIGRATED = True
+        migrate_legacy_history()
+    target = Path(path) if path is not None else runs_path()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps([r.to_dict() for r in records],
-                       ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8")
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
     except OSError:
         return None
     return target
+
+
+def _month_of(record: RunRecord) -> str:
+    """The shard month of one record (current month when unparsable)."""
+    month = record.timestamp[:7]
+    try:
+        datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        return datetime.now().strftime("%Y-%m")
+    return month
+
+
+def migrate_legacy_history() -> int:
+    """Move the pre-M87 package history into the monthly shards once.
+
+    A missing / unreadable / corrupt legacy file returns ``0`` and is
+    left untouched; a migrated file is renamed to ``runs.json.migrated``
+    next to itself, so a second call migrates nothing."""
+    legacy = Path(LEGACY_HISTORY_PATH)
+    try:
+        raw = legacy.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return 0
+    if not isinstance(data, list):
+        return 0
+    migrated = 0
+    for item in data:
+        try:
+            record = RunRecord.from_dict(item)
+        except (TypeError, ValueError):
+            continue
+        target = runs_path(_month_of(record))
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+        except OSError:
+            continue
+        migrated += 1
+    try:
+        os.replace(legacy, legacy.with_name(legacy.name + ".migrated"))
+    except OSError:
+        pass
+    return migrated
 
 
 # ------------------------------------------------------------ page facts

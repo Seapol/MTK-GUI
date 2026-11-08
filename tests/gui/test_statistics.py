@@ -75,36 +75,97 @@ def test_run_record_round_trip():
 
 
 def test_append_and_load_history(tmp_path):
-    path = tmp_path / "runs.json"
+    path = tmp_path / "runs.jsonl"
     assert store.load_runs(path) == ([], "")
     record = store.RunRecord("2026-10-23T09:30:00", "SN-1", "PASS",
                              10.0, 1, 0)
     assert store.append_run(record, path) == path
     store.append_run(store.RunRecord("2026-10-23T09:31:00", "SN-2",
                                      "FAIL", 11.0, 0, 1), path)
+    # JSON Lines: one record per line, appended - never rewritten
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
     records, warning = store.load_runs(path)
     assert warning == ""
     assert [r.serial for r in records] == ["SN-1", "SN-2"]
 
 
-def test_corrupt_history_starts_fresh(tmp_path):
-    path = tmp_path / "runs.json"
-    path.write_text("{not an array", encoding="utf-8")
+def test_corrupt_history_line_is_skipped(tmp_path):
+    path = tmp_path / "runs.jsonl"
+    path.write_text("{not a record\n", encoding="utf-8")
     records, warning = store.load_runs(path)
     assert records == []
     assert "corrupt" in warning
-    # appending replaces the broken file with a valid array
+    # a good line keeps its place next to the corrupt one
     store.append_run(store.RunRecord("t", "SN-9", "PASS", 5.0, 1, 0), path)
     records, warning = store.load_runs(path)
+    assert "corrupt" in warning
+    assert [r.serial for r in records] == ["SN-9"]
+
+
+def test_runs_dir_follows_work_dir_and_project(monkeypatch, tmp_path):
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("MTKGUI_PROJECT", "M87-PROJ")
+    assert store.runs_dir() == tmp_path / "work" / "statistics" / "M87-PROJ"
+    assert store.runs_path("2026-10") == store.runs_dir() / "2026-10.jsonl"
+
+
+def test_month_shards_append_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("MTKGUI_PROJECT", "M87-PROJ")
+    first = store.runs_path("2026-09")
+    second = store.runs_path("2026-10")
+    assert store.append_run(store.RunRecord(
+        "2026-09-30T10:00:00", "SN-SEP", "PASS", 9.0, 1, 0),
+        first) == first
+    before = first.read_bytes()
+    assert store.append_run(store.RunRecord(
+        "2026-10-01T10:00:00", "SN-OCT", "PASS", 10.0, 1, 0),
+        second) == second
+    assert len(first.read_text(encoding="utf-8").splitlines()) == 1
+    assert len(second.read_text(encoding="utf-8").splitlines()) == 1
+    assert first.read_bytes() == before          # older shard untouched
+    records, warning = store.load_runs()
     assert warning == ""
-    assert len(records) == 1
+    assert [r.serial for r in records] == ["SN-SEP", "SN-OCT"]
 
 
-def test_non_array_history_is_corrupt(tmp_path):
-    path = tmp_path / "runs.json"
-    path.write_text('{"runs": []}', encoding="utf-8")
-    records, warning = store.load_runs(path)
-    assert records == [] and "not an array" in warning
+def test_legacy_history_migrates_once(monkeypatch, tmp_path):
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("MTKGUI_PROJECT", "M87-PROJ")
+    legacy = tmp_path / "config" / "statistics" / "runs.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps([
+        store.RunRecord("2026-08-05T08:00:00", "OLD-1", "PASS",
+                        8.0, 1, 0).to_dict(),
+        store.RunRecord("2026-09-06T08:00:00", "OLD-2", "FAIL",
+                        8.5, 0, 1).to_dict(),
+    ]), encoding="utf-8")
+    monkeypatch.setattr(store, "LEGACY_HISTORY_PATH", legacy)
+
+    assert store.migrate_legacy_history() == 2
+    assert (tmp_path / "work" / "statistics" / "M87-PROJ"
+            / "2026-08.jsonl").is_file()
+    assert (tmp_path / "work" / "statistics" / "M87-PROJ"
+            / "2026-09.jsonl").is_file()
+    assert legacy.with_name("runs.json.migrated").is_file()
+    assert not legacy.exists()
+    assert store.migrate_legacy_history() == 0
+
+
+def test_unreadable_shard_is_reported(monkeypatch, tmp_path):
+    shard = tmp_path / "2026-10.jsonl"
+    shard.write_text("{}\n", encoding="utf-8")
+    original = store.Path.read_text
+
+    def _boom(self, *args, **kwargs):
+        if self == shard:
+            raise OSError("disk on fire")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(store.Path, "read_text", _boom)
+    records, warning = store.load_runs(shard)
+    assert records == []
+    assert "unreadable" in warning
 
 
 def test_cpk_math_known_values():

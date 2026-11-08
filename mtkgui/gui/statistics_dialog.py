@@ -16,9 +16,9 @@ Real quality-statistics view on top of the pure-data
                  Failed | Failed steps
 
 Two data sources share the same widgets: the live session (page
-counters + current row results) and the append-only history file
-``config/statistics/runs.json``.  A corrupt history never crashes the
-dialog - it starts fresh and shows the reason.
+counters + current row results) and the append-only history
+``work/statistics/<PROJECT>/<YYYY-MM>.jsonl``.  A corrupt history never
+crashes the dialog - it starts fresh and shows the reason.
 """
 from __future__ import annotations
 
@@ -205,7 +205,7 @@ class StatisticsDialog(QDialog):
 
     def refresh(self) -> None:
         """Reload the active source and re-render every widget."""
-        target = (store.RUNS_PATH if self.runs_path is None
+        target = (store.runs_dir() if self.runs_path is None
                   else self.runs_path)
         self.path_label.setText(str(target))
         try:

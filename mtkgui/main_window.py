@@ -1746,7 +1746,7 @@ class MainWindow(QMainWindow):
         """Report > Statistics: quality statistics dashboard (Yield /
         Avg Cycle Time / UPH / CpK / failure classification) fed from
         the live session or the append-only run history
-        (config/statistics/runs.json), M10-FIX4 F1."""
+        (work/statistics/<PROJECT>/<YYYY-MM>.jsonl), M10-FIX4 F1."""
         from .gui.statistics_dialog import StatisticsDialog
         dlg = StatisticsDialog(self.workflow_page, self)
         dlg.exec()
