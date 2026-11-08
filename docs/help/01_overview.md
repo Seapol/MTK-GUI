@@ -143,8 +143,9 @@ The status bar is a flat row, left to right:
 Two accounts share one GUI:
 
 - **Supervisor** - full access: every menu, every editor, YAML
-  saving. The supervisor password lives only in the application
-  source; it never appears in the UI or any document.
+  saving. The supervisor password is set once by the NXP owner at station
+  setup (`work/accounts/supervisor.json`); it is not part of the package,
+  and the supervisor login refuses while that file is missing.
 - **Operator** - runs tests and may always connect / disconnect
   instruments, but every other right is granted per key by the
   supervisor via `Settings > Operator Permissions…`. The grant set

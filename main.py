@@ -34,8 +34,40 @@ def _app_icon_path():
     return root / "resources" / "app_icon.png"
 
 
+def _set_supervisor_password(accounts):
+    """Prompt (twice, no echo) and write work/accounts/supervisor.json."""
+    import getpass
+    print(f"Station account file: {accounts.supervisor_path()}")
+    try:
+        first = getpass.getpass("New supervisor password: ")
+        second = getpass.getpass("Repeat it: ")
+    except (KeyboardInterrupt, EOFError):
+        print("cancelled")
+        raise SystemExit(1)
+    if first != second:
+        print("the two entries differ - nothing written")
+        raise SystemExit(1)
+    try:
+        path = accounts.set_password(first)
+    except ValueError as exc:
+        print(f"refused: {exc}")
+        raise SystemExit(1)
+    print(f"written: {path}")
+
+
 def main():
     import faulthandler
+
+    # M97: station setup - set / show the supervisor hash without opening a
+    # window.  This runs before QApplication so a headless deploy works.
+    from mtkgui import accounts
+    if "--set-supervisor-password" in sys.argv:
+        _set_supervisor_password(accounts)
+        return 0
+    if "--supervisor-password-status" in sys.argv:
+        print("configured" if accounts.is_configured()
+              else "not configured")
+        return 0
 
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication

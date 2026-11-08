@@ -395,12 +395,34 @@ No GPIB card? Use a USB-to-GPIB adapter (e.g. Keysight 82357B) — it needs the 
 4. Do not grant Operator accounts Supervisor rights "just to make it work". If a plan seems to need edit rights on
    the floor, that is a configuration decision for the Supervisor.
 5. The first run bootstraps a default account pair. **Replace it before the station goes live** — a station running on
-   bootstrap accounts has no accountable login.
+   bootstrap accounts has no accountable login. The supervisor password itself is set once from the command line, see
+   section 7.6.
 
-> **Known limitation.** The Supervisor password is a plain constant in `mtkgui/permissions.py` and the package ships
-> the source, so anyone who can read the checkout can read it. It is kept out of *documentation* by policy, but it is
-> not protected by the code — making it a real secret needs it moved out of source (environment variable or OS
-> credential store). Until then, "named TE members only" is a procedural control, not a technical one.
+### 7.6 Set the supervisor password (once, NXP owner)
+
+The supervisor password is not shipped with the package. Run this once on the
+station, as the NXP owner, before handover:
+
+```
+MTK_GUI.exe --set-supervisor-password
+```
+
+It prompts twice without echo and writes
+`C:\MTK_Station\work\accounts\supervisor.json` (a PBKDF2 hash - the plaintext is
+never stored, and no file is created if the two entries differ). To check the
+state later:
+
+```
+MTK_GUI.exe --supervisor-password-status
+```
+
+With no hash file the supervisor login refuses with *"This station has no
+supervisor password yet. Ask your NXP owner to set it once at station setup."* -
+there is no built-in fallback, by design. Keep `work\accounts\` in the station
+backup: deleting it locks the supervisor out until the owner sets it again.
+
+> Neither the repository nor the package carries a plaintext password any more:
+> the station hash file is the only copy, and it is created on the machine.
 
 ---
 
