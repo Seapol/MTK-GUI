@@ -3,8 +3,9 @@
 
 Each project may own ``projects/<Project>/assets_<Project>``, created
 by copying the READ-ONLY built-in ``assets/`` template.  This module is
-Qt-free so the filesystem behaviour is unit-testable; the GUI lives in
-``mtkgui/gui/assets_config_dialog.py``.
+Qt-free so the filesystem behaviour is unit-testable; there is no GUI writer -
+a project's assets folder is prepared by hand from the built-in template
+(2026-11-08 user direction: assets belong to the project).
 """
 from __future__ import annotations
 
@@ -48,65 +49,6 @@ AP_PROFILE_FIELDS = (
     ("Hotspot password", "AP_PROFILE_HOTSPOT_PASSWORD",
      "hotspot_password", True),
 )
-
-#: M83/C15: the verbatim refusal for a built-in (read-only) target.
-BUILTIN_SYNC_REFUSED = ("built-in assets are read-only - create the "
-                        "project assets first")
-
-
-def _ap_profile_line(line: str):
-    """``(key, value)`` for one declaration line, else ``None``."""
-    match = AP_PROFILE_LINE_RE.match(str(line).rstrip("\r\n"))
-    if not match:
-        return None
-    return f"AP_PROFILE_{match.group(1)}_{match.group(2)}", match.group(3)
-
-
-def apply_ap_profile_values(path: str, updates: dict) -> tuple:
-    """Rewrite ONLY the given ``AP_PROFILE_*`` lines of one script.
-
-    Returns ``(written, in_sync, errors)``.  Every other byte is kept
-    (no re-flow, no reordering, no trailing-newline change) and a key
-    with 0 or >= 2 declaration lines blocks the whole apply, so nothing
-    is written.  A value already equal to the script counts as
-    "already in sync" and is not rewritten - a second apply is
-    idempotent.
-    """
-    if is_inside_builtin_assets(path):
-        return 0, 0, [BUILTIN_SYNC_REFUSED]
-    try:
-        with open(path, encoding="utf-8", newline="") as handle:
-            text = handle.read()
-    except OSError as exc:
-        return 0, 0, [f"cannot read {path}: {exc}"]
-    lines = text.splitlines(keepends=True)
-    matches = []
-    errors = []
-    for key, value in dict(updates or {}).items():
-        found = [index for index, line in enumerate(lines)
-                 if (_ap_profile_line(line) or ("", ""))[0] == key]
-        if len(found) != 1:
-            errors.append(f"{key}: found {len(found)} line(s) - expected "
-                          "exactly 1")
-            continue
-        matches.append((found[0], key, str(value)))
-    if errors:
-        return 0, 0, errors
-    written = 0
-    in_sync = 0
-    for index, key, value in matches:
-        current = (_ap_profile_line(lines[index]) or ("", ""))[1]
-        if current == value:
-            in_sync += 1
-            continue
-        body = lines[index].rstrip("\r\n")
-        ending = lines[index][len(body):]
-        lines[index] = f"{key}='{value}'{ending}"
-        written += 1
-    if written:
-        with open(path, "w", encoding="utf-8", newline="") as handle:
-            handle.write("".join(lines))
-    return written, in_sync, errors
 
 
 def builtin_assets_dir() -> str:
@@ -238,13 +180,3 @@ def write_asset_text(path: str, text: str) -> None:
     """Write UTF-8 text (never into the built-in template)."""
     with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(str(text))
-
-
-def is_inside_builtin_assets(path: str) -> bool:
-    """True when *path* points into the bundled READ-ONLY template."""
-    try:
-        builtin = os.path.realpath(builtin_assets_dir())
-        target = os.path.realpath(path)
-    except OSError:
-        return False
-    return os.path.commonpath([builtin, target]) == builtin

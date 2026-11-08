@@ -1,73 +1,44 @@
-# MTK-GUI Project Assets Template
+# FRDM-IMX93 — reference assets
 
-This folder lives at the repo default root (`assets/`) and ships with
-the packaged app inside `_internal/assets`.  Copy it into your local
-project folder, next to the project YAML, and adapt it to your DUT:
+This folder is the worked example that ships with the FRDM-IMX93 project. It
+exists so you can see a complete, running asset set before writing your own.
+Your project gets its own `assets_<PROJECT>/` folder, created from the
+application skeleton — not a copy of this one.
 
-```text
-projects/
-  <YourProduct>/
-    <YourProduct>_..._rev_1.0.0_Draft.yaml   <- your project YAML (existing)
-    assets/                                   <- THIS template, copied here
-      precheck/                               system pre-flight checks
-      drivers/                                RF / BT driver load & setup
-      resources/
-        scripts/                              Linux shell scripts (bt_conn.sh, ...)
-        audio/                                audio files (BT Tone / music)
-        config/                               static configs (wpa_supplicant, ...)
-        patches/                              kernel / BSP patches
-```
+## What is here
 
-## Usage rules (owner-confirmed)
+| File | What it shows |
+|---|---|
+| `precheck/01_system_check.sh` | a pre-flight check that prints `_OK` / `_FAIL` markers |
+| `drivers/load_drivers.sh` | Wi-Fi + BT driver bring-up on a bare Linux DUT |
+| `resources/scripts/connect_wifi.sh` | joining the station AP, two profiles: `router` and `hotspot` |
+| `resources/scripts/bt_conn.sh` | BlueZ pairing helper |
+| `resources/config/wpa_supplicant.conf.template` | a config file handed to the DUT, not edited in place |
+| `resources/audio/` | audio used by tone / playback steps |
+| `templates/` | app-owned sequence templates — never edit, they are replaced with the application |
 
-- Every production DUT runs a plain Linux BSP / Bare-metal firmware
-  with NO pre-configuration.  All real preparation happens inside FCT
-  Sequence steps at run time; only the console serial port is
-  guaranteed available.
-- Files in `assets/` are pushed to the DUT over SERIAL or SFTP by
-  standard FCT steps (`Serial: Push file to DUT`, `SFTP_put`, ...),
-  and test logs are pulled back with `Serial: Pull file from DUT` /
-  `SFTP_get`.
-- **Deploy target convention**: pushed files go under the DUT
-  `/root` (e.g. `/root/fct_assets`), so the whole set CAN be cleaned
-  in one shot.
-- **End-of-test cleanup (optional, user-decided)**: after the last
-  test the operator may pull the logs, then delete EVERY file the
-  tests left behind, then power the DUT off — all via ordinary steps
-  (`Serial: Pull file from DUT` -> `Console_serial` `rm -rf
-  /root/fct_assets` -> `Power Off DUT`).  Keeping the files is
-  equally valid: e.g. the Linux image lives on a test-only SD card
-  that does NOT ship with the product, so the operator reuses it and
-  just unplugs the card — no per-run transfer cost.  Nothing is
-  auto-deleted and nothing is forced; every cleanup step is user
-  orchestrated.
-- Keep scripts idempotent and parameterized (env vars / args, NO
-  hard-coded board MACs or IPs): the same asset folder must work on
-  every DUT of the project.
-- Print SUCCESS/FAIL marker lines so the FCT message test can judge
-  them (FCT passes when the SUCCESS marker appears, fails when the
-  FAIL marker appears):
-  `echo "STEPNAME_OK <summary>"` / `echo "STEPNAME_FAIL <reason>"`
+## What is deliberately blank
 
-## Reference example (real, working)
+The four `AP_PROFILE_*` values in `connect_wifi.sh` are **empty on purpose**.
+An access point name and its password belong to one site; committing them here
+would hand that site's credentials to everyone who receives the project.
 
-`projects/FRDM-IMX93/scripts/` already contains production-quality
-examples you can copy from:
+Fill them for your own station, by hand, in any text editor - copy the four
+values from **Equipment → Peripherals** (`Wi-Fi router` / `Host PC hotspot`).
+There is no in-app editor or sync panel: assets are project data and the
+application never writes them. The script reports
+`WIFI_CONNECT_FAIL (profile '<name>' is not configured yet)` and stops when a
+value is missing, so a half-filled file can never join the wrong network.
 
-- `preflight.sh`            -> model for `precheck/`
-- `load_rf_drivers.sh`      -> model for `drivers/` (Wi-Fi + BT + A2DP)
-- `connect_wifi.sh`         -> model for `resources/scripts/`
+The same rule applies to your own project: credentials live in the project
+package, never in a shared source tree.
 
-Copy the template to a new project (dev repo):
+## How to reuse it
 
-```bash
-cp -R assets projects/<YourProduct>/assets
-# then edit every file under your project assets
-```
-
-On the deployment machine the template is at `_internal/assets`
-(next to the exe):
-
-```bash
-cp -R _internal/assets projects/<YourProduct>/assets
-```
+- Copy a script and adapt it — do not edit this folder; it is the reference.
+- Keep the variable contract of `connect_wifi.sh` intact (`AP_PROFILE_*`,
+  one quoted value per line, on its own line). The GUI reads exactly those
+  lines to cross-check the Equipment page and warns when they disagree.
+- Keep the marker conventions: `echo "STEPNAME_OK <summary>"` and
+  `echo "STEPNAME_FAIL <reason>"`. The rest of the rules are listed in the
+  skeleton `assets/README.md`.

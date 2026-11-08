@@ -152,13 +152,12 @@ rootfs. They are **project assets**: they live in the project's
 onto the DUT before the row that runs them. Nothing is pre-installed on a
 production DUT.
 
-![Config assets for projects - the project folder, its files and the sync button](images/19_06_assets_config.png)
-
-Open **Tools → Config assets for projects…** to create the folder from the
-read-only built-in template (`Create from built-in`), to edit a file in place
-(`Edit File…`), and - once the folder exists - to press **Sync from
-Equipment…** and copy the station AP values into `connect_wifi.sh`. The
-built-in template itself is never modified; every project owns its own copy.
+Create the folder by copying the read-only built-in template (`assets/`)
+into `projects/<Project>/assets_<Project>/`, then edit the files in place with
+any text editor. The application does not create, edit or sync assets: the
+template itself is never modified, every project owns its own copy, and the
+four `AP_PROFILE_*` values in `connect_wifi.sh` are filled by hand (chapter
+`07_station_equipment.md`, "Writing the script by hand").
 
 
 The FRDM-IMX93 project asset tree:

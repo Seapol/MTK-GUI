@@ -104,12 +104,6 @@ Configuration functions - mostly supervisor territory.
 - **Performance Timing Log** (checkable) - write the full-lifecycle
   performance timing log (`logs/_startup_timing.log`). The change
   takes effect on the next GUI restart.
-- **Config assets for projects…** - create / edit the project-owned
-  assets folder copied from the read-only built-in template. The window
-  also carries **Sync from Equipment…**, which writes the station AP
-  values into `resources/scripts/connect_wifi.sh` (chapter
-  `07_station_equipment.md`, "Writing the script from the Equipment
-  page").
 - **FCT Watchdog…** - one application-level stall watchdog value
   applied to the next run (`0` = off; every FCT step then waits its
   own Timeout).

@@ -1537,47 +1537,6 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"[Tools] FCT Watchdog: {shown} (applies to the next run)")
 
-    def _equipment_network_values(self) -> dict:
-        """M83/C15: the Wired & Wireless Network values the assets sync
-        reads (Equipment page -> connect_wifi.sh)."""
-        cfg = (getattr(self, "equipment_page", None) or object())
-        configs = getattr(cfg, "configs", {}) or {}
-        entry = configs.get("peripherals") or {}
-        return dict((entry.get("groups") or {}).get("router") or {})
-
-    @staticmethod
-    def _host_wifi_scan_hit(ssid: str):
-        """``(ssid, percent)`` when the Host PC sees *ssid*, else ``None``
-        (M83/C15: a hint only - it never pre-ticks a sync row)."""
-        from mtkgui.engine import host_rf
-        try:
-            found = host_rf.wifi_scan([str(ssid)], timeout_s=8)
-        except Exception:                    # noqa: BLE001 - hint only
-            return None
-        rssi = found.get(str(ssid))
-        if rssi is None:
-            return None
-        return ssid, max(0, min(100, 2 * (int(rssi) + 100)))
-
-    def _bind_project_assets(self, project: str, assets_dir: str) -> None:
-        """M69: persist the project's assets choice in its shared FCT
-        parameters (``assets_dir`` + ``project_name``).
-
-        Configuration data only - no FCT sequence row is injected, added
-        or reordered.  The binding lands in the project yaml on the next
-        standard save (or immediately when a project file is loaded)."""
-        import os
-        path = os.path.normpath(assets_dir) if str(
-            assets_dir or "").strip() else ""
-        model = self.yaml_build_page.model
-        params = model.get_params("fct_build")
-        params["assets_dir"] = path
-        if project:
-            params["project_name"] = str(project)
-        model.set_params("fct_build", params)
-        if self._project_path:
-            self._save_yaml_to(self._project_path)
-
     def _open_report_dir(self, path: Path, title: str) -> None:
         """Create-if-missing and open a report folder in the system
         file manager."""

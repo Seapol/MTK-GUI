@@ -1242,7 +1242,7 @@ class FCTTestConfigPanel(QWidget):
         """(path, hint) for the Push Browse default (M46).
 
         M69: an explicitly BOUND ``assets_dir`` (project shared param,
-        set by Tools > Config assets for projects) wins when it exists;
+        set when the project is loaded) wins when it exists;
         otherwise the folder-priority search applies (assets_<Project>
         -> legacy assets/ -> bundled template)."""
         import os
