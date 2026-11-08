@@ -63,27 +63,20 @@ def _dialog(tenant, captured=None, opener=None):
 
 
 # ------------------------------------------------------------- menu entry
-def test_tools_menu_has_the_action_after_perf_log(qapp):
+def test_tools_menu_has_no_config_assets_entry(qapp):
+    """Assets belong to the project: engineers prepare `assets_<PROJECT>`
+    by hand from the template, so Tools carries no assets panel any more
+    (2026-11-08 user direction - the entry was confusing)."""
     from mtkgui.main_window import MainWindow
     w = MainWindow(role="SUPERVISOR", mode="Virtual")
     try:
         tools_action = [a for a in w.menuBar().actions()
                         if a.text() == "Tools"][0]
         tools = tools_action.menu()
-        actions = tools.actions()
-        labels = [a.text() for a in actions if not a.isSeparator()]
-        assert "Config assets for projects…" in labels
-        perf = labels.index("Performance Timing Log")
-        new = labels.index("Config assets for projects…")
-        assert new == perf + 1
-        # a separator sits between the two entries
-        perf_action = [a for a in actions
-                       if a.text() == "Performance Timing Log"][0]
-        idx = actions.index(perf_action)
-        assert actions[idx + 1].isSeparator()
-        assert actions[idx + 2] is w.act_assets_config
-        # lazy + reused
-        assert w._assets_dialog is None
+        labels = [a.text() for a in tools.actions() if not a.isSeparator()]
+        assert "Config assets for projects…" not in labels
+        assert not hasattr(w, "act_assets_config")
+        assert not hasattr(w, "_assets_dialog")
     finally:
         w.close()
         w.deleteLater()

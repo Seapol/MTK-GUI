@@ -1316,15 +1316,6 @@ class MainWindow(QMainWindow):
             "GUI restart.")
         self.act_perf_timing.toggled.connect(self._set_perf_timing_enabled)
         tools_menu.addSeparator()
-        # M69: project-bound custom assets (built-in template read-only)
-        self.act_assets_config = tools_menu.addAction(
-            "Config assets for projects…")
-        self.act_assets_config.setToolTip(
-            "Create / edit a project-owned assets folder copied from the "
-            "read-only built-in template")
-        self.act_assets_config.triggered.connect(self._open_assets_config)
-        self._assets_dialog = None
-        tools_menu.addSeparator()
         # M78-3: one application-level stall watchdog value (no YAML field)
         self.act_fct_watchdog = tools_menu.addAction("FCT Watchdog…")
         self.act_fct_watchdog.setToolTip(
@@ -1581,19 +1572,6 @@ class MainWindow(QMainWindow):
         that root."""
         from mtkgui import report_paths
         self._open_report_dir(report_paths.dut_folder(), "DAQ CSV Data")
-
-    def _open_assets_config(self):
-        """M69: Tools > Config assets for projects... (lazy, reused)."""
-        if self._assets_dialog is None:
-            from mtkgui.gui.assets_config_dialog import AssetsConfigDialog
-            self._assets_dialog = AssetsConfigDialog(
-                self, bind_callback=self._bind_project_assets,
-                equipment_provider=self._equipment_network_values,
-                host_scan_provider=self._host_wifi_scan_hit)
-        self._assets_dialog.refresh()
-        self._assets_dialog.show()
-        self._assets_dialog.raise_()
-        self._assets_dialog.activateWindow()
 
     def _configure_fct_watchdog(self):
         """M78-3/M83/C13: Tools > FCT Watchdog - ONE app-level numeric
