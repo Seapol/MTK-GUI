@@ -104,7 +104,7 @@ def test_light_theme_palette_untouched():
     """The pre-approved Light palette (login dialog etc.) is byte-for-
     byte the original - arbitrary palette drift fails this test."""
     current = {k: v for k, v in GUI_THEMES["Light"].items()
-               if k != "verdicts"}
+               if k not in ("verdicts", "text_ok", "text_bad")}
     assert current == _LIGHT_ORIGINAL
 
 

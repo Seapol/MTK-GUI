@@ -675,6 +675,9 @@ def audit_theme(name):
         ("verdict warn on card", t["verdicts"]["warn"], t["card"], 3.0),
         ("disabled_text on disabled_bg",
          t["disabled_text"], t["disabled_bg"], 3.0),
+        # M94: the semantic label tones
+        ("text_ok on card", t["text_ok"], t["card"], 4.5),
+        ("text_bad on card", t["text_bad"], t["card"], 4.5),
     ]
     return [(n, round(contrast(f, b), 2), req)
             for n, f, b, req in checks if contrast(f, b) < req]
