@@ -43,6 +43,12 @@ from mtkgui.engine.sharepoint_site import join_folder  # M10 link roots
 # executable / dangerous payloads never leave the station
 BLACKLIST_SUFFIXES = {".exe", ".bat", ".cmd", ".sh", ".dll", ".msi"}
 
+#: M86: the only files a run uploads (the certificate manifest)
+MANIFEST_PATTERNS = ("DUT_*.pdf", "DUT_detail_*.csv", "power_rails_*.csv",
+                     "*_console_log.txt")
+#: names that are never uploaded, whatever the whitelist says
+NAME_BLACKLIST = ("*_ai_review.txt",)
+
 #: packaged-upload periods (user direction 2026-10-14): the local
 #: folder is zipped with a timestamp and uploaded once per period
 PERIODS: tuple[str, ...] = ("daily", "weekly", "biweekly", "monthly",
@@ -77,6 +83,10 @@ class UploadConfig:
     mode: str = MODE_SYNC                 # sync | packaged
     pack_period: str = "weekly"           # one of PERIODS
     last_pack_ts: float = 0.0             # epoch of the last pack
+    #: M86: remote path segments after the upload root - the caller (GUI)
+    #: passes ``[<PROJECT>, <identity folder>]``; the engine itself stays
+    #: free of project knowledge
+    dest_segments: list[str] = field(default_factory=list)
 
     @classmethod
     def from_config(cls, cfg: dict) -> "UploadConfig":
@@ -97,6 +107,8 @@ class UploadConfig:
             mode=str(sp.get("upload_mode") or MODE_SYNC),
             pack_period=str(sp.get("pack_period") or "weekly"),
             last_pack_ts=float(sp.get("last_pack_ts") or 0.0),
+            dest_segments=[str(part) for part in
+                           (sp.get("dest_segments") or []) if str(part)],
         )
 
     def to_config(self) -> dict:
@@ -115,6 +127,7 @@ class UploadConfig:
             "upload_mode": self.mode,
             "pack_period": self.pack_period,
             "last_pack_ts": self.last_pack_ts,
+            "dest_segments": list(self.dest_segments),
         }
 
 
@@ -398,6 +411,8 @@ class UploadResult:
 
 def filter_allowed(name: str, whitelist: list[str]) -> str | None:
     """Black/white-list gate: returns a reject reason or None."""
+    if any(fnmatch.fnmatch(name, pat) for pat in NAME_BLACKLIST):
+        return "never uploaded"
     if Path(name).suffix.lower() in BLACKLIST_SUFFIXES:
         return "blacklisted type"
     if whitelist and not any(fnmatch.fnmatch(name, pat)
@@ -488,7 +503,10 @@ class SharePointUploader:
         return problems
 
     def _dest_dir(self) -> str:
-        return (self.config.project_dir or "").strip("/")
+        """``<upload root>/<project_dir>/<dest_segments...>``."""
+        parts = [str(self.config.project_dir or "").strip("/")]
+        parts += [str(part).strip("/") for part in self.config.dest_segments]
+        return "/".join(part for part in parts if part)
 
     # ---------------------------------------------------------- upload
     def upload_file(self, path) -> UploadResult:

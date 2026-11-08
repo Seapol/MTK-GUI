@@ -147,7 +147,8 @@ def test_sync_now_uploads_folder(qapp, tmp_path, no_modals):
     try:
         src = tmp_path / "reports"
         src.mkdir()
-        (src / "a.csv").write_text("1,2,3")
+        # M86: sync carries the certificate manifest only
+        (src / "DUT_detail_a.csv").write_text("1,2,3")
         dlg.site_edit.setText("https://corp.sharepoint.com/ict")
         dlg.folder_edit.setText(str(src))
         logs = []

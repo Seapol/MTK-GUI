@@ -54,8 +54,10 @@ from mtkgui.engine.sharepoint_site import (
     parse_sharepoint_link,
     session_cookies,
 )
+from mtkgui import report_paths, sharepoint_store
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from mtkgui.engine.uploader import (
+    MANIFEST_PATTERNS,
     MODE_PACKAGED,
     MODE_SYNC,
     PERIODS,
@@ -65,10 +67,6 @@ from mtkgui.engine.uploader import (
     SharePointUploader,
     TransportError,
 )
-
-#: persisted config (virtual_fault.json pattern: module config dir
-#: first, then the working directory)
-CONFIG_NAME = "sharepoint_upload.json"
 
 #: signed-in session file inside the SharePoint state dir
 SESSION_NAME = "session.json"
@@ -86,32 +84,18 @@ VIRTUAL_SITE = "https://virtual.sharepoint.local/ict-reports"
 
 
 def candidate_config_paths():
-    here = Path(__file__).resolve().parents[1] / "config" / CONFIG_NAME
-    yield here
-    yield Path.cwd() / "config" / CONFIG_NAME
+    """M86: the per-project config location (store-owned)."""
+    yield sharepoint_store.config_path()
 
 
 def load_upload_config() -> dict:
-    """The stored ``sharepoint`` section (empty dict when missing)."""
-    for path in candidate_config_paths():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, dict) and isinstance(
-                data.get("sharepoint"), dict):
-            return data["sharepoint"]
-    return {}
+    """The stored ``sharepoint`` section of the current project."""
+    return sharepoint_store.load_config()
 
 
 def save_upload_config(section: dict) -> Path:
-    """Persist the ``sharepoint`` section (module config dir)."""
-    path = next(candidate_config_paths())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"sharepoint": section},
-                               ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
-    return path
+    """Persist the ``sharepoint`` section of the current project."""
+    return sharepoint_store.save_config(section)
 
 
 #: period key -> the label shown in the combo (order follows PERIODS)
@@ -499,6 +483,9 @@ class SharePointUploadDialog(QDialog):
             saved = (data or {}).get("sharepoint", {}) \
                 if isinstance(data, dict) else {}
         else:
+            # M86: one-time move of the pre-M86 module config into the
+            # project, then read the project's own section
+            sharepoint_store.migrate_legacy_config()
             saved = load_upload_config()
         self._apply_section(saved)
         self._apply_session()
@@ -599,6 +586,16 @@ class SharePointUploadDialog(QDialog):
         # the in-session pack moment wins over the (possibly stale)
         # on-disk value - otherwise apply_config would reset it to 0
         cfg.last_pack_ts = max(cfg.last_pack_ts, self._last_pack_ts)
+        # M86: remote destination is <root>/<PROJECT>/<identity> and only
+        # the certificate manifest may travel (a saved explicit whitelist
+        # still wins)
+        cfg.dest_segments = [report_paths.project_key(),
+                             sharepoint_store.identity_folder()]
+        if not cfg.whitelist:
+            cfg.whitelist = list(MANIFEST_PATTERNS)
+            if cfg.mode == MODE_PACKAGED:
+                # packaged mode's payload IS the timestamped archive
+                cfg.whitelist.append("*.zip")
         uploader.apply_config(cfg)
         return uploader
 
