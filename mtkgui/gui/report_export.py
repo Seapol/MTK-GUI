@@ -136,6 +136,22 @@ def console_log_html(text: str, max_chars: int | None = None,
             + render_html(log, wrap or CONSOLE_WRAP_CHARS))
 
 
+def save_console_dump(report, folder, stem: str) -> Path:
+    """Write the FULL transcript as an ASCII dump next to the PDF.
+
+    The dump is never truncated and never coloured: every line is kept,
+    non-ASCII characters are escaped with ``backslashreplace`` so the file
+    stays plain ASCII (openable in any viewer / editor).
+    """
+    from ..report_console import sanitize
+
+    path = Path(folder) / f"{stem}_console_log.txt"
+    text = sanitize(getattr(report, "console_log", "") or "")
+    path.write_text(text.encode("ascii", "backslashreplace").decode("ascii"),
+                    encoding="ascii")
+    return path
+
+
 def build_html_report(*, records, yield_report, cycle_report,
                       cpk_reports, batch_summaries=None,
                       meta=None, title="Mass-production test report") -> str:

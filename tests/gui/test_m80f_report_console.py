@@ -146,3 +146,45 @@ def test_console_dump_is_used_when_no_fat_log(tmp_path):
     assert report.console_source == "console"
     assert report.console_log.startswith("===== console =====")
     assert "hello" in report.console_log
+
+
+# -------------------------------------------------------------------- C4
+def test_dump_file_is_ascii_and_keeps_every_line(tmp_path):
+    from mtkgui.engine.report import DutReport
+    from mtkgui.gui.report_export import save_console_dump
+
+    lines = [f"line {index} \x1b[32mok\x1b[0m caf\u00e9"
+             for index in range(140)]
+    log = "\n".join(lines) + "\n"
+    report = DutReport(serial_no="SN1", station_id="S", user="op",
+                       console_log=log)
+    path = save_console_dump(report, tmp_path, "DUT_PASS_SN1")
+    assert path.name == "DUT_PASS_SN1_console_log.txt"
+    text = path.read_bytes().decode("ascii")     # ASCII only, or this fails
+    assert "\x1b" not in text
+    assert all(ord(char) < 128 for char in text)
+    assert "caf\\xe9" in text                    # escaped, not dropped
+    assert len(text.splitlines()) == 140         # every line kept
+    assert len(text.splitlines()) == len(sanitize(log).splitlines())
+
+
+def test_appendix_omitted_above_ten_pages_and_replaced_by_pointer(tmp_path):
+    from mtkgui.engine.report import DutReport
+    from mtkgui.gui import dut_pdf
+
+    # ~468 000 characters -> far above 800 wrapped lines
+    report = DutReport(serial_no="SN1", station_id="S", user="op",
+                       overall_result="PASS",
+                       console_log=("A" * 78 + "\n") * 6000)
+    dump_name = "DUT_PASS_SN1_console_log.txt"
+    html = dut_pdf.dut_report_html(report, {"console_dump": dump_name})
+    assert "Full console log: " + dump_name in html
+    assert "(ASCII, " in html
+    assert "omitted from this PDF (limit 10 pages)." in html
+    assert "Menlo,Consolas,monospace" not in html   # no console table at all
+
+    # a 800-line log still fits and is rendered as the terminal table
+    report.console_log = ("B" * 40 + "\n") * 800
+    html = dut_pdf.dut_report_html(report, {"console_dump": dump_name})
+    assert "Menlo,Consolas,monospace" in html
+    assert "omitted from this PDF" not in html

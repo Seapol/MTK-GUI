@@ -1430,6 +1430,11 @@ class MainWindow(QMainWindow):
                                core_id=meta.get("core_id", ""),
                                part=meta.get("part", ""))
             pdf_path = run_dir / dut_pdf.dut_pdf_name(report, meta)
+            # M80-F: the FULL transcript always lands next to the PDF as an
+            # ASCII dump; the PDF appendix is capped at 10 pages instead.
+            from mtkgui.gui.report_export import save_console_dump
+            dump_path = save_console_dump(report, run_dir, pdf_path.stem)
+            meta["console_dump"] = dump_path.name
             # M78-4: remember the artifact this run expects; the next
             # Run press warns (never blocks) when it was never written.
             self.workflow_page.last_report_artifact = str(pdf_path)

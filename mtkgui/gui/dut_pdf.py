@@ -592,8 +592,17 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
     html = "".join(parts)
     log = report.console_log or ""
     if log.strip():
-        html += ("<hr>" + console_log_html(
-            log, wrap=console_wrap_chars()))
+        from ..report_console import (APPENDIX_MAX_LINES, omitted_pointer,
+                                      sanitize, wrapped_lines)
+        wrap = console_wrap_chars()
+        if wrapped_lines(log, wrap) > APPENDIX_MAX_LINES:
+            # M80-F: the full transcript is in the ASCII dump file - this
+            # PDF carries a one-line pointer instead of 25+ appendix pages
+            html += ("<hr>" + omitted_pointer(
+                str(meta.get("console_dump") or ""),
+                len(sanitize(log).splitlines())))
+        else:
+            html += ("<hr>" + console_log_html(log, wrap=wrap))
     # fullPage printing has zero page margins: this white wrapper IS
     # the paper margin (the navy ring would otherwise touch the paper
     # edge and get cut by physical printers)

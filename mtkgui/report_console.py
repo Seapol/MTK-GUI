@@ -239,9 +239,16 @@ def render_html(text: str, wrap: int = 110) -> str:
 
 
 def wrapped_lines(text: str, wrap: int = 110) -> int:
-    """Number of A4 appendix lines this transcript needs."""
+    """Number of A4 appendix lines this transcript needs.
+
+    A trailing newline does not add a page line (the transcript ends
+    where the last printed line ends).
+    """
+    lines = _cells(text)
+    if len(lines) > 1 and not lines[-1]:
+        lines = lines[:-1]
     total = 0
-    for line in _cells(text):
+    for line in lines:
         total += max(1, -(-len(line) // max(1, wrap)))
     return total
 
