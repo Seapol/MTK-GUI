@@ -88,6 +88,7 @@ from .style import (
     APP_ORG,
     GUI_THEMES,
     build_qss,
+    apply_theme,
     saved_theme,
 )
 from .theme import DEFAULT_BACKGROUND, THEMES, theme_for
@@ -2872,7 +2873,7 @@ class MainWindow(QMainWindow):
         if name not in GUI_THEMES:
             return
         if MainWindow._applied_theme != name:
-            QApplication.instance().setStyleSheet(build_qss(name))
+            apply_theme(QApplication.instance(), name)
             MainWindow._applied_theme = name
         QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
         # theme fonts restyle every metric: re-prove the vertical

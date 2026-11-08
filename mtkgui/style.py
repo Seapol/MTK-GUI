@@ -28,6 +28,7 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QColor, QPalette
 
 from .theme import is_dark, text_on_dark, text_on_light
 
@@ -531,6 +532,55 @@ def build_qss(name="Light"):
             key=len, reverse=True):
         qss = qss.replace("@" + key, t[key])
     return qss
+
+
+def theme_palette(name="Light") -> QPalette:
+    """QPalette for one GUI theme.
+
+    The stylesheet alone leaves every surface it does not name (scroll
+    viewports, spin-box popups, tooltips, plain containers, message boxes)
+    on Fusion's light palette, while QWidget's colour token still paints
+    light text into them.  Setting a palette as well means an unstyled
+    widget is themed instead of merely recoloured."""
+    t = GUI_THEMES.get(name, GUI_THEMES["Light"])
+    p = QPalette()
+    roles = (
+        (QPalette.ColorRole.Window, "page"),
+        (QPalette.ColorRole.WindowText, "text"),
+        (QPalette.ColorRole.Base, "card"),
+        (QPalette.ColorRole.AlternateBase, "alt"),
+        (QPalette.ColorRole.Text, "text"),
+        (QPalette.ColorRole.Button, "card"),
+        (QPalette.ColorRole.ButtonText, "text"),
+        (QPalette.ColorRole.BrightText, "text"),
+        (QPalette.ColorRole.Highlight, "accent"),
+        (QPalette.ColorRole.HighlightedText, "accent_text"),
+        (QPalette.ColorRole.ToolTipBase, "card"),
+        (QPalette.ColorRole.ToolTipText, "text"),
+        (QPalette.ColorRole.PlaceholderText, "placeholder"),
+        (QPalette.ColorRole.Link, "link"),
+    )
+    for role, key in roles:
+        p.setColor(role, QColor(t[key]))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text,
+                 QPalette.ColorRole.ButtonText):
+        p.setColor(QPalette.ColorGroup.Disabled, role,
+                   QColor(t["disabled_text"]))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base,
+               QColor(t["disabled_bg"]))
+    p.setColor(QPalette.ColorGroup.Inactive, QPalette.ColorRole.Highlight,
+               QColor(t["accent"]))
+    p.setColor(QPalette.ColorGroup.Inactive,
+               QPalette.ColorRole.HighlightedText, QColor(t["accent_text"]))
+    return p
+
+
+def apply_theme(app, name="Light") -> None:
+    """Apply palette AND stylesheet.  Call this, never setStyleSheet()
+    alone: a stylesheet without a matching palette is exactly what made
+    the Dark theme's dialogs unreadable."""
+    app.setPalette(theme_palette(name))
+    app.setStyleSheet(build_qss(name))
 
 
 def _hover(accent):

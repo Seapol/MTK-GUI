@@ -43,7 +43,7 @@ def main():
     from mtkgui import __app_name__
     from mtkgui.main_window import MainWindow
     from mtkgui.permissions import LoginDialog
-    from mtkgui.style import QSS
+    from mtkgui.style import apply_theme, saved_theme
 
     _timing.mark("imports done")
     # native crash reports lack Python frames; faulthandler prints the
@@ -56,7 +56,8 @@ def main():
     app.setApplicationName(__app_name__)
     app.setApplicationDisplayName(__app_name__)
     app.setOrganizationName("Manufacturing Test Kit")
-    app.setStyleSheet(QSS)
+    # M94: palette + stylesheet, so unstyled surfaces follow the theme too
+    apply_theme(app, saved_theme())
     icon_path = _app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
