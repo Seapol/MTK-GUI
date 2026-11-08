@@ -48,8 +48,10 @@ def test_console_lights_removed(window):
     labels = window.statusBar().findChildren(QLabel)
     assert not any(label.text() == "Console:" for label in labels)
     leds = window.statusBar().findChildren(StatusLed)
-    # one light per instrument entry, nothing else
-    assert len(leds) == len(window.instr_status.leds)
+    # M86: the Shopfloor light is the one extra light in the bar.
+    # A fifth light, or a console light coming back, must still fail.
+    assert len(leds) == len(window.instr_status.leds) + 1
+    assert window.shopfloor_led in leds
 
 
 # ------------------------------------------------------------ progress bar
