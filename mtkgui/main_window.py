@@ -61,6 +61,9 @@ from .gui.event_log_levels import (
 from .gui.dialog_sizing import fit_dialog
 from .gui.progress_dialog import ProgressBridge, ProgressDialog, busy_progress
 from .gui.render_client import ReportRenderClient
+from .gui.shopfloor_worker import ShopfloorUploadWorker, light_ui
+from . import report_paths
+from . import sharepoint_store
 from .permissions import (
     FIXTURE_ATE,
     FIXTURE_MANUAL,
@@ -578,6 +581,9 @@ class MainWindow(QMainWindow):
         self._render_client.progress.connect(self._on_render_progress)
         self._render_client.finished.connect(qt_safe(self._on_render_finished))
         self._render_client.failed.connect(qt_safe(self._on_render_failed))
+        # M86: off-thread SharePoint uploads (never the GUI thread)
+        self._shopfloor_workers: set = set()
+        self._shopfloor_started = False
         self._last_batch = None
 
         # M14 F1: apply the GUI theme BEFORE any widget is created.  A
@@ -896,6 +902,17 @@ class MainWindow(QMainWindow):
         # Instruments connection LEDs
         self.instr_status = InstrumentStatusBar(INSTRUMENTS)
         sb.addPermanentWidget(self.instr_status)
+
+        # M86: Shopfloor light - the SharePoint upload state, persisted in
+        # state.json, so it is correct on the next launch too
+        self.shopfloor_label = QLabel("Shopfloor:")
+        self.shopfloor_label.setObjectName("muted")
+        sb.addPermanentWidget(self.shopfloor_label)
+        self.shopfloor_led = StatusLed()
+        sb.addPermanentWidget(self.shopfloor_led)
+        self._refresh_shopfloor_light()
+        # M86 startup retry: once, after the window is up (non-blocking)
+        QTimer.singleShot(0, self, qt_safe(self._startup_shopfloor_retry))
 
         # M95: the Console LED group was removed from the status bar (the
         # console window shows each channel's own state).  The console log
@@ -1494,6 +1511,13 @@ class MainWindow(QMainWindow):
         self.workflow_page.end_report()
         self._on_dut_pdf_fitted(self._render_client.last_font_pt)
         self._on_dut_pdf_done(path)
+        # M86 retry moment 1: end of run - publish this run's own folder
+        try:
+            folder = Path(path).parent
+            self._shopfloor_upload(
+                [str(item) for item in folder.iterdir() if item.is_file()])
+        except OSError:
+            pass
 
     def _on_render_failed(self, message: str) -> None:
         artifact = str(getattr(self.workflow_page, "last_report_artifact",
@@ -1503,6 +1527,54 @@ class MainWindow(QMainWindow):
         self._report_bridge.stage(100, "DUT report: failed")
         self.workflow_page.end_report()
         self._on_dut_pdf_failed(message)
+
+    # ------------------------------------------------- M86 shopfloor light
+    def _refresh_shopfloor_light(self) -> None:
+        """The light mirrors state.json only - closeEvent never writes it."""
+        key, tip = light_ui(sharepoint_store.load_state())
+        self.shopfloor_led.set_state(key)
+        self.shopfloor_led.setToolTip(tip)
+        self.shopfloor_label.setToolTip(tip)
+
+    def _shopfloor_upload(self, files) -> None:
+        """Hand one batch to the worker (never blocks the GUI thread)."""
+        paths = [str(path) for path in (files or []) if str(path)]
+        if not paths:
+            return
+        worker = ShopfloorUploadWorker(paths, sharepoint_store.load_config(),
+                                       parent=self)
+        worker.done.connect(qt_safe(self._on_shopfloor_done))
+        worker.finished.connect(
+            lambda w=worker: self._shopfloor_workers.discard(w))
+        self._shopfloor_workers.add(worker)
+        sharepoint_store.save_state(light="busy")
+        self._refresh_shopfloor_light()
+        worker.start()
+
+    def _on_shopfloor_done(self, ok: bool, uploaded: int, pending: int,
+                           reason: str) -> None:
+        self._refresh_shopfloor_light()
+        stamp = f"[{datetime.now():%H:%M:%S}] "
+        if ok and uploaded:
+            self._append_event_log(
+                f"{stamp}SharePoint: uploaded {uploaded} file(s) to "
+                f"{report_paths.project_key()}/"
+                f"{sharepoint_store.identity_folder()}")
+        elif pending:
+            self._append_event_log(
+                f"{stamp}SharePoint: {pending} file(s) pending - "
+                f"{reason or 'upload failed'}")
+
+    def _startup_shopfloor_retry(self) -> None:
+        """Once, after the window is up: retry the previous queue."""
+        if self._shopfloor_started:
+            return
+        self._shopfloor_started = True
+        pending = [str(name) for name in
+                   (sharepoint_store.load_state().get("pending") or [])
+                   if str(name)]
+        if pending:
+            self._shopfloor_upload(pending)
 
     def _on_run_report_auto(self, summary: dict) -> None:
         """Automatic report capture (B4 §8.3 trigger): every counted
@@ -1632,6 +1704,12 @@ class MainWindow(QMainWindow):
         # upload result as an important event (shown in Simplified too)
         dlg.action_logged.connect(
             lambda msg: self._append_event_log(msg, level=IMPORTANT))
+        # M86 retry moment 2: opening the dialog retries the queue
+        pending = [str(name) for name in
+                   (sharepoint_store.load_state().get("pending") or [])
+                   if str(name)]
+        if pending:
+            self._shopfloor_upload(pending)
         # M13: PySide 6.10.3 segfaults (SIGSEGV in sbk_o_eventFilter ->
         # PySide::getWrapperForQObject) when a Python QApplication
         # event filter is installed while a QWebEngineView is alive -
