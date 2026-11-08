@@ -1,7 +1,7 @@
 #!/bin/sh
 # TEMPLATE - bring up Wi-Fi as a STATION and join the station's access point.
 # Copy to your project assets/resources/scripts/ and fill the four AP_PROFILE
-# values below (or use the "Config assets for projects" sync).
+# values below by hand - they are project data, never written by the app.
 # Idempotent.
 #
 # TWO deployment profiles, selected by ONE positional argument:
@@ -12,9 +12,9 @@
 #                                         is the AP (Host PC hotspot)
 #
 # Both profiles are configured in advance on the Equipment page
-# (Wired & Wireless Network); the four values below are the DUT-side copy.
-# Keep them in sync with the Equipment page: the "Config assets for projects"
-# window can write them into this file from there (M83 C15).
+# (Wired & Wireless Network); the four values below are the DUT-side copy,
+# filled in by hand from that page. There is no in-app editor or sync panel:
+# credentials are project data and the application never writes this file.
 #
 # SECURITY: credentials are hard-coded per profile and are NEVER passed on the
 # command line. The console echoes the command, so a credential on the row would
