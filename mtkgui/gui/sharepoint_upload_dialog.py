@@ -42,10 +42,12 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from mtkgui.engine.browser_session import read_session_cookies
 from mtkgui.engine.sharepoint_site import (
     SharePointSession,
     SharePointSite,
@@ -327,6 +329,35 @@ class SharePointUploadDialog(QDialog):
         fit_dialog(self, 720, 560)
 
         root = QVBoxLayout(self)
+        self._stack = QStackedWidget()
+        root.addWidget(self._stack, 1)
+
+        # ------------------------------------------------ level A (status)
+        page_a = QWidget()
+        a_lay = QVBoxLayout(page_a)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        a_lay.addWidget(self.status_label)
+        a_row = QHBoxLayout()
+        self.btn_a_test = QPushButton("Test connection")
+        self.btn_a_test.clicked.connect(self.test_connection)
+        a_row.addWidget(self.btn_a_test)
+        self.btn_a_upload = QPushButton("Upload pending now")
+        self.btn_a_upload.clicked.connect(self.upload_pending_now)
+        a_row.addWidget(self.btn_a_upload)
+        self.btn_a_advanced = QPushButton("Advanced…")
+        self.btn_a_advanced.clicked.connect(self._show_advanced)
+        a_row.addWidget(self.btn_a_advanced)
+        self.btn_a_close = QPushButton("Close")
+        self.btn_a_close.clicked.connect(self.reject)
+        a_row.addWidget(self.btn_a_close)
+        a_lay.addLayout(a_row)
+        a_lay.addStretch(1)
+        self._stack.addWidget(page_a)
+
+        # ------------------------------------------------ level B (form)
+        page_b = QWidget()
+        b_lay = QVBoxLayout(page_b)
         body = QWidget()
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 0, 0, 0)
@@ -435,11 +466,25 @@ class SharePointUploadDialog(QDialog):
         self.rb_packaged.toggled.connect(self._sync_mode_widgets)
         body_lay.addWidget(mode)
 
+        # ------------------------------------------------- where things live
+        info = QFormLayout()
+        self.config_label = QLabel(
+            f"Config: {self._config_path or sharepoint_store.config_path()}")
+        self.config_label.setObjectName("muted")
+        self.config_label.setWordWrap(True)
+        self.config_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        info.addRow(self.config_label)
+        self.dest_label = QLabel(f"Uploads to: {self._destination_text()}")
+        self.dest_label.setObjectName("muted")
+        self.dest_label.setWordWrap(True)
+        self.dest_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        info.addRow(self.dest_label)
+        body_lay.addLayout(info)
+
         # ------------------------------------------------------ actions
         actions = QHBoxLayout()
-        self.btn_save = QPushButton("Save Config")
-        self.btn_save.clicked.connect(self.save_config)
-        actions.addWidget(self.btn_save)
         self.btn_sync = QPushButton("Sync Now")
         self.btn_sync.clicked.connect(self.sync_now)
         actions.addWidget(self.btn_sync)
@@ -458,13 +503,21 @@ class SharePointUploadDialog(QDialog):
         self.audit_view.setReadOnly(True)
         self.audit_view.setPlaceholderText("upload audit trail…")
         body_lay.addWidget(self.audit_view, 1)
-        # M34: body scrolls, Close stays outside (always visible)
-        apply_scroll_to_dialog(self, body)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        # M34/M86: the form scrolls, level B's button row stays outside
+        apply_scroll_to_dialog(page_b, body)
+        b_row = QHBoxLayout()
+        self.btn_back = QPushButton("Back")
+        self.btn_back.clicked.connect(self._show_status)
+        b_row.addWidget(self.btn_back)
+        b_row.addStretch(1)
+        self.btn_save = QPushButton("Save")
+        self.btn_save.clicked.connect(self.save_config)
+        b_row.addWidget(self.btn_save)
+        self.btn_close_b = QPushButton("Close")
+        self.btn_close_b.clicked.connect(self.reject)
+        b_row.addWidget(self.btn_close_b)
+        b_lay.addLayout(b_row)
+        self._stack.addWidget(page_b)
 
         # ----------------------------------------------------- timer
         self._timer = self._make_timer()
@@ -489,6 +542,7 @@ class SharePointUploadDialog(QDialog):
             saved = load_upload_config()
         self._apply_section(saved)
         self._apply_session()
+        self._refresh_status()
 
     # ---------------------------------------------------------- plumbing
     def _make_timer(self):
@@ -785,6 +839,11 @@ class SharePointUploadDialog(QDialog):
         answer is "not signed in", never a silent legacy fallback."""
         self.conn_status.setText("testing…")
         if not self.virtual and not (self._session and self._session.cookies):
+            # M86 plan A first: reuse the station browser's session, and
+            # only fall back to the interactive sign-in (plan B) when that
+            # produced nothing.
+            self._apply_browser_session()
+        if not self.virtual and not (self._session and self._session.cookies):
             problems = ["not signed in — click Connect & Sign in… first"]
         else:
             try:
@@ -802,6 +861,7 @@ class SharePointUploadDialog(QDialog):
             self.conn_status.setText(
                 f"OK{tag}: reachable, folder writable")
             self._log(f"sharepoint test connection: OK{tag}")
+        self._refresh_status()
         return problems
 
     def sync_now(self) -> list:
@@ -877,7 +937,87 @@ class SharePointUploadDialog(QDialog):
                 else _save_to(section, self._config_path))
         self._log(f"sharepoint config saved: {path}")
         self.config_saved.emit(section)
+        self._refresh_status()
         return path
+
+    # ------------------------------------------------------ M86 two levels
+    def _show_status(self):
+        """Back to level A (status + one action)."""
+        self._refresh_status()
+        self._stack.setCurrentIndex(0)
+
+    def _show_advanced(self):
+        """Advanced… opens the settings form (level B)."""
+        self._refresh_status()
+        self._stack.setCurrentIndex(1)
+
+    def _refresh_status(self):
+        self.status_label.setText(self._status_text())
+        if hasattr(self, "dest_label"):
+            self.dest_label.setText(
+                f"Uploads to: {self._destination_text()}")
+
+    def _status_text(self) -> str:
+        """The one status line of level A (from state.json + the config)."""
+        state = sharepoint_store.load_state()
+        pending = [name for name in (state.get("pending") or []) if name]
+        if pending:
+            return f"Pending: {len(pending)} file(s)"
+        if state.get("last_result"):
+            stamp = state.get("last_attempt_ts") or ""
+            return f"Last upload: {state['last_result']} {stamp}".strip()
+        configured = bool(
+            (self.current_section().get("site_url") or "").strip()
+            or self.virtual or (self._session and self._session.cookies))
+        return "Ready - no upload yet" if configured else "Not configured"
+
+    def _destination_text(self) -> str:
+        """``<link>/<PROJECT>/<identity>`` shown read-only on level B."""
+        link = self.site_edit.text().strip() or VIRTUAL_SITE
+        return (f"{link.rstrip('/')}/{report_paths.project_key()}/"
+                f"{sharepoint_store.identity_folder()}")
+
+    def upload_pending_now(self) -> list:
+        """Upload the files ``state.json`` still lists as pending."""
+        pending = [Path(name) for name in
+                   (sharepoint_store.load_state().get("pending") or [])]
+        files = [path for path in pending if path.is_file()]
+        if not files:
+            self._log("sharepoint: nothing pending")
+            self._refresh_status()
+            return []
+        results = self._build_uploader().upload_pending(source=files)
+        bad = [result for result in results
+               if result.status in ("FAILED", "BLOCKED")]
+        self._log(f"sharepoint pending upload: {len(results)} file(s), "
+                  f"{len(bad)} failed")
+        self._refresh_status()
+        return results
+
+    def _apply_browser_session(self) -> bool:
+        """Plan A: reuse the station browser's own FedAuth / rtFa session."""
+        if self.virtual:
+            return False
+        link = self.site_edit.text().strip() or (
+            self._session.link if self._session else "")
+        site, folder = "", ""
+        if link:
+            try:
+                parsed = parse_sharepoint_link(link)
+                site, folder = parsed.site, parsed.folder_path
+            except ValueError:
+                site = ""
+        if not site:
+            return False
+        try:
+            cookies = read_session_cookies(host_of(site))
+        except Exception:                # noqa: BLE001 - plan A is best effort
+            cookies = None
+        if not cookies:
+            return False
+        return self.adopt_sign_in(
+            SharePointSite(site=site, folder_path=folder, raw=link),
+            cookies) is not None
 
     # ------------------------------------------------------ auto drive
     def _auto_tick(self):
