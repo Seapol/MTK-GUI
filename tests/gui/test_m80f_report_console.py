@@ -10,6 +10,9 @@ from __future__ import annotations
 from mtkgui.report_console import (
     DEFAULT_BG,
     DEFAULT_FG,
+    contrast,
+    ensure_contrast,
+    luminance,
     render_html,
     sanitize,
     wrapped_lines,
@@ -61,3 +64,39 @@ def test_appendix_is_idempotent():
     once = sanitize(RAW_LOG)
     assert sanitize(once) == once
     assert once == "FCT boot\n100%\n\u250c\u2500\u2500\u2500\u2500\u2510 done\n"
+
+
+# -------------------------------------------------------------------- C2
+#: the hostile palette from the directive §0: (fg, bg) as the decoder yields it
+_HOSTILE = [
+    ("#000000", "#000000"),   # black on black
+    ("#0000ee", "#000000"),   # SGR 34 dark blue
+    ("#00005f", "#000000"),   # 256-colour index 17
+    ("#0c0c0c", "#000000"),   # truecolor 12,12,12
+    ("#e5e5e5", "#e5e5e5"),   # 47;37 white on white
+    ("#eeeeee", "#ffffff"),   # 48;5;231;38;5;255 pale on light
+    ("#7f7f7f", "#7f7f7f"),   # 100;90 grey on grey
+    ("#cd0000", "#000000"),   # SGR 31 dark red
+]
+
+
+def test_contrast_guard_meets_4_5_for_eight_hostile_cases():
+    assert len(_HOSTILE) == 8
+    for foreground, background in _HOSTILE:
+        assert contrast(foreground, background) < 4.5, (
+            f"{foreground} on {background} was already legible - "
+            "the guard would not have acted")
+        fixed = ensure_contrast(foreground, background, 4.5)
+        assert contrast(fixed, background) >= 4.5, (foreground, background)
+
+
+def test_dim_text_keeps_3_0_contrast_and_stays_darker_than_normal():
+    import re
+
+    html = render_html("\x1b[2mDIM\x1b[0m NORMAL")
+    colours = re.findall(r"color:(#[0-9a-f]{6})", html)
+    assert len(colours) == 2, colours
+    dim, normal = colours
+    assert contrast(dim, DEFAULT_BG) >= 3.0
+    assert luminance(dim) < luminance(normal)
+    assert contrast(normal, DEFAULT_BG) >= 4.5

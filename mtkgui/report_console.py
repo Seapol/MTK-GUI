@@ -127,6 +127,7 @@ def _colours(attrs: dict) -> tuple[str, str]:
 def _css(attrs: dict) -> str:
     """Inline CSS for one attribute run (palette fixed by the theme)."""
     fg, bg = _colours(attrs)
+    fg = ensure_contrast(fg, bg, 3.0 if attrs.get("dim") else 4.5)
     rules = [f"color:{fg}"]
     if bg != DEFAULT_BG:
         rules.append(f"background-color:{bg}")
@@ -135,6 +136,54 @@ def _css(attrs: dict) -> str:
     if attrs.get("underline"):
         rules.append("text-decoration:underline")
     return "; ".join(rules)
+
+
+# ------------------------------------------------------- contrast guard
+def _linear(channel: str) -> float:
+    value = int(channel, 16) / 255.0
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+
+def luminance(hex_colour) -> float:
+    """WCAG relative luminance of ``#rrggbb``."""
+    colour = str(hex_colour or "").lstrip("#")
+    if len(colour) != 6:
+        return 0.0
+    return (0.2126 * _linear(colour[0:2])
+            + 0.7152 * _linear(colour[2:4])
+            + 0.0722 * _linear(colour[4:6]))
+
+
+def contrast(a, b) -> float:
+    """WCAG contrast ratio between two ``#rrggbb`` colours."""
+    first, second = luminance(a), luminance(b)
+    high, low = max(first, second), min(first, second)
+    return (high + 0.05) / (low + 0.05)
+
+
+def ensure_contrast(fg, bg, target=4.5) -> str:
+    """Blend *fg* toward white (dark bg) / black (light bg) until *target*.
+
+    The hue direction is preserved - the glyph gets lighter (or darker) on
+    its own background instead of being replaced by a fixed colour.
+    """
+    if contrast(fg, bg) >= target:
+        return fg
+    # blend toward whichever extreme this background can actually reach:
+    # mid-grey backgrounds (luminance 0.21) cannot reach 4.5 toward white
+    toward = ("#ffffff" if contrast("#ffffff", bg) >= contrast("#000000", bg)
+              else "#000000")
+    low, high = 0.0, 1.0
+    for _ in range(12):
+        mid = (low + high) / 2.0
+        if contrast(_blend(fg, toward, mid), bg) >= target:
+            high = mid
+        else:
+            low = mid
+    candidate = _blend(fg, toward, high)
+    # 8-bit rounding can drop a hair below the target - the extreme end is
+    # the maximum this background allows, so use it only then
+    return candidate if contrast(candidate, bg) >= target else toward
 
 
 def _cells(text: str) -> list[list[tuple[str, dict]]]:
@@ -211,6 +260,9 @@ __all__ = [
     "APPENDIX_MAX_PAGES",
     "DEFAULT_BG",
     "DEFAULT_FG",
+    "contrast",
+    "ensure_contrast",
+    "luminance",
     "omitted_pointer",
     "render_html",
     "sanitize",
