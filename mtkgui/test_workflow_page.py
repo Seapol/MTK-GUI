@@ -122,7 +122,7 @@ _ICON_DIR = Path(__file__).resolve().parent / "assets"
 # operations (fixture / instrument control) report Done/Error; measurement
 # tests report PASS/FAIL.
 # R-GND shorts MUST run before the DUT is powered on: a short under
-# power risks damaging the board, so "Stop if any short" aborts the run
+# power risks damaging the board, so "Stop if any R-GND short" aborts the run
 # right here, before "Power On DUT".
 # (kind, name, unit, measured, min / threshold, max[, op_params])
 # standard op step tuples come from mtkgui.engine.steps (op_step).
@@ -1407,7 +1407,7 @@ class TestWorkFlowPage(QWidget):
             "Default ON. When checked, any test/operation that reports "
             "FAIL aborts the whole run immediately.")
         policy_row.addWidget(self.stop_if_fail_cb)
-        self.stop_if_short_cb = QCheckBox("Stop if any short")
+        self.stop_if_short_cb = QCheckBox("Stop if any R-GND short")
         self.stop_if_short_cb.setChecked(True)
         self.stop_if_short_cb.setToolTip(
             "Default ON. Applies to every R-GND Shorts test: if low "

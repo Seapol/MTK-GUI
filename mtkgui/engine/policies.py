@@ -30,15 +30,15 @@ def policy_abort_reason(kind: str, raw_status: str | None, name: str,
             return None
         if is_short and stop_if_any_short:
             if raw_status == "FAIL":
-                return (f"Stop policy (Stop if any short): low impedance "
+                return (f"Stop policy (Stop if any R-GND short): low impedance "
                         f"detected at '{name}' -> run aborted BEFORE power "
                         f"on. Overall Result: FAIL")
             if raw_status == "Error":
-                return (f"Stop policy (Stop if any short): R-GND "
+                return (f"Stop policy (Stop if any R-GND short): R-GND "
                         f"'{name}' could not be verified (Error) -> run "
                         f"aborted BEFORE power on. Overall Result: FAIL")
             # a future judged-bad status: still unsafe to power on
-            return (f"Stop policy (Stop if any short): R-GND '{name}' "
+            return (f"Stop policy (Stop if any R-GND short): R-GND '{name}' "
                     f"not PASS ({raw_status}) -> run aborted BEFORE power "
                     f"on. Overall Result: FAIL")
         if stop_if_failure:

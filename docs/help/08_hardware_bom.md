@@ -87,7 +87,7 @@ for a reduced plan:
 
 | Feature | Instruments | Peripherals | Notes |
 |---|---|---|---|
-| Impedance Shorts | DAQ973A + DAQM908A x2 | fixture harness | stop policy `Stop if any short` |
+| Impedance Shorts | DAQ973A + DAQM908A x2 | fixture harness | stop policy `Stop if any R-GND short` |
 | Power Voltage | DAQ973A + DAQM908A x2 + N5747A | PSU + sense wiring | needs the DUT powered |
 | Clock Hz | DAQ973A (slow) and/or U2355A (fast) | clock taps at the fixture | per-net resource from the channel allocation |
 | Power rails (DAQ AI) | U2355A + N5747A | AI sense harness | CSV + AI review |

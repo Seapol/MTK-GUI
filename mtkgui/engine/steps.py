@@ -368,7 +368,7 @@ def is_r_gnd_method(value: str) -> bool:
 
 def is_impedance_short(step: tuple) -> bool:
     """True for every R-GND (legacy Impedance Shorts) test row — the
-    scope of the 'Stop if any short' policy. Detected by the R-GND
+    scope of the 'Stop if any R-GND short' policy. Detected by the R-GND
     test method, by unit Ω (per-net rows), or by the legacy aggregate
     name containing 'impedance short'."""
     if is_r_gnd_method(step[0]):

@@ -96,7 +96,7 @@ def test_headers_centered(page):
 
 # ------------------------------------------- item 20: stop policy YAML
 def test_stop_policy_yaml_round_trip(page, qapp, tmp_path):
-    """'Stop if failure' / 'Stop if any short' persist into the
+    """'Stop if failure' / 'Stop if any R-GND short' persist into the
     project YAML on save and are restored on load; factory defaults
     (2026-10-14) are BOTH checked; runtime behavior untouched."""
     import yaml
@@ -139,3 +139,12 @@ def test_row_content_unchanged(page):
     assert [t.horizontalHeaderItem(c).text()
             for c in range(5)] == \
         ["#", "Stage", "EN", "Status", "Duration (s)"]
+
+
+def test_short_policy_label_names_r_gnd(page, qapp):
+    """M92: the checkbox names the scope explicitly - the policy only
+    covers the R-GND rows (legacy Impedance Shorts), not every
+    short-risk step in the run."""
+    assert page.stop_if_short_cb.text() == "Stop if any R-GND short"
+    assert "R-GND" in page.stop_if_short_cb.toolTip()
+    assert page.stop_if_short_cb.isChecked() is True

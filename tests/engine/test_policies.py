@@ -26,7 +26,7 @@ class TestPolicyAbortReason:
         msg = policy_abort_reason(
             "ict", "FAIL", "Impedance Shorts (80 pts)", is_short=True,
             stop_if_any_short=True)
-        assert "Stop if any short" in msg
+        assert "Stop if any R-GND short" in msg
         assert "BEFORE power on" in msg
 
     def test_short_policy_can_be_disabled(self):
@@ -62,7 +62,7 @@ class TestPolicyAbortReason:
         msg = policy_abort_reason(
             "ict", "FAIL", "Impedance Shorts", is_short=True,
             stop_if_failure=True, stop_if_any_short=True)
-        assert "Stop if any short" in msg
+        assert "Stop if any R-GND short" in msg
 
     def test_fct_stop_if_failure(self):
         msg = policy_abort_reason(

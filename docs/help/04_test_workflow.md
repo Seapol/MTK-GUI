@@ -179,12 +179,12 @@ operator unticks a box or a project YAML overrides it.
 
 - `Stop if failure` (default **ON**): any test / operation that
   reports FAIL aborts the whole run immediately when checked.
-- `Stop if any short` (default **ON**): applies to every R-GND
+- `Stop if any R-GND short` (default **ON**): applies to every R-GND
   Shorts test. A short under power can damage the board, so the run
   aborts right there - before `Power On DUT`.
 
 **Note:** R-GND shorts are intentionally sequenced before the DUT
-is powered on; keep `Stop if any short` enabled unless you know the
+is powered on; keep `Stop if any R-GND short` enabled unless you know the
 board is safe.
 
 ## Product Information
@@ -262,7 +262,7 @@ generic `test` row type.
   neighbouring net **before** power is applied. Keep these rows in
   the pre-power segment of the sequence.
 - **Example** - row `R-GND Shorts (80 pts)`, Min `1.5`: a
-  reading of `0.62` trips `Stop if any short` and aborts the run
+  reading of `0.62` trips `Stop if any R-GND short` and aborts the run
   right there, before `Power On DUT`.
 
 #### Power Voltage
