@@ -80,6 +80,15 @@ Configuration functions - mostly supervisor territory.
   with a Supervisor account. Opens the fault-injection configuration
   (Virtual Test Fail Ratio 0-100 %, Virtual Equipment Error 0-100
   %). *Dialog: Virtual Fault Injection window.*
+- **Report Folders…** - supervisor-only. Chooses the reports root folder
+  (**Browse** picks any directory on the machine) and the two sub-folder
+  names, default `<program dir>` + `DUT Report` / `Event Report`. Reports
+  live under `<root>\<PROJECT>\`, one tree per project; the project folder
+  follows the loaded project (`MTKGUI_PROJECT` overrides it) and is shown
+  read-only. Saved to `work\report_paths.json`, which survives a package
+  upgrade; `MTKGUI_REPORT_HOME` supplies the root only while nothing is
+  saved. The resolved paths are previewed live. *Dialog: Report Folders
+  window.*
 - **Event Log** - submenu with the two exclusive display levels:
   `Simplified` and `Detailed`. `Detailed` shows every event with its
   timestamp; `Simplified` hides the chatty DEBUG lines and keeps the

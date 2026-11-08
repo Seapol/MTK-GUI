@@ -365,12 +365,15 @@ No GPIB card? Use a USB-to-GPIB adapter (e.g. Keysight 82357B) — it needs the 
     A fresh package ships that folder empty; it is created on the first publish and is not version-controlled.
   - The **Load Yaml** picker has no fixed default — it opens where you last used it. Always launch the exe from the
     same folder (a shortcut with **Start in** set to the exe folder) and the three stay together.
-- **Report output, and keeping it in your own tree.** Each counted DUT run writes into `MTK_GUI\DUT Report\`, one
+- **Report output, and keeping it in your own tree.** Every counted DUT run writes into
+  `<reports root>\<PROJECT>\DUT Report\` - **one tree per project**, so two projects on one station never mix. Inside, one
   folder per DUT named `Part#_CoreID_Batch#_SN_<timestamp>`, holding the raw DAQ waveform CSV, the certificate PDF and
-  the MES detail CSV. Event logs go to `MTK_GUI\Event Report\`. Set `MTKGUI_REPORT_HOME` before launching (a one-line
-  `.bat` wrapper beside the exe is enough) and both folders are created under that path. **Report → Report Folder…**
-  only renames the two sub-folders (`report_folders.json` beside the exe); it cannot move them out of the program
-  folder. After deployment, run one DUT and confirm the folder appeared where you expected.
+  the MES detail CSV. Event logs go to `<reports root>\<PROJECT>\Event Report\`. `<PROJECT>` is the project folder of
+  the loaded yaml, or `MTKGUI_PROJECT` when the station launch script sets it (recommended for a packaged station).
+  **Settings → Report Folders…** (supervisor) sets the reports root - **Browse** picks any directory - and the two
+  sub-folder names; the project level is read-only and shown in the dialog. Saved to `work\report_paths.json`, which a
+  package upgrade does not touch. `MTKGUI_REPORT_HOME` only supplies the root while nothing has been saved.
+  After deployment, open the dialog once, confirm the preview points where you expect, then run one DUT.
 - **Status bar shows `v1.0.0.0`?** That is correct: one release constant, `mtkgui.__version__`, shown in the status
   bar, login box and About alike. Only a release bumps it. Build facts are under `Help → About`.
 

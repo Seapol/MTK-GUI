@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""2026-10-17 Report-menu rework: every counted run generates its DUT
-report immediately; the Report menu items OPEN the output folders
-(DUT Report / Event Log / DAQ CSV Data) whose names are modifiable;
-the progress bar carries the elapsed run time and the Event Log shows
-the run process (started / finished lines)."""
+"""M96 report folders: every counted run generates its DUT report
+immediately; the Report menu items OPEN the output folders (DUT Report /
+Event Log) and the folder configuration lives in
+Settings > Report Folders… (reports root + Browse, two sub-folder names,
+one tree per project).  Settings travel in the work folder, so a
+package upgrade keeps them."""
 from __future__ import annotations
 
 import os
@@ -20,9 +21,12 @@ from mtkgui import report_paths  # noqa: E402
 
 @pytest.fixture()
 def report_home(tmp_path, monkeypatch):
-    """Redirect the report root into a tmp dir (env override)."""
-    monkeypatch.setenv("MTKGUI_REPORT_HOME", str(tmp_path))
-    return tmp_path
+    """Redirect the report root AND the settings file into a tmp dir."""
+    monkeypatch.setenv("MTKGUI_REPORT_HOME", str(tmp_path / "reports"))
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("MTKGUI_PROJECT", "96317")
+    report_paths.set_current_project("")
+    return tmp_path / "reports"
 
 
 @pytest.fixture(scope="module")
@@ -31,20 +35,74 @@ def qapp():
 
 
 # ------------------------------------------------------------ paths
-def test_default_folders_next_to_program(report_home):
-    assert report_paths.dut_folder() == report_home / "DUT Report"
-    assert report_paths.event_folder() == report_home / "Event Report"
+def test_default_folders_one_tree_per_project(report_home):
+    assert report_paths.dut_folder() == \
+        report_home / "96317" / "DUT Report"
+    assert report_paths.event_folder() == \
+        report_home / "96317" / "Event Report"
 
 
-def test_folder_names_roundtrip(report_home):
-    report_paths.set_folder_names("My Reports", "My Logs")
-    assert report_paths.dut_folder() == report_home / "My Reports"
-    assert report_paths.event_folder() == report_home / "My Logs"
-    assert (report_home / report_paths.CFG_NAME).is_file()
-    # blank names fall back to the defaults, never to an empty path
-    report_paths.set_folder_names("  ", "")
-    assert report_paths.dut_folder() == report_home / "DUT Report"
-    assert report_paths.event_folder() == report_home / "Event Report"
+def test_env_override_is_the_default_root(report_home):
+    """Nothing saved: MTKGUI_REPORT_HOME supplies the root."""
+    assert report_paths.report_root() == report_home
+    assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
+    assert report_paths.event_folder() == report_home / "96317" / "Event Report"
+
+
+def test_folder_settings_roundtrip(report_home, tmp_path):
+    """Root + both names persist into the work folder and take effect."""
+    chosen = tmp_path / "chosen root"
+    cfg = report_paths.set_folder_settings(str(chosen), "My Reports", "My Logs")
+    assert cfg == tmp_path / "work" / report_paths.CFG_NAME
+    assert cfg.is_file()
+    assert report_paths.dut_folder() == chosen / "96317" / "My Reports"
+    assert report_paths.event_folder() == chosen / "96317" / "My Logs"
+    # a saved root wins over the environment default (Browse is effective)
+    assert report_paths.report_root() == chosen
+
+
+def test_bad_names_and_blank_root_fall_back(report_home, tmp_path):
+    """A typo must never move the output: separators / '..' / blank = default."""
+    report_paths.set_folder_settings(str(tmp_path / "x"), "../escape",
+                                     "sub/dir")
+    assert report_paths.dut_folder().name == report_paths.DEFAULT_DUT
+    assert report_paths.event_folder().name == report_paths.DEFAULT_EVENT
+    # blank root = unsaved -> back to the environment default
+    report_paths.set_folder_settings("", "", "")
+    assert report_paths.report_root() == report_home
+    assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
+
+
+def test_project_key_env_and_loaded_project(report_home, monkeypatch):
+    """<PROJECT>: MTKGUI_PROJECT wins, else the loaded project's folder."""
+    assert report_paths.project_key() == "96317"          # from the env
+    monkeypatch.delenv("MTKGUI_PROJECT")
+    assert report_paths.project_key() == report_paths.NO_PROJECT
+    report_paths.set_current_project("P002-MTK")
+    assert report_paths.project_key() == "P002-MTK"
+    assert report_paths.dut_folder() == report_home / "P002-MTK" / "DUT Report"
+    # a yaml's project label comes from its folder, not from a generic one
+    assert report_paths.project_label_for(
+        "/srv/work/projects/96317/plan.yaml") == "96317"
+    assert report_paths.project_label_for(
+        "/srv/app/config/plans/plan_96317.yaml") == "plan_96317"
+    assert report_paths.project_label_for(None) == ""
+    report_paths.set_current_project("")
+
+
+def test_legacy_report_folders_json_is_ignored(report_home, tmp_path):
+    """M96: the old beside-the-exe override must not redirect anything."""
+    legacy = report_paths.program_dir() / "report_folders.json"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text('{"dut": "My Reports", "event": "My Logs"}',
+                      encoding="utf-8")
+    try:
+        assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
+        assert report_paths.event_folder() == report_home / "96317" / "Event Report"
+        for gone in ("folder_names", "set_folder_names", "_names"):
+            assert not hasattr(report_paths, gone), gone
+    finally:
+        legacy.unlink()
 
 
 # ------------------------------------------------------------- menu
@@ -53,14 +111,22 @@ def _window():
     return MainWindow()
 
 
-def test_report_menu_opens_folders(qapp, report_home):
+def test_report_menu_labels_and_folders(qapp, report_home):
     w = _window()
     labels = [a.text() for a in w.report_menu.actions()]
-    assert labels[:4] == ["DUT Report", "Event Log", "DAQ CSV Data",
-                          "Report Folder…"]
+    # M96: 'DAQ CSV Data' (duplicate of DUT Report) and the rename dialog
+    # are gone; the folder configuration now lives in Settings.
+    assert labels[:3] == ["DUT Report", "Event Log", "Statistics"]
+    assert "DAQ CSV Data" not in labels
+    assert not any(text.startswith("Report Folder") for text in labels)
+    assert labels[-1].startswith("SharePoint Upload")
+    assert not hasattr(w, "_open_daq_csv_folder")
+    assert not hasattr(w, "_open_report_folder_settings")
+    settings_labels = [a.text() for a in w.settings_menu.actions()]
+    assert any(text.startswith("Report Folders") for text in settings_labels)
     # the folder openers create the folders on demand
-    w._open_daq_csv_folder()
-    assert (report_home / "DUT Report").is_dir()
+    w._open_dut_report_folder()
+    assert (report_home / "96317" / "DUT Report").is_dir()
     w.deleteLater()
 
 
@@ -167,3 +233,25 @@ def test_daq_csv_lands_in_identity_folder(qapp, report_home):
     assert path.name.startswith("power_rails_NA_NA_freebatch_DUT_")
     assert path.is_file()
     page.deleteLater()
+
+
+# ------------------------------------------------- report settings dialog
+def test_report_settings_dialog_saves_and_previews(qapp, report_home, tmp_path):
+    from mtkgui.gui.report_settings_dialog import ReportFoldersDialog
+
+    dlg = ReportFoldersDialog()
+    assert dlg.root_edit.text() == str(report_home)
+    assert dlg.dut_edit.text() == report_paths.DEFAULT_DUT
+    # the preview shows the resolved absolute paths
+    assert dlg.project_label.text() == "96317"
+    assert str(report_home / "96317" / "DUT Report") in dlg.preview.text()
+    chosen = tmp_path / "browsed"
+    dlg.root_edit.setText(str(chosen))          # what Browse fills in
+    dlg.dut_edit.setText("Certificates")
+    assert str(chosen / "96317" / "Certificates") in dlg.preview.text()
+    dlg._save()
+    assert dlg.result() == 1                     # accepted
+    assert report_paths.dut_folder() == chosen / "96317" / "Certificates"
+    assert (report_paths.event_folder()
+            == chosen / "96317" / report_paths.DEFAULT_EVENT)
+    dlg.deleteLater()

@@ -1224,6 +1224,10 @@ class MainWindow(QMainWindow):
         # Virtual mode only (supervisor): random fault-injection config
         self.act_fault_inject = settings_menu.addAction(
             "Virtual Fault Injection...", self._open_fault_dialog)
+        # M96: where the reports land is a configuration function - the
+        # entry lives here, not in the Report menu.
+        self.act_report_folders = settings_menu.addAction(
+            "Report Folders…", self._open_report_folders_dialog)
         # M11: Event Log display level - exclusive pair, the choice is
         # persisted and re-applied on the next login.  Operators keep
         # the entries VISIBLE but disabled (simplified only).
@@ -1312,10 +1316,9 @@ class MainWindow(QMainWindow):
                                    self._open_dut_report_folder)
         self.report_menu.addAction("Event Log",
                                    self._open_report_event_log)
-        self.report_menu.addAction("DAQ CSV Data",
-                                   self._open_daq_csv_folder)
-        self.report_menu.addAction("Report Folder…",
-                                   self._open_report_folder_settings)
+        # M96: 'DAQ CSV Data' opened the very same folder as 'DUT Report'
+        # (the DAQ captures live inside the per-DUT identity folders) and
+        # the folder configuration moved to Settings > Report Folders….
         self.report_menu.addAction("Statistics", self._open_statistics)
         # 2026-10-27 user direction: SharePoint upload is temporarily
         # DISABLED for the general operator (the browser-session import
@@ -1510,18 +1513,11 @@ class MainWindow(QMainWindow):
 
     def _open_dut_report_folder(self):
         """Report > DUT Report: open the folder where the automatic
-        DUT reports (PDF + MES CSV) land - <program>/DUT Report by
-        default, the name is modifiable via Report > Report Folder…."""
+        DUT reports (PDF + MES CSV) land - <reports root>/DUT Report.
+        The root and the name come from Settings > Report Folders… (M96)."""
         from mtkgui import report_paths
         self._open_report_dir(
             report_paths.dut_folder(), "DUT Report")
-
-    def _open_daq_csv_folder(self):
-        """Report > DAQ CSV Data: the DAQ captures live INSIDE the
-        per-DUT identity folders under the DUT Report root - open
-        that root."""
-        from mtkgui import report_paths
-        self._open_report_dir(report_paths.dut_folder(), "DAQ CSV Data")
 
     def _configure_fct_watchdog(self):
         """M78-3/M83/C13: Tools > FCT Watchdog - ONE app-level numeric
@@ -1597,43 +1593,24 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] Opened {title} folder: {path}")
 
-    def _open_report_folder_settings(self):
-        """Report > Report Folder…: rename the two output folders
-        (defaults 'DUT Report' / 'Event Report', next to the
-        program).  New names apply to newly created files."""
-        from PySide6.QtWidgets import (QDialog, QDialogButtonBox,
-                                       QFormLayout, QLineEdit)
+    def _open_report_folders_dialog(self):
+        """Settings > Report Folders…: choose the reports root folder
+        (Browse) and the two sub-folder names.  Defaults: the program
+        directory + ``DUT Report`` / ``Event Report`` (M96)."""
+        from .gui.report_settings_dialog import ReportFoldersDialog
         from mtkgui import report_paths
-        dut, event = report_paths.folder_names()
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Report Folder Settings")
-        form = QFormLayout(dlg)
-        ed_dut = QLineEdit(dut)
-        ed_event = QLineEdit(event)
-        form.addRow("DUT Report folder:", ed_dut)
-        form.addRow("Event Log folder:", ed_event)
-        note = QLabel("Next to the program:\n"
-                      f"{report_paths.program_dir()}\n\n"
-                      "New names apply to newly created files.")
-        note.setObjectName("muted")
-        form.addRow(note)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
-                                   | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+
+        dlg = ReportFoldersDialog(self)
+        if not dlg.exec():
             return
-        report_paths.set_folder_names(ed_dut.text(), ed_event.text())
         self._append_event_log(
-            f"[{datetime.now():%H:%M:%S}] Report folders set: "
-            f"'{ed_dut.text()}' / '{ed_event.text()}' "
-            f"(under {report_paths.program_dir()})")
+            f"Report folders updated - DUT reports: "
+            f"{report_paths.dut_folder()} | event logs: "
+            f"{report_paths.event_folder()}", "IMPORTANT")
 
     def _open_report_event_log(self):
         """Report > Event Log: open the Event Log folder - the session
-        .log auto-save files land in <program>/Event Report by
-        default (name modifiable via Report > Report Folder…)."""
+        .log auto-save files land in <reports root>/Event Report (M96)."""
         from mtkgui import report_paths
         self._open_report_dir(
             report_paths.event_folder(), "Event Log")
@@ -1716,6 +1693,9 @@ class MainWindow(QMainWindow):
         self.act_serial_check.setEnabled(
             supervisor or perm.get("sn_format_check", False))
         self.act_permissions.setVisible(supervisor)
+        self.act_report_folders.setEnabled(supervisor)
+        self.act_report_folders.setToolTip(
+            "" if supervisor else "Supervisor only")
         self.workflow_page.apply_permissions(perm, supervisor)
         # Yaml Build page (the YAML config editor): operator accounts
         # can view the generated YAML but not edit / apply it (T5);
@@ -2068,6 +2048,9 @@ class MainWindow(QMainWindow):
         # failing level stops the chain
         self.yaml_build_page.apply_load_gating()
         self._project_path = path
+        from mtkgui import report_paths
+        report_paths.set_current_project(
+            report_paths.project_label_for(path))
         # a published plan file ("yaml_build" section) is just as
         # runnable as a legacy project yaml - register it for the Run
         # gate in BOTH branches (GUI-FIX2 F3: plan loads used to show
@@ -2194,6 +2177,8 @@ class MainWindow(QMainWindow):
         # (user direction: Close Yaml clears the Yaml Preview)
         self.yaml_build_page.clear_preview()
         self._project_path = None
+        from mtkgui import report_paths
+        report_paths.set_current_project("")
         self._append_event_log(
             f"[{datetime.now():%H:%M:%S}] "
             + ("Previous project auto-closed (project switch)"
@@ -2841,8 +2826,7 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------- Event Log
     def _start_event_log(self):
         """Open the per-session auto-save log file under the Event Log
-        folder (<program>/Event Report by default, name modifiable via
-        Report > Report Folder…).
+        folder (<reports root>/Event Report, M96).
 
         One file covers a whole GUI run, from startup to exit; every log
         line is appended (and flushed) immediately so a crash still leaves

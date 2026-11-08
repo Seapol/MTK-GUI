@@ -92,3 +92,7 @@ temp/
 # PyInstaller workpath (build_windows.ps1)
 .build_tmp/
 
+
+# M96: <repo>/work - the development stand-in for the station's work folder
+# (report/statistics/SharePoint settings + output)
+work/

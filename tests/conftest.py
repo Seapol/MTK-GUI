@@ -86,3 +86,12 @@ def _drain_deferred_deletes():
     yield
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     QApplication.processEvents()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_work_dir(tmp_path_factory):
+    """M96: every test runs against its own work folder, never against the
+    developer's <repo>/work (which may hold saved report settings)."""
+    work = tmp_path_factory.mktemp("work")
+    os.environ["MTKGUI_WORK_DIR"] = str(work)
+    return work
