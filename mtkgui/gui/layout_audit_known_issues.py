@@ -61,7 +61,6 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "overlap|QPushButton/QPushButton|intersection 71x62px",
         # status-bar widgets are placed by hand; cosmetic (design decision)
         "overlap|InstrumentStatusBar/QLabel|intersection 75x21px",
-        "overlap|InstrumentStatusBar/SerialStatusBar|intersection 73x21px",
         # status-bar text elides by design
         "clipped|QLabel|width=146px < sizeHint=163px (minimumSizeHint=163px)",
         "clipped|QLabel|width=146px < sizeHint=208px (minimumSizeHint=208px)",

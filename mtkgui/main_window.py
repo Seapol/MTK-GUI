@@ -401,57 +401,6 @@ class InstrumentStatusBar(QWidget):
                 f"{self.titles[abbr]}: {LED_TEXT[self.states[abbr]]}")
 
 
-class SerialStatusBar(QWidget):
-    """One colored LED per console channel (serial + SSH).
-
-    M0 layout optimization: text names were removed - only the
-    colored lights render, the channel names live on each LED's
-    tooltip.  Rebuilt whenever the console channel set changes
-    (add / remove) and re-colored on every connect / disconnect
-    (multi_console's connection_changed signal -> sync_channels)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(6, 0, 6, 0)
-        self._row.setSpacing(6)
-        # user direction: a 'Console:' caption before the first LED
-        caption = QLabel("Console:")
-        caption.setObjectName("muted")
-        self._row.addWidget(caption)
-        self._leds = {}
-
-    def sync_channels(self, channels):
-        """Mirror the console channel set and connection states
-        (full rebuild - channel sets change rarely; the caption at
-        index 0 is kept)."""
-        while self._row.count() > 1:
-            item = self._row.takeAt(self._row.count() - 1)
-            w = item.widget()
-            if w is not None:
-                # hide IMMEDIATELY: after takeAt the widget keeps its
-                # parent and renders at (0,0) - on top of the caption -
-                # until the deferred delete lands (user report: a ghost
-                # LED overlapped 'Console:' at startup)
-                w.hide()
-                w.deleteLater()
-        self._leds = {}
-        for key, ch in channels.items():
-            led = StatusLed()
-            led.setToolTip(f"{key}: {LED_TEXT['disconnected']}")
-            self._row.addWidget(led)
-            state = "connected" if ch.get("connected") else "disconnected"
-            led.set_state(state)
-            self._leds[key] = (led, key)
-        # hard minimum: keeps the caption + LEDs from being squeezed into
-        # each other when the status bar runs out of width (user report:
-        # the LED overlapped the 'Console:' caption at 1920x1080).
-        # ensurePolished first - the hint measured before the stylesheet /
-        # fonts land is ~19px too small and the overlap returns.
-        self.ensurePolished()
-        self.setMinimumWidth(self.sizeHint().width())
-
-
 class DialogCenterer(QObject):
     """QApplication event filter: every dialog window (config dialogs,
     message boxes, the login box, ...) shows up centered on the screen
@@ -873,7 +822,7 @@ class MainWindow(QMainWindow):
 
         # --- status bar, flat left -> right:
         # Version | Role | Mode | User | Progress (adaptive)
-        # | Instruments | Consoles (LED-only) | Date
+        # | Instruments | Date
         sb = self.statusBar()
 
         # THE single GUI version (user directive 2026-10-14): every
@@ -940,16 +889,12 @@ class MainWindow(QMainWindow):
         self.instr_status = InstrumentStatusBar(INSTRUMENTS)
         sb.addPermanentWidget(self.instr_status)
 
-        # Consoles: one LED per console channel, updated live on
-        # channel add / remove / connect / disconnect
-        self.serial_status = SerialStatusBar()
-        sb.addPermanentWidget(self.serial_status)
+        # M95: the Console LED group was removed from the status bar (the
+        # console window shows each channel's own state).  The console log
+        # hook below stays.
         mcw = self.workflow_page.multi_console
-        mcw.connection_changed.connect(
-            lambda: self.serial_status.sync_channels(mcw.channels))
         # M76/D6: a manual console send is mirrored into the Event Log
         mcw.console_log.connect(self._append_event_log)
-        self.serial_status.sync_channels(mcw.channels)
 
         # current date (far right)
         self.status_date = QLabel(

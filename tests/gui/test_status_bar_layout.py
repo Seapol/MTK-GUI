@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""M0 status-bar layout tests: Station ID removed, LED-only console
-indicators, progress-bar idle/running/complete behavior, version
-label intact (mock, offscreen)."""
+"""M0 status-bar layout tests: Station ID removed, instrument LED row,
+progress-bar idle/running/complete behavior, version label intact (mock,
+offscreen)."""
 from __future__ import annotations
 
 import pytest
@@ -11,7 +11,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar  # noqa: E402
 
 from mtkgui.main_window import (  # noqa: E402
-    SerialStatusBar,
     StatusLed,
     MainWindow,
 )
@@ -41,26 +40,16 @@ def test_station_id_removed(window):
     assert not any("Station ID" in l.text() for l in labels)
 
 
-# ------------------------------------------------- console lights LED-only
-def test_console_indicators_led_only(qapp):
-    bar = SerialStatusBar()
-    bar.sync_channels({"DUT": {"connected": True},
-                       "AUX": {"connected": False}})
-    children = bar.findChildren(QLabel)
-    # the 'Console:' caption + one StatusLed per channel - no other
-    # text labels beside the lights
-    captions = [w for w in children if not isinstance(w, StatusLed)]
-    leds = [w for w in children if isinstance(w, StatusLed)]
-    assert len(captions) == 1 and captions[0].text() == "Console:"
-    assert len(leds) == 2
-    # channel names live on the tooltips
-    assert "DUT" in leds[0].toolTip()
-    # a resync (channel set change) keeps the caption
-    bar.sync_channels({"DUT": {"connected": False}})
-    captions = [w for w in bar.findChildren(QLabel)
-                if not isinstance(w, StatusLed)]
-    assert [c.text() for c in captions] == ["Console:"]
-    bar.deleteLater()
+# ----------------------------------------------------- console lights gone
+def test_console_lights_removed(window):
+    """M95: the status bar keeps the instrument lights and the date; the
+    Console caption and its per-channel LEDs are gone."""
+    assert not hasattr(window, "serial_status")
+    labels = window.statusBar().findChildren(QLabel)
+    assert not any(label.text() == "Console:" for label in labels)
+    leds = window.statusBar().findChildren(StatusLed)
+    # one light per instrument entry, nothing else
+    assert len(leds) == len(window.instr_status.leds)
 
 
 # ------------------------------------------------------------ progress bar

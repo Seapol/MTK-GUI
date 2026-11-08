@@ -137,8 +137,6 @@ The status bar is a flat row, left to right:
 - Instrument connection LEDs: `DAQM`
   (DAQ973A + 2x DAQM908A + DAQM907A), `DAQ` (U2355A),
   `PSU` (N5747A) - green connected, gray disconnected, red error.
-- Console LEDs, one per serial/SSH channel, updated live on channel
-  add / remove / connect / disconnect.
 - The current date (far right).
 
 ## Roles: Supervisor and Operator
