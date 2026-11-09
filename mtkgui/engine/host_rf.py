@@ -27,12 +27,24 @@ from __future__ import annotations
 
 import json
 import platform
+import tempfile
+from pathlib import Path
 
 #: deterministic virtual-mode RSSI (Virtual DUT / tests)
 VIRTUAL_RSSI_DBM = -45
 
 _LSWIFI_CMD = "lswifi --json"
 _COREWLAN_CMD = "system_profiler SPAirPortDataType"
+
+_RF_DUMP_DIR = Path(tempfile.gettempdir()) / "mtkgui_host_rf"
+
+
+def dump_dir() -> Path:
+    """Where host RF tools may leave their own files (lswifi dumps its scan
+    JSON into the CWD) - never the station folder."""
+    _RF_DUMP_DIR.mkdir(parents=True, exist_ok=True)
+    return _RF_DUMP_DIR
+
 
 #: stderr fragments produced when the CLI itself is missing
 _MISSING_CMD_MARKERS = (
@@ -57,7 +69,7 @@ def host_key() -> str:
 # host command seam
 # ---------------------------------------------------------------------------
 def run_command(cmd_line: str, timeout_s: float = 30, *,
-                keep_stderr: bool = True) -> str:
+                keep_stderr: bool = True, cwd=None) -> str:
     """Run one host shell command; returns stdout + stderr text.
 
     ``keep_stderr=False`` returns stdout only (callers that must parse
@@ -71,7 +83,7 @@ def run_command(cmd_line: str, timeout_s: float = 30, *,
     import subprocess
     try:
         proc = subprocess.run(cmd_line, shell=True, capture_output=True,
-                              text=True, timeout=timeout_s)
+                              text=True, timeout=timeout_s, cwd=cwd)
     except Exception as exc:              # noqa: BLE001 - real cause text
         return f"ERROR: {exc}"
     if keep_stderr or _looks_like_missing_cmd(proc.stderr):
@@ -216,7 +228,7 @@ def wifi_scan(ssid_list, *, key: str | None = None,
     if backend == "windows":
         # M63: lswifi INFO logs go to stderr; parse stdout only.
         out = run_command(_LSWIFI_CMD, timeout_s=timeout_s,
-                          keep_stderr=False)
+                          keep_stderr=False, cwd=dump_dir())
         try:
             found = parse_lswifi_json(out)
         except HostRfError:
