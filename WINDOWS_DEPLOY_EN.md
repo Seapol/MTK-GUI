@@ -260,13 +260,33 @@ Double-click `dist\MTK_GUI\MTK_GUI.exe` — GUI application, no console window.
 
 ## 7. Station requirements and deployment
 
-A station needs **neither Git nor Python**. Copy the whole folder, never the exe alone:
+A station needs **neither Git nor Python**. Copy the whole station folder, never the exe alone:
 
 ```
-MTK_GUI\
-├── MTK_GUI.exe        <- double-click
-└── _internal\         <- all dependencies; separating it breaks the app
+C:\MTK_Station\
+├── app\                  <- the Core package (MTK_GUI.exe + _internal\)
+├── work\                 <- everything that must survive an upgrade
+│   ├── projects\<PROJECT>\
+│   ├── reports\<PROJECT>\
+│   ├── sharepoint\<PROJECT>\    (sharepoint_upload.json, state.json)
+│   ├── statistics\<PROJECT>\    (YYYY-MM.jsonl)
+│   └── accounts\                (supervisor.json - PBKDF2 hash)
+├── MTK_GUI_Start.bat     <- launched by the operator
+└── README.md             <- STATION_README.md
 ```
+
+`app\` is the Core package: what `dist\MTK_GUI\` contains, nothing else. Replacing it
+during an upgrade is the whole upgrade - `work\` is never touched, which is why
+projects, reports, upload state, statistics and the supervisor hash all live under it.
+Separating `_internal\` from the exe breaks the application.
+
+A station runs **one Core package plus N project packages**. A *project package* is a
+folder archive extracted into `work\projects\`, so a project (its plan YAML, netlist,
+BOM, and its own `assets_<PROJECT>\` with drivers, scripts, config templates and audio)
+travels as one unit - it never depends on the Core package's bundled example projects,
+which the next release replaces wholesale. Point `MTKGUI_TENANT_BASE` at
+`work\projects\` (or keep the projects there beside `MTK_GUI_Start.bat`) so every
+project you add stays in the surviving tree.
 
 - Build it on a build PC (sections 0–6) and copy over the network, or carry it on a USB stick prepared by whoever
   built it. Copying `MTK_GUI.exe` by itself yields an application that cannot start.
@@ -274,7 +294,13 @@ MTK_GUI\
   inside the folder is the only identity the installation has.
 - Replacing a live station: exit MTK_GUI normally first (`File → Exit`, wait for the process to disappear). Copying
   over a running exe fails with a file-in-use error, and force-killing the GUI can leave a half-written report in
-  `DUT Report\`.
+  `DUT Report\`. Exit also waits for an in-flight SharePoint upload, so a package swap cannot leave a partial file on
+  the share.
+- The four `AP_PROFILE_*` values in
+  `work\projects\<PROJECT>\assets_<PROJECT>\resources\scripts\connect_wifi.sh`
+  are filled by hand at station setup - they are the only four values an installer must type. The User Guide covers
+  them in chapter 7 (`docs\help\07_station_equipment.md`, "Wi-Fi Network Modes"); chapter 17
+  ("Tips & Troubleshooting") is the one-page index for the rest of the station setup.
 
 ### 7.1 Station hardware
 
@@ -550,6 +576,7 @@ dist\MTK_GUI\MTK_GUI.exe
 
 | Rev | Date (CST) | App version | Code commit | Change |
 |---|---|---|---|---|
+| R5 | 2026-11-09 | `v1.0.0.0` | `50cd8c7` | Section 7 station layout corrected to the shipping `C:\MTK_Station\` tree (`app\` + `work\` + launcher + README); Core package plus N project packages stated, `assets_<PROJECT>` travelling with its project, the `AP_PROFILE_*` hand-fill pointed at the User Guide instead of repeating the script. QtWebEngine notes and §7.6 untouched |
 | R4 | 2026-11-07 22:47 | `v1.0.0.0` | `174000c` | Rewritten for brevity and for a reader who only deploys: sections renumbered 0–10, release-repository internals compressed to what a builder needs (clone, tag, update), no development-side detail, no vendor names. Every cross-reference re-pointed; figure 1 of the release flow dropped, station topology kept |
 | R3 | 2026-11-07 22:33 | `v1.0.0.0` | `174000c` | Releases arrive as one commit each with no history; update procedure changed to `reset --hard` because the release branch is republished, not extended |
 | R2 | 2026-11-07 22:40 | `v1.0.0.0` | `174000c` | "Start here" routing that separates the two deployments before the reader begins; how the package reaches a station, version identity, replacing a live station |
