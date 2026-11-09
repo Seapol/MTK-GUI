@@ -269,3 +269,32 @@ def test_report_settings_dialog_saves_and_previews(qapp, report_home, tmp_path):
     assert (report_paths.event_folder()
             == chosen / "96317" / report_paths.DEFAULT_EVENT)
     dlg.deleteLater()
+
+
+def test_default_root_follows_the_env_then_the_work_folder(monkeypatch, tmp_path):
+    """W2-1b: the default root is the env override, else the work folder."""
+    monkeypatch.delenv("MTKGUI_REPORT_HOME", raising=False)
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    assert report_paths.default_root() == tmp_path / "work"
+    monkeypatch.setenv("MTKGUI_REPORT_HOME", str(tmp_path / "reports"))
+    assert report_paths.default_root() == tmp_path / "reports"
+
+
+def test_blank_root_preview_and_restore_follow_the_default_root(qapp, report_home):
+    """W2-1b: a blank root, and 'Restore defaults', point at the default root
+    - never at the program directory, which a re-deploy wipes."""
+    import json
+    from mtkgui.gui.report_settings_dialog import ReportFoldersDialog
+
+    dlg = ReportFoldersDialog()
+    dlg.root_edit.clear()
+    assert str(report_home) in dlg.preview.text()
+    assert str(report_paths.program_dir()) not in dlg.preview.text()
+    dlg._restore()
+    assert dlg.root_edit.text() == ""            # blank = default, nothing pinned
+    assert str(report_home) in dlg.preview.text()
+    dlg._save()
+    cfg = report_home.parent / "work" / "report_paths.json"
+    assert json.loads(cfg.read_text(encoding="utf-8"))["root"] == ""
+    assert report_paths.report_root() == report_home
+    dlg.deleteLater()

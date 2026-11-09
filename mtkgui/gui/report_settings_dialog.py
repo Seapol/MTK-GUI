@@ -5,7 +5,7 @@ Chooses WHERE the DUT certificates and event logs go (the reports root,
 Browse included) and the two sub-folder names.  The per-project level
 (``<root>/<PROJECT>/``) is shown read-only: it follows the loaded project
 or ``MTKGUI_PROJECT``.  The defaults come from ``report_paths`` - the
-program directory plus ``DUT Report`` / ``Event Report`` - so a station
+work folder plus ``DUT Report`` / ``Event Report`` - so a station
 that never opens this dialog keeps the old behaviour.
 """
 from __future__ import annotations
@@ -57,11 +57,12 @@ class ReportFoldersDialog(QDialog):
 
         hint = QLabel(
             "Blank root or blank names fall back to the defaults "
-            f"({report_paths.program_dir()} with "
+            f"({report_paths.default_root()} with "
             f"{report_paths.DEFAULT_DUT} / {report_paths.DEFAULT_EVENT}). "
             "The project folder follows the loaded project "
-            f"(MTKGUI_PROJECT overrides it). The settings file is kept in "
-            "the work folder, so a package upgrade does not lose it.")
+            f"(MTKGUI_PROJECT overrides it). The settings file and the "
+            "reports are both kept in the work folder, so a package "
+            "upgrade loses neither.")
         hint.setWordWrap(True)
         hint.setObjectName("muted")
 
@@ -89,7 +90,7 @@ class ReportFoldersDialog(QDialog):
     def _resolved(self) -> tuple:
         root_text = self.root_edit.text().strip()
         root = (Path(root_text).expanduser() if root_text
-                else report_paths.program_dir())
+                else report_paths.default_root())
         dut = report_paths.clean_name(self.dut_edit.text(),
                                       report_paths.DEFAULT_DUT)
         event = report_paths.clean_name(self.event_edit.text(),
@@ -114,7 +115,7 @@ class ReportFoldersDialog(QDialog):
             self.root_edit.setText(chosen)
 
     def _restore(self) -> None:
-        self.root_edit.setText(str(report_paths.program_dir()))
+        self.root_edit.clear()               # blank = the default root
         self.dut_edit.setText(report_paths.DEFAULT_DUT)
         self.event_edit.setText(report_paths.DEFAULT_EVENT)
 

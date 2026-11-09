@@ -68,6 +68,15 @@ def work_dir() -> Path:
     return program_dir() / "work"
 
 
+def default_root() -> Path:
+    """The root used when nothing is saved: ``MTKGUI_REPORT_HOME`` else the
+    station work folder."""
+    env = os.environ.get("MTKGUI_REPORT_HOME")
+    if env:
+        return Path(env)
+    return work_dir()
+
+
 def _cfg_path() -> Path:
     return work_dir() / CFG_NAME
 
@@ -136,10 +145,7 @@ def report_root() -> Path:
     saved = str(_raw().get("root") or "").strip()
     if saved:
         return Path(saved).expanduser()
-    env = os.environ.get("MTKGUI_REPORT_HOME")
-    if env:
-        return Path(env)
-    return work_dir()
+    return default_root()
 
 
 def folder_settings() -> dict:
@@ -157,7 +163,7 @@ def set_folder_settings(root=None, dut=None, event=None) -> Path:
     """Persist the three values (Settings > Report Folders…).
 
     An empty *root* is stored empty, which means "unsaved" - the
-    resolution order then falls back to the environment / program dir.
+    resolution order then falls back to the environment / work folder.
     """
     payload = {
         "root": str(root or "").strip(),
