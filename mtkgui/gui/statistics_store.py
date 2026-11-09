@@ -166,7 +166,8 @@ def append_run(record: RunRecord, path=None) -> Path | None:
     if path is None and not _MIGRATED:
         _MIGRATED = True
         migrate_legacy_history()
-    target = Path(path) if path is not None else runs_path()
+    target = (Path(path) if path is not None
+              else runs_path(_month_of(record)))
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("a", encoding="utf-8") as handle:

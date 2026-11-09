@@ -129,6 +129,22 @@ def test_month_shards_append_only(monkeypatch, tmp_path):
     assert [r.serial for r in records] == ["SN-SEP", "SN-OCT"]
 
 
+def test_append_run_shards_by_record_month(monkeypatch, tmp_path):
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("MTKGUI_PROJECT", "M87F-PROJ")
+    store.append_run(store.RunRecord(
+        "2026-09-30T23:58:00", "SN-SEP", "PASS", 9.0, 1, 0))
+    store.append_run(store.RunRecord(
+        "2026-10-01T00:02:00", "SN-OCT", "PASS", 10.0, 1, 0))
+    sep = store.runs_path("2026-09")
+    oct_ = store.runs_path("2026-10")
+    assert [r.serial for r in store.load_runs(sep)[0]] == ["SN-SEP"]
+    assert [r.serial for r in store.load_runs(oct_)[0]] == ["SN-OCT"]
+    records, warning = store.load_runs()
+    assert warning == ""
+    assert [r.serial for r in records] == ["SN-SEP", "SN-OCT"]
+
+
 def test_legacy_history_migrates_once(monkeypatch, tmp_path):
     monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("MTKGUI_PROJECT", "M87-PROJ")
