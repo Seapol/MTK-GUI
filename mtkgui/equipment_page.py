@@ -465,8 +465,6 @@ def _mock_configs():
         "peripherals": {
             "title": "Test Peripherals",
             "table": [
-                ("PC Wi-Fi", "RF connectivity", "Not connected"),
-                ("PC Bluetooth", "RF connectivity", "Not connected"),
                 ("Wired & Wireless Network", "Wired / Wi-Fi connectivity",
                  "Not connected"),
                 ("Media Converter", "T1 / T1S media", "Not connected"),

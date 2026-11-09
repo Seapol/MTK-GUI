@@ -184,6 +184,15 @@ def test_m80_fixture_probe_board_entry_removed(page):
     assert "Fixture Probe Board" not in labels
 
 
+def test_m80_pc_wifi_bt_peripheral_entries_removed(page):
+    names = [row[0] for row in page.configs["peripherals"]["table"]]
+    assert "PC Wi-Fi" not in names
+    assert "PC Bluetooth" not in names
+    assert "Wired & Wireless Network" in names
+    assert {"wifi", "bluetooth", "router"} <= set(
+        page.configs["peripherals"]["groups"])
+
+
 def test_m80_fixture_probe_board_diagram_block_removed(page):
     assert "fixture" not in page.blocks
     assert "Fixture Probe Board" not in [
