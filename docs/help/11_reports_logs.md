@@ -91,8 +91,10 @@ engine state; do not try to "fix" data by editing exported CSVs.
 ### reports/ directory layout
 
 Every project writes into its own tree under the reports root, and the
-tree survives a package upgrade (the root is saved in
-`work/report_paths.json`, overridable with `MTKGUI_REPORT_HOME`):
+tree survives a package upgrade. With nothing saved the root is the
+station **work** folder (`<exe>/../work` in a package, `<repo>/work` from
+source); the dialog stores the choice in `work/report_paths.json`, and
+`MTKGUI_REPORT_HOME` overrides both while nothing is saved.
 
 ```text
 <reports root>/

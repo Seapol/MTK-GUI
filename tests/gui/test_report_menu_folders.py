@@ -49,6 +49,20 @@ def test_env_override_is_the_default_root(report_home):
     assert report_paths.event_folder() == report_home / "96317" / "Event Report"
 
 
+def test_unsaved_root_defaults_to_the_work_folder(monkeypatch, tmp_path):
+    """W2-1: nothing saved and no MTKGUI_REPORT_HOME -> the station work
+    folder, so a package re-deploy keeps the reports next to the settings."""
+    monkeypatch.delenv("MTKGUI_REPORT_HOME", raising=False)
+    monkeypatch.delenv("MTKGUI_PROJECT", raising=False)
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    report_paths.set_current_project("")
+    assert report_paths.report_root() == tmp_path / "work"
+    assert report_paths.event_folder() == \
+        tmp_path / "work" / report_paths.NO_PROJECT / "Event Report"
+    assert report_paths.dut_folder() == \
+        tmp_path / "work" / report_paths.NO_PROJECT / "DUT Report"
+
+
 def test_folder_settings_roundtrip(report_home, tmp_path):
     """Root + both names persist into the work folder and take effect."""
     chosen = tmp_path / "chosen root"

@@ -82,7 +82,7 @@ Configuration functions - mostly supervisor territory.
   %). *Dialog: Virtual Fault Injection window.*
 - **Report Folders…** - supervisor-only. Chooses the reports root folder
   (**Browse** picks any directory on the machine) and the two sub-folder
-  names, default `<program dir>` + `DUT Report` / `Event Report`. Reports
+  names, default the station `work` folder + `DUT Report` / `Event Report`. Reports
   live under `<root>\<PROJECT>\`, one tree per project; the project folder
   follows the loaded project (`MTKGUI_PROJECT` overrides it) and is shown
   read-only. Saved to `work\report_paths.json`, which survives a package

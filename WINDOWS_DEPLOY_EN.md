@@ -398,7 +398,9 @@ No GPIB card? Use a USB-to-GPIB adapter (e.g. Keysight 82357B) — it needs the 
   the loaded yaml, or `MTKGUI_PROJECT` when the station launch script sets it (recommended for a packaged station).
   **Settings → Report Folders…** (supervisor) sets the reports root - **Browse** picks any directory - and the two
   sub-folder names; the project level is read-only and shown in the dialog. Saved to `work\report_paths.json`, which a
-  package upgrade does not touch. `MTKGUI_REPORT_HOME` only supplies the root while nothing has been saved.
+  package upgrade does not touch. The **default root is the station work folder** (`C:\MTK_Station\work` in the shipped
+  layout), **not** the app folder, so a package re-deploy keeps the reports.
+  `MTKGUI_REPORT_HOME` only supplies the root while nothing has been saved.
   After deployment, open the dialog once, confirm the preview points where you expect, then run one DUT.
 - **Status bar shows `v1.0.0.0`?** That is correct: one release constant, `mtkgui.__version__`, shown in the status
   bar, login box and About alike. Only a release bumps it. Build facts are under `Help → About`.

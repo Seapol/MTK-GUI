@@ -19,11 +19,13 @@ Reports ROOT resolution order:
 
 1. the folder saved from Settings > Report Folders… (``work/report_paths.json``)
 2. ``MTKGUI_REPORT_HOME`` (station launcher / tests - a default, not a lock)
-3. the program directory (exe folder in a frozen build, repo root in dev)
+3. the station work folder (<exe parent>/../work in a frozen build, <repo>/work
+   in development) - so a package upgrade keeps the reports with the settings
 
 The two sub-folder names default to ``DUT Report`` / ``Event Report`` and are
-editable in the same dialog.  The settings file lives in the ``work`` folder -
-never in the program directory - so a package upgrade keeps it.
+editable in the same dialog.  The settings file and the reports it points at
+both live in the ``work`` folder - never in the program directory - so a
+package upgrade keeps them together.
 ``MTKGUI_WORK_DIR`` overrides that location (tests).
 """
 from __future__ import annotations
@@ -137,7 +139,7 @@ def report_root() -> Path:
     env = os.environ.get("MTKGUI_REPORT_HOME")
     if env:
         return Path(env)
-    return program_dir()
+    return work_dir()
 
 
 def folder_settings() -> dict:
