@@ -136,7 +136,7 @@ Only the OS and the locale are hard gates.
 | Software | Why | How |
 |---|---|---|
 | **Git for Windows** | clone, tag, update | https://git-scm.com/download/win — accept defaults |
-| **Python 3.12** | run and package the app | https://www.python.org/downloads/ — **tick "Add Python to PATH"**, the most common failure |
+| **Python 3.12–3.14** | run and package the app | https://www.python.org/downloads/ — **tick "Add Python to PATH"**, the most common failure. Verified end to end on 3.14.7 (repo `.venv`, the one `build_windows.bat` uses) and on 3.13.14 |
 | **PyInstaller** | produce the exe | **do not install separately** — pinned in `requirements.txt` (`pyinstaller>=6.0`), arrives with section 3 |
 | VC++ Redistributable x64 | only if a stripped image reports a missing DLL | https://aka.ms/vs/17/release/vc_redist.x64.exe |
 

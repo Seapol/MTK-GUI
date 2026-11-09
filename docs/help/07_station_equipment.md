@@ -61,7 +61,7 @@ are **not yet developed** (placeholder) unless noted:
 
 | Item | Role | Used by | Status |
 |---|---|---|---|
-| Ethernet Router | LAN / iperf throughput | throughput tests | **not yet developed** |
+| Ethernet Router | LAN / iperf throughput | throughput tests | configured in the `WiFi router` group dialog (Direct / LAN via router / Host hotspot); the throughput run is the FCT `Wifi_Iperf` step |
 | Media Converter | T1 / T1S media | - | **not yet developed** |
 | Display | DSI-MIPI check | - | **not yet developed** |
 | Camera | CSI-MIPI check | - | **not yet developed** |
