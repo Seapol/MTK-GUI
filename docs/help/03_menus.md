@@ -162,7 +162,11 @@ covers the file formats).
   upload, and **Connect & Sign in...** for the real tenant session
   (embedded login window, MFA included; no password is stored). Test
   Connection probes reachability and write permission with that
-  session. Virtual mode uses the fake transport. *Dialog: SharePoint
+  session. Virtual mode uses the fake transport. The item is currently
+  disabled for the operator (2026-10-27, pending a simpler sign-in
+  path); the upload itself still runs by itself at three moments - at
+  the end of a run, when this dialog is opened, and once at startup
+  for whatever the previous session left pending. *Dialog: SharePoint
   Upload window.*
 
 ## Help Menu

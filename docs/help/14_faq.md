@@ -39,7 +39,8 @@ Every entry follows the same structure: **Symptom** → possible
   1. Re-run the sequence once — the race usually resolves itself.
   2. If it repeats: check the rails capture window against the
      sequence delays and widen the capture window.
-  3. Re-run and verify the CSV appears under `reports/<date>/`.
+  3. Re-run and verify the CSV appears under
+     `reports/<PROJECT>/DUT Report/`.
 
 ## Q4: "Connect failed" on a console port
 
@@ -144,16 +145,40 @@ Every entry follows the same structure: **Symptom** → possible
   2. `恢复选中设备` for any device in `ERROR`.
   3. Press `派发下一任务` again.
 
-## Q14: Report CSV is missing in reports/<date>/
+## Q14: Report CSV is missing in reports/<PROJECT>/DUT Report/
 
 - **Symptom:** no new CSV after running a batch.
 - **Possible cause:** export requires Supervisor; the Operator
-  preview is read-only and writes nothing.
+  preview is read-only and writes nothing. The file also lands in the
+  project tree `reports/<PROJECT>/DUT Report/<run>/`, not in a date
+  folder.
 - **Fix:**
   1. Log in as Supervisor.
   2. `Report > Generate Report...` again.
-  3. Verify the file appears and the publish history shows in
-     `audit_log`.
+  3. Verify the file appears in the project's `DUT Report` folder and
+     the publish history shows in `audit_log`.
+
+## Q14b: What does the Shopfloor light mean?
+
+- **Symptom:** the small lamp next to `Shopfloor:` changes colour and
+  you need to know why.
+- **Cause / meaning:** it mirrors the SharePoint upload of the last
+  run - grey = upload not configured / off, green = last upload
+  succeeded with nothing pending, amber = uploading or files waiting
+  to retry, red = the upload failed and the files stay in the outbox.
+  Hover the lamp for the exact reason.
+- **Fix:** amber or red clears itself on the next automatic retry
+  (run end, Upload dialog, startup); red in Virtual mode only means
+  the fake transport reported a failure.
+
+## Q14c: Why does File > Exit take a few seconds?
+
+- **Symptom:** the window closes slower than usual.
+- **Cause:** an upload is in flight. Exit waits for the upload worker
+  (up to a few seconds per file) so a package swap cannot leave a
+  partial file on the share.
+- **Fix:** none needed - let it finish. Killing the process instead
+  cuts the upload and can leave a partial file on the share.
 
 ## Q15: The event log shows nothing during a run
 
@@ -217,5 +242,5 @@ shell once during bench setup.
 - Check `11_reports_logs.md` for the exact log/CSV locations.
 - Check `12_audit_security.md` for role and credential questions.
 - Collect the event log lines around the failure (filter by `ERROR`)
-  and attach them — with the `reports/<date>/` CSV — to your support
-  request.
+  and attach them — with the CSV from the project's `DUT Report`
+  folder — to your support request.

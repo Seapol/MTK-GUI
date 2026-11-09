@@ -32,12 +32,12 @@ The diagram is drawn in four layers (top to bottom):
     through the level shifters).
   - `N5747A DC Power Supply` (60 V / 12.5 A / 750 W, 4-wire remote
     sense) with its `Output & Sense` detail block.
-- **Layer 3 - fixture**: `Fixture Probe Board` (128 pinhole pins,
-  single-point star ground plane, power net points TP_P1 - TP_P80)
-  with the star-ground marker, the `ATE Fixture Control Board`
-  (driven by DAQM907A Port 1/2, 4 signals used of 16) and four
-  fixture cells: `Press Cylinder` (output), `Cyl In-Position`,
-  `DUT Presence` and `E-Stop` (inputs, active-low).
+- **Layer 3 - fixture**: the `ATE Fixture Control Board` (driven by
+  DAQM907A Port 1/2 open-drain, external pull-up 42 V / 400 mA, 16
+  channels of which 4 are used) plus the four fixture cells it
+  controls: `Press Cylinder` (digital output, high = press / clamp
+  down), `Cyl In-Position`, `DUT Presence` and `E-Stop` (inputs,
+  active-low).
 - **Layer 4 - DUT**: `DUT Board` with the test object groups
   `Power Nets TP_P1-P80`, `Clock Nets` (CLK1 32.768 kHz, CLK2 4 MHz,
   CLK3 6 MHz), `ADC Input`, `Main Power Input` (VIN+ / VIN-),
@@ -96,12 +96,16 @@ N5747A    Voltage set (V) = 12.0    Current limit (A) = 2.0
 
 ### Connection
 
-- **Interface** dropdown and **Address** field. Switching the
+- **Interface** dropdown and **Address** dropdown. Switching the
   interface fills the matching default VISA-style address, for
   example `GPIB0::9::INSTR`, `TCPIP0::192.168.1.10::inst0` or
   `USB0::0x2A8D::0x0101::MY01000001::INSTR`. The DAQM908A /
   DAQM907A modules connect `via DAQ973A` (slot 1 / 2 / 3 on
   `GPIB0::9`) - they have no address of their own.
+- **Refresh** next to the address dropdown re-scans the interface
+  and repopulates the list with what it finds plus the known
+  defaults, so an instrument that was plugged in after the window
+  opened can be selected without typing its resource string.
 - **Connect** starts the link; the status label shows
   `Connecting ...` for a moment, then the result.
 - **Test Connection** (available once connected) sends `*IDN?` and
@@ -167,6 +171,26 @@ These windows carry the note `Demo mode - no hardware connected.`
 and a `Close` button. What each block is FOR and its integration
 status (including the not-yet-developed placeholders) is covered in
 chapter `07_station_equipment.md` (Station Equipment).
+
+## Wired & Wireless Network
+
+The `Wired & Wireless Network` block chooses how the DUT reaches the
+network. Its window carries two modules - `Wired (RJ45)` and
+`Wireless (AP hotspot)` - each with its own mode cards, and each mode
+has its own configuration window that edits only that mode's fields:
+
+- `Wired (RJ45)`: `Direct (no router)` (DUT -- RJ45 -- host LAN port)
+  and `LAN via router` (DUT -> switch / router -> host RJ45).
+- `Wireless (AP hotspot)`: `Host PC hotspot (no router)` (the Windows
+  host runs the AP via `netsh`) and `Wi-Fi router` (the DUT and the
+  host both join a router AP).
+
+Click a card to select the mode, double-click it (or press `Edit`) to
+open its configuration. The fields of one mode are never mixed into
+another mode's window, and the values are saved with the project
+YAML. The station-side Wi-Fi values are the same four values the DUT
+script reads - see chapter `07_station_equipment.md`, "Wi-Fi Network
+Modes".
 
 ## Connection Status Indicators
 

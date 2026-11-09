@@ -257,7 +257,9 @@ row-level configuration of each method.
 
 1. Configure interface / address and parameters in the instrument's
    configuration window on the Equipment page (chapter
-   `05_equipment.md`, Step-by-Step: Connect an Instrument).
+   `05_equipment.md`, Step-by-Step: Connect an Instrument). The address
+   is the dropdown described in chapter 5, "Instrument Configuration
+   Windows" - nothing else about the rack changes.
 2. Click `Connect`, then `Test Connection` (the `*IDN?` check) -
    the status LED and the status-bar lights follow.
 3. Or press Run - the Test Work Flow page opens every configured

@@ -471,6 +471,31 @@ Instrument / programmer / peripheral hardware is configured on the
 Connection state mirrors between the Equipment page and the
 status-bar LEDs.
 
+## Project assets (`assets_<PROJECT>`)
+
+Every project owns its assets folder next to the project package:
+
+```
+projects\<PROJECT>\
+├── <PROJECT>.yaml
+└── assets_<PROJECT>\
+    ├── drivers\          (driver bring-up scripts)
+    ├── precheck\         (pre-flight checks printing _OK / _FAIL)
+    ├── resources\
+    │   ├── scripts\      (connect_wifi.sh, bt_conn.sh, ...)
+    │   ├── config\       (config templates handed to the DUT)
+    │   └── audio\        (tones / playback used by audio steps)
+    └── templates\        (app-owned sequence templates - replaced on upgrade)
+```
+
+The built-in `assets/` tree is the read-only application skeleton; a
+project's own folder is created from it and then edited by hand. There
+is no in-app asset editor or sync window - **the Config-assets window
+is gone**: assets are edited on disk and travel with their project.
+The four `AP_PROFILE_*` values in `resources\scripts\connect_wifi.sh`
+are deliberately blank; fill them on the station (chapter
+`07_station_equipment.md`, "Wi-Fi Network Modes").
+
 ## Build ICT Test Work Flow Sequence (Rails / Clocks / Control IO)
 
 The merged card for the underlying `rails` / `clocks` / `gpios`

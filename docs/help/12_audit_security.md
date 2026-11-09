@@ -108,6 +108,12 @@ downgrades to kick in mid-run.
   the write, you are told to use the environment fallback.
 - **Supervisor password reset** clears stored credential refs; the
   operator re-enters them (see docs/fct/B3 spec section 7.2).
+- **Where the supervisor password comes from:** it is set once at
+  station setup with `MTK_GUI.exe --set-supervisor-password` and stored
+  as a PBKDF2 (sha256, 600 000 iterations) hash with a random salt in
+  `work\accounts\supervisor.json`. No plaintext password exists anywhere
+  in the repository or the shipped package; with no hash file the
+  supervisor login refuses.
 
 ### Step-by-step: store a DUT login credential
 
@@ -153,7 +159,7 @@ downgrades to kick in mid-run.
 ## Related pages
 
 - `11_reports_logs.md` — how audit-exported CSVs relate to the report
-  exports under `reports/<date>/`.
+  exports under `reports/<PROJECT>/DUT Report/`.
 - `13_case_editor_config.md` — the config-edit permission that the
   guarded demo action mirrors.
 - `14_faq.md` — the keyring and Run blocked quick fixes.

@@ -21,6 +21,13 @@ Sequence waveform and the multi-channel Console (see chapter
   collapse.
 - Page-wide log lines are routed to the central **Event Log** at the
   bottom of the main window (not shown on this page anymore).
+- The embedded `Console` keeps the DUT's ANSI colours, so dim text
+  stays readable on screen and in the report. The PDF appendix is
+  capped at 10 pages (800 wrapped lines); the **full transcript** is
+  always written next to the PDF as `<pdf name>_console_log.txt`.
+- When the run pulled a `fat.log` from the DUT, the report appendix
+  uses that file as the console record instead of the channel
+  capture, and the report states which source it used.
 
 ## How a Run Executes
 

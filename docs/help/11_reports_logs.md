@@ -9,7 +9,7 @@
   ranking); the full console transcript is attached as an appendix.
   CSV export (MES-importable) and the fixed-name PDF
   (`DUT_[PASS/FAIL]_[Serial#]_[Core ID]_[Project Part#]_[Batch#]_
-  [Date]_[Time].pdf`) land under `reports/<date>/`; Supervisor
+  [Date]_[Time].pdf`) land under `reports/<PROJECT>/DUT Report/<run>/`; Supervisor
   exports, Operator sees a read-only preview of the current session.
 - Automatic trigger: every counted product appends to the session
   batch; `audit_log` / `archive` keep the publish history.
@@ -83,35 +83,53 @@ engine state; do not try to "fix" data by editing exported CSVs.
 1. Finish (or pause) the running session so counts are stable.
 2. Open `Report > Generate Report...` (Supervisor login required).
 3. Review the DUT detail + batch summary preview.
-4. Export CSV — the file lands under the date folder (below).
+4. Export CSV — the file lands in the project's `DUT Report` folder
+   (below).
 5. Optional: export PDF for archiving; verify the trace hash matches
    the one shown in the report header.
 
 ### reports/ directory layout
 
-Exports are organized by calendar day; MES import picks files from the
-date folder of the run:
+Every project writes into its own tree under the reports root, and the
+tree survives a package upgrade (the root is saved in
+`work/report_paths.json`, overridable with `MTKGUI_REPORT_HOME`):
 
 ```text
-reports/
-  2026-10-10/
-    summary_<batch>.csv      # batch summary: counts, yield, ranking
-    <dut_id>.csv             # per-DUT detail: all judged items
-    DUT_PASS_<SN>_<core>_<part#>_<batch#>_<date>_<time>.pdf
-                             # certificate report (FAIL named alike)
-    report_<batch>.html      # commercial HTML deliverable
-    report_<batch>.pdf       # A4 print/archive copy
+<reports root>/
+  <PROJECT>/
+    DUT Report/
+      <Part#>_<CoreID>_<Batch#>_<SN>_<ts>/
+        power_rails_<...>.csv          # DAQ capture, when enabled
+        DUT_PASS_<...>.pdf             # certificate, auto after the run
+        DUT_PASS_<...>_console_log.txt # full ASCII console transcript
+        DUT_detail_<...>.csv           # MES rows
+    Event Report/
+      event_<ts>.log                   # one per GUI session
 ```
 
-- `summary_<batch>.csv` — one row per batch: total / PASS / FAIL /
-  invalid / real yield / mean cycle time.
-- `<dut_id>.csv` — one row per judged item: case, verdict, measured,
-  limits, duration, timestamp, batch.
+- `<PROJECT>` is `MTKGUI_PROJECT` when the station launcher sets it,
+  else the loaded project folder name, else `No_Project`.
+- The sub-folder names `DUT Report` / `Event Report` are editable in
+  Settings > Report Folders….
+- The PDF appendix is capped at 10 pages (800 wrapped lines); above
+  that the PDF carries a one-line pointer to the ASCII dump file
+  (`<pdf name>_console_log.txt`), which always holds the full
+  transcript.
 - Older folders are never rewritten; re-running the same DUT appends a
   new timestamped file set.
 
-**Note:** keep `reports/` inside the project directory so the archive
-and audit trail can reference the same paths.
+### statistics history
+
+The run history is stored per project and per month under the station
+work folder:
+
+```text
+work/statistics/<PROJECT>/
+  YYYY-MM.jsonl        # one JSON object per finished unit, appended only
+```
+
+`Report > Statistics` reads every shard of the project in month order.
+A failed write is a warning in the Event Log and never stops a run.
 
 ## SharePoint Upload (Report menu)
 
@@ -204,7 +222,7 @@ engine, so there is zero coupling with the core links.
 1. Set the level combo to `ERROR` (or `WARN` to catch flaky steps).
 2. Type the case name or DUT id into the keyword box.
 3. Read the matching lines; timestamps link the log line to the CSV
-   row exported under `reports/<date>/`.
+   row exported under `reports/<PROJECT>/DUT Report/`.
 4. Reset the keyword box to empty when done — the view re-renders the
    whole buffer under the current level filter.
 
@@ -218,13 +236,13 @@ engine, so there is zero coupling with the core links.
   - **Cause:** the 5000-entry view limit — the oldest lines were
     trimmed, or `Clear` was pressed (view only).
   - **Fix:** switch filters to re-render the buffer; export the batch
-    CSV from `reports/<date>/` for a durable copy.
+    CSV from `reports/<PROJECT>/DUT Report/` for a durable copy.
 - **Symptom:** report KPIs look wrong (yield too high).
   - **Cause:** invalid records are excluded from the *real* yield by
     design; check the 失败分类占比 pie for invalid kinds.
   - **Fix:** read the 异常统计 section of the HTML/PDF report; verify
     the invalid classification of the affected DUTs.
-- **Symptom:** CSV missing in `reports/<date>/`.
+- **Symptom:** CSV missing in `reports/<PROJECT>/DUT Report/`.
   - **Cause:** export requires Supervisor; Operator preview is
     read-only and writes nothing.
   - **Fix:** log in as Supervisor and repeat `Generate Report...`;
