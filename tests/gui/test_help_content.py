@@ -32,8 +32,26 @@ def test_all_chapters_exist():
     # 2026-10-14: Channel Allocation merged into the Yaml Build
     # chapter, Cluster removed, Instruments + Station Equipment added
     # 2026-10-27: chapters 15 (Example ICT) and 16 (Example FCT) added
-    assert len(HELP_TOPICS) == 16
-    assert len(CHAPTERS) == 16
+    assert len(HELP_TOPICS) == 17
+    assert len(CHAPTERS) == 17
+
+
+def test_every_chapter_renders_non_empty():
+    """Render check (not a grep): every registered chapter produces HTML
+    that carries its own first heading."""
+    for key, _label, filename in CHAPTERS:
+        html = load_topic_html(key)
+        assert html.strip(), key
+        assert not html.startswith("<p>Help content file"), key
+        lines = (HELP_ROOT / filename).read_text(encoding="utf-8").splitlines()
+        heading = next((line[3:].strip() for line in lines
+                        if line.startswith("## ")), None)
+        if heading is None:
+            heading = next(line[2:].strip() for line in lines
+                           if line.startswith("# "))
+        # markdown-lite turns `code` into <code>; compare the plain prefix
+        plain = heading.split("`")[0].strip()
+        assert plain in html, (key, plain)
 
 
 def test_markdown_lite_renders_structures():
