@@ -61,8 +61,6 @@ are **not yet developed** (placeholder) unless noted:
 
 | Item | Role | Used by | Status |
 |---|---|---|---|
-| PC Wi-Fi | RF connectivity | FCT `WIFI` method (`wifi_test`, `iperf3`) | in use via host CLI; equipment config **not yet developed** |
-| PC Bluetooth | RF connectivity | FCT `Bluetooth` method (`bt_test`) | in use via host CLI; equipment config **not yet developed** |
 | Ethernet Router | LAN / iperf throughput | throughput tests | **not yet developed** |
 | Media Converter | T1 / T1S media | - | **not yet developed** |
 | Display | DSI-MIPI check | - | **not yet developed** |
@@ -73,6 +71,12 @@ are **not yet developed** (placeholder) unless noted:
 **Note:** the peripheral rows show `Not connected` in the Equipment
 page table; connecting and health-checking them from the GUI is
 part of a future iteration.
+
+**Host radios have no entry in this table.** The FCT `WIFI` and `Bluetooth`
+steps drive the host Wi-Fi and Bluetooth adapters through the command line
+(`wifi_test`, `iperf3`, `bt_test`); their station parameters are edited under
+`Test Peripherals` -> `wifi` / `bluetooth` / `router` group dialogs on the
+Equipment page.
 
 ## Wi-Fi Network Modes
 
