@@ -8,6 +8,7 @@ header flag) so each test sees a clean session.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from pathlib import Path
@@ -78,6 +79,18 @@ def test_begin_end_pairs_and_wait_marker(probe):
     assert "[wait    ] [WAIT] END   login" in end_line
     assert "(operator signed in (Supervisor, Virtual))" in end_line
     assert "waited" in end_line
+
+
+def test_wait_span_is_not_charged_to_the_next_step(probe):
+    """W2-2: the operator wait is logged on its own END line; the checkpoint
+    that follows must not inherit it as its own delta."""
+    st.begin("login", category="wait", wait=True)
+    time.sleep(0.5)
+    st.end("login", note="cancelled - exiting")
+    st.mark("ui: theme applied")
+    line = [l for l in _lines(probe) if "ui: theme applied" in l][0]
+    delta = float(re.search(r"\+([0-9.]+)s", line).group(1))
+    assert delta < 0.1
 
 
 def test_begin_end_nesting_and_indent(probe):

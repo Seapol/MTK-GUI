@@ -381,6 +381,7 @@ def end(label: str, note: str = "") -> None:
                          f"END {label} (mismatch: open is '{top_label}')"))
             return
         delta = now - t_start
+        _LAST = now        # W2-2: the closed span is not charged to the next step
         indent = "  " * depth
         wait_mark = "[WAIT] " if wait else ""
         suffix = f" ({note})" if note else ""
