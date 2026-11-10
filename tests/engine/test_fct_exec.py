@@ -544,6 +544,43 @@ def test_connect_ping_fails_when_no_reply(monkeypatch):
     assert out.verdict == VERDICT_FAIL
 
 
+def _dut_console_wifi_step() -> FctStep:
+    """W3-2: the M66 station-mode row - RSSI read on the DUT console."""
+    return FctStep(
+        name="Wi-Fi Scan / RSSI (DUT console)",
+        step_type="EXTERNAL_TOOL", channel="ser1", timeout_s=2.0,
+        params={"tool_family": "wifi", "rssi_via": "dut_console",
+                "fct_rf": {"mode": "rssi_only", "interface": "mlan0",
+                           "rssi_min": -70}})
+
+
+def test_wifi_dut_console_missing_interface_is_error():
+    """W3-2: no WLAN module on the DUT -> ERROR naming the real cause,
+    never a FAIL that blames the Wi-Fi association."""
+    ctx, _ = make_virtual_context(
+        {"ser1": ["iw dev mlan0 link",
+                  "command failed: No such device (-19)"]})
+    out = execute_fct_step(_dut_console_wifi_step(), ctx)
+    assert out.verdict == VERDICT_ERROR
+    assert "does not exist on the DUT (No such device)" in out.reason
+    assert "wifi.scan_via: host" in out.reason
+
+
+def test_wifi_dut_console_not_connected_stays_fail():
+    """A real station that is deauthenticated keeps its FAIL wording."""
+    ctx, _ = make_virtual_context({"ser1": ["Not connected."]})
+    out = execute_fct_step(_dut_console_wifi_step(), ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert out.reason == "DUT Wi-Fi not connected"
+
+
+def test_wifi_dut_console_rssi_pass_unchanged():
+    ctx, _ = make_virtual_context({"ser1": ["signal: -45 dBm"]})
+    out = execute_fct_step(_dut_console_wifi_step(), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert "RSSI -45.0 dBm vs min" in out.reason
+
+
 def test_iperf_missing_server_ip_is_error(monkeypatch):
     # empty configured IP and undetectable host IP -> explicit ERROR
     monkeypatch.setattr(fe, "host_lan_ip", lambda ctx: "")

@@ -767,6 +767,17 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
             return FctOutcome(
                 VERDICT_PASS if ok else VERDICT_FAIL,
                 detail, list(collected))
+        # W3-2: an absent wireless interface is a capability problem, not
+        # a deauthenticated station - ERROR, never the "not connected"
+        # FAIL (the operator would chase an association that cannot exist)
+        if re.search(r"No such device|command not found", text,
+                     re.IGNORECASE):
+            return FctOutcome(
+                VERDICT_ERROR,
+                f"DUT Wi-Fi interface '{interface}' "
+                "does not exist on the DUT (No such device) - set "
+                "wifi.scan_via: host for a DUT without a WLAN module",
+                list(collected))
         if re.search(r"not connected|No station|Invalid", text,
                      re.IGNORECASE):
             return FctOutcome(VERDICT_FAIL, "DUT Wi-Fi not connected",
