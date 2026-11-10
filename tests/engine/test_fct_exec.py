@@ -5,6 +5,8 @@ credential layer fallback rules and the runner integration (Virtual
 end-to-end through TestRunner.run_demo)."""
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 from mtkgui.engine.credentials import (
@@ -832,3 +834,59 @@ def test_explicit_dialog_step_pops_exactly_once():
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
     assert asked == ["Confirm: Earphone"]
+
+
+# ------------------------------------------------------ W3-1 serial pull
+class _PullChannel:
+    """Console stub that answers the PULL protocol with one chunk."""
+
+    def __init__(self, payload: bytes = b"") -> None:
+        self.payload = payload
+        self.written: list = []
+        self._lines: list = []
+
+    def write(self, text: str) -> None:
+        self.written.append(text)
+        if "PULL_START" in text and "$(" in text:      # the pull script
+            size = len(self.payload)
+            chunk = base64.b64encode(self.payload).decode()
+            self._lines.extend([f"PULL_START {size}",
+                                f"PULL_CHUNK 1 {chunk}",
+                                f"PULL_OK {size}"])
+
+    def read_lines(self, max_lines: int = 200, timeout_s: float = 0.0) -> list:
+        out = self._lines[:max_lines]
+        del self._lines[:len(out)]
+        return out
+
+
+def _pull_step(local: str) -> FctStep:
+    return FctStep(
+        name="Transfer - pull probe output", step_type="EXTERNAL_TOOL",
+        channel="ser1",
+        params={"fct_serial_transfer": {
+            "direction": "pull", "local": local,
+            "remote": "/root/fct_assets/probe_out.txt"}})
+
+
+def test_pull_target_directory_is_refused_as_fail(tmp_path):
+    """W3-1: a directory as the pull target is a misconfigured row -> FAIL
+    with its own message, never the misleading Permission denied."""
+    ctx = FctContext(channels={"ser1": _PullChannel()},
+                     station_id="S", user="u")
+    out = execute_fct_step(_pull_step(str(tmp_path)), ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert ("serial pull: the local target is a directory, not a file:"
+            in out.reason)
+    assert "Permission denied" not in out.reason
+
+
+def test_pull_to_a_file_path_still_succeeds(tmp_path):
+    """W3-1: the success path is byte-identical - one file to a file."""
+    data = b"probe output\n"
+    ctx = FctContext(channels={"ser1": _PullChannel(data)},
+                     station_id="S", user="u")
+    dest = tmp_path / "out" / "probe_out.txt"
+    out = execute_fct_step(_pull_step(str(dest)), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert dest.read_bytes() == data

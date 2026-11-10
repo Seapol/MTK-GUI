@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 from mtkgui.engine.fct_test_config import (
+    KIND_SERIAL_PULL,
     BluetoothCfg,
     ConsoleCfg,
     ConsoleCommand,
@@ -510,6 +511,23 @@ def test_bare_metal_rejects_ssh_transport_and_sftp():
     errors = cfg.validate()
     assert any("SSH" in e and "serial" in e for e in errors)
     assert any("sftp_put" in e for e in errors)
+
+
+def test_validate_pull_local_directory_is_an_error(tmp_path):
+    """W3-1: a pull always lands in ONE file - a directory target is an
+    explicit validation error instead of a Permission denied at run time."""
+    cfg = frdm_config()
+    pull = ConsoleCommand(kind=KIND_SERIAL_PULL, name="Pull probe",
+                          channel="ser1",
+                          remote="/root/fct_assets/probe_out.txt",
+                          local=str(tmp_path))
+    cfg.console.test_commands = [pull]
+    expected = ("serial transfer row 'Pull probe': the pull target must be "
+                f"a file, not a directory: {tmp_path}")
+    assert expected in cfg.validate()
+    # the same row pointed at a file is not flagged
+    pull.local = str(tmp_path / "probe_out.txt")
+    assert not any("pull target" in error for error in cfg.validate())
 
 
 # ------------------------------------------------- three-stage Wait/Send/Capture

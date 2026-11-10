@@ -1313,6 +1313,14 @@ def _run_serial_transfer(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
             base = str(ctx.project_base or "")
             local = os.path.join(base, "outbox") if base else "outbox"
         local = _resolve_deploy_local(ctx, local)
+        # W3-1: a pull lands in ONE file - a directory target is a
+        # misconfigured row, so FAIL (Stop if failure aborts) instead of
+        # the misleading Permission denied an open() would raise
+        if os.path.isdir(local):
+            return FctOutcome(
+                VERDICT_FAIL,
+                f"serial pull: the local target is a directory, not a file: "
+                f"{local}")
         files.append((local, remote))
     if not files:
         return FctOutcome(VERDICT_FAIL,

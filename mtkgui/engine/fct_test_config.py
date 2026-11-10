@@ -1798,6 +1798,16 @@ class FctTestConfig:
                         errors.append(
                             f"serial transfer row '{cmd.name}': the local "
                             "source path must not be empty")
+                    # W3-1: a pull always lands in ONE file - a directory
+                    # there fails with a misleading Permission denied
+                    local_value = str(cmd.local or "").strip()
+                    if cmd.kind == KIND_SERIAL_PULL and local_value:
+                        import os
+                        if os.path.isdir(local_value):
+                            errors.append(
+                                f"serial transfer row '{cmd.name}': "
+                                "the pull target must be a file, not a "
+                                f"directory: {local_value}")
         if w.any_enabled:
             if w.scan_via not in WIFI_SCAN_VIA:
                 errors.append(f"wifi.scan_via must be one of "
