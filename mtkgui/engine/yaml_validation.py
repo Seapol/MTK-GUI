@@ -115,6 +115,33 @@ def rule_retired_console_login_rows(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_console_login_rows)
 
 
+def rule_transfer_kind_without_params(doc: dict) -> list[YamlIssue]:
+    """W3-3: a ``SerialPush`` / ``SerialPull`` row without its transfer
+    marker would transfer nothing - refuse it at load time."""
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            if not isinstance(row, dict):
+                continue
+            kind = str(row.get("kind") or "")
+            if kind not in ("SerialPush", "SerialPull"):
+                continue
+            params = (((row.get("op_params") or {}).get("fct_step")
+                       or {}).get("params") or {})
+            if "fct_serial_transfer" in params:
+                continue
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                f"row kind '{kind}' carries no serial transfer parameters - "
+                f"rebuild it from the Console panel's Serial Push / Pull editor",
+                f"{key}[{index}].kind"))
+    return issues
+
+
+_RULES.append(rule_transfer_kind_without_params)
+
+
 def _retired_network_op_name(row: dict) -> str:
     """M83: the retired op name a legacy row still expands, else ``""``.
 

@@ -677,8 +677,16 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
             if s.params.get("fct_host_cmd") is not None:
                 kind = "SendtoCLI"          # host CLI row (test PC shell)
             else:
-                kind = {"wifi": "WIFI", "bluetooth": "Bluetooth"}.get(
-                    family, "MessageOK")
+                # W3-3: a serial transfer row gets its OWN kind - it is
+                # not a message acknowledge
+                transfer = s.params.get("fct_serial_transfer")
+                if isinstance(transfer, dict):
+                    kind = ("SerialPull"
+                            if str(transfer.get("direction") or "") == "pull"
+                            else "SerialPush")
+                else:
+                    kind = {"wifi": "WIFI", "bluetooth": "Bluetooth"}.get(
+                        family, "MessageOK")
         if s.params.get("op"):
             op_params = {"type": "op", "op": s.params["op"]}
         # B4: the full step travels with the case (op_params.fct_step)
@@ -703,9 +711,23 @@ def from_project_fct_cases(cases: list, name: str = "",
     for c in (cases or []):
         kind = str(c.get("kind", "MessageOK"))
         timeout_s = max(int(c.get("timeout_ms", 5000)) / 1000.0, 0.0)
-        step = FctStep(name=str(c.get("name", "")), step_type=kind,
-                       timeout_s=timeout_s,
-                       params={"legacy": True,
+        params = {"legacy": True,
+                  "legacy_wait_ms": c.get("wait_ms", 100)}
+        step_type = kind
+        if kind in ("SerialPush", "SerialPull"):
+            # W3-3: a transfer row must come back as the executor's
+            # EXTERNAL_TOOL step with its transfer parameters intact;
+            # without a marker an EMPTY transfer reaches the executor's
+            # own "no DUT path configured" ERROR (never a PASS).
+            step_type = STEP_EXTERNAL_TOOL
+            marker = ((c.get("op_params") or {}).get("fct_step") or {})
+            marker_params = marker.get("params")
+            if isinstance(marker_params, dict):
+                params = dict(marker_params)
+                params.update({"legacy": True,
                                "legacy_wait_ms": c.get("wait_ms", 100)})
+            params.setdefault("fct_serial_transfer", {})
+        step = FctStep(name=str(c.get("name", "")), step_type=step_type,
+                       timeout_s=timeout_s, params=params)
         steps.append(step)
     return FctSequence(name=name, flash_mode=flash_mode, steps=steps)

@@ -92,6 +92,16 @@ class TestFctKinds:
     def test_console_kinds_subset(self):
         assert set(CONSOLE_KINDS) <= set(FCT_METHODS)
 
+    def test_serial_transfer_kinds_in_vocabulary(self):
+        """W3-3: the two transfer kinds are part of the YAML vocabulary
+        and derive from the row name like every other method."""
+        assert "SerialPush" in FCT_METHODS
+        assert "SerialPull" in FCT_METHODS
+        assert (fct_kind_from_name("SerialPull: probe_out.txt")
+                == "SerialPull")
+        assert (fct_kind_from_name("SerialPush: firmware.bin")
+                == "SerialPush")
+
 
 class TestImpedanceShort:
     @pytest.mark.parametrize("step", [

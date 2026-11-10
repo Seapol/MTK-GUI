@@ -19,6 +19,7 @@ from mtkgui.gui.yamlbuild.fct_build import (
     FctSequence,
     FctStep,
     STEP_CLI_RUN,
+    STEP_EXTERNAL_TOOL,
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     STEP_TYPES,
@@ -187,6 +188,51 @@ def test_external_tool_family_mapping():
     ])
     kinds = [c["kind"] for c in to_project_fct_cases(seq)]
     assert kinds == ["WIFI", "Bluetooth"]
+
+
+def test_serial_transfer_rows_map_to_transfer_kinds():
+    """W3-3: a serial transfer row is published with its OWN kind - the
+    old MessageOK label claimed a message acknowledge."""
+    seq = FctSequence(name="transfer", steps=[
+        FctStep(name="SerialPush: fct_probe.sh",
+                step_type=STEP_EXTERNAL_TOOL, channel="ser1",
+                params={"fct_serial_transfer": {
+                    "direction": "push", "local": "a.sh",
+                    "remote": "/root/a.sh"}}),
+        FctStep(name="SerialPull: probe_out.txt",
+                step_type=STEP_EXTERNAL_TOOL, channel="ser1",
+                params={"fct_serial_transfer": {
+                    "direction": "pull", "local": "out/probe_out.txt",
+                    "remote": "/root/probe_out.txt"}}),
+    ])
+    cases = to_project_fct_cases(seq)
+    assert [c["kind"] for c in cases] == ["SerialPush", "SerialPull"]
+    marker = (cases[1]["op_params"]["fct_step"]["params"]
+              ["fct_serial_transfer"])
+    assert marker["local"] == "out/probe_out.txt"
+    assert marker["remote"] == "/root/probe_out.txt"
+
+
+def test_serial_transfer_kinds_round_trip():
+    """W3-3: the reverse map restores the executor step with its transfer
+    parameters; without a marker the transfer is EMPTY (never a PASS)."""
+    transfer = {"direction": "pull", "local": "out/probe_out.txt",
+                "remote": "/root/fct_assets/probe_out.txt",
+                "baud": 0, "console_baud": 115200}
+    cases = [{"name": "SerialPull: probe_out.txt", "kind": "SerialPull",
+              "enable": True, "wait_ms": 100, "timeout_ms": 2000,
+              "op_params": {"fct_step": {
+                  "name": "SerialPull: probe_out.txt",
+                  "step_type": STEP_EXTERNAL_TOOL,
+                  "params": {"fct_serial_transfer": transfer}}}}]
+    step = from_project_fct_cases(cases).steps[0]
+    assert step.step_type == STEP_EXTERNAL_TOOL
+    assert step.params["fct_serial_transfer"] == transfer
+    assert step.params["legacy"] is True
+    bare = from_project_fct_cases(
+        [{"name": "SerialPush: x", "kind": "SerialPush"}]).steps[0]
+    assert bare.step_type == STEP_EXTERNAL_TOOL
+    assert bare.params["fct_serial_transfer"] == {}
 
 
 def test_round_trip_through_legacy_shape_is_lossless_enough():

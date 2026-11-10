@@ -841,6 +841,11 @@ class TestRunner(QObject):
                 kind, name,
                 timeout_s=float(cfg.get("message_timeout_s") or 0.0))
             verdict = self._fct_message_action(kind, name, answer, cfg)
+        if verdict is None and kind in ("SerialPush", "SerialPull"):
+            env._log(f"FCT {name}: '{kind}' row "
+                     "carries no serial transfer parameters - "
+                     "nothing transferred")
+            verdict = "ERROR"
         if verdict is None:
             # FCT is always real: no virtual fault roll here
             verdict = "PASS"

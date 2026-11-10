@@ -74,6 +74,29 @@ def test_other_steps_are_unaffected():
     assert yv.validate_project_yaml(doc) == []
 
 
+def test_transfer_kind_without_params_is_error():
+    """W3-3: a row claiming to be a serial transfer but carrying no
+    transfer parameters is refused at load time."""
+    doc = _doc(ict=[{"name": "R-GND - TP_P01", "kind": "R-GND"}],
+               fct=[{"name": "SerialPull: probe_out.txt",
+                     "kind": "SerialPull"}])
+    issues = yv.validate_project_yaml(doc)
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.severity == yv.SEVERITY_ERROR
+    assert "carries no serial transfer parameters" in issue.message
+    assert issue.location == "fct_test_cases[0].kind"
+    # the same row WITH its marker is accepted
+    doc = _doc(ict=[{"name": "R-GND - TP_P01", "kind": "R-GND"}],
+               fct=[{"name": "SerialPull: probe_out.txt",
+                     "kind": "SerialPull",
+                     "op_params": {"fct_step": {
+                         "params": {"fct_serial_transfer": {
+                             "direction": "pull", "local": "a.txt",
+                             "remote": "/root/a.txt"}}}}}])
+    assert yv.validate_project_yaml(doc) == []
+
+
 def test_blocking_only_errors():
     issues = [yv.YamlIssue(yv.SEVERITY_WARNING, "w", "loc"),
               yv.YamlIssue(yv.SEVERITY_ERROR, "e", "loc")]

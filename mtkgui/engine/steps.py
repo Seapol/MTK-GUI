@@ -41,6 +41,8 @@ FCT_METHODS = [
     "Delay",
     "SendtoCLI", "WaitforCLI", "CapturefromCLI",
     "WIFI", "Bluetooth",
+    "SerialPush",
+    "SerialPull",
 ]
 
 #: Console-domain operator dialog methods (wait-for-message + notify)

@@ -9,7 +9,7 @@ from mtkgui.engine.demo import HeadlessConsole, HeadlessEnv
 from mtkgui.engine.results import StepStatus
 from mtkgui.engine.runner import TestRunner
 
-from tests.engine.conftest import make_env
+from tests.engine.conftest import make_config, make_env
 
 # pytest must not collect the engine class as a test case
 TestRunner.__test__ = False
@@ -783,3 +783,23 @@ class TestFctMessageRows:
         _, dialogs = self._run_row(env, marker, name="Flash FAT Firmware")
         assert dialogs == [("MessageGoStop",
                             "Confirm: Flash FAT Firmware")]
+
+
+class TestTransferKinds:
+    def test_transfer_kind_without_params_is_error(self, tmp_path):
+        """W3-3: a legacy SerialPush row without its marker must never
+        PASS after transferring nothing."""
+        config = make_config()
+        config["test_workflow"]["fct_test_cases"] = [
+            {"name": "SerialPush: firmware.bin", "kind": "SerialPush",
+             "timeout_ms": 2000}]
+        env, _stages = make_env(config, tmp_path=tmp_path)
+        runner = TestRunner(env)
+        runner.state = "running"
+        env.runner = runner
+        runner._exec_fct_row(0, interactive=True)
+        assert env.rows[("fct", 0)] == "Error"
+        lines = env._log_lines()
+        assert any("carries no serial transfer parameters" in line
+                   for line in lines)
+        assert not any("operator confirmed PASS" in line for line in lines)
