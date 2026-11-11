@@ -108,12 +108,11 @@ downgrades to kick in mid-run.
   the write, you are told to use the environment fallback.
 - **Supervisor password reset** clears stored credential refs; the
   operator re-enters them (see docs/fct/B3 spec section 7.2).
-- **Where the supervisor password comes from:** it is set once at
-  station setup with `MTK_GUI.exe --set-supervisor-password` and stored
-  as a PBKDF2 (sha256, 600 000 iterations) hash with a random salt in
-  `work\accounts\supervisor.json`. No plaintext password exists anywhere
-  in the repository or the shipped package; with no hash file the
-  supervisor login refuses.
+- **Where the supervisor password comes from:** it lives only in the
+  application source (`SUPERVISOR_PASSWORD` in `mtkgui/permissions.py`)
+  and is checked when the Supervisor role is unlocked. It never appears
+  in the UI, the manual, or any other document. There is no per-station
+  password file to set or reset.
 
 ### Step-by-step: store a DUT login credential
 

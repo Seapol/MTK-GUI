@@ -8,17 +8,15 @@ Two accounts share one GUI:
   but every other right is granted per key by the supervisor
   (Settings > Operator Permissions, persisted in config/permissions.json).
 
-The supervisor password is not in this source file.  It is set once by the NXP
-owner at station setup and stored as a PBKDF2 hash in
-``work/accounts/supervisor.json`` (see :mod:`mtkgui.accounts`); with no hash
-file the supervisor login refuses and asks for the NXP owner.
+The supervisor password lives only in this source file (SUPERVISOR_PASSWORD
+below); it never appears in the UI, the manual or any other document.
 """
 
 import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -36,7 +34,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from . import accounts
 from mtkgui.gui import identity
 from .gui_version import load_gui_version
 from mtkgui.gui.dialog_sizing import enable_dialog_controls, fit_dialog
@@ -75,6 +72,9 @@ VIRTUAL_MODE_NOTICE = (
     "orange-red). FCT always runs against real hardware "
     "(real DUT + Host PC Wi-Fi/Bluetooth + Wi-Fi router) "
     "and shows PASS / FAIL")
+
+# Default supervisor password (source-only by design; do not document it).
+SUPERVISOR_PASSWORD = "nxp"
 
 # permission key -> UI label shown in the supervisor dialog.  Defaults are
 # what a fresh operator account gets; "connect / disconnect instruments"
@@ -306,15 +306,6 @@ class LoginDialog(QDialog):
         self.password_edit.setFixedHeight(36)
         form.addRow("Password:", self.password_edit)
 
-        # M97: PBKDF2 is ~0.2 s - verify only after the typing pauses, never
-        # per keystroke (the mode switch lock listens on textChanged).
-        self._verified = False
-        self._verified_text = ""
-        self._verify_timer = QTimer(self)
-        self._verify_timer.setSingleShot(True)
-        self._verify_timer.setInterval(500)
-        self._verify_timer.timeout.connect(self._verify_password_typed)
-
         # 3 ---------------------------------------------------- mode switch
         # Left = Real (default), right = Virtual.  Disabled + grayed
         # until the supervisor password validates (spec items 2-3).
@@ -372,7 +363,7 @@ class LoginDialog(QDialog):
         self.role_combo.currentTextChanged.connect(
             lambda _t: self._sync_mode_lock())
         self.password_edit.textChanged.connect(
-            lambda _t: self._verify_timer.start())
+            lambda _t: self._sync_mode_lock())
         self._sync_mode_lock()
 
     # ------------------------------------------------------------- footer
@@ -548,16 +539,9 @@ class LoginDialog(QDialog):
 
     # ------------------------------------------------------------ helpers
     def _supervisor_unlocked(self) -> bool:
-        """True when the typed text was verified for this station."""
+        """True when the supervisor credential pair validates."""
         return (self.role_combo.currentText() == ROLE_SUPERVISOR
-                and self._verified
-                and self._verified_text == self.password_edit.text())
-
-    def _verify_password_typed(self):
-        text = self.password_edit.text()
-        self._verified_text = text
-        self._verified = bool(text) and accounts.verify(text)
-        self._sync_mode_lock()
+                and self.password_edit.text() == SUPERVISOR_PASSWORD)
 
     def _sync_mode_lock(self):
         """Gray out + force Real until the supervisor login validates."""
@@ -575,13 +559,7 @@ class LoginDialog(QDialog):
     def _on_accept(self):
         role = self.role_combo.currentText()
         if role == ROLE_SUPERVISOR:
-            if not accounts.is_configured():
-                QMessageBox.warning(
-                    self, "Supervisor Password Not Set",
-                    "This station has no supervisor password yet.\n"
-                    "Ask your NXP owner to set it once at station setup.")
-                return
-            if not accounts.verify(self.password_edit.text()):
+            if self.password_edit.text() != SUPERVISOR_PASSWORD:
                 QMessageBox.warning(self, "Login Failed",
                                     "Wrong supervisor password.")
                 self.password_edit.selectAll()

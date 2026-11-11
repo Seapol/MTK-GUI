@@ -24,7 +24,6 @@ from mtkgui.equipment_page import (
     _MANUAL_FIXTURE_KEYS,
     _InstrumentDialog,
 )
-from mtkgui import accounts
 from mtkgui.main_window import MainWindow
 from mtkgui.permissions import (
     FIXTURE_ATE,
@@ -34,20 +33,12 @@ from mtkgui.permissions import (
     MODE_VIRTUAL,
     ROLE_OPERATOR,
     ROLE_SUPERVISOR,
+    SUPERVISOR_PASSWORD,
     FixtureSelector,
     LoginDialog,
     ModeSwitch,
     SlideSwitch,
 )
-
-TEST_SUPERVISOR_PASSWORD = "Station-2026"   # not the retired default
-
-
-@pytest.fixture(autouse=True)
-def _station_supervisor_password():
-    accounts.set_password(TEST_SUPERVISOR_PASSWORD)
-    yield
-    accounts.clear_password()
 
 
 @pytest.fixture()
@@ -93,28 +84,24 @@ def test_mode_switch_unlocks_only_for_supervisor(login_dlg):
     sw = login_dlg.mode_switch
     # operator + anything -> locked
     login_dlg.role_combo.setCurrentText(ROLE_OPERATOR)
-    login_dlg.password_edit.setText(TEST_SUPERVISOR_PASSWORD)
-    login_dlg._verify_password_typed()      # M97: the debounced hook
+    login_dlg.password_edit.setText(SUPERVISOR_PASSWORD)
     assert not sw.isEnabled()
     # supervisor + wrong password -> locked
     login_dlg.role_combo.setCurrentText(ROLE_SUPERVISOR)
     login_dlg.password_edit.setText("wrong")
-    login_dlg._verify_password_typed()
     assert not sw.isEnabled()
     # supervisor + correct password -> unlocked
-    login_dlg.password_edit.setText(TEST_SUPERVISOR_PASSWORD)
-    login_dlg._verify_password_typed()
+    login_dlg.password_edit.setText(SUPERVISOR_PASSWORD)
     assert sw.isEnabled()
     # any later credential change re-locks
-    login_dlg.password_edit.setText(TEST_SUPERVISOR_PASSWORD[:-1])
-    login_dlg._verify_password_typed()
+    login_dlg.password_edit.setText(SUPERVISOR_PASSWORD[:-1])
     assert not sw.isEnabled() and not sw.isChecked()
 
 
 def test_supervisor_accepts_virtual_mode(login_dlg):
     """A validated supervisor can slide to Virtual and it sticks."""
     login_dlg.role_combo.setCurrentText(ROLE_SUPERVISOR)
-    login_dlg.password_edit.setText(TEST_SUPERVISOR_PASSWORD)
+    login_dlg.password_edit.setText(SUPERVISOR_PASSWORD)
     login_dlg.mode_switch.setEnabled(True)
     login_dlg.mode_switch.setChecked(True)          # right = Virtual
     login_dlg._on_accept()
