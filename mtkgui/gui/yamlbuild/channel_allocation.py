@@ -63,6 +63,7 @@ from mtkgui.ict.netparse.isolation import assess_net
 from mtkgui.gui.dialog_sizing import wrap_scrollable
 from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
+    CLOCK_CHANNEL_RANGES,
     CLOCK_CHANNELS,
     DAQM908A_SENSE_CHANNELS,
     GPIO_CHANNEL_CAPACITY,
@@ -86,11 +87,61 @@ AUTO_KEYS = frozenset({"band"})
 LAZY_MARGIN_ROWS = 30
 
 
+def _clock_nominal_hz(row) -> float | None:
+    """The row's nominal in Hz (None when the operator left it blank)."""
+    value = getattr(row, "nominal_khz", UNSET)
+    if value in ("", UNSET, None):
+        return None
+    try:
+        return float(str(value).strip()) * 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def clock_range_message(row) -> str:
+    """'' when the nominal fits the chosen channel, else the operator
+    message naming the range and the channel to use (M99)."""
+    channel = str(getattr(row, "se_clock_hz", UNSET))
+    limits = CLOCK_CHANNEL_RANGES.get(channel)
+    nominal = _clock_nominal_hz(row)
+    if limits is None or nominal is None or channel in ("", UNSET):
+        return ""
+    low, high = limits
+    band = CLOCK_BANDS.get(channel, UNSET)
+    shown = f"{nominal / 1000.0:g} kHz"
+    if nominal > high:
+        return (f"Clock out of range: {row.net} {shown} > {channel} "
+                f"{band} - use U2355A CTR0/CTR1")
+    if nominal < low:
+        return (f"Clock out of range: {row.net} {shown} < {channel} "
+                f"{band} - use DAQM907A TOT")
+    return ""
+
+
+def _pick_clock_channel(free: list[str],
+                        nominal_hz: float | None) -> str | None:
+    """Frequency-aware SE clock channel: above 100 kHz a U2355A counter,
+    otherwise the DAQM907A totalizer (unknown nominal = totalizer)."""
+    if nominal_hz is not None and nominal_hz > 100e3:
+        for channel in ("U2355A CTR0", "U2355A CTR1"):
+            if channel in free:
+                free.remove(channel)
+                return channel
+        return None
+    if "DAQM907A TOT" in free:
+        free.remove("DAQM907A TOT")
+        return "DAQM907A TOT"
+    return None
+
+
 def allocation_configured_ok(data) -> bool:
     """Capacity-aware validation: every Power / Clock row and the
     first :data:`GPIO_CHANNEL_CAPACITY` Control IO rows must be
     configured.  Later Control IO nets are EXPECTED overflow (kept
     classified, no channel - not a validation error).
+
+    M99: a clock nominal outside the chosen channel's band is an
+    unconfigured row (the build stays disabled).
 
     M59: the model reuses this exact footer check when deriving the
     block-03 star from a loaded YAML ("validation: OK").
@@ -99,6 +150,8 @@ def allocation_configured_ok(data) -> bool:
         if any(not row.is_configured(kind)
                for row in getattr(data, kind)):
             return False
+    if any(clock_range_message(row) for row in getattr(data, "clock")):
+        return False
     return all(row.is_configured("gpio")
                for row in data.gpio[:GPIO_CHANNEL_CAPACITY])
 
@@ -760,7 +813,14 @@ class _NetTable(QWidget):
             item.setText(status)
 
     def row_status(self, row: AllocatedRow) -> str:
-        """Auto-validation: OK when fully configured, else NOK."""
+        """Auto-validation: OK when fully configured, else NOK.
+
+        M99: a clock nominal outside the chosen channel's band reports
+        the range mismatch (and keeps the build disabled)."""
+        if self.kind == "clock":
+            message = clock_range_message(row)
+            if message:
+                return message
         return STATUS_OK if row.is_configured(self.kind) else STATUS_NOK
 
     def collect(self) -> list[dict]:
@@ -1222,7 +1282,7 @@ class ChannelAllocationPage(QWidget):
                       f"Auto assign: allocating {kind} channels")
                 sense = iter(DAQM908A_SENSE_CHANNELS)
                 rails = iter(U2355A_AI_CHANNELS)
-                clocks = iter(CLOCK_CHANNELS)
+                clocks = list(CLOCK_CHANNELS)
                 dios = iter(GPIO_DIO_CHANNELS)
                 rows = table.rows()
                 for row in rows:
@@ -1242,22 +1302,26 @@ class ChannelAllocationPage(QWidget):
                         except StopIteration:
                             row.impedance = UNSET
                             row.voltage = UNSET
+                    if kind == "clock":
+                        # M99: the channel must cover the nominal
+                        picked = _pick_clock_channel(
+                            clocks, _clock_nominal_hz(row))
+                        if picked is None:
+                            row.se_clock_hz = UNSET
+                            row.band = UNSET
+                        else:
+                            row.se_clock_hz = picked
+                            row.band = CLOCK_BANDS.get(picked, UNSET)
+                        continue
                     try:
                         if kind == "power":
                             row.power_rails = next(rails)
-                        elif kind == "clock":
-                            row.se_clock_hz = next(clocks)
-                            row.band = CLOCK_BANDS.get(row.se_clock_hz,
-                                                       UNSET)
                         else:
                             row.dio_channel = next(dios)
                     except StopIteration:
                         # pool exhausted: this net cannot be tested
                         if kind == "power":
                             row.power_rails = UNSET
-                        elif kind == "clock":
-                            row.se_clock_hz = UNSET
-                            row.band = UNSET
                         else:
                             row.dio_channel = UNSET
                 table.load_rows(rows)

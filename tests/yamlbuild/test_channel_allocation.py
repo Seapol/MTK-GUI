@@ -332,8 +332,10 @@ def test_auto_allocate_top_down(page):
     assert power[0].nominal_v == "3.300"
     assert page.table_power.row_status(power[0]) == "OK"
     clock = page.table_clock.rows()[0]
-    assert clock.se_clock_hz == "DAQM907A TOT"
-    assert clock.band == "0 ~ 100 kHz"
+    # M99: CLK_24M (24 MHz) does not fit the 100 kHz totalizer - Auto
+    # picks a U2355A counter for it
+    assert clock.se_clock_hz == "U2355A CTR0"
+    assert clock.band == "0.1 Hz ~ 6 MHz"
     # Control IO is auto-assigned from the U2355A DIO pool (W2)
     gpio = page.table_gpio.rows()[0]
     assert gpio.dio_channel == "U2355A DIO01"

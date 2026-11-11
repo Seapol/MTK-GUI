@@ -119,6 +119,9 @@ METHOD_ORDER = (METHOD_R_GND, "Power Voltage", "Clock Hz")
 #: clock +/- 50 ppm (= 0.005 %)
 POWER_TOL = 0.05
 CLOCK_TOL_PPM = 50.0
+#: counter gate time (s) - the measurable resolution is 1 / gate Hz, so
+#: a 1 s gate reports whole Hz (M99: the sub-Hz digits were fabricated)
+CLOCK_GATE_S = 1.0
 #: R-GND min limit default (user direction 2026-10-25): 30 ohm - a
 #: low-impedance rail-to-ground short would draw excessive current and
 #: heat up the board, so the measured impedance must stay ABOVE it
@@ -161,7 +164,13 @@ def _fmt_power(value: float) -> str:
 
 
 def _fmt_clock(value: float) -> str:
-    """Clock limits / expected: 0.1 Hz precision (user direction)."""
+    """Clock limits / expected at the counter's gate resolution.
+
+    A 1 s gate resolves 1 Hz, so the cells carry integers; a
+    sub-second gate falls back to one decimal place."""
+    resolution = 1.0 / CLOCK_GATE_S
+    if resolution >= 1.0:
+        return f"{round(value):d}"
     return f"{value:.1f}"
 
 
@@ -266,7 +275,7 @@ def auto_fill_limits(rows: list[tuple],
     """Fill Expected / Min / Max from the parsed nominal values (the
     Auto semantics, table-free): Min = Expected * (1 - tolerance),
     Max = Expected * (1 + tolerance); power voltage +/- 5 % (0.001 V
-    precision), clock +/- 50 ppm (0.1 Hz precision).
+    precision), clock +/- 50 ppm at the counter gate resolution.
 
     The nominal comes from the ``imported.testable_nets`` entry when the
     parse knows one (``nominal_v`` / ``nominal_khz`` - M8), else it is

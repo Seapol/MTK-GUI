@@ -222,10 +222,11 @@ def test_auto_fills_limits_from_net_names(qapp):
         assert rows["Power Voltage - 1V8_CORE"][3] == "1.800"
         assert rows["Power Voltage - 1V8_CORE"][4] == "1.710"
         assert rows["Power Voltage - 1V8_CORE"][5] == "1.890"
-        # clock: expected 24000000.0 Hz, +/- 50 ppm, 0.1 Hz precision
-        assert rows["Clock Hz - CLK_24M"][3] == "24000000.0"
-        assert rows["Clock Hz - CLK_24M"][4] == "23998800.0"
-        assert rows["Clock Hz - CLK_24M"][5] == "24001200.0"
+        # clock: expected 24000000 Hz, +/- 50 ppm; M99 - a 1 s gate
+        # resolves whole Hz, so the cells carry integers
+        assert rows["Clock Hz - CLK_24M"][3] == "24000000"
+        assert rows["Clock Hz - CLK_24M"][4] == "23998800"
+        assert rows["Clock Hz - CLK_24M"][5] == "24001200"
         # impedance: no nominal parsed -> untouched
         assert rows["R-GND - 1V8_CORE"][3] == "—"
         assert rows["R-GND - 1V8_CORE"][4] == "—"

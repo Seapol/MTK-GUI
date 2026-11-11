@@ -58,6 +58,13 @@ CLOCK_BANDS: dict[str, str] = {
     "U2355A CTR0": "0.1 Hz ~ 6 MHz",
     "U2355A CTR1": "0.1 Hz ~ 6 MHz",
 }
+#: the same bands as numbers (Hz) - the capacity check compares the
+#: row's nominal against the chosen channel
+CLOCK_CHANNEL_RANGES: dict[str, tuple[float, float]] = {
+    "DAQM907A TOT": (0.0, 100e3),
+    "U2355A CTR0": (0.1, 6e6),
+    "U2355A CTR1": (0.1, 6e6),
+}
 #: DAQM908A sense resource for the Power-net Impedance / Voltage
 #: measurements: card #1 CH101-CH140, card #2 CH201-CH240
 DAQM908A_SENSE_CHANNELS: tuple[str, ...] = tuple(

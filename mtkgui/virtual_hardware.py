@@ -135,6 +135,41 @@ def daqm_channel(tp_number):
     return 2, 200 + (tp_number - 40)
 
 
+#: counter gate time (s) - the measurable resolution is 1 / gate Hz, so a
+#: 1 s gate reports whole Hz (same constant as the ICT sequence builder)
+_GATE_S = 1.0
+
+
+def _counter_range_error(label: str, tp_name: str, nominal: float):
+    """M99: refuse a nominal the channel cannot measure.
+
+    A 100 kHz totalizer fed a 3.072 MHz clock must never produce a
+    number (that was the virtual PASS on an impossible reading)."""
+    from mtkgui.gui.yamlbuild.power_alloc import CLOCK_CHANNEL_RANGES
+    limits = CLOCK_CHANNEL_RANGES.get(label)
+    if limits is None:
+        return Measurement("Error", "—", [
+            f"DAQ: {label} {tp_name}: unverified: channel capability "
+            f"unknown"])
+    low, high = limits
+    if nominal < low or nominal > high:
+        return Measurement("Error", "—", [
+            f"DAQ: {label} {tp_name}: {nominal:,.1f} Hz out of range for "
+            f"this counter ({low:g}..{high:g} Hz) - no measurement"])
+    return None
+
+
+def _on_gate_grid(value: float) -> float:
+    """M99: round onto the gate-resolution grid (1 Hz at a 1 s gate)."""
+    resolution = 1.0 / _GATE_S if _GATE_S > 0 else 1.0
+    return round(value / resolution) * resolution
+
+
+def _fmt_hz(value: float) -> str:
+    """Counter reading text: whole Hz at a 1 s gate."""
+    return f"{value:,.0f}" if 1.0 / _GATE_S >= 1.0 else f"{value:,.1f}"
+
+
 # ---------------------------------------------------------------------------
 # Keysight N5747A PSU
 # ---------------------------------------------------------------------------
@@ -396,6 +431,9 @@ class VirtualDAQ973A:
     # -- DAQM907A totalizer: CLK1 <= 100 kHz ------------------------------
     def measure_totalizer(self, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0
+        refused = _counter_range_error("DAQM907A TOT", tp_name, nominal)
+        if refused is not None:
+            return refused
         sigma = (hi - lo) * 0.1      # 5-sigma inside the window: a
         # healthy draw never trips the limit check below (the retired
         # 0.2 factor left a ~1.2 % per-row FAIL tail at 0 % injection)
@@ -404,19 +442,19 @@ class VirtualDAQ973A:
                 "DAQM: DAQM907A totalizer: gate timeout -> Error"])
         if not powered:
             value = 0.0
-            return Measurement("FAIL", f"{value:,.1f}", [
+            return Measurement("FAIL", _fmt_hz(value), [
                 f"DAQM: DAQM907A totalizer {tp_name}: 0 Hz (DUT unpowered) "
                 f"-> FAIL"], value=value, failed_point=tp_name)
         if fault == "FAIL":
             value = hi + (hi - lo) * self.rng.uniform(0.3, 0.8)
-            return Measurement("FAIL", f"{value:,.1f}", [
-                f"DAQM: DAQM907A totalizer {tp_name}: {value:,.1f} Hz "
-                f"({lo:g}..{hi:g} Hz) -> FAIL"], value=value,
+            return Measurement("FAIL", _fmt_hz(value), [
+                f"DAQM: DAQM907A totalizer {tp_name}: {_fmt_hz(value)} "
+                f"Hz ({lo:g}..{hi:g} Hz) -> FAIL"], value=value,
                 failed_point=tp_name)
-        value = nominal + self.rng.gauss(0, sigma)
+        value = _on_gate_grid(nominal + self.rng.gauss(0, sigma))
         verdict = "PASS" if lo <= value <= hi else "FAIL"
-        return Measurement(verdict, f"{value:,.1f}", [
-            f"DAQM: DAQM907A totalizer {tp_name}: {value:,.1f} Hz "
+        return Measurement(verdict, _fmt_hz(value), [
+            f"DAQM: DAQM907A totalizer {tp_name}: {_fmt_hz(value)} Hz "
             f"({lo:g}..{hi:g} Hz) -> {verdict}"], value=value)
 
     # -- DAQM907A AO -> ADC loopback, +/-12 V, 16-bit --------------------
@@ -494,25 +532,29 @@ class VirtualU2355A:
 
     def measure_counter(self, counter, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0
+        refused = _counter_range_error(
+            f"U2355A CTR{counter}", tp_name, nominal)
+        if refused is not None:
+            return refused              # M99: never a number out of range
         sigma = (hi - lo) * 0.1      # 5-sigma inside the window (same
         # reasoning as the totalizer: a healthy draw never FAILs)
         if fault == "Error":
             return Measurement("Error", "—", [
                 f"DAQ: U2355A CTR{counter}: count gate timeout -> Error"])
         if not powered:
-            return Measurement("FAIL", "0.0", [
+            return Measurement("FAIL", _fmt_hz(0.0), [
                 f"DAQ: U2355A CTR{counter} {tp_name}: 0 Hz (DUT "
                 f"unpowered) -> FAIL"], value=0.0, failed_point=tp_name)
         if fault == "FAIL":
             value = hi + (hi - lo) * self.rng.uniform(0.3, 0.8)
-            return Measurement("FAIL", f"{value:,.1f}", [
-                f"DAQ: U2355A CTR{counter} {tp_name}: {value:,.1f} Hz "
-                f"({lo:g}..{hi:g} Hz) -> FAIL"], value=value,
+            return Measurement("FAIL", _fmt_hz(value), [
+                f"DAQ: U2355A CTR{counter} {tp_name}: {_fmt_hz(value)} "
+                f"Hz ({lo:g}..{hi:g} Hz) -> FAIL"], value=value,
                 failed_point=tp_name)
-        value = nominal + self.rng.gauss(0, sigma)
+        value = _on_gate_grid(nominal + self.rng.gauss(0, sigma))
         verdict = "PASS" if lo <= value <= hi else "FAIL"
-        return Measurement(verdict, f"{value:,.1f}", [
-            f"DAQ: U2355A CTR{counter} {tp_name}: {value:,.1f} Hz "
+        return Measurement(verdict, _fmt_hz(value), [
+            f"DAQ: U2355A CTR{counter} {tp_name}: {_fmt_hz(value)} Hz "
             f"({lo:g}..{hi:g} Hz) -> {verdict}"], value=value)
 
     def gpio_test(self, fault):
