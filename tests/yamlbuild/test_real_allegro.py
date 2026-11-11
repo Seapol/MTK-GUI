@@ -45,23 +45,25 @@ def test_real_net_file_parses_fully():
     parse without 'no nets found'."""
     result = parse_testable_nets(FIXTURE.read_text(encoding="utf-8"))
     assert result.total == 70
-    # classification: 10 power / 1 SE clock / 28 signal candidates;
-    # the two reference grounds are GND rows (default Do Not Test).
-    # The Exclude Parse Nets regex drops the UART / WAKE / RESET /
-    # I2C / DATA / DBGIF signal nets (29, factory default: DIFF /
-    # RESET/ENABLE/UART/WAKE/I2C/SPI/JTAG/DBGIF/DATA/ADC + random
-    # numeric names) - DBGIF_TCK_SWCLK is a debug-interface clock,
-    # excluded (M1 Fix 1), not a clock test object
+    # M99: evidence beats the name.  CPVOUTP / CPVOUTN are one
+    # differential pair (bare P/N spelling, out of the power bucket) and
+    # DBGIF_VREF is a two-resistor divider, so 7 real rails remain.
     assert {r.name for r in result.power} == {
-        "5V_SDA_PSW", "5V_USB0_OTG", "CODEC_1V8", "CPVOUTN",
-        "CPVOUTP", "DBGIF_VREF", "DCDC_1V0", "DCDC_1V8",
-        "DCDC_3V3", "DC_5V_IN"}
+        "5V_SDA_PSW", "5V_USB0_OTG", "CODEC_1V8", "DCDC_1V0",
+        "DCDC_1V8", "DCDC_3V3", "DC_5V_IN"}
     assert {r.name for r in result.clock} == {"DMIC_CLK"}
-    assert len(result.gpio) == 28
+    # signal candidates: the demoted divider joins Others (5 + 24)
+    assert len(result.gpio) == 29
     assert {r.name for r in result.gnd} == {"AGND", "GND"}
-    assert all(reason.startswith("excluded by")
-               for _n, reason in result.filtered)
-    assert len(result.filtered) == 29
+    dbgif = next(r for r in result.others if r.name == "DBGIF_VREF")
+    assert dbgif.sub_class == "ambiguous"
+    excluded = [reason for _n, reason in result.filtered
+                if reason.startswith("excluded by")]
+    pairs = [reason for _n, reason in result.filtered
+             if reason.startswith("differential pair")]
+    assert len(excluded) == 29
+    assert len(pairs) == 2
+    assert len(result.filtered) == 31
     # members map 1:1 (spot check)
     spot = next(r for r in result.gpio if r.name == "CORTEX7")
     assert spot.members == ["J18.7", "TP20.1"]

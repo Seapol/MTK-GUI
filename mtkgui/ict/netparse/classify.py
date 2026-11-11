@@ -254,7 +254,12 @@ def _device_role_type(name: str, members: list[str],
 
 
 def _diff_pair_map(names: list[str]) -> dict[str, str]:
-    """Map ``*_P`` <-> ``*_N`` sibling names (only when BOTH exist)."""
+    """Map sibling diff-pair names (only when BOTH exist).
+
+    Two spellings qualify (M99): the explicit ``*_P`` / ``*_N`` suffix
+    first, then a bare trailing ``P`` / ``N`` on a name of 4+ chars
+    (``CPVOUTP`` / ``CPVOUTN``).  The ``_P`` / ``_N`` rule wins when
+    both match the same name; nothing else is paired."""
     name_set = set(names)
     pairs: dict[str, str] = {}
     for name in names:
@@ -263,15 +268,28 @@ def _diff_pair_map(names: list[str]) -> dict[str, str]:
             sibling = f"{base}_N" if name.endswith("_P") else f"{base}_P"
             if sibling in name_set:
                 pairs[name] = sibling
+    for name in names:
+        if name in pairs or len(name) < 4 or name[-1] not in "PN":
+            continue
+        sibling = name[:-1] + ("N" if name.endswith("P") else "P")
+        if sibling in name_set:
+            pairs[name] = sibling
     return pairs
 
 
 def _pair_tuples(pairs: dict[str, str]) -> list[tuple[str, str]]:
-    """Ordered (positive, negative) tuples, each pair listed once."""
+    """Ordered (positive, negative) tuples, each pair listed once.
+
+    ``_P`` / ``_N`` pairs keep the positive-first spelling; a bare
+    pair is emitted in file order (the first member seen names the
+    tuple) because a bare ``P`` / ``N`` carries no polarity evidence."""
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for pos, neg in pairs.items():
-        if pos.endswith("_P") and neg not in seen:
-            out.append((pos, neg))
-            seen.add(pos)
+    for name, sibling in pairs.items():
+        if name in seen:
+            continue
+        if name.endswith("_N"):
+            continue                      # its _P sibling emits the pair
+        out.append((name, sibling))
+        seen.update((name, sibling))
     return out

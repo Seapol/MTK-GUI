@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QLabel, QWidget
 
 from ...engine.steps import (METHOD_R_GND, dio_channel_index,
                                dio_name, op_step)
+from ...ict.netparse.confidence import LOW, has_strong_power_token
 from ..steps_editor import StepsEditorDialog
 
 #: Test Method -> unit (mirrors the Test Work Flow step edit dialog)
@@ -223,6 +224,13 @@ def generate_sequence(testable: dict,
         for net in sorted(n for n, info in testable.items()
                           if (info or {}).get("category")
                           == category):
+            info = testable.get(net) or {}
+            # M99: a low-confidence "rail" without any strong power
+            # token is not evidence enough for numeric ICT rows
+            if (category == "Power"
+                    and str(info.get("confidence") or "") == LOW
+                    and not has_strong_power_token(net)):
+                continue
             label = {METHOD_R_GND: f"R-GND - {net}",
                      "Power Voltage": f"Power Voltage - {net}",
                      "Clock Hz": f"Clock Hz - {net}"}.get(
@@ -512,6 +520,19 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         label = getattr(self, "_limits_hint", None)
         if label is None:
             return
+        lines: list[str] = []
+        # M99: a low-confidence rail with no rail topology generates no
+        # rows - say so, one line per net, so it is re-judged in Parse Nets
+        testable = self._net_provider() if self._net_provider else {}
+        for net in sorted(testable or {}):
+            info = testable.get(net) or {}
+            if (info.get("category") == "Power"
+                    and str(info.get("confidence") or "") == LOW
+                    and not has_strong_power_token(net)):
+                lines.append(
+                    f"[WARNING] {net} has low confidence and no rail "
+                    "topology - no ICT rows generated (judge it in Parse "
+                    "Nets)")
         missing = []
         for step in self._steps:
             if not step or step[0] != "test":
@@ -522,11 +543,13 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
             if any(not _filled(value) for value in step[3:6]):
                 missing.append(name.split(" - ", 1)[1])
         if missing:
-            label.setText(
+            lines.append(
                 "[WARNING] Clock limits missing (the frequency could not be "
                 "inferred) - double-click the row to fill Expected / Min / "
                 "Max, otherwise the run stops with 'limits missing -> "
                 "Error': " + ", ".join(missing))
+        if lines:
+            label.setText("\n".join(lines))
             label.show()
         else:
             label.clear()

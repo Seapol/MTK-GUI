@@ -156,6 +156,7 @@ def testable_net_entry(rec, category: str, *, filtered: bool = False,
     entry = {"category": category,
              "members": members or list(rec.members),
              "isolated": getattr(rec, "isolated", None),
+             "confidence": str(getattr(rec, "confidence", "") or ""),
              "active_drivers": list(
                  getattr(rec, "active_drivers", []) or [])}
     entry.update(parsed_nominal(category, rec))

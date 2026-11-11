@@ -126,6 +126,12 @@ def _power_confidence(name: str) -> str:
     return LOW
 
 
+def has_strong_power_token(name: str) -> bool:
+    """M99: the NAME alone is strong power evidence (voltage prefix /
+    rail suffix) - a low confidence then never suppresses the rows."""
+    return bool(_POWER_STRONG_RE.search(str(name or "")))
+
+
 def _clock_confidence(name: str) -> str:
     if _CLOCK_WEAK_SIG_RE.search(name):
         return LOW

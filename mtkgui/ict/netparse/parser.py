@@ -28,7 +28,7 @@ from .isolation import annotate_control_io
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
                     SUBCLASS_SYSTEM_RANDOM, SUBCLASS_UNCLASSIFIED,
-                    ParseNetsResult)
+                    ParseNetsResult, SubClass)
 from .netlist import read_text_any_encoding
 from .rules import (EXCLUDED_REASON, SYSTEM_RANDOM_RE, apply_user_rules,
                     control_io_rule, exclude_pattern, gnd_sub_class)
@@ -38,6 +38,36 @@ _FILTER_REASONS = {
     NET_TYPE_DIFF_PAIR: "differential pair (not an ICT test object)",
     NET_TYPE_SIGNAL: "",          # placeholder, never filtered as such
 }
+
+#: refdes spellings of the two passive classes that decide rail topology
+_CAP_REFDES_RE = re.compile(r"^C\d+$")
+_RES_REFDES_RE = re.compile(r"^R\d+$")
+
+
+def demote_rail_topology(result: ParseNetsResult) -> None:
+    """M99: a "rail" fed through two series resistors is a divider or a
+    strap, never a supply.
+
+    Counts the passive members only (``C`` vs ``R`` refdes) and moves a
+    suspicious record to ``others`` / ``ambiguous`` / ``low`` so the
+    user re-judges it in Parse Nets.  No pin-function data is invented:
+    the topology is the whole evidence."""
+    keep: list = []
+    for rec in result.power:
+        refdes = {str(token).split(".", 1)[0].upper()
+                  for token in rec.members}
+        caps = sum(1 for token in refdes if _CAP_REFDES_RE.match(token))
+        resistors = sum(1 for token in refdes
+                        if _RES_REFDES_RE.match(token))
+        if resistors >= 2 and caps <= 1:
+            rec.net_type = NET_TYPE_SIGNAL
+            rec.sub_class = SubClass.AMBIGUOUS
+            rec.confidence = "low"
+            rec.provenance = "evidence:rail-topology"
+            result.others.append(rec)
+            continue
+        keep.append(rec)
+    result.power[:] = keep
 
 
 def parse_testable_nets(net_text: str, rules: dict | None = None,
@@ -174,6 +204,9 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
                 result.filtered_records.append(rec)
         # M2 B1: every classified net carries a confidence
         stamp_confidence(result, library)
+        # M99: the confidence stamp now feeds the bucket decision - a
+        # "rail" built from two series resistors is demoted to Others
+        demote_rail_topology(result)
         if external:
             # M3 reweight AFTER the B1 stamp (external override)
             apply_reweight(result, external, ext_log)
