@@ -275,11 +275,6 @@ def _install_scripted_drivers(force: bool = True):
         def run_test(self, config):
             return RFTestReport()
 
-    class JLinkDriver(_ScriptedDriver):
-        def flash_firmware(self, firmware_path, verify=True,
-                           reset_and_run=True, erase=False):
-            return MeasurementResult(524288, "")
-
     module = ModuleType("mtkgui.drivers")
     for name, obj in (
             ("Status", Status), ("InstrumentError", InstrumentError),
@@ -290,7 +285,7 @@ def _install_scripted_drivers(force: bool = True):
             ("MeasurementResult", MeasurementResult),
             ("DAQ973ADriver", DAQ973ADriver), ("U2355ADriver",
                                                U2355ADriver),
-            ("N5747ADriver", N5747ADriver), ("JLinkDriver", JLinkDriver),
+            ("N5747ADriver", N5747ADriver),
             ("WiFiRFTestDriver", WiFiRFTestDriver),
             ("BluetoothRFTestDriver", BluetoothRFTestDriver),
             ("SubprocessExecutor", _ScriptedDriver)):
@@ -413,7 +408,7 @@ class HeadlessEnv:
         measurement-channel mappings with scripted placeholders (the
         gateway stays config-driven; the stub drivers ignore them)."""
         equipment = dict(cfg.get("equipment") or {})
-        for key in ("daq973a", "u2355a", "psu", "jlink", "fixture"):
+        for key in ("daq973a", "u2355a", "psu", "fixture"):
             entry = dict(equipment.get(key) or {})
             fields = dict(entry.get("fields") or {})
             if key == "fixture":

@@ -68,7 +68,6 @@ def make_config() -> dict:
             "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"},
                     "params": {"Voltage set (V)": 5.0,
                                "Current limit (A)": 1.0}},
-            "jlink": {"fields": {"Address": "/usr/bin/JLinkExe"}},
             "fixture": {"fields": {"Channel": "DIO16"}},
         },
     }
@@ -253,25 +252,6 @@ def scripted_drivers():
         def reset(self):
             rec.calls.append(("reset", "PSU"))
 
-    class JLinkDriver:
-        def __init__(self, transport=None):
-            pass
-
-        def open(self, address, options):
-            rec.calls.append(("open", "JLINK", address,
-                              options.get("device")))
-
-        def close(self):
-            pass
-
-        def identify(self):
-            return "STUB JLINK"
-
-        def flash_firmware(self, path, verify=True, reset_and_run=True,
-                           erase=False):
-            rec.calls.append(("flash", path, verify))
-            return MeasurementResult(524288, "")
-
     class SubprocessExecutor:
         pass
 
@@ -318,7 +298,6 @@ def scripted_drivers():
             ("DAQ973ADriver", DAQ973ADriver),
             ("U2355ADriver", U2355ADriver),
             ("N5747ADriver", N5747ADriver),
-            ("JLinkDriver", JLinkDriver),
             ("SubprocessExecutor", SubprocessExecutor),
             ("RFTestReport", RFTestReport),
             ("WiFiRFTestDriver", WiFiRFTestDriver),

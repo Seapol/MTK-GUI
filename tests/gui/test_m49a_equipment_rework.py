@@ -99,11 +99,11 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# §1 - left column: exactly 3 / 2 / 5 / 4 configurable entries
+# §1 - left column: exactly 3 / 1 / 2 / 1 configurable entries
 # ---------------------------------------------------------------------------
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
-        ("Instruments", 3), ("Fixture", 1), ("DUT", 2), ("Peripherals", 2)]
+        ("Instruments", 3), ("Fixture", 1), ("DUT", 2), ("Peripherals", 1)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
@@ -211,7 +211,7 @@ def test_hardware_info_shows_specs_and_connections(page):
 
 
 # ---------------------------------------------------------------------------
-# §3 - instrument lamps: grey / yellow / green; J-Link has no lamp
+# §3 - instrument lamps: grey / yellow / green
 # ---------------------------------------------------------------------------
 def test_instrument_state_grey_yellow_green(page):
     assert page.instrument_state("daq973a") == "grey"
@@ -223,13 +223,12 @@ def test_instrument_state_grey_yellow_green(page):
     assert page.instrument_state("daq973a") == "green"
 
 
-def test_main_window_has_three_instrument_lamps_no_jlink(qapp):
+def test_main_window_has_three_instrument_lamps(qapp):
     from mtkgui.main_window import MainWindow, INSTRUMENTS
     w = MainWindow(role="Supervisor", fixture="ATE")
     try:
         assert [abbr for abbr, _title in INSTRUMENTS] == [
             "DAQM", "DAQ", "PSU"]
-        assert "jlink" not in getattr(w.instr_status, "leds", {})
         assert len(w.instr_status.leds) == 3
     finally:
         w.close()
@@ -265,7 +264,6 @@ def test_grouped_equipment_state_round_trips(page):
         "via_ap"
     assert restored["control_board"]["groups"]["signals"]["press"][
         "channel"] == "DIO09"
-    assert restored["jlink"]["params"]["executable_path"] == ""
 
 
 def test_page_apply_save_yaml_button_emits_signal(page):

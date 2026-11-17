@@ -9,9 +9,9 @@ itself, interface_spec.md §1.1) into the staged production sequence:
 
 Stage layout comes from ``test_workflow.overall_flow``; legacy project
 files that still list "Flash ... Firmware" stages are tolerated - the
-flash stages are filtered out (M33 retired the J-Link flash ops;
-flashing is now an operator-driven Flash_GUI FCT step).  When the
-project defines no flow, the two production stages are used.
+flash stages are filtered out (M33 retired the flash ops; flashing is
+now an operator-driven Flash_GUI FCT step).  When the project defines
+no flow, the two production stages are used.
 
 Legacy project files (no enable / wait_ms / kind keys) are tolerated
 with the same defaults the workflow page applies.

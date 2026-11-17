@@ -14,8 +14,7 @@ docs/interface_spec.md (section 2).  It provides:
                           open-drain DIO),
   - ``N5747ADriver``    - Keysight N5747A 60 V / 12.5 A system PSU,
   - ``U2355ADriver``    - Keysight U2355A USB DAQ (12 AI, 2 counters,
-                          24 DIO),
-  - ``JLinkDriver``     - SEGGER J-Link flash via J-Link Commander.
+                          24 DIO).
 
 Every driver talks to its instrument exclusively through a
 ``Transport`` object.  The transport is an injection point: tests pass
@@ -45,7 +44,6 @@ from mtkgui.drivers.errors import (
     InstrumentIOError,
     InstrumentTimeoutError,
 )
-from mtkgui.drivers.jlink import JLinkDriver, JLinkTransport
 from mtkgui.drivers.n5747a import N5747ADriver
 from mtkgui.drivers.rf_common import (
     CommandExecutor,
@@ -68,8 +66,6 @@ __all__ = [
     "InstrumentError",
     "InstrumentIOError",
     "InstrumentTimeoutError",
-    "JLinkDriver",
-    "JLinkTransport",
     "MeasurementResult",
     "N5747ADriver",
     "RFTestReport",

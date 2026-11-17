@@ -83,13 +83,6 @@ EQUIPMENT_PATHS = {
                                              "Netmask", "text"),
     "equipment.peripherals.router.gateway": ("Wired & Wireless Network - "
                                              "Gateway", "text"),
-    # M64: the flash tool keeps ONE full executable path; args + prompt
-    "equipment.jlink.executable_path": ("Flash Tool/Programmer - "
-                                        "Executable path", "text"),
-    "equipment.jlink.arguments": ("Flash Tool/Programmer - Arguments",
-                                  "text"),
-    "equipment.jlink.prompt": ("Flash Tool/Programmer - Prompt message",
-                               "text"),
     "equipment.control_board.dio.press": ("Control Board - Press",
                                           "text"),
     "equipment.control_board.dio.inpos": ("Control Board - In-position",
@@ -102,19 +95,10 @@ EQUIPMENT_PATHS = {
 
 #: the plain-config entries store their fields under a ``params`` map inside
 #: their equipment entry; these aliases find that value.
-_FIELD_ALIASES = {
-    "equipment.jlink.executable_path": ("jlink", "params", "executable_path"),
-    "equipment.jlink.arguments": ("jlink", "params", "arguments"),
-    "equipment.jlink.prompt": ("jlink", "params", "prompt"),
-}
+_FIELD_ALIASES = {}
 
-#: M64: references written by older projects (install path + executable
-#: were two separate fields) map to the merged executable path, so old
-#: YAML keeps loading.
-LEGACY_PATHS = {
-    "equipment.jlink.install_path": "equipment.jlink.executable_path",
-    "equipment.jlink.executable": "equipment.jlink.executable_path",
-}
+#: references written by older projects map to the current path.
+LEGACY_PATHS = {}
 
 
 def canonical_path(path) -> str:

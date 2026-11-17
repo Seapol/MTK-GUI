@@ -19,7 +19,6 @@ EQUIPMENT = {
     "psu": {"fields": {"Address": "TCPIP0::192.168.1.20::inst0"},
             "params": {"Voltage set (V)": "12.0",
                        "Current limit (A)": "2.0", "OVP (V)": "15.0"}},
-    "jlink": {"fields": {"Address": "JLinkExe"}},
     "fixture": {"fields": {"Channel": "DIO16"}},
     "measure_channels": {"TP_P01": "CH101", "CLK1": "TOTAL1"},
     "rail_channels": ["AI1"],

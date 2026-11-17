@@ -34,7 +34,7 @@ docs/parallel_dev_plan.md strictly.
 Implement mtkgui/drivers/: a base driver class (open/close/write/query lifecycle
 with a mocked-transport injection point) plus concrete drivers for Keysight
 DAQ973A (DAQM908A / DAQM907A modules), N5747A power supply, U2355A USB
-DAQ/counter/DIO, and JLink flash.
+DAQ/counter/DIO.
 - Commands must match Keysight official programming manuals — never invent
   commands (.traerules §5).
 - Instrument addresses come from config/ YAML, never hardcoded (.traerules §4).

@@ -18,7 +18,6 @@ EQUIPMENT = {
     "psu": {"fields": {"Address": "TCPIP0::x",
                        "Model": "Keysight N5747A DC Power Supply"},
             "params": {"Voltage set (V)": "5.0"}},
-    "jlink": {"fields": {"Address": "JLinkExe"}},
 }
 
 
@@ -53,14 +52,13 @@ def test_m83_instrument_checklist_shows_model_not_abbr(qapp, monkeypatch):
     assert any("Keysight DAQ973A" in text for text in texts)
     assert any("Keysight U2355A" in text for text in texts)
     assert any("Keysight N5747A" in text for text in texts)
-    assert any("Segger J-Link" in text for text in texts)
-    assert not set(texts) & {"DAQM", "DAQ", "PSU", "JLINK"}
+    assert not set(texts) & {"DAQM", "DAQ", "PSU"}
 
 
 def test_m83_slot_modules_are_not_selectable_instruments(qapp, monkeypatch):
     dlg = _open(monkeypatch)
     texts = _checkboxes(dlg)
-    assert len(texts) == 4                     # one per Equipment key
+    assert len(texts) == 3                     # one per Equipment key
     # the slot modules are owned by the DAQ973A mainframe - they are
     # never their own selectable instrument
     assert not any(text.strip().lower() in ("m908a_1", "m908a_2", "m907a")

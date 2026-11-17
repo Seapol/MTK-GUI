@@ -562,7 +562,7 @@ _RULES.append(rule_legacy_operation_fields)
 
 
 #: M83/C10: instrument identity is the Equipment key.
-INSTRUMENT_KEYS_HINT = "daq973a / u2355a / psu / jlink"
+INSTRUMENT_KEYS_HINT = "daq973a / u2355a / psu"
 
 
 def _op_instrument_rows(doc: dict):

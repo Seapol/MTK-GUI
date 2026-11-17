@@ -14,12 +14,10 @@ parameters) are configured for the whole application.
 The diagram is drawn in four layers (top to bottom):
 
 - **Layer 1 - control**: `HOST PC` (Common Test Platform: ICT / FCT
-  / Flash / Reports) in the center, `Flash / Debug Probes` on the
-  left (J-Link, PE Micro, Lauterbach, CMSIS-DAP, MCU-LINK,
-  OpenSDA) and `Test Peripherals` on the right (Wi-Fi, Bluetooth,
-  router, media converter, display, camera, mic, earphone,
-  speaker). The three connect down to the instruments over the
-  **SCPI control bus** (GPIB / USB / LAN branches).
+  / Flash / Reports) in the center and `Test Peripherals` on the
+  right (Wi-Fi, Bluetooth, router, media converter, display, camera,
+  mic, earphone, speaker). Both connect down to the instruments over
+  the **SCPI control bus** (GPIB / USB / LAN branches).
 - **Layer 2 - instruments** (the final rack):
   `DAQ973A + 2x DAQM908A + DAQM907A, U2355A, N5747A`.
   - `DAQ973A Mainframe` (6.5-digit DMM, 3 slots) with `DAQM908A #1`

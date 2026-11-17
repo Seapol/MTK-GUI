@@ -119,9 +119,10 @@ row: `Init Instruments`, `Fixture Clamp Down` / `Fixture Release`, `Power On
 DUT` / `Power Off DUT` and `Delay`. Add them with the `Add` menu and order
 them with `Move Up` / `Move Down`; the GUI never inserts a row on its own.
 
-Flashing the FAT / OOBE firmware is part of FCT: the flashing step runs the
-third-party programmer (GUI flash, then an operator Pass/Fail dialog, or a CLI
-flash whose return message is parsed) and the result feeds the FCT verdict.
+Flashing the FAT / OOBE firmware is part of FCT: the flashing step starts the
+third-party GUI tool named by the Equipment `Flash Tool Path` (then an operator
+Pass/Fail dialog, or a CLI flash whose return message is parsed) and the result
+feeds the FCT verdict.
 
 ## Step 3 - Configure the Wi-Fi rows (optional)
 

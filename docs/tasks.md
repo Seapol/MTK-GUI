@@ -20,7 +20,7 @@ Gate: no `feature/*` branch may be created before Phase 0 is `done`.
 
 | ID | Task | Branch | Priority | Status | Dependencies | Acceptance (audit-refined) |
 |----|------|--------|----------|--------|--------------|----------------------------|
-| T1 | Instrument driver module (`mtkgui/drivers/`): base driver + DAQ973A/DAQM908A/DAQM907A, N5747A, U2355A, JLink; `drivers/errors.py` shared exceptions | `feature/instrument-driver` | P0 | pending | Phase 0 | Mocked-transport pytest per driver; commands match Keysight manuals; addresses from YAML only; replaces Real-mode placeholders (`audit §3.1`) |
+| T1 | Instrument driver module (`mtkgui/drivers/`): base driver + DAQ973A/DAQM908A/DAQM907A, N5747A, U2355A; `drivers/errors.py` shared exceptions | `feature/instrument-driver` | P0 | pending | Phase 0 | Mocked-transport pytest per driver; commands match Keysight manuals; addresses from YAML only; replaces Real-mode placeholders (`audit §3.1`) |
 | T2 | Test flow engine (`mtkgui/engine/`): extract runner/steps/results/signals from `test_workflow_page.py` | `feature/testflow-engine` | P0 | pending | Phase 0 | Behavior-preserving extraction; `smoke_test.py` green; **unify `_virtual_fault_roll` with `FaultPolicy`** (audit R4); pytest covers wait/timeout/stop strategies |
 
 Integration checkpoint I1: merge T1+T2 into `develop` one at a time; full pytest
@@ -47,7 +47,7 @@ Integration checkpoint I2: merge T3/T4/T5 sequentially, integration test each.
 | ID | Decision | Impact | Why blocked |
 |----|----------|--------|-------------|
 | D1 | Real RF test (WiFi/BLE): which host-side external CLI tools, and are they in scope for T1/T2? | Adds dependency/step types | `.traerules` forbids adding pip deps or inventing tool commands without asking |
-| D2 | Automated FAT/OOBE firmware flashing via JLink: automate in T1 (driver) or keep operator-manual MessageGoStop flow? | T1 scope size | **Resolved 2026-10-18** — dual path implemented in the engine (R1-R4): `op_params.mode=auto` drives a third-party CLI tool and judges its output keywords, `mode=manual` takes the operator GO/STOP as the verdict; tool profiles live in `equipment.probes.device_params` |
+| D2 | Automated FAT/OOBE firmware flashing: automate in T1 (driver) or keep operator-manual MessageGoStop flow? | T1 scope size | **Resolved 2026-10-18** — operator-driven Flash_GUI step: the Equipment `Flash Tool Path` (HOST PC) names the third-party GUI, which the engine launches; the operator GO/STOP is the verdict |
 | D3 | Equipment page `_mock_configs()` -> YAML-driven instrument inventory: move to T1 or T5? | R5 ownership | Overlap between two task scopes |
 | D4 | Supervisor password as plain constant in `permissions.py`: acceptable for shop floor, or move to env/secret? | Security hardening | User decision |
 | D5 | Add `pytest` (now) and `pyvisa` (with T1) to `requirements.txt`? | CI + packaging | Dep additions need explicit approval |

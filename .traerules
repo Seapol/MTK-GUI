@@ -16,7 +16,7 @@ tech_stack:
     - Keysight DAQ973A / DAQM908A / DAQM907A
     - Keysight N5747A Power Supply
     - Keysight U2355A USB DAQ / counter / DIO
-    - JLink, Serial UART, Paramiko SSH
+    - Serial UART, Paramiko SSH
   logging: CSV test log + Qt log viewer
   diagram: Block diagram / test flow table inside Qt Widget
 

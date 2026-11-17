@@ -25,10 +25,10 @@ and FCT sequences and export the plan YAML.
 - The splitter default is 7 : 3; drag the divider as needed.
 
 The page hint summarizes the rules: click a block to configure it;
-right-click to Enable / Disable. Instrument / programmer / peripheral
-hardware is configured on the **Equipment** page - the Yaml Build
-flow references it read-only. The full-sequence validation runs
-AUTOMATICALLY before every publish (Build Draft / Release Final);
+right-click to Enable / Disable. Instrument / peripheral hardware is
+configured on the **Equipment** page - the Yaml Build flow references
+it read-only. The full-sequence validation runs AUTOMATICALLY before
+every publish (Build Draft / Release Final);
 the YAML preview on the right is always visible and editable.
 Disabled blocks are grayed, skipped and kept out of the effective
 YAML (their parameters are retained).
@@ -582,7 +582,7 @@ of them.
 `Validate Full Test Sequence` and `Preview & Export YAML` were
 removed from the workflow:
 
-- **Programmer/Debugger / Peripherals**: the hardware (flash probes,
+- **Programmer/Debugger / Peripherals**: the hardware (flash tool,
   DUT peripherals) is configured on the **Equipment** page; the test
   level parameters (Wi-Fi / Bluetooth / console) live in the FCT
   Test Config. The retired parameter groups had no runtime consumer.

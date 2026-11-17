@@ -73,8 +73,8 @@ class TestOpCatalog:
         assert meas_instrument_abbr("Power Voltage", "TP_P01 x") == "DAQM"
 
     def test_flash_ops_are_retired_from_the_catalog(self):
-        # M33: flashing moved to the Flash_GUI FCT step - no J-Link flash
-        # op entries remain in the standard-operation catalog
+        # M33: flashing moved to the Flash_GUI FCT step - no flash op
+        # entries remain in the standard-operation catalog
         assert "Flash FAT Firmware" not in OP_STEPS
         assert "Flash OOBE Firmware" not in OP_STEPS
 

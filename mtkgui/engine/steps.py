@@ -251,7 +251,7 @@ def op_summary(params: dict | None) -> str:
             (params or {}).get("instruments", []))
         return "+".join(
             {"daq973a": "DAQ973A", "u2355a": "U2355A",
-             "psu": "PSU", "jlink": "J-Link"}.get(str(k), str(k))
+             "psu": "PSU"}.get(str(k), str(k))
             for k in keys)
     if t == "fixture":
         summary = f"{(params or {}).get('signal', '')}=" \

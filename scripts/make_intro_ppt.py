@@ -481,7 +481,7 @@ header(s, 'Investment & Deployment Strategy',
 
 rest = [
     ('Other items', 'Qty', 'What it does', 'Price*'),
-    ('J-Link flash probe', '1', 'Firmware flashing (FAT / OOBE) \u2014 reusable', '~$500'),
+    ('3rd-party flash tool', '1', 'Firmware flashing (FAT / OOBE) \u2014 reusable', '~$500'),
     ('HOST PC (Windows 11 Pro)', '1', 'Runs the MTK desktop app \u2014 reusable', '~$1,500'),
     ('ATE test fixture', '1', 'Custom per project \u2014 incl. assembly labor', '~$4,000+'),
     ('Peripherals & cabling', '1 set', 'Custom per project \u2014 incl. assembly labor', '~$1,000+'),

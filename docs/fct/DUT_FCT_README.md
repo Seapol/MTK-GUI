@@ -35,7 +35,7 @@ dut:
 | Wi-Fi `full_stack` (connect + ping + iperf3) | ❌ | ✅ |
 | Bluetooth `rssi_only` | ✅ | ✅ |
 | Bluetooth `a2dp_sink` (audio playback) | ❌ | ✅ |
-| Firmware Flashing | J-Link / Debug Probe | SSH/SCP + shell command |
+| Firmware Flashing | 3rd-party flash GUI | SSH/SCP + shell command |
 | Message Judgment Channel | Serial only | Serial + SSH |
 | GPIO Test | Direct hardware access | sysfs / libgpiod |
 
@@ -81,7 +81,7 @@ The DUT firmware must:
 
 5. **Firmware flashing (two paths)**
 
-   **Path A: Third-party GUI tool (J-Link / PEmicro / Lauterbach)**
+   **Path A: Third-party GUI tool (vendor-specific)**
    - Operator runs the debugger GUI manually (documented separately for operators)
    - mtk-gui does not control the flashing process
    - After operator finishes, GUI_CONFIRM dialog asks: "Flash PASS or FAIL?"
@@ -254,8 +254,9 @@ rf:
     power_on_delay_sec: 8
 
 flash:
-  # Path A: GUI debugger (J-Link/PEmicro/Lauterbach) + operator confirm
+  # Path A: GUI debugger (vendor-specific tool) + operator confirm
   # Path B: CLI script/exe (blhost.exe, program.bat) + auto-parse
+  # The operator prompt of the GUI path is the ONE flash_gui_prompt key.
   mode: "cli"               # "gui_confirm" | "cli"
   cli:
     cmd: "blhost.exe -p usb0 -- flash-program /path/firmware.bin"

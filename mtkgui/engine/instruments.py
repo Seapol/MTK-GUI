@@ -39,11 +39,10 @@ _INSTRUMENT_KEYS = {
     "DAQM": "daq973a",   # DAQ973A mainframe + DAQM908A/907A modules
     "DAQ": "u2355a",     # U2355A USB DAQ / counter / DIO
     "PSU": "psu",        # N5747A power supply
-    "JLINK": "jlink",    # J-Link flash probe
 }
 
 #: M83/C10: instrument identity = the Equipment key (never an abbr).
-INSTRUMENT_KEYS = ("daq973a", "u2355a", "psu", "jlink")
+INSTRUMENT_KEYS = ("daq973a", "u2355a", "psu")
 
 #: M83/C10: the full device name + model the GUI shows (a configured
 #: ``equipment.<key>.fields.Model`` wins).
@@ -51,7 +50,6 @@ INSTRUMENT_MODEL_DEFAULTS = {
     "daq973a": "Keysight DAQ973A (mainframe + DAQM908A / DAQM907A modules)",
     "u2355a": "Keysight U2355A USB DAQ",
     "psu": "Keysight N5747A DC Power Supply",
-    "jlink": "Segger J-Link",
 }
 
 #: M83/C10: legacy abbreviations -> Equipment key (normalised on load).
@@ -244,12 +242,10 @@ class RealGateway:
             drv = mod.U2355ADriver()
         elif key == "psu":
             drv = mod.N5747ADriver()
-        elif key == "jlink":
-            drv = mod.JLinkDriver()
         else:
             raise mod.InstrumentConfigError(
                 f"unknown instrument {name!r} — use the equipment keys "
-                "(daq973a / u2355a / psu / jlink)")
+                "(daq973a / u2355a / psu)")
         drv.open(self._address(key), self._instrument_cfg(key))
         self._drivers[key] = drv
         return drv
@@ -373,7 +369,7 @@ class RealGateway:
             if key is None:
                 return GatewayOutcome("Error", lines=lines + [
                     f"unknown instrument {raw!r} — use the equipment keys "
-                    "(daq973a / u2355a / psu / jlink)"])
+                    "(daq973a / u2355a / psu)"])
             model = self._instrument_model(key)
             try:
                 drv = self._driver(key)

@@ -245,12 +245,12 @@ ratio = sizes[0] / sizes[1]
 assert 0.8 < ratio < 1.25, (sizes, ratio)  # FCT 50% vs console 50%
 print("fct/console 50:50 layout ok")
 
-# 13. Equipment page: 26 blocks; a real mouse click on a block opens
+# 13. Equipment page: 25 blocks; a real mouse click on a block opens
 # the configuration dialog (hit-testing through the view).
 ep = w.equipment_page
 expected_keys = {
     # layer 1
-    "host", "probes", "peripherals",
+    "host", "peripherals",
     # layer 2 containers + children
     "daq973a", "u2355a", "psu",
     "m908a_1", "m908a_2", "m907a",

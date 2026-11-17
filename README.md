@@ -40,9 +40,9 @@ ICT ──► Flash FAT firmware ──► FCT ──► Flash OOBE firmware
   12-channel power-rails up-sequence capture → 80-point DC voltage (±0.1 %) →
   three clocks (32.768 kHz / 4 MHz / 6 MHz) → AO→ADC stimulus → fixture DIO →
   24 DUT GPIO.
-- **Flash FAT / OOBE firmware** are FCT steps. A third-party GUI flasher
-  (e.g. J-Link Flash) is followed by an operator PASS/FAIL dialog; a CLI flasher
-  is parsed automatically.
+- **Flash FAT / OOBE firmware** are FCT steps. A third-party GUI flasher is
+  followed by an operator PASS/FAIL dialog; a CLI flasher is parsed
+  automatically.
 - **FCT** are *message tests*: text captured from a serial console, an operator
   dialog, or a CLI/PowerShell terminal is checked for the presence of
   `Pass` / `Success` (or the absence of `Fail` / `Error`). This covers core

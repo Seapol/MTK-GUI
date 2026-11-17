@@ -298,7 +298,6 @@ RF_EQUIPMENT_SECTIONS = (
     ("equipment.dut.bluetooth.", "DUT"),
     ("equipment.dut.wifi.", "DUT"),
     ("equipment.dut.", "DUT"),
-    ("equipment.jlink.", "J-Link"),
 )
 
 
@@ -3467,7 +3466,7 @@ class FCTTestConfigPanel(QWidget):
                     "username": "equipment.dut.ssh.username",
                     "password": "equipment.dut.ssh.password"}
         if label == STEP_TYPE_FLASH_GUI:
-            return {"jlink": "equipment.jlink.executable_path"}
+            return {}
         family, subtest = self._rf_family(cmd)
         spec = self._RF_FIELDS.get((family, subtest)) or ()
         return {key: ref for key, _label, _kind, ref, _default in spec

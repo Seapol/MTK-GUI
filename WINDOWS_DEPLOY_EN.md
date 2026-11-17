@@ -340,7 +340,7 @@ project you add stays in the surviving tree.
 | N5747A DC power supply | LAN (LXI) | 1 |
 | Router / test AP (**optional**) | LAN | 0 or 1 |
 | DUT console | USB-to-serial, one COM per channel | 1 per channel |
-| Flash / debug probe (J-Link, PE Micro, Trace32, CMSIS-DAP, MCU-LINK, OpenSDA) | USB | as needed |
+| Flash / debug probe (3rd-party, vendor-specific) | USB | as needed |
 | Host WLAN radio (Wi-Fi RF steps) | PCIe / USB, 2.4 + 5 GHz | 1 |
 | Host Bluetooth radio (BT RF steps) | onboard or USB, BLE 4.0+ | 1 |
 
@@ -361,7 +361,7 @@ No GPIB card? Use a USB-to-GPIB adapter (e.g. Keysight 82357B) — it needs the 
 | **`lswifi`** | the plan runs `Wifi_Scan` — required on every such station | `pip install lswifi`, then get its `Scripts` directory onto `PATH`: the packaged exe calls `lswifi` through the shell, so a missing PATH shows up as "Wifi_Scan always fails". Verify from a **new** terminal with `lswifi --help` |
 | Bluetooth host stack | any BT step | **nothing to install** — BLE scanning uses Windows WinRT (`BluetoothLEAdvertisementWatcher`) via the bundled `bleak`; only a BLE radio and Windows 10+ are needed. Classic pairing is not used |
 | WLAN AutoConfig service | any Wi-Fi step | built into Windows, must be running and not disabled by policy |
-| Third-party flash tool (e.g. SEGGER J-Link) | Flash FAT / Flash OOBE steps are enabled | install it, then fill the CLI profile on the matching Flash / Debug Probe row of the Equipment page (exe path, command templates, output keywords). `mode: auto` → MTK GUI calls the CLI and judges on keywords; `mode: manual` → the operator flashes in the tool's own GUI and answers GO / STOP in the MTK GUI dialog (an optional `launch` path opens it automatically) |
+| Third-party flash tool (any vendor GUI) | Flash FAT / Flash OOBE steps are enabled | install it, then set the `Flash Tool Path` (Equipment ▸ HOST PC) to its executable. The Flash_GUI step opens the tool and the operator answers GO / STOP in the MTK GUI dialog |
 
 > **Instrument addresses.** The Equipment page takes VISA-style resource strings, e.g. `GPIB0::9::INSTR` (DAQ973A),
 > `TCPIP0::<supply-ip>::inst0` (N5747A). Copy exactly what Connection Expert shows — a wrong board or slot number is

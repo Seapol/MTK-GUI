@@ -2,11 +2,10 @@
 """M55: step config dialogs carry ONLY test parameters.
 
 Every hardware / connection setting (serial port / baud / parity, SSH
-credentials, J-Link path, Wi-Fi SSID / interface / password, IP /
-netmask / gateway) is configured on the Equipment page and referenced
-at run time.  The step dialogs no longer show connection fields or
-override boxes; the ``refs`` map is seeded on save (legacy overrides
-still survive).
+credentials, Wi-Fi SSID / interface / password, IP / netmask / gateway)
+is configured on the Equipment page and referenced at run time.  The
+step dialogs no longer show connection fields or override boxes; the
+``refs`` map is seeded on save (legacy overrides still survive).
 """
 from __future__ import annotations
 
@@ -197,7 +196,6 @@ def test_flash_gui_dialog_shows_the_equipment_hint_only(qapp, monkeypatch):
                for t in seen["labels"])
     assert any("Equipment has no Flash Tool Path configured" in t
                for t in seen["labels"])
-    assert not any("ref: equipment.jlink" in t for t in seen["labels"])
     assert seen["overrides"] == []
     assert panel._get_row_cmd(0).refs is None
     panel.deleteLater()

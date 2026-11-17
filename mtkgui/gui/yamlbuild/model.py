@@ -43,7 +43,7 @@ _STAGE_INDEX = {key: i for i, key in enumerate(STAGE_KEYS)}
 #: (the Equipment page device entries; anything else is host info)
 _INSTRUMENT_DOC_KEYS = ("daq973a", "m908a_1", "m908a_2", "m907a",
                         "u2355a", "u_ai", "u_ctr", "psu", "psu_detail",
-                        "jlink", "instruments")
+                        "instruments")
 
 
 def _without_unset(allocation: dict) -> dict:

@@ -945,13 +945,12 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                     VERDICT_FAIL,
                     "Equipment has no Flash Tool Path configured")
             from .fct_test_runner import _flash_gui_process_running
-            args = str(step.params.get("flash_gui_arguments") or "")
             if _flash_gui_process_running(path):
                 ctx.log("flash GUI already running - reusing running GUI "
                         "(no relaunch)")
             else:
                 from .flash_tool import launch_tool_gui
-                started, detail = launch_tool_gui(path, args)
+                started, detail = launch_tool_gui(path)
                 if not started:
                     return FctOutcome(VERDICT_FAIL,
                                       f"flash GUI launch failed: {detail}")

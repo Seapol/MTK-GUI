@@ -94,8 +94,8 @@ Drivers report `ERROR`/`TIMEOUT` by raising the shared exceptions above or
 returning status; they never decide PASS/FAIL (that is engine logic).
 
 Per-model modules: `daq973a.py` (DAQM908A resistance/DCV, DAQM907A totalizer/AO),
-`n5747a.py` (power supply), `u2355a.py` (counter/GPIO/rail capture), `jlink.py`
-(flash). Command sets must match Keysight programming manuals (.traerules §5).
+`n5747a.py` (power supply), `u2355a.py` (counter/GPIO/rail capture).
+Command sets must match Keysight programming manuals (.traerules §5).
 
 ### 3. Test Flow Engine
 
@@ -151,7 +151,7 @@ class TestRunner(QObject):
     judges the captured output on keywords: a `fail_regex` hit or a
     missing `ok_regex` / `verify_regex` fails the step. Fault
     tolerance (retry budget, slot rollback) is shared with the
-    J-Link driver path.
+    instrument gateway path.
   - `mode: manual` — opens the third-party GUI and takes the
     operator GO / STOP (MessageGoStop) as the verdict: GO → PASS,
     STOP → FAIL and the run stops, timeout → FAIL, no operator
@@ -1132,12 +1132,12 @@ Diagram <-> YAML two-way live sync with syntax / sequence / parameter
 validation and error markers.
 
 Retired modules (2026-10-13, dropped silently from old files): the
-programmer/debugger and peripherals parameter groups (no runtime
-consumer - the Equipment page owns the hardware config) and the
-manual Validate / Preview & Export blocks (the full-sequence
-validation runs automatically before every publish; the YAML preview
-is the always-visible right pane).  The `instruments` module stays a
-YAML module but shows NO card (Equipment page holds the values).
+peripherals parameter group (no runtime consumer - the Equipment page
+owns the hardware config) and the manual Validate / Preview & Export
+blocks (the full-sequence validation runs automatically before every
+publish; the YAML preview is the always-visible right pane).  The
+`instruments` module stays a YAML module but shows NO card (Equipment
+page holds the values).
 
 Module parameter groups: design input (product id, part number,
 sw/hw versions), ICT net parsing, R-GND/voltage/rails-up

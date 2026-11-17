@@ -220,12 +220,10 @@ LEFT_ENTRIES = (
     ("Peripherals", (
         ("router", "Wired & Wireless Network", "form",
          ("peripherals", "router")),
-        ("jlink", "Flash Tool/Programmer", "form", ("jlink", None)),
     )),
 )
 
-#: instruments that own a main-window indicator lamp (M49a §3); the flash
-#: tool is a third-party GUI and deliberately has NO lamp.
+#: instruments that own a main-window indicator lamp (M49a §3)
 INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
 
 #: M50 §4 / M80: peripheral configs that expose a Test Connection button
@@ -337,25 +335,6 @@ DIO_SIGNALS = [
 DIO_FIELDS = [(key, label, channel)
               for key, label, channel, _direction in DIO_SIGNALS]
 
-#: M64: the third-party GUI flash tool as a CATEGORY ("J-Link" is only
-#: one concrete tool of it).  The config carries the FULL executable
-#: path, the optional CLI arguments and the operator prompt; "Self-Test"
-#: launches the tool and asks the operator whether it is usable.
-FLASH_TOOL_NAME = "Flash Tool/Programmer"
-
-#: default operator prompt of the Flash_GUI step (tool-agnostic)
-DEFAULT_FLASH_TOOL_PROMPT = (
-    "Flash Tool/Programmer started. Please perform the flashing yourself "
-    "and judge the result: click Pass = flashing success, click Fail = "
-    "flashing failed - the flash step is marked FAIL and the test program "
-    "stops immediately.")
-
-JLINK_FIELDS = [
-    ("executable_path", "Executable path", ""),
-    ("arguments", "Arguments", ""),
-    ("prompt", "Prompt message", DEFAULT_FLASH_TOOL_PROMPT),
-]
-
 
 def _default_group(owner, name):
     """Fresh dict with the default field values of one grouped config."""
@@ -390,8 +369,6 @@ _INSTRUMENT_IDN = {
 
 # Text lines drawn inside each block on the diagram.
 DIAGRAM_LINES = {
-    "probes": ["J-Link · PE Micro · Lauterbach",
-               "CMSIS-DAP · MCU-LINK · OpenSDA"],
     "host": ["Common Test Platform", "ICT / FCT / Flash / Reports"],
     "peripherals": ["Wi-Fi · Bluetooth · Router · Media converter",
                     "Display · Camera · Mic · Earphone · Speaker"],
@@ -442,17 +419,6 @@ def _mock_configs():
         sw_version = "mtk-gui"
     return {
         # ---- layer 1 -----------------------------------------------------
-        "probes": {
-            "title": "Flash / Debug Probes",
-            "table": [
-                ("J-Link", "ARM flash / debug", "USB"),
-                ("PE Micro", "NXP flash / debug", "USB"),
-                ("Lauterbach", "TRACE32 debug / trace", "USB"),
-                ("CMSIS-DAP", "CMSIS standard probe", "USB HID"),
-                ("MCU-LINK", "NXP MCU probe", "USB HID"),
-                ("OpenSDA", "NXP OpenSDA", "USB"),
-            ],
-        },
         "host": {
             "title": "HOST PC",
             "fields": [
@@ -480,17 +446,6 @@ def _mock_configs():
                 "bluetooth": _default_group("peripherals", "bluetooth"),
                 "router": _default_group("peripherals", "router"),
             },
-        },
-        "jlink": {
-            "title": FLASH_TOOL_NAME,
-            "fields": [
-                ("Role", "Third-party flash GUI (Flash_GUI step)"),
-                ("Managed by", "MTK launches the GUI; operator judges"),
-                ("Self-test", "Launches the tool and asks the operator to "
-                              "confirm usability"),
-            ],
-            "params": {key: default
-                       for key, _label, default in JLINK_FIELDS},
         },
         # ---- layer 2: DAQ973A -------------------------------------------
         "daq973a": {
@@ -764,53 +719,6 @@ def _ic_pc(p):
     p.drawLine(QPointF(37.5, 19), QPointF(41.5, 19))
     _fill(p, GREEN)
     p.drawEllipse(QPointF(39.5, 29.5), 1.3, 1.3)
-
-
-def _ic_jlink(p):
-    _fill(p, STEEL)
-    p.drawRoundedRect(QRectF(18.5, 4, 11, 7), 1, 1)
-    _p(p, GRAY)
-    p.drawRoundedRect(QRectF(15, 11, 18, 20), 3, 3)
-    p.drawLine(QPointF(19, 31), QPointF(19, 36))
-    p.drawLine(QPointF(24, 31), QPointF(24, 36))
-    p.drawLine(QPointF(29, 31), QPointF(29, 36))
-    _fill(p, GREEN)
-    p.drawEllipse(QPointF(24, 18), 2, 2)
-
-
-def _ic_pemicro(p):
-    _p(p, GRAY)
-    p.drawRoundedRect(QRectF(10, 14, 28, 15), 3, 3)
-    path = QPainterPath(QPointF(10, 21))
-    path.cubicTo(QPointF(6, 21), QPointF(5, 17), QPointF(8, 15))
-    p.drawPath(path)
-    p.drawRoundedRect(QRectF(13, 29, 22, 5), 1, 1)
-    for x in (16, 20, 24, 28, 32):
-        p.drawLine(QPointF(x, 34), QPointF(x, 38))
-    _fill(p, GREEN)
-    p.drawEllipse(QPointF(32, 20), 1.8, 1.8)
-
-
-def _ic_lauterbach(p):
-    _p(p, GRAY)
-    p.drawRoundedRect(QRectF(5, 17, 38, 15), 2, 2)
-    p.drawEllipse(QPointF(12, 24.5), 2.6, 2.6)
-    p.drawEllipse(QPointF(20, 24.5), 2.6, 2.6)
-    p.drawLine(QPointF(28, 21.5), QPointF(39, 21.5))
-    p.drawLine(QPointF(28, 27.5), QPointF(39, 27.5))
-    p.drawLine(QPointF(10, 32), QPointF(10, 36))
-    p.drawLine(QPointF(38, 32), QPointF(38, 36))
-
-
-def _ic_cmsisdap(p):
-    _fill(p, STEEL)
-    p.drawRoundedRect(QRectF(19, 4, 10, 6), 1, 1)
-    _p(p, GRAY)
-    p.drawRoundedRect(QRectF(16, 10, 16, 22), 2.5, 2.5)
-    for x in (20, 24, 28):
-        p.drawLine(QPointF(x, 32), QPointF(x, 37))
-    _fill(p, GREEN)
-    p.drawEllipse(QPointF(24, 16.5), 1.6, 1.6)
 
 
 def _ic_mculink(p):
@@ -1152,9 +1060,7 @@ def _ic_dut(p):
 
 
 _ICONS = {
-    "pc": _ic_pc, "jlink": _ic_jlink, "pemicro": _ic_pemicro,
-    "lauterbach": _ic_lauterbach, "cmsisdap": _ic_cmsisdap,
-    "mculink": _ic_mculink, "opensda": _ic_opensda,
+    "pc": _ic_pc, "mculink": _ic_mculink, "opensda": _ic_opensda,
     "wifi": _ic_wifi, "bt": _ic_bt, "console": _ic_console,
     "router": _ic_router, "media": _ic_media, "display": _ic_display,
     "camera": _ic_camera, "mic": _ic_mic, "speaker": _ic_speaker,
@@ -1707,37 +1613,7 @@ _BLOCK_EDITORS = {
 # devices NOT listed here are not integrated yet - double-clicking
 # shows the not-yet-available notice (persisted as
 # cfg["device_params"][device], keys match the driver options).
-# user direction 2026-10-17: the Flash / Debug Probes rows ARE the
-# third-party flash tools - each row edits that tool's CLI profile
-# (executable, command templates, the output patterns the engine
-# judges on, timeout).  Keeping the rules in the project YAML means
-# they are field-maintainable without a rebuild.
-def _flash_tool_spec(exe: str) -> list:
-    """CLI profile fields for one Flash / Debug Probe row.  The keys
-    match the driver options; ``{image}`` in a command template is
-    substituted with the step's firmware image."""
-    return [
-        ("exe", "Executable path", exe),
-        ("device", "Device", ""),
-        ("interface", "Interface", "SWD"),
-        ("speed_khz", "Speed (kHz)", "4000"),
-        ("write_cmd", "Write command", "loadfile {image}"),
-        ("verify_cmd", "Verify command", "verifyfile {image}"),
-        ("reset_cmd", "Reset & run command", "r|g|exit"),
-        ("ok_regex", "OK pattern", r"O\.K\."),
-        ("verify_regex", "Verify OK pattern", r"O\.K\."),
-        ("fail_regex", "Fail pattern", "Error|Cannot connect|FAILED"),
-        ("timeout_s", "Timeout (s)", "120"),
-    ]
-
-
-_DEVICE_EDITORS: dict[tuple[str, str], list] = {
-    ("probes", tool): _flash_tool_spec(
-        "C:/Program Files/SEGGER/JLink/JLink.exe" if tool == "J-Link"
-        else "")
-    for tool in ("J-Link", "PE Micro", "Lauterbach", "CMSIS-DAP",
-                 "MCU-LINK", "OpenSDA")
-}
+_DEVICE_EDITORS: dict[tuple[str, str], list] = {}
 
 _NOT_YET = "Not yet available - under development."
 
@@ -1785,44 +1661,6 @@ def _attach_test_connection(dialog, test_probe, values_getter):
     dialog.test_button = btn
     btn.clicked.connect(_run)
     return box
-
-
-def _flash_tool_self_test(values, launch=None, ask=None):
-    """M64: real Self-Test of the third-party flash tool.
-
-    Launches the configured executable DETACHED (the config dialog never
-    waits for the tool process), then asks the operator whether it
-    started and is usable.  ``launch`` / ``ask`` are injectable so the
-    headless tests can prove the async contract.
-
-    Returns ``(ok, message)`` - PASSED / FAILED text for the dialog.
-    """
-    path = str((values or {}).get("executable_path") or "").strip()
-    if not path or not os.path.isabs(path):
-        return False, (f"{FLASH_TOOL_NAME} is not configured. Open Config "
-                       "and set the Executable path.")
-    args = str((values or {}).get("arguments") or "").strip()
-    if launch is None:
-        from .engine.flash_tool import launch_tool_gui as launch
-    started, detail = launch(path, args)
-    if not started:
-        return False, (f"Self-Test FAILED: {FLASH_TOOL_NAME} could not be "
-                       f"started ({detail}).")
-    prompt = (str((values or {}).get("prompt") or "").strip()
-              or DEFAULT_FLASH_TOOL_PROMPT)
-    question = f"{prompt}\n\nDid the tool start and is it usable?"
-    if ask is None:
-        def ask(text):                       # pragma: no cover - Qt dialog
-            answer = QMessageBox.question(
-                None, f"{FLASH_TOOL_NAME} Self-Test", text,
-                QMessageBox.StandardButton.Yes
-                | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            return answer == QMessageBox.StandardButton.Yes
-    if ask(question):
-        return True, f"Self-Test PASSED: {FLASH_TOOL_NAME} is usable."
-    return False, ("Self-Test FAILED: operator reports the tool is not "
-                   "usable.")
 
 
 class _BlockConfigDialog(QDialog):
@@ -3805,10 +3643,6 @@ class EquipmentPage(QWidget):
         # ============ layer 1 ============================================
         # blocks grew 86 -> 116 to host the icon row; the SCPI bus stays
         # at y=150 so nothing below this layer moves
-        self._add_block("probes", 60, 18, 380, 116, fill=AMBER_FILL,
-                        icon=["jlink", "pemicro", "lauterbach", "cmsisdap",
-                              "mculink", "opensda"], icon_pos="row",
-                        icon_size=30)
         self._add_block("host", 480, 18, 470, 116, mode="dark", icon="pc",
                         icon_pos="left")
         self._add_block("peripherals", 1010, 18, 380, 116, fill="#f0f9ff",
@@ -3816,8 +3650,6 @@ class EquipmentPage(QWidget):
                               "display", "camera", "mic", "speaker"],
                         icon_pos="row", icon_size=24)
 
-        _polyline(self.scene, [QPointF(440, 76), QPointF(480, 76)], width=1.8)
-        _text(self.scene, "USB", 449, 53, color=TEXT, size=10, bold=True)
         _polyline(self.scene, [QPointF(950, 76), QPointF(1010, 76)],
                   width=1.8)
         # size-9 label centered in the 60 px gap between the two blocks
@@ -4272,14 +4104,6 @@ class EquipmentPage(QWidget):
             self._open_dio_entry(cfg)
             return
         editor = _BLOCK_EDITORS.get(owner)
-        self_test = None
-        max_width = None
-        if owner == "jlink":
-            editor = JLINK_FIELDS
-            # M64: the flash tool launches itself for the availability
-            # check - the generic Test Connection probe is gone
-            self_test = _flash_tool_self_test
-            max_width = 420          # bounded fields, no full-width stretch
         probe = None
         if entry_key in _TESTABLE_FORM_KEYS:
             probe = (lambda vals, k=entry_key:
@@ -4288,9 +4112,7 @@ class EquipmentPage(QWidget):
                            note=_mode_note(self._mode),
                            editor=editor,
                            config=cfg if editor else None,
-                           test_probe=probe,
-                           self_test=self_test,
-                           editor_max_width=max_width)
+                           test_probe=probe)
         dlg.exec()
         if editor:
             dlg.apply_to_config(cfg)

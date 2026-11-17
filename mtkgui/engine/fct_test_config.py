@@ -884,8 +884,6 @@ class ConsoleCommand:
     flash_gui_message: str = DEFAULT_FLASH_GUI_MESSAGE
                                     # legacy prompt key (read only; merged
                                     # into flash_gui_prompt on edit - C12)
-    flash_gui_arguments: str = ""   # kind == flash_gui (M64): CLI arguments
-                                    # appended after the executable
     flash_gui_prompt: str = ""      # kind == flash_gui (M64/C12): the ONE
                                     # operator prompt key (empty = DEFAULT)
     wait_ms: int = 1000             # kind == delay (M35): fixed wait in
@@ -947,7 +945,6 @@ class ConsoleCommand:
              # M83/C12: flash_gui_path / flash_gui_message are NOT
              # serialised (the path comes from Equipment, the message
              # was merged into flash_gui_prompt)
-             "flash_gui_arguments": self.flash_gui_arguments,
              "flash_gui_prompt": self.flash_gui_prompt,
              "wait_ms": int(self.wait_ms),
              "serial_baud": int(self.serial_baud or 0),
@@ -1066,7 +1063,6 @@ class ConsoleCommand:
                 flash_gui_message=str(
                     c.get("flash_gui_message", DEFAULT_FLASH_GUI_MESSAGE)
                     or DEFAULT_FLASH_GUI_MESSAGE),
-                flash_gui_arguments=str(c.get("flash_gui_arguments", "")),
                 flash_gui_prompt=str(c.get("flash_gui_prompt", "")),
                 wait_ms=int(c.get("wait_ms", 1000) or 0),
                 serial_baud=int(c.get("serial_baud", 0) or 0),
@@ -1939,7 +1935,6 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             params={"style": DIALOG_GOSTOP,
                     "message": flash_gui_message(cmd),
                     "flash_gui_path": cmd.flash_gui_path,
-                    "flash_gui_arguments": cmd.flash_gui_arguments,
                     "flash_gui_prompt": cmd.flash_gui_prompt}))
         return steps
     # Delay row (M35): a plain fixed wait - no console, no instrument.

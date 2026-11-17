@@ -27,7 +27,6 @@ EQUIPMENT = {
                        "Model": "Keysight N5747A DC Power Supply"},
             "params": {"Voltage set (V)": "5.0",
                        "Current limit (A)": "1.0", "OVP (V)": "15.0"}},
-    "jlink": {"fields": {"Address": "JLinkExe"}},
     "measure_channels": {"TP_P01": "101"},
 }
 
@@ -109,7 +108,7 @@ def test_m83_unknown_instrument_key_is_error(scripted_drivers):
                               "instruments": ["mystery"]}, reset=False)
     assert out.verdict == "Error"
     assert any("unknown instrument 'mystery'" in line for line in out.lines)
-    assert any("daq973a / u2355a / psu / jlink" in line
+    assert any("daq973a / u2355a / psu" in line
                for line in out.lines)
 
 

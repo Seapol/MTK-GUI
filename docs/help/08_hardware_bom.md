@@ -92,7 +92,7 @@ for a reduced plan:
 | Clock Hz | DAQ973A (slow) and/or U2355A (fast) | clock taps at the fixture | per-net resource from the channel allocation |
 | Power rails (DAQ AI) | U2355A + N5747A | AI sense harness | CSV + AI review |
 | FCT console tests | - | USB-to-serial adapter(s) | serial or SSH console channel |
-| Flash FAT / OOBE | programmer gateway | flash probe | per-probe integration not yet developed |
+| Flash FAT / OOBE | third-party flash GUI (HOST PC ▸ Flash Tool Path) | - | operator-driven Flash_GUI step |
 | FCT Wi-Fi | - | test AP | `WIFI` method |
 | FCT Bluetooth | - | BT reference device | `Bluetooth` method |
 | Reports / logs | - | - | HOST PC local files |

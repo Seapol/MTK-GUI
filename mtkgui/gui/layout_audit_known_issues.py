@@ -28,8 +28,6 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "clipped|QLabel|width=130px < sizeHint=137px (minimumSizeHint=137px)",
         "clipped|QLabel|width=130px < sizeHint=145px (minimumSizeHint=145px)",
         "clipped|QLabel|width=130px < sizeHint=177px (minimumSizeHint=177px)",
-        # M64: the longer "Flash Tool/Programmer" entry label elides too
-        "clipped|QLabel|width=130px < sizeHint=159px (minimumSizeHint=159px)",
         # M65: ... like the longer "Wired & Wireless Network" label
         "clipped|QLabel|width=130px < sizeHint=181px (minimumSizeHint=181px)",
         # 240px minimum left column + entry content (design decision);

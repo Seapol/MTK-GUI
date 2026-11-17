@@ -264,7 +264,7 @@ def test_legacy_flash_sequence_yaml_still_loads():
             "fct_test_cases": [
                 {"name": "Flash FAT Firmware", "kind": "op",
                  "op_params": {"type": "flash",
-                               "flash_params": {"mode": "jlink"}}},
+                               "flash_params": {"mode": "cli"}}},
             ],
         },
     }
@@ -282,11 +282,11 @@ def test_legacy_flash_sequence_rows_still_load():
     yaml_text = (
         "- name: Flash FAT Firmware\n"
         "  kind: op\n"
-        "  op_params: {type: flash, flash_params: {mode: jlink}}\n")
+        "  op_params: {type: flash, flash_params: {mode: cli}}\n")
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_sequence_cases_yaml": yaml_text})
     assert panel.cmd_table.rowCount() == 1
     cmd = panel._get_row_cmd(0)
     assert cmd.kind == "op" and cmd.op_kind == "op"
     assert cmd.op_params["type"] == "flash"
-    assert cmd.op_params["flash_params"]["mode"] == "jlink"
+    assert cmd.op_params["flash_params"]["mode"] == "cli"

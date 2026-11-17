@@ -76,7 +76,7 @@
 | Power rail waveform + capture + CSV export + AI review | Done (virtual data) | `_capture_rails`, `_write_csv`, `_ai_wave_review` |
 | FCT 12 methods incl. console/CLI messaging | Done (virtual/real via console) | `FCT_METHODS`, `_exec_fct_console` |
 | RF test (WiFi/BLE) via external host CLI tools | **Simulated only** | `test_workflow_page.py:2082-2090` — WIFI/Bluetooth alias to simulated `SendtoCLI` defaults |
-| FAT / OOBE firmware flash (JLink) | **Manual operator step** | Template rows "Flash FAT Firmware (3rd-party GUI)" gated by MessageGoStop; no JLink code |
+| FAT / OOBE firmware flash | **Manual operator step** | Template rows "Flash FAT Firmware (3rd-party GUI)" gated by MessageGoStop |
 | Config page (YAML editor) | **Missing** | `.traerules` §7 fixed page; no editor module |
 | Log viewer as module | Embedded | Event log inside `main_window.py` (T6 to extract) |
 | GUI themes (5) + WCAG contrast | Done | `theme.py`, `style.py` |
@@ -92,9 +92,9 @@
    (`start_run/_run_step/_exec_ict_row/_exec_fct_console/_finish_run`, ~1000+
    lines) embedded in the `TestWorkFlowPage` QWidget; `TestRunner`/`StepResult`
    from interface_spec.md do not exist yet.
-3. **Automated firmware flashing (FAT/OOBE via JLink)** — currently an operator
-   manual action ("3rd-party GUI") wrapped in MessageGoStop dialogs; JLink is in
-   the `.traerules` instrument list but has no code.
+3. **Automated firmware flashing (FAT/OOBE)** — currently an operator
+   manual action ("3rd-party GUI") wrapped in MessageGoStop dialogs; the
+   flash tool has no driver code.
 4. **Real RF test execution** — WIFI/Bluetooth fall back to simulated CLI
    commands; host-side external CLI tool invocation (.traerules §3.8) absent.
 5. **YAML config editor page (T5)** — `.traerules` §7 Config page missing.
@@ -132,5 +132,5 @@
 - T3 gains waveform caching requirement (R7).
 - T5 gains `config/schema/` materialization.
 - New pending-decision item D1 (user input): real RF test CLI tools and
-  firmware-flash automation scope (JLink) — affects T1/T2 backlog, blocked on
+  firmware-flash automation scope — affects T1/T2 backlog, blocked on
   user decision because it may add dependencies.

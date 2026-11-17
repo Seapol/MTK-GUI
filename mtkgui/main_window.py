@@ -3086,8 +3086,7 @@ class MainWindow(QMainWindow):
         else:
             self._update_run_progress(0, 0)
 
-    #: M83/C14: Equipment key -> status-bar LED abbreviation (jlink has
-    #: no LED - the flash probe is not a measurement instrument)
+    #: M83/C14: Equipment key -> status-bar LED abbreviation
     _LED_KEY = {"daq973a": "DAQM", "u2355a": "DAQ", "psu": "PSU"}
 
     def _on_instruments_connected(self, states):

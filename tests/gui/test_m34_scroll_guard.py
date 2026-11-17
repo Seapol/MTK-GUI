@@ -570,7 +570,7 @@ def test_equipment_instrument_dialogs_scroll_guard(qapp):
 
     page = EquipmentPage()
     daq = page.configs["daq973a"]
-    probes = page.configs["probes"]
+    peripherals = page.configs["peripherals"]
     host = page.configs["host"]
 
     specs = [
@@ -578,11 +578,11 @@ def test_equipment_instrument_dialogs_scroll_guard(qapp):
             page, daq["title"], daq["fields"], "daq973a", True, config=daq)),
         ("instrument_form_host", lambda: _form_dialog(
             page, host["title"], host["fields"], "note")),
-        ("instrument_table_probes", lambda: _DeviceTableDialog(
-            page, probes["title"], probes["table"], note="",
-            block_key="probes", config=None)),
+        ("instrument_table_peripherals", lambda: _DeviceTableDialog(
+            page, peripherals["title"], peripherals["table"], note="",
+            block_key="peripherals", config=None)),
         ("instrument_device_notice", lambda: _DeviceEditDialog(
-            page, "J-Link", None, info=[("Interface", "USB")])),
+            page, "Media Converter", None, info=[("Interface", "USB")])),
     ]
     for label, factory in specs:
         dlg = factory()
