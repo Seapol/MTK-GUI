@@ -29,7 +29,7 @@ def qapp():
 
 @pytest.fixture(autouse=True)
 def _sandbox_cwd(tmp_path, monkeypatch):
-    """Load current yaml auto-saves the project under ./projects/ -
+    """Load current yaml auto-saves the project into the WORK dir -
     redirect the cwd so tests never write into the repository."""
     monkeypatch.chdir(tmp_path)
     # M45c: every save path prompts for missing Product Information -
@@ -152,8 +152,8 @@ def test_load_merges_manually_filled_limits(window):
 
 
 def test_load_autosaves_project_file(window):
-    """A Load with no project file loaded auto-saves the project under
-    ./projects/ (standard naming) so the Run gate ("No YAML file is
+    """A Load with no project file loaded auto-saves the project into the
+    WORK dir (standard naming, v2/C3) so the Run gate ("No YAML file is
     loaded") cannot hit right after a Load."""
     _make_ict_ready(window)
     window.yaml_build_page.model.set_params("design_input", {
@@ -164,7 +164,10 @@ def test_load_autosaves_project_file(window):
     assert window._project_path is not None
     path = Path(window._project_path)
     assert path.exists()
-    assert path.parent.name == "projects"
+    # v2/C3: the auto-save lands in the resolved workspace (the test's
+    # isolated work dir), not in a repo ./projects/ folder
+    from mtkgui.gui.shell import resolve_tenant_base
+    assert str(path.parent) == str(Path(resolve_tenant_base()))
     assert path.name == "MTK12345_29420_EVT-(Proto-1)" \
         "_rev_1.0.0_Draft.yaml"
     # the Overall Flow Project File label follows the auto-save

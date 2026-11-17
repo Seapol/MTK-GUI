@@ -137,7 +137,7 @@ The Linux BSP must ensure Wi-Fi and Bluetooth drivers are loaded after boot. Two
 
 **Option B: Manual load from the project asset**
 - The script ships with the project assets:
-  `assets_<Project>/drivers/load_drivers.sh` (edit its module list, do not add
+  `assets/drivers/load_drivers.sh` (edit its module list, do not add
   a new script under `/opt`)
 - The sequence pushes it to `/root/fct_assets/load_drivers.sh` and runs
   ```bash

@@ -3,20 +3,19 @@
 # Usage:
 #   .\build_windows.ps1                          # default: dist\MTK_GUI\
 #   .\build_windows.ps1 -OutDir D:\release\v1.9  # package anywhere
-#   .\build_windows.ps1 -SkipProjects            # exclude projects data
 #   .\build_windows.ps1 -KeepRunning             # don't stop a running GUI
 #
 # Notes:
 #   * Any running MTK_GUI.exe is force-stopped first so PyInstaller can
 #     replace the locked onedir bundle (permission error otherwise).
-#   * projects/ is bundled into _internal\projects by default (M19);
-#     -SkipProjects sets MTKGUI_SHIP_PROJECTS=0 for the spec.
+#   * v2/C3: no project data ships in the package any more.  ``_internal\
+#     config`` carries the FACTORY DEFAULTS only; the first launch seeds
+#     the writable ``config\`` folder beside the exe.
 #   * -OutDir accepts a relative or absolute path; the exe lands at
 #     <OutDir>\MTK_GUI\MTK_GUI.exe.
 
 param(
     [string]$OutDir = "dist",
-    [switch]$SkipProjects,
     [switch]$KeepRunning
 )
 
@@ -29,14 +28,12 @@ if (-not $KeepRunning) {
     Start-Sleep -Seconds 2
 }
 
-$env:MTKGUI_SHIP_PROJECTS = if ($SkipProjects) { "0" } else { "1" }
-
 $distAbs = [System.IO.Path]::GetFullPath(
     [System.IO.Path]::Combine($root, $OutDir))
 $workAbs = [System.IO.Path]::Combine($root, ".build_tmp")
 
 Write-Host "==> dist path : $distAbs"
-Write-Host "==> projects  : $(if ($SkipProjects) { 'EXCLUDED' } else { 'bundled' })"
+Write-Host "==> config    : factory defaults in _internal\config (seeded on first launch)"
 
 Push-Location $root
 try {
@@ -69,27 +66,34 @@ $exe = Join-Path $distAbs "MTK_GUI\MTK_GUI.exe"
 if (Test-Path -LiteralPath $exe) {
     $file = Get-Item -LiteralPath $exe
     $internal = Join-Path $distAbs "MTK_GUI\_internal"
-    $projOk = if ($SkipProjects) { $false } else {
-        Test-Path -LiteralPath (Join-Path $internal "projects")
-    }
+    # v2/C3: _internal\config must carry the four factory seeds and
+    # _internal\projects must NOT exist any more
+    $configDir = Join-Path $internal "config"
+    $configOk = (Test-Path -LiteralPath (Join-Path $configDir "permissions.json")) -and
+        (Test-Path -LiteralPath (Join-Path $configDir "settings.json")) -and
+        (Test-Path -LiteralPath (Join-Path $configDir "report_paths.json")) -and
+        (Test-Path -LiteralPath (Join-Path $configDir "rules\base.v2.json"))
+    $projOk = Test-Path -LiteralPath (Join-Path $internal "projects")
     # M46: the project-assets template must reach _internal\assets
     $assetsDir = Join-Path $internal "assets"
     $assetsOk = Test-Path -LiteralPath $assetsDir
     $sizeTxt = "{0:N0} bytes ({1:N1} MB)" -f $file.Length, ($file.Length / 1MB)
     Write-Host "==> OK: $exe"
     Write-Host "    size    : $sizeTxt"
-    Write-Host "    built-in projects: $projOk"
+    Write-Host "    config seeds     : $configOk"
     Write-Host "    assets template  : $assetsOk"
+    if (-not $configOk) {
+        Write-Host "==> ERROR: _internal\config is missing a factory seed"
+        exit 1
+    }
+    if ($projOk) {
+        Write-Host "==> ERROR: _internal\projects must not ship (runtime data only)"
+        exit 1
+    }
     if ($assetsOk) {
         $af = (Get-ChildItem -LiteralPath $assetsDir -Recurse -File |
             Measure-Object).Count
         Write-Host "    assets files     : $af"
-    }
-    if ($projOk) {
-        $pj = (Get-ChildItem -LiteralPath (Join-Path $internal "projects") -Recurse -File |
-            Measure-Object -Property Length -Sum).Sum
-        $pjTxt = "{0:N1} MB" -f ($pj / 1MB)
-        Write-Host "    projects payload : $pjTxt"
     }
 } else {
     Write-Host "==> ERROR: exe not found at $exe"

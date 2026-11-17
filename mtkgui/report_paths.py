@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Report output folders (user direction 2026-10-17; M96 rework).
+"""Report output folders (user direction 2026-10-17; M96 rework; v2/C3).
 
 A run writes into
 
@@ -8,64 +8,44 @@ A run writes into
         DUT_PASS_<...>.pdf             (certificate, auto after the run)
         DUT_detail_<...>.csv           (MES rows)
 
-    <reports root>/<PROJECT>/Event Report/event_<ts>.log
+    <station root>/logs/event/event_<PROJECT>_<yyyyMMddTHHmmss>.log
                                                      (one per GUI session)
 
 ``<PROJECT>`` is ``MTKGUI_PROJECT`` when the station launcher sets it, else the
-loaded project's folder name (``.../projects/96317/plan.yaml`` -> ``96317``),
+loaded project's folder name (``.../work/96317/plan.yaml`` -> ``96317``),
 else ``No_Project``.
 
 Reports ROOT resolution order:
 
-1. the folder saved from Settings > Report Folders… (``work/report_paths.json``)
+1. the folder saved from Settings > Report Folders… (``config/report_paths.json``)
 2. ``MTKGUI_REPORT_HOME`` (station launcher / tests - a default, not a lock)
 3. the station work folder (<exe parent>/../work in a frozen build, <repo>/work
    in development) - so a package upgrade keeps the reports with the settings
 
-The two sub-folder names default to ``DUT Report`` / ``Event Report`` and are
-editable in the same dialog.  The settings file and the reports it points at
-both live in the ``work`` folder - never in the program directory - so a
-package upgrade keeps them together.
-``MTKGUI_WORK_DIR`` overrides that location (tests).
+The DUT report sub-folder name defaults to ``DUT Report`` and is editable in
+the same dialog.  The EVENT LOG is NOT part of the report tree: it lives
+outside the work dir (``<station root>/logs/event``) so a package upgrade
+never touches it, and no DUT report quotes it.
+
+``MTKGUI_WORK_DIR`` overrides the work folder (tests).
 """
 from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
+
+from .app_paths import (config_dir, event_log_dir, program_dir,  # noqa: F401
+                        timestamp, work_dir)
 
 CFG_NAME = "report_paths.json"
 ENV_PROJECT = "MTKGUI_PROJECT"
 DEFAULT_DUT = "DUT Report"
-DEFAULT_EVENT = "Event Report"
 NO_PROJECT = "No_Project"
 
 # project identity of the loaded document - set by main_window on load /
 # close; M86 (SharePoint) keys its folders on the same value
 _current_project = ""
-
-
-def program_dir() -> Path:
-    """The program directory: the exe folder in a frozen build, the repo
-    root in development."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
-
-
-def work_dir() -> Path:
-    """The station's work folder - survives a package upgrade.
-
-    Frozen: ``<exe parent>/../work`` (``C:\\MTK_Station\\work``).
-    Development: ``<repo>/work``.  ``MTKGUI_WORK_DIR`` overrides it.
-    """
-    env = os.environ.get("MTKGUI_WORK_DIR")
-    if env:
-        return Path(env)
-    if getattr(sys, "frozen", False):
-        return program_dir().parent / "work"
-    return program_dir() / "work"
 
 
 def default_root() -> Path:
@@ -78,7 +58,11 @@ def default_root() -> Path:
 
 
 def _cfg_path() -> Path:
-    return work_dir() / CFG_NAME
+    """The saved folder settings - owned by the writable config dir (C3).
+
+    A missing file simply means "nothing saved" (the defaults apply);
+    the first write creates it."""
+    return config_dir() / CFG_NAME
 
 
 def _raw() -> dict:
@@ -149,18 +133,17 @@ def report_root() -> Path:
 
 
 def folder_settings() -> dict:
-    """Current ``{root, project, dut, event}`` - for the settings dialog."""
+    """Current ``{root, project, dut}`` - for the settings dialog."""
     data = _raw()
     return {
         "root": str(report_root()),
         "project": project_key(),
         "dut": clean_name(data.get("dut"), DEFAULT_DUT),
-        "event": clean_name(data.get("event"), DEFAULT_EVENT),
     }
 
 
-def set_folder_settings(root=None, dut=None, event=None) -> Path:
-    """Persist the three values (Settings > Report Folders…).
+def set_folder_settings(root=None, dut=None) -> Path:
+    """Persist the DUT report values (Settings > Report Folders…).
 
     An empty *root* is stored empty, which means "unsaved" - the
     resolution order then falls back to the environment / work folder.
@@ -168,7 +151,6 @@ def set_folder_settings(root=None, dut=None, event=None) -> Path:
     payload = {
         "root": str(root or "").strip(),
         "dut": clean_name(dut, DEFAULT_DUT),
-        "event": clean_name(event, DEFAULT_EVENT),
     }
     path = _cfg_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,6 +171,11 @@ def dut_folder() -> Path:
     return project_folder() / folder_settings()["dut"]
 
 
-def event_folder() -> Path:
-    """<reports root>/<PROJECT>/Event Report."""
-    return project_folder() / folder_settings()["event"]
+def event_log_path(project=None) -> Path:
+    """``<station root>/logs/event/event_<PROJECT>_<yyyyMMddTHHmmss>.log``.
+
+    Deliberately OUTSIDE the report root / work dir: a package upgrade
+    never touches it and no DUT report quotes it (the report's own
+    "last 20 lines" section is about CLI output, a different file)."""
+    key = clean_name(project, NO_PROJECT) if project else project_key()
+    return event_log_dir() / f"event_{key}_{timestamp()}.log"

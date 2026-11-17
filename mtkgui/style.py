@@ -27,9 +27,9 @@ import base64
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QPalette
 
+from . import app_paths
 from .theme import is_dark, text_on_dark, text_on_light
 
 APP_NAME = "Manufacturing Test Kit"
@@ -607,8 +607,10 @@ def _hover(accent):
 
 
 def saved_theme():
-    """Theme name chosen by the user (Light when never changed)."""
-    name = QSettings(APP_ORG, APP_NAME).value("gui_theme", "Light")
+    """Theme name chosen by the user (Light when never changed).
+
+    Read from ``<config>/settings.json`` (v2/C3 - QSettings retired)."""
+    name = app_paths.get_setting("theme", "Light")
     return name if name in GUI_THEMES else "Light"
 
 

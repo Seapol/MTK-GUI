@@ -154,11 +154,13 @@ mtk-gui/
 ├── main.py                    # Entry point
 ├── requirements.txt
 ├── smoke_test.py              # Headless smoke / regression test
-├── config/
-│   ├── permissions.json                    # Role / permission config
-│   └── *_Nets.xlsx                         # Test-point net list
-├── projects/                               # One folder per product: YAML plan
-│                                           #   + assets_<Product>/ bundle
+├── config/                                 # writable runtime config (factory seeds)
+│   ├── permissions.json                    # Role / permission config (13 keys)
+│   ├── report_paths.json                   # Report folder settings
+│   ├── settings.json                       # Theme / timing / event-log level
+│   └── rules/base.v2.json                  # YAML rule set (v2)
+├── work/                                   # runtime: <PROJECT>/ plan.yaml + assets/
+│                                           #   + DUT Report/  (not in git)
 ├── mtkgui/
 │   ├── main_window.py         # Main window, menus, mode/role integration
 │   ├── equipment_page.py      # Equipment block diagram + config dialogs

@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
-"""M69: project-bound customizable assets folder.
+"""Project-bound customizable assets folder.
 
-Each project may own ``projects/<Project>/assets_<Project>``, created
-by copying the READ-ONLY built-in ``assets/`` template.  This module is
-Qt-free so the filesystem behaviour is unit-testable; there is no GUI writer -
-a project's assets folder is prepared by hand from the built-in template
-(2026-11-08 user direction: assets belong to the project).
+Each project owns ``<work>/<PROJECT>/assets``, created by copying the
+READ-ONLY built-in ``_internal/assets`` master (templates / drivers /
+precheck / resources).  This module is Qt-free so the filesystem behaviour
+is unit-testable; there is no GUI writer - a project's assets folder is
+prepared by hand from the built-in template (2026-11-08 user direction:
+assets belong to the project).
+
+v2/C3: the per-project tree lives in the WORK dir (``<work>/<PROJECT>``),
+never in a ``projects/`` folder inside the package; ``drivers/`` is
+referenced in place and is not copied.
 """
 from __future__ import annotations
 
@@ -14,13 +19,22 @@ import re
 import shutil
 import sys
 
-#: custom folder name prefix (assets_<Project>)
-ASSETS_PREFIX = "assets_"
+#: v2/C3: the per-project folder name (assets are <work>/<PROJECT>/assets)
+ASSETS_DIRNAME = "assets"
 
 #: M83/C2b: the only lines the GUI reads from ``connect_wifi.sh``.
 #: One name, one equals sign, one quoted value, one line.
 AP_PROFILE_LINE_RE = re.compile(
     r"^AP_PROFILE_(ROUTER|HOTSPOT)_(SSID|PASSWORD)='?(.*?)'?$")
+
+
+def default_tenant_base() -> str:
+    """``MTKGUI_TENANT_BASE`` when set, else the station work dir."""
+    env = os.environ.get("MTKGUI_TENANT_BASE")
+    if env:
+        return env
+    from ..app_paths import work_dir
+    return str(work_dir())
 
 
 def parse_ap_profile_values(text: str) -> dict:
@@ -64,61 +78,49 @@ def builtin_assets_dir() -> str:
     return os.path.join(os.path.dirname(os.path.dirname(here)), "assets")
 
 
-def custom_assets_dir(project: str, tenant_base: str = "projects") -> str:
-    """``projects/<Project>/assets_<Project>`` (normpath)."""
+def custom_assets_dir(project: str, tenant_base: str | None = None) -> str:
+    """``<work>/<PROJECT>/assets`` (normpath)."""
     project = str(project or "").strip()
-    return os.path.normpath(os.path.join(
-        str(tenant_base or "projects"), project,
-        ASSETS_PREFIX + project))
+    base = str(tenant_base or default_tenant_base())
+    return os.path.normpath(os.path.join(base, project, ASSETS_DIRNAME))
 
 
-def legacy_assets_dir(project: str, tenant_base: str = "projects") -> str:
-    """``projects/<Project>/assets`` (the pre-M69 convention)."""
-    project = str(project or "").strip()
-    return os.path.normpath(os.path.join(
-        str(tenant_base or "projects"), project, "assets"))
-
-
-def list_projects(tenant_base: str = "projects") -> list:
+def list_projects(tenant_base: str | None = None) -> list:
     """Project folders under ``tenant_base`` (skip hidden files and
     ``demo/``)."""
+    base = str(tenant_base or default_tenant_base())
     try:
-        entries = sorted(os.listdir(tenant_base))
+        entries = sorted(os.listdir(base))
     except OSError:
         return []
     projects = []
     for name in entries:
         if name.startswith(".") or name.lower() == "demo":
             continue
-        if os.path.isdir(os.path.join(tenant_base, name)):
+        if os.path.isdir(os.path.join(base, name)):
             projects.append(name)
     return projects
 
 
-def assets_state(project: str, tenant_base: str = "projects") -> str:
-    """``"custom"`` (assets_<Project> exists), ``"legacy"`` (old
-    ``assets/`` exists) or ``"none"``."""
+def assets_state(project: str, tenant_base: str | None = None) -> str:
+    """``"custom"`` (the project's ``assets/`` exists) or ``"none"``."""
     if os.path.isdir(custom_assets_dir(project, tenant_base)):
         return "custom"
-    if os.path.isdir(legacy_assets_dir(project, tenant_base)):
-        return "legacy"
     return "none"
 
 
 def status_suffix(state: str) -> str:
     """Operator-facing status suffix of a project row."""
-    return {"custom": "(assets ready)",
-            "legacy": "(built-in fallback)",
-            "none": "(no assets yet)"}.get(state, "(no assets yet)")
+    return {"custom": "(assets ready)"}.get(state, "(no assets yet)")
 
 
-def create_custom_assets(project: str, tenant_base: str = "projects",
+def create_custom_assets(project: str, tenant_base: str | None = None,
                          source: str | None = None,
                          overwrite: bool = False) -> str:
-    """Copy the built-in assets tree into ``assets_<Project>``.
+    """Copy the built-in assets tree into ``<PROJECT>/assets``.
 
-    ``overwrite=True`` is the "Re-create" path: the custom folder is
-    wiped first.  The built-in source is never written to.
+    ``overwrite=True`` is the "Re-create" path: the project folder's
+    ``assets/`` is wiped first.  The built-in source is never written to.
     Returns the created folder path."""
     src = os.path.abspath(source or builtin_assets_dir())
     dst = os.path.abspath(custom_assets_dir(project, tenant_base))
@@ -135,13 +137,14 @@ def create_custom_assets(project: str, tenant_base: str = "projects",
 
 
 def remove_custom_assets(project: str,
-                         tenant_base: str = "projects") -> bool:
-    """Delete ONLY ``assets_<Project>`` (never the project folder)."""
+                         tenant_base: str | None = None) -> bool:
+    """Delete ONLY ``<PROJECT>/assets`` (never the project folder)."""
     dst = os.path.abspath(custom_assets_dir(project, tenant_base))
-    project_dir = os.path.abspath(os.path.join(tenant_base, project))
-    # hard guard: the target must be a direct child named assets_<Project>
+    project_dir = os.path.abspath(os.path.join(
+        str(tenant_base or default_tenant_base()), project))
+    # hard guard: the target must be the direct ``assets`` child
     if os.path.dirname(dst) != project_dir or \
-            os.path.basename(dst) != ASSETS_PREFIX + str(project):
+            os.path.basename(dst) != ASSETS_DIRNAME:
         raise ValueError(f"refusing to delete outside the project: {dst}")
     if not os.path.isdir(dst):
         return False

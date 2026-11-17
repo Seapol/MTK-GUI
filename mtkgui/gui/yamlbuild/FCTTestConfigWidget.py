@@ -1242,8 +1242,8 @@ class FCTTestConfigPanel(QWidget):
 
         M69: an explicitly BOUND ``assets_dir`` (project shared param,
         set when the project is loaded) wins when it exists;
-        otherwise the folder-priority search applies (assets_<Project>
-        -> legacy assets/ -> bundled template)."""
+        otherwise the folder-priority search applies (<work>/<PROJECT>/assets
+        -> bundled template)."""
         import os
         bound = str(getattr(self, "_assets_dir", "") or "")
         if bound and os.path.isdir(bound):

@@ -96,3 +96,6 @@ temp/
 # M96: <repo>/work - the development stand-in for the station's work folder
 # (report/statistics/SharePoint settings + output)
 work/
+
+# runtime project data, never in git
+projects/

@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import app_paths
 from . import project_config
 from .engine.yaml_validation import (blocking_issues, format_issues,
                                      validate_project_yaml)
@@ -112,7 +113,7 @@ from .virtual_dut import (
     save_dut_profile,
 )
 
-# Event Log auto-save lives in the modifiable Event Report folder
+# Event Log auto-save lives under <station root>/logs/event
 # (mtkgui.report_paths) - resolved at session start
 
 # Doubled default size; clamped to the screen at runtime.
@@ -167,50 +168,43 @@ def _colorize_verdicts(escaped_text):
     return _VERDICT_RE.sub(_span, escaped_text)
 
 
-#: QSettings key of the Event Log display level (M11)
-EVENT_LOG_LEVEL_KEY = "event_log/level"
+#: settings.json key of the Event Log display level (M11; v2/C3)
+EVENT_LOG_LEVEL_KEY = "event_log_level"
 #: tooltip of the (disabled) Event Log entries on Operator accounts
 OPERATOR_EVENT_LOG_TIP = "Operator accounts use the simplified event log"
 
 
-def load_event_log_level(role, settings=None):
+def load_event_log_level(role):
     """Display level of the Event Log for ``role`` (M11 F3).
 
     Operator accounts ALWAYS get the simplified log - their Settings
     entries are disabled, so Detailed can never be enabled for them.
-    A Supervisor keeps the persisted choice; without a saved value the
-    detailed log is the default.
+    A Supervisor keeps the persisted choice (``event_log_level`` in
+    ``<config>/settings.json``); without a saved value the detailed log
+    is the default.
 
     Args:
         role: ``ROLE_OPERATOR`` or ``ROLE_SUPERVISOR``.
-        settings: Optional QSettings instance (tests inject a temp
-                  file instead of the user preferences).
 
     Returns:
         ``"simplified"`` or ``"detailed"``.
     """
     if role == ROLE_OPERATOR:
         return SIMPLIFIED
-    if settings is None:
-        settings = QSettings(APP_ORG, APP_NAME)
-    saved = str(settings.value(EVENT_LOG_LEVEL_KEY, "") or "").strip().lower()
+    saved = str(app_paths.get_setting(EVENT_LOG_LEVEL_KEY, DETAILED)
+                or "").strip().lower()
     return saved if saved in (SIMPLIFIED, DETAILED) else DETAILED
 
 
-def save_event_log_level(level, settings=None):
+def save_event_log_level(level):
     """Persist the Supervisor's Event Log choice (next login keeps it).
 
     Args:
         level: ``"simplified"`` or ``"detailed"``.
-        settings: Optional QSettings instance (tests inject a temp
-                  file instead of the user preferences).
     """
-    if settings is None:
-        settings = QSettings(APP_ORG, APP_NAME)
-    settings.setValue(
+    app_paths.set_setting(
         EVENT_LOG_LEVEL_KEY,
         level if level in (SIMPLIFIED, DETAILED) else DETAILED)
-    settings.sync()
 
 
 #: M78-3: application-level FCT stall watchdog (Tools > FCT Watchdog).
@@ -564,7 +558,7 @@ class MainWindow(QMainWindow):
         self.fixture_type = fixture
         self.fault_config = load_fault_config()
         # Event Log display level (M11): role default, only a supervisor
-        # may switch it (persisted under event_log/level); it must exist
+        # may switch it (persisted in settings.json); it must exist
         # before _build_ui writes the first log lines
         self._event_log_level = load_event_log_level(role)
 
@@ -1291,8 +1285,9 @@ class MainWindow(QMainWindow):
         self.act_perf_timing.setChecked(bool(perf_timing_saved_enabled()))
         self.act_perf_timing.setToolTip(
             "Write the full-lifecycle performance timing log "
-            "(logs/_startup_timing.log). Changes take effect on the next "
-            "GUI restart.")
+            "(_performance_timing_<timestamp>.log beside the exe for a "
+            "package build, under logs/ for a development run). Changes take "
+            "effect on the next GUI restart.")
         self.act_perf_timing.toggled.connect(self._set_perf_timing_enabled)
         tools_menu.addSeparator()
         # M78-3: one application-level stall watchdog value (no YAML field)
@@ -1658,8 +1653,8 @@ class MainWindow(QMainWindow):
 
     def _open_report_folders_dialog(self):
         """Settings > Report Folders…: choose the reports root folder
-        (Browse) and the two sub-folder names.  Defaults: the program
-        directory + ``DUT Report`` / ``Event Report`` (M96)."""
+        (Browse) and the DUT sub-folder name.  Defaults: the station work
+        folder + ``DUT Report``; the event log has its own folder."""
         from .gui.report_settings_dialog import ReportFoldersDialog
         from mtkgui import report_paths
 
@@ -1669,14 +1664,14 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"Report folders updated - DUT reports: "
             f"{report_paths.dut_folder()} | event logs: "
-            f"{report_paths.event_folder()}", "IMPORTANT")
+            f"{report_paths.event_log_path().parent}", "IMPORTANT")
 
     def _open_report_event_log(self):
         """Report > Event Log: open the Event Log folder - the session
-        .log auto-save files land in <reports root>/Event Report (M96)."""
+        .log auto-save files land in <station root>/logs/event (v2/C3)."""
         from mtkgui import report_paths
         self._open_report_dir(
-            report_paths.event_folder(), "Event Log")
+            report_paths.event_log_path().parent, "Event Log")
 
     def _open_sharepoint_upload(self):
         """Report > SharePoint Upload…: site link + connectivity test +
@@ -2478,11 +2473,11 @@ class MainWindow(QMainWindow):
 
     def _auto_save_project(self):
         """Dialog-free project save after Load current yaml: the
-        derived configuration lands under ./projects/ with the standard
-        name (Part#_CoreID_Batch_rev_<plan version>_Draft.yaml) so the
-        Run gate cannot hit right after a Load."""
-        # M19: the auto-save lands in the resolved projects workspace
-        # (env override -> exe-side -> built-in bundle -> CWD fallback)
+        derived configuration lands in the station WORK dir with the
+        standard name (Part#_CoreID_Batch_rev_<plan version>_Draft.yaml)
+        so the Run gate cannot hit right after a Load."""
+        # v2/C3: the auto-save lands in the resolved workspace
+        # (MTKGUI_TENANT_BASE override -> the station work dir)
         out_dir = Path(resolve_tenant_base())
         path = out_dir / project_config.default_filename(
             self._build_project_config())
@@ -2874,7 +2869,7 @@ class MainWindow(QMainWindow):
         if MainWindow._applied_theme != name:
             apply_theme(QApplication.instance(), name)
             MainWindow._applied_theme = name
-        QSettings(APP_ORG, APP_NAME).setValue("gui_theme", name)
+        app_paths.set_setting("theme", name)
         # theme fonts restyle every metric: re-prove the vertical
         # floor once the new stylesheet is polished
         QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
@@ -2894,18 +2889,18 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------- Event Log
     def _start_event_log(self):
-        """Open the per-session auto-save log file under the Event Log
-        folder (<reports root>/Event Report, M96).
+        """Open the per-session auto-save log file under the station
+        event-log folder (<station root>/logs/event, v2/C3).
 
         One file covers a whole GUI run, from startup to exit; every log
         line is appended (and flushed) immediately so a crash still leaves
-        the record on disk."""
+        the record on disk.  The file is deliberately outside the work
+        dir, so a package upgrade never touches it."""
         try:
             from mtkgui import report_paths
-            event_dir = report_paths.event_folder()
-            event_dir.mkdir(parents=True, exist_ok=True)
+            path = report_paths.event_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = event_dir / f"event_{stamp}.log"
             self._event_log_path = path
             self._event_log_file = open(path, "a", encoding="utf-8")
             self._event_log_file.write(

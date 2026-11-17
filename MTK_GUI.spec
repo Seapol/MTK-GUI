@@ -24,12 +24,13 @@ hiddenimports += [
 # CredentialUnavailable when a channel/login stores its password.
 hiddenimports += ['keyring.backends.macOS']
 
-# only the runtime-needed data files (a project's own YAML lives in its
-# folder under projects/ - nothing is shipped from a scratch workspace)
+# only the runtime-needed data files (per-project data is runtime data
+# under the work dir - nothing is shipped from a scratch workspace)
 datas = [
     ('config/permissions.json', 'config'),
-    ('config/FRDM-IMX93_Nets.xlsx', 'config'),
-    ('config/Nets_Template.xlsx', 'config'),
+    ('config/report_paths.json', 'config'),
+    ('config/settings.json', 'config'),
+    ('config/rules', 'config/rules'),
     ('resources', 'resources'),
     # M46: the project-assets TEMPLATE (precheck / drivers / resources)
     # ships inside _internal/assets; the Push step Browse defaults to it

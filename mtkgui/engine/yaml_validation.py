@@ -240,16 +240,14 @@ def _connect_wifi_script_text(doc: dict) -> str:
                or "").strip()
     if not part:
         return ""
-    from .assets_config import custom_assets_dir, legacy_assets_dir
-    for folder in (custom_assets_dir(part), legacy_assets_dir(part)):
-        path = os.path.join(folder, "resources", "scripts",
-                            "connect_wifi.sh")
-        try:
-            with open(path, encoding="utf-8") as handle:
-                return handle.read()
-        except OSError:
-            continue
-    return ""
+    from .assets_config import custom_assets_dir
+    folder = custom_assets_dir(part)
+    path = os.path.join(folder, "resources", "scripts", "connect_wifi.sh")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return ""
 
 
 def _equipment_ssid(doc: dict, field: str) -> str:

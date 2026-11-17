@@ -67,31 +67,22 @@ APP_TITLE = "MTK-GUI TestFlow"
 
 
 def resolve_tenant_base() -> str:
-    """Projects workspace the GUI reads/writes, in priority order:
+    """Project workspace the GUI reads/writes, in priority order:
 
     1. ``MTKGUI_TENANT_BASE`` env (absolute or relative) - explicit
        override, highest priority.
-    2. Frozen bundle: a ``projects/`` folder next to the exe (user
-       deployment, writable, overrides the built-in copy).
-    3. Frozen bundle: the built-in ``_internal/projects`` shipped with
-       the package (M19: projects travel with the exe; read-only by
-       default but writable wherever the exe sits outside Program
-       Files).
-    4. Source tree / dev fallback: ``projects`` under the CWD.
+    2. the station WORK dir (``<exe parent>/../work`` in a frozen build,
+       ``<repo>/work`` in development; ``MTKGUI_WORK_DIR`` overrides it).
+
+    v2/C3: there is no package path and no ``./projects`` fallback any
+    more - per-project data is runtime data under the work dir only.
     """
     env = os.environ.get("MTKGUI_TENANT_BASE")
     if env:
         return env
-    if getattr(sys, "frozen", False):
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        side = os.path.join(exe_dir, "projects")
-        if os.path.isdir(side):
-            return side
-        meipass = getattr(sys, "_MEIPASS", "") or ""
-        bundled = os.path.join(meipass, "projects")
-        if os.path.isdir(bundled):
-            return bundled
-    return "projects"
+    from mtkgui.app_paths import work_dir
+
+    return str(work_dir())
 
 
 class PlaceholderPage(QWidget):

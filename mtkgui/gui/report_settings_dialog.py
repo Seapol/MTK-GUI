@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Settings > Report Folders… (M96).
+"""Settings > Report Folders… (M96 / v2/C3).
 
-Chooses WHERE the DUT certificates and event logs go (the reports root,
-Browse included) and the two sub-folder names.  The per-project level
+Chooses WHERE the DUT certificates go (the reports root, Browse
+included) and the DUT sub-folder name.  The per-project level
 (``<root>/<PROJECT>/``) is shown read-only: it follows the loaded project
 or ``MTKGUI_PROJECT``.  The defaults come from ``report_paths`` - the
-work folder plus ``DUT Report`` / ``Event Report`` - so a station
-that never opens this dialog keeps the old behaviour.
+work folder plus ``DUT Report`` - so a station that never opens this
+dialog keeps the old behaviour.  The EVENT LOG has its own line: it is
+never part of the report tree.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from .. import report_paths
 
 
 class ReportFoldersDialog(QDialog):
-    """Reports root (+ Browse), DUT name, event name; project is read-only."""
+    """Reports root (+ Browse) and DUT name; project is read-only."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,7 +41,6 @@ class ReportFoldersDialog(QDialog):
         root_layout.addWidget(browse)
 
         self.dut_edit = QLineEdit(values["dut"])
-        self.event_edit = QLineEdit(values["event"])
 
         self.project_label = QLabel(values["project"])
         self.project_label.setObjectName("strong")
@@ -49,20 +49,20 @@ class ReportFoldersDialog(QDialog):
         form.addRow("Reports root", root_row)
         form.addRow("Project folder", self.project_label)
         form.addRow("DUT folder name", self.dut_edit)
-        form.addRow("Event folder name", self.event_edit)
 
         self.preview = QLabel("")
         self.preview.setWordWrap(True)
         self.preview.setObjectName("muted")
 
         hint = QLabel(
-            "Blank root or blank names fall back to the defaults "
+            "Blank root or a blank name falls back to the defaults "
             f"({report_paths.default_root()} with "
-            f"{report_paths.DEFAULT_DUT} / {report_paths.DEFAULT_EVENT}). "
+            f"{report_paths.DEFAULT_DUT}). "
             "The project folder follows the loaded project "
-            f"(MTKGUI_PROJECT overrides it). The settings file and the "
-            "reports are both kept in the work folder, so a package "
-            "upgrade loses neither.")
+            f"(MTKGUI_PROJECT overrides it). The settings file lives in the "
+            "config folder; the reports stay in the work folder. The event "
+            "log is NOT part of the report tree - it is written under the "
+            "station logs folder.")
         hint.setWordWrap(True)
         hint.setObjectName("muted")
 
@@ -82,7 +82,7 @@ class ReportFoldersDialog(QDialog):
         layout.addStretch(1)
         layout.addWidget(buttons)
 
-        for edit in (self.root_edit, self.dut_edit, self.event_edit):
+        for edit in (self.root_edit, self.dut_edit):
             edit.textChanged.connect(self._refresh)
         self._refresh()
 
@@ -93,17 +93,15 @@ class ReportFoldersDialog(QDialog):
                 else report_paths.default_root())
         dut = report_paths.clean_name(self.dut_edit.text(),
                                       report_paths.DEFAULT_DUT)
-        event = report_paths.clean_name(self.event_edit.text(),
-                                        report_paths.DEFAULT_EVENT)
-        return root, dut, event
+        return root, dut
 
     def _refresh(self) -> None:
-        root, dut, event = self._resolved()
+        root, dut = self._resolved()
         project = report_paths.project_key()
         self.project_label.setText(project)
         self.preview.setText(
             f"DUT reports:  {root / project / dut}\n"
-            f"Event logs:   {root / project / event}")
+            f"Event logs:   {report_paths.event_log_path().parent}")
 
     def _browse(self) -> None:
         start = self.root_edit.text().strip() or str(
@@ -117,10 +115,8 @@ class ReportFoldersDialog(QDialog):
     def _restore(self) -> None:
         self.root_edit.clear()               # blank = the default root
         self.dut_edit.setText(report_paths.DEFAULT_DUT)
-        self.event_edit.setText(report_paths.DEFAULT_EVENT)
 
     def _save(self) -> None:
         report_paths.set_folder_settings(root=self.root_edit.text(),
-                                         dut=self.dut_edit.text(),
-                                         event=self.event_edit.text())
+                                         dut=self.dut_edit.text())
         self.accept()

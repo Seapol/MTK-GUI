@@ -2,9 +2,10 @@
 """M69: project-bound assets folder (M85: the GUI panel is gone).
 
 Built-in assets stay READ-ONLY; each project owns
-``projects/<Project>/assets_<Project>``.  Assets belong to the project:
-an engineer prepares the folder by hand from the read-only template, so
-the application never creates, edits or syncs it.
+``<work>/<PROJECT>/assets`` (v2/C3 - the old ``projects/`` tree is gone).
+Assets belong to the project: an engineer prepares the folder by hand
+from the read-only template, so the application never creates, edits or
+syncs it.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ def qapp():
 
 # ------------------------------------------------------------- menu entry
 def test_tools_menu_has_no_config_assets_entry(qapp):
-    """Assets belong to the project: engineers prepare `assets_<PROJECT>`
+    """Assets belong to the project: engineers prepare `<PROJECT>/assets`
     by hand from the template, so Tools carries no assets panel any more
     (2026-11-08 user direction - the entry was confusing)."""
     from mtkgui.main_window import MainWindow
@@ -46,20 +47,16 @@ def test_tools_menu_has_no_config_assets_entry(qapp):
 
 # ------------------------------------------------- default_assets_dir priority
 def test_default_assets_dir_priority(tmp_path, monkeypatch):
-    base = tmp_path / "projects"
-    (base / "P1").mkdir(parents=True)
-    (base / "P1" / "assets_P1").mkdir()
+    base = tmp_path / "work"
+    (base / "P1" / "assets").mkdir(parents=True)
     (base / "P2").mkdir()
-    (base / "P2" / "assets").mkdir()
-    (base / "P3").mkdir()
     bundled = tmp_path / "bundled"
     bundled.mkdir()
     monkeypatch.chdir(tmp_path.parent)
     path, hint = default_assets_dir("P1", str(base), str(bundled))
-    assert os.path.basename(path) == "assets_P1" and hint == ""
-    path, hint = default_assets_dir("P2", str(base), str(bundled))
     assert os.path.basename(path) == "assets" and hint == ""
-    path, hint = default_assets_dir("P3", str(base), str(bundled))
+    assert os.path.dirname(path) == str(base / "P1")
+    path, hint = default_assets_dir("P2", str(base), str(bundled))
     assert path == os.path.normpath(str(bundled)) and hint
     # no project name -> bundled template
     path, hint = default_assets_dir("", str(base), str(bundled))

@@ -3,7 +3,7 @@
 # Copy to your project assets/drivers/ and adapt module list.
 # Probe first: if the interface already exists the BSP autoloaded it.
 #
-# Reference example: projects/FRDM-IMX93/assets_FRDM-IMX93/drivers/load_drivers.sh
+# Reference example: assets/drivers/load_drivers.sh (NXP i.MX93)
 
 WIFI_IF="${WIFI_IF:-mlan0}"
 BT_IF="${BT_IF:-hci0}"

@@ -3,7 +3,7 @@
 # Copy to your project assets/precheck/ and adapt.
 # Runs on the DUT over the console serial port; idempotent.
 #
-# Reference example: projects/FRDM-IMX93/assets_FRDM-IMX93/precheck/01_system_check.sh
+# Reference example: assets/precheck/01_system_check.sh (NXP i.MX93)
 
 echo "== precheck =="
 uname -a

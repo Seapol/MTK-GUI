@@ -27,7 +27,7 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 TEST = "TEST"            # test-result line (PASS / FAIL / Done / Error)
 IMPORTANT = "IMPORTANT"  # explicitly marked business event
 
-#: the two persisted display modes (QSettings "event_log/level")
+#: the two persisted display modes (settings.json "event_log_level")
 SIMPLIFIED = "simplified"
 DETAILED = "detailed"
 

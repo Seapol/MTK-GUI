@@ -11,10 +11,10 @@ here is DUT-specific until you fill it in.
 ## Where the folder belongs
 
 ```text
-projects/
+<work>/
 └── <PROJECT>/                  one folder per production project
     ├── <PROJECT>_*.yaml        the project plan
-    └── assets_<PROJECT>/       THIS skeleton, filled in by you
+    └── assets/                 THIS skeleton, filled in by you
         ├── precheck/           pre-flight checks
         ├── drivers/            RF / BT driver load
         ├── resources/
@@ -26,11 +26,9 @@ projects/
 ```
 
 Create the folder yourself: copy this whole skeleton to
-`projects/<PROJECT>/assets_<PROJECT>/`, keeping the directory names, then fill
+`<work>/<PROJECT>/assets/`, keeping the directory names, then fill
 in your own files. The application does not create, edit or sync assets - it
-only reads them, and it reads them from the project folder. Do not rename the
-copy to plain `assets/`: that is the older convention, still readable, but the
-GUI then reports `(built-in fallback)` instead of `(assets ready)`.
+only reads them, and it reads them from the project folder.
 
 ## What goes in each folder
 
@@ -82,8 +80,8 @@ it to check that the Wi-Fi join step names a profile.
 
 ## Sign-off before you publish the project
 
-- [ ] `assets_<PROJECT>/` exists with the exact name and the GUI shows
-      `(assets ready)` for this project.
+- [ ] `<PROJECT>/assets/` exists and the GUI shows `(assets ready)` for this
+      project.
 - [ ] the `precheck` script runs on a bare DUT and prints its markers.
 - [ ] the driver script brings the interface up; `iw dev <iface> info` answers.
 - [ ] every push step's Local path resolves inside the assets tree.

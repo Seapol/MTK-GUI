@@ -883,20 +883,19 @@ mc3._yaml_channel_keys = None
 print("pre-FCT connect success (virtual) ok")
 
 # 19. GUI Theme switching: View > GUI Theme applies a new stylesheet and
-# persists the choice in QSettings.
-from PySide6.QtCore import QSettings
-from mtkgui.style import APP_NAME, APP_ORG
+# persists the choice in <config>/settings.json (v2/C3).
+from mtkgui import app_paths
 
 w.apply_gui_theme("Dark")
 qss_dark = QApplication.instance().styleSheet()
 assert "#1e242c" in qss_dark
-assert QSettings(APP_ORG, APP_NAME).value("gui_theme") == "Dark"
+assert app_paths.get_setting("theme") == "Dark"
 w.apply_gui_theme("Ocean")
 assert "#eaf1f7" in QApplication.instance().styleSheet()
 w.apply_gui_theme("Light")  # restore default for the remainder of the run
 qss_light = QApplication.instance().styleSheet()
 assert "#f3f5f8" in qss_light
-assert QSettings(APP_ORG, APP_NAME).value("gui_theme") == "Light"
+assert app_paths.get_setting("theme") == "Light"
 print("gui theme switching ok")
 
 QTimer.singleShot(300, app.quit)

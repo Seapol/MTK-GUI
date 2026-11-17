@@ -6,25 +6,31 @@ Run on a Windows machine:
 
 Bundled data:
 
-* config/permissions.json          -> _internal/config
-* config/*.xlsx (sample netlists)  -> _internal/config
+* config/permissions.json          -> _internal/config   (factory seed)
+* config/report_paths.json         -> _internal/config   (factory seed)
+* config/settings.json             -> _internal/config   (factory seed)
+* config/rules/base.v2.json        -> _internal/config   (factory seed)
 * resources (logo / version.json)  -> _internal/resources
 * docs/help (16 guide chapters, images, version history)
                                    -> _internal/docs/help
-* projects (ALL projects, M19)     -> _internal/projects
-    Set env MTKGUI_SHIP_PROJECTS=0 to skip (build_windows.ps1
-    -SkipProjects).  Run-artifacts (pyc / __pycache__ / _run_work /
-    reports / fat_result.json / fat.log) are stripped from the
-    collected TOC so they never ship.
+* assets (templates / drivers / precheck / resources)
+                                   -> _internal/assets     (master copy)
+
+v2/C3: _internal/config holds FACTORY DEFAULTS only.  On first launch
+mtkgui.app_paths.ensure_config() copies them into the WRITABLE
+``config/`` folder next to MTK_GUI.exe, which is where every runtime
+setting lives.  A package upgrade replaces that folder, so all local
+settings return to factory defaults (by design, no migration).
+There is no ``_internal/projects`` and no ``projects/`` in the repo:
+per-project data is runtime data under the work dir.
 
 In a frozen onedir bundle the mtkgui modules live in _internal/, so
-the bundled folders land where permissions.py / quick_commands.py
-look first (candidate_paths() -> pkg_root/config).  help_content.py
-resolves HELP_ROOT through sys._MEIPASS, i.e. the same _internal/
-folder, so Help > User Guide is not empty on the deployment.
-resolve_tenant_base() (mtkgui/gui/shell.py) picks the projects
-workspace as: MTKGUI_TENANT_BASE env -> exe-side projects/ ->
-bundle _internal/projects -> CWD projects.
+the bundled folders land where app_paths.factory_config_dir() reads
+them (``<_MEIPASS>/config``).  help_content.py resolves HELP_ROOT
+through sys._MEIPASS, i.e. the same _internal/ folder, so Help >
+User Guide is not empty on the deployment.
+resolve_tenant_base() (mtkgui/gui/shell.py) picks the workspace as:
+MTKGUI_TENANT_BASE env -> the station work dir.
 """
 
 import os
@@ -57,17 +63,14 @@ hiddenimports += ['keyring.backends.Windows']
 
 datas = [
     ('config/permissions.json', 'config'),
-    ('config/FRDM-IMX93_Nets.xlsx', 'config'),
-    ('config/Nets_Template.xlsx', 'config'),
+    ('config/report_paths.json', 'config'),
+    ('config/settings.json', 'config'),
+    ('config/rules', 'config/rules'),
     ('resources', 'resources'),
     # M46: the project-assets TEMPLATE ships inside _internal/assets.
     ('assets', 'assets'),
     ('docs/help', 'docs/help'),
 ]
-# M19: projects travel with the package unless explicitly disabled
-# (build_windows.ps1 -SkipProjects sets MTKGUI_SHIP_PROJECTS=0).
-if os.environ.get("MTKGUI_SHIP_PROJECTS", "1") != "0":
-    datas.append(('projects', 'projects'))
 
 a = Analysis(
     ['main.py'],

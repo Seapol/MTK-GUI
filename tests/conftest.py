@@ -26,21 +26,20 @@ def _qapp_session():
 
 
 @pytest.fixture(autouse=True)
-def _reset_event_log_level_preference():
-    """M11: the Event Log display level is a USER preference persisted
-    in QSettings.  Every test starts from the role defaults (no saved
-    choice) and the key is cleared again afterwards, so a menu-switch
-    test can never leak into the next test or depend on the developer's
-    real GUI settings."""
-    from PySide6.QtCore import QSettings
+def _isolate_config_dir(tmp_path_factory, monkeypatch):
+    """v2/C3: every test gets a FRESH writable config dir (seeded from the
+    repo's factory files), so permissions / settings.json / report folder
+    choices can never leak between tests or into the developer's config.
 
-    from mtkgui.style import APP_NAME, APP_ORG
-    settings = QSettings(APP_ORG, APP_NAME)
-    settings.remove("event_log/level")
-    settings.sync()
-    yield
-    settings.remove("event_log/level")
-    settings.sync()
+    The dir lives under the session's own temp base - never inside the
+    test's ``tmp_path``, which some tests scan for unexpected artifacts.
+    """
+    from mtkgui import app_paths
+
+    cfg = tmp_path_factory.mktemp("v2config") / "config"
+    monkeypatch.setenv("MTKGUI_CONFIG_DIR", str(cfg))
+    app_paths.ensure_config()
+    return cfg
 
 
 @pytest.fixture(autouse=True)

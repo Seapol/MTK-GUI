@@ -124,7 +124,7 @@ already shows `ssid=` on the result line.
 
 The script and the Equipment page carry the same four values. The application
 does **not** copy them for you: `resources/scripts/connect_wifi.sh` is a
-project asset, so whoever prepares `assets_<Project>` fills the four lines once,
+project asset, so whoever prepares `<PROJECT>/assets` fills the four lines once,
 reading the values from **Equipment → Peripherals**:
 
 | Script line | Equipment field |

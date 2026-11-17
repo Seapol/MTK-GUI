@@ -27,46 +27,29 @@ def test_spec_is_frozen(qapp):
         spec.ACCENT = "#fff"  # type: ignore[misc]
 
 
-# --------------------------------------------------- tenant base (M19)
+# --------------------------------------------------- tenant base (M19/v2)
 def test_tenant_base_env_wins(monkeypatch):
     monkeypatch.setenv("MTKGUI_TENANT_BASE", r"D:\deploy\projects")
     assert resolve_tenant_base() == r"D:\deploy\projects"
 
 
-def test_tenant_base_dev_fallback(monkeypatch):
+def test_tenant_base_dev_falls_back_to_the_work_dir(monkeypatch, tmp_path):
+    """v2/C3: no env -> the station work dir (no ./projects fallback)."""
     monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
     monkeypatch.delattr("sys.frozen", raising=False)
-    assert resolve_tenant_base() == "projects"
+    monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
+    assert resolve_tenant_base() == str(tmp_path / "work")
 
 
-def test_tenant_base_frozen_prefers_exe_side(monkeypatch, tmp_path):
-    """Frozen: a projects/ folder next to the exe overrides the
-    bundled _internal copy (user deployment, writable)."""
+def test_tenant_base_frozen_is_the_work_dir(monkeypatch, tmp_path):
+    """v2/C3: a frozen build never reads a package projects/ folder."""
     monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
     monkeypatch.setattr("sys.frozen", True, raising=False)
     exe = tmp_path / "MTK_GUI.exe"
-    side = tmp_path / "projects"
-    side.mkdir()
-    (side / ".marker").write_text("x", encoding="utf-8")
+    (tmp_path / "projects").mkdir()
     monkeypatch.setattr("sys.executable", str(exe))
-    monkeypatch.setattr("sys._MEIPASS", str(tmp_path / "_internal"),
-                        raising=False)
-    got = resolve_tenant_base()
-    assert got == str(side)
-
-
-def test_tenant_base_frozen_falls_back_to_bundle(monkeypatch, tmp_path):
-    """Frozen with no exe-side projects: use the built-in bundle copy."""
-    monkeypatch.delenv("MTKGUI_TENANT_BASE", raising=False)
-    monkeypatch.setattr("sys.frozen", True, raising=False)
-    exe = tmp_path / "MTK_GUI.exe"
-    internal = tmp_path / "_internal"
-    bundled = internal / "projects"
-    bundled.mkdir(parents=True)
-    (bundled / ".marker").write_text("x", encoding="utf-8")
-    monkeypatch.setattr("sys.executable", str(exe))
-    monkeypatch.setattr("sys._MEIPASS", str(internal), raising=False)
-    assert resolve_tenant_base() == str(bundled)
+    monkeypatch.delenv("MTKGUI_WORK_DIR", raising=False)
+    assert resolve_tenant_base() == str(tmp_path.parent / "work")
 
 
 # --------------------------------------------------------------- status bar

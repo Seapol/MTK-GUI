@@ -58,7 +58,6 @@ def isolated_settings(tmp_path_factory):
     from pytest import MonkeyPatch
 
     import mtkgui.main_window as main_window_module
-    import mtkgui.style as style_module
     import mtkgui.widgets.multi_console as multi_console_module
 
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope,
@@ -69,8 +68,8 @@ def isolated_settings(tmp_path_factory):
                          APP_ORG, APP_NAME)
 
     patcher = MonkeyPatch()
-    for module in (style_module, main_window_module,
-                   multi_console_module):
+    # v2/C3: style.py no longer uses QSettings (theme lives in settings.json)
+    for module in (main_window_module, multi_console_module):
         patcher.setattr(module, "QSettings", _fresh_settings)
     try:
         yield

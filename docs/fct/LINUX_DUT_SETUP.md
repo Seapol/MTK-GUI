@@ -52,7 +52,7 @@ bash /root/fct_assets/load_drivers.sh
 
 `load_drivers.sh` probes first and only loads what is missing, so it is safe
 to run on every boot. Edit the module list at the top of
-`assets_<Project>/drivers/load_drivers.sh` rather than shipping a new script.
+`assets/drivers/load_drivers.sh` rather than shipping a new script.
 
 ### 2.3 Verify Wi-Fi interface
 
@@ -293,7 +293,7 @@ After flash, DUT should boot into OOBE image. Verify via serial console:
 These are not separate BSP deliverables: like every other DUT-side script they
 live inside the project assets folder and are pushed by the sequence.
 
-| File in `assets_<Project>/` | DUT path after the push | Marker on success |
+| File in `<PROJECT>/assets/` | DUT path after the push | Marker on success |
 |---|---|---|
 | `precheck/01_system_check.sh` | `/root/fct_assets/01_system_check.sh` | `PRECHECK_OK wifi_if=…` / `PRECHECK_OK bt_if=…` |
 | `drivers/load_drivers.sh` | `/root/fct_assets/load_drivers.sh` | `DRIVERS_OK wifi_if=…` / `DRIVERS_OK bt_if=…` |
@@ -322,7 +322,7 @@ missing, so a station whose driver is already loaded can skip the driver row.
 
 ## 9. Notes for BSP Team
 
-- **Driver loading**: if the modules are not auto-loaded at boot, edit the module list at the top of `assets_<Project>/drivers/load_drivers.sh`. Do not add new scripts under `/opt` - the asset tree is the single place the sequence pushes from.
+- **Driver loading**: if the modules are not auto-loaded at boot, edit the module list at the top of `<PROJECT>/assets/drivers/load_drivers.sh`. Do not add new scripts under `/opt` - the asset tree is the single place the sequence pushes from.
 - **Auto-load recommended**: Best practice is adding modules to `/etc/modules-load.d/` so no manual step needed.
 - **SSH must be enabled**: Required for SCP file transfer and remote command execution.
 - **A2DP sink**: Required only if Bluetooth audio playback test is needed.

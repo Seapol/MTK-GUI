@@ -2,7 +2,7 @@
 """M11 — Event Log: timestamp dedup + Simplified / Detailed levels.
 
 Covers the level model (pure functions), the role defaults, the
-QSettings persistence, the UI filter vs. the always-full auto-save
+settings.json persistence, the UI filter vs. the always-full auto-save
 file, and the Settings menu state per role.
 """
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.gui.event_log_levels import (  # noqa: E402
@@ -46,10 +45,10 @@ def qapp():
 
 
 @pytest.fixture
-def tmp_settings(tmp_path):
-    """Isolated QSettings file (never the developer's preferences)."""
-    return QSettings(str(tmp_path / "settings.ini"),
-                     QSettings.Format.IniFormat)
+def tmp_settings():
+    """The isolated config dir of this test (v2/C3: settings.json)."""
+    from mtkgui import app_paths
+    return app_paths
 
 
 # ---------------------------------------------------------------------------
@@ -169,24 +168,24 @@ def test_should_display_matrix(level, detailed, shown):
 
 def test_role_defaults(tmp_settings):
     """Operator -> simplified, Supervisor -> detailed (no saved value)."""
-    assert load_event_log_level(ROLE_OPERATOR, tmp_settings) == SIMPLIFIED
-    assert load_event_log_level(ROLE_SUPERVISOR, tmp_settings) == DETAILED
+    assert load_event_log_level(ROLE_OPERATOR) == SIMPLIFIED
+    assert load_event_log_level(ROLE_SUPERVISOR) == DETAILED
 
 
 def test_persistence_round_trip(tmp_settings):
-    """A supervisor choice is written to event_log/level and read back;
+    """A supervisor choice is written to settings.json and read back;
     an Operator is clamped to simplified even when detailed is saved."""
-    save_event_log_level(SIMPLIFIED, tmp_settings)
-    assert tmp_settings.value(EVENT_LOG_LEVEL_KEY) == SIMPLIFIED
-    assert load_event_log_level(ROLE_SUPERVISOR, tmp_settings) == SIMPLIFIED
-    save_event_log_level(DETAILED, tmp_settings)
-    assert load_event_log_level(ROLE_SUPERVISOR, tmp_settings) == DETAILED
-    assert load_event_log_level(ROLE_OPERATOR, tmp_settings) == SIMPLIFIED
+    save_event_log_level(SIMPLIFIED)
+    assert tmp_settings.get_setting(EVENT_LOG_LEVEL_KEY) == SIMPLIFIED
+    assert load_event_log_level(ROLE_SUPERVISOR) == SIMPLIFIED
+    save_event_log_level(DETAILED)
+    assert load_event_log_level(ROLE_SUPERVISOR) == DETAILED
+    assert load_event_log_level(ROLE_OPERATOR) == SIMPLIFIED
 
 
 def test_invalid_saved_value_falls_back_to_detailed(tmp_settings):
-    tmp_settings.setValue(EVENT_LOG_LEVEL_KEY, "verbose")
-    assert load_event_log_level(ROLE_SUPERVISOR, tmp_settings) == DETAILED
+    tmp_settings.set_setting(EVENT_LOG_LEVEL_KEY, "verbose")
+    assert load_event_log_level(ROLE_SUPERVISOR) == DETAILED
 
 
 def test_operator_menu_entries_disabled(qapp):
@@ -221,8 +220,8 @@ def test_supervisor_menu_defaults_and_switch(qapp):
         assert w._event_log_level == SIMPLIFIED
         assert w.act_event_log_simplified.isChecked()
         assert not w.act_event_log_detailed.isChecked()
-        assert QSettings(_org(), _app()).value(EVENT_LOG_LEVEL_KEY) == \
-            SIMPLIFIED
+        from mtkgui import app_paths
+        assert app_paths.get_setting(EVENT_LOG_LEVEL_KEY) == SIMPLIFIED
     finally:
         w.close()
         w.deleteLater()
@@ -234,16 +233,6 @@ def test_supervisor_menu_defaults_and_switch(qapp):
     finally:
         w2.close()
         w2.deleteLater()
-
-
-def _org():
-    from mtkgui.style import APP_ORG
-    return APP_ORG
-
-
-def _app():
-    from mtkgui.style import APP_NAME
-    return APP_NAME
 
 
 def test_settings_event_log_is_one_submenu(qapp):

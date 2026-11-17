@@ -206,11 +206,10 @@ pyinstaller --noconfirm MTK_GUI_windows.spec
 ```powershell
 .\build_windows.ps1                              # → dist\MTK_GUI\
 .\build_windows.ps1 -OutDir D:\release\v1.0.0.1   # package elsewhere
-.\build_windows.ps1 -SkipProjects                # leave project data out
 .\build_windows.ps1 -KeepRunning                 # never force-stop a running GUI
 ```
 
-It prints the exe size and confirms the bundled `projects\` and `assets\`.
+It prints the exe size and confirms the bundled `config\` factory seeds and `assets\`. No project data ships any more.
 
 > **Close the GUI normally before building.** Method B's default path runs `Stop-Process -Force` on any running
 > `MTK_GUI.exe` so PyInstaller can replace the locked folder. Exit through the application's own close path, or pass
@@ -243,6 +242,21 @@ git describe --tags --always
 
 `__version__` must equal the release tag you checked out. If it does not, you built the wrong ref.
 
+### 5.1 Runtime folders (v2)
+
+| Folder | Contents | Survives an upgrade? |
+|---|---|---|
+| `dist\MTK_GUI\_internal\config\` | **factory defaults only** (`permissions.json`, `report_paths.json`, `settings.json`, `rules\base.v2.json`) | replaced with the package |
+| `dist\MTK_GUI\config\` | the WRITABLE copies, seeded from `_internal\config` on first launch | **NO — replaced** |
+| `..\work\` | per-project data (`<PROJECT>\plan.yaml`, `<PROJECT>\assets\`) and `DUT Report\` output | yes (outside the package) |
+| `..\logs\event\` | one `event_<PROJECT>_<timestamp>.log` per GUI session | yes (outside the package) |
+
+> **Upgrades are factory resets.** A package upgrade replaces the whole `config\` directory, so **every local setting
+> (permissions, theme, timing switch, event-log level, report folders) returns to the factory defaults**. This is
+> by design: there is no migration code and no "keep my settings" path. Do **not** merge or copy old `config\` files
+> into a new build — the installer must replace the folder, not merge it. Project data and reports live in `work\`
+> and are unaffected.
+
 ---
 
 ## 6. Verify the build
@@ -251,7 +265,9 @@ Double-click `dist\MTK_GUI\MTK_GUI.exe` — GUI application, no console window.
 
 - Log in (Supervisor / Operator); the status-bar version must match the tag you built.
 - `Help → About` shows branch and commit — quote both when reporting anything.
-- Every launch writes `_startup_timing.log` beside the exe (plain text, negligible; useful for slow-start complaints).
+- With **Tools → Performance Timing Log** enabled, every launch writes
+  `_performance_timing_<YYYYMMDDTHHMMSS>.log` beside the exe (plain text,
+  negligible; useful for slow-start complaints). The switch is off by default.
 - Large ICT plans (~517 KB and up) load in stages: the status-bar progress bar tracks them, Run Control and
   double-click table editing are disabled while loading and restored automatically; switching projects closes the
   previous one first.
@@ -281,12 +297,12 @@ projects, reports, upload state, statistics and the supervisor hash all live und
 Separating `_internal\` from the exe breaks the application.
 
 A station runs **one Core package plus N project packages**. A *project package* is a
-folder archive extracted into `work\projects\`, so a project (its plan YAML, netlist,
-BOM, and its own `assets_<PROJECT>\` with drivers, scripts, config templates and audio)
+folder archive extracted into `work\`, so a project (its plan YAML, netlist,
+BOM, and its own `assets\` with drivers, scripts, config templates and audio)
 travels as one unit - it never depends on the Core package's bundled example projects,
-which the next release replaces wholesale. Point `MTKGUI_TENANT_BASE` at
-`work\projects\` (or keep the projects there beside `MTK_GUI_Start.bat`) so every
-project you add stays in the surviving tree.
+which the next release replaces wholesale. The GUI resolves its workspace to `work\`
+by default; point `MTKGUI_TENANT_BASE` at another folder (or keep the projects beside
+`MTK_GUI_Start.bat`) so every project you add stays in the surviving tree.
 
 - Build it on a build PC (sections 0–6) and copy over the network, or carry it on a USB stick prepared by whoever
   built it. Copying `MTK_GUI.exe` by itself yields an application that cannot start.
@@ -297,7 +313,7 @@ project you add stays in the surviving tree.
   `DUT Report\`. Exit also waits for an in-flight SharePoint upload, so a package swap cannot leave a partial file on
   the share.
 - The four `AP_PROFILE_*` values in
-  `work\projects\<PROJECT>\assets_<PROJECT>\resources\scripts\connect_wifi.sh`
+  `work\<PROJECT>\assets\resources\scripts\connect_wifi.sh`
   are filled by hand at station setup - they are the only four values an installer must type. The User Guide covers
   them in chapter 7 (`docs\help\07_station_equipment.md`, "Wi-Fi Network Modes"); chapter 17
   ("Tips & Troubleshooting") is the one-page index for the rest of the station setup.
@@ -439,7 +455,7 @@ No GPIB card? Use a USB-to-GPIB adapter (e.g. Keysight 82357B) — it needs the 
 | Symptom | Cause / fix |
 |---|---|
 | `pyinstaller is not recognized` | venv not active, or wrong venv. Use `.venv\Scripts\activate` (section 3) |
-| cannot find `config/permissions.json` or similar | the spec needs files present from the checkout: `config/permissions.json`, `config/FRDM-IMX93_Nets.xlsx`, `config/Nets_Template.xlsx`, `resources`, `assets`, `docs/help`, and `projects` (unless `-SkipProjects`). Build **from the repo root** |
+| cannot find `config/permissions.json` or similar | the spec needs files present from the checkout: `config/permissions.json`, `config/report_paths.json`, `config/settings.json`, `config/rules/base.v2.json`, `resources`, `assets` and `docs/help`. Build **from the repo root** |
 | Permission error replacing `dist\MTK_GUI` | a running `MTK_GUI.exe` holds the folder. Close it normally, rebuild |
 | No window on `Report → SharePoint Upload → Connect & Sign in` | `QtWebEngineProcess.exe` missing from `_internal\`. Rebuild without touching the QtWebEngine hiddenimports |
 | Startup takes a minute after login | Defender scanning the bundle. Add a Defender exclusion for `dist\`; do **not** re-enable UPX |

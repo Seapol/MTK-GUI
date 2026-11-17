@@ -149,12 +149,12 @@ Bluetooth rows (`BT_RSSI`, `BT_Pair`, `BT_Tone`) are configured the same way
 
 The FCT chain calls into a small set of files that must exist on the DUT
 rootfs. They are **project assets**: they live in the project's
-`assets_<Project>/` folder and ordinary `Serial Push` / SFTP steps copy them
+`assets/` folder and ordinary `Serial Push` / SFTP steps copy them
 onto the DUT before the row that runs them. Nothing is pre-installed on a
 production DUT.
 
 Create the folder by copying the read-only built-in template (`assets/`)
-into `projects/<Project>/assets_<Project>/`, then edit the files in place with
+into `<work>/<PROJECT>/assets/`, then edit the files in place with
 any text editor. The application does not create, edit or sync assets: the
 template itself is never modified, every project owns its own copy, and the
 four `AP_PROFILE_*` values in `connect_wifi.sh` are filled by hand (chapter
@@ -164,7 +164,7 @@ four `AP_PROFILE_*` values in `connect_wifi.sh` are filled by hand (chapter
 The FRDM-IMX93 project asset tree:
 
 ```text
-projects/FRDM-IMX93/assets_FRDM-IMX93/
+<work>/FRDM-IMX93/assets/
   precheck/01_system_check.sh      fat.py / ALSA / memory / Wi-Fi / BT presence
   drivers/load_drivers.sh          probe-first Wi-Fi / BT module loader
   resources/scripts/connect_wifi.sh   station Wi-Fi join (router | hotspot)
@@ -173,7 +173,7 @@ projects/FRDM-IMX93/assets_FRDM-IMX93/
   resources/config/                static configs (wpa_supplicant, ...)
 ```
 
-| Asset (in `assets_<Project>/`) | Purpose | Invoked by the row as | Pass marker |
+| Asset (in `assets/`) | Purpose | Invoked by the row as | Pass marker |
 |---|---|---|---|
 | `precheck/01_system_check.sh` | Pre-flight: kernel, ALSA mixer, memory, filesystems, Wi-Fi / BT interface presence | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
 | `drivers/load_drivers.sh` | Loads the Wi-Fi / Bluetooth modules - probes first, so an already-autoloaded interface is left alone | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
@@ -204,7 +204,7 @@ the real question (whether the file arrived intact).
 
 In the sequence this is one ordinary row per file: `Serial Push file to
 DUT` (or `SFTP_put` once SSH is up), whose **Local** path is the asset
-inside `projects/<Project>/assets_<Project>/` and whose **Remote** path
+inside `<work>/<PROJECT>/assets/` and whose **Remote** path
 is the folder the console row will name. The GUI copies nothing behind
 your back - when the push row is missing, the console row fails and says
 so.
@@ -220,7 +220,7 @@ Where a file ends up is decided by the push row, not by this chapter:
 a **single-file** push lands directly in the Remote folder
 (`/root/fct_assets/connect_wifi.sh`), while pushing a **whole folder**
 lands one level deeper under that folder's own name (`local:
-assets_FRDM-IMX93/resources/scripts` + `remote: /root/fct_assets` ->
+assets/resources/scripts` + `remote: /root/fct_assets` ->
 `/root/fct_assets/scripts/`). The console row must name the path the
 push row actually creates - a mismatch shows up as a run-time "not
 found" on the first step that runs the script.
@@ -230,13 +230,12 @@ chain starts it in step 13; for the very first copy, start it by hand
 over the serial console):
 
 ```sh
-# host shell, from the repo root; <DUT_IP> is the address the DUT got
-# on the station AP
-scp projects/FRDM-IMX93/assets_FRDM-IMX93/precheck/01_system_check.sh \
+# host shell; <DUT_IP> is the address the DUT got on the station AP
+scp <work>/FRDM-IMX93/assets/precheck/01_system_check.sh \
     root@<DUT_IP>:/root/fct_assets/
-scp projects/FRDM-IMX93/assets_FRDM-IMX93/drivers/load_drivers.sh \
+scp <work>/FRDM-IMX93/assets/drivers/load_drivers.sh \
     root@<DUT_IP>:/root/fct_assets/
-scp projects/FRDM-IMX93/assets_FRDM-IMX93/resources/scripts/*.sh \
+scp <work>/FRDM-IMX93/assets/resources/scripts/*.sh \
     root@<DUT_IP>:/root/fct_assets/
 ```
 
@@ -245,7 +244,7 @@ network that the Wi-Fi step is meant to establish, so a cold board is
 normally provisioned over the serial console instead. No `chmod` is
 needed either way - see "Why no `chmod`" above.
 
-Keep the host copies inside the project's `assets_<Project>/` folder so
+Keep the host copies inside the project's `assets/` folder so
 the YAML, the scripts and the credentials travel together with the
 project - one copy, no separate `scripts/` folder.
 

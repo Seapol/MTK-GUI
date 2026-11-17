@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """M51 full-lifecycle timing log rework - engine-side tests.
 
-Covers: [SLOW] marks + exclusions, QSettings threshold, exception
+Covers: [SLOW] marks + exclusions, settings.json threshold, exception
 capture hooks (main / worker thread, chain-safe), the Tools-switch
 persistence helpers, the session summary (TOP-N, exclusions, off =
 nothing), and the zero-impact OFF fast path.
@@ -14,8 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from PySide6.QtCore import QSettings
-
+from mtkgui import app_paths
 from mtkgui import startup_timing as st
 
 
@@ -33,11 +32,8 @@ class _Clock:
 
 @pytest.fixture()
 def probe(tmp_path):
-    """Temp log + temp QSettings; restore the module state afterwards."""
-    old = (st._ENABLED, st._LOG, st._T0, st._LAST, st._SETTINGS,
-           st._HEADER_WRITTEN)
-    store = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
-    st._SETTINGS = store
+    """Temp log; the settings come from the isolated config dir."""
+    old = (st._ENABLED, st._LOG, st._T0, st._LAST, st._HEADER_WRITTEN)
     st._ENABLED = True
     st._LOG = tmp_path / "timing.log"
     st._HEADER_WRITTEN = False
@@ -49,7 +45,7 @@ def probe(tmp_path):
     st._SUMMARY_WRITTEN = False
     st.install_exception_hooks()
     yield tmp_path / "timing.log"
-    (st._ENABLED, st._LOG, st._T0, st._LAST, st._SETTINGS,
+    (st._ENABLED, st._LOG, st._T0, st._LAST,
      st._HEADER_WRITTEN) = old
     st._stack().clear()
     st._SPANS.clear()
@@ -74,6 +70,7 @@ def test_slow_mark_above_threshold(probe, monkeypatch):
 
 
 def test_under_threshold_is_not_marked(probe, monkeypatch):
+    app_paths.set_setting(st.SLOW_THRESHOLD_KEY, 1.0)
     st._HEADER_WRITTEN = True
     monkeypatch.setattr(st, "time", _Clock(0.8))
     st.mark("ui: fast thing")
@@ -81,17 +78,14 @@ def test_under_threshold_is_not_marked(probe, monkeypatch):
 
 
 def test_slow_end_and_threshold_from_settings(probe, monkeypatch):
-    store = st._SETTINGS
-    store.setValue(st.SLOW_THRESHOLD_KEY, 0.5)
-    store.sync()
+    app_paths.set_setting(st.SLOW_THRESHOLD_KEY, 0.5)
     st._HEADER_WRITTEN = True
     monkeypatch.setattr(st, "time", _Clock(0.0, 0.8))
     st.begin("io: parse")
     st.end("io: parse")
     assert "[SLOW 0.800s]" in _last(probe)
     # the threshold is re-read per event: raising it changes the verdict
-    store.setValue(st.SLOW_THRESHOLD_KEY, 2.0)
-    store.sync()
+    app_paths.set_setting(st.SLOW_THRESHOLD_KEY, 2.0)
     st._LAST = 0.0
     monkeypatch.setattr(st, "time", _Clock(0.0, 0.8))
     st.begin("io: parse 2")
@@ -161,26 +155,16 @@ def test_exception_hook_silent_when_off(probe):
 
 
 # --------------------------------------------------------- 3 switch
-def test_saved_enabled_defaults_to_env(tmp_path, monkeypatch):
-    store = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
-    old = st._SETTINGS
-    st._SETTINGS = store
-    try:
-        monkeypatch.setenv("MTK_TIMING", "0")
-        assert st.saved_enabled() is False
-        monkeypatch.setenv("MTK_TIMING", "1")
-        assert st.saved_enabled() is True
-        st.save_enabled(False)
-        assert st.saved_enabled() is False
-        # a saved value wins over the environment default
-        monkeypatch.setenv("MTK_TIMING", "1")
-        assert st.saved_enabled() is False
-        fresh = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
-        assert st._as_bool(fresh.value(st.ENABLED_KEY)) is False
-        st.save_enabled(True)
-        assert st.saved_enabled() is True
-    finally:
-        st._SETTINGS = old
+def test_saved_enabled_defaults_to_factory_off(monkeypatch):
+    """v2/C3: no saved value -> the factory default is OFF."""
+    monkeypatch.delenv("MTK_TIMING", raising=False)
+    assert st.saved_enabled() is False
+    st.save_enabled(True)
+    assert st.saved_enabled() is True
+    # the value is in settings.json, not in the environment
+    assert app_paths.get_setting(st.ENABLED_KEY) is True
+    st.save_enabled(False)
+    assert st.saved_enabled() is False
 
 
 def test_session_state_does_not_follow_saved_setting(probe):
@@ -195,16 +179,20 @@ def test_summary_top_n_and_exceptions(probe):
         (18.412, "ui", "theme applied"),
         (9.021, "testflow", "FCT sequence run: step 12"),
         (3.0, "io", "export excel")])
+    st._SPANS.extend(
+        (1.0 + i, "io", f"extra span {i}") for i in range(12))
     st._EXCEPTIONS.append(("01:20:44.123", "ValueError: boom", "file.py:123"))
-    st._SETTINGS.setValue(st.SUMMARY_TOP_KEY, 2)
-    st._SETTINGS.sync()
+    app_paths.set_setting(st.SLOW_THRESHOLD_KEY, 0.35)
     st.write_session_summary()
     text = probe.read_text(encoding="utf-8")
     assert "====== session summary ======" in text
-    assert "slowest steps (threshold 1.0s):" in text
+    assert "slowest steps (threshold 0.3s):" in text
     assert "18.412s" in text and "theme applied" in text
     assert "step 12" in text
-    assert "export excel" not in text       # TOP-2 only
+    # TOP-10 only: the SUMMARY_TOP constant caps the list
+    numbered = [ln for ln in text.splitlines()
+                if ln.strip()[:3].strip().rstrip(".").isdigit()]
+    assert len(numbered) == 10
     assert "exceptions (1):" in text
     assert "01:20:44.123  ValueError: boom  (file.py:123)" in text
     assert "====== end summary ======" in text

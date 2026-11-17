@@ -6,14 +6,19 @@ Two accounts share one GUI:
 * **Supervisor** - full access: every menu, every editor, YAML saving.
 * **Operator**   - runs tests and may connect / disconnect instruments,
   but every other right is granted per key by the supervisor
-  (Settings > Operator Permissions, persisted in config/permissions.json).
+  (Settings > Operator Permissions, persisted in the WRITABLE
+  ``<config>/permissions.json`` - see :mod:`mtkgui.app_paths`).
+
+HARD RULE (v2/C3): a package upgrade replaces the whole ``config/``
+directory, so EVERY local setting is invalidated and returns to the
+factory defaults.  There is no migration code and no "keep my settings"
+path - do not add one.
 
 The supervisor password lives only in this source file (SUPERVISOR_PASSWORD
 below); it never appears in the UI, the manual or any other document.
 """
 
 import json
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
@@ -99,12 +104,14 @@ DEFAULT_PERMISSIONS = {key: False for key in PERMISSION_LABELS}
 
 
 def candidate_paths():
-    """Locations searched for permissions.json, in priority order."""
-    pkg_root = Path(__file__).resolve().parent.parent
-    yield pkg_root / "config" / "permissions.json"
-    yield Path.cwd() / "config" / "permissions.json"
-    if getattr(sys, "frozen", False):  # PyInstaller bundle
-        yield Path(sys.executable).resolve().parent / "config" / "permissions.json"
+    """The writable permissions file (seeded from the factory copy).
+
+    One location only: ``<config>/permissions.json`` (see
+    :mod:`mtkgui.app_paths`).  The package's ``_internal/config`` copy is
+    the factory default and is never written."""
+    from .app_paths import ensure_config
+
+    yield ensure_config() / "permissions.json"
 
 
 def load_permissions():
@@ -124,7 +131,9 @@ def load_permissions():
 
 
 def save_permissions(perm):
-    """Persist the operator permission dict to config/permissions.json."""
+    """Persist the operator permission dict to the WRITABLE config dir.
+
+    Never the package's ``_internal/config`` copy (factory defaults)."""
     payload = {key: bool(perm.get(key, False)) for key in PERMISSION_LABELS}
     path = next(candidate_paths())
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1288,34 +1288,30 @@ def console_command_for_label(label: str,
     return cmd
 
 
-def default_assets_dir(project: str = "", tenant_base: str = "projects",
+def default_assets_dir(project: str = "", tenant_base: str = "",
                        bundled_assets: str = "assets") -> tuple:
     """Browse default for the Push step: ``(path, hint)``.
 
-    Priority (M69): the project's custom folder
-    ``projects/<Project>/assets_<Project>``, then the legacy
-    ``projects/<Project>/assets`` folder, then the bundled template
-    (``_internal/assets`` in a frozen build).  ``hint`` is a human
-    message when no project folder exists.
+    Priority (v2/C3): the project's own ``<work>/<PROJECT>/assets``
+    folder, then the bundled master template (``_internal/assets`` in a
+    frozen build).  ``hint`` is a human message when no project folder
+    exists.
     """
     import os
+
+    from .assets_config import default_tenant_base
     project = str(project or "").strip()
     if project:
-        candidates = (
-            os.path.normpath(os.path.join(
-                str(tenant_base or "projects"), project,
-                "assets_" + project)),
-            os.path.normpath(os.path.join(
-                str(tenant_base or "projects"), project, "assets")),
-        )
-        for candidate in candidates:
-            if os.path.isdir(candidate):
-                return candidate, ""
-        hint = (f"project assets folder not found ({candidates[0]}) - "
+        base = str(tenant_base or default_tenant_base())
+        candidate = os.path.normpath(
+            os.path.join(base, project, "assets"))
+        if os.path.isdir(candidate):
+            return candidate, ""
+        hint = (f"project assets folder not found ({candidate}) - "
                 "choose a folder manually or use the bundled template")
         if os.path.isdir(bundled_assets):
             return os.path.normpath(bundled_assets), hint
-        return candidates[0], hint
+        return candidate, hint
     if os.path.isdir(bundled_assets):
         return os.path.normpath(bundled_assets), ""
     return "", "no assets template found - choose a folder manually"

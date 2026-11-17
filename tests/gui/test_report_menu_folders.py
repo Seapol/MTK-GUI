@@ -2,9 +2,12 @@
 """M96 report folders: every counted run generates its DUT report
 immediately; the Report menu items OPEN the output folders (DUT Report /
 Event Log) and the folder configuration lives in
-Settings > Report Folders… (reports root + Browse, two sub-folder names,
-one tree per project).  Settings travel in the work folder, so a
-package upgrade keeps them."""
+Settings > Report Folders… (reports root + Browse, one DUT sub-folder
+name, one tree per project).
+
+v2/C3: the settings file lives in the writable CONFIG dir, the reports
+stay in the work folder, and the event log is NOT part of the report
+tree (it is written under <station root>/logs/event)."""
 from __future__ import annotations
 
 import os
@@ -38,15 +41,16 @@ def qapp():
 def test_default_folders_one_tree_per_project(report_home):
     assert report_paths.dut_folder() == \
         report_home / "96317" / "DUT Report"
-    assert report_paths.event_folder() == \
-        report_home / "96317" / "Event Report"
+    # v2/C3: the event log is OUTSIDE the report tree
+    event = report_paths.event_log_path()
+    assert event.parent.name == "event"
+    assert event.name.startswith("event_96317_")
 
 
 def test_env_override_is_the_default_root(report_home):
     """Nothing saved: MTKGUI_REPORT_HOME supplies the root."""
     assert report_paths.report_root() == report_home
     assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
-    assert report_paths.event_folder() == report_home / "96317" / "Event Report"
 
 
 def test_unsaved_root_defaults_to_the_work_folder(monkeypatch, tmp_path):
@@ -57,32 +61,31 @@ def test_unsaved_root_defaults_to_the_work_folder(monkeypatch, tmp_path):
     monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
     report_paths.set_current_project("")
     assert report_paths.report_root() == tmp_path / "work"
-    assert report_paths.event_folder() == \
-        tmp_path / "work" / report_paths.NO_PROJECT / "Event Report"
     assert report_paths.dut_folder() == \
         tmp_path / "work" / report_paths.NO_PROJECT / "DUT Report"
+    # the event log never lands under the work dir
+    assert tmp_path / "work" not in report_paths.event_log_path().parents
 
 
 def test_folder_settings_roundtrip(report_home, tmp_path):
-    """Root + both names persist into the work folder and take effect."""
+    """Root + DUT name persist into the CONFIG dir and take effect."""
+    from mtkgui import app_paths
+
     chosen = tmp_path / "chosen root"
-    cfg = report_paths.set_folder_settings(str(chosen), "My Reports", "My Logs")
-    assert cfg == tmp_path / "work" / report_paths.CFG_NAME
+    cfg = report_paths.set_folder_settings(str(chosen), "My Reports")
+    assert cfg == app_paths.config_dir() / report_paths.CFG_NAME
     assert cfg.is_file()
     assert report_paths.dut_folder() == chosen / "96317" / "My Reports"
-    assert report_paths.event_folder() == chosen / "96317" / "My Logs"
     # a saved root wins over the environment default (Browse is effective)
     assert report_paths.report_root() == chosen
 
 
 def test_bad_names_and_blank_root_fall_back(report_home, tmp_path):
     """A typo must never move the output: separators / '..' / blank = default."""
-    report_paths.set_folder_settings(str(tmp_path / "x"), "../escape",
-                                     "sub/dir")
+    report_paths.set_folder_settings(str(tmp_path / "x"), "../escape")
     assert report_paths.dut_folder().name == report_paths.DEFAULT_DUT
-    assert report_paths.event_folder().name == report_paths.DEFAULT_EVENT
     # blank root = unsaved -> back to the environment default
-    report_paths.set_folder_settings("", "", "")
+    report_paths.set_folder_settings("", "")
     assert report_paths.report_root() == report_home
     assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
 
@@ -112,7 +115,6 @@ def test_legacy_report_folders_json_is_ignored(report_home, tmp_path):
                       encoding="utf-8")
     try:
         assert report_paths.dut_folder() == report_home / "96317" / "DUT Report"
-        assert report_paths.event_folder() == report_home / "96317" / "Event Report"
         for gone in ("folder_names", "set_folder_names", "_names"):
             assert not hasattr(report_paths, gone), gone
     finally:
@@ -190,7 +192,11 @@ def test_counted_run_generates_report_files(qapp, report_home):
     assert pdfs and csvs, "missing identity-named report files"
     run_dir = pdfs[0].parent
     assert run_dir.name.startswith("NA_NA_freebatch_DUT_2026")
-    assert run_dir == csvs[0].parent          # report + detail csv together
+    # every report file sits in an identity-named run folder under the
+    # DUT Report root (a pumped singleShot may add a second run folder)
+    for path in pdfs + csvs:
+        assert path.parent.parent == report_paths.dut_folder()
+        assert path.parent.name.startswith("NA_NA_freebatch_DUT_2026")
     assert pdfs[0].read_bytes()[:4] == b"%PDF"
     # the Event Log shows the process
     assert "DUT report generated" in w.event_log.toPlainText()
@@ -266,8 +272,6 @@ def test_report_settings_dialog_saves_and_previews(qapp, report_home, tmp_path):
     dlg._save()
     assert dlg.result() == 1                     # accepted
     assert report_paths.dut_folder() == chosen / "96317" / "Certificates"
-    assert (report_paths.event_folder()
-            == chosen / "96317" / report_paths.DEFAULT_EVENT)
     dlg.deleteLater()
 
 
@@ -289,12 +293,17 @@ def test_blank_root_preview_and_restore_follow_the_default_root(qapp, report_hom
     dlg = ReportFoldersDialog()
     dlg.root_edit.clear()
     assert str(report_home) in dlg.preview.text()
-    assert str(report_paths.program_dir()) not in dlg.preview.text()
+    # the REPORT root never points at the program dir (the event log
+    # legitimately sits under the station root - it has its own line)
+    dut_line = next(line for line in dlg.preview.text().splitlines()
+                    if line.startswith("DUT reports:"))
+    assert str(report_paths.program_dir()) not in dut_line
     dlg._restore()
     assert dlg.root_edit.text() == ""            # blank = default, nothing pinned
     assert str(report_home) in dlg.preview.text()
     dlg._save()
-    cfg = report_home.parent / "work" / "report_paths.json"
+    from mtkgui import app_paths
+    cfg = app_paths.config_dir() / report_paths.CFG_NAME
     assert json.loads(cfg.read_text(encoding="utf-8"))["root"] == ""
     assert report_paths.report_root() == report_home
     dlg.deleteLater()

@@ -48,10 +48,14 @@ def main():
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
-    from mtkgui import __app_name__
+    from mtkgui import __app_name__, app_paths
     from mtkgui.main_window import MainWindow
     from mtkgui.permissions import LoginDialog
     from mtkgui.style import apply_theme, saved_theme
+
+    # v2/C3: seed the writable <config> dir from the factory defaults
+    # before anything reads permissions / settings / report folders
+    app_paths.ensure_config()
 
     _timing.mark("imports done")
     # native crash reports lack Python frames; faulthandler prints the

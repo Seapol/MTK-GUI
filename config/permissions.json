@@ -1,10 +1,15 @@
 {
   "save_yaml": false,
+  "edit_yaml_build": false,
   "edit_ict": false,
   "edit_fct": false,
   "edit_run_control": false,
+  "toggle_stages": false,
   "edit_serial_params": false,
   "manage_channels": false,
   "equipment_config": false,
-  "sn_format_check": true
+  "sn_format_check": true,
+  "run_policy_stop_failure": false,
+  "run_policy_stop_short": false,
+  "run_policy_auto_sn": false
 }

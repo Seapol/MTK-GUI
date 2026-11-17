@@ -102,8 +102,9 @@ Configuration functions - mostly supervisor territory.
 ## Tools Menu
 
 - **Performance Timing Log** (checkable) - write the full-lifecycle
-  performance timing log (`logs/_startup_timing.log`). The change
-  takes effect on the next GUI restart.
+  performance timing log (`_performance_timing_<timestamp>.log` beside
+  the exe for a package build, under `logs/` for a development run). The
+  change takes effect on the next GUI restart.
 - **FCT Watchdog…** - one application-level stall watchdog value
   applied to the next run (`0` = off; every FCT step then waits its
   own Timeout).

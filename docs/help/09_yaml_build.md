@@ -465,20 +465,20 @@ and turns the summary line red:
 
 ## Equipment-owned Instrument Configuration
 
-Instrument / programmer / peripheral hardware is configured on the
-**Equipment** page; the workflow references it read-only (the
+Instrument / peripheral hardware and the flash tool path are configured
+on the **Equipment** page; the workflow references them read-only (the
 `instruments` YAML module carries the mirrored values, no card).
 Connection state mirrors between the Equipment page and the
 status-bar LEDs.
 
-## Project assets (`assets_<PROJECT>`)
+## Project assets (`<work>/<PROJECT>/assets`)
 
 Every project owns its assets folder next to the project package:
 
 ```
-projects\<PROJECT>\
+work\<PROJECT>\
 ├── <PROJECT>.yaml
-└── assets_<PROJECT>\
+└── assets\
     ├── drivers\          (driver bring-up scripts)
     ├── precheck\         (pre-flight checks printing _OK / _FAIL)
     ├── resources\

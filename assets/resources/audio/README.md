@@ -11,5 +11,5 @@ stereo) so the BT Tone editor has something to browse and preview.
 Copy it - or any of your own files - into a project's assets:
 ```bash
 cp assets/resources/audio/2026-10-30_09-48-46.wav \
-   projects/<YourProduct>/assets/resources/audio/
+   <work>/<YourProduct>/assets/resources/audio/
 ```

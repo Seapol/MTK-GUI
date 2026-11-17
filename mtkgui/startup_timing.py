@@ -33,8 +33,8 @@ time since the previous event - that is what a slow UI feels like)::
 
 M51 additions (ticks stay APPENDED to the text, never new categories):
 
-* ``[SLOW x.xxxs]``  - span delta above the QSettings threshold
-  (``perf_timing_slow_threshold``, default 1.0 s), re-read per event.
+* ``[SLOW x.xxxs]``  - span delta above the settings.json threshold
+  (``slow_span_threshold_s``, default 0.35 s), re-read per event.
   Operator waits (``wait=True``) and deliberate waits (``no_slow=True``)
   are never tagged.
 * ``[EXCEPTION]``    - unhandled exception (main thread or worker
@@ -43,17 +43,18 @@ M51 additions (ticks stay APPENDED to the text, never new categories):
   captured exception, appended on exit (only for a session that
   STARTED with the log enabled).
 
-Switch (Tools menu, M51): ``perf_timing_enabled`` in QSettings decides
-whether a session logs at all; the checkbox takes effect on the NEXT
-restart.  When logging is off (or ``MTK_TIMING=0``) every public
-function returns immediately before touching the clock / lock, and no
-hooks or summary are installed - the app behaves as if the probe did
-not exist.
+Switch (Tools menu, M51): ``performance_timing`` in
+``<config>/settings.json`` decides whether a session logs at all; the
+checkbox takes effect on the NEXT restart.  When logging is off (or
+``MTK_TIMING=0``) every public function returns immediately before
+touching the clock / lock, and no hooks or summary are installed - the
+app behaves as if the probe did not exist.
 
-Frozen builds write ``_startup_timing.log`` next to the exe;
-development runs write ``logs/_startup_timing.log`` under the working
-directory (``logs/`` is git-ignored).  Set ``MTK_TIMING=0`` to disable
-the file logging (the progress hooks keep working).
+One file PER GUI LAUNCH, covering the whole GUI lifetime (not just
+startup): ``_performance_timing_<YYYYMMDDTHHMMSS>.log`` beside the exe in
+a frozen build and under ``<station root>/logs/`` for development
+(``logs/`` is git-ignored).  Set ``MTK_TIMING=0`` to disable the file
+logging (the progress hooks keep working).
 """
 
 from __future__ import annotations
@@ -68,15 +69,13 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-#: QSettings keys (M51)
-SLOW_THRESHOLD_KEY = "perf_timing_slow_threshold"
-ENABLED_KEY = "perf_timing_enabled"
-SUMMARY_TOP_KEY = "perf_timing_summary_top"
-#: QSettings organisation / application names (same as mtkgui.style)
-SETTINGS_ORG = "MTK GUI"
-SETTINGS_APP = "Manufacturing Test Kit"
+from . import app_paths
 
-_SLOW_DEFAULT = 1.0
+#: settings.json keys (v2/C3 - QSettings retired)
+SLOW_THRESHOLD_KEY = "slow_span_threshold_s"
+ENABLED_KEY = "performance_timing"
+
+_SLOW_DEFAULT = 0.35
 _SUMMARY_TOP_DEFAULT = 10
 #: cheap bound for the in-memory span list (summary keeps only the top)
 _MAX_SPANS = 512
@@ -84,31 +83,13 @@ _MAX_SPANS = 512
 _T0 = time.perf_counter()
 _FROZEN = bool(getattr(sys, "frozen", False))
 
-_UNSET = object()
-_SETTINGS = _UNSET
-
-
-def settings():
-    """The QSettings store used by the probe (tests may replace it)."""
-    global _SETTINGS
-    if _SETTINGS is _UNSET:
-        try:
-            from PySide6.QtCore import QSettings
-            _SETTINGS = QSettings(SETTINGS_ORG, SETTINGS_APP)
-        except Exception:                       # pragma: no cover
-            _SETTINGS = None
-    return _SETTINGS
-
 
 def _setting_value(key, default=None):
-    store = settings()
-    if store is None:
-        return default
+    """One value from ``<config>/settings.json`` (never raises)."""
     try:
-        value = store.value(key, default)
+        return app_paths.get_setting(key, default)
     except Exception:                           # pragma: no cover
         return default
-    return default if value is None else value
 
 
 def _as_bool(value):
@@ -132,37 +113,29 @@ def _as_float(value, default):
 
 
 def saved_enabled() -> bool:
-    """The SAVED Tools-menu state (first run follows ``MTK_TIMING``)."""
+    """The SAVED Tools-menu state (``performance_timing``; default off)."""
     saved = _as_bool(_setting_value(ENABLED_KEY, None))
     if saved is None:
-        return os.environ.get("MTK_TIMING", "1") != "0"
+        return False
     return saved
 
 
 def save_enabled(value: bool) -> None:
     """Persist the Tools-menu switch (applies on the next GUI start)."""
-    store = settings()
-    if store is None:                           # pragma: no cover
-        return
     try:
-        store.setValue(ENABLED_KEY, bool(value))
-        store.sync()
+        app_paths.set_setting(ENABLED_KEY, bool(value))
     except Exception:                           # pragma: no cover
         pass
 
 
 def slow_threshold() -> float:
-    """The [SLOW] threshold in seconds (QSettings, re-read per event)."""
+    """The [SLOW] threshold in seconds (re-read per event)."""
     return _as_float(_setting_value(SLOW_THRESHOLD_KEY, _SLOW_DEFAULT),
                      _SLOW_DEFAULT)
 
 
 def _summary_top() -> int:
-    try:
-        return max(1, int(_setting_value(SUMMARY_TOP_KEY,
-                                         _SUMMARY_TOP_DEFAULT)))
-    except (TypeError, ValueError):
-        return _SUMMARY_TOP_DEFAULT
+    return _SUMMARY_TOP_DEFAULT
 
 
 def _startup_enabled() -> bool:
@@ -171,19 +144,26 @@ def _startup_enabled() -> bool:
         return False                            # hard kill switch
     saved = _as_bool(_setting_value(ENABLED_KEY, None))
     if saved is None:
-        return True                             # first run: on
+        return False                            # first run: factory default
     return saved
 
 
 _ENABLED = _startup_enabled()
 
+
+def log_file_name() -> str:
+    """``_performance_timing_<YYYYMMDDTHHMMSS>.log`` - one per launch."""
+    return f"_performance_timing_{app_paths.timestamp()}.log"
+
+
 _LOG: Path | None = None
 if _ENABLED:
     try:
+        name = log_file_name()
         if _FROZEN:
-            _LOG = Path(sys.executable).parent / "_startup_timing.log"
+            _LOG = app_paths.program_dir() / name
         else:
-            _LOG = Path.cwd() / "logs" / "_startup_timing.log"
+            _LOG = app_paths.logs_dir() / name
             _LOG.parent.mkdir(parents=True, exist_ok=True)
     except Exception:  # pragma: no cover - probe must never break startup
         _LOG = None
@@ -258,7 +238,7 @@ def _append(line: str) -> None:
                 try:
                     fh.write(_session_header())
                     fh.write(_switch_line(
-                        "timing log enabled (startup, QSettings)"))
+                        "timing log enabled (startup, settings.json)"))
                 except OSError:
                     pass
                 _HEADER_WRITTEN = True
