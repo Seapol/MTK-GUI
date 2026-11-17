@@ -18,9 +18,18 @@ import pytest
 from mtkgui import startup_timing as st
 
 
+_SENTINEL = object()
+
+
 @pytest.fixture()
 def probe(tmp_path):
-    """Redirect the probe to a temp log and reset its state."""
+    """Redirect the probe to a temp log and reset its state.
+
+    The probe is gated on ``_ENABLED`` (computed once at import from
+    ``settings.json`` ``performance_timing``, factory default false), so
+    the suite turns it ON explicitly and restores it afterwards."""
+    saved = getattr(st, "_ENABLED", _SENTINEL)
+    st._ENABLED = True
     log = tmp_path / "timing.log"
     st._LOG = log
     st._HEADER_WRITTEN = False
@@ -32,6 +41,7 @@ def probe(tmp_path):
     st._SUMMARY_WRITTEN = False
     yield log
     st._LOG = None
+    st._ENABLED = saved if saved is not _SENTINEL else False
     st._stack().clear()
     st._PROGRESS_HANDLER = None
     st._SPANS.clear()

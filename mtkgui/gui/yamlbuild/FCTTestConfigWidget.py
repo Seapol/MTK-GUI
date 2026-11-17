@@ -1250,11 +1250,9 @@ class FCTTestConfigPanel(QWidget):
             return os.path.normpath(bound), ""
         from mtkgui.gui.shell import resolve_tenant_base
         project = str(getattr(self, "_project_name", "") or "")
-        if project:
-            base = resolve_tenant_base()
-        else:
-            base = "projects"
-        return default_assets_dir(project, base)
+        # v2: there is no package-relative projects/ folder any more; the
+        # workspace is the work dir (or the explicit env override)
+        return default_assets_dir(project, resolve_tenant_base())
 
     def set_project_assets_binding(self, project: str,
                                    assets_dir: str) -> None:
