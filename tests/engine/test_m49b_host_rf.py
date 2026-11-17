@@ -25,7 +25,7 @@ from mtkgui.engine.fct_test_config import (
 
 LSWIFI_REAL_26_AP_JSON = """
 [
-  {"SSID": "ChinaNet-4zEc-5G", "BSSID": "aa:bb:cc:00:11:22", "RSSI": -76},
+  {"SSID": "Lab-AP-Example", "BSSID": "aa:bb:cc:00:11:22", "RSSI": -76},
   {"SSID": "ChinaNet-4zEc", "BSSID": "aa:bb:cc:00:11:23", "RSSI": -68},
   {"SSID": "CMCC-5G-01", "BSSID": "aa:bb:cc:00:11:24", "RSSI": -82},
   {"SSID": "CMCC-2.4G-01", "BSSID": "aa:bb:cc:00:11:25", "RSSI": -74},
@@ -130,11 +130,11 @@ def test_parse_lswifi_percentage_field_is_normalised_to_dbm():
 
 
 def test_parse_lswifi_real_26_ap_sample_keeps_the_dbm_reading():
-    """M66 regression: a realistic 26-AP scan keeps ChinaNet-4zEc-5G at
+    """M66 regression: a realistic 26-AP scan keeps Lab-AP-Example at
     -76 dBm (the GUI used to report -24 dBm)."""
     found = hr.parse_lswifi_json(LSWIFI_REAL_26_AP_JSON)
     assert len(found) == 26
-    assert found["ChinaNet-4zEc-5G"] == -76
+    assert found["Lab-AP-Example"] == -76
     assert found["OfficeWiFi"] == -55
     assert -24 not in found.values()
 

@@ -75,6 +75,7 @@ loading it back through project_config (the same loader the GUI uses).
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -86,12 +87,12 @@ import yaml
 DUT_PORT = "/dev/cu.usbmodem53930099631"
 DUT_SSH_HOST = "192.168.10.129"      # DUT mlan0 on the factory router LAN
 HOST_LAN_IP = "192.168.10.141"       # Host PC (iperf3 server, ping target)
-ROUTER_SSID = "ChinaNet-4zEc-5G"
+ROUTER_SSID = os.environ.get("FRDM_DEMO_AP_SSID", "")        # lab-specific: fill locally, never commit
 # Wi-Fi password of the factory router the DUT joins (a DEPLOYMENT
 # variable: per production site it lives in the yaml `wifi.password`,
 # never hard-coded in the DUT script).  Empty here = the DUT script's
 # own fallback applies.
-ROUTER_PASSWORD = "dgu3vcgs"
+ROUTER_PASSWORD = os.environ.get("FRDM_DEMO_AP_PASSWORD", "")
 DUT_BT_NAME = "FRDM-IMX93-DUT"
 #: expected kernel release (uname -r) of the DUT firmware.  On a DUT
 #: firmware upgrade only THIS value changes - the kernel check is a

@@ -11,8 +11,8 @@
 #
 # Both profiles are configured in advance on the Equipment page
 # (Wired & Wireless Network); the four values below are the DUT-side copy.
-# Keep them in sync with the Equipment page: the "Config assets for projects"
-# window can write them into this file from there (M83 C15).
+# Keep them in sync with the Equipment page by hand: the four values are
+# project data, and the application never writes this file.
 #
 # SECURITY: credentials are hard-coded per profile and are NEVER passed on the
 # command line. The console echoes the command, so a credential on the row would
@@ -31,10 +31,17 @@ PROFILE="${1:-}"
 # script, and warns when the two disagree. Keep the assignment form exactly as
 # "<NAME>='<value>'" on one line: one name, one equals sign, one quoted value.
 # The values themselves are assigned from here, so they exist exactly once.
-AP_PROFILE_ROUTER_SSID='ChinaNet-4zEc-5G'
-AP_PROFILE_ROUTER_PASSWORD='dgu3vcgs'
-AP_PROFILE_HOTSPOT_SSID='MTK-FCT-AP'
-AP_PROFILE_HOTSPOT_PASSWORD='mtkfct2026'
+# The four values below are intentionally LEFT EMPTY in this example project.
+# An access point name and its password are lab-specific; keeping them here
+# would publish one site's credentials to everyone who receives this project.
+# Fill them for your own station, either by hand or through the "Config assets
+# for projects" window, which writes the Equipment page values into this file.
+# Empty values are caught below and fail loudly, so a half-configured script
+# can never silently join the wrong network.
+AP_PROFILE_ROUTER_SSID=''
+AP_PROFILE_ROUTER_PASSWORD=''
+AP_PROFILE_HOTSPOT_SSID=''
+AP_PROFILE_HOTSPOT_PASSWORD=''
 
 case "$PROFILE" in
     router)
