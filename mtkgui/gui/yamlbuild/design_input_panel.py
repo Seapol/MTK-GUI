@@ -211,6 +211,7 @@ class DesignInputPanel(QWidget):
             "HW Version - manual fill only, report metadata purpose")
         form.addRow("HW Version (optional):", self.edit_hw_version)
         self.combo_batch = QComboBox()
+        self.combo_batch.setInsertPolicy(QComboBox.NoInsert)
         self.combo_batch.addItems(list(BATCH_OPTIONS))
         self.combo_batch.setToolTip(
             "Batch # - fixed options; Customized and Deviation (DRQ) "

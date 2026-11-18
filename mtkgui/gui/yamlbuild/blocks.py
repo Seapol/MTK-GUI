@@ -367,6 +367,7 @@ class BlockConfigDialog(QDialog):
         if spec.ftype == T_CHOICE:
             from PySide6.QtWidgets import QComboBox
             editor = QComboBox()
+            editor.setInsertPolicy(QComboBox.NoInsert)
             editor.addItems(list(spec.choices))
             if value in spec.choices:
                 editor.setCurrentText(value)

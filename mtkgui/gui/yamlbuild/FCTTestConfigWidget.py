@@ -946,6 +946,7 @@ class FCTTestConfigPanel(QWidget):
         self._available_ops: set[str] | None = None
         lay = QVBoxLayout(self)
         self.dut_type = QComboBox()
+        self.dut_type.setInsertPolicy(QComboBox.NoInsert)
         self.dut_type.addItems(["linux", "bare_metal"])
         self.dut_type.currentTextChanged.connect(self._on_dut_type_changed)
         self.dut_hint = QLabel("")
@@ -1971,6 +1972,7 @@ class FCTTestConfigPanel(QWidget):
             (STEP_TYPE_MESSAGE_GOSTOP_WAIT, DIALOG_GOSTOP, True),
         )
         style = QComboBox()
+        style.setInsertPolicy(QComboBox.NoInsert)
         for label, _st, _w in self._msg_style_items:
             style.addItem(label)
         cur_label = step_type_label(cmd)
@@ -2153,6 +2155,7 @@ class FCTTestConfigPanel(QWidget):
                                      STEP_TYPE_SFTP_PUT,
                                      STEP_TYPE_SFTP_GET) else "serial")
             channel_combo = QComboBox()
+            channel_combo.setInsertPolicy(QComboBox.NoInsert)
             channel_combo.addItem("", "")
             for entry in channels:
                 if str(entry.get("kind") or "") == want:
@@ -2760,6 +2763,7 @@ class FCTTestConfigPanel(QWidget):
         # operation type (only for ssh)
         op_label = QLabel("Operation:")
         op_type = QComboBox()
+        op_type.setInsertPolicy(QComboBox.NoInsert)
         op_type.addItems(["shell_command", "sftp_put", "sftp_get"])
         lay.addWidget(op_label)
         lay.addWidget(op_type)

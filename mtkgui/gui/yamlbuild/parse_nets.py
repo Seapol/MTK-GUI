@@ -989,6 +989,7 @@ class ParseNetsPanel(QWidget):
             self.table.setItem(row, 0, net_item)
             self.table.setItem(row, 1, tp_item)
             combo = QComboBox()
+            combo.setInsertPolicy(QComboBox.NoInsert)
             # the column width adapts to the combo content (user
             # direction: both tables' column widths self-fit - without
             # this policy the ResizeToContents header ignores the
@@ -1073,6 +1074,7 @@ class ParseNetsPanel(QWidget):
             self.table_filtered.setItem(row, 0, net_item)
             self.table_filtered.setItem(row, 1, reason_item)
             combo = QComboBox()
+            combo.setInsertPolicy(QComboBox.NoInsert)
             combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.addItems(TABLE_CATEGORIES)

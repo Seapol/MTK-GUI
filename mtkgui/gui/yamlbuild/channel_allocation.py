@@ -692,6 +692,7 @@ class _NetTable(QWidget):
                 choices = {k: ch for k, _l, ch in
                            self.columns if ch}[key]
             combo = QComboBox()
+            combo.setInsertPolicy(QComboBox.NoInsert)
             # fixed single-attribute columns (GPIO DI / DO) carry no
             # UNSET placeholder
             combo.addItems([*choices] if len(choices) == 1
