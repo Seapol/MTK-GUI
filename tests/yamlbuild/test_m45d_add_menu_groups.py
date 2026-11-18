@@ -121,7 +121,7 @@ class TestSubmenuStructure:
         ict = _submenu(panel, "ICT Measurements")
         assert not ict.isEnabled()
         assert "ICT-only step" in ict.menuAction().toolTip()
-        assert len(_entries(panel, "ICT Measurements")) == 6
+        assert len(_entries(panel, "ICT Measurements")) == 5
 
     def test_file_transfer_submenu_has_four_entries(self, panel):
         assert _entries(panel, "File Transfer") == list(TRANSFER_LABELS)

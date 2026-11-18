@@ -421,7 +421,7 @@ class HeadlessEnv:
             equipment["measure_channels"] = {
                 step.name: step.name
                 for stage in self.stages for step in stage.steps
-                if step.kind not in ("op", "DAQ AI")}
+                if step.kind != "op"}
         if not equipment.get("rail_channels"):
             equipment["rail_channels"] = [
                 f"AI{i + 1}" for i in range(len(self.rails))]
@@ -432,7 +432,7 @@ class HeadlessEnv:
         values: dict[str, float] = {}
         for stage in self.stages:
             for step in stage.steps:
-                if step.kind in ("op", "DAQ AI"):
+                if step.kind == "op":
                     continue
                 values[step.name] = _mid_limit(
                     step.lo, step.hi,

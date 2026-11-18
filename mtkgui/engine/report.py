@@ -63,7 +63,7 @@ class ReportItem:
     unit: str = ""
     result: str = ""
     # ICT sub-classification from the Test Method ("R-GND" /
-    # "Power Voltage" / "Clock Hz" / "DAQ AI"; "" = generic) - the
+    # "Power Voltage" / "Clock Hz"; "" = generic) - the
     # certificate report splits the ICT detail into per-method tables
     method: str = ""
     timestamp: str = field(
@@ -128,8 +128,8 @@ class DutReport:
             return _clean(item.text()) if item is not None else ""
 
         # ICT rows (kind op = standard operations; flash ops = Flash).
-        # kind IS the Test Method ("R-GND"/"Power Voltage"/"Clock Hz"/
-        # "DAQ AI"); a generic "test" falls back to its unit
+        # kind IS the Test Method ("R-GND"/"Power Voltage"/"Clock Hz");
+        # a generic "test" falls back to its unit
         # (Ω / V / Hz) the same way the virtual hardware guesses.
         for r, step in enumerate(getattr(page, "ict_steps", [])):
             kind, name = step[0], step[1]
@@ -146,7 +146,7 @@ class DutReport:
                 method = ""
             elif is_r_gnd_method(kind):
                 method = METHOD_R_GND
-            elif kind in ("Power Voltage", "Clock Hz", "DAQ AI"):
+            elif kind in ("Power Voltage", "Clock Hz"):
                 method = kind
             else:
                 method = {"Ω": METHOD_R_GND, "V": "Power Voltage",

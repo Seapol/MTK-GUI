@@ -26,7 +26,6 @@ METHOD_UNITS = {
     METHOD_R_GND: "Ω",
     "Power Voltage": "V",
     "Clock Hz": "Hz",
-    "DAQ AI": "V",
     "test": "—",
 }
 
@@ -34,36 +33,20 @@ METHOD_UNITS = {
 METHOD_NET_CATEGORY = {
     METHOD_R_GND: "Power",
     "Power Voltage": "Power",
-    "DAQ AI": "Power",
     "Clock Hz": "Clock",
     "test": "GPIO",
 }
-
-#: the DAQ AI test needs NO net / limits here: the Power rails are
-#: already allocated in Channel Allocation - adding the test row is
-#: enough (user direction)
-DAQ_AI_METHOD = "DAQ AI"
 
 
 def daq_ai_rail_count(channel_allocation) -> int:
     """Number of power rails assigned to DAQ AI channels (U2355A AI).
 
-    The DAQ AI test has no free net: its scope is every net already
-    allocated to a DAQ AI channel in Channel Allocation.
+    The power-rails capture scope is every net already allocated to a
+    DAQ AI channel in Channel Allocation.
     """
     return sum(
         1 for row in (channel_allocation or {}).get("power") or []
         if "U2355A AI" in str(row.get("power_rails") or ""))
-
-
-def daq_ai_net_label(count: int) -> str:
-    """The read-only DAQ AI 'Net' label (count = assigned power rails)."""
-    return f"{int(count)} Power rails assigned on DAQ channels"
-
-
-def is_daq_ai_row(row) -> bool:
-    """True for a DAQ AI sequence row (kind drives it, name-agnostic)."""
-    return bool(row) and row[0] == DAQ_AI_METHOD
 
 #: canonical ICT standard-operation skeleton around the generated
 #: tests (R-GND runs BEFORE power-on: a short under power risks
@@ -101,11 +84,9 @@ def standard_ict_sequence(tests: list, rail_count: int = 0) -> list[tuple]:
 
     # R-GND rows run BEFORE power-on; legacy rows still say "Impedance"
     r_gnd = [t for t in rows
-             if not is_daq_ai_row(t)
-             and ("R-GND" in str(t[1]) or "Impedance" in str(t[1]))]
+             if "R-GND" in str(t[1]) or "Impedance" in str(t[1])]
     rest = [t for t in rows
-            if not is_daq_ai_row(t)
-            and "R-GND" not in str(t[1]) and "Impedance" not in str(t[1])]
+            if "R-GND" not in str(t[1]) and "Impedance" not in str(t[1])]
     mid = [op(n) for n in ICT_OPS_MID]
     if rail_count:
         mid.insert(0, op(RAILS_START_OP))

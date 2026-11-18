@@ -150,7 +150,6 @@ def test_from_session_classifies_ict_methods_and_rails(qapp):
         ("R-GND", "Imp VDD_3V3", "Ω", "—", "1.0", "—"),
         ("Power Voltage", "VDD_3V3", "V", "—", "3.2", "3.4"),
         ("Clock Hz", "CLK24M", "Hz", "—", "23.9", "24.1"),
-        ("DAQ AI", "Power Rails Up Sequence", "V", "—", "—", "—"),
         ("test", "Generic_Net", "V", "—", "3.1", "3.3"),
     ]
     page.ict.setRowCount(len(page.ict_steps))
@@ -161,7 +160,7 @@ def test_from_session_classifies_ict_methods_and_rails(qapp):
     report = DR.from_session(page)
     methods = [i.method for i in report.items]
     assert methods == ["R-GND", "Power Voltage", "Clock Hz",
-                       "DAQ AI", "Power Voltage"]
+                       "Power Voltage"]
     assert report.rails == rails
     assert report.rail_duration == 6.0 and report.rail_t_start == -1.0
     page.deleteLater()

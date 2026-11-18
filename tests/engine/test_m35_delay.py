@@ -301,7 +301,7 @@ class TestAddMenus:
                         if a.text() == "ICT Measurements")
         ict_texts = [a.text() for a in ict_menu.actions() if a.text()]
         assert any(t.startswith("R-GND") for t in ict_texts)
-        assert len(ict_texts) == 6                # 4 measures + 2 DIO
+        assert len(ict_texts) == 5                # 3 measures + 2 DIO
         for title in ("File Transfer", "Console",
                       "Message (Console)", "Wi-Fi Tests",
                       "Bluetooth Tests", "Flash"):

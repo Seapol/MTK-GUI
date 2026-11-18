@@ -105,10 +105,10 @@ class TestUnifiedStructure:
             assert f"Operation: {moved}" not in texts, moved
 
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
-    def test_ict_measurements_has_six_entries(self, request, menu_of):
+    def test_ict_measurements_has_five_entries(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
         texts = _texts(_submenu(menu, ICT_GROUP))
-        assert len(texts) == 6
+        assert len(texts) == 5
         assert any(t.startswith("R-GND") for t in texts)
         assert set(DIO_OPS) <= set(texts)
 

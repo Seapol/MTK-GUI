@@ -138,12 +138,12 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             step_dlg = dialog_self
             combos = [c for c in step_dlg.findChildren(QComboBox)
                       if c.count() and c.itemText(0) in
-                      ("R-GND", "Voltage", "DAQ AI Sequences",
+                      ("R-GND", "Voltage",
                        "Clock Hz", "delay")]
             # M19f: the Test Method combo offers the concrete labels
             kind_combo = next(c for c in combos
                               if c.currentText() in
-                              ("R-GND", "Voltage", "DAQ AI Sequences",
+                              ("R-GND", "Voltage",
                                "Clock Hz", "delay"))
             # row 0 is a legacy "test" / Power Voltage row -> switch the
             # Test Method to the Voltage label first
@@ -186,11 +186,11 @@ def test_edit_ict_step_round_trip(qapp, monkeypatch):
             step_dlg = dialog_self
             combos = [c for c in step_dlg.findChildren(QComboBox)
                       if c.count() and c.itemText(0) in
-                      ("R-GND", "Voltage", "DAQ AI Sequences",
+                      ("R-GND", "Voltage",
                        "Clock Hz", "delay")]
             kind_combo = next(c for c in combos
                               if c.currentText() in
-                              ("R-GND", "Voltage", "DAQ AI Sequences",
+                              ("R-GND", "Voltage",
                                "Clock Hz", "delay"))
             kind_combo.setCurrentText("R-GND")
             net_combo = next(c for c in

@@ -477,7 +477,7 @@ class StepsEditorDialog(QDialog):
                 return (("delay", "Delay", "ms", "—", "—", "—"),)
             if key.startswith("measure:"):
                 method = key[len("measure:"):]
-                unit = {"R-GND": "Ω", "DAQ AI": "V", "Power Voltage": "V",
+                unit = {"R-GND": "Ω", "Power Voltage": "V",
                         "Clock Hz": "kHz"}.get(method, "—")
                 return ((method, "New Test", unit, "—", "—", "—"),)
             if key.startswith("step:"):
@@ -661,19 +661,17 @@ class StepsEditorDialog(QDialog):
         # M19g: clock limits are edited/displayed in kHz (32768 Hz =
         # 32.768 kHz, 4 MHz = 4000.000 kHz); the stored step stays Hz
         "Clock Hz": "kHz",
-        "DAQ AI": "V",
         "test": "—",
         "op": "—",
         "delay": "ms",
     }
     #: M19f: Test Method combo shows concrete method LABELS; each item
     #: carries the internal step kind as userData (R-GND / Power
-    #: Voltage / DAQ AI / Clock Hz stay the stored kinds, so the
-    #: runner / reports / 04 bridge keep working unchanged)
+    #: Voltage / Clock Hz stay the stored kinds, so the runner /
+    #: reports / 04 bridge keep working unchanged)
     ICT_KIND_ITEMS = (
         ("R-GND", METHOD_R_GND),
         ("Voltage", "Power Voltage"),
-        ("DAQ AI Sequences", "DAQ AI"),
         ("Clock Hz", "Clock Hz"),
         ("delay", "delay"),
     )
@@ -682,7 +680,7 @@ class StepsEditorDialog(QDialog):
     def _kind_label(kind: str, name: str) -> str:
         """Map a stored kind to its combo label.  A legacy generic
         'test' row is classified by its NAME prefix (R-GND - x /
-        Power Voltage - x / Clock Hz - x / DAQ AI - x)."""
+        Power Voltage - x / Clock Hz - x)."""
         for label, internal in StepsEditorDialog.ICT_KIND_ITEMS:
             if kind == internal:
                 return label
@@ -695,7 +693,6 @@ class StepsEditorDialog(QDialog):
     ICT_METHOD_NET_CATEGORY = {
         METHOD_R_GND: "Power",
         "Power Voltage": "Power",
-        "DAQ AI": "Power",
         "Clock Hz": "Clock",
         "test": "GPIO",
         "op": "",
@@ -706,17 +703,7 @@ class StepsEditorDialog(QDialog):
         """The nets offered for one Test Method (user direction: the
         Net combo follows the method): Power nets for the R-GND /
         voltage methods, Clock nets for Clock Hz, Control IO nets for
-        the generic test; the DAQ AI method has NO free net - a
-        read-only count of the DAQ AI rails assigned in Channel
-        Allocation."""
-        if method == "DAQ AI":
-            from .yamlbuild.ict_sequence import daq_ai_net_label
-            # defensive getattr: this helper also runs on the
-            # _SequenceEditorDialog copy, where the provider is wired
-            # by the opener (_open_sequence_editor) - never assume
-            provider = getattr(self, "daq_ai_rail_count_provider", None)
-            count = provider() if callable(provider) else 0
-            return [daq_ai_net_label(count)]
+        the generic test."""
         category = self.ICT_METHOD_NET_CATEGORY.get(method, "")
         catalog = (self.net_catalog_provider() if
                    self.net_catalog_provider else {}) or {}
@@ -765,14 +752,11 @@ class StepsEditorDialog(QDialog):
         # not in the category list stays selectable (prepended)
         net_combo = QComboBox()
         choices = self._net_choices(kind)
-        if name and name not in choices and kind != "DAQ AI":
+        if name and name not in choices:
             choices.insert(0, name)
         net_combo.addItems(choices)
         if name in choices:
             net_combo.setCurrentText(name)
-        # the DAQ AI Net cell is derived from Channel Allocation and
-        # read-only (no free net)
-        net_combo.setEnabled(kind != "DAQ AI")
 
         def _numeric(value: str, decimals: int = 3) -> QDoubleSpinBox:
             # M19f: limits keep 3 decimals and a 0.001 step (V and kHz);
@@ -836,7 +820,7 @@ class StepsEditorDialog(QDialog):
             # name selectable when it drops out of the category)
             current = net_combo.currentText()
             fresh = self._net_choices(internal)
-            if current and current not in fresh and internal != "DAQ AI":
+            if current and current not in fresh:
                 fresh.insert(0, current)
             net_combo.blockSignals(True)
             net_combo.clear()
@@ -844,8 +828,6 @@ class StepsEditorDialog(QDialog):
             if current in fresh:
                 net_combo.setCurrentText(current)
             net_combo.blockSignals(False)
-            # DAQ AI Net is derived + read-only; other methods editable
-            net_combo.setEnabled(internal != "DAQ AI")
             # M19f: numeric policy per method - R-GND keeps ONLY a Min
             # (integer ohm; Expected/Max carry no value and are locked);
             # everything else stays 3 decimals / 0.001 step
