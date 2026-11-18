@@ -66,9 +66,9 @@ def op_verdict_status(verdict: str) -> StepStatus:
     return _OP_VERDICT_STATUS.get(verdict, StepStatus.ERROR)
 
 
-#: the DAQ AI step produced by the ICT sequence builder arrives as
-#: kind="test" with this NAME (the Power rails are pre-allocated in
-#: Channel Allocation) - it MUST dispatch to the rail-capture path
+#: v2-9b: the retired single-row DAQ AI capture name.  The builder emits
+#: the "DAQ AI Start" / "DAQ AI End" op pair instead; a YAML still
+#: carrying this row is refused by yaml_validation.
 DAQ_AI_STEP_NAME = "DAQ AI - Power rails"
 
 
@@ -96,6 +96,8 @@ class TestRunner(QObject):
         # Terminal states (aborted / frozen) must be reset back to idle
         # (reset_state / start auto-reset) before a new run can start.
         self.state = "idle"
+        # v2-9b: DAQ AI Start armed the rails capture for this run
+        self._rails_armed = False
         self._pause_requested = False
         self._interrupted = False
         self._timeout_retried = False
@@ -542,12 +544,6 @@ class TestRunner(QObject):
         unit, measured, lo, hi = step[2], step[3], step[4], step[5]
         params = step[6] if len(step) > 6 else None
 
-        if kind == "DAQ AI" or name == DAQ_AI_STEP_NAME \
-                or name.startswith("DAQ AI"):
-            # power rails up sequence: samples (volts) + CSV + AI review
-            self._exec_rail_capture_row(r)
-            return
-
         if kind == "delay":
             # plain wait step: the scheduler already paused for
             # ict_waits[r] ms before this call (see _run_step_body), so
@@ -557,6 +553,13 @@ class TestRunner(QObject):
             return
 
         if kind == "op":
+            op_type = str((params or {}).get("type") or "")
+            if op_type == "daq_ai_start":
+                self._exec_rail_start(r)
+                return
+            if op_type == "daq_ai_end":
+                self._exec_rail_end(r)
+                return
             status = self._run_op(
                 "ICT", name, params,
                 getattr(self, "_op_interactive", True))
@@ -650,15 +653,45 @@ class TestRunner(QObject):
             env._log(f"ICT {name}: {measured} {unit} "
                      f"(threshold {lo}..{hi}) -> PASS")
 
-    def _exec_rail_capture_row(self, r: int) -> None:
-        """Power-rails up-sequence capture (the ICT 'DAQ AI' row).
+    def _exec_rail_start(self, r: int) -> None:
+        """v2-9b: arm the rails capture before the power step.
 
-        The virtual U2355A acquires every rail in volts (CSV + AI
-        review, plot stays hidden during a run).  A test-fail fault
-        corrupts one rail so the AI review flags it; an equipment fault
-        aborts the acquisition."""
+        Takes no measurement and touches nothing else - it only fixes
+        the capture window and raises the armed flag."""
         env = self.env
         name = env.ict_steps[r][1]
+        params = dict(env.ict_steps[r][6] or {}) \
+            if len(env.ict_steps[r]) > 6 else {}
+        if self._rails_armed:
+            self._put("ict", r, StepStatus.ERROR, "Rails capture already armed")
+            env._log(f"ICT {name}: Rails capture already armed -> Error")
+            return
+        rate = int(params.get("rate_hz", env.cap_rate) or env.cap_rate)
+        window_ms = float(params.get("window_ms", 1000) or 0.0)
+        lead_ms = float(params.get("arm_lead_ms", 0) or 0.0)
+        env.cap_rate = rate
+        env.cap_lead = lead_ms / 1000.0
+        env.cap_start = -(lead_ms / 1000.0)
+        env.cap_end = (window_ms - lead_ms) / 1000.0
+        self._rails_armed = True
+        self._put("ict", r, StepStatus.PASS)
+        env._log(f"ICT {name}: rails capture armed ({rate} Hz, "
+                 f"{window_ms:g} ms window) -> Done")
+
+    def _exec_rail_end(self, r: int) -> None:
+        """v2-9b: close the rails capture and RECORD it.
+
+        This is not a test: the CSV / AI review / plot are information
+        for the design engineer, so the row reports ``Recorded`` and the
+        rollup never counts it."""
+        env = self.env
+        name = env.ict_steps[r][1]
+        if not self._rails_armed:
+            reason = "DAQ AI capture is not armed - add the DAQ AI Start step"
+            self._put("ict", r, StepStatus.ERROR, reason)
+            env._log(f"ICT {name}: {reason} -> Error")
+            return
+        self._rails_armed = False
         if not env.rails:
             self._put("ict", r, StepStatus.ERROR)
             env._instrument_error("DAQ")
@@ -729,15 +762,14 @@ class TestRunner(QObject):
         n = len(env.rails)
         # the Measured cell shows the capture summary (was blank)
         measured_text = f"{n} rails{tag}"
+        self._put("ict", r, "Recorded", measured_text)
         if anomaly:
-            self._put("ict", r, StepStatus.FAIL, measured_text)
             env._log(f"ICT {name}: {n} rails captured{tag}, {saved}; "
-                     f"AI review flags '{anomaly}' (abnormal waveform, "
-                     f"virtual fail) -> FAIL")
+                     f"AI review flags '{anomaly}' (abnormal waveform) "
+                     f"-> Recorded")
         else:
-            self._put("ict", r, StepStatus.PASS, measured_text)
             env._log(f"ICT {name}: {n} rails captured{tag}, {saved} "
-                     f"-> PASS")
+                     f"-> Recorded")
 
     # ------------------------------------------------------ FCT staging
     def _exec_fct_row(self, r: int, interactive: bool = True) -> None:
@@ -1786,6 +1818,8 @@ class TestRunner(QObject):
     def _begin_cycle(self) -> None:
         env = self.env
         self.reset_results()
+        # v2-9b: every run starts with the rails capture disarmed
+        self._rails_armed = False
         # M78-3: ONE application-level watchdog (Tools > FCT Watchdog).
         # Re-read at every run start; 0 disables it.  NOT a YAML field.
         # WATCHDOG SCOPE: CAN fail console / SSH / host-output steps that

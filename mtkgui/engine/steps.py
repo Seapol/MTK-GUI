@@ -101,6 +101,14 @@ OP_STEPS: dict[str, dict] = {
         "type": "power", "state": "on"},
     "Power Off DUT": {
         "type": "power", "state": "off"},
+    # v2-9b: the rails capture is TWO steps that wrap the power step.
+    # Start arms and returns immediately; End closes the window and only
+    # RECORDS the waveform - it never marks a rail PASS or FAIL.
+    "DAQ AI Start": {
+        "type": "daq_ai_start", "rate_hz": 20000, "window_ms": 1000,
+        "arm_lead_ms": 100},
+    "DAQ AI End": {
+        "type": "daq_ai_end", "window_ms": 1000},
     # M7: U2355A DIO bank standard operations (digital input / output).
     # Read is reference-only (no judgement); Write drives the bank and
     # is guarded by the isolation preflight in the runner.

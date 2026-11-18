@@ -74,17 +74,21 @@ def is_daq_ai_row(row) -> bool:
 ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Ready")
 ICT_OPS_MID = ("Power On DUT",)
 ICT_OPS_AFTER_TEST = ("Power Off DUT", "Reset Instruments")
+#: v2-9b: the rails capture is an op pair wrapping the power step
+RAILS_START_OP = "DAQ AI Start"
+RAILS_END_OP = "DAQ AI End"
 
 
 def standard_ict_sequence(tests: list, rail_count: int = 0) -> list[tuple]:
     """The canonical ICT sequence: the standard-operation skeleton
     around the test rows, with the derived DAQ AI power-rails capture
-    placed right AFTER Power On DUT and BEFORE the voltage / clock
-    tests (user direction 2026-10-14).
+    (Start / End op pair) wrapping Power On DUT, right BEFORE the
+    voltage / clock tests (user direction 2026-10-14).
 
     Any operation row already present in ``tests`` is kept (its saved
-    parameters win); the DAQ AI rows in ``tests`` collapse into the one
-    derived capture row whose Net is the running rail count.
+    parameters win); the rails capture is derived from ``rail_count``
+    (the number of U2355A AI power rails allocated in Channel
+    Allocation).
     """
     from mtkgui.engine.steps import op_step
 
@@ -104,8 +108,8 @@ def standard_ict_sequence(tests: list, rail_count: int = 0) -> list[tuple]:
             and "R-GND" not in str(t[1]) and "Impedance" not in str(t[1])]
     mid = [op(n) for n in ICT_OPS_MID]
     if rail_count:
-        mid.append((DAQ_AI_METHOD, daq_ai_net_label(rail_count),
-                    "V", "—", "—", "—"))
+        mid.insert(0, op(RAILS_START_OP))
+        mid.append(op(RAILS_END_OP))
     return ([op(n) for n in ICT_OPS_BEFORE_TEST] + r_gnd + mid + rest
             + [op(n) for n in ICT_OPS_AFTER_TEST])
 
@@ -314,7 +318,8 @@ def _filled(text) -> str:
 
 
 _SKELETON_OP_NAMES = frozenset(
-    ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST)
+    ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST
+    + (RAILS_START_OP, RAILS_END_OP))
 #: generated operations that must appear exactly once.  The DIO ops are
 #: auto-appended by :func:`generate_sequence` (M9 W1) but are not part
 #: of the canonical skeleton - a saved plan may already carry them.

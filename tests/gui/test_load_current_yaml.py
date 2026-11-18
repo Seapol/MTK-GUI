@@ -102,22 +102,18 @@ def test_load_pushes_ict_sequence_and_jumps(window):
     assert any(n.startswith("R-GND") for n in names)
     assert any(n.startswith("Power Voltage") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
-    # the derived limits: P3V3-style net name absent, but the power
-    # rails channel rows carry the sequence; row count = 2 ops before
-    # + 2 tests + 1 op mid + 1 DAQ AI capture + 1 test + 2 ops after
-    assert len(ict_steps) == 9
-    # user direction 2026-10-14: the DAQ AI power-rails capture sits
-    # right AFTER Power On DUT and BEFORE the Power Voltage tests
-    daq_idx = next(i for i, s in enumerate(ict_steps)
-                   if s[0] == "DAQ AI")
-    on_idx = ict_steps.index(next(s for s in ict_steps
-                                  if s[1] == "Power On DUT"))
+    # v2-9b: the rails capture is a DAQ AI Start/End op pair wrapping
+    # Power On; row count = 2 ops before + 1 R-GND + 3 mid ops (Start /
+    # Power On / End) + 2 tests + 2 ops after
+    assert len(ict_steps) == 10
+    # user direction 2026-10-14: the rails capture sits right AFTER
+    # Power On DUT and BEFORE the Power Voltage tests
+    start_idx = names.index("DAQ AI Start")
+    on_idx = names.index("Power On DUT")
+    end_idx = names.index("DAQ AI End")
     volt_idx = next(i for i, s in enumerate(ict_steps)
                     if s[1].startswith("Power Voltage"))
-    assert on_idx < daq_idx < volt_idx
-    # the DAQ AI Net cell is the read-only rail count (channel
-    # allocation here holds exactly one U2355A AI power rail)
-    assert ict_steps[daq_idx][1] == "1 Power rails assigned on DAQ channels"
+    assert start_idx < on_idx < end_idx < volt_idx
 
 
 def test_load_current_yaml_button_wired(window, monkeypatch):

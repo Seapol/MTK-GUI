@@ -2370,9 +2370,11 @@ class TestWorkFlowPage(QWidget):
             key = "virtual_bad" if virtual else "bad"
             item.setForeground(QColor(gui_theme_color(key)))
             font.setBold(True)
-        elif status == "Ignore":
+        elif status in ("Ignore", "Recorded"):
+            # v2-9b: a rails capture is RECORDED, never judged - neutral
+            # colour, no bold, and the rollup ignores it
             item.setForeground(QColor(gui_theme_color("neutral")))
-            font.setBold(True)
+            font.setBold(status == "Ignore")
         else:
             item.setForeground(QBrush())
         item.setFont(font)

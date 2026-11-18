@@ -64,20 +64,20 @@ class TestFullPass:
         assert env.ai_review_text is not None
 
     def test_daq_ai_builder_row_triggers_capture(self, env):
-        """The ICT sequence builder emits the DAQ AI row as kind="test"
-        with the fixed name "DAQ AI - Power rails" (the rails are
-        pre-allocated in Channel Allocation) - it MUST dispatch to the
-        rail-capture path: samples stored, PASS and the Measured cell
-        shows the rails summary (was blank, user report)."""
+        """v2-9b: the rails capture is a Start/End op pair around the
+        power step.  Start arms and reports Done; End closes the window
+        and RECORDS the waveform - it is never a PASS / FAIL."""
         runner = TestRunner(env)
         env.runner = runner
-        idx = next(i for i, s in enumerate(env.ict_steps)
-                   if s[1] == "Power Rails Up Sequence")
-        env.ict_steps[idx] = ("test", "DAQ AI - Power rails",
-                              "V", "—", "—", "—")
-        runner._exec_ict_row(idx)
-        assert env.rows[("ict", idx)] == "PASS"
-        assert "rails" in env.measured[("ict", idx)]
+        names = [s[1] for s in env.ict_steps]
+        assert "DAQ AI Start" in names and "DAQ AI End" in names
+        start_idx = names.index("DAQ AI Start")
+        end_idx = names.index("DAQ AI End")
+        assert start_idx < end_idx
+        runner.run_demo()
+        assert env.rows[("ict", start_idx)] == "Done"
+        assert env.rows[("ict", end_idx)] == "Recorded"
+        assert "rails" in env.measured[("ict", end_idx)]
         assert env.rail_samples is not None
 
     def test_disabled_stage_reports_skip(self, env):
@@ -91,12 +91,12 @@ class TestFullPass:
 class TestStopStrategies:
     def test_stop_if_failure_ict(self, env):
         env.stop_if_failure = True
-        env.ict_sim_fail.add(3)   # the Power Voltage row (no short)
+        env.ict_sim_fail.add(5)   # the Power Voltage row (no short)
         runner = step_run(env)
         assert runner.verdict() == "FAIL"
         assert runner.state == "idle"
-        # aborted at row 3: the later DAQ AI row was never judged
-        assert ("ict", 5) not in env.rows
+        # aborted at row 5: the later Clock row was never judged
+        assert ("ict", 6) not in env.rows
         # first FCT row untouched
         assert ("fct", 0) not in env.rows
 
@@ -129,7 +129,7 @@ class TestStopStrategies:
     def test_demo_path_ignores_stop_policies(self, env):
         # legacy semantics: run_demo judges every row even with a FAIL
         env.stop_if_failure = True
-        env.ict_sim_fail.add(3)
+        env.ict_sim_fail.add(5)   # Power Voltage row
         runner = run_demo(env)
         assert runner.verdict() == "FAIL"
         assert ("fct", 0) in env.rows   # FCT still ran

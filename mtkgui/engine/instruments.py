@@ -296,7 +296,8 @@ class RealGateway:
 
     # ------------------------------------------------------- op steps
     KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "fixture_ready",
-                      "power", "generic", "dio_read", "dio_out")
+                      "power", "generic", "dio_read", "dio_out",
+                      "daq_ai_start", "daq_ai_end")
 
     def execute_op(self, name: str, params: dict | None) -> GatewayOutcome:
         """Standard operation step against the real rack."""

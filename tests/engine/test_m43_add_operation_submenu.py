@@ -148,7 +148,7 @@ class TestOperationSubmenu:
                   | set(MESSAGE_LABELS)
                   | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 26   # v2-9a: 5 standard ops
+        assert len(panel._add_actions) == 28   # v2-9b: 7 standard ops
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu

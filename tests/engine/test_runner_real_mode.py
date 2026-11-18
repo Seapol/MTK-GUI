@@ -74,15 +74,20 @@ class TestRealModeNoBackend:
                    in line for line in env._log_lines())
 
     def test_rail_capture_errors_without_gateway(self, tmp_path):
-        """The DAQ AI row must ERROR instead of generating synthetic
-        rail samples in Real mode."""
+        """v2-9b: the DAQ AI End row must ERROR instead of generating
+        synthetic rail samples in Real mode.  Start (arm-only) is local
+        bookkeeping and reports Done."""
         env = real_bare_env(tmp_path)
         runner = TestRunner(env)
         env.runner = runner
-        daq_idx = next(i for i, s in enumerate(env.ict_steps)
-                       if s[0] == "DAQ AI")
-        runner._exec_rail_capture_row(daq_idx)
-        assert env.rows.get(("ict", daq_idx)) == "Error"
+        start_idx = next(i for i, s in enumerate(env.ict_steps)
+                         if s[1] == "DAQ AI Start")
+        end_idx = next(i for i, s in enumerate(env.ict_steps)
+                       if s[1] == "DAQ AI End")
+        runner._exec_ict_row(start_idx)
+        runner._exec_ict_row(end_idx)
+        assert env.rows.get(("ict", start_idx)) == "Done"
+        assert env.rows.get(("ict", end_idx)) == "Error"
         assert env.rail_samples is None
 
     def test_full_run_aborts_on_first_instrument_fault(self, tmp_path):
@@ -203,10 +208,13 @@ class TestRealModeGatewayInstrumentFaults:
         env.gateway = _Gw()
         runner = TestRunner(env)
         env.runner = runner
-        daq_idx = next(i for i, s in enumerate(env.ict_steps)
-                       if s[0] == "DAQ AI")
-        runner._exec_rail_capture_row(daq_idx)
-        assert env.rows.get(("ict", daq_idx)) == "Error"
-        assert "U2355A open failed" in env.measured[("ict", daq_idx)]
+        start_idx = next(i for i, s in enumerate(env.ict_steps)
+                         if s[1] == "DAQ AI Start")
+        end_idx = next(i for i, s in enumerate(env.ict_steps)
+                       if s[1] == "DAQ AI End")
+        runner._exec_ict_row(start_idx)
+        runner._exec_ict_row(end_idx)
+        assert env.rows.get(("ict", end_idx)) == "Error"
+        assert "U2355A open failed" in env.measured[("ict", end_idx)]
         assert any("U2355A open failed" in line
                    for line in env._log_lines())

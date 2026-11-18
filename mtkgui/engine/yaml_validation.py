@@ -235,6 +235,35 @@ def rule_retired_fixture_ops(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_fixture_ops)
 
 
+#: v2-9b: the one-row DAQ AI capture was replaced by a Start/End pair.
+DAQ_AI_RETIRED_MESSAGE = (
+    "the 'DAQ AI' capture row was retired — use 'DAQ AI Start' and "
+    "'DAQ AI End' around the power step")
+
+
+def rule_retired_daq_ai_row(doc: dict) -> list[YamlIssue]:
+    """v2-9b: the single DAQ AI capture row is retired - a project YAML
+    still carrying it is an ERROR that names the pair to use instead."""
+    from .runner import DAQ_AI_STEP_NAME
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            if not isinstance(row, dict):
+                continue
+            kind = str(row.get("kind") or "")
+            name = str(row.get("name") or "")
+            if kind != "DAQ AI" and name != DAQ_AI_STEP_NAME:
+                continue
+            issues.append(YamlIssue(
+                SEVERITY_ERROR, DAQ_AI_RETIRED_MESSAGE,
+                f"{key}[{index}].kind"))
+    return issues
+
+
+_RULES.append(rule_retired_daq_ai_row)
+
+
 #: M83/C2b: the network profile a connect_wifi.sh row joins, mapped to
 #: the Equipment card name + the SSID field it must match.
 CONNECT_WIFI_PROFILES = {
