@@ -28,6 +28,7 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -219,7 +220,10 @@ def _audit_one(root: QWidget, w: QWidget, tol: int) -> list[LayoutIssue]:
                 f"window {w.width()}x{w.height()}px < layout minimum "
                 f"{minimum.width()}x{minimum.height()}px")
         screen = w.screen()
-        if screen is not None:
+        # the offscreen platform reports a virtual 800x800 screen, so a
+        # window designed for a 1080p workstation always "exceeds" it -
+        # that is the harness, not the product (skip the rule there)
+        if screen is not None and QGuiApplication.platformName() != "offscreen":
             avail = screen.availableGeometry()
             hint = w.sizeHint()
             if hint.width() > avail.width() or hint.height() > avail.height():
@@ -502,6 +506,14 @@ def audit_main_window(app: QApplication) -> dict[str, list[LayoutIssue]]:
     try:
         window.show()
         app.processEvents()
+        # measure the layout the window ASKS for: the offscreen platform
+        # clamps a shown window to its virtual 800x800 screen, which
+        # squeezes splitters and spins into false clip / overlap findings
+        hint = window.sizeHint()
+        if window.width() < hint.width() or window.height() < hint.height():
+            window.resize(max(window.width(), hint.width()),
+                          max(window.height(), hint.height()))
+            app.processEvents()
         results["MainWindow"] = audit_widget(window)
         tabs = getattr(window, "tabs", None)
         for page in main_window_pages(window):

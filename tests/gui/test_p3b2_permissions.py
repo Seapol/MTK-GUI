@@ -52,20 +52,37 @@ def test_edit_yaml_build_key_in_matrix():
 
 
 # -------------------------------------------------- Yaml Build page gate
-def test_yaml_build_page_operator_cannot_edit(yaml_page):
-    """set_edit_allowed(False): action row + Edit/Apply disabled."""
+# M19d removed the page action row and the YAML preview pane: the edit
+# right is now enforced where the action runs (the File-menu handlers),
+# so the gate is asserted on behaviour, not on widget enabledness.
+def test_yaml_build_page_operator_cannot_edit(yaml_page, monkeypatch):
+    """set_edit_allowed(False): every edit action refuses, no file is
+    offered for writing."""
+    from mtkgui import yaml_build_page as page_module
+
+    opened: list = []
+    monkeypatch.setattr(page_module.QFileDialog, "getSaveFileName",
+                        lambda *_a, **_k: opened.append(_a) or ("", ""))
+    told: list = []
+    monkeypatch.setattr(page_module.QMessageBox, "information",
+                        lambda _p, title, text: told.append((title, text)))
     yaml_page.set_edit_allowed(False)
-    for btn in yaml_page._action_buttons:
-        assert not btn.isEnabled()
-    assert not yaml_page.yaml_preview.btn_apply.isEnabled()
+    yaml_page._export_excel()
+    assert opened == []                       # no save dialog at all
+    assert told and told[0][1] == (
+        "Operator account cannot modify the YAML configuration.")
 
 
-def test_yaml_build_page_supervisor_full_edit(yaml_page):
-    """Supervisor (default state): everything enabled."""
+def test_yaml_build_page_supervisor_full_edit(yaml_page, monkeypatch):
+    """Supervisor (default state): the edit actions reach their handler."""
+    from mtkgui import yaml_build_page as page_module
+
     assert yaml_page._edit_allowed is True
-    for btn in yaml_page._action_buttons:
-        assert btn.isEnabled()
-    assert yaml_page.yaml_preview.btn_apply.isEnabled()
+    opened: list = []
+    monkeypatch.setattr(page_module.QFileDialog, "getSaveFileName",
+                        lambda *_a, **_k: opened.append(_a) or ("", ""))
+    yaml_page._export_excel()
+    assert opened, "supervisor export must open the save dialog"
 
 
 def test_yaml_preview_gate_sets_editor_read_only(qapp):

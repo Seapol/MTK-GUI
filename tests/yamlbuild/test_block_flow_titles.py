@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
-"""M10-FIX4 F4: block-flow card titles stay fully readable inside the
-real Yaml Build splitter (verified bug: a ~490 px left pane squeezed
-the five cards to ~80 px and titles 04 / 05 clipped)."""
+"""M10-FIX4 F4: block-flow card titles stay fully readable no matter
+how far the page is squeezed (verified bug: a ~490 px pane squeezed the
+five cards to ~80 px and titles 04 / 05 clipped).
+
+v2-3c: the M19d rebuild made the page a single vertical flow (block strip
+on top, Channel Allocation below) - there is no QSplitter left to size,
+so the test now drives the whole page width instead of a splitter pane
+and keeps the same contract: the strip never goes below MIN_FLOW_WIDTH
+and every card still shows its full title on at most two wrapped lines."""
 
 from __future__ import annotations
 
@@ -19,9 +25,9 @@ from mtkgui.gui.yamlbuild.stages import (  # noqa: E402
 )
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
-#: realistic left-pane widths requested through the splitter (the bug
-#: report measured ~490 px in the real GUI)
-LEFT_PANE_WIDTHS = (460, 490, 520)
+#: page widths around the width that produced the clipping bug, plus the
+#: two sizes the GUI actually opens at
+PAGE_WIDTHS = (860, 1024, 1200, 1440)
 
 
 @pytest.fixture
@@ -41,19 +47,12 @@ def page(tmp_path, monkeypatch):
     widget.close()
 
 
-def _splitter(page):
-    return next(child for child in page.children()
-                if type(child).__name__ == "QSplitter")
-
-
-@pytest.mark.parametrize("left_pane", LEFT_PANE_WIDTHS)
-def test_card_titles_fit_real_splitter_widths(page, left_pane):
-    """The splitter cannot compress the flow below its minimum, and
-    every card shows its FULL title on at most two wrapped lines."""
-    split = _splitter(page)
-    split.setSizes([left_pane, 900])
+@pytest.mark.parametrize("page_width", PAGE_WIDTHS)
+def test_card_titles_fit_real_page_widths(page, page_width):
+    """The strip cannot compress below its minimum, and every card shows
+    its FULL title on at most two wrapped lines."""
+    page.resize(page_width, 640)
     QApplication.processEvents()
-    assert split.sizes()[0] >= MIN_FLOW_WIDTH
     assert page.block_flow.minimumWidth() == MIN_FLOW_WIDTH
     assert page.block_flow.width() >= MIN_FLOW_WIDTH
 

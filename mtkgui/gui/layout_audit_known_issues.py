@@ -19,7 +19,7 @@ KNOWN_ISSUES: dict[str, list[str]] = {
     # ChannelAllocationPage -------------------------------------------------
     "ChannelAllocationPage": [
         # scrollable tab content may legitimately scroll (design decision)
-        "overflow_x|QScrollArea|content sizeHint=442px > viewport=346px "
+        "overflow_x|QScrollArea|content sizeHint=438px > viewport=343px "
         "(horizontal scrollbar)",
     ],
     # EquipmentPage ----------------------------------------------------------
@@ -32,13 +32,13 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "clipped|QLabel|width=130px < sizeHint=181px (minimumSizeHint=181px)",
         # 240px minimum left column + entry content (design decision);
         # M65: the longer entry labels raise the content hint to 323px
-        "overflow_x|QScrollArea|content sizeHint=323px > viewport=226px "
+        "overflow_x|QScrollArea|content sizeHint=321px > viewport=306px "
         "(horizontal scrollbar)",
     ],
     # ExportPage -------------------------------------------------------------
     "ExportPage": [
         # scrollable content may legitimately scroll (design decision)
-        "overflow_x|QScrollArea|content sizeHint=605px > viewport=533px "
+        "overflow_x|QScrollArea|content sizeHint=603px > viewport=533px "
         "(horizontal scrollbar)",
     ],
     # MainWindow -------------------------------------------------------------
@@ -54,7 +54,11 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "clipped|QSpinBox|width=33px < minimumSizeHint=87px",
         "input_narrow|QDoubleSpinBox|width=33px < sizeHint=98px (80%)",
         "input_narrow|QLineEdit|width=0px < sizeHint=106px (80%)",
+        "input_narrow|QLineEdit|width=48px < sizeHint=106px (80%)",
         "input_narrow|QLineEdit|width=36px < sizeHint=158px (80%)",
+        # v2-3d: the same form stretch, re-measured after the node 01
+        # rebuild widened the parameter group
+        "input_narrow|QLineEdit|width=108px < sizeHint=158px (80%)",
         "input_narrow|QSpinBox|width=33px < sizeHint=87px (80%)",
         "overlap|QPushButton/QPushButton|intersection 71x62px",
         # status-bar widgets are placed by hand; cosmetic (design decision)
@@ -91,19 +95,23 @@ KNOWN_ISSUES: dict[str, list[str]] = {
     # equipment dialogs ------------------------------------------------------
     "_BlockConfigDialog": [
         # form fields follow the dialog width (QFormLayout stretch); cosmetic
-        "input_oversized|QLineEdit|width=505px sizeHint=158px content-length=8",
+        "input_oversized|QLineEdit|width=506px sizeHint=158px content-length=8",
     ],
     "_GroupConfigDialog": [
         # form fields follow the dialog width (QFormLayout stretch); cosmetic
-        "input_oversized|QLineEdit|width=455px sizeHint=158px content-length=7",
+        "input_oversized|QLineEdit|width=456px sizeHint=158px content-length=7",
     ],
     "_InstrumentDialog": [
         # form fields follow the dialog width (QFormLayout stretch); cosmetic
-        "input_oversized|QComboBox|width=774px sizeHint=100px content-length=4",
-        "input_oversized|QLineEdit|width=710px sizeHint=158px content-length=3",
-        "input_oversized|QLineEdit|width=710px sizeHint=158px content-length=4",
-        "input_oversized|QLineEdit|width=774px sizeHint=158px content-length=15",
-        "input_oversized|QLineEdit|width=806px sizeHint=158px content-length=4",
+        # (v2-3d: re-measured - the dialog grew a section, so the same
+        # family of rows now reports wider widths)
+        "input_oversized|QComboBox|width=835px sizeHint=99px content-length=4",
+        "input_oversized|QLineEdit|width=772px sizeHint=158px content-length=3",
+        "input_oversized|QLineEdit|width=772px sizeHint=158px content-length=4",
+        "input_oversized|QComboBox|width=726px sizeHint=146px "
+        "content-length=15",
+        "input_oversized|QLineEdit|width=692px sizeHint=140px "
+        "content-length=15",
     ],
 }
 

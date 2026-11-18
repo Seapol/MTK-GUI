@@ -3,7 +3,7 @@
 isolation dialog / 96317 capacity (offscreen).
 
 A7: the "DUT GPIO (24 ch)" walking template row is gone and the 96317
-allocation reports ``gpio=24 (+4 over capacity)``.
+allocation reports ``gpio=24 (+5 over capacity)``.
 A8: both DIO ops round-trip through the project YAML and are listed in
 the step-insertion dropdown.
 A9: the STRONG modal defaults to Cancel and offers Force-Continue.
@@ -138,7 +138,10 @@ def test_96317_capacity_line(qapp):
         page.set_model(_Model(testable))
         page.auto_allocate()
         text = page.lbl_summary.text()
-        assert "gpio=24 (+4 over capacity)" in text
+        # M99-1 classifies the bare P/N diff pairs by evidence, so
+        # 96317 now yields 29 Control IO nets (was 28) against the
+        # 24-channel pool -> five rows are left without a channel
+        assert "gpio=24 (+5 over capacity)" in text
     finally:
         page.deleteLater()
 
