@@ -138,19 +138,33 @@ BATCH_DEVIATION_PREFIX = "Deviation (DRQ): "
 #: Per-module field schemas (independent, per interface_spec section 31).
 MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
     "design_input": (
-        _f("product_id", "Product ID", required=True,
-           remarks="Core ID extracted from the SPF file name"),
-        # Project Part # is the ONLY board-level part number source:
-        # manual entry (no SPF / Drawing-Title-Block auto source exists)
-        _f("part_number", "Project Part #", required=True,
+        # v2-3b: Product Part # is the ONE board-level part number source
+        _f("part_number", "Product Part #", required=True,
            remarks="manual entry - persisted as the unique board-level "
                    "part number across parse / build / test / report"),
-        _f("sw_version", "SW Version (optional)",
+        _f("product_id", "Core ID", required=True,
+           remarks="Core ID extracted from the SPF file name"),
+        # FSW Version = the WHOLE test-software package version (not the
+        # YAML version)
+        _f("sw_version", "FSW Version", required=True,
+           remarks="the whole test-software package version"),
+        _f("hw_version", "HW Revision", required=True,
            remarks="report metadata only - no test logic impact"),
-        _f("hw_version", "HW Version (optional)",
-           remarks="report metadata only - no test logic impact"),
-        _f("batch", "Batch # (optional)", ftype=T_CHOICE,
-           choices=BATCH_OPTIONS),
+        _f("batch", "Batch #", ftype=T_CHOICE,
+           choices=BATCH_OPTIONS, required=True),
+        _f("ict_block_enabled", "Design Files for ICT", ftype=T_BOOL,
+           default="true"),
+        _f("ict_route", "ICT Input Route", ftype=T_CHOICE,
+           choices=("files", "excel"), default="files"),
+        _f("ict_excel_file", "ICT Excel Spreadsheet",
+           remarks="one workbook, sheet RESULTS (Route B)"),
+        _f("fct_block_enabled", "Pre-Configure for FCT", ftype=T_BOOL,
+           default="true"),
+        _f("dut_board_software", "DUT Board Software", ftype=T_CHOICE,
+           choices=("linux", "bare_metal", "slave_daughter"),
+           default="linux"),
+        _f("fct_supported_tests", "FCT Supported Tests", ftype=T_TEXT,
+           remarks="one supported test type per line"),
         _f("spf_file", "SPF File",
            remarks="Allegro Smart PDF imported via Import SPF"),
         _f("net_file", "NET File",

@@ -229,7 +229,7 @@ def test_apply_yaml_dict_loads_no_ui_modules_silently():
     model3 = YamlBuildModel()
     bad = {"yaml_build": {"modules": {
         "design_input": {"part_number": "", "product_id": "1"}}}}
-    assert any("part_number" in e or "Project Part #" in e
+    assert any("part_number" in e or "Product Part #" in e
                for e in model3.apply_yaml_dict(bad))
 
 

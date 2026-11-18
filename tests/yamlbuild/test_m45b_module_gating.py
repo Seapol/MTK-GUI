@@ -36,6 +36,9 @@ from mtkgui.yaml_build_page import (  # noqa: E402
 DESIGN_PARAMS = {
     "product_id": "MTK-96",
     "part_number": "P-0001",
+    "sw_version": "1.0.0",
+    "hw_version": "A",
+    "batch": "EVT (Proto-1)",
     "spf_file": "board.spf",
     "net_file": "board.net",
     "bom_file": "board.csv",

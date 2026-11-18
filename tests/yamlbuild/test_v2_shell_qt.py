@@ -61,6 +61,12 @@ def test_cancel_after_next_keeps_tree_and_draft(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
     w = _wizard(qapp, _model())
     try:
+        # fill the node 01 panel so its validate() passes
+        panel = w._panels["design_input"]
+        panel.set_values(w.model.get_params("design_input"))
+        panel.spf_path = "s.spf"
+        panel.net_path = "n.net"
+        panel.bom_path = "b.csv"
         w._on_next()            # create the project tree
         w._on_save_draft()      # write the draft into it
         w._on_cancel()

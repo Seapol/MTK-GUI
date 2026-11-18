@@ -93,12 +93,15 @@ def test_part_number_autofilled_no_popup(panel, monkeypatch):
 
 # ------------------------------------------------------------- schema
 def test_schema_design_input_fields():
-    """The design_input schema carries exactly the T7 field set; the
-    deprecated design-data fields are gone."""
+    """The design_input schema carries the v2 field set: five Product
+    Information keys, six block/route keys, then the three file keys."""
     names = [f.name for f in MODULE_FIELDS["design_input"]]
-    assert names == ["product_id", "part_number", "sw_version",
-                     "hw_version", "batch", "spf_file", "net_file",
-                     "bom_file"]
+    assert names == [
+        "part_number", "product_id", "sw_version", "hw_version", "batch",
+        "ict_block_enabled", "ict_route", "ict_excel_file",
+        "fct_block_enabled", "dut_board_software", "fct_supported_tests",
+        "spf_file", "net_file", "bom_file",
+    ]
     assert "design_data" not in names
     batch = next(f for f in MODULE_FIELDS["design_input"]
                  if f.name == "batch")
@@ -378,46 +381,46 @@ def test_spf_filter_pdf_only(panel, monkeypatch):
 
 
 def test_optional_labels_and_only_product_id_required():
-    """SW / HW / Batch carry '(optional)' labels and stay non-required
-    (root-cause closure directive); Project Part # is the manual-entry
-    board-level part number (required, no '(optional)' mark) and
-    Product ID stays the other mandatory field."""
+    """v2-3b: the five Product Information fields are all required with
+    the new labels (no '(optional)' mark anywhere)."""
     specs = {f.name: f for f in MODULE_FIELDS["design_input"]}
-    for name in ("sw_version", "hw_version", "batch"):
-        assert "(optional)" in specs[name].label, name
-        assert specs[name].required is False, name
-    # Project Part # (auto-filled from the SPF title, still required)
-    assert specs["part_number"].label == "Project Part #"
-    assert specs["part_number"].required is True
-    assert specs["product_id"].label == "Product ID"
-    assert specs["product_id"].required is True
-    # empty optional values validate clean
-    assert specs["sw_version"].validate("") == ""
-    assert specs["hw_version"].validate("") == ""
-    assert specs["batch"].validate("") == ""
+    for name in ("part_number", "product_id", "sw_version", "hw_version",
+                 "batch"):
+        assert "(optional)" not in specs[name].label, name
+        assert specs[name].required is True, name
+    assert specs["part_number"].label == "Product Part #"
+    assert specs["product_id"].label == "Core ID"
+    assert specs["sw_version"].label == "FSW Version"
+    assert specs["hw_version"].label == "HW Revision"
+    assert specs["batch"].label == "Batch #"
+    # empty required values now validate as errors
+    assert specs["sw_version"].validate("") != ""
+    assert specs["hw_version"].validate("") != ""
 
 
 def test_accept_with_blank_optional_fields_passes(qapp, monkeypatch):
-    """No 'Required' warning when SW / HW Version are blank - the
-    mandatory fields (Product ID / Project Part #) are validated."""
+    """All five Product Information fields filled -> the dialog accepts
+    with no validation popup."""
     warnings = []
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a))
     dlg = BlockConfigDialog("design_input", {})
     try:
-        dlg.panel.edit_product_id.setText("10342")
         dlg.panel.edit_part_number.setText("MTK12345")
-        dlg._on_accept()          # blank SW / HW must pass
+        dlg.panel.edit_product_id.setText("10342")
+        dlg.panel.edit_sw_version.setText("1.0")
+        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel.set_batch("EVT (Proto-1)")
+        dlg._on_accept()          # fully filled -> passes
         assert not warnings       # no validation popup at all
-        assert dlg.error_label.text() == ""
     finally:
         dlg.deleteLater()
 
 
 def test_accept_blank_part_number_blocked(qapp, monkeypatch):
-    """Project Part # is the manual-entry mandatory board-level part
-    number: blank -> validation popup, dialog stays open."""
+    """Product Part # is mandatory: blank -> validation popup, dialog
+    stays open."""
     warnings = []
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "warning",
@@ -425,24 +428,31 @@ def test_accept_blank_part_number_blocked(qapp, monkeypatch):
     dlg = BlockConfigDialog("design_input", {})
     try:
         dlg.panel.edit_product_id.setText("10342")
+        dlg.panel.edit_sw_version.setText("1.0")
+        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel.set_batch("EVT (Proto-1)")
         dlg._on_accept()
         assert warnings            # validation popup shown
-        assert "Project Part #" in dlg.error_label.text()
+        assert "Product Part #" in dlg.error_label.text()
     finally:
         dlg.deleteLater()
 
 
 def test_accept_empty_product_id_still_blocked(qapp, monkeypatch):
-    """Product ID remains mandatory: blank -> error list, dialog open."""
+    """Core ID remains mandatory: blank -> error list, dialog open."""
     warnings = []
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a))
     dlg = BlockConfigDialog("design_input", {})
     try:
+        dlg.panel.edit_part_number.setText("MTK12345")
+        dlg.panel.edit_sw_version.setText("1.0")
+        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel.set_batch("EVT (Proto-1)")
         dlg._on_accept()
         assert warnings            # validation popup shown
-        assert "Product ID" in dlg.error_label.text()
+        assert "Core ID" in dlg.error_label.text()
     finally:
         dlg.deleteLater()
 

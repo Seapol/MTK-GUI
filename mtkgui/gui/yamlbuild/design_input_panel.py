@@ -27,16 +27,20 @@ from mtkgui.startup_timing import begin, end
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -55,6 +59,17 @@ from mtkgui.gui.yamlbuild.schema import (
 from mtkgui.gui.yamlbuild.spf_title import extract_spf_project_name
 
 MAX_DRQ_NUMBERS = 3
+
+#: FCT standard test types the Pre-Configure block declares support for.
+#: (stored key, UI label).  node 06 may only offer what was ticked here.
+FCT_TEST_TYPES = (
+    ("wifi", "Wi-Fi"),
+    ("bluetooth", "Bluetooth"),
+    ("console", "Console (serial / SSH)"),
+    ("serial_transfer", "Serial file transfer"),
+    ("sftp", "SSH SFTP"),
+    ("message", "Message dialogs"),
+)
 
 
 class SpfExtractWorker(QThread):
@@ -142,74 +157,50 @@ class DesignInputPanel(QWidget):
         self.bom_path: str = ""      # optional BOM file (CSV / XLSX)
         self.bom_records: int = 0    # parsed BOM record count
         self.bom_dnp: int = 0        # parsed BOM DNP count
+        self._ict_excel_path: str = ""  # Route B workbook (LOAD ONLY)
 
-        # item 21: adaptive flat layout - the panel grows with the
-        # dialog in both directions, fields stretch proportionally
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Expanding)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(12)
 
-        # ------------------------------------------ import button rows
-        buttons = QHBoxLayout()
-        self.btn_import_spf = QPushButton("Import SPF…")
-        self.btn_import_spf.setToolTip(
-            "Import an Allegro Smart PDF (*.pdf only): the file is "
-            "read and the project info (Core ID from the file name, "
-            "Project Name from the first-page title) is auto-filled - "
-            "both stay editable")
-        self.btn_import_net = QPushButton("Import NET…")
-        self.btn_import_net.setToolTip(
-            "Import an Allegro netlist: LOAD ONLY (raw bytes, no "
-            "parse).  The formal net parsing runs in the Parse Nets "
-            "for ICT module.")
-        self.btn_import_bom = QPushButton("Import BOM…")
-        self.btn_import_bom.setToolTip(
-            "Import an optional Bill Of Materials (*.csv / *.xlsx): "
-            "RefDes -> part number / DNP evidence for the Parse Nets "
-            "classification.  Import failures are logged as a WARNING "
-            "and never block NET-only parsing.")
-        buttons.addWidget(self.btn_import_spf)
-        buttons.addWidget(self.btn_import_net)
-        buttons.addWidget(self.btn_import_bom)
-        buttons.addStretch(1)
-        lay.addLayout(buttons)
+        lay.addWidget(self._build_product_block())
+        lay.addWidget(self._build_ict_block())
+        lay.addWidget(self._build_fct_block())
+        lay.addStretch(1)
 
-        # file captions: relative path + file name
-        self.lbl_spf = QLabel("SPF: (not imported)")
-        self.lbl_net = QLabel("NET: (not imported)")
-        self.lbl_bom = QLabel("BOM: (not imported)")
-        lay.addWidget(self.lbl_spf)
-        lay.addWidget(self.lbl_net)
-        lay.addWidget(self.lbl_bom)
+        self.btn_import_spf.clicked.connect(self._import_spf)
+        self.btn_import_net.clicked.connect(self._import_net)
+        self.btn_import_bom.clicked.connect(self._import_bom)
+        self._route_group.buttonClicked.connect(self._on_route_changed)
 
-        # --------------------------------------------------- meta form
-        # item 21: flat, evenly spaced Qt form layout - uniform row
-        # spacing, all input boxes aligned to the same (growing) width
-        form = QFormLayout()
+    # --------------------------------------------------------- block 1
+    def _build_product_block(self) -> QWidget:
+        """Block 1 — Product Information (five required fields)."""
+        box = QGroupBox("Product Information")
+        form = QFormLayout(box)
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(14)
         form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.edit_product_id = QLineEdit()
-        self.edit_product_id.setToolTip(
-            "Product ID - auto-filled with the Core ID extracted from "
-            "the SPF file name; manual override allowed")
-        form.addRow("Product ID:", self.edit_product_id)
         self.edit_part_number = QLineEdit()
         self.edit_part_number.setToolTip(
-            "Project Part # - auto-filled from the SPF first-page "
+            "Product Part # - auto-filled from the SPF first-page "
             "drawing title when available, always editable")
-        form.addRow("Project Part #:", self.edit_part_number)
+        form.addRow("Product Part #:", self.edit_part_number)
+        self.edit_product_id = QLineEdit()
+        self.edit_product_id.setToolTip(
+            "Core ID - auto-filled with the Core ID extracted from "
+            "the SPF file name; manual override allowed")
+        form.addRow("Core ID:", self.edit_product_id)
         self.edit_sw_version = QLineEdit()
         self.edit_sw_version.setToolTip(
-            "SW Version - manual fill only, report metadata purpose")
-        form.addRow("SW Version (optional):", self.edit_sw_version)
+            "FSW Version - the whole test-software package version")
+        form.addRow("FSW Version:", self.edit_sw_version)
         self.edit_hw_version = QLineEdit()
-        self.edit_hw_version.setToolTip(
-            "HW Version - manual fill only, report metadata purpose")
-        form.addRow("HW Version (optional):", self.edit_hw_version)
+        self.edit_hw_version.setToolTip("HW Revision - report metadata")
+        form.addRow("HW Revision:", self.edit_hw_version)
         self.combo_batch = QComboBox()
         self.combo_batch.setInsertPolicy(QComboBox.NoInsert)
         self.combo_batch.addItems(list(BATCH_OPTIONS))
@@ -221,12 +212,128 @@ class DesignInputPanel(QWidget):
         self.lbl_batch_detail = QLabel("")
         self.lbl_batch_detail.setObjectName("muted")
         form.addRow("", self.lbl_batch_detail)
-        lay.addLayout(form)
-        lay.addStretch(1)   # balanced free space (flat, uncrowded)
+        return box
 
-        self.btn_import_spf.clicked.connect(self._import_spf)
-        self.btn_import_net.clicked.connect(self._import_net)
-        self.btn_import_bom.clicked.connect(self._import_bom)
+    # --------------------------------------------------------- block 2
+    def _build_ict_block(self) -> QWidget:
+        """Block 2 — Design Files for ICT: Enable + two exclusive routes."""
+        box = QGroupBox("Design Files for ICT")
+        lay = QVBoxLayout(box)
+        self.chk_ict = QCheckBox("Enable")
+        self.chk_ict.setChecked(True)
+        lay.addWidget(self.chk_ict)
+
+        # two mutually exclusive routes
+        self._route_group = QButtonGroup(box)
+        self.radio_files = QRadioButton("SPF + NET + BoM")
+        self.radio_excel = QRadioButton("ICT Excel Spreadsheet")
+        self.radio_files.setChecked(True)
+        self._route_group.addButton(self.radio_files)
+        self._route_group.addButton(self.radio_excel)
+        route_row = QHBoxLayout()
+        route_row.addWidget(self.radio_files)
+        route_row.addWidget(self.radio_excel)
+        route_row.addStretch(1)
+        lay.addLayout(route_row)
+
+        # files route: the three import buttons + captions
+        self._files_route = QWidget()
+        files_lay = QVBoxLayout(self._files_route)
+        files_lay.setContentsMargins(0, 0, 0, 0)
+        buttons = QHBoxLayout()
+        self.btn_import_spf = QPushButton("Import SPF…")
+        self.btn_import_net = QPushButton("Import NET…")
+        self.btn_import_bom = QPushButton("Import BOM…")
+        buttons.addWidget(self.btn_import_spf)
+        buttons.addWidget(self.btn_import_net)
+        buttons.addWidget(self.btn_import_bom)
+        buttons.addStretch(1)
+        files_lay.addLayout(buttons)
+        self.lbl_spf = QLabel("SPF: (not imported)")
+        self.lbl_net = QLabel("NET: (not imported)")
+        self.lbl_bom = QLabel("BOM: (not imported)")
+        files_lay.addWidget(self.lbl_spf)
+        files_lay.addWidget(self.lbl_net)
+        files_lay.addWidget(self.lbl_bom)
+        lay.addWidget(self._files_route)
+
+        # excel route: one workbook
+        self._excel_route = QWidget()
+        excel_lay = QVBoxLayout(self._excel_route)
+        excel_lay.setContentsMargins(0, 0, 0, 0)
+        excel_row = QHBoxLayout()
+        self.btn_import_excel = QPushButton("Import ICT Excel…")
+        self.btn_import_excel.clicked.connect(self._import_ict_excel)
+        self.lbl_excel = QLabel("Workbook: (not imported)")
+        self.lbl_excel.setObjectName("muted")
+        excel_row.addWidget(self.btn_import_excel)
+        excel_row.addWidget(self.lbl_excel, 1)
+        excel_lay.addLayout(excel_row)
+        lay.addWidget(self._excel_route)
+
+        self.chk_ict.toggled.connect(self._on_ict_toggled)
+        self.radio_files.toggled.connect(self._on_route_changed)
+        self.radio_excel.toggled.connect(self._on_route_changed)
+        return box
+
+    # --------------------------------------------------------- block 3
+    def _build_fct_block(self) -> QWidget:
+        """Block 3 — Pre-Configure for FCT: Enable + board software +
+        supported test types (declare only, never branch)."""
+        box = QGroupBox("Pre-Configure for FCT")
+        lay = QVBoxLayout(box)
+        self.chk_fct = QCheckBox("Enable")
+        self.chk_fct.setChecked(True)
+        lay.addWidget(self.chk_fct)
+
+        sw_row = QHBoxLayout()
+        sw_row.addWidget(QLabel("DUT Board Software:"))
+        self.combo_board_software = QComboBox()
+        self.combo_board_software.setInsertPolicy(QComboBox.NoInsert)
+        self.combo_board_software.addItems(
+            ["linux", "bare_metal", "slave_daughter"])
+        sw_row.addWidget(self.combo_board_software)
+        sw_row.addStretch(1)
+        lay.addLayout(sw_row)
+
+        lay.addWidget(QLabel("FCT supported test types:"))
+        self._fct_type_checks: dict[str, QCheckBox] = {}
+        for key, label in FCT_TEST_TYPES:
+            check = QCheckBox(label)
+            self._fct_type_checks[key] = check
+            lay.addWidget(check)
+
+        self.chk_fct.toggled.connect(self._on_fct_toggled)
+        return box
+
+    # --------------------------------------------------------- route ui
+    def _on_route_changed(self, _button) -> None:
+        """Grey / enable the right route; only the chosen files persist."""
+        excel = self.radio_excel.isChecked()
+        self._files_route.setEnabled(not excel)
+        self._excel_route.setEnabled(excel)
+
+    def _on_ict_toggled(self, checked: bool) -> None:
+        self.radio_files.setEnabled(checked)
+        self.radio_excel.setEnabled(checked)
+        self._files_route.setEnabled(checked and not self.radio_excel.isChecked())
+        self._excel_route.setEnabled(checked and self.radio_excel.isChecked())
+
+    def _on_fct_toggled(self, checked: bool) -> None:
+        self.combo_board_software.setEnabled(checked)
+        for check in self._fct_type_checks.values():
+            check.setEnabled(checked)
+
+    def _import_ict_excel(self) -> None:
+        """Record the ICT Excel workbook (Route B); LOAD ONLY here."""
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import ICT Excel Spreadsheet", "", "Excel (*.xlsx)")
+        if not path:
+            return
+        self._ict_excel_path = path
+        self.lbl_excel.setText(f"Workbook: {_rel_path(path)}")
+        self.content_changed.emit()
 
     # ------------------------------------------------------------ import
     def _import_spf(self) -> None:
@@ -487,12 +594,20 @@ class DesignInputPanel(QWidget):
     # ------------------------------------------------------ values in/out
     def values(self) -> dict:
         """The schema-shaped parameter dict (all values strings)."""
+        fct_tests = "\n".join(key for key, check in self._fct_type_checks.items()
+                              if check.isChecked())
         return {
-            "product_id": self.edit_product_id.text().strip(),
             "part_number": self.edit_part_number.text().strip(),
+            "product_id": self.edit_product_id.text().strip(),
             "sw_version": self.edit_sw_version.text().strip(),
             "hw_version": self.edit_hw_version.text().strip(),
             "batch": self.batch_value(),
+            "ict_block_enabled": _bool_text(self.chk_ict.isChecked()),
+            "ict_route": "excel" if self.radio_excel.isChecked() else "files",
+            "ict_excel_file": _stored_path(self._ict_excel_path),
+            "fct_block_enabled": _bool_text(self.chk_fct.isChecked()),
+            "dut_board_software": self.combo_board_software.currentText(),
+            "fct_supported_tests": fct_tests,
             "spf_file": _rel_path(self.spf_path) if self.spf_path else "",
             "net_file": _rel_path(self.net_path) if self.net_path else "",
             "bom_file": _stored_path(self.bom_path),
@@ -503,17 +618,34 @@ class DesignInputPanel(QWidget):
         legacy core_id / project_name / schematic_file keys map onto
         the new fields; legacy free-text batch maps to Customized)."""
         params = params or {}
-        self.edit_product_id.setText(
-            str(params.get("product_id")
-                or params.get("core_id") or ""))
         self.edit_part_number.setText(
             str(params.get("part_number")
                 or params.get("project_name") or ""))
+        self.edit_product_id.setText(
+            str(params.get("product_id")
+                or params.get("core_id") or ""))
         self.edit_sw_version.setText(
             str(params.get("sw_version") or ""))
         self.edit_hw_version.setText(
             str(params.get("hw_version") or ""))
         self.set_batch(str(params.get("batch") or ""))
+        self.chk_ict.setChecked(_true_text(params.get("ict_block_enabled")))
+        excel = str(params.get("ict_route") or "files") == "excel"
+        self.radio_excel.setChecked(excel)
+        self.radio_files.setChecked(not excel)
+        self._ict_excel_path = str(params.get("ict_excel_file") or "")
+        self.lbl_excel.setText(
+            f"Workbook: {self._ict_excel_path}" if self._ict_excel_path
+            else "Workbook: (not imported)")
+        self.chk_fct.setChecked(_true_text(params.get("fct_block_enabled")))
+        sw = str(params.get("dut_board_software") or "linux")
+        if sw in ("linux", "bare_metal", "slave_daughter"):
+            self.combo_board_software.setCurrentText(sw)
+        supported = {
+            ln.strip() for ln in str(params.get("fct_supported_tests")
+                                     or "").splitlines() if ln.strip()}
+        for key, check in self._fct_type_checks.items():
+            check.setChecked(key in supported)
         self.spf_path = str(params.get("spf_file")
                             or params.get("schematic_file") or "")
         self.lbl_spf.setText(
@@ -525,6 +657,35 @@ class DesignInputPanel(QWidget):
             else "NET: (not imported)")
         self.bom_path = str(params.get("bom_file") or "")
         self._reload_bom_label()
+        self._on_route_changed(None)
+
+    # ---------------------------------------------------------- validation
+    def validate(self) -> tuple[bool, str]:
+        """Node 01 gate: both blocks off is forbidden; the five Product
+        Information fields and the chosen route's files must be present.
+
+        Returns ``(ok, message)`` — ``message`` becomes the ``[Next >]``
+        tooltip when ``ok`` is False.
+        """
+        if not self.chk_ict.isChecked() and not self.chk_fct.isChecked():
+            return False, "At least one of ICT / FCT must be enabled"
+        for key, label in (("part_number", "Product Part #"),
+                           ("product_id", "Core ID"),
+                           ("sw_version", "FSW Version"),
+                           ("hw_version", "HW Revision")):
+            if not self.values()[key].strip():
+                return False, f"{label} is required"
+        if not self.batch_value().strip():
+            return False, "Batch # is required"
+        if self.chk_ict.isChecked():
+            if self.radio_excel.isChecked():
+                if not self._ict_excel_path.strip():
+                    return False, "ICT Excel Spreadsheet is required"
+            else:
+                if not (self.spf_path.strip() and self.net_path.strip()
+                        and self.bom_path.strip()):
+                    return False, "SPF, NET and BoM are all required"
+        return True, ""
 
     def _reload_bom_label(self) -> None:
         """Restore the BOM caption after a project load: parse the
@@ -571,3 +732,13 @@ def _stored_path(path: str) -> str:
         return p.resolve().relative_to(Path.cwd().resolve()).as_posix()
     except ValueError:
         return str(p.resolve())
+
+
+def _bool_text(value: bool) -> str:
+    """``"true"`` / ``"false"`` for the schema's T_BOOL fields."""
+    return "true" if value else "false"
+
+
+def _true_text(value) -> bool:
+    """Tolerant bool read-back for a stored T_BOOL string."""
+    return str(value or "").strip().lower() not in ("", "false", "0", "no")

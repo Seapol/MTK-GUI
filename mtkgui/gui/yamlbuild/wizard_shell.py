@@ -66,6 +66,7 @@ class YamlBuildWizard(QWidget):
         # ------------------------------------------------ body
         self.body = QStackedWidget()
         self._bodies: dict[str, QWidget] = {}
+        self._panels: dict[str, QWidget] = {}
         for step in sv.YAML_STEPS:
             self.body.addWidget(self._build_body(step.key))
         root.addWidget(self.body, 1)
@@ -116,6 +117,7 @@ class YamlBuildWizard(QWidget):
         # panel: re-parent the existing widget unchanged
         panel = self._make_panel(key)
         lay.addWidget(panel)
+        self._panels[key] = panel
         self._bodies[key] = body
         return body
 
@@ -147,7 +149,11 @@ class YamlBuildWizard(QWidget):
             not in ("false", "0", "no")
 
     def validate_current(self) -> tuple[bool, str]:
-        """Hook node 01 overrides in v2-3b; the default never blocks."""
+        """Delegate to node 01's panel (v2-3b); the default never blocks."""
+        panel = self._panels.get(self.current)
+        validator = getattr(panel, "validate", None)
+        if callable(validator):
+            return validator()
         return True, ""
 
     # --------------------------------------------------------- navigation
