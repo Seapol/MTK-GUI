@@ -441,5 +441,6 @@ def display_text(status, kind_hint: str = "") -> str:
         return {StepStatus.FAIL: "FAIL",
                 StepStatus.ERROR: "Error",
                 StepStatus.RUNNING: "RUNNING",
-                StepStatus.IGNORED: "Ignore"}[status]
+                StepStatus.IGNORED: "Ignore",
+                StepStatus.TBD: "TBD"}[status]
     return status

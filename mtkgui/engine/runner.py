@@ -53,6 +53,7 @@ _STATUS_TO_ENUM = {
     "PASS": StepStatus.PASS, "Done": StepStatus.PASS,
     "FAIL": StepStatus.FAIL, "Error": StepStatus.ERROR,
     "Ignore": StepStatus.IGNORED, "RUNNING": StepStatus.RUNNING,
+    "TBD": StepStatus.TBD,
 }
 
 #: _run_op verdict string -> row status.  Op steps report "Done" /
@@ -252,7 +253,8 @@ class TestRunner(QObject):
 
     def verdict(self) -> str | None:
         """Overall Result rollup: "FAIL" if any non-ignored step
-        FAIL/ERROR, "PASS" if any step judged good, None when nothing
+        FAIL/ERROR, "Pending" if any step is TBD (measured but no
+        limit), "PASS" if any step judged good, None when nothing
         judged yet (policies.rollup)."""
         return rollup(self._results)
 
@@ -594,6 +596,9 @@ class TestRunner(QObject):
             if m.verdict == "Error":
                 self._put("ict", r, StepStatus.ERROR, m.text)
                 env._instrument_error(meas_instrument_abbr(kind, name))
+            elif m.verdict == "TBD":
+                # v2-9c: measured but no limit - yellow, never FAIL.
+                self._put("ict", r, StepStatus.TBD, m.text)
             else:
                 self._put("ict", r, StepStatus.PASS
                           if m.verdict == "PASS" else StepStatus.FAIL,
@@ -610,6 +615,9 @@ class TestRunner(QObject):
                 detail = out.text or " | ".join(out.lines)
                 self._put("ict", r, StepStatus.ERROR, detail)
                 env._instrument_error(meas_instrument_abbr(kind, name))
+            elif out.verdict == "TBD":
+                # v2-9c: measured but no limit - yellow, never FAIL.
+                self._put("ict", r, StepStatus.TBD, out.text)
             else:
                 self._put("ict", r, StepStatus.PASS
                           if out.verdict == "PASS" else StepStatus.FAIL,

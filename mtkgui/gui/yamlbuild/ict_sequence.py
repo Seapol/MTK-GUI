@@ -317,6 +317,24 @@ def _filled(text) -> str:
     return "" if value in ("", "—", "--") else value
 
 
+def production_missing_limits_note(batch: str, steps) -> str | None:
+    """v2-9c: the Production-batch note shown on 04/05.
+
+    A Production run must ship, so a measurement row with no Expected /
+    Min / Max (which would report TBD and make the board Pending) is
+    called out.  Engineering / proto batches may run without limits on
+    purpose, so no note is shown for them."""
+    if "Production" not in (batch or ""):
+        return None
+    for step in steps or ():
+        if not step or step[0] != "test":
+            continue
+        if any(not _filled(value) for value in step[3:6]):
+            return ("Production batch with missing limits - every run "
+                    "will be Pending and cannot ship")
+    return None
+
+
 _SKELETON_OP_NAMES = frozenset(
     ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST
     + (RAILS_START_OP, RAILS_END_OP))
@@ -524,11 +542,13 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         self._refresh_limits_hint()
 
     def _refresh_limits_hint(self) -> None:
-        """[WARNING] line listing the Clock nets Auto could not fill.
+        """[WARNING] line for low-confidence power nets with no rail
+        topology (M99) - those generate no ICT rows and are re-judged in
+        Parse Nets.
 
-        A Clock row without Expected / Min / Max stops the run with
-        ``limits missing -> Error``; surfacing it here lets the operator
-        edit the row before building (M9 W2)."""
+        (v2-9c removed the Clock-limits-missing warning: a missing limit
+        no longer stops the run - the row reports TBD and the board is
+        Pending, so there is nothing to warn about here.)"""
         label = getattr(self, "_limits_hint", None)
         if label is None:
             return
@@ -545,21 +565,6 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
                     f"[WARNING] {net} has low confidence and no rail "
                     "topology - no ICT rows generated (judge it in Parse "
                     "Nets)")
-        missing = []
-        for step in self._steps:
-            if not step or step[0] != "test":
-                continue
-            name = str(step[1])
-            if name.split(" - ")[0] != "Clock Hz":
-                continue
-            if any(not _filled(value) for value in step[3:6]):
-                missing.append(name.split(" - ", 1)[1])
-        if missing:
-            lines.append(
-                "[WARNING] Clock limits missing (the frequency could not be "
-                "inferred) - double-click the row to fill Expected / Min / "
-                "Max, otherwise the run stops with 'limits missing -> "
-                "Error': " + ", ".join(missing))
         if lines:
             label.setText("\n".join(lines))
             label.show()

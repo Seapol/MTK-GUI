@@ -2375,6 +2375,10 @@ class TestWorkFlowPage(QWidget):
             # colour, no bold, and the rollup ignores it
             item.setForeground(QColor(gui_theme_color("neutral")))
             font.setBold(status == "Ignore")
+        elif status == "TBD":
+            # v2-9c: measured but no limit to compare against - yellow,
+            # no bold, and the rollup reports the board Pending
+            item.setForeground(QColor(gui_theme_color("warn")))
         else:
             item.setForeground(QBrush())
         item.setFont(font)

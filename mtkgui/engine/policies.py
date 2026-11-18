@@ -71,19 +71,28 @@ def normalize_retry_count(value) -> int:
 
 def rollup(results: dict) -> str | None:
     """Overall result of the executed steps: "FAIL" if any non-ignored
-    step FAIL/ERROR, "PASS" if at least one step judged good, None when
-    nothing judged yet.
+    step FAIL/ERROR, "Pending" if any step is TBD (measured but no
+    limit), "PASS" if at least one step judged good, None when nothing
+    judged yet.  A Pending board is not shippable - it is never PASS.
 
     results: {(table_kind, row): display status text} tracked by the
     TestRunner for every rendered step result."""
     judged_any = False
     failed = False
+    tbd = False
     for (kind, _row), text in results.items():
         if text in _JUDGED_OK.get(kind, ()):
             judged_any = True
         elif text in _JUDGED_BAD:
             judged_any = True
             failed = True
+        elif text == "TBD":
+            judged_any = True
+            tbd = True
     if not judged_any:
         return None
-    return "FAIL" if failed else "PASS"
+    if failed:
+        return "FAIL"
+    if tbd:
+        return "Pending"
+    return "PASS"

@@ -21,6 +21,8 @@ class StepStatus(str, Enum):
     ERROR:   instrument or equipment fault (not a DUT verdict).
     IGNORED: rendered as "Ignore" (gray) in the UI; excluded from the
              overall result rollup.
+    TBD:     measured, but no limit to compare against - yellow, never
+             a verdict.
     """
 
     RUNNING = "RUNNING"
@@ -28,6 +30,7 @@ class StepStatus(str, Enum):
     FAIL = "FAIL"
     ERROR = "ERROR"
     IGNORED = "IGNORED"
+    TBD = "TBD"
 
 
 @dataclass

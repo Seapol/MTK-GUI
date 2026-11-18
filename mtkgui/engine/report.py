@@ -87,6 +87,9 @@ class DutReport:
         default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     overall_result: str = ""
     items: list = field(default_factory=list)      # list[ReportItem]
+    #: number of rows reported TBD (measured but no limit) - the board
+    #: is Pending and cannot ship; shown in the header next to the counts.
+    pending_count: int = 0
     # full DUT console transcript (raw, ANSI codes included) — the PDF
     # exporter strips the escapes before dumping it after the test table
     console_log: str = ""
@@ -133,6 +136,8 @@ class DutReport:
             result = _cell(page.ict, r, 7)
             if not result or result in ("Pending", "--"):
                 continue
+            if result == "TBD":
+                report.pending_count += 1
             category = CAT_ICT
             if kind == "op":
                 category = CAT_FLASH if "Flash" in name else CAT_ICT
@@ -158,6 +163,8 @@ class DutReport:
             result = _cell(page.fct, r, 4)
             if not result or result in ("Pending", "--"):
                 continue
+            if result == "TBD":
+                report.pending_count += 1
             kind = (page.fct_kinds[r]
                     if r < len(page.fct_kinds) else "")
             category = (CAT_RF if kind in ("WIFI", "Bluetooth")
@@ -224,13 +231,27 @@ class DutReport:
             f"<td>{i.duration or i.measured}</td><td>{i.low}</td>"
             f"<td>{i.high}</td><td>{i.unit}</td><td>{i.result}</td></tr>"
             for i in self.items)
-        color = "#1d7a3c" if "PASS" in self.overall_result else "#b02a2a"
+        if "PASS" in self.overall_result:
+            color = "#1d7a3c"
+        elif self.overall_result == "Pending":
+            color = "#b07a00"
+        else:
+            color = "#b02a2a"
+        overall_text = self.overall_result
+        if overall_text == "Pending":
+            overall_text = "Pending (not shippable)"
+        pending_line = ""
+        if self.pending_count:
+            pending_line = (
+                f"<p><b>Pending: {self.pending_count} rows without "
+                f"limits</b></p>")
         return (
             f"<h2>DUT Report — {self.serial_no}</h2>"
             f"<p>Station: {self.station_id} · Operator: {self.user} · "
             f"{self.timestamp}</p>"
             f"<p><b style='color:{color}'>Overall: "
-            f"{self.overall_result}</b></p>"
+            f"{overall_text}</b></p>"
+            f"{pending_line}"
             f"<table border='1' cellspacing='0' cellpadding='4'>"
             f"<tr><th>Test</th><th>Category</th><th>Measured</th>"
             f"<th>Low</th><th>High</th><th>Unit</th><th>Result</th></tr>"

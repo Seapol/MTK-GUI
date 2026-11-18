@@ -806,12 +806,32 @@ class VirtualRack:
             return self.daqm.measure_ohm(name, r_min, fault)
 
         if kind == "Power Voltage" or (unit or "").strip() == "V":
+            if (lo is None or hi is None) and "gnd" not in name.lower():
+                # v2-9c: no limit -> still measure and report TBD.  The
+                # virtual rack has no authored nominal, so it draws a
+                # healthy rail-level reading; a real DAQ returns the
+                # actual value.
+                value = self.rng.gauss(3.3, 0.05)
+                return Measurement("TBD", f"{value:.3f}",
+                                   [f"{name}: no limits - recorded as TBD"],
+                                   value=value)
             return self.daqm.measure_dcv(name, lo, hi, powered, fault)
 
         if kind == "Clock Hz" or (unit or "").strip() == "Hz":
             if lo is None or hi is None:
-                return Measurement("Error", "—",
-                                   [f"{name}: limits missing -> Error"])
+                # v2-9c: no limit -> still measure and report TBD.  The
+                # virtual rack uses the in-code clock identities (CLK1 RTC
+                # 32.768 kHz, CLK2/CLK3 4/6 MHz) as the nominal; a real
+                # counter returns the actual frequency.
+                if tp and tp[0] == "C" and tp[1] >= 2:
+                    nominal = 4_000_000.0 if tp[1] == 2 else 6_000_000.0
+                else:
+                    nominal = 32768.0
+                value = _on_gate_grid(
+                    nominal + self.rng.gauss(0, nominal * 1e-6))
+                return Measurement("TBD", _fmt_hz(value),
+                                   [f"{name}: no limits - recorded as TBD"],
+                                   value=value)
             # CLK1 (RTC, 32.768 kHz) -> DAQM907A totalizer;
             # CLK2/CLK3 (4/6 MHz) -> U2355A counters
             if tp and tp[0] == "C" and tp[1] >= 2:

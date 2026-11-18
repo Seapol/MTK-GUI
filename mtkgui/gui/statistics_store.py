@@ -26,6 +26,7 @@ _MIGRATED = False
 
 VERDICT_PASS = "PASS"
 VERDICT_FAIL = "FAIL"
+VERDICT_PENDING = "Pending"
 
 
 def _as_float(value) -> float | None:
@@ -42,7 +43,7 @@ class RunRecord:
 
     timestamp: str
     serial: str
-    verdict: str                       # PASS | FAIL
+    verdict: str                       # PASS | FAIL | Pending
     cycle_time_s: float
     passed: int
     failed: int
@@ -247,8 +248,10 @@ def record_from_page(page, timestamp: str | None = None) -> RunRecord:
     cycle = float(page.cycle_times[-1]) if getattr(
         page, "cycle_times", None) else 0.0
     try:
-        verdict = VERDICT_FAIL if page._judge_verdict() == "FAIL" \
-            else VERDICT_PASS
+        judged = page._judge_verdict()
+        verdict = (VERDICT_FAIL if judged == "FAIL"
+                   else VERDICT_PENDING if judged == "Pending"
+                   else VERDICT_PASS)
     except Exception:                       # noqa: BLE001 (defensive)
         verdict = VERDICT_PASS
 
@@ -378,17 +381,23 @@ def cpk_rows(records: list[RunRecord]) -> list[dict]:
 
 # -------------------------------------------------------------- overview
 def overview(records: list[RunRecord]) -> dict:
-    """Overview card numbers for one data source."""
+    """Overview card numbers for one data source.
+
+    Pass rate is PASS / (PASS + FAIL); a Pending run (measured but no
+    limit) is counted in its own column and excluded from both sides."""
     total = len(records)
     passed = sum(1 for r in records if r.verdict == VERDICT_PASS)
     failed = sum(1 for r in records if r.verdict == VERDICT_FAIL)
+    pending = sum(1 for r in records if r.verdict == VERDICT_PENDING)
+    judged = passed + failed
     cycles = [r.cycle_time_s for r in records if r.cycle_time_s > 0]
     avg = sum(cycles) / len(cycles) if cycles else 0.0
     return {
         "total": total,
         "passed": passed,
         "failed": failed,
-        "yield_pct": (passed / total * 100.0) if total else 0.0,
+        "pending": pending,
+        "yield_pct": (passed / judged * 100.0) if judged else 0.0,
         "avg_cycle_s": avg,
         "uph": (3600.0 / avg) if avg > 0 else 0.0,
     }
