@@ -126,7 +126,14 @@ class YamlBuildWizard(QWidget):
         if key == "design_input":
             from mtkgui.gui.yamlbuild.design_input_panel import \
                 DesignInputPanel
-            return DesignInputPanel()
+            panel = DesignInputPanel()
+            # v2-3e: node 01 reaches the model - load the persisted
+            # design_input params, then write back on every change.
+            panel.set_values(self.model.get_params("design_input") or {})
+            panel.content_changed.connect(
+                lambda: self.model.set_params("design_input",
+                                              panel.values()))
+            return panel
         if key == "parse_ict":
             from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
             return ParseNetsPanel()

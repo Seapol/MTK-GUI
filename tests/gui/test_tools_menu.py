@@ -31,7 +31,7 @@ def test_fixed_menu_order(window):
     from PySide6.QtWidgets import QApplication
     assert [a.text() for a in window.menuBar().actions()] == \
         ["File", "View", "Settings", "Tools", "Run", "Report", "Help"]
-    window.tabs.setCurrentWidget(window.yaml_build_page)
+    window.tabs.setCurrentWidget(window._yaml_build_host)
     QApplication.processEvents()
     assert [a.text() for a in window.menuBar().actions()] == \
         ["File", "View", "Settings", "Tools", "Run", "Report", "Help"]

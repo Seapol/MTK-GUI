@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QPushButton,
     QSplitter,
     QTabWidget,
     QToolButton,
@@ -1058,9 +1059,6 @@ class MainWindow(QMainWindow):
 
         self._yaml_build_page = YamlBuildPage()
         _startup_mark("ui: YamlBuildPage built")
-        self._replace_secondary_tab(
-            self._yaml_build_placeholder, self._yaml_build_page,
-            "Yaml Build")
 
         yb = self._yaml_build_page
         # M50: FCT step runtime references resolve against the CURRENT
@@ -1136,6 +1134,35 @@ class MainWindow(QMainWindow):
             lambda level, msg:
                 self._append_event_log(f"[{level}] {msg}"))
 
+        # v2-3e: mount the seven-step wizard on the SAME model.  The v1
+        # page stays alive (unparented) as the owner of Excel import /
+        # export, the ICT / FCT dialogs and every provider wired above.
+        from .gui.yamlbuild.wizard_shell import YamlBuildWizard
+        self._yaml_wizard = YamlBuildWizard(model=yb.model)
+        yb.setParent(None)
+        yb.hide()
+
+        host = QWidget()
+        host.setObjectName("YamlBuildWizardHost")
+        host_lay = QVBoxLayout(host)
+        host_lay.setContentsMargins(0, 0, 0, 0)
+        bar = QHBoxLayout()
+        for text, slot in (("Import from Excel", yb._import_excel),
+                           ("Export to Excel", yb._export_excel)):
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            bar.addWidget(btn)
+        bar.addStretch(1)
+        host_lay.addLayout(bar)
+        host_lay.addWidget(self._yaml_wizard, 1)
+        self._yaml_build_host = host
+        self._replace_secondary_tab(
+            self._yaml_build_placeholder, host, "Yaml Build")
+
+        # the launcher nodes open the v1 page's dialog owners
+        self._yaml_wizard.build_ict_requested.connect(yb.open_ict_sequence)
+        self._yaml_wizard.build_fct_requested.connect(yb.open_fct_sequence)
+
         self._apply_page_permissions()
         # restore the power-rails capture from the persisted Yaml Build
         # model state (channel allocation / previous rail config)
@@ -1144,7 +1171,7 @@ class MainWindow(QMainWindow):
     def _apply_page_permissions(self) -> None:
         """Apply the role / mode / fixture state to the secondary pages
         (called once they exist; M14 F2)."""
-        idx = self.tabs.indexOf(self._yaml_build_page)
+        idx = self.tabs.indexOf(self._yaml_build_host)
         if idx >= 0:
             self.tabs.setTabVisible(idx, self._can_yaml_build)
         self._yaml_build_page.set_edit_allowed(self._can_yaml_build)

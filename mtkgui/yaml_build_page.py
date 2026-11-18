@@ -882,7 +882,9 @@ class YamlBuildPage(QWidget):
                 self.model.channel_allocation),
             allocation=self.model.channel_allocation,
             parent=self,
-            available_ops=available_ops(self.model, self._virtual))
+            available_ops=available_ops(self.model, self._virtual),
+            batch=str((self.model.get_params("design_input") or {})
+                      .get("batch", "") or ""))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # the WHOLE editor state travels back (steps + enables +
             # waits + timeouts) - the page writes it verbatim (single

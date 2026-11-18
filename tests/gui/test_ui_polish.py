@@ -144,7 +144,7 @@ def test_each_tab_switches_on_the_first_click(qapp):
         qapp.processEvents()
         bar = window.tabs.tabBar()
         pages = [window.workflow_page, window.equipment_page,
-                 window.yaml_build_page]
+                 window._yaml_build_host]
         order = [2, 1, 0, 2]
         for index in order:
             if not bar.isTabVisible(index):

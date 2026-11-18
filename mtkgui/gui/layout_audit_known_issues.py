@@ -31,8 +31,12 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         # M65: ... like the longer "Wired & Wireless Network" label
         "clipped|QLabel|width=130px < sizeHint=181px (minimumSizeHint=181px)",
         # 240px minimum left column + entry content (design decision);
-        # M65: the longer entry labels raise the content hint to 323px
+        # M65: the longer entry labels raise the content hint to 323px.
+        # The standalone factory page measures a 306px viewport; once
+        # mounted inside the (wider) MainWindow tab it measures 318px.
         "overflow_x|QScrollArea|content sizeHint=321px > viewport=306px "
+        "(horizontal scrollbar)",
+        "overflow_x|QScrollArea|content sizeHint=321px > viewport=318px "
         "(horizontal scrollbar)",
     ],
     # ExportPage -------------------------------------------------------------
@@ -91,6 +95,16 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         # scrollable content may legitimately scroll (design decision)
         "overflow_x|QScrollArea|content sizeHint=896px > viewport=521px "
         "(horizontal scrollbar)",
+    ],
+    # YamlBuildWizardHost ---------------------------------------------------
+    # v2-3e: the mounted wizard embeds the Design Input panel at full tab
+    # width; its QFormLayout grows the fields to the body (same accepted
+    # stretch as YamlBuildPage / the block-config dialogs - cosmetic)
+    "QWidget#YamlBuildWizardHost": [
+        "input_oversized|QLineEdit|width=1226px sizeHint=158px "
+        "content-length=0",
+        "input_oversized|QComboBox|width=1226px sizeHint=186px "
+        "content-length=13",
     ],
     # equipment dialogs ------------------------------------------------------
     "_BlockConfigDialog": [
