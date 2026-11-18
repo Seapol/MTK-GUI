@@ -19,9 +19,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-#: steps whose body is a single sentence, not a real panel.  v2-5 flips
+#: steps whose body is a single sentence, not a real panel.  v2-5 flipped
 #: ``firmware``; node 07 later flips ``apply_save``.
-PLACEHOLDER_STEPS: frozenset[str] = frozenset({"firmware", "apply_save"})
+PLACEHOLDER_STEPS: frozenset[str] = frozenset({"apply_save"})
 
 PLACEHOLDER_TEXT = "This node is not built yet — scheduled for its own commit."
 
@@ -48,7 +48,7 @@ class Step:
 YAML_STEPS: tuple[Step, ...] = (
     Step("design_input", "Design Input",            group="both", kind="panel"),
     Step("parse_ict",    "Parse nets for ICT",      group="ict",  kind="panel"),
-    Step("firmware",     "Firmware Config",         group="fct",  kind="placeholder"),
+    Step("firmware",     "Firmware Config",         group="fct",  kind="panel"),
     Step("equipment",    "Equipment Config",        group="both", kind="panel"),
     Step("build_ict",    "Build ICT Test Sequence", group="ict",  kind="launcher"),
     Step("build_fct",    "Build FCT Test Sequence", group="fct",  kind="launcher"),

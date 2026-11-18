@@ -26,6 +26,11 @@ from mtkgui.gui.yamlbuild.channel_allocation import (
     UNSET,
     allocation_configured_ok,
 )
+from mtkgui.gui.yamlbuild.firmware_config import (
+    default_firmware,
+    emit_firmware,
+    parse_firmware,
+)
 from mtkgui.gui.yamlbuild.schema import (
     MODULE_FIELDS,
     T_BOOL,
@@ -234,6 +239,10 @@ class YamlBuildModel:
         #: (the Equipment page owns it; the step editors read it to
         #: decide which standard operations are usable)
         self._equipment_doc: dict = {}
+        #: v2-5 node 03 firmware config (nested fat/oobe shape, see
+        #: firmware_config.py) - the flashing-method configuration, not
+        #: the FCT flash test steps
+        self.firmware_config: dict = default_firmware()
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -353,11 +362,20 @@ class YamlBuildModel:
                     params[key] = str(data[key])
             self.changed = True
 
+    def get_firmware_config(self) -> dict:
+        """Return a deep copy of the node 03 firmware config."""
+        return copy.deepcopy(self.firmware_config)
+
+    def set_firmware_config(self, config: dict) -> None:
+        """Store the node 03 firmware config (nested fat/oobe shape)."""
+        if isinstance(config, dict):
+            self.firmware_config = copy.deepcopy(config)
+            self.changed = True
+
     @property
     def plan_version(self) -> str:
         """Plan version used in the Draft/Final file naming."""
         return self._plan_version
-
     def set_plan_version(self, version: str) -> None:
         """Set the plan version (validated dotted string).
 
@@ -433,6 +451,9 @@ class YamlBuildModel:
         if self.power_rails_up_sequence:
             section["power_rails_up_sequence"] = \
                 self.power_rails_up_sequence
+        # v2-5 node 03 firmware config (nested fat/oobe; disabled slots
+        # collapse to ``{enabled: false}`` per the §4.6 locked shape)
+        section["firmware"] = emit_firmware(self.firmware_config)
         # item 24 sections (rules / allocations); the Power Tree page
         # was RETIRED (user direction) - no power_tree section is
         # emitted, and a stale section from an old file is dropped
@@ -559,6 +580,11 @@ class YamlBuildModel:
         pr = section.get("power_rails_up_sequence")
         if isinstance(pr, dict):
             self.power_rails_up_sequence = pr
+        # v2-5 node 03 firmware config restore (legacy keys refused)
+        firmware = section.get("firmware")
+        if firmware is not None:
+            self.firmware_config, fw_errors = parse_firmware(firmware)
+            errors.extend(fw_errors)
         # item 24 sections restore (empty / legacy: blank, no error);
         # a stale power_tree section from an old file is DROPPED
         # (the Power Tree page was retired)
@@ -678,6 +704,7 @@ class YamlBuildModel:
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
             "path_risk": copy.deepcopy(self.path_risk),
             "ict_test_plan": copy.deepcopy(self.ict_test_plan),
+            "firmware_config": copy.deepcopy(self.firmware_config),
             "marks": dict(self.marks),
             "modules": {
                 key: {
@@ -724,6 +751,10 @@ class YamlBuildModel:
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)
+        # v2-5 node 03 firmware config restore
+        firmware = state.get("firmware_config")
+        if isinstance(firmware, dict):
+            self.firmware_config, _fw_errors = parse_firmware(firmware)
         marks = state.get("marks")
         self.marks = dict(marks) if isinstance(marks, dict) else {}
         modules = state.get("modules") or {}

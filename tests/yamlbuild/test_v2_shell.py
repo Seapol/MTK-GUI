@@ -35,14 +35,14 @@ def test_step_table_has_seven_steps():
         "both", "ict", "fct", "both", "ict", "fct", "both",
     )
     assert tuple(s.kind for s in sv.YAML_STEPS) == (
-        "panel", "panel", "placeholder", "panel",
+        "panel", "panel", "panel", "panel",
         "launcher", "launcher", "placeholder",
     )
     assert sv.step_label("firmware") == "03 · Firmware Config"
 
 
 def test_placeholder_set_pinned():
-    assert sv.PLACEHOLDER_STEPS == frozenset({"firmware", "apply_save"})
+    assert sv.PLACEHOLDER_STEPS == frozenset({"apply_save"})
 
 
 # ---------------------------------------------------------------- routing

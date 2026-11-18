@@ -137,6 +137,16 @@ class YamlBuildWizard(QWidget):
         if key == "parse_ict":
             from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
             return ParseNetsPanel()
+        if key == "firmware":
+            from mtkgui.gui.yamlbuild.firmware_panel import \
+                FirmwareConfigPanel
+            panel = FirmwareConfigPanel()
+            # v2-5: node 03 reaches the model - load the persisted
+            # firmware config, then write back on every change.
+            panel.set_values(self.model.get_firmware_config())
+            panel.content_changed.connect(
+                lambda: self.model.set_firmware_config(panel.values()))
+            return panel
         if key == "equipment":
             from mtkgui.gui.yamlbuild.instruments_panel import \
                 InstrumentsPanel
