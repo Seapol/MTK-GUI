@@ -41,8 +41,8 @@ def _standard_combo(widget):
 
 
 def test_operation_editor_offers_only_standard_steps(qapp, monkeypatch):
-    step = ("op", "Fixture Lock", "—", "—", "—", "—",
-            {"type": "fixture", "signal": "inpos", "level": "H"})
+    step = ("op", "Fixture Ready", "—", "—", "—", "—",
+            {"type": "fixture_ready", "debounce_ms": 200})
     dlg = _SequenceEditorDialog("ict", [step], [True], [100], [5000])
     seen = {}
 
@@ -57,7 +57,7 @@ def test_operation_editor_offers_only_standard_steps(qapp, monkeypatch):
         assert dlg._edit_op_step(0, dlg._steps[0]) is True
         assert "Custom Operation" not in seen["items"]
         assert set(seen["items"]) == set(OP_STEPS)
-        assert seen["text"] == "Fixture Lock"
+        assert seen["text"] == "Fixture Ready"
     finally:
         dlg.deleteLater()
 

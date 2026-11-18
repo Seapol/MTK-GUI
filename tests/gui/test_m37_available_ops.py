@@ -146,7 +146,7 @@ def test_grayed_operation_tooltips_name_the_fix(qapp, kind):
     assert "instruments (Equipment page)" in \
         acts["Operation: Init Instruments"].toolTip()
     assert "fixture (Equipment page)" in \
-        acts["Operation: Fixture Clamp Down"].toolTip()
+        acts["Operation: Fixture Ready"].toolTip()
     # M48: the DIO operations sit in the ICT-only group - in an ICT
     # editor they keep the Control IO Nets tooltip
     dio_menu = _submenu(dlg.btn_add.menu(), "ICT Measurements")

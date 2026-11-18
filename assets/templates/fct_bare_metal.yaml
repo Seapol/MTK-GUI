@@ -7,13 +7,13 @@ template:
   name: Bare Metal DUT
   description: >
     Instruments -> fixture -> power -> serial core-circuit query -> Wi-Fi
-    scan / Bluetooth RSSI -> power off -> fixture release.
+    scan / Bluetooth RSSI -> power off.
 steps:
   - type: Operation
     op: Init Instruments
   - type: Operation
-    op: Fixture Clamp Down
-    note: optional - delete this row when the bench has no clamp
+    op: Fixture Ready
+    note: optional - delete this row when the bench has no fixture signals
   - type: Operation
     op: Power On DUT
   - type: Delay
@@ -34,6 +34,3 @@ steps:
   - type: BT_RSSI
   - type: Operation
     op: Power Off DUT
-  - type: Operation
-    op: Fixture Release
-    note: optional

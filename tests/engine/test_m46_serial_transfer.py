@@ -472,7 +472,7 @@ def test_operation_submenu_keeps_ops_and_serial_moved_out():
     panel = FCTTestConfigPanel()
     panel.set_values({})
     texts = list(panel._op_add_actions)
-    assert len(texts) == 13          # M48: 9 ops + Delay + 3 messages
+    assert len(texts) == 9           # v2-9a: 5 ops + Delay + 3 messages
     assert "Operation: Custom" not in texts
     assert STEP_TYPE_SERIAL_PUT not in texts
     assert STEP_TYPE_SERIAL_PULL not in texts

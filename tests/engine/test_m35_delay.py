@@ -199,7 +199,7 @@ class TestAddMenus:
                      STEP_TYPE_MESSAGE_GOSTOP}
                   | {"Delay — plain wait (ms)"})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 30   # M83: login + 2 network ops
+        assert len(panel._add_actions) == 26   # v2-9a: 5 standard ops
         for label in direct:
             if label.startswith("Operation: ") or label in (
                     "Delay — plain wait (ms)"):

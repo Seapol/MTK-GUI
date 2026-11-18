@@ -107,7 +107,7 @@ def test_multi_action_sequence_rewinds_to_the_initial_table(panel,
     assert panel.cmd_table.rowCount() == 1
     # 6. Load Template (one undoable step)
     panel._load_template(TEMPLATE_BARE_METAL)
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
     # 7. Clean up (one undoable step)
     _yes(monkeypatch)
     panel._clear_all_steps()
@@ -123,7 +123,7 @@ def test_multi_action_sequence_rewinds_to_the_initial_table(panel,
     # Redo replays them forward, one step at a time
     for _ in range(6):
         panel._redo_step()
-    assert panel.cmd_table.rowCount() == 9          # after Load Template
+    assert panel.cmd_table.rowCount() == 8          # after Load Template
     panel._redo_step()
     assert panel.cmd_table.rowCount() == 0          # Clean up replayed
     assert panel._redo_stack == []
@@ -132,7 +132,7 @@ def test_multi_action_sequence_rewinds_to_the_initial_table(panel,
 def test_load_template_is_undoable_as_one_step(panel):
     panel._add_row_for_label(STEP_TYPE_DELAY)
     panel._load_template(TEMPLATE_BARE_METAL)
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
     panel._undo_step()
     assert panel.cmd_table.rowCount() == 1          # pre-template rows back
 
@@ -143,7 +143,7 @@ def test_clean_up_is_undoable_as_one_step(panel, monkeypatch):
     panel._clear_all_steps()
     assert panel.cmd_table.rowCount() == 0
     panel._undo_step()
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
 
 
 def test_dialog_cancel_pushes_no_history_and_accept_pushes_one(panel,

@@ -108,8 +108,7 @@ class TestAIDraft:
         frag = make_config(tmp_path, net_path)
         cases = frag["ict_test_cases"]
         names = [c["name"] for c in cases]
-        assert names[:5] == ["Init Instruments", "Fixture Clamp Down",
-                             "Fixture Lock", "Fixture E-Stop Healthy",
+        assert names[:3] == ["Init Instruments", "Fixture Ready",
                              "Power On DUT"]
         assert any(n.startswith("R-GND Shorts") for n in names)
         assert "PWR 3V3 Voltage" in names

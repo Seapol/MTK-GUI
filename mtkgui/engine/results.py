@@ -38,7 +38,7 @@ class StepResult:
     measured:   measured value / matched text as shown in the Measured
                 column (None for op steps and rail captures).
     duration_s: wall time of the step execution in seconds.
-    message:    sub-action log line, e.g. "Fixture Clamp Down: Done".
+    message:    sub-action log line, e.g. "Fixture Ready: Done".
     """
 
     status: StepStatus

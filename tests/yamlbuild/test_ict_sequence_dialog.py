@@ -101,15 +101,13 @@ def test_generation_order_impedance_voltage_clock(qapp):
         rows = dlg.result_data()[0]
         names = [r[1] for r in rows]
         assert names == [
-            "Init Instruments", "Fixture Clamp Down", "Fixture Lock",
-            "Fixture E-Stop Healthy",
+            "Init Instruments", "Fixture Ready",
             "R-GND - 1V8_CORE", "R-GND - 3V3",
             "Power On DUT",
             "Power Voltage - 1V8_CORE", "Power Voltage - 3V3",
             "Clock Hz - CLK_24M",
             "U2355A DIO Read", "U2355A DIO Write",
-            "Power Off DUT", "Fixture Unlock", "Fixture Release",
-            "Reset Instruments",
+            "Power Off DUT", "Reset Instruments",
         ]
         assert names.index("R-GND - 3V3") < names.index("Power On DUT") \
             < names.index("Power Voltage - 3V3")
@@ -124,7 +122,7 @@ def test_generation_order_impedance_voltage_clock(qapp):
         assert dio_write[6]["channels"] == "DIO01-DIO08"
         assert dio_write[6]["pattern"] == "0x00"
         units = [r[2] for r in rows]
-        assert units[4:10] == ["Ω", "Ω", "—", "V", "V", "Hz"]
+        assert units[2:8] == ["Ω", "Ω", "—", "V", "V", "Hz"]
     finally:
         dlg.deleteLater()
 

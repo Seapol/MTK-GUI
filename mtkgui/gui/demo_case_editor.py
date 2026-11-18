@@ -59,7 +59,7 @@ def main() -> int:
     assert categorize({"name": "PWR 3V3 Voltage"}) == "Power network"
     assert categorize({"name": "CLK X Frequency"}) == "Clock network"
     assert categorize({"name": "SIG X Continuity"}) == "Signal network"
-    assert categorize({"name": "Fixture Clamp Down", "kind": "op"}) == \
+    assert categorize({"name": "Fixture Ready", "kind": "op"}) == \
         "Procedure"
 
     changed = store.apply_case_edit(

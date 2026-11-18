@@ -169,6 +169,15 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
                                    "no params configured in Equipment")
                     label.setWordWrap(True)
                     param_form.addRow(f"{_model(key)}:", label)
+        elif t == "fixture_ready":
+            # v2-9a: the fixture is one verdict - the conditions come
+            # from the Equipment page, not from this row
+            note = QLabel(
+                "Judged from the fixture signals configured on the "
+                "Equipment page (04 Fixture). MTK never commands a "
+                "mechanical movement.")
+            note.setWordWrap(True)
+            param_form.addRow(note)
         elif t == "fixture":
             sig = QComboBox()
             sig.addItems(["press", "inpos", "estop"])
@@ -279,6 +288,10 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
             str(cb.property("instrument_key"))
             for cb in fields["instruments"]
             if cb.isChecked()]}
+    elif t == "fixture_ready":
+        new_params = {
+            "type": "fixture_ready",
+            "debounce_ms": int(params.get("debounce_ms", 200) or 0)}
     elif t == "fixture":
         new_params = {"type": "fixture",
                       "signal": fields["signal"].currentText(),

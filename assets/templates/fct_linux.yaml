@@ -19,13 +19,13 @@ template:
   description: >
     Instruments -> fixture -> power -> boot wait -> serial console checks ->
     asset push -> driver / RF checks -> network (Wi-Fi) -> SSH push ->
-    ping / iperf / Bluetooth -> log pull -> cleanup -> power off -> release.
+    ping / iperf / Bluetooth -> log pull -> cleanup -> power off.
 steps:
   - type: Operation
     op: Init Instruments
   - type: Operation
-    op: Fixture Clamp Down
-    note: optional - delete this row when the bench has no clamp
+    op: Fixture Ready
+    note: optional - delete this row when the bench has no fixture signals
   - type: Operation
     op: Power On DUT
   - type: Delay
@@ -111,6 +111,3 @@ steps:
     note: optional - an SD-card workflow may keep the files
   - type: Operation
     op: Power Off DUT
-  - type: Operation
-    op: Fixture Release
-    note: optional

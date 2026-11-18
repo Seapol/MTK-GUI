@@ -66,7 +66,7 @@ def test_retired_rows_in_both_sequences_are_reported():
 
 
 def test_other_steps_are_unaffected():
-    doc = _doc(ict=[{"name": "Fixture Clamp Down", "kind": "op"},
+    doc = _doc(ict=[{"name": "Fixture Ready", "kind": "op"},
                     {"name": "Power On DUT", "kind": "op"},
                     {"name": "R-GND - TP_P01", "kind": "R-GND"}],
                fct=[{"name": "Flash_GUI", "kind": "Flash_GUI"},

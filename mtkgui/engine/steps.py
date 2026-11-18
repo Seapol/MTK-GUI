@@ -90,16 +90,11 @@ OP_STEPS: dict[str, dict] = {
     "Reset Instruments": {
         "type": "reset",
         "instruments": ["daq973a", "u2355a", "psu"]},
-    "Fixture Clamp Down": {
-        "type": "fixture", "signal": "press", "level": "H"},
-    "Fixture Release": {
-        "type": "fixture", "signal": "press", "level": "L"},
-    "Fixture Lock": {
-        "type": "fixture", "signal": "inpos", "level": "H"},
-    "Fixture Unlock": {
-        "type": "fixture", "signal": "inpos", "level": "L"},
-    "Fixture E-Stop Healthy": {
-        "type": "fixture", "signal": "estop", "level": "L"},
+    # v2-9a: the fixture surface is ONE step.  MTK judges "can this
+    # run or not"; it never commands a mechanical movement, so clamp,
+    # stroke end and E-stop are conditions inside this single verdict.
+    "Fixture Ready": {
+        "type": "fixture_ready", "debounce_ms": 200},
     # M83/C9: a power row is a PASSIVE state carrier - the N5747A
     # setpoints come from equipment.psu.params, never from the row.
     "Power On DUT": {
@@ -128,12 +123,25 @@ def retired_network_op_message(name: str) -> str:
             "Console_serial row that runs the assets script")
 
 
+#: v2-9a: the five per-signal fixture operations are retired - the
+#: fixture is one verdict now.  The names stay here ONLY so a legacy
+#: project is REPORTED (never converted, never dropped).
+RETIRED_FIXTURE_OPS = ("Fixture Clamp Down", "Fixture Release",
+                       "Fixture Lock", "Fixture Unlock",
+                       "Fixture E-Stop Healthy")
+
+
+def retired_fixture_op_message(name: str) -> str:
+    """M-v2-9: the exact blocking message for a legacy fixture op row."""
+    return (f"standard operation '{name}' was retired — use 'Fixture Ready' "
+            f"and configure the fixture signals on 04 Fixture (ATE)")
+
+
 #: M37 resource groups: the operations that need one configuration
 #: source before they may be used (the editors gray the rest out)
 DIO_OPS = ("U2355A DIO Read", "U2355A DIO Write")
 INSTRUMENT_OPS = ("Init Instruments", "Reset Instruments")
-FIXTURE_OPS = ("Fixture Clamp Down", "Fixture Release", "Fixture Lock",
-               "Fixture Unlock", "Fixture E-Stop Healthy")
+FIXTURE_OPS = ("Fixture Ready",)
 
 
 #: trailing channel number of a DIO channel name (``DIO07`` -> 7)
@@ -253,6 +261,8 @@ def op_summary(params: dict | None) -> str:
             {"daq973a": "DAQ973A", "u2355a": "U2355A",
              "psu": "PSU"}.get(str(k), str(k))
             for k in keys)
+    if t == "fixture_ready":
+        return ""
     if t == "fixture":
         summary = f"{(params or {}).get('signal', '')}=" \
                   f"{(params or {}).get('level', '')}"
@@ -290,6 +300,8 @@ def op_status_lines(name: str, params: dict | None) -> list[str]:
         verb = "reset" if t == "reset" else "init"
         return ([f"{inst} {verb} OK"
                  for inst in p.get("instruments", [])] or [f"{verb} OK"])
+    if t == "fixture_ready":
+        return ["fixture ready: per-bit conditions are evaluated by the runner"]
     if t == "fixture":
         sig, lvl = p.get("signal", "press"), p.get("level", "H")
         expect = fixture_level(p.get("expect"))
@@ -321,7 +333,7 @@ def op_instrument_abbr(params: dict | None) -> str:
     t = (params or {}).get("type") or ""
     if t == "power":
         return "PSU"
-    if t == "fixture":
+    if t in ("fixture", "fixture_ready"):
         return "DAQM"   # fixture control board sits on DAQM907A DIO
     if t in ("dio_read", "dio_out"):
         return "DAQ"    # U2355A USB DAQ

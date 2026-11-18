@@ -306,8 +306,8 @@ def _realistic_report(console=""):
                            high="32769.6384", unit="Hz", result="PASS")]
              + [ReportItem(test_name=op, category="FCT", duration="0.82",
                            result="Done")
-                for op in ("Init Instruments", "Fixture Clamp Down",
-                           "Fixture Lock", "Power On DUT")]
+                for op in ("Init Instruments", "Fixture Ready",
+                           "Power On DUT")]
              + [ReportItem(test_name="Power Rails Up Sequence",
                            category="ICT", method="DAQ AI",
                            measured="12 Power rails assigned on DAQ "

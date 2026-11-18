@@ -100,8 +100,6 @@ _KIND_MAP = {
 
 #: op step names reused from the engine catalog (spine anchors)
 OP_POWER_OFF = "Power Off DUT"
-OP_FIXTURE_UNLOCK = "Fixture Unlock"
-OP_FIXTURE_RELEASE = "Fixture Release"
 OP_RESET_INSTRUMENTS = "Reset Instruments"
 
 
@@ -627,10 +625,6 @@ def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
                     cli_done_keyword),
         FctStep(name=OP_POWER_OFF, step_type=STEP_GUI_CONFIRM,
                 timeout_s=0.0, params={"op": OP_POWER_OFF}),
-        FctStep(name=OP_FIXTURE_UNLOCK, step_type=STEP_GUI_CONFIRM,
-                timeout_s=0.0, params={"op": OP_FIXTURE_UNLOCK}),
-        FctStep(name=OP_FIXTURE_RELEASE, step_type=STEP_GUI_CONFIRM,
-                timeout_s=0.0, params={"op": OP_FIXTURE_RELEASE}),
         FctStep(name=OP_RESET_INSTRUMENTS, step_type=STEP_GUI_CONFIRM,
                 timeout_s=0.0, params={"op": OP_RESET_INSTRUMENTS}),
     ]

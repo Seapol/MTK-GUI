@@ -99,8 +99,7 @@ class CaseGenerator:
 
         # pre-flight op rows (fixture / power-up) copied from the
         # standard ICT opening sequence
-        for name in ("Init Instruments", "Fixture Clamp Down",
-                     "Fixture Lock", "Fixture E-Stop Healthy"):
+        for name in ("Init Instruments", "Fixture Ready"):
             cases.append(_case(name, "op", "—", None, None, dim="op"))
         cases.append(_case("Power On DUT", "op", "—", None, None,
                            dim="op"))

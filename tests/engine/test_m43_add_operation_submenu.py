@@ -63,11 +63,11 @@ def _op_labels() -> list:
 
 
 class TestOperationSubmenu:
-    def test_submenu_has_exactly_thirteen_entries(self, panel):
+    def test_submenu_has_exactly_the_catalog_entries(self, panel):
         texts = list(panel._op_add_actions)
         assert texts == _op_labels() + [DELAY_LABEL] + list(MESSAGE_LABELS)
-        # M48: 9 standard operations + Delay + the three plain messages
-        assert len(texts) == 13
+        # v2-9a: 5 standard operations + Delay + the three plain messages
+        assert len(texts) == len(STANDARD_OPS) + 4
         assert "Operation: Custom" not in texts
         for moved in DIO_OPS:
             assert f"Operation: {moved}" not in texts, moved
@@ -148,7 +148,7 @@ class TestOperationSubmenu:
                   | set(MESSAGE_LABELS)
                   | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 30   # M83: login + 2 network ops
+        assert len(panel._add_actions) == 26   # v2-9a: 5 standard ops
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu

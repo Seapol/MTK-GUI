@@ -6,8 +6,8 @@ The overall flow is a table:
     ICT -> FCT
 
 * ICT test cases run as one top -> bottom sequence. Standard operations
-  (Init Instruments, Fixture Clamp Down / Lock / E-Stop Healthy, Power On
-  DUT, Power Off DUT, Fixture Unlock / Release, Reset Instruments) report
+  (Init Instruments, Fixture Ready, Power On DUT, Power Off DUT,
+  Reset Instruments) report
   Done/Error; in between them the measurement tests report PASS/FAIL:
     - R-GND shorts: 80 points, 2-wire Ω via DAQ973A, R_min threshold
     - power voltage: 80 points, ±0.1 % via DAQ973A
@@ -129,9 +129,7 @@ _ICON_DIR = Path(__file__).resolve().parent / "assets"
 
 ICT_STEPS = [
     _op_step("Init Instruments"),
-    _op_step("Fixture Clamp Down"),
-    _op_step("Fixture Lock"),
-    _op_step("Fixture E-Stop Healthy"),
+    _op_step("Fixture Ready"),
     ("test", "R-GND Shorts (80 pts)", "Ω", "80/80",
      "1.5", ""),
     _op_step("Power On DUT"),
@@ -146,8 +144,6 @@ ICT_STEPS = [
      "-12", "12"),
     ("test", "Fixture DIO (16 ch, 4 used)", "ch", "4/4", "—", "—"),
     _op_step("Power Off DUT"),
-    _op_step("Fixture Unlock"),
-    _op_step("Fixture Release"),
     _op_step("Reset Instruments"),
 ]
 

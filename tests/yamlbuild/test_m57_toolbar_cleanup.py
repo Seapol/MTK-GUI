@@ -59,18 +59,18 @@ def test_clean_up_clears_every_row_after_confirmation(panel, monkeypatch):
     logs = []
     panel.task_log.connect(lambda level, msg: logs.append((level, msg)))
     panel._load_template(TEMPLATE_BARE_METAL)
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
     _accept(monkeypatch)
     panel._clear_all_steps()
     assert panel.cmd_table.rowCount() == 0
-    assert ("INFO", "Clean up: cleared 9 row(s)") in logs
+    assert ("INFO", "Clean up: cleared 8 row(s)") in logs
 
 
 def test_clean_up_no_leaves_the_table_untouched(panel, monkeypatch):
     panel._load_template(TEMPLATE_BARE_METAL)
     _accept(monkeypatch, QMessageBox.StandardButton.No)
     panel._clear_all_steps()
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
 
 
 def test_clean_up_on_an_empty_table_is_a_noop(panel, monkeypatch):
@@ -90,4 +90,4 @@ def test_remove_removes_the_selection_and_stays_gated(panel):
     _select(panel, [1, 3, 5])
     assert panel._remove_sel_btn.isEnabled() is True
     panel._remove_selected()
-    assert panel.cmd_table.rowCount() == 6
+    assert panel.cmd_table.rowCount() == 5

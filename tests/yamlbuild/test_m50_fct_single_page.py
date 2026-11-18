@@ -299,7 +299,7 @@ def test_m47_load_template_still_appends_ordinary_rows(qapp):
     from mtkgui.engine.fct_templates import TEMPLATE_BARE_METAL
     panel = FCTTestConfigPanel()
     panel._load_template(TEMPLATE_BARE_METAL)
-    assert panel.cmd_table.rowCount() == 9
+    assert panel.cmd_table.rowCount() == 8
 
 
 def test_m49b_rssi_rows_survive(qapp):

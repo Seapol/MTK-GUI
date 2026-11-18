@@ -191,6 +191,50 @@ def rule_retired_network_ops(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_network_ops)
 
 
+def _retired_fixture_op_name(row: dict) -> str:
+    """v2-9a: the retired fixture op name a legacy row still carries,
+    else ``""``.  Reads the existing op payload only (``op_params.op`` /
+    the published ``fct_step.params``); the row name is checked for an
+    ``op`` row so a test that merely mentions the words is left alone."""
+    from .steps import RETIRED_FIXTURE_OPS
+    op = dict(row.get("op_params") or {})
+    marker = dict(op.get("fct_step") or {})
+    params = dict(marker.get("params") or {})
+    for candidate in (op.get("op"), params.get("op")):
+        text = str(candidate or "")
+        if text in RETIRED_FIXTURE_OPS:
+            return text
+    if str(row.get("kind") or "") == "op":
+        name = str(row.get("name") or "")
+        if name in RETIRED_FIXTURE_OPS:
+            return name
+    return ""
+
+
+def rule_retired_fixture_ops(doc: dict) -> list[YamlIssue]:
+    """v2-9a: the five per-signal fixture operations are retired - a
+    project YAML still carrying one is an ERROR that names the single
+    replacement.  No migration, no silent rename."""
+    from .steps import retired_fixture_op_message
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for label, key in _SEQUENCE_SECTIONS:
+        for index, row in enumerate(workflow.get(key) or []):
+            if not isinstance(row, dict):
+                continue
+            name = _retired_fixture_op_name(row)
+            if not name:
+                continue
+            issues.append(YamlIssue(
+                SEVERITY_ERROR,
+                retired_fixture_op_message(name),
+                f"{key}[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_retired_fixture_ops)
+
+
 #: M83/C2b: the network profile a connect_wifi.sh row joins, mapped to
 #: the Equipment card name + the SSID field it must match.
 CONNECT_WIFI_PROFILES = {

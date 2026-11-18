@@ -103,9 +103,9 @@ def test_load_pushes_ict_sequence_and_jumps(window):
     assert any(n.startswith("Power Voltage") for n in names)
     assert any(n.startswith("Clock Hz") for n in names)
     # the derived limits: P3V3-style net name absent, but the power
-    # rails channel rows carry the sequence; row count = 4 ops before
-    # + 2 tests + 1 op mid + 1 DAQ AI capture + 1 test + 4 ops after
-    assert len(ict_steps) == 13
+    # rails channel rows carry the sequence; row count = 2 ops before
+    # + 2 tests + 1 op mid + 1 DAQ AI capture + 1 test + 2 ops after
+    assert len(ict_steps) == 9
     # user direction 2026-10-14: the DAQ AI power-rails capture sits
     # right AFTER Power On DUT and BEFORE the Power Voltage tests
     daq_idx = next(i for i, s in enumerate(ict_steps)

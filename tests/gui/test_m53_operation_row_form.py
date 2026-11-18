@@ -93,20 +93,15 @@ def test_power_setpoints_round_trip(panel, monkeypatch):
 
 
 def test_fixture_params_round_trip(panel, monkeypatch):
-    row = _add_op(panel, "Fixture Clamp Down")
+    row = _add_op(panel, "Fixture Ready")
 
     def fake_exec(widget):
-        _combo_with(widget, ["press", "inpos", "estop"]).setCurrentText(
-            "inpos")
-        _combo_with(widget, ["H", "L"]).setCurrentText("L")
-        _combo_with(widget, ["", "High", "Low"]).setCurrentText("High")
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     panel._edit_operation_row(row)
     cmd = panel._row_cmd(row)
-    assert cmd.op_params == {"type": "fixture", "signal": "inpos",
-                             "level": "L", "expect": "High"}
+    assert cmd.op_params == {"type": "fixture_ready", "debounce_ms": 200}
 
 
 def test_instruments_multi_select_round_trip(panel, monkeypatch):

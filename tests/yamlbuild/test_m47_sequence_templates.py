@@ -68,8 +68,7 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 BARE_METAL_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
                     STEP_TYPE_OPERATION, STEP_TYPE_DELAY,
                     STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_WIFI_SCAN,
-                    STEP_TYPE_BT_RSSI, STEP_TYPE_OPERATION,
-                    STEP_TYPE_OPERATION]
+                    STEP_TYPE_BT_RSSI, STEP_TYPE_OPERATION]
 LINUX_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
                STEP_TYPE_OPERATION, STEP_TYPE_DELAY,
                STEP_TYPE_CONSOLE_SERIAL, STEP_TYPE_CONSOLE_SERIAL,
@@ -79,7 +78,7 @@ LINUX_TYPES = [STEP_TYPE_OPERATION, STEP_TYPE_OPERATION,
                STEP_TYPE_WIFI_PING, STEP_TYPE_WIFI_IPERF,
                STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE,
                STEP_TYPE_SERIAL_PULL, STEP_TYPE_CONSOLE_SERIAL,
-               STEP_TYPE_OPERATION, STEP_TYPE_OPERATION]
+               STEP_TYPE_OPERATION]
 
 PROJECT_YAML = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
@@ -120,17 +119,17 @@ class TestTemplateFiles:
                                               "fct_linux.yaml",
                                               "fct_wifi_scan.yaml")
 
-    def test_bare_metal_template_has_nine_rows_in_order(self):
+    def test_bare_metal_template_has_eight_rows_in_order(self):
         rows = load_template_commands(TEMPLATE_BARE_METAL)
-        assert len(rows) == 9
+        assert len(rows) == 8
         assert [step_type_label(c) for c in rows] == BARE_METAL_TYPES
         assert rows[3].kind == KIND_DELAY and rows[3].wait_ms == 3000
         assert rows[5].kind == KIND_WIFI_TEST and rows[5].rf_subtest == "scan"
         assert rows[6].kind == KIND_BT_TEST and rows[6].rf_subtest == "rssi"
 
-    def test_linux_template_has_twenty_rows_in_order(self):
+    def test_linux_template_has_nineteen_rows_in_order(self):
         rows = load_template_commands(TEMPLATE_LINUX)
-        assert len(rows) == 20
+        assert len(rows) == 19
         assert [step_type_label(c) for c in rows] == LINUX_TYPES
         # row 5 = wait only, row 6 = send + capture (Console model §4)
         assert rows[4].wait_enabled and not rows[4].send_enabled
@@ -143,7 +142,7 @@ class TestTemplateFiles:
     def test_template_document_carries_name_and_steps(self):
         data = load_template(TEMPLATE_BARE_METAL)
         assert data["name"] == TEMPLATE_BARE_METAL
-        assert len(data["steps"]) == 9
+        assert len(data["steps"]) == 8
 
     def test_unknown_step_type_is_rejected(self):
         tmp = os.path.join(os.getcwd(), "_m47_bad_template.yaml")
@@ -232,9 +231,9 @@ class TestTemplateLoadReplacesRows:
         out = panel.values()
         steps = ((yaml.safe_load(out["fct_steps_yaml"]) or {})
                  .get("fct") or {}).get("steps") or []
-        assert len(steps) == 9
+        assert len(steps) == 8
         assert len([s for s in steps
-                    if s["type"] == STEP_TYPE_OPERATION]) == 5
+                    if s["type"] == STEP_TYPE_OPERATION]) == 4
         assert list(out) == ["fct_steps_yaml"]
 
 
@@ -259,9 +258,9 @@ class TestRemoveSelected:
                 for r in range(panel.cmd_table.rowCount()) if r not in
                 (1, 3, 5)]
         panel._remove_selected()
-        assert panel.cmd_table.rowCount() == 6
+        assert panel.cmd_table.rowCount() == 5
         assert [c.name for c in _rows(panel)] == keep
-        assert [panel.cmd_table.item(r, _COL_STEP).text() for r in range(6)] \
+        assert [panel.cmd_table.item(r, _COL_STEP).text() for r in range(5)] \
             == keep
 
     def test_remove_selected_is_disabled_with_no_selection(self, panel):
@@ -278,7 +277,7 @@ class TestRemoveSelected:
         panel._load_template(TEMPLATE_BARE_METAL)
         panel.cmd_table.setCurrentCell(2, 0)
         panel._remove_current()
-        assert panel.cmd_table.rowCount() == 8
+        assert panel.cmd_table.rowCount() == 7
         assert [c.kind for c in _rows(panel)][0] == KIND_OP
 
 

@@ -114,7 +114,7 @@ def test_skeleton_spine_order_and_modes():
     assert types[0] == STEP_GUI_CONFIRM          # FAT via operator dialog
     assert gui.steps[0].params["slot"] == "fat"
     assert gui.steps[0].timeout_s == 0.0         # wait for the operator
-    assert types[-4:] == [STEP_GUI_CONFIRM] * 4  # teardown tail
+    assert types[-2:] == [STEP_GUI_CONFIRM] * 2  # power off + reset
     assert gui.steps[2].params["slot"] == "oobe"
 
     cli = build_fct_sequence("c", flash_mode=FLASH_CLI, channel="ser1",

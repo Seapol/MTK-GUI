@@ -71,11 +71,9 @@ def is_daq_ai_row(row) -> bool:
 #: EDIT source; this skeleton is the canonical SEED reused by the
 #: Load-current-yaml flow and the ICT demo build script so they emit
 #: the same sequence the dialog would.
-ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Clamp Down",
-                       "Fixture Lock", "Fixture E-Stop Healthy")
+ICT_OPS_BEFORE_TEST = ("Init Instruments", "Fixture Ready")
 ICT_OPS_MID = ("Power On DUT",)
-ICT_OPS_AFTER_TEST = ("Power Off DUT", "Fixture Unlock",
-                      "Fixture Release", "Reset Instruments")
+ICT_OPS_AFTER_TEST = ("Power Off DUT", "Reset Instruments")
 
 
 def standard_ict_sequence(tests: list, rail_count: int = 0) -> list[tuple]:

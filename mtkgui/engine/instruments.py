@@ -295,8 +295,8 @@ class RealGateway:
             return False, f"{model} close failed: {exc}"
 
     # ------------------------------------------------------- op steps
-    KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "power",
-                      "generic", "dio_read", "dio_out")
+    KNOWN_OP_TYPES = ("instruments", "reset", "fixture", "fixture_ready",
+                      "power", "generic", "dio_read", "dio_out")
 
     def execute_op(self, name: str, params: dict | None) -> GatewayOutcome:
         """Standard operation step against the real rack."""
@@ -336,6 +336,8 @@ class RealGateway:
             if t in ("instruments", "reset"):
                 return self._op_instruments(p, reset=(t == "reset"))
             if t == "fixture":
+                return self._op_fixture(p)
+            if t == "fixture_ready":
                 return self._op_fixture(p)
             if t == "power":
                 return self._op_power(p, name)
@@ -450,7 +452,13 @@ class RealGateway:
         DIO level and compares it with the step's cmd / params
         expectation: match -> Done, mismatch / unexpected present -> Fail.
         A Manual fixture never touches hardware (-> Done).
+
+        v2-9a: ``fixture_ready`` is the single fixture VERDICT - the
+        per-signal write/read machinery above is kept for a hand-built
+        legacy row, but the new step evaluates every enabled condition.
         """
+        if str(p.get("type") or "") == "fixture_ready":
+            return self._op_fixture_ready(p)
         sig = p.get("signal", "press")
         expect = fixture_level(p.get("expect"))
         unexpected = fixture_level(p.get("unexpected"))
@@ -494,6 +502,94 @@ class RealGateway:
             lines.append(f"Unexpected {unexpected} present -> FAIL")
             verdict = "Fail"
         return GatewayOutcome(verdict, value=level, text=text, lines=lines)
+
+    # ------------------------------------------------- v2-9a fixture verdict
+    #: v2-9a: the fixture conditions, in the order a failing one is named.
+    #: Expected logical level (1 = High, 0 = Low) per condition.
+    FIXTURE_READY_CONDITIONS = (("clamped", 1), ("inpos", 1),
+                                ("presence", 0), ("estop", 0),
+                                ("relay_closed", 1))
+
+    def _fixture_signals(self) -> dict:
+        """v2-9a: ``equipment.fixture.signals`` from the project YAML."""
+        entry = self._equipment.get("fixture") or {}
+        return dict(entry.get("signals") or {})
+
+    @staticmethod
+    def _fixture_signal_channel(signal: dict) -> str:
+        """v2-9a: the DIO channel a ``{port, bit}`` pair addresses.
+
+        The DAQM907A exposes 8 bits per port; the project vocabulary
+        names them DIO01..DIO16, so port 1 bit 0 is DIO01.
+        """
+        try:
+            port = int(signal.get("port"))
+            bit = int(signal.get("bit"))
+        except (TypeError, ValueError):
+            return ""
+        if port < 1 or not 0 <= bit <= 7:
+            return ""
+        return f"DIO{(port - 1) * 8 + bit + 1:02d}"
+
+    def _enabled_fixture_signals(self) -> list:
+        """v2-9a: (condition, expected, channel) for every signal that is
+        both ``used`` and ``enabled``.  A disabled condition is dropped -
+        never assumed true."""
+        signals = self._fixture_signals()
+        out: list = []
+        for condition, expected in self.FIXTURE_READY_CONDITIONS:
+            signal = dict(signals.get(condition) or {})
+            if not (signal.get("used") and signal.get("enabled")):
+                continue
+            channel = self._fixture_signal_channel(signal)
+            if channel:
+                out.append((condition, expected, channel))
+        return out
+
+    def _read_fixture_bit(self, channel: str) -> int:
+        """One logical bit of the DAQM907A DIO port."""
+        drv = self._driver("DAQM")
+        result = drv.read_dio(channel)
+        return int(getattr(result, "value", 0) or 0) & 1
+
+    def _fixture_pass(self, signals: list) -> dict:
+        return {condition: self._read_fixture_bit(channel)
+                for condition, _expected, channel in signals}
+
+    def _op_fixture_ready(self, p: dict) -> GatewayOutcome:
+        """v2-9a: one verdict over the configured fixture conditions.
+
+        Two reads ``debounce_ms`` apart must agree; then every enabled
+        condition must hold.  Returns Done / FIXTURE READY, or an Error
+        naming the first failing condition.
+        """
+        import time as _time
+        if self._fixture_type == "Manual":
+            return GatewayOutcome(
+                "Error",
+                lines=["Fixture Ready needs an ATE fixture - this project "
+                       "logs in as Manual"])
+        signals = self._enabled_fixture_signals()
+        if not signals:
+            return GatewayOutcome(
+                "Error",
+                lines=["NOT READY - no fixture signal configured"])
+        first = self._fixture_pass(signals)
+        debounce_ms = int(p.get("debounce_ms", 200) or 0)
+        if debounce_ms > 0:
+            _time.sleep(debounce_ms / 1000.0)
+        second = self._fixture_pass(signals)
+        if first != second:
+            return GatewayOutcome(
+                "Error",
+                lines=["Fixture state is not stable - re-seat the board"])
+        for condition, expected, _channel in signals:
+            if second[condition] != expected:
+                return GatewayOutcome(
+                    "Error", text=f"NOT READY - {condition}",
+                    lines=[f"NOT READY - {condition}"])
+        return GatewayOutcome("Done", text="FIXTURE READY",
+                              lines=["FIXTURE READY"])
 
     def _op_dio_out(self, p: dict) -> GatewayOutcome:
         """M7: drive the U2355A DIO bank (digital output)."""
