@@ -38,9 +38,11 @@ def make_config() -> dict:
                 {"name": "Power Voltage (80 pts)", "kind": "Power Voltage",
                  "unit": "V", "threshold_min": "3.201",
                  "threshold_max": "3.399"},
-                {"name": "CLKOUT1 - 4 MHz (U2355A CTR0)", "kind": "Clock Hz",
-                 "unit": "Hz", "threshold_min": "3996000",
-                 "threshold_max": "4004000"},
+                # the virtual gateway routes a counter by the TP token in
+                # the step NAME (tp_index), so the test point must be in it
+                {"name": "CLKOUT1 TP_C2 - 4 MHz (U2355A CTR0)",
+                 "kind": "Clock Hz", "unit": "Hz",
+                 "threshold_min": "3996000", "threshold_max": "4004000"},
                 {"name": "Power Rails Up Sequence", "kind": "DAQ AI"},
             ],
             "power_rails_up_sequence": {
