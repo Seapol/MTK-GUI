@@ -486,10 +486,11 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
     def __init__(self, net_provider, initial_tests=None, rail_count=0,
                  allocation=None,
                  parent: QWidget | None = None,
-                 available_ops=None) -> None:
+                 available_ops=None, batch: str = "") -> None:
         self._net_provider = net_provider
         self._rail_count = int(rail_count)
         self._allocation = allocation
+        self._batch = batch or ""
         # M9 W1: ONE canonical pipeline shared with the Load-current-yaml
         # path - Auto-filled limits plus the DIO operations when GPIO nets
         # are present, saved manual limits / user operation parameters
@@ -516,11 +517,22 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         self._limits_hint.setStyleSheet(
             "color: #b45309; font-weight: bold;")
         self.layout().insertWidget(0, self._limits_hint)
+        # v2-9c: Production-batch footer note when any measurement row
+        # is missing its limits (the run will be Pending and cannot ship)
+        self._production_note = QLabel(self)
+        self._production_note.setWordWrap(True)
+        self._production_note.setStyleSheet(
+            "background: #fef3c7; color: #92400e;"
+            "border: 1px solid #f59e0b; padding: 4px 8px;"
+            "border-radius: 3px; font-weight: bold;")
+        self.layout().addWidget(self._production_note)
         self._refresh_limits_hint()
+        self._refresh_production_note()
 
     def _populate(self):
         super()._populate()
         self._refresh_limits_hint()
+        self._refresh_production_note()
 
     def _refresh_limits_hint(self) -> None:
         """[WARNING] line for low-confidence power nets with no rail
@@ -552,3 +564,18 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         else:
             label.clear()
             label.hide()
+
+    def _refresh_production_note(self) -> None:
+        """v2-9c: amber footer when a Production batch has any test row
+        with an empty Expected / Min / Max cell (that row reports TBD,
+        so the board is Pending and cannot ship)."""
+        note = getattr(self, "_production_note", None)
+        if note is None:
+            return
+        text = production_missing_limits_note(self._batch, self._steps)
+        if text:
+            note.setText(text)
+            note.show()
+        else:
+            note.clear()
+            note.hide()

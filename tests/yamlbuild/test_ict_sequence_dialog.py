@@ -247,3 +247,35 @@ def test_add_row_lands_at_the_end(qapp, monkeypatch):
                             "3.201", "3.399")
     finally:
         dlg.deleteLater()
+
+
+def test_production_banner_on_missing_limits(qapp):
+    """v2-9c: a Production batch with an empty-limit test row shows the
+    amber footer note; Engineering and complete rows show nothing."""
+    note_text = ("Production batch with missing limits - every run will "
+                 "be Pending and cannot ship")
+
+    prod = IctWorkFlowSequenceDialog(
+        lambda: dict(TESTABLE), batch="MP (Production)")
+    try:
+        prod._steps = [("test", "VDD_3V3", "V", "", "", "")]
+        prod._refresh_production_note()
+        assert prod._production_note.text() == note_text
+        assert not prod._production_note.isHidden()
+
+        # a complete row removes the note
+        prod._steps = [("test", "VDD_3V3", "V", "3.300", "3.201", "3.399")]
+        prod._refresh_production_note()
+        assert prod._production_note.text() == ""
+        assert prod._production_note.isHidden()
+    finally:
+        prod.deleteLater()
+
+    eng = IctWorkFlowSequenceDialog(lambda: dict(TESTABLE))
+    try:
+        eng._steps = [("test", "VDD_3V3", "V", "", "", "")]
+        eng._refresh_production_note()
+        assert eng._production_note.text() == ""
+        assert eng._production_note.isHidden()
+    finally:
+        eng.deleteLater()
