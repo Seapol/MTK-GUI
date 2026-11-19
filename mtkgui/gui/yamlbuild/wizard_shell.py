@@ -141,6 +141,9 @@ class YamlBuildWizard(QWidget):
                 excel = str(design.get("ict_excel_file") or "").strip()
                 if excel:
                     panel.load_route_b(excel)
+            # v2-12a A: the Parse button runs a Route A parse from the raw
+            # NET text recorded on node 01 (load only there).
+            panel.parse_requested.connect(lambda: self._parse_route_a(panel))
             return panel
         if key == "firmware":
             from mtkgui.gui.yamlbuild.firmware_panel import \
@@ -187,6 +190,36 @@ class YamlBuildWizard(QWidget):
             return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
+
+    # ------------------------------------------------------------ parse
+    def _parse_route_a(self, panel) -> None:
+        """Run a Route A parse from the raw NET text recorded on node 01.
+
+        ``net_file`` is a project-relative path (the same convention as
+        ``spf_file`` / ``bom_file``); resolve it against the working
+        directory, read the text, and hand the collapse to the panel.  A
+        netlist that yields no nets raises ``ValueError`` and is reported
+        on the panel's summary label - never propagated.
+        """
+        design = self.model.get_params("design_input") or {}
+        net_file = str(design.get("net_file") or "").strip()
+        if not net_file:
+            return
+        from pathlib import Path
+
+        from mtkgui.ict.netparse import read_text_any_encoding
+        from mtkgui.ict.netparse.parser import parse_testable_nets
+
+        path = Path(net_file)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        try:
+            net_text = read_text_any_encoding(str(path))
+            result = parse_testable_nets(net_text)
+        except ValueError as exc:
+            panel.lbl_summary.setText(f"Parse failed: {exc}")
+            return
+        panel.load_route_a(result)
 
     # ------------------------------------------------------------- state
     def ict_on(self) -> bool:

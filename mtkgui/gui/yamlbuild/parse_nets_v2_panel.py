@@ -45,6 +45,8 @@ class ParseNetsV2Panel(QWidget):
     """Node 02 panel: Parsed Nets + Other Nets with the shared schema."""
 
     content_changed = Signal()
+    #: v2-12a: the operator asked to run a Route A parse from the raw NET text
+    parse_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -59,10 +61,14 @@ class ParseNetsV2Panel(QWidget):
 
         # ------------------------------------------ move controls
         move_row = QHBoxLayout()
+        self.btn_parse = QPushButton("Parse Nets…")
+        self.btn_parse.clicked.connect(self.parse_requested.emit)
         self.btn_up = QPushButton("Move Up")
         self.btn_down = QPushButton("Move Down")
         self.btn_up.clicked.connect(lambda: self._move(-1))
         self.btn_down.clicked.connect(lambda: self._move(+1))
+        move_row.addWidget(self.btn_parse)
+        move_row.addSpacing(8)
         move_row.addWidget(self.btn_up)
         move_row.addWidget(self.btn_down)
         move_row.addStretch(1)
