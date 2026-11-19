@@ -329,3 +329,26 @@ def test_allocated_testable_filters_unallocated_nets():
     # empty allocation -> nothing is testable
     model.set_channel_allocation({})
     assert model.allocated_testable() == {}
+
+
+def test_model_fct_cases():
+    """v2-13 B: the FCT cases round-trip through the model like ICT cases."""
+    model = YamlBuildModel()
+    cases = [{"name": "Flash FAT Firmware", "kind": "MessageGoStop",
+              "enable": True}]
+    model.set_fct_test_cases(cases)
+    # deep copy: mutating the caller's list does not touch the model
+    cases[0]["name"] = "mutated"
+    assert model.get_fct_test_cases()[0]["name"] == "Flash FAT Firmware"
+
+    state = model.to_dict()
+    assert "fct_test_cases" in state
+    assert state["fct_test_cases"][0]["name"] == "Flash FAT Firmware"
+
+    restored = YamlBuildModel()
+    restored.apply_state(state)
+    assert restored.get_fct_test_cases() == [
+        {"name": "Flash FAT Firmware", "kind": "MessageGoStop",
+         "enable": True}]
+    # a state without the key defaults to []
+    assert YamlBuildModel().get_fct_test_cases() == []

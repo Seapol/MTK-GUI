@@ -254,6 +254,9 @@ class YamlBuildModel:
         #: v2-11b node 05 engine-shape ICT sequence (one row per flat
         #: step: name / kind / enable / timeout_ms / limits / op_params)
         self.ict_test_cases: list = []
+        #: v2-13 node 06 engine-shape FCT sequence (one row per flat step:
+        #: name / kind / enable / wait_ms / timeout_ms / op_params.fct_step)
+        self.fct_test_cases: list = []
         #: v2-12a node 02 parse result (route / gate / net-name lists in
         #: table order) - the structured field node 03/04/05 read from
         self.parsed_nets: dict = {}
@@ -404,6 +407,16 @@ class YamlBuildModel:
         """Store the engine-shape ICT cases."""
         if isinstance(cases, list):
             self.ict_test_cases = copy.deepcopy(cases)
+            self.changed = True
+
+    def get_fct_test_cases(self) -> list:
+        """Return a deep copy of the engine-shape FCT cases."""
+        return copy.deepcopy(self.fct_test_cases)
+
+    def set_fct_test_cases(self, cases: list) -> None:
+        """Store the engine-shape FCT cases."""
+        if isinstance(cases, list):
+            self.fct_test_cases = copy.deepcopy(cases)
             self.changed = True
 
     def get_parsed_nets(self) -> dict:
@@ -756,6 +769,7 @@ class YamlBuildModel:
             "path_risk": copy.deepcopy(self.path_risk),
             "ict_test_plan": copy.deepcopy(self.ict_test_plan),
             "ict_test_cases": copy.deepcopy(self.ict_test_cases),
+            "fct_test_cases": copy.deepcopy(self.fct_test_cases),
             "parsed_nets": copy.deepcopy(self.parsed_nets),
             "firmware_config": copy.deepcopy(self.firmware_config),
             "equipment_config": emit_equipment_config(
@@ -803,6 +817,7 @@ class YamlBuildModel:
                              ("gpio_allocation", []),
                              ("path_risk", {}),
                              ("ict_test_plan", {}),
+                             ("fct_test_cases", []),
                              ("ict_test_cases", []),
                              ("parsed_nets", {})):
             value = state.get(key)
