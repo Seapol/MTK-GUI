@@ -254,6 +254,9 @@ class YamlBuildModel:
         #: v2-11b node 05 engine-shape ICT sequence (one row per flat
         #: step: name / kind / enable / timeout_ms / limits / op_params)
         self.ict_test_cases: list = []
+        #: v2-12a node 02 parse result (route / gate / net-name lists in
+        #: table order) - the structured field node 03/04/05 read from
+        self.parsed_nets: dict = {}
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -401,6 +404,16 @@ class YamlBuildModel:
         """Store the engine-shape ICT cases."""
         if isinstance(cases, list):
             self.ict_test_cases = copy.deepcopy(cases)
+            self.changed = True
+
+    def get_parsed_nets(self) -> dict:
+        """Return a deep copy of the node 02 parse result."""
+        return copy.deepcopy(self.parsed_nets)
+
+    def set_parsed_nets(self, value: dict) -> None:
+        """Store the node 02 parse result."""
+        if isinstance(value, dict):
+            self.parsed_nets = copy.deepcopy(value)
             self.changed = True
 
     @property
@@ -743,6 +756,7 @@ class YamlBuildModel:
             "path_risk": copy.deepcopy(self.path_risk),
             "ict_test_plan": copy.deepcopy(self.ict_test_plan),
             "ict_test_cases": copy.deepcopy(self.ict_test_cases),
+            "parsed_nets": copy.deepcopy(self.parsed_nets),
             "firmware_config": copy.deepcopy(self.firmware_config),
             "equipment_config": emit_equipment_config(
                 self.equipment_config),
@@ -789,7 +803,8 @@ class YamlBuildModel:
                              ("gpio_allocation", []),
                              ("path_risk", {}),
                              ("ict_test_plan", {}),
-                             ("ict_test_cases", [])):
+                             ("ict_test_cases", []),
+                             ("parsed_nets", {})):
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)

@@ -27,6 +27,31 @@ from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild import steps_v2 as sv
 
 
+def _parsed_nets_dict(state) -> dict:
+    """The model's ``parsed_nets`` shape, derived from a ``V2ParseState``.
+
+    Net names are emitted in table order (the ``rows`` order) and are not
+    sorted or de-duplicated.
+    """
+    from mtkgui.ict.netparse.model import (CATEGORY_GND, CATEGORY_OTHER,
+                                           CATEGORY_POWER,
+                                           CATEGORY_SE_CLOCK)
+
+    return {
+        "route": state.route,
+        "gate_ok": state.gate_ok,
+        "gate_error": state.gate_error,
+        "power_nets": [r.name for r in state.rows
+                       if r.category == CATEGORY_POWER],
+        "clock_nets": [r.name for r in state.rows
+                       if r.category == CATEGORY_SE_CLOCK],
+        "gnd_nets": [r.name for r in state.rows
+                     if r.category == CATEGORY_GND],
+        "other_nets": [r.name for r in state.rows
+                       if r.category == CATEGORY_OTHER],
+    }
+
+
 class YamlBuildWizard(QWidget):
     """Seven-step shell: step bar + stacked body + footer."""
 
@@ -144,6 +169,13 @@ class YamlBuildWizard(QWidget):
             # v2-12a A: the Parse button runs a Route A parse from the raw
             # NET text recorded on node 01 (load only there).
             panel.parse_requested.connect(lambda: self._parse_route_a(panel))
+            # v2-12a B: node 02 writes the parsed nets back to the model,
+            # and seeds it once so a Route B import is persisted immediately
+            # (not only on the next category edit).
+            panel.content_changed.connect(
+                lambda: self.model.set_parsed_nets(
+                    _parsed_nets_dict(panel.state())))
+            self.model.set_parsed_nets(_parsed_nets_dict(panel.state()))
             return panel
         if key == "firmware":
             from mtkgui.gui.yamlbuild.firmware_panel import \
@@ -220,6 +252,9 @@ class YamlBuildWizard(QWidget):
             panel.lbl_summary.setText(f"Parse failed: {exc}")
             return
         panel.load_route_a(result)
+        # a Route A parse is not a signal-emitter (like a Route B load):
+        # persist it immediately rather than waiting for a category edit
+        self.model.set_parsed_nets(_parsed_nets_dict(panel.state()))
 
     # ------------------------------------------------------------- state
     def ict_on(self) -> bool:
