@@ -135,8 +135,17 @@ class YamlBuildWizard(QWidget):
                                               panel.values()))
             return panel
         if key == "parse_ict":
-            from mtkgui.gui.yamlbuild.parse_nets import ParseNetsPanel
-            return ParseNetsPanel()
+            from mtkgui.gui.yamlbuild.parse_nets_v2_panel import \
+                ParseNetsV2Panel
+            panel = ParseNetsV2Panel()
+            # v2-4: Route B re-imports the ICT Excel recorded on node 01
+            # (LOAD ONLY there); Route A is driven by an explicit parse.
+            design = self.model.get_params("design_input") or {}
+            if str(design.get("ict_route") or "") == "excel":
+                excel = str(design.get("ict_excel_file") or "").strip()
+                if excel:
+                    panel.load_route_b(excel)
+            return panel
         if key == "firmware":
             from mtkgui.gui.yamlbuild.firmware_panel import \
                 FirmwareConfigPanel
@@ -187,10 +196,13 @@ class YamlBuildWizard(QWidget):
             self._refresh()
 
     def _on_next(self) -> None:
+        # v2-4: node 02 blocks [Next >] on a Route B consistency-gate
+        # mismatch (and node 01 on its own validation) - delegate to the
+        # current panel's validate(), default never blocks.
+        ok, _msg = self.validate_current()
+        if not ok:
+            return
         if self.current == "design_input":
-            ok, _msg = self.validate_current()
-            if not ok:
-                return
             design = self.model.get_params("design_input") or {}
             core = str(design.get("product_id") or "").strip()
             if core:
@@ -239,13 +251,12 @@ class YamlBuildWizard(QWidget):
         self.body.setCurrentIndex(sv.STEP_KEYS.index(self.current))
         self.btn_back.setVisible(self.current != "design_input")
         self.btn_next.setText(sv.next_label(self.current, ict_on, fct_on))
-        if self.current == "design_input":
-            ok, msg = self.validate_current()
-            self.btn_next.setEnabled(ok)
-            self.btn_next.setToolTip(msg)
-        else:
-            self.btn_next.setEnabled(
-                sv.next_key(self.current, ict_on, fct_on) is not None)
+        # v2-4: any panel may gate [Next >] (node 01 validates its
+        # fields, node 02 the Route B consistency gate).
+        nxt = sv.next_key(self.current, ict_on, fct_on)
+        ok, msg = self.validate_current()
+        self.btn_next.setEnabled(ok and nxt is not None)
+        self.btn_next.setToolTip(msg if not ok else "")
 
     # --------------------------------------------------------- test hook
     def goto(self, key: str) -> None:
