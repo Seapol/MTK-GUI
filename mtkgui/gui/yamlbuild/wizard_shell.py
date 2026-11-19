@@ -157,9 +157,15 @@ class YamlBuildWizard(QWidget):
                 lambda: self.model.set_firmware_config(panel.values()))
             return panel
         if key == "equipment":
-            from mtkgui.gui.yamlbuild.instruments_panel import \
-                InstrumentsPanel
-            return InstrumentsPanel()
+            from mtkgui.gui.yamlbuild.equipment_panel import \
+                EquipmentConfigPanel
+            panel = EquipmentConfigPanel()
+            # v2-10: node 04 reaches the model - load the persisted
+            # equipment config, then write back on every change.
+            panel.set_values(self.model.get_equipment_config())
+            panel.content_changed.connect(
+                lambda: self.model.set_equipment_config(panel.values()))
+            return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
 

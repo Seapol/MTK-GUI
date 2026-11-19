@@ -26,6 +26,11 @@ from mtkgui.gui.yamlbuild.channel_allocation import (
     UNSET,
     allocation_configured_ok,
 )
+from mtkgui.gui.yamlbuild.equipment_config import (
+    EquipmentConfig,
+    emit_equipment_config,
+    parse_equipment_config,
+)
 from mtkgui.gui.yamlbuild.firmware_config import (
     default_firmware,
     emit_firmware,
@@ -243,6 +248,9 @@ class YamlBuildModel:
         #: firmware_config.py) - the flashing-method configuration, not
         #: the FCT flash test steps
         self.firmware_config: dict = default_firmware()
+        #: v2-10 node 04 equipment config (instruments / power source /
+        #: channels / rails / fixture / peripherals)
+        self.equipment_config: EquipmentConfig = EquipmentConfig()
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -372,6 +380,16 @@ class YamlBuildModel:
             self.firmware_config = copy.deepcopy(config)
             self.changed = True
 
+    def get_equipment_config(self) -> EquipmentConfig:
+        """Return a deep copy of the node 04 equipment config."""
+        return copy.deepcopy(self.equipment_config)
+
+    def set_equipment_config(self, config: EquipmentConfig) -> None:
+        """Store the node 04 equipment config."""
+        if isinstance(config, EquipmentConfig):
+            self.equipment_config = copy.deepcopy(config)
+            self.changed = True
+
     @property
     def plan_version(self) -> str:
         """Plan version used in the Draft/Final file naming."""
@@ -454,6 +472,9 @@ class YamlBuildModel:
         # v2-5 node 03 firmware config (nested fat/oobe; disabled slots
         # collapse to ``{enabled: false}`` per the §4.6 locked shape)
         section["firmware"] = emit_firmware(self.firmware_config)
+        # v2-10 node 04 equipment config
+        section["equipment_config"] = emit_equipment_config(
+            self.equipment_config)
         # item 24 sections (rules / allocations); the Power Tree page
         # was RETIRED (user direction) - no power_tree section is
         # emitted, and a stale section from an old file is dropped
@@ -585,6 +606,10 @@ class YamlBuildModel:
         if firmware is not None:
             self.firmware_config, fw_errors = parse_firmware(firmware)
             errors.extend(fw_errors)
+        # v2-10 node 04 equipment config restore
+        eq = section.get("equipment_config")
+        if isinstance(eq, dict):
+            self.equipment_config = parse_equipment_config(eq)
         # item 24 sections restore (empty / legacy: blank, no error);
         # a stale power_tree section from an old file is DROPPED
         # (the Power Tree page was retired)
@@ -705,6 +730,8 @@ class YamlBuildModel:
             "path_risk": copy.deepcopy(self.path_risk),
             "ict_test_plan": copy.deepcopy(self.ict_test_plan),
             "firmware_config": copy.deepcopy(self.firmware_config),
+            "equipment_config": emit_equipment_config(
+                self.equipment_config),
             "marks": dict(self.marks),
             "modules": {
                 key: {
@@ -755,6 +782,10 @@ class YamlBuildModel:
         firmware = state.get("firmware_config")
         if isinstance(firmware, dict):
             self.firmware_config, _fw_errors = parse_firmware(firmware)
+        # v2-10 node 04 equipment config restore
+        eq = state.get("equipment_config")
+        if isinstance(eq, dict):
+            self.equipment_config = parse_equipment_config(eq)
         marks = state.get("marks")
         self.marks = dict(marks) if isinstance(marks, dict) else {}
         modules = state.get("modules") or {}
