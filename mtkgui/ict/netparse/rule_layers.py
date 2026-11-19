@@ -3,7 +3,7 @@
 
 The M1+M2 rule set is FROZEN as the base library (module constants,
 :data:`mtkgui.ict.netparse.rules.RULES_VERSION`).  An EXTERNAL,
-learnable JSON rule library (schema ``mtkgui.ict.netparse.rules.v1``)
+learnable JSON rule library (schema ``mtkgui.ict.netparse.rules.v2``)
 layers ON TOP for this run WITHOUT touching code:
 
 * ``tokens.add``      - word-anchored tokens classified BEFORE the
@@ -36,8 +36,13 @@ from . import classify, confidence, device_roles, isolation, rules
 from .model import (NET_TYPE_CLOCK_SINGLE, NET_TYPE_POWER,
                     NET_TYPE_SIGNAL, ParseNetsResult)
 
-RULES_SCHEMA = "mtkgui.ict.netparse.rules.v1"
+RULES_SCHEMA = "mtkgui.ict.netparse.rules.v2"
 BASE_SCHEMA = "mtkgui.ict.netparse.base_rules.v1"
+#: the superseded v1 schema - refused on load (no migration, no remap)
+LEGACY_RULES_SCHEMA = "mtkgui.ict.netparse.rules.v1"
+_LEGACY_RULES_ERROR = (
+    "Unsupported net-rule schema: mtkgui.ict.netparse.rules.v1. "
+    "Re-export the rules as v2.")
 
 #: token classes an external file may add tokens to
 _ADD_KEYS = ("power", "clock", "control_io", "interface", "mux")
@@ -87,6 +92,8 @@ def load_external(paths: list[str]) -> dict:
             raise ValueError(
                 f"{path}: not an external rules file (schema "
                 f"{RULES_SCHEMA} expected)")
+        if str(data.get("schema", "")) == LEGACY_RULES_SCHEMA:
+            raise ValueError(_LEGACY_RULES_ERROR)
         tokens = data.get("tokens") or {}
         for key in _ADD_KEYS:
             merged["tokens"]["add"][key] += [

@@ -33,7 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="JSON file: either user classification "
                              "regexes (power / se_clock / diff_pair / "
                              "exclude) or an M3 external rule library "
-                             "(schema mtkgui.ict.netparse.rules.v1, "
+                             "(schema mtkgui.ict.netparse.rules.v2, "
                              "auto-detected)")
     parser.add_argument("--rules-dir", default=None, dest="rules_dir",
                         help="directory of M3 external rule-library "

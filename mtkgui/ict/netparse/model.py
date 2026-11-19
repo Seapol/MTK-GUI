@@ -24,6 +24,11 @@ CATEGORY_GND = "GND"
 CATEGORY_OTHERS = "Others"
 CATEGORIES = (CATEGORY_POWER, CATEGORY_CLOCK, CATEGORY_GPIO)
 
+#: v2 parse-nets category label for single-ended clocks (node 02
+#: collapses to exactly Power / SE Clock / GND / Other).
+CATEGORY_SE_CLOCK = "SE Clock"
+CATEGORY_OTHER = "Other"
+
 #: Human-facing label for the control-IO bucket (owner naming direction
 #: 2026-10-22).  The internal JSON key / constant stays ``control_io``
 #: for schema stability.

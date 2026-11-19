@@ -101,7 +101,7 @@ def test_base_rules_expose_isolation_tables():
 def test_external_layer_extends_isolation(tmp_path):
     path = tmp_path / "rules.json"
     path.write_text(json.dumps({
-        "schema": "mtkgui.ict.netparse.rules.v1",
+        "schema": "mtkgui.ict.netparse.rules.v2",
         "isolation": {"passive_prefixes": ["X"],
                       "active_roles": ["custom_role"],
                       "active_categories": ["custom_cat"]},
@@ -115,7 +115,7 @@ def test_external_layer_extends_isolation(tmp_path):
 def test_external_passive_prefix_applied(tmp_path):
     path = tmp_path / "rules.json"
     path.write_text(json.dumps({
-        "schema": "mtkgui.ict.netparse.rules.v1",
+        "schema": "mtkgui.ict.netparse.rules.v2",
         "isolation": {"passive_prefixes": ["Q"]},
     }), encoding="utf-8")
     external = load_external([str(path)])

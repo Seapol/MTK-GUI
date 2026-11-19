@@ -10,12 +10,15 @@ Public API::
 """
 from .model import (CATEGORIES, CATEGORY_CLOCK,
                     CATEGORY_CONTROL_IO_LABEL, CATEGORY_GND,
-                    CATEGORY_GPIO, CATEGORY_OTHERS, CATEGORY_POWER,
+                    CATEGORY_GPIO, CATEGORY_OTHER, CATEGORY_OTHERS,
+                    CATEGORY_POWER, CATEGORY_SE_CLOCK,
                     NET_TYPE_CLOCK_SINGLE, NET_TYPE_DIFF_PAIR,
                     NET_TYPE_GND_REF, NET_TYPE_POWER, NET_TYPE_SIGNAL,
                     NET_TYPES, SUBCLASS_SYSTEM_RANDOM,
                     SUBCLASS_UNCLASSIFIED, NetCollection, NetlistData,
                     NetRecord, ParseNetsResult)
+from .route_b import (REASON_Y_DESIGNATOR, RESULTS_SHEET, RouteBNet,
+                      RouteBResult, parse_results_sheet)
 from .netlist import (parse_netlist, parse_netlist_file,
                       read_text_any_encoding)
 from .spf import SpfData, SpfParseError, cross_check_nets, parse_spf
@@ -45,11 +48,14 @@ from .rule_layers import (BASE_SCHEMA as RULES_BASE_SCHEMA,
 
 __all__ = [
     "CATEGORIES", "CATEGORY_CLOCK", "CATEGORY_CONTROL_IO_LABEL",
-    "CATEGORY_GND", "CATEGORY_GPIO", "CATEGORY_OTHERS", "CATEGORY_POWER",
+    "CATEGORY_GND", "CATEGORY_GPIO", "CATEGORY_OTHER", "CATEGORY_OTHERS",
+    "CATEGORY_POWER", "CATEGORY_SE_CLOCK",
     "NET_TYPE_CLOCK_SINGLE", "NET_TYPE_DIFF_PAIR", "NET_TYPE_GND_REF",
     "NET_TYPE_POWER", "NET_TYPE_SIGNAL", "NET_TYPES",
     "SUBCLASS_SYSTEM_RANDOM", "SUBCLASS_UNCLASSIFIED",
     "NetCollection", "NetlistData", "NetRecord", "ParseNetsResult",
+    "REASON_Y_DESIGNATOR", "RESULTS_SHEET", "RouteBNet", "RouteBResult",
+    "parse_results_sheet",
     "parse_netlist", "parse_netlist_file", "read_text_any_encoding",
     "SpfData", "SpfParseError", "cross_check_nets", "parse_spf",
     "clean_net_text", "detect_netlist_format", "parse_allegro_report",
