@@ -36,7 +36,7 @@ def test_step_table_has_seven_steps():
     )
     assert tuple(s.kind for s in sv.YAML_STEPS) == (
         "panel", "panel", "panel", "panel",
-        "panel", "launcher", "placeholder",
+        "panel", "panel", "placeholder",
     )
     assert sv.step_label("firmware") == "03 · Firmware Config"
 

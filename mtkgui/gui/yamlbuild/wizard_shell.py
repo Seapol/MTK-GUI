@@ -220,6 +220,26 @@ class YamlBuildWizard(QWidget):
             self.model.set_ict_test_cases(
                 panel.engine_cases(self.model.get_equipment_config()))
             return panel
+        if key == "build_fct":
+            from mtkgui.gui.yamlbuild.fct_build import (
+                from_project_fct_cases,
+                to_project_fct_cases,
+            )
+            from mtkgui.gui.yamlbuild.fct_sequence_v2_panel import (
+                BuildFctSequencePanel)
+            panel = BuildFctSequencePanel()
+            # v2-13 D: node 06 seeds from the model's FCT cases and writes
+            # back on every change.
+            cases = self.model.get_fct_test_cases()
+            panel.set_sequence(from_project_fct_cases(cases))
+            panel.content_changed.connect(
+                lambda: self.model.set_fct_test_cases(
+                    to_project_fct_cases(panel.sequence())))
+            self.model.set_fct_test_cases(
+                to_project_fct_cases(panel.sequence()))
+            # the v1 dialog remains reachable through the Advanced button
+            panel.advanced_requested.connect(self.build_fct_requested.emit)
+            return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
 

@@ -88,3 +88,24 @@ def test_yamlbuild_combos_do_not_insert(qapp):
                 f"{combo} inserts on duplicate items"
     finally:
         w.deleteLater()
+
+
+def test_build_fct_is_a_panel_with_advanced(qapp):
+    from mtkgui.gui.yamlbuild.fct_sequence_v2_panel import \
+        BuildFctSequencePanel
+    model = _model()
+    model.set_params("design_input", {
+        **model.get_params("design_input"),
+        "fct_block_enabled": "true",
+    })
+    w = _wizard(qapp, model)
+    try:
+        w.goto("build_fct")
+        panel = w._panels.get("build_fct")
+        assert isinstance(panel, BuildFctSequencePanel)
+        emitted = []
+        w.build_fct_requested.connect(lambda: emitted.append(True))
+        panel.btn_advanced.click()
+        assert emitted
+    finally:
+        w.deleteLater()
