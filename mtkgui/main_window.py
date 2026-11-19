@@ -1159,8 +1159,7 @@ class MainWindow(QMainWindow):
         self._replace_secondary_tab(
             self._yaml_build_placeholder, host, "Yaml Build")
 
-        # the launcher nodes open the v1 page's dialog owners
-        self._yaml_wizard.build_ict_requested.connect(yb.open_ict_sequence)
+        # the FCT launcher node opens the v1 page's dialog owner
         self._yaml_wizard.build_fct_requested.connect(yb.open_fct_sequence)
 
         self._apply_page_permissions()

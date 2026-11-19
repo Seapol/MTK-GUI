@@ -73,15 +73,13 @@ def test_wizard_panel_loads_existing_params(qapp):
         w.deleteLater()
 
 
-def test_build_ict_launcher_opens_the_ict_dialog(window, monkeypatch):
-    """The step-05 launcher button opens the v1 page's ICT dialog owner."""
-    yb = window.yaml_build_page
-    calls: list = []
-    monkeypatch.setattr(yb, "open_ict_sequence", lambda: calls.append(1))
-    body = window._yaml_wizard._bodies["build_ict"]
-    button = body.findChildren(QPushButton)[0]
-    button.click()
-    assert calls == [1]
+def test_build_ict_is_a_panel_step(window):
+    """v2-11: step 05 is a panel, not a launcher button."""
+    from mtkgui.gui.yamlbuild.ict_sequence_v2_panel import \
+        BuildIctSequencePanel
+
+    panel = window._yaml_wizard._panels["build_ict"]
+    assert isinstance(panel, BuildIctSequencePanel)
 
 
 def test_excel_buttons_still_call_the_v1_page(window, monkeypatch):

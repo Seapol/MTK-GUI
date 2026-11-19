@@ -32,8 +32,7 @@ class YamlBuildWizard(QWidget):
 
     #: the operator pressed [Cancel] (the wizard stops; no file is deleted)
     cancelled = Signal()
-    #: a launcher step asked to open its external builder
-    build_ict_requested = Signal()
+    #: the FCT launcher step asked to open its external builder
     build_fct_requested = Signal()
 
     def __init__(self, model: YamlBuildModel | None = None,
@@ -106,10 +105,7 @@ class YamlBuildWizard(QWidget):
             return body
         if step.kind == "launcher":
             btn = QPushButton(f"Open {step.title}")
-            if key == "build_ict":
-                btn.clicked.connect(self.build_ict_requested.emit)
-            else:
-                btn.clicked.connect(self.build_fct_requested.emit)
+            btn.clicked.connect(self.build_fct_requested.emit)
             lay.addWidget(btn)
             lay.addStretch(1)
             self._bodies[key] = body
@@ -165,6 +161,21 @@ class YamlBuildWizard(QWidget):
             panel.set_values(self.model.get_equipment_config())
             panel.content_changed.connect(
                 lambda: self.model.set_equipment_config(panel.values()))
+            return panel
+        if key == "build_ict":
+            from mtkgui.gui.yamlbuild.ict_sequence_v2_panel import \
+                BuildIctSequencePanel
+            panel = BuildIctSequencePanel()
+            # v2-11: node 05 seeds its flat sequence from node 04's
+            # power / clock nets, rails capture and enabled instruments.
+            eq = self.model.get_equipment_config()
+            power_nets = [r.net for r in eq.power_rows]
+            clock_nets = [r.net for r in eq.clock_rows]
+            instruments = [k for k, on in eq.instruments.items() if on]
+            panel.generate(power_nets, clock_nets,
+                           rails_enabled=bool(eq.rails.rows),
+                           fixture_type=eq.fixture.type,
+                           instruments=instruments)
             return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label

@@ -50,7 +50,7 @@ YAML_STEPS: tuple[Step, ...] = (
     Step("parse_ict",    "Parse nets for ICT",      group="ict",  kind="panel"),
     Step("firmware",     "Firmware Config",         group="fct",  kind="panel"),
     Step("equipment",    "Equipment Config",        group="both", kind="panel"),
-    Step("build_ict",    "Build ICT Test Sequence", group="ict",  kind="launcher"),
+    Step("build_ict",    "Build ICT Test Sequence", group="ict",  kind="panel"),
     Step("build_fct",    "Build FCT Test Sequence", group="fct",  kind="launcher"),
     Step("apply_save",   "Apply & Save Yaml",       group="both", kind="placeholder"),
 )
