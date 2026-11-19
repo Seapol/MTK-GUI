@@ -52,6 +52,10 @@ class BuildIctSequencePanel(QWidget):
         super().__init__(parent)
         self._steps: list[IctStep] = []
         self._loading = False
+        #: v2-11b C: the last seed args, so Reset / refresh regenerate
+        self._seed: dict = {"power_nets": [], "clock_nets": [],
+                            "rails_enabled": False, "fixture_type": "ate",
+                            "instruments": []}
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -86,10 +90,35 @@ class BuildIctSequencePanel(QWidget):
     def generate(self, power_nets, clock_nets, rails_enabled: bool,
                  fixture_type: str = "ate",
                  instruments: list[str] | None = None) -> None:
-        self._steps = generate_sequence(power_nets, clock_nets,
-                                        rails_enabled, fixture_type,
-                                        instruments)
+        self._seed = {"power_nets": list(power_nets),
+                      "clock_nets": list(clock_nets),
+                      "rails_enabled": bool(rails_enabled),
+                      "fixture_type": fixture_type,
+                      "instruments": list(instruments or [])}
+        self._steps = generate_sequence(**self._seed)
         self._render()
+
+    def refresh(self, power_nets=None, clock_nets=None,
+                rails_enabled: bool | None = None,
+                fixture_type: str | None = None,
+                instruments: list[str] | None = None) -> None:
+        """Re-seed from the latest node 02/04 facts (wizard revisit).
+
+        Stored seed args are reused; the wizard may push fresh ones."""
+        seed = dict(self._seed)
+        if power_nets is not None:
+            seed["power_nets"] = list(power_nets)
+        if clock_nets is not None:
+            seed["clock_nets"] = list(clock_nets)
+        if rails_enabled is not None:
+            seed["rails_enabled"] = bool(rails_enabled)
+        if fixture_type is not None:
+            seed["fixture_type"] = fixture_type
+        if instruments is not None:
+            seed["instruments"] = list(instruments)
+        self.generate(**seed)
+        # keep the model in step with the re-seeded sequence
+        self.content_changed.emit()
 
     def set_sequence(self, steps: list[IctStep]) -> None:
         self._steps = list(steps)
@@ -222,4 +251,6 @@ class BuildIctSequencePanel(QWidget):
         self.content_changed.emit()
 
     def _on_reset(self) -> None:
+        """Reset to generated order: re-run the generator with the seed."""
+        self.generate(**self._seed)
         self.content_changed.emit()

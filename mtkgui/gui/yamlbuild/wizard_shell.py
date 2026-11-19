@@ -274,6 +274,17 @@ class YamlBuildWizard(QWidget):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self.body.setCurrentIndex(sv.STEP_KEYS.index(self.current))
+        # v2-11b C: revisiting node 05 re-seeds from the latest 02/04 facts
+        if self.current == "build_ict":
+            panel = self._panels.get("build_ict")
+            if panel is not None:
+                eq = self.model.get_equipment_config()
+                panel.refresh(
+                    [r.net for r in eq.power_rows],
+                    [r.net for r in eq.clock_rows],
+                    rails_enabled=bool(eq.rails.rows),
+                    fixture_type=eq.fixture.type,
+                    instruments=[k for k, on in eq.instruments.items() if on])
         self.btn_back.setVisible(self.current != "design_input")
         self.btn_next.setText(sv.next_label(self.current, ict_on, fct_on))
         # v2-4: any panel may gate [Next >] (node 01 validates its

@@ -86,3 +86,16 @@ def test_panel_engine_cases_writes_back_to_model():
         assert "not_tested" not in first
     finally:
         wizard.deleteLater()
+
+
+def test_reset_button_regenerates_after_edit():
+    panel = BuildIctSequencePanel()
+    try:
+        panel.generate(["VDD1"], [], rails_enabled=False)
+        rgnd = next(s for s in panel.sequence() if s.kind == "R-GND")
+        rgnd.timeout_ms = 1500
+        panel._on_reset()
+        rgnd = next(s for s in panel.sequence() if s.kind == "R-GND")
+        assert rgnd.timeout_ms is None
+    finally:
+        panel.deleteLater()
