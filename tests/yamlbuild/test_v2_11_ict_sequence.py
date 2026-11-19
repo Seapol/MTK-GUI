@@ -7,7 +7,10 @@ from mtkgui.gui.yamlbuild.ict_sequence_v2 import (
     BLOCK_TEARDOWN, IctStep, KIND_CLOCK_HZ, KIND_OP, KIND_RGND,
     OP_DAQ_AI_END, OP_DAQ_AI_START, OP_INSTRUMENTS, OP_POWER,
     OP_RESET, POWER_OFF, POWER_ON, block_of, emit_sequence,
-    generate_sequence, parse_sequence, validate_sequence)
+    generate_sequence, parse_sequence, to_engine_cases,
+    validate_sequence)
+from mtkgui.gui.yamlbuild.equipment_config import (
+    ClockRow, EquipmentConfig, PowerRow)
 
 POWER_NETS = ["VDD1", "VDD2"]
 CLOCK_NETS = ["CLK1"]
@@ -104,3 +107,53 @@ def test_init_reset_carry_enabled_instruments():
     # without instruments, the param is absent (empty params dict)
     bare = generate_sequence([], [], rails_enabled=False)
     assert "instruments" not in bare[0].params
+
+
+# ---------------------------------------------------------------------------
+# v2-11b A: the engine's ict_test_cases shape
+# ---------------------------------------------------------------------------
+def _equipment() -> EquipmentConfig:
+    return EquipmentConfig(
+        power_rows=[PowerRow(net="VDD1", r_gnd_min_ohm=1.5,
+                             min_v=3.135, max_v=3.465)],
+        clock_rows=[ClockRow(net="CLK1", nominal_hz=24000000.0, ppm=50)])
+
+
+def _test_steps() -> list:
+    return [IctStep("R-GND - VDD1", KIND_RGND, net="VDD1"),
+            IctStep("Power Voltage - VDD1", "Power Voltage", net="VDD1"),
+            IctStep("Clock Hz - CLK1", KIND_CLOCK_HZ, net="CLK1")]
+
+
+def test_to_engine_cases_test_row_shape():
+    cases = to_engine_cases(_test_steps(), _equipment())
+    for case in cases:
+        assert {"unit", "threshold_min", "threshold_max",
+                "enable"} <= set(case)
+        assert "not_tested" not in case
+
+
+def test_to_engine_cases_r_gnd_min_only():
+    case = to_engine_cases(_test_steps(), _equipment())[0]
+    assert case["kind"] == KIND_RGND
+    assert case["threshold_min"] == 1.5
+    assert case["threshold_max"] == "—"
+    assert case["unit"] == "Ω"
+
+
+def test_to_engine_cases_clock_ppm_window():
+    case = to_engine_cases(_test_steps(), _equipment())[2]
+    assert case["kind"] == KIND_CLOCK_HZ
+    assert case["threshold_min"] == 23998800.0
+    assert case["threshold_max"] == 24001200.0
+    assert case["unit"] == "Hz"
+
+
+def test_to_engine_cases_op_row_has_enable_and_op_params():
+    step = IctStep("Power On DUT", KIND_OP, op_type=OP_POWER,
+                   power_state=POWER_ON)
+    case = to_engine_cases([step], _equipment())[0]
+    assert case["kind"] == "op"
+    assert case["op_params"]["type"] == OP_POWER
+    assert case["op_params"]["state"] == POWER_ON
+    assert case["enable"] is True

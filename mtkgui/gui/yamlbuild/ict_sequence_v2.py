@@ -12,6 +12,10 @@ This is the v2-11 model.  The v1 dialog keeps living in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                       # type hints only - never Qt
+    from mtkgui.gui.yamlbuild.equipment_config import EquipmentConfig
 
 #: step kinds - three test kinds, then op and neutral rows
 KIND_RGND = "R-GND"
@@ -252,6 +256,77 @@ def validate_sequence(steps: list[IctStep]) -> tuple[bool, str]:
                            f"{block_of(s)} block")
 
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Engine contract (v2-11b A)
+# ---------------------------------------------------------------------------
+#: test kind -> engine unit
+_ENGINE_UNITS = {KIND_RGND: "Ω", KIND_POWER_VOLTAGE: "V",
+                 KIND_CLOCK_HZ: "Hz"}
+
+MISSING_LIMIT = "—"
+
+
+def _power_row(equipment_config, net: str):
+    for row in (getattr(equipment_config, "power_rows", None) or []):
+        if str(getattr(row, "net", "")) == net:
+            return row
+    return None
+
+
+def _clock_row(equipment_config, net: str):
+    for row in (getattr(equipment_config, "clock_rows", None) or []):
+        if str(getattr(row, "net", "")) == net:
+            return row
+    return None
+
+
+def _test_limits(step: IctStep, equipment_config) -> dict:
+    """The engine ``unit`` / ``threshold_min`` / ``threshold_max`` cells.
+
+    Limits are joined from node 04 by net name; a net with no 04 row
+    keeps the missing limit (``—``) - nothing is invented here."""
+    unit = _ENGINE_UNITS.get(step.kind, MISSING_LIMIT)
+    lo = hi = MISSING_LIMIT
+    if step.kind == KIND_RGND:
+        row = _power_row(equipment_config, step.net)
+        if row is not None:
+            lo = row.r_gnd_min_ohm
+    elif step.kind == KIND_POWER_VOLTAGE:
+        row = _power_row(equipment_config, step.net)
+        if row is not None:
+            lo, hi = row.min_v, row.max_v
+    elif step.kind == KIND_CLOCK_HZ:
+        row = _clock_row(equipment_config, step.net)
+        if row is not None:
+            nominal = float(row.nominal_hz)
+            ppm = float(row.ppm)
+            lo = round(nominal * (1 - ppm / 1e6), 2)
+            hi = round(nominal * (1 + ppm / 1e6), 2)
+    return {"unit": unit, "threshold_min": lo, "threshold_max": hi}
+
+
+def to_engine_cases(steps: list[IctStep], equipment_config) -> list[dict]:
+    """Flat ICT steps -> engine ``ict_test_cases`` rows.
+
+    Joins node 04 limits by net name; ``not_tested`` becomes ``enable``.
+    """
+    cases: list[dict] = []
+    for step in steps:
+        row = {"name": step.name, "kind": step.kind,
+               "enable": not step.not_tested,
+               "timeout_ms": step.timeout_ms}
+        if step.kind == KIND_OP:
+            params = dict(step.params)
+            params["type"] = step.op_type
+            if step.power_state:
+                params["state"] = step.power_state
+            row["op_params"] = params
+        elif step.is_test():
+            row.update(_test_limits(step, equipment_config))
+        cases.append(row)
+    return cases
 
 
 # ---------------------------------------------------------------------------
