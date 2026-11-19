@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild.ict_sequence_v2 import (
-    BLOCK_LABELS, KIND_OP, block_of, generate_sequence, validate_sequence,
-    IctStep)
+    BLOCK_LABELS, KIND_OP, block_of, generate_sequence, to_engine_cases,
+    validate_sequence, IctStep)
 
 COLUMNS = ("#", "Step", "Type", "Net / TP", "Limits", "Instrument",
            "Timeout", "Not tested")
@@ -103,6 +103,10 @@ class BuildIctSequencePanel(QWidget):
 
     def values(self) -> list[IctStep]:
         return self.sequence()
+
+    def engine_cases(self, equipment_config) -> list:
+        """The engine ``ict_test_cases`` rows for the current sequence."""
+        return to_engine_cases(self._steps, equipment_config)
 
     # ------------------------------------------------------------- gate
     def validate(self) -> tuple[bool, str]:

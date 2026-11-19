@@ -251,6 +251,9 @@ class YamlBuildModel:
         #: v2-10 node 04 equipment config (instruments / power source /
         #: channels / rails / fixture / peripherals)
         self.equipment_config: EquipmentConfig = EquipmentConfig()
+        #: v2-11b node 05 engine-shape ICT sequence (one row per flat
+        #: step: name / kind / enable / timeout_ms / limits / op_params)
+        self.ict_test_cases: list = []
         self.changed = True
 
     # ------------------------------------------------------------- access
@@ -388,6 +391,16 @@ class YamlBuildModel:
         """Store the node 04 equipment config."""
         if isinstance(config, EquipmentConfig):
             self.equipment_config = copy.deepcopy(config)
+            self.changed = True
+
+    def get_ict_test_cases(self) -> list:
+        """Return a deep copy of the engine-shape ICT cases."""
+        return copy.deepcopy(self.ict_test_cases)
+
+    def set_ict_test_cases(self, cases: list) -> None:
+        """Store the engine-shape ICT cases."""
+        if isinstance(cases, list):
+            self.ict_test_cases = copy.deepcopy(cases)
             self.changed = True
 
     @property
@@ -729,6 +742,7 @@ class YamlBuildModel:
             "gpio_allocation": copy.deepcopy(self.gpio_allocation),
             "path_risk": copy.deepcopy(self.path_risk),
             "ict_test_plan": copy.deepcopy(self.ict_test_plan),
+            "ict_test_cases": copy.deepcopy(self.ict_test_cases),
             "firmware_config": copy.deepcopy(self.firmware_config),
             "equipment_config": emit_equipment_config(
                 self.equipment_config),
@@ -774,7 +788,8 @@ class YamlBuildModel:
                              ("se_clock_allocation", []),
                              ("gpio_allocation", []),
                              ("path_risk", {}),
-                             ("ict_test_plan", {})):
+                             ("ict_test_plan", {}),
+                             ("ict_test_cases", [])):
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)

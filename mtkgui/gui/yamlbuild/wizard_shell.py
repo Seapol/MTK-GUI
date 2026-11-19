@@ -176,6 +176,14 @@ class YamlBuildWizard(QWidget):
                            rails_enabled=bool(eq.rails.rows),
                            fixture_type=eq.fixture.type,
                            instruments=instruments)
+            # v2-11b B: node 05 writes the engine-shape sequence back to
+            # the model, and seeds it once so a save before any edit
+            # already carries the generated sequence.
+            panel.content_changed.connect(
+                lambda: self.model.set_ict_test_cases(
+                    panel.engine_cases(self.model.get_equipment_config())))
+            self.model.set_ict_test_cases(
+                panel.engine_cases(self.model.get_equipment_config()))
             return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label

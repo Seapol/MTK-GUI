@@ -74,3 +74,15 @@ def test_wizard_build_ict_panel_generates():
         assert len(panel.sequence()) == 5
     finally:
         wizard.deleteLater()
+
+
+def test_panel_engine_cases_writes_back_to_model():
+    wizard = YamlBuildWizard()
+    try:
+        cases = wizard.model.get_ict_test_cases()
+        assert isinstance(cases, list) and cases
+        first = cases[0]
+        assert "enable" in first
+        assert "not_tested" not in first
+    finally:
+        wizard.deleteLater()
