@@ -37,8 +37,9 @@ STEP_MESSAGE_CHECK = "MESSAGE_CHECK"
 STEP_GUI_CONFIRM = "GUI_CONFIRM"
 STEP_CLI_RUN = "CLI_RUN"
 STEP_EXTERNAL_TOOL = "EXTERNAL_TOOL"
+STEP_FLASH = "FLASH"
 STEP_TYPES = (STEP_MESSAGE_CHECK, STEP_GUI_CONFIRM, STEP_CLI_RUN,
-              STEP_EXTERNAL_TOOL)
+              STEP_EXTERNAL_TOOL, STEP_FLASH)
 
 #: flash path modes (spec §3)
 FLASH_GUI = "gui"      # third-party flash GUI + human confirm
@@ -176,6 +177,13 @@ class FctStep:
         step_type = str(data.get("step_type", ""))
         if kind:
             step_type = _legacy_type_for(kind, step_type, params)
+        # v2-13 A: a legacy flash step was emitted as GUI_CONFIRM / CLI_RUN
+        # with params.slot — fold it into the one-class STEP_FLASH type.
+        if "slot" in params and step_type in (STEP_GUI_CONFIRM, STEP_CLI_RUN):
+            params.setdefault("flash_mode",
+                              FLASH_GUI if step_type == STEP_GUI_CONFIRM
+                              else FLASH_CLI)
+            step_type = STEP_FLASH
         return cls(
             name=str(data.get("name", "")),
             step_type=step_type,
@@ -211,6 +219,17 @@ class FctStep:
         if self.step_type == STEP_CLI_RUN and not self.command.strip():
             errors.append(f"step {self.name!r}: {self.step_type} requires "
                           "a command")
+        if self.step_type == STEP_FLASH:
+            slot = str((self.params or {}).get("slot", ""))
+            if slot not in ("fat", "oobe"):
+                errors.append(f"step {self.name!r}: FLASH requires params.slot "
+                              f"in ('fat', 'oobe')")
+            mode = str((self.params or {}).get("flash_mode", ""))
+            if mode not in FLASH_MODES:
+                errors.append(f"step {self.name!r}: FLASH requires params.flash_mode "
+                              f"in {FLASH_MODES}")
+            if mode == FLASH_CLI and not self.command.strip():
+                errors.append(f"step {self.name!r}: FLASH cli mode requires a command")
         known = sibling_names or set()
         for dep in self.depends:
             if dep not in known:
@@ -256,6 +275,9 @@ def step_kind(step) -> str:
             or p.get("fct_bt_l2ping") is not None
             or p.get("op")):
         return TYPE_ACTION
+    if getattr(step, "step_type", "") == STEP_FLASH:
+        mode = str(p.get("flash_mode", "")).lower()
+        return TYPE_DIALOG if mode == FLASH_GUI else TYPE_INTERACT
     if getattr(step, "step_type", "") == STEP_GUI_CONFIRM:
         return TYPE_DIALOG
     return TYPE_INTERACT
@@ -584,14 +606,15 @@ def _flash_step(slot: str, flash_mode: str, channel: str,
     name = f"Flash {slot.upper()} Firmware"
     if flash_mode == FLASH_GUI:
         return FctStep(
-            name=name, step_type=STEP_GUI_CONFIRM, channel="",
+            name=name, step_type=STEP_FLASH, channel="",
             timeout_s=0.0,            # wait for the operator forever
-            resource="operator", params={"slot": slot})
+            resource="operator",
+            params={"slot": slot, "flash_mode": FLASH_GUI})
     return FctStep(
-        name=name, step_type=STEP_CLI_RUN, channel=channel,
+        name=name, step_type=STEP_FLASH, channel=channel,
         command=command, expect_pass=[done_kw],
         expect_fail=list(DEFAULT_KEYWORD_FAIL), resource="operator",
-        params={"slot": slot})
+        params={"slot": slot, "flash_mode": FLASH_CLI})
 
 
 def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
@@ -666,6 +689,9 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
                     style, "MessageGoStop")
         elif s.step_type == STEP_CLI_RUN:
             kind = "SendtoCLI"
+        elif s.step_type == STEP_FLASH:
+            mode = str(s.params.get("flash_mode", "")).lower()
+            kind = "MessageGoStop" if mode == FLASH_GUI else "SendtoCLI"
         elif s.step_type == STEP_EXTERNAL_TOOL:
             family = str(s.params.get("tool_family", "")).lower()
             if s.params.get("fct_host_cmd") is not None:

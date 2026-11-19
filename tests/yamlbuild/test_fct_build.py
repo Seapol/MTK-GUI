@@ -20,6 +20,7 @@ from mtkgui.gui.yamlbuild.fct_build import (
     FctStep,
     STEP_CLI_RUN,
     STEP_EXTERNAL_TOOL,
+    STEP_FLASH,
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     STEP_TYPES,
@@ -111,17 +112,21 @@ def test_skeleton_spine_order_and_modes():
     the declared step types."""
     gui = build_fct_sequence("g", flash_mode=FLASH_GUI)
     types = [s.step_type for s in gui.steps]
-    assert types[0] == STEP_GUI_CONFIRM          # FAT via operator dialog
+    assert types[0] == STEP_FLASH              # FAT via operator dialog
     assert gui.steps[0].params["slot"] == "fat"
-    assert gui.steps[0].timeout_s == 0.0         # wait for the operator
+    assert gui.steps[0].params["flash_mode"] == FLASH_GUI
+    assert gui.steps[0].timeout_s == 0.0       # wait for the operator
     assert types[-2:] == [STEP_GUI_CONFIRM] * 2  # power off + reset
     assert gui.steps[2].params["slot"] == "oobe"
+    assert gui.steps[2].params["flash_mode"] == FLASH_GUI
 
     cli = build_fct_sequence("c", flash_mode=FLASH_CLI, channel="ser1",
                              cli_command="blhost -p COM5 x",
                              cli_done_keyword="success")
     fat = cli.steps[0]
-    assert fat.step_type == STEP_CLI_RUN
+    assert fat.step_type == STEP_FLASH
+    assert fat.params["slot"] == "fat"
+    assert fat.params["flash_mode"] == FLASH_CLI
     assert fat.command == "blhost -p COM5 x"
     assert "success" in fat.expect_pass          # done marker positive
     assert fat.expect_fail == list(DEFAULT_KEYWORD_FAIL)
@@ -173,10 +178,13 @@ def test_gui_path_maps_to_messagegostop():
     seq = build_fct_sequence("g", flash_mode=FLASH_GUI)
     kinds = [c["kind"] for c in to_project_fct_cases(seq)]
     assert kinds[0] == "MessageGoStop"           # human confirm flash
-    # every GUI_CONFIRM maps to MessageGoStop (the default MESSAGE_CHECK
-    # body row maps to MessageOK)
+    # a GUI flash step maps to MessageGoStop exactly like a GUI_CONFIRM;
+    # the MESSAGE_CHECK body row maps to MessageOK
     assert kinds.count("MessageGoStop") == \
-        sum(1 for s in seq.steps if s.step_type == STEP_GUI_CONFIRM)
+        sum(1 for s in seq.steps
+            if s.step_type == STEP_GUI_CONFIRM
+            or (s.step_type == STEP_FLASH
+                and str(s.params.get("flash_mode", "")).lower() == FLASH_GUI))
 
 
 def test_external_tool_family_mapping():
@@ -491,3 +499,65 @@ def test_sequence_from_dict_normalizes_and_saves_the_explicit_type():
     assert [d["type"] for d in saved["steps"]] == ["interact", "dialog"]
     again = FctSequence.from_dict(saved)
     assert again.to_dict() == saved
+
+
+# -------------------------------------------------------- STEP_FLASH (v2-13 A)
+def test_flash_step_type():
+    """Both flash paths emit STEP_FLASH with slot + flash_mode set."""
+    gui = build_fct_sequence("g", flash_mode=FLASH_GUI)
+    flash_steps = [s for s in gui.steps if s.step_type == STEP_FLASH]
+    assert [s.params["slot"] for s in flash_steps] == ["fat", "oobe"]
+    assert all(s.params["flash_mode"] == FLASH_GUI for s in flash_steps)
+
+    cli = build_fct_sequence("c", flash_mode=FLASH_CLI, channel="ser1",
+                             cli_command="blhost x", cli_done_keyword="ok")
+    flash_steps = [s for s in cli.steps if s.step_type == STEP_FLASH]
+    assert [s.params["slot"] for s in flash_steps] == ["fat", "oobe"]
+    assert all(s.params["flash_mode"] == FLASH_CLI for s in flash_steps)
+
+
+def test_flash_legacy_normalize():
+    """A legacy GUI_CONFIRM/CLI_RUN + params.slot dict folds into FLASH."""
+    gui = FctStep.from_dict(
+        {"name": "Flash FAT Firmware", "step_type": "GUI_CONFIRM",
+         "params": {"slot": "fat"}})
+    assert gui.step_type == STEP_FLASH
+    assert gui.params["flash_mode"] == FLASH_GUI
+
+    cli = FctStep.from_dict(
+        {"name": "Flash FAT Firmware", "step_type": "CLI_RUN",
+         "command": "blhost x", "params": {"slot": "fat"}})
+    assert cli.step_type == STEP_FLASH
+    assert cli.params["flash_mode"] == FLASH_CLI
+
+
+def test_flash_kind_mapping():
+    """step_kind: gui -> dialog, cli -> interact; project kinds unchanged."""
+    gui = build_fct_sequence("g", flash_mode=FLASH_GUI).steps[0]
+    cli = build_fct_sequence("c", flash_mode=FLASH_CLI, channel="ser1",
+                             cli_command="blhost x").steps[0]
+    assert step_kind(gui) == TYPE_DIALOG
+    assert step_kind(cli) == TYPE_INTERACT
+    assert to_project_fct_cases(
+        FctSequence(name="g", steps=[gui]))[0]["kind"] == "MessageGoStop"
+    assert to_project_fct_cases(
+        FctSequence(name="c", steps=[cli]))[0]["kind"] == "SendtoCLI"
+
+
+def test_flash_validate():
+    """A FLASH step needs a valid slot + mode; cli mode needs a command."""
+    bad_slot = FctStep(name="f", step_type=STEP_FLASH,
+                       params={"slot": "x", "flash_mode": FLASH_GUI})
+    assert "params.slot" in " ".join(bad_slot.validate({"f"}))
+
+    bad_mode = FctStep(name="f", step_type=STEP_FLASH,
+                       params={"slot": "fat", "flash_mode": "x"})
+    assert "params.flash_mode" in " ".join(bad_mode.validate({"f"}))
+
+    no_cmd = FctStep(name="f", step_type=STEP_FLASH,
+                     params={"slot": "fat", "flash_mode": FLASH_CLI})
+    assert "requires a command" in " ".join(no_cmd.validate({"f"}))
+
+    ok = FctStep(name="f", step_type=STEP_FLASH,
+                 params={"slot": "fat", "flash_mode": FLASH_GUI})
+    assert ok.validate({"f"}) == []

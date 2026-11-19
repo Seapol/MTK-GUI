@@ -20,7 +20,7 @@ fct_sequence:
   - refused
   steps:
   - name: Flash FAT Firmware
-    step_type: GUI_CONFIRM
+    step_type: FLASH
     channel: ''
     command: ''
     expect_pass: []
@@ -32,6 +32,7 @@ fct_sequence:
     resource: operator
     params:
       slot: fat
+      flash_mode: gui
   - name: Wi-Fi Scan and Connect
     step_type: EXTERNAL_TOOL
     channel: ''
@@ -61,7 +62,7 @@ fct_sequence:
     resource: ''
     params: {}
   - name: Flash OOBE Firmware
-    step_type: GUI_CONFIRM
+    step_type: FLASH
     channel: ''
     command: ''
     expect_pass: []
@@ -73,6 +74,7 @@ fct_sequence:
     resource: operator
     params:
       slot: oobe
+      flash_mode: gui
   - name: Power Off DUT
     step_type: GUI_CONFIRM
     channel: ''
