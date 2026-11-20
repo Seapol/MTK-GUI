@@ -9,6 +9,7 @@ import pytest
 
 from mtkgui.engine.fct_test_config import (
     KIND_SERIAL_PULL,
+    KIND_SERIAL_PUT,
     BluetoothCfg,
     ConsoleCfg,
     ConsoleCommand,
@@ -511,6 +512,22 @@ def test_bare_metal_rejects_ssh_transport_and_sftp():
     errors = cfg.validate()
     assert any("SSH" in e and "serial" in e for e in errors)
     assert any("sftp_put" in e for e in errors)
+
+
+def test_bare_metal_rejects_serial_push_pull():
+    cfg = bare_config()
+    cfg.console.test_commands.append(
+        ConsoleCommand(name="Push asset", kind=KIND_SERIAL_PUT,
+                       channel="ser1", local="a.sh", remote="/root/a.sh"))
+    cfg.console.test_commands.append(
+        ConsoleCommand(name="Pull log", kind=KIND_SERIAL_PULL,
+                       channel="ser1", local="out.txt",
+                       remote="/root/out.txt"))
+    errors = cfg.validate()
+    assert any("serial file transfer requires a Linux shell" in e
+               for e in errors)
+    assert any("serial_put" in e for e in errors)
+    assert any("serial_pull" in e for e in errors)
 
 
 def test_validate_pull_local_directory_is_an_error(tmp_path):

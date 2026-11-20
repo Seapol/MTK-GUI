@@ -1773,6 +1773,11 @@ class FctTestConfig:
                         errors.append(
                             f"bare_metal DUT: command '{cmd.name}' uses "
                             f"{cmd.kind} - SFTP requires a Linux shell")
+                    if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
+                        errors.append(
+                            f"bare_metal DUT: command '{cmd.name}' uses "
+                            f"{cmd.kind} - serial file transfer requires "
+                            "a Linux shell")
             # host CLI rows (both command lists): the command is
             # mandatory; it runs on the test PC, not on the DUT
             for cmd in list(c.test_commands) + list(c.post_rf_commands):
