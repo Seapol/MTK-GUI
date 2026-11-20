@@ -82,6 +82,12 @@ class IctStep:
     params: dict = field(default_factory=dict)
     timeout_ms: int | None = None
     not_tested: bool = False
+    # v2-15 E: per-row limits (edit entry moved to node 05).  Empty =
+    # inherit the node 04 default; a set value wins over the join.
+    expected: str = ""
+    min_val: str = ""
+    max_val: str = ""
+    ppm: str = ""
 
     def is_test(self) -> bool:
         return self.kind in TEST_KINDS
@@ -285,9 +291,14 @@ def _clock_row(equipment_config, net: str):
 def _test_limits(step: IctStep, equipment_config) -> dict:
     """The engine ``unit`` / ``threshold_min`` / ``threshold_max`` cells.
 
-    Limits are joined from node 04 by net name; a net with no 04 row
-    keeps the missing limit (``—``) - nothing is invented here."""
+    v2-15 E: a per-row limit edit (node 05) wins; otherwise the limits
+    are joined from node 04 by net name (a net with no 04 row keeps the
+    missing limit ``—`` - nothing is invented here)."""
     unit = _ENGINE_UNITS.get(step.kind, MISSING_LIMIT)
+    if step.min_val or step.max_val:
+        return {"unit": unit,
+                "threshold_min": step.min_val or MISSING_LIMIT,
+                "threshold_max": step.max_val or MISSING_LIMIT}
     lo = hi = MISSING_LIMIT
     if step.kind == KIND_RGND:
         row = _power_row(equipment_config, step.net)
@@ -349,6 +360,14 @@ def emit_sequence(steps: list[IctStep]) -> list[dict]:
                 row["net"] = s.net
             if s.tp:
                 row["tp"] = s.tp
+            if s.expected:
+                row["expected"] = s.expected
+            if s.min_val:
+                row["min_val"] = s.min_val
+            if s.max_val:
+                row["max_val"] = s.max_val
+            if s.ppm:
+                row["ppm"] = s.ppm
         out.append(row)
     return out
 
@@ -372,5 +391,9 @@ def parse_sequence(rows: list[dict]) -> list[IctStep]:
             net=r.get("net", ""), tp=r.get("tp", ""),
             op_type=op_type, power_state=power_state, params=params,
             timeout_ms=r.get("timeout_ms"), not_tested=bool(r.get(
-                "not_tested", False))))
+                "not_tested", False)),
+            expected=str(r.get("expected", "") or ""),
+            min_val=str(r.get("min_val", "") or ""),
+            max_val=str(r.get("max_val", "") or ""),
+            ppm=str(r.get("ppm", "") or "")))
     return steps

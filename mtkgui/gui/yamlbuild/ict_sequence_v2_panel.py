@@ -15,10 +15,16 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,8 +32,9 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild.ict_sequence_v2 import (
-    BLOCK_LABELS, KIND_OP, block_of, generate_sequence, to_engine_cases,
-    validate_sequence, IctStep)
+    BLOCK_LABELS, KIND_CLOCK_HZ, KIND_DELAY, KIND_OP, KIND_POWER_VOLTAGE,
+    KIND_RGND, OP_DAQ_AI_END, OP_DAQ_AI_START, block_of, generate_sequence,
+    to_engine_cases, validate_sequence, IctStep)
 
 COLUMNS = ("#", "Step", "Type", "Net / TP", "Limits", "Instrument",
            "Timeout", "Not tested")
@@ -41,6 +48,124 @@ def _type_label(step: IctStep) -> str:
     if step.kind == KIND_OP:
         return step.op_type or step.kind
     return step.kind
+
+
+def _spin(decimals: int = 0, minimum: float = 0.0,
+          maximum: float = 1e12) -> QDoubleSpinBox:
+    """A QDoubleSpinBox with a per-type single step (v2-15 R7: the step is
+    decoupled from ``10**-decimals``)."""
+    box = QDoubleSpinBox()
+    box.setDecimals(decimals)
+    box.setRange(minimum, maximum)
+    box.setSingleStep(10 ** -decimals)
+    return box
+
+
+def _clamp(exp: QDoubleSpinBox, mn: QDoubleSpinBox,
+           mx: QDoubleSpinBox) -> None:
+    """v2-15 R8: live Min <= Expected <= Max clamp."""
+    def _sync(*_args):
+        e = exp.value()
+        if mn.value() > e:
+            mn.setValue(e)
+        if mx.value() < e:
+            mx.setValue(e)
+    exp.valueChanged.connect(_sync)
+    mn.valueChanged.connect(_sync)
+    mx.valueChanged.connect(_sync)
+
+
+def _edit_ict_row(parent: QWidget, step: IctStep) -> bool:
+    """v2-15 E: the per-type row editor (one dialog per step type)."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(f"Edit {step.name}")
+    form = QFormLayout()
+    net = QLineEdit(step.net or "")
+    net.setReadOnly(True)
+    form.addRow("Net", net)
+
+    if step.kind == KIND_RGND:
+        mn = _spin(0, 0, 1e9)
+        mx = _spin(0, 0, 1e9)
+        mn.setValue(float(step.min_val or 0))
+        mx.setValue(float(step.max_val or 0))
+        mx.setSpecialValueText("none (no upper bound)")
+        form.addRow("Min (ohm)", mn)
+        form.addRow("Max (ohm)", mx)
+    elif step.kind == KIND_POWER_VOLTAGE:
+        exp = _spin(3, -1e6, 1e6)
+        mn = _spin(3, -1e6, 1e6)
+        mx = _spin(3, -1e6, 1e6)
+        exp.setValue(float(step.expected or 0))
+        mn.setValue(float(step.min_val or 0))
+        mx.setValue(float(step.max_val or 0))
+        form.addRow("Expected (V)", exp)
+        form.addRow("Min (V)", mn)
+        form.addRow("Max (V)", mx)
+        _clamp(exp, mn, mx)
+    elif step.kind == KIND_CLOCK_HZ:
+        exp = _spin(0, 0, 1e12)
+        ppm = _spin(0, 0, 1e6)
+        mn = _spin(0, 0, 1e12)
+        mx = _spin(0, 0, 1e12)
+        exp.setValue(float(step.expected or 0))
+        ppm.setValue(float(step.ppm or 0))
+        mn.setValue(float(step.min_val or 0))
+        mx.setValue(float(step.max_val or 0))
+        form.addRow("Expected (Hz)", exp)
+        form.addRow("ppm", ppm)
+        form.addRow("Min (Hz)", mn)
+        form.addRow("Max (Hz)", mx)
+        _clamp(exp, mn, mx)
+    elif step.kind == KIND_OP and step.op_type == OP_DAQ_AI_START:
+        rate = _spin(0, 1, 1e9)
+        lead = _spin(0, 0, 1e9)
+        rate.setValue(float(step.params.get("rate_hz", 20000)))
+        lead.setValue(float(step.params.get("arm_lead_ms", 100)))
+        form.addRow("rate_hz", rate)
+        form.addRow("arm_lead_ms", lead)
+    elif step.kind == KIND_OP and step.op_type == OP_DAQ_AI_END:
+        win = _spin(0, 0, 1e9)
+        win.setValue(float(step.params.get("window_ms", 1000)))
+        form.addRow("window_ms", win)
+    elif step.kind == KIND_DELAY:
+        wait = QSpinBox()
+        wait.setRange(0, 1 << 30)
+        wait.setValue(int(step.params.get("wait_ms", 0)))
+        form.addRow("wait_ms", wait)
+    else:
+        form.addRow(QLabel("No editable fields for this step."))
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok
+                               | QDialogButtonBox.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay = QVBoxLayout(dlg)
+    lay.addLayout(form)
+    lay.addWidget(buttons)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return False
+
+    if step.kind == KIND_RGND:
+        step.min_val = f"{mn.value():g}"
+        step.max_val = f"{mx.value():g}" if mx.value() else ""
+    elif step.kind == KIND_POWER_VOLTAGE:
+        step.expected = f"{exp.value():.3f}"
+        step.min_val = f"{mn.value():.3f}"
+        step.max_val = f"{mx.value():.3f}"
+    elif step.kind == KIND_CLOCK_HZ:
+        step.expected = f"{int(exp.value())}"
+        step.ppm = f"{int(ppm.value())}"
+        step.min_val = f"{int(mn.value())}"
+        step.max_val = f"{int(mx.value())}"
+    elif step.kind == KIND_OP and step.op_type == OP_DAQ_AI_START:
+        step.params["rate_hz"] = int(rate.value())
+        step.params["arm_lead_ms"] = int(lead.value())
+    elif step.kind == KIND_OP and step.op_type == OP_DAQ_AI_END:
+        step.params["window_ms"] = int(win.value())
+    elif step.kind == KIND_DELAY:
+        step.params["wait_ms"] = wait.value()
+    return True
 
 
 class BuildIctSequencePanel(QWidget):
@@ -80,6 +205,8 @@ class BuildIctSequencePanel(QWidget):
             self.table.setColumnWidth(column, width)
         # sync the editable Timeout cell back into the step on commit
         self.table.itemChanged.connect(self._on_item_changed)
+        # v2-15 E: double-click a row opens its per-type editor
+        self.table.cellDoubleClicked.connect(self._on_double_click)
         lay.addWidget(self.table, 1)
 
         self.lbl_footer = QLabel("")
@@ -254,3 +381,17 @@ class BuildIctSequencePanel(QWidget):
         """Reset to generated order: re-run the generator with the seed."""
         self.generate(**self._seed)
         self.content_changed.emit()
+
+    # ------------------------------------------------------------- edit
+    def _step_at_row(self, row: int) -> IctStep | None:
+        item = self.table.item(row, _COL_TIMEOUT)
+        step = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return step if isinstance(step, IctStep) else None
+
+    def _on_double_click(self, row: int, _col: int) -> None:
+        step = self._step_at_row(row)
+        if step is None:
+            return
+        if _edit_ict_row(self, step):
+            self._render()
+            self.content_changed.emit()
