@@ -123,6 +123,7 @@ from mtkgui.engine.fct_test_config import (
 )
 from mtkgui.engine import FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
+from mtkgui.engine.wav_util import wav_duration_s
 from mtkgui.engine.fct_templates import TEMPLATE_LABELS
 from mtkgui.engine.steps import op_summary as _op_summary
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, wrap_scrollable
@@ -3130,6 +3131,15 @@ class FCTTestConfigPanel(QWidget):
             slider = _ToneRangeSlider(float(params.get("end_s", 6.0) or 6.0))
             slider.set_values(float(params.get("start_s", 0.0) or 0.0),
                               float(params.get("end_s", 6.0) or 6.0))
+            # v2-15 F: the slider total follows the loaded wav (the
+            # missing set_total call).
+            file_edit = editors.get("file")
+            if file_edit is not None:
+                def _on_tone_file(text, s=slider):
+                    total = wav_duration_s(str(text).strip())
+                    if total:
+                        s.set_total(total)
+                file_edit.textChanged.connect(_on_tone_file)
             form.addRow("Segment:", slider)
             readout = QLabel()
             readout.setWordWrap(True)

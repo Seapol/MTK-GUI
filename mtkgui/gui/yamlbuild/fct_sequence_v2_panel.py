@@ -151,11 +151,6 @@ class BuildFctSequencePanel(QWidget):
         self.edit_command = QLineEdit()
         self.edit_expect_pass = QLineEdit()
         self.edit_expect_fail = QLineEdit()
-        self.edit_timeout = QDoubleSpinBox()
-        self.edit_timeout.setRange(0.0, 1_000_000.0)
-        self.edit_timeout.setDecimals(2)
-        self.edit_retries = QSpinBox()
-        self.edit_retries.setRange(0, 1_000_000)
         self.edit_on_fail = QComboBox()
         self.edit_on_fail.setInsertPolicy(QComboBox.NoInsert)
         self.edit_on_fail.addItems(list(ON_FAIL_POLICIES))
@@ -174,8 +169,6 @@ class BuildFctSequencePanel(QWidget):
         self._command_row = form.addRow("Command", self.edit_command)
         form.addRow("Expect pass", self.edit_expect_pass)
         form.addRow("Expect fail", self.edit_expect_fail)
-        form.addRow("Timeout (s)", self.edit_timeout)
-        form.addRow("Retries", self.edit_retries)
         form.addRow("On fail", self.edit_on_fail)
         self._slot_row = form.addRow("Slot", self.edit_slot)
         self._flash_mode_row = form.addRow("Flash mode", self.edit_flash_mode)
@@ -191,8 +184,6 @@ class BuildFctSequencePanel(QWidget):
         self.edit_flash_mode.currentTextChanged.connect(
             self._on_editor_edited)
         self.edit_on_fail.currentTextChanged.connect(self._on_editor_edited)
-        self.edit_timeout.valueChanged.connect(self._on_editor_edited)
-        self.edit_retries.valueChanged.connect(self._on_editor_edited)
         root.addWidget(group)
 
     def _build_keywords(self, root) -> None:
@@ -267,8 +258,6 @@ class BuildFctSequencePanel(QWidget):
             self.edit_command.clear()
             self.edit_expect_pass.clear()
             self.edit_expect_fail.clear()
-            self.edit_timeout.setValue(0.0)
-            self.edit_retries.setValue(0)
             return
         self.edit_name.setText(step.name)
         self.edit_type.setCurrentText(step.step_type)
@@ -276,8 +265,6 @@ class BuildFctSequencePanel(QWidget):
         self.edit_command.setText(step.command)
         self.edit_expect_pass.setText(", ".join(step.expect_pass))
         self.edit_expect_fail.setText(", ".join(step.expect_fail))
-        self.edit_timeout.setValue(step.timeout_s)
-        self.edit_retries.setValue(int(step.retries))
         self.edit_on_fail.setCurrentText(step.on_fail)
         self.edit_slot.setCurrentText(
             str((step.params or {}).get("slot", "fat")))
@@ -325,8 +312,6 @@ class BuildFctSequencePanel(QWidget):
         step.command = self.edit_command.text().strip()
         step.expect_pass = _split_csv(self.edit_expect_pass.text())
         step.expect_fail = _split_csv(self.edit_expect_fail.text())
-        step.timeout_s = float(self.edit_timeout.value())
-        step.retries = int(self.edit_retries.value())
         step.on_fail = self.edit_on_fail.currentText()
         if step.step_type == STEP_FLASH:
             step.params["slot"] = self.edit_slot.currentText()
