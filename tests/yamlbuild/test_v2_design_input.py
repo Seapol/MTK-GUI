@@ -79,7 +79,9 @@ def test_node01_requires_one_block_enabled(qapp):
 
 def test_node01_next_creates_tree(qapp, tmp_path, monkeypatch):
     from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard
+    from PySide6.QtWidgets import QDialog
 
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
     monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
     model = YamlBuildModel()
     model.set_params("design_input", {

@@ -104,28 +104,39 @@ def test_route_b_category_readonly():
     assert panel.lbl_other_note.text() == ROUTE_B_OTHER_NOTE
 
 
-def test_gate_blocks_next_on_mismatch():
+def test_gate_mismatch_marks_parse_ict_invalid():
     wizard = YamlBuildWizard()
     try:
-        wizard.goto("parse_ict")
+        # complete node 01 so node 02 becomes editable (not just locked)
+        wizard._panels["design_input"].set_values({
+            "part_number": "MTK12345", "product_id": "96317",
+            "sw_version": "1.2.3", "hw_version": "A",
+            "batch": "EVT (Proto-1)", "ict_block_enabled": "true",
+            "spf_file": "s.spf", "net_file": "n.net", "bom_file": "b.csv",
+        })
         panel = wizard._panels["parse_ict"]
         panel.set_state(V2ParseState(
             route="excel", gate_ok=False,
             gate_error="impedance power nets do not match voltage"))
         wizard._refresh()
-        assert wizard.btn_next.isEnabled() is False
-        assert "do not match" in wizard.btn_next.toolTip()
+        assert wizard.flow.step_state("parse_ict") == "invalid"
+        assert wizard.btn_next.isEnabled() is True
     finally:
         wizard.deleteLater()
 
 
-def test_gate_ok_allows_next():
+def test_gate_ok_marks_parse_ict_valid():
     wizard = YamlBuildWizard()
     try:
-        wizard.goto("parse_ict")
+        wizard._panels["design_input"].set_values({
+            "part_number": "MTK12345", "product_id": "96317",
+            "sw_version": "1.2.3", "hw_version": "A",
+            "batch": "EVT (Proto-1)", "ict_block_enabled": "true",
+            "spf_file": "s.spf", "net_file": "n.net", "bom_file": "b.csv",
+        })
         panel = wizard._panels["parse_ict"]
         panel.set_state(V2ParseState(route="excel", gate_ok=True))
         wizard._refresh()
-        assert wizard.btn_next.isEnabled() is True
+        assert wizard.flow.step_state("parse_ict") == "valid"
     finally:
         wizard.deleteLater()

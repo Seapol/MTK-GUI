@@ -56,16 +56,19 @@ def test_set_values_round_trip():
         panel.deleteLater()
 
 
-def test_wizard_gate_blocks_next():
+def test_wizard_equipment_node_marks_invalid_until_checked():
     wizard = YamlBuildWizard()
     try:
         wizard.goto("equipment")
-        panel = wizard._panels["equipment"]
-        # gate fails until the instrument check runs
         wizard._refresh()
-        assert wizard.btn_next.isEnabled() is False
-        panel.btn_check.click()
-        wizard._refresh()
+        # the gate fails until the instrument check runs -> invalid node,
+        # so Next is enabled and targets it (the tooltip names some invalid
+        # node; the equipment node itself is invalid)
+        assert wizard.flow.step_state("equipment") == "invalid"
         assert wizard.btn_next.isEnabled() is True
+        assert wizard.btn_next.toolTip()
+        wizard._panels["equipment"].btn_check.click()
+        wizard._refresh()
+        assert wizard.flow.step_state("equipment") == "valid"
     finally:
         wizard.deleteLater()

@@ -1,30 +1,34 @@
 # -*- coding: utf-8 -*-
-"""v2-3a: the seven-step Yaml Build wizard shell.
+"""v2-18: the seven-step Yaml Build wizard — flowchart + per-node dialogs.
 
 The page hosts the seven steps of ``mtkgui/gui/yamlbuild/steps_v2.py``:
-a horizontal step bar across the top, a stacked body and one footer row
-``[Cancel] [Save Draft] [Back] [Next: NN >]``.  The shell only hosts the
-panels — it never redesigns their internals; a placeholder step shows one
-sentence and nothing else.
+a horizontal flowchart (node 01 on the left, node 07 on the right) and a
+footer ``[Cancel] [Save Draft] [Next]``.  Clicking a node opens a modal
+dialog that hosts that node's panel; ``Next`` jumps to the first
+validation-failed node.
 
 Routing, greying and the project tree / draft hook come from
 ``steps_v2`` (Qt-free, tested separately).  This widget is the thin Qt
-skin over that state.
+skin over that state — it hosts the finished panels unchanged (re-parented
+into a hidden host so ``findChildren`` and ``self._panels`` keep working).
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild import steps_v2 as sv
+from mtkgui.gui.yamlbuild import flow_view
 
 
 def _parsed_nets_dict(state) -> dict:
@@ -53,7 +57,7 @@ def _parsed_nets_dict(state) -> dict:
 
 
 class YamlBuildWizard(QWidget):
-    """Seven-step shell: step bar + stacked body + footer."""
+    """Seven-step shell: flowchart + per-node dialog + footer."""
 
     #: the operator pressed [Cancel] (the wizard stops; no file is deleted)
     cancelled = Signal()
@@ -76,28 +80,24 @@ class YamlBuildWizard(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
-        # ------------------------------------------------ step bar
-        self._bar_buttons: dict[str, QPushButton] = {}
-        bar = QHBoxLayout()
-        bar.setSpacing(4)
-        for step in sv.YAML_STEPS:
-            btn = QPushButton(sv.step_label(step.key))
-            btn.setCheckable(False)
-            btn.setFlat(True)
-            btn.clicked.connect(
-                lambda _=False, k=step.key: self._on_bar_clicked(k))
-            self._bar_buttons[step.key] = btn
-            bar.addWidget(btn)
-        bar.addStretch(1)
-        root.addLayout(bar)
+        # hidden host that owns the seven panels (keeps ``self._panels``
+        # and ``findChildren`` contracts working while the dialog re-parents)
+        self._panel_host = QWidget(self)
+        self._panel_host.setVisible(False)
+        self._panel_host_lay = QVBoxLayout(self._panel_host)
+        self._panel_host_lay.setContentsMargins(0, 0, 0, 0)
 
-        # ------------------------------------------------ body
-        self.body = QStackedWidget()
-        self._bodies: dict[str, QWidget] = {}
+        # ------------------------------------------------ body: flowchart
+        self.flow = flow_view.YamlBuildFlowView()
+        self.flow.step_clicked.connect(self._open_step_dialog)
+        root.addWidget(self.flow, 1)
+
+        # build all seven panels (unchanged internals), parked in the host
         self._panels: dict[str, QWidget] = {}
         for step in sv.YAML_STEPS:
-            self.body.addWidget(self._build_body(step.key))
-        root.addWidget(self.body, 1)
+            panel = self._make_panel(step.key)
+            self._panels[step.key] = panel
+            self._panel_host_lay.addWidget(panel)
 
         # ------------------------------------------------ footer
         footer = QHBoxLayout()
@@ -105,46 +105,15 @@ class YamlBuildWizard(QWidget):
         self.btn_cancel.clicked.connect(self._on_cancel)
         self.btn_save_draft = QPushButton("Save Draft")
         self.btn_save_draft.clicked.connect(self._on_save_draft)
-        self.btn_back = QPushButton("Back")
-        self.btn_back.clicked.connect(self._on_back)
-        self.btn_next = QPushButton("Next: 02 >")
+        self.btn_next = QPushButton("Next")
         self.btn_next.clicked.connect(self._on_next)
         footer.addWidget(self.btn_cancel)
         footer.addWidget(self.btn_save_draft)
         footer.addStretch(1)
-        footer.addWidget(self.btn_back)
         footer.addWidget(self.btn_next)
         root.addLayout(footer)
 
         self._refresh()
-
-    # ------------------------------------------------------------- body
-    def _build_body(self, key: str) -> QWidget:
-        """One body widget per step; placeholders stay one sentence."""
-        step = sv.STEP_BY_KEY[key]
-        body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
-        if step.key in sv.PLACEHOLDER_STEPS:
-            label = QLabel(sv.PLACEHOLDER_TEXT)
-            label.setWordWrap(True)
-            label.setProperty("tone", "muted")
-            lay.addWidget(label)
-            self._bodies[key] = body
-            return body
-        if step.kind == "launcher":
-            btn = QPushButton(f"Open {step.title}")
-            btn.clicked.connect(self.build_fct_requested.emit)
-            lay.addWidget(btn)
-            lay.addStretch(1)
-            self._bodies[key] = body
-            return body
-        # panel: re-parent the existing widget unchanged
-        panel = self._make_panel(key)
-        lay.addWidget(panel)
-        self._panels[key] = panel
-        self._bodies[key] = body
-        return body
 
     def _make_panel(self, key: str) -> QWidget:
         """Instantiate the real panel for a ``panel`` step."""
@@ -207,14 +176,7 @@ class YamlBuildWizard(QWidget):
             panel = BuildIctSequencePanel()
             # v2-11: node 05 seeds its flat sequence from node 04's
             # power / clock nets, rails capture and enabled instruments.
-            eq = self.model.get_equipment_config()
-            power_nets = [r.net for r in eq.power_rows]
-            clock_nets = [r.net for r in eq.clock_rows]
-            instruments = [k for k, on in eq.instruments.items() if on]
-            panel.generate(power_nets, clock_nets,
-                           rails_enabled=bool(eq.rails.rows),
-                           fixture_type=eq.fixture.type,
-                           instruments=instruments)
+            self._seed_build_ict(panel)
             # v2-11b B: node 05 writes the engine-shape sequence back to
             # the model, and seeds it once so a save before any edit
             # already carries the generated sequence.
@@ -254,6 +216,16 @@ class YamlBuildWizard(QWidget):
             return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
+
+    def _seed_build_ict(self, panel) -> None:
+        """Seed node 05 from the latest node 04 equipment facts."""
+        eq = self.model.get_equipment_config()
+        panel.refresh(
+            [r.net for r in eq.power_rows],
+            [r.net for r in eq.clock_rows],
+            rails_enabled=bool(eq.rails.rows),
+            fixture_type=eq.fixture.type,
+            instruments=[k for k, on in eq.instruments.items() if on])
 
     # ------------------------------------------------------------ parse
     def _parse_route_a(self, panel) -> None:
@@ -299,34 +271,74 @@ class YamlBuildWizard(QWidget):
         return str(design.get("fct_block_enabled", "true")).lower() \
             not in ("false", "0", "no")
 
-    def validate_current(self) -> tuple[bool, str]:
-        """Delegate to node 01's panel (v2-3b); the default never blocks."""
-        panel = self._panels.get(self.current)
+    def _is_complete(self, key: str) -> bool:
+        """A node is complete when disabled (skipped), or when its
+        ``validate()`` returns ok (nodes without one are always complete)."""
+        if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
+            return True
+        panel = self._panels.get(key)
         validator = getattr(panel, "validate", None)
         if callable(validator):
-            return validator()
-        return True, ""
+            ok, _msg = validator()
+            return ok
+        return True
+
+    def _is_editable(self, key: str) -> bool:
+        """Editable when enabled and every prerequisite is complete."""
+        if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
+            return False
+        return all(self._is_complete(p) for p in flow_view.PREREQS[key])
+
+    # --------------------------------------------------------- dialogs
+    def _open_step_dialog(self, key: str) -> None:
+        """Open one node's panel in a modal dialog (read-only if locked)."""
+        if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
+            return
+        panel = self._panels.get(key)
+        if panel is None:
+            return
+        # clicking a node selects it (the flow view + goto rely on current)
+        self.current = key
+        self.visited.add(key)
+        # refresh the panels whose content is derived from earlier nodes
+        if key == "build_ict":
+            self._seed_build_ict(panel)
+        elif key == "apply_save":
+            panel.refresh()
+        editable = self._is_editable(key)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(sv.step_label(key))
+        lay = QVBoxLayout(dlg)
+        if editable:
+            guide = QLabel(f"What this step does\n{flow_view.STEP_GUIDE[key]}")
+            guide.setWordWrap(True)
+            lay.addWidget(guide)
+            if flow_view.STEP_NEXT.get(key):
+                nxt = QLabel(flow_view.STEP_NEXT[key])
+                nxt.setProperty("tone", "info")
+                lay.addWidget(nxt)
+        else:
+            lock = QLabel(flow_view.lock_message(key))
+            lock.setWordWrap(True)
+            lock.setProperty("tone", "warning")
+            lay.addWidget(lock)
+        lay.addWidget(panel, 1)          # re-parent into the dialog
+        panel.setEnabled(editable)       # read-only when prerequisites pending
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+        dlg.exec()
+        self._panel_host_lay.addWidget(panel)   # re-parent back after close
+        self._refresh()
 
     # --------------------------------------------------------- navigation
-    def _on_bar_clicked(self, key: str) -> None:
-        if key in self.visited and sv.is_step_enabled(
-                key, self.ict_on(), self.fct_on()):
-            self.current = key
-            self._refresh()
-
-    def _on_back(self) -> None:
-        prev = sv.prev_key(self.current, self.ict_on(), self.fct_on())
-        if prev is not None:
-            self.current = prev
-            self._refresh()
-
     def _on_next(self) -> None:
-        # v2-4: node 02 blocks [Next >] on a Route B consistency-gate
-        # mismatch (and node 01 on its own validation) - delegate to the
-        # current panel's validate(), default never blocks.
-        ok, _msg = self.validate_current()
-        if not ok:
-            return
+        """Jump to the first validation-failed node and open its dialog.
+
+        The project tree / draft side-effects are kept: node 01 creates
+        the project tree, any other current node saves a draft.
+        """
         if self.current == "design_input":
             design = self.model.get_params("design_input") or {}
             core = str(design.get("product_id") or "").strip()
@@ -335,18 +347,21 @@ class YamlBuildWizard(QWidget):
                 self.tree_created = True
         else:
             sv.save_draft(self.model)
-        nxt = sv.next_key(self.current, self.ict_on(), self.fct_on())
-        if nxt is not None:
-            self.visited.add(nxt)
-            self.current = nxt
-            self._refresh()
+        for key in sv.enabled_step_keys(self.ict_on(), self.fct_on()):
+            panel = self._panels.get(key)
+            validator = getattr(panel, "validate", None)
+            if callable(validator):
+                ok, _msg = validator()
+                if not ok:
+                    self._open_step_dialog(key)
+                    return
 
     def _on_save_draft(self) -> None:
         sv.save_draft(self.model)
 
     def _on_cancel(self) -> None:
         """Stop the wizard.  Nothing on disk is deleted — whatever an
-        earlier [Next >] / [Save Draft] already created stays."""
+        earlier [Next] / [Save Draft] already created stays."""
         self.current = "design_input"
         self.visited = {"design_input"}
         self.tree_created = False
@@ -354,50 +369,40 @@ class YamlBuildWizard(QWidget):
         self._refresh()
 
     def _refresh(self) -> None:
-        """Repaint the bar, the body and the footer for the current state."""
+        """Paint the flowchart state and the footer."""
         ict_on, fct_on = self.ict_on(), self.fct_on()
-        for key, btn in self._bar_buttons.items():
-            step = sv.STEP_BY_KEY[key]
-            enabled = sv.is_step_enabled(key, ict_on, fct_on)
-            btn.setEnabled(enabled)
-            if key == self.current:
-                btn.setProperty("current", True)
-            elif key in self.visited:
-                btn.setProperty("current", False)
-                btn.setProperty("visited", True)
+        first_invalid: str | None = None
+        for step in sv.YAML_STEPS:
+            key = step.key
+            if not sv.is_step_enabled(key, ict_on, fct_on):
+                state = "disabled"
+            elif not self._is_editable(key):
+                state = "locked"
             else:
-                btn.setProperty("current", False)
-                btn.setProperty("visited", False)
-            btn.setText((sv.step_label(key) + "  ✓")
-                        if key in self.visited and key != self.current
-                        else sv.step_label(key))
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
-        self.body.setCurrentIndex(sv.STEP_KEYS.index(self.current))
+                panel = self._panels.get(key)
+                validator = getattr(panel, "validate", None)
+                if not callable(validator):
+                    state = "editable"
+                else:
+                    ok, _msg = validator()
+                    state = "valid" if ok else "invalid"
+            self.flow.set_step_state(key, state)
+            if state == "invalid" and first_invalid is None:
+                first_invalid = key
         # v2-11b C: revisiting node 05 re-seeds from the latest 02/04 facts
         if self.current == "build_ict":
             panel = self._panels.get("build_ict")
             if panel is not None:
-                eq = self.model.get_equipment_config()
-                panel.refresh(
-                    [r.net for r in eq.power_rows],
-                    [r.net for r in eq.clock_rows],
-                    rails_enabled=bool(eq.rails.rows),
-                    fixture_type=eq.fixture.type,
-                    instruments=[k for k, on in eq.instruments.items() if on])
+                self._seed_build_ict(panel)
         # v2-17: node 07 always previews the latest model state
         if self.current == "apply_save":
             panel = self._panels.get("apply_save")
             if panel is not None:
                 panel.refresh()
-        self.btn_back.setVisible(self.current != "design_input")
-        self.btn_next.setText(sv.next_label(self.current, ict_on, fct_on))
-        # v2-4: any panel may gate [Next >] (node 01 validates its
-        # fields, node 02 the Route B consistency gate).
-        nxt = sv.next_key(self.current, ict_on, fct_on)
-        ok, msg = self.validate_current()
-        self.btn_next.setEnabled(ok and nxt is not None)
-        self.btn_next.setToolTip(msg if not ok else "")
+        self.btn_next.setText("Next")
+        self.btn_next.setEnabled(first_invalid is not None)
+        self.btn_next.setToolTip(
+            sv.step_label(first_invalid) if first_invalid is not None else "")
 
     # --------------------------------------------------------- test hook
     def goto(self, key: str) -> None:

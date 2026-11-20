@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QComboBox, QApplication  # noqa: E402
+from PySide6.QtWidgets import QComboBox, QApplication, QDialog  # noqa: E402
 
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
 from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard  # noqa: E402
@@ -15,6 +15,12 @@ from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard  # noqa: E402
 @pytest.fixture()
 def qapp():
     return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture()
+def no_modal(monkeypatch):
+    """Make any QDialog.exec() return Accepted without blocking."""
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
 
 
 def _model(core="96317", part="MTK12345") -> YamlBuildModel:
@@ -31,15 +37,12 @@ def _wizard(qapp, model=None):
     return YamlBuildWizard(model or _model())
 
 
-def test_bar_returns_to_visited_step(qapp):
+def test_node_click_selects_node(qapp, no_modal):
     w = _wizard(qapp)
     try:
         w.goto("parse_ict")
         assert w.current == "parse_ict"
-        w._on_bar_clicked("design_input")
-        assert w.current == "design_input"
-        # an unvisited step does nothing
-        w._on_bar_clicked("firmware")
+        w.flow.step_clicked.emit("design_input")
         assert w.current == "design_input"
     finally:
         w.deleteLater()
@@ -57,7 +60,8 @@ def test_cancel_before_next_creates_nothing(qapp, tmp_path, monkeypatch):
         w.deleteLater()
 
 
-def test_cancel_after_next_keeps_tree_and_draft(qapp, tmp_path, monkeypatch):
+def test_cancel_after_next_keeps_tree_and_draft(qapp, tmp_path, monkeypatch,
+                                                no_modal):
     monkeypatch.setenv("MTKGUI_WORK_DIR", str(tmp_path / "work"))
     w = _wizard(qapp, _model())
     try:
@@ -67,7 +71,7 @@ def test_cancel_after_next_keeps_tree_and_draft(qapp, tmp_path, monkeypatch):
         panel.spf_path = "s.spf"
         panel.net_path = "n.net"
         panel.bom_path = "b.csv"
-        w._on_next()            # create the project tree
+        w._on_next()            # create the project tree (then jump-to-failed)
         w._on_save_draft()      # write the draft into it
         w._on_cancel()
         work = tmp_path / "work"
