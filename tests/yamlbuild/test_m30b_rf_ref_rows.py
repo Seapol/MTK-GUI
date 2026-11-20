@@ -77,17 +77,17 @@ def test_add_menu_has_rf_groups_and_bare_metal_gating(qapp):
     panel = FCTTestConfigPanel()
     for label in RF_LABELS:
         assert label in panel._add_actions
-    # Linux default: Linux-only items visible
-    assert panel._add_actions[STEP_TYPE_WIFI_IPERF].isVisible()
-    assert panel._add_actions[STEP_TYPE_BT_PAIR].isVisible()
-    assert panel._add_actions[STEP_TYPE_BT_TONE].isVisible()
+    # Linux default: Linux-only items enabled
+    assert panel._add_actions[STEP_TYPE_WIFI_IPERF].isEnabled()
+    assert panel._add_actions[STEP_TYPE_BT_PAIR].isEnabled()
+    assert panel._add_actions[STEP_TYPE_BT_TONE].isEnabled()
     panel.dut_type.setCurrentText("bare_metal")
-    assert not panel._add_actions[STEP_TYPE_WIFI_IPERF].isVisible()
-    assert not panel._add_actions[STEP_TYPE_BT_PAIR].isVisible()
-    assert not panel._add_actions[STEP_TYPE_BT_TONE].isVisible()
+    assert not panel._add_actions[STEP_TYPE_WIFI_IPERF].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_BT_PAIR].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_BT_TONE].isEnabled()
     # discovery-only rows stay on both DUT kinds
-    assert panel._add_actions[STEP_TYPE_WIFI_SCAN].isVisible()
-    assert panel._add_actions[STEP_TYPE_BT_RSSI].isVisible()
+    assert panel._add_actions[STEP_TYPE_WIFI_SCAN].isEnabled()
+    assert panel._add_actions[STEP_TYPE_BT_RSSI].isEnabled()
 
 
 def _equipment_node():

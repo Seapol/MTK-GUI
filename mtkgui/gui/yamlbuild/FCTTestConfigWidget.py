@@ -1099,21 +1099,23 @@ class FCTTestConfigPanel(QWidget):
         self._sync_op_submenu()
 
     def _sync_add_menu(self) -> None:
-        """Bare-metal DUTs hide Console_ssh / SFTP_put / SFTP_get in the
-        Add dropdown (no OS -> no SSH/SFTP) and the Linux-only RF rows
-        (Wifi_Iperf / BT_Pair / BT_Tone); Console_serial, Console_cli,
-        Wifi_Scan, BT_RSSI and the Message* / Operation rows stay
-        available."""
+        """v2-15 G: a bare-metal DUT greys out (disabled, never hidden) the
+        SSH/SFTP/serial/Wi-Fi/BT rows that have no OS/network path.  The
+        runtime validate stays the backstop."""
         if not hasattr(self, "cmd_table"):
             return
         is_linux = self.dut_type.currentText() == "linux"
         actions = getattr(self, "_add_actions", {})
         for label in (STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
-                      STEP_TYPE_SFTP_GET, STEP_TYPE_WIFI_IPERF,
-                      STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE):
+                      STEP_TYPE_SFTP_GET, STEP_TYPE_SERIAL_PUT,
+                      STEP_TYPE_SERIAL_PULL, STEP_TYPE_WIFI_PING,
+                      STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_PAIR,
+                      STEP_TYPE_BT_TONE):
             act = actions.get(label)
             if act is not None:
-                act.setVisible(is_linux)
+                act.setEnabled(is_linux)
+                if not is_linux:
+                    act.setToolTip("not available for a bare-metal DUT")
 
     # ----------------------------------------------------------- sequence
     def _build_sequence_tab(self) -> QWidget:
@@ -1361,6 +1363,19 @@ class FCTTestConfigPanel(QWidget):
 
     def _add_entry_gate(self, entry):
         """M48: per-entry gate applied while the shared menu is built."""
+        # v2-15 G: a bare-metal DUT has no SSH/SFTP/serial/Wi-Fi/BT path.
+        if self.dut_type.currentText() == "bare_metal" and entry.key in {
+            f"step:{STEP_TYPE_CONSOLE_SSH}",
+            f"step:{STEP_TYPE_SFTP_PUT}",
+            f"step:{STEP_TYPE_SFTP_GET}",
+            f"step:{STEP_TYPE_SERIAL_PUT}",
+            f"step:{STEP_TYPE_SERIAL_PULL}",
+            f"step:{STEP_TYPE_WIFI_PING}",
+            f"step:{STEP_TYPE_WIFI_IPERF}",
+            f"step:{STEP_TYPE_BT_PAIR}",
+            f"step:{STEP_TYPE_BT_TONE}",
+        }:
+            return (False, "not available for a bare-metal DUT")
         if not entry.op_name:
             return None
         if not self._op_usable(entry.op_name):

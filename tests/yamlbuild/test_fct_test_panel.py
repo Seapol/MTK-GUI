@@ -158,18 +158,18 @@ def test_dut_type_gates_the_add_menu_and_hint(qapp):
     sub-tests; discovery tests stay available on both kinds."""
     panel = FCTTestConfigPanel()
     panel.dut_type.setCurrentText("bare_metal")
-    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
-    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
-    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
-    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isVisible()
-    assert panel._add_actions[STEP_TYPE_BT_RSSI].isVisible()
-    assert panel._add_actions[STEP_TYPE_WIFI_SCAN].isVisible()
+    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isEnabled()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isEnabled()
+    assert panel._add_actions[STEP_TYPE_BT_RSSI].isEnabled()
+    assert panel._add_actions[STEP_TYPE_WIFI_SCAN].isEnabled()
     assert "Bare Metal" in panel.dut_hint.text()
     # back to linux: the SSH-only items re-enable
     panel.dut_type.setCurrentText("linux")
-    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
-    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
-    assert panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isEnabled()
+    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isEnabled()
+    assert panel._add_actions[STEP_TYPE_SFTP_GET].isEnabled()
 
 
 def test_set_values_restores_dut_type_grey(qapp):
@@ -182,20 +182,21 @@ def test_set_values_restores_dut_type_grey(qapp):
 
 
 def test_bare_metal_add_menu_hides_ssh_and_sftp(qapp):
-    """m30: bare-metal DUTs hide Console_ssh / SFTP_put / SFTP_get in the
-    Add dropdown; Console_serial and Console_cli stay available."""
+    """m30: bare-metal DUTs grey out Console_ssh / SFTP_put / SFTP_get in
+    the Add dropdown (disabled, not hidden); Console_serial and
+    Console_cli stay available."""
     panel = FCTTestConfigPanel()
     panel.set_values({})
     panel.dut_type.setCurrentText("linux")
-    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
-    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
-    assert panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SSH].isEnabled()
+    assert panel._add_actions[STEP_TYPE_SFTP_PUT].isEnabled()
+    assert panel._add_actions[STEP_TYPE_SFTP_GET].isEnabled()
     panel.dut_type.setCurrentText("bare_metal")
-    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isVisible()
-    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isVisible()
-    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isVisible()
-    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isVisible()
-    assert panel._add_actions[STEP_TYPE_CONSOLE_CLI].isVisible()
+    assert not panel._add_actions[STEP_TYPE_CONSOLE_SSH].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_SFTP_PUT].isEnabled()
+    assert not panel._add_actions[STEP_TYPE_SFTP_GET].isEnabled()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_SERIAL].isEnabled()
+    assert panel._add_actions[STEP_TYPE_CONSOLE_CLI].isEnabled()
 
 
 THREE_STAGE_YAML = """

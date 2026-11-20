@@ -189,6 +189,12 @@ class BuildIctSequencePanel(QWidget):
         self.lbl_summary = QLabel("Steps: 0")
         head.addWidget(self.lbl_summary)
         head.addStretch(1)
+        self.btn_move_up = QPushButton("Move Up")
+        self.btn_move_down = QPushButton("Move Down")
+        self.btn_move_up.clicked.connect(lambda: self._move(-1))
+        self.btn_move_down.clicked.connect(lambda: self._move(1))
+        head.addWidget(self.btn_move_up)
+        head.addWidget(self.btn_move_down)
         self.btn_reset = QPushButton("Reset to generated order")
         self.btn_reset.clicked.connect(self._on_reset)
         head.addWidget(self.btn_reset)
@@ -395,3 +401,25 @@ class BuildIctSequencePanel(QWidget):
         if _edit_ict_row(self, step):
             self._render()
             self.content_changed.emit()
+
+    # ------------------------------------------------------------- reorder
+    def _move(self, delta: int) -> None:
+        """v2-15 R9: swap the selected step with its neighbour within the
+        SAME block only (a cross-block move is refused)."""
+        row = self.table.currentRow()
+        step = self._step_at_row(row)
+        if step is None:
+            return
+        try:
+            i = self._steps.index(step)
+        except ValueError:
+            return
+        j = i + delta
+        if not (0 <= j < len(self._steps)):
+            return
+        if block_of(self._steps[i]) != block_of(self._steps[j]):
+            return
+        self._steps[i], self._steps[j] = self._steps[j], self._steps[i]
+        self._render()
+        self.table.setCurrentCell(row, 0)
+        self.content_changed.emit()
