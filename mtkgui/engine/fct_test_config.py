@@ -1486,12 +1486,15 @@ class BluetoothCfg:
     scan_retries: int = 3          # extra inquiry rounds if the DUT is missed
     rssi_min: int = -70
     rssi_timeout: float = 15.0
-    # 2) pair & connect (Linux only); optional DUT-side pair script (host
-    # name / addr passed as ARGUMENTS - deploy it with an SFTP put row)
+    # 2) pair & connect (Linux only); optional inline DUT-side pairing
+    # command(s) - <param:host_name> / <param:host_addr> are rendered at
+    # build time from the Host BT identity (empty = built-in Host path)
     pair_enabled: bool = False
     pair_timeout: float = 15.0
     l2ping_count: int = 4           # optional L2CAP data-path proof, 0=off
-    bt_pair_script: str = ""        # DUT script path, e.g. /root/bt_conn.sh
+    pair_command: str = ""        # inline DUT-side pairing command(s), one per
+                                  # line or pipe-joined; <param:host_name> /
+                                  # <param:host_addr> are rendered at build time
     # 3) tone / music over A2DP (Linux only; host source -> DUT sink)
     # M45: Start/End replace Play-Duration; no Timeout and no automatic
     # operator confirm (the user adds their own Message row).
@@ -1510,7 +1513,7 @@ class BluetoothCfg:
             "pair_enabled": self.pair_enabled,
             "pair_timeout": float(self.pair_timeout),
             "l2ping_count": int(self.l2ping_count),
-            "bt_pair_script": self.bt_pair_script,
+            "pair_command": self.pair_command,
             "tone_enabled": self.tone_enabled,
             "test_tone": self.test_tone,
             "tone_start_s": float(self.tone_start_s),
@@ -1662,7 +1665,7 @@ class FctTestConfig:
             pair_timeout=float(bt.get("pair_timeout",
                                      DEFAULT_RF_TIMEOUT)),
             l2ping_count=int(bt.get("l2ping_count", 4) or 0),
-            bt_pair_script=str(bt.get("bt_pair_script", "")),
+            pair_command=str(bt.get("pair_command", "")),
             tone_enabled=bool(bt.get(
                 "tone_enabled", bmode == "a2dp_sink")),
             # M45: ``audio_confirm`` / ``tone_timeout`` are retired - a
@@ -2173,14 +2176,15 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
     return []
 
 
-def pair_script_command(script: str, host_name: str, host_addr: str) -> str:
-    """Render the DUT-side pair invocation: ``<script> <name> <addr>``.
+def pair_command_text(command: str, host_name: str, host_addr: str) -> str:
+    """Render the inline DUT-side pair command placeholders.
 
-    Pure text mapping (no I/O); the host name / addr come from
-    :func:`mtkgui.engine.host_platform.host_bt_identity` at build time so
-    the operator never hard-codes them in the sequence."""
-    parts = [str(script), str(host_name).strip(), str(host_addr).strip()]
-    return " ".join(p for p in parts if p)
+    ``<param:host_name>`` / ``<param:host_addr>`` are replaced with the
+    Host PC BT identity at build time, so the operator never hard-codes
+    them in the sequence (no I/O here)."""
+    return (str(command)
+            .replace("<param:host_name>", str(host_name))
+            .replace("<param:host_addr>", str(host_addr)))
 
 
 def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
@@ -2207,19 +2211,19 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
     if subtest == "pair":
         if not (b.pair_enabled and cfg.dut_type == "linux"):
             return []
-        if b.bt_pair_script:
-            # DUT Linux script drives the pair/connect (DUT -> Host); the
-            # Host PC BT name + BD addr are passed as ARGUMENTS. Deploy it
-            # beforehand with an SFTP put row in the sequence.
+        if b.pair_command:
+            # Inline DUT Linux console command(s) drive the pair/connect
+            # (DUT -> Host); the Host PC BT name + BD addr are rendered
+            # into the <param:host_*> placeholders at build time.
             from mtkgui.engine import host_platform
             host_name, host_addr = host_platform.host_bt_identity()
             steps = [FctStep(
-                name="Bluetooth Pair & Connect (DUT script)",
+                name="Bluetooth Pair & Connect (DUT console)",
                 step_type=STEP_MESSAGE_CHECK, channel=channel_key,
                 timeout_s=float(b.pair_timeout),
                 params={"fct_console": True,
-                        "send": pair_script_command(
-                            b.bt_pair_script, host_name, host_addr)})]
+                        "send": pair_command_text(
+                            b.pair_command, host_name, host_addr)})]
         else:
             steps = [FctStep(
                 name="Bluetooth Pair & Connect",

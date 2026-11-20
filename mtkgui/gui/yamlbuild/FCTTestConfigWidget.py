@@ -3652,7 +3652,7 @@ class FCTTestConfigPanel(QWidget):
                 {"bt_name": b.expected_name})
         if b.pair_enabled:
             add(STEP_TYPE_BT_PAIR, "bluetooth", "pair",
-                {"script": str(b.bt_pair_script or ""),
+                {"script": str(b.pair_command or ""),
                  "l2ping": int(b.l2ping_count),
                  "timeout_s": int(float(b.pair_timeout))},
                 {"bt_name": b.expected_name})

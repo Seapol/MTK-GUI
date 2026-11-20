@@ -570,7 +570,7 @@ class YamlBuildPage(QWidget):
                         b.pair_enabled = True
                         b.expected_name = str(ref_value(cmd, "bt_name",
                                                         b.expected_name))
-                        b.bt_pair_script = str(p.get("script", "") or "")
+                        b.pair_command = str(p.get("script", "") or "")
                         b.l2ping_count = int(num(p.get("l2ping"), 0))
                         b.pair_timeout = num(p.get("timeout_s"),
                                              b.pair_timeout)

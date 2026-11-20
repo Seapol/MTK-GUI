@@ -22,7 +22,7 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     FctTestConfig,
     STEP_MESSAGE_CHECK,
     build_fct_steps,
-    pair_script_command,
+    pair_command_text,
 )
 from mtkgui.engine.fct_test_runner import BT_MAC_CMDS  # noqa: E402
 from mtkgui.engine.rf_adapters import PlatformBackendMissing  # noqa: E402
@@ -133,15 +133,19 @@ def test_bt_scan_worker_emits_result_and_verdict(monkeypatch):
 
 
 # ---------------------------------------------------------------- pair
-def test_pair_script_command_rendering():
-    """m32: <script> <host_name> <host_addr>."""
-    assert pair_script_command("bt_conn.sh", "MyHost", "AA:BB:CC:DD:EE:FF") \
-        == "bt_conn.sh MyHost AA:BB:CC:DD:EE:FF"
+def test_pair_command_text_rendering():
+    """m32: <param:host_name> / <param:host_addr> placeholders render."""
+    assert pair_command_text(
+        "bluetoothctl pair <param:host_addr>", "MyHost",
+        "AA:BB:CC:DD:EE:FF") == "bluetoothctl pair AA:BB:CC:DD:EE:FF"
+    assert pair_command_text(
+        "echo <param:host_name> <param:host_addr>", "MyHost", "A:B") \
+        == "echo MyHost A:B"
 
 
-def test_bt_subtest_steps_pair_script(monkeypatch):
-    """m32: a configured DUT script generates one console MESSAGE_CHECK step
-    whose send payload is <script> <host name> <host addr>."""
+def test_bt_subtest_steps_pair_command(monkeypatch):
+    """m32: a configured inline pair command generates one console
+    MESSAGE_CHECK step whose send payload renders the host placeholders."""
     monkeypatch.setattr(host_platform, "host_bt_identity",
                         lambda: ("MyHost", "AA:BB:CC:DD:EE:FF"))
     cfg = FctTestConfig(
@@ -149,13 +153,12 @@ def test_bt_subtest_steps_pair_script(monkeypatch):
         bluetooth=BluetoothCfg(
             rssi_enabled=True, expected_name="DUT-BT",
             pair_enabled=True, l2ping_count=0,
-            bt_pair_script="/root/bt_conn.sh"))
+            pair_command="bluetoothctl pair <param:host_addr>"))
     steps = build_fct_steps(cfg, channel_key="ser1")
     pair = next(s for s in steps if "Pair" in s.name)
     assert pair.step_type == STEP_MESSAGE_CHECK
     assert pair.channel == "ser1"
-    assert pair.params["send"] == \
-        "/root/bt_conn.sh MyHost AA:BB:CC:DD:EE:FF"
+    assert pair.params["send"] == "bluetoothctl pair AA:BB:CC:DD:EE:FF"
 
 
 # ----------------------------------------------------------------- tone
@@ -172,11 +175,12 @@ def test_windows_bt_backend_still_raises(monkeypatch):
 
 
 def test_bluetooth_cfg_new_fields_roundtrip():
-    """m32/M45: test_tone / tone_start_s / tone_end_s / bt_pair_script."""
+    """m32/M45: test_tone / tone_start_s / tone_end_s / pair_command."""
     cfg = FctTestConfig(bluetooth=BluetoothCfg(
         test_tone="resources/tones/tone_2khz_6s.wav",
-        tone_start_s=1.5, tone_end_s=7.0, bt_pair_script="/root/bt.sh"))
+        tone_start_s=1.5, tone_end_s=7.0,
+        pair_command="bluetoothctl pair <param:host_addr>"))
     restored = FctTestConfig.from_dict(cfg.to_dict()).bluetooth
     assert restored.test_tone == "resources/tones/tone_2khz_6s.wav"
     assert (restored.tone_start_s, restored.tone_end_s) == (1.5, 7.0)
-    assert restored.bt_pair_script == "/root/bt.sh"
+    assert restored.pair_command == "bluetoothctl pair <param:host_addr>"
