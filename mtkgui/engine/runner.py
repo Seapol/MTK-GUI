@@ -1003,6 +1003,7 @@ class TestRunner(QObject):
         tables; GUI_CONFIRM answers via the operator dialog
         (interactive) or a simulated GO (run_demo / smoke)."""
         from ..gui.yamlbuild.fct_build import (
+            STEP_FLASH,
             STEP_GUI_CONFIRM,
             STEP_MESSAGE_CHECK,
             FctStep,
@@ -1092,7 +1093,9 @@ class TestRunner(QObject):
                          project_base=_project_base(),
                          progress_factory=_progress_factory,
                          pulled_files=self.run_pulled_files,
-                         watchdog_s=self._watchdog_s)
+                         watchdog_s=self._watchdog_s,
+                         firmware=dict(getattr(env, "firmware_config",
+                                              None) or {}))
         ch_key = step.channel
         if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
             # M41: a network setup step that emitted a DIFFERENT DUT IP
@@ -1242,6 +1245,23 @@ class TestRunner(QObject):
                     # (M83/C8: No is FAIL now, the run CONTINUES)
                     return answer == "yes"
             else:                            # run_demo: simulated GO
+                def _ask(s):
+                    env._log("human answer GO (simulated)")
+                    return True
+            ctx.human_confirm = _ask
+        elif (step.step_type == STEP_FLASH
+              and str(step.params.get("flash_mode") or "").lower() == "gui"):
+            # v2-15 D: a GUI flash step takes the operator Go / Stop
+            # answer (the tool launch lives in fct_exec._flash_gui_once).
+            if interactive:
+                def _ask(s):
+                    answer = env._fct_message_dialog(
+                        "MessageGoStop", s.name)
+                    if answer == "stop":
+                        _stop_flag["stop"] = True
+                        return False
+                    return answer == "go"
+            else:
                 def _ask(s):
                     env._log("human answer GO (simulated)")
                     return True
@@ -2089,7 +2109,9 @@ class TestRunner(QObject):
                              env, "fct_keyword_fail", ()) or ()),
                          dut_report=str(dut_folder()),
                          pulled_files=self.run_pulled_files,
-                         watchdog_s=self._watchdog_s)
+                         watchdog_s=self._watchdog_s,
+                         firmware=dict(getattr(env, "firmware_config",
+                                              None) or {}))
         # bind console channel (if any teardown needs it)
         needs_console = any(
             FctStep.from_dict(

@@ -24,6 +24,7 @@ from ..startup_timing import begin as _span_begin, end as _span_end
 from ..gui.yamlbuild.fct_build import (
     STEP_CLI_RUN,
     STEP_EXTERNAL_TOOL,
+    STEP_FLASH,
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     STEP_OPERATION,
@@ -183,6 +184,9 @@ class FctContext:
     #: M78-3: application-level stall watchdog window in seconds
     #: (Tools > FCT Watchdog). 0 disables it. NOT a YAML field.
     watchdog_s: float = DEFAULT_STALL_S
+    #: v2-15 D: node 03 firmware config (``firmware.<slot>``) — the single
+    #: source for a FLASH step's method + CLI/GUI fields.
+    firmware: dict = field(default_factory=dict)
 
     def log(self, message: str) -> None:
         line = f"[{self.station_id}] [{self.user}] {message}"
@@ -906,6 +910,68 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
         _span_end(_label)
 
 
+def _flash_once(step: FctStep, ctx: FctContext) -> FctOutcome:
+    """v2-15 D: a FLASH step is slot-driven — ``params.slot`` + the step
+    timeout; the method + CLI/GUI fields come from node 03
+    ``firmware.<slot>`` (the step's legacy fields are a fallback)."""
+    slot = str((step.params or {}).get("slot") or "fat")
+    fw = dict((ctx.firmware or {}).get(slot) or {})
+    if fw.get("enabled") is False:
+        ctx.log(f"firmware slot '{slot}' is disabled")
+        return FctOutcome(VERDICT_FAIL,
+                          f"firmware slot '{slot}' is disabled")
+    method = str(fw.get("method")
+                 or step.params.get("flash_mode") or "cli")
+    if method == "gui":
+        return _flash_gui_once(step, ctx, fw)
+    return _flash_cli_once(step, ctx, fw, slot)
+
+
+def _flash_cli_once(step: FctStep, ctx: FctContext, fw: dict,
+                    slot: str) -> FctOutcome:
+    """CLI flash: run the node-03 command over the step channel and judge
+    the pass/fail keywords (legacy step command/keywords are a fallback
+    for sequences built before the firmware node existed)."""
+    cli = dict(fw.get("cli") or {})
+    command = str(cli.get("command") or step.command or "")
+    if not command.strip():
+        return FctOutcome(VERDICT_ERROR,
+                          f"flash slot '{slot}': no command configured")
+    pass_kw = list(cli.get("pass_keywords") or step.expect_pass or [])
+    fail_kw = list(cli.get("fail_keywords") or step.expect_fail or [])
+    channel = _open_channel(step, ctx)
+    if channel is None:
+        return FctOutcome(VERDICT_ERROR,
+                          f"channel '{step.channel}' not bound")
+    ctx.log(f"flash cli: {command}")
+    _mark_channel(channel)
+    channel.write(command)
+    return _capture_loop(channel, pass_kw, fail_kw,
+                         step.timeout_s or 30.0, ctx, [])
+
+
+def _flash_gui_once(step: FctStep, ctx: FctContext,
+                    fw: dict) -> FctOutcome:
+    """GUI flash: launch (or reuse) the node-03 GUI tool, then take the
+    operator Go / Stop answer."""
+    gui = dict(fw.get("gui") or {})
+    tool_path = str(gui.get("tool_path") or "").strip()
+    if tool_path:
+        from .fct_test_runner import _flash_gui_process_running
+        from .flash_tool import launch_tool_gui
+        if not _flash_gui_process_running(tool_path):
+            started, detail = launch_tool_gui(tool_path)
+            if not started:
+                return FctOutcome(VERDICT_FAIL,
+                                  f"flash GUI launch failed: {detail}")
+            ctx.log(f"flash GUI {detail}")
+    if ctx.human_confirm is None:
+        return FctOutcome(VERDICT_ERROR, "no confirm hook bound")
+    go = bool(ctx.human_confirm(step))
+    return FctOutcome(VERDICT_PASS if go else VERDICT_FAIL,
+                      "human GO" if go else "human STOP")
+
+
 def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
     """One attempt, dispatched by step_type (B4 §2 flows)."""
     pass_kw, fail_kw = ctx.effective_keywords(step)
@@ -930,6 +996,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             # M38: a failed fixture expectation is a test FAIL
             return FctOutcome(VERDICT_FAIL, f"{op_name}: {verdict}")
         return FctOutcome(VERDICT_ERROR, f"{op_name}: {verdict}")
+
+    if step.step_type == STEP_FLASH:
+        return _flash_once(step, ctx)
 
     if step.step_type == STEP_GUI_CONFIRM:
         if step.params.get("console_dialog"):

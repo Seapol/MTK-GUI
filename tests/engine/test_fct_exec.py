@@ -16,6 +16,7 @@ from mtkgui.engine.credentials import (
 from mtkgui.gui.yamlbuild.fct_build import (
     FLASH_CLI,
     FLASH_GUI,
+    STEP_FLASH,
     STEP_OPERATION,
     build_fct_sequence,
     to_project_fct_cases,
@@ -402,6 +403,17 @@ def test_runner_fct_fail_blocks_overall(qapp):
     page.run_demo()
     assert page.fct.item(0, 4).text() == "FAIL"
     page.deleteLater()
+
+
+def test_disabled_flash_slot_fails_fast():
+    """v2-15 D: a FLASH step whose firmware slot is disabled reports a
+    warning and fails fast without launching."""
+    ctx = FctContext(firmware={"fat": {"enabled": False}})
+    step = FctStep(name="Flash FAT Firmware", step_type=STEP_FLASH,
+                   timeout_s=0, params={"slot": "fat"})
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_FAIL
+    assert "firmware slot 'fat' is disabled" in out.reason
 
 
 def test_load_fct_cases_replaces_rows_exactly(qapp):
