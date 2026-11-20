@@ -36,13 +36,14 @@ def test_step_table_has_seven_steps():
     )
     assert tuple(s.kind for s in sv.YAML_STEPS) == (
         "panel", "panel", "panel", "panel",
-        "panel", "panel", "placeholder",
+        "panel", "panel", "panel",
     )
     assert sv.step_label("firmware") == "03 · Firmware Config"
 
 
 def test_placeholder_set_pinned():
-    assert sv.PLACEHOLDER_STEPS == frozenset({"apply_save"})
+    # v2-17 flipped the last placeholder (node 07 Apply & Save Yaml)
+    assert sv.PLACEHOLDER_STEPS == frozenset()
 
 
 # ---------------------------------------------------------------- routing

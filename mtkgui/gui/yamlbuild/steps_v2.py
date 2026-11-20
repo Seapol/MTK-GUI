@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 #: steps whose body is a single sentence, not a real panel.  v2-5 flipped
-#: ``firmware``; node 07 later flips ``apply_save``.
-PLACEHOLDER_STEPS: frozenset[str] = frozenset({"apply_save"})
+#: ``firmware``; v2-17 flipped ``apply_save`` - none remain.
+PLACEHOLDER_STEPS: frozenset[str] = frozenset()
 
 PLACEHOLDER_TEXT = "This node is not built yet — scheduled for its own commit."
 
@@ -52,7 +52,7 @@ YAML_STEPS: tuple[Step, ...] = (
     Step("equipment",    "Equipment Config",        group="both", kind="panel"),
     Step("build_ict",    "Build ICT Test Sequence", group="ict",  kind="panel"),
     Step("build_fct",    "Build FCT Test Sequence", group="fct",  kind="panel"),
-    Step("apply_save",   "Apply & Save Yaml",       group="both", kind="placeholder"),
+    Step("apply_save",   "Apply & Save Yaml",       group="both", kind="panel"),
 )
 
 STEP_KEYS: tuple[str, ...] = tuple(s.key for s in YAML_STEPS)

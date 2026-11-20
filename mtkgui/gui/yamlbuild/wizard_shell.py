@@ -244,6 +244,14 @@ class YamlBuildWizard(QWidget):
             # the v1 dialog remains reachable through the Advanced button
             panel.advanced_requested.connect(self.build_fct_requested.emit)
             return panel
+        if key == "apply_save":
+            from mtkgui.gui.yamlbuild.apply_save_panel import ApplySavePanel
+            panel = ApplySavePanel()
+            # v2-17: node 07 previews the Draft from the same model and
+            # saves through the shared publish helpers.
+            panel.set_values(self.model)
+            panel.content_changed.connect(panel.refresh)
+            return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
 
@@ -377,6 +385,11 @@ class YamlBuildWizard(QWidget):
                     rails_enabled=bool(eq.rails.rows),
                     fixture_type=eq.fixture.type,
                     instruments=[k for k, on in eq.instruments.items() if on])
+        # v2-17: node 07 always previews the latest model state
+        if self.current == "apply_save":
+            panel = self._panels.get("apply_save")
+            if panel is not None:
+                panel.refresh()
         self.btn_back.setVisible(self.current != "design_input")
         self.btn_next.setText(sv.next_label(self.current, ict_on, fct_on))
         # v2-4: any panel may gate [Next >] (node 01 validates its
