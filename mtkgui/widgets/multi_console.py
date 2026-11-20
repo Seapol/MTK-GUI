@@ -741,14 +741,18 @@ class _InlineChannelView(QWidget):
         self.edit = QLineEdit()
         self.edit.setPlaceholderText(f"Send to {key} - press Enter")
         self.edit.returnPressed.connect(self._emit)
-        layout.addWidget(self.edit)
+        # v2-16: ready-made DUT-shell blocks inserted at the cursor
+        from mtkgui.gui.yamlbuild.command_snippet_helper import (
+            PAGE_LINUX, with_snippets)
+        edit_box = with_snippets(self.edit, PAGE_LINUX, self)
+        self._snippet_box = edit_box
 
         btn = QPushButton("Send")
         btn.setObjectName("flat")
         btn.clicked.connect(self._emit)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.edit, 1)
+        row.addWidget(edit_box, 1)
         row.addWidget(btn)
         layout.addLayout(row)
         self.setMinimumHeight(150)

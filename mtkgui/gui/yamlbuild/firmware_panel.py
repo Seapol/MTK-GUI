@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mtkgui.gui.yamlbuild.command_snippet_helper import (
+    PAGE_WINDOWS,
+    with_snippets,
+)
 from mtkgui.gui.yamlbuild.firmware_config import (
     FIRMWARE_SLOTS,
     LOGICS,
@@ -95,7 +99,8 @@ class _Slot(QWidget):
         self.edit_command = QLineEdit()
         self.edit_command.setPlaceholderText(
             "fat_flash.bat --port COM4 --image fat_1.2.3.bin")
-        form.addRow("Command:", self.edit_command)
+        form.addRow("Command:", with_snippets(self.edit_command,
+                                              PAGE_WINDOWS))
         self._pass_keywords = [QLineEdit() for _ in range(3)]
         self.combo_pass_logic = self._logic_combo()
         form.addRow("Pass keywords:", self._keyword_row(self._pass_keywords,

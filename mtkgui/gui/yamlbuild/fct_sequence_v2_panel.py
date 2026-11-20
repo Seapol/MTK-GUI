@@ -34,6 +34,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mtkgui.gui.yamlbuild.command_snippet_helper import (
+    PAGE_WINDOWS,
+    with_snippets,
+)
 from mtkgui.gui.yamlbuild.fct_build import (
     DEFAULT_KEYWORD_FAIL,
     DEFAULT_KEYWORD_PASS,
@@ -166,7 +170,8 @@ class BuildFctSequencePanel(QWidget):
         form.addRow("Name", self.edit_name)
         form.addRow("Type", self.edit_type)
         form.addRow("Channel", self.edit_channel)
-        self._command_row = form.addRow("Command", self.edit_command)
+        self._command_row = form.addRow(
+            "Command", with_snippets(self.edit_command, PAGE_WINDOWS))
         form.addRow("Expect pass", self.edit_expect_pass)
         form.addRow("Expect fail", self.edit_expect_fail)
         form.addRow("On fail", self.edit_on_fail)

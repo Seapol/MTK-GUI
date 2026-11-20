@@ -69,6 +69,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mtkgui.gui.yamlbuild.command_snippet_helper import (
+    PAGE_LINUX,
+    PAGE_WINDOWS,
+    with_snippets,
+)
+
 from mtkgui.engine.fct_test_config import (
     BAUDRATES,
     BT_MODES,
@@ -2233,7 +2239,7 @@ class FCTTestConfigPanel(QWidget):
             timeout.setSuffix(" s")
             timeout.setToolTip(
                 "Measured from the moment the send payload is written")
-            sform.addRow("SendTo:", send_edit)
+            sform.addRow("SendTo:", with_snippets(send_edit, PAGE_LINUX))
             sform.addRow("Capture Expected:", cap_exp)
             sform.addRow(cap_regex)
             sform.addRow("Capture Unexpected:", cap_unexp)
@@ -2311,7 +2317,8 @@ class FCTTestConfigPanel(QWidget):
             host_edit = QTextEdit()
             host_edit.setPlainText(cmd.host_cmd_windows or cmd.host_cmd)
             host_edit.setMaximumHeight(110)
-            form.addRow("Windows cmd:", host_edit)
+            form.addRow("Windows cmd:", with_snippets(host_edit,
+                                                      PAGE_WINDOWS))
             # M83/C6: the working directory of the host command.
             cwd_edit = QLineEdit(cmd.cwd or "")
             cwd_edit.setPlaceholderText(
@@ -2691,7 +2698,7 @@ class FCTTestConfigPanel(QWidget):
         edit = QTextEdit()
         edit.setMinimumHeight(120)
         edit.setPlainText(cmd.host_cmd)
-        lay.addWidget(edit)
+        lay.addWidget(with_snippets(edit, PAGE_WINDOWS))
         t_row = QHBoxLayout()
         t_row.addWidget(QLabel("Timeout (seconds, min 1):"))
         t_spin = QSpinBox()
@@ -2779,7 +2786,7 @@ class FCTTestConfigPanel(QWidget):
             "sent in order. Newline auto-appended to each command (no need to type \\n)."))
         cmd_edit = QTextEdit()
         cmd_edit.setMinimumHeight(150)
-        lay_cmd.addWidget(cmd_edit)
+        lay_cmd.addWidget(with_snippets(cmd_edit, PAGE_LINUX))
         # send timeout
         from PySide6.QtWidgets import QSpinBox
         timeout_row = QHBoxLayout()
