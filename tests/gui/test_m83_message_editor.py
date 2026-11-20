@@ -16,10 +16,10 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from mtkgui.engine.fct_test_config import (  # noqa: E402
-    STEP_TYPE_MESSAGE_OK,
-    STEP_TYPE_MESSAGE_OK_WAIT,
-    STEP_TYPE_MESSAGE_YESNO,
-    STEP_TYPE_MESSAGE_YESNO_WAIT,
+    DEFAULT_MESSAGE_SEND_OK,
+    DIALOG_OK,
+    DIALOG_YESNO,
+    STEP_TYPE_MESSAGE,
 )
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     FCTTestConfigPanel,
@@ -31,7 +31,13 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _open(panel, monkeypatch, label: str) -> QDialog:
+def _panel() -> FCTTestConfigPanel:
+    panel = FCTTestConfigPanel()
+    panel.set_values({})
+    return panel
+
+
+def _edit(panel, monkeypatch) -> QDialog:
     seen: list = []
 
     def fake_exec(dlg):
@@ -39,11 +45,20 @@ def _open(panel, monkeypatch, label: str) -> QDialog:
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
-    panel._add_row_for_label(label)
     row = panel.cmd_table.rowCount() - 1
     panel._edit_current_row(row)
     assert seen, "the message editor never opened"
     return seen[0]
+
+
+def _open_plain(panel, monkeypatch) -> QDialog:
+    panel._add_row_for_label(STEP_TYPE_MESSAGE)
+    return _edit(panel, monkeypatch)
+
+
+def _open_console(panel, monkeypatch, style: str) -> QDialog:
+    panel._add_message_row(style)
+    return _edit(panel, monkeypatch)
 
 
 def _console_box(dlg) -> QGroupBox:
@@ -57,29 +72,23 @@ def _labels(dlg) -> list:
     return [label.text() for label in dlg.findChildren(QLabel)]
 
 
-def _panel() -> FCTTestConfigPanel:
-    panel = FCTTestConfigPanel()
-    panel.set_values({})
-    return panel
-
-
 def test_m83_console_block_disabled_for_plain_kinds(qapp, monkeypatch):
     panel = _panel()
-    dlg = _open(panel, monkeypatch, STEP_TYPE_MESSAGE_YESNO)
+    dlg = _open_plain(panel, monkeypatch)
     assert _console_box(dlg).isEnabled() is False
     panel.deleteLater()
 
 
 def test_m83_console_block_enabled_for_toconsole_kinds(qapp, monkeypatch):
     panel = _panel()
-    dlg = _open(panel, monkeypatch, STEP_TYPE_MESSAGE_YESNO_WAIT)
+    dlg = _open_console(panel, monkeypatch, DIALOG_YESNO)
     assert _console_box(dlg).isEnabled() is True
     panel.deleteLater()
 
 
 def test_m83_send_console_answer_control_removed(qapp, monkeypatch):
     panel = _panel()
-    dlg = _open(panel, monkeypatch, STEP_TYPE_MESSAGE_YESNO_WAIT)
+    dlg = _open_console(panel, monkeypatch, DIALOG_YESNO)
     assert not any("send_console_answer" in cb.text()
                    for cb in dlg.findChildren(QCheckBox))
     assert not any("send_console_answer" in text for text in _labels(dlg))
@@ -88,26 +97,26 @@ def test_m83_send_console_answer_control_removed(qapp, monkeypatch):
 
 def test_m83_oktoconsole_shows_send_on_ok_field(qapp, monkeypatch):
     panel = _panel()
-    dlg = _open(panel, monkeypatch, STEP_TYPE_MESSAGE_OK_WAIT)
+    dlg = _open_console(panel, monkeypatch, DIALOG_OK)
     ok_rows = [lab for lab in dlg.findChildren(QLabel)
                if "Send on OK:" in lab.text()]
     assert ok_rows and not ok_rows[0].isHidden()
     panel.deleteLater()
-    # a plain MessageOK row never shows the field
+    # a plain Message row never shows the field
     panel = _panel()
-    dlg = _open(panel, monkeypatch, STEP_TYPE_MESSAGE_OK)
+    dlg = _open_plain(panel, monkeypatch)
     ok_rows = [lab for lab in dlg.findChildren(QLabel)
                if "Send on OK:" in lab.text()]
     assert ok_rows and ok_rows[0].isHidden()
     panel.deleteLater()
 
 
-def test_m83_send_on_ok_defaults_to_ok(qapp, monkeypatch):
+def test_m83_send_on_ok_defaults_to_newline(qapp, monkeypatch):
     panel = _panel()
-    panel._add_row_for_label(STEP_TYPE_MESSAGE_OK_WAIT)
+    panel._add_message_row(DIALOG_OK)
     row = panel.cmd_table.rowCount() - 1
     cmd = panel._get_row_cmd(row)
-    assert cmd.send_ok == "ok"
+    assert cmd.send_ok == DEFAULT_MESSAGE_SEND_OK
     seen: list = []
 
     def fake_exec(dlg):
@@ -118,5 +127,5 @@ def test_m83_send_on_ok_defaults_to_ok(qapp, monkeypatch):
     panel._edit_current_row(row)
     box = _console_box(seen[0])
     values = [edit.text() for edit in box.findChildren(QLineEdit)]
-    assert "ok" in values
+    assert DEFAULT_MESSAGE_SEND_OK in values
     panel.deleteLater()

@@ -30,12 +30,7 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     STEP_TYPE_BT_RSSI,
     STEP_TYPE_BT_TONE,
     STEP_TYPE_CONSOLE_SERIAL,
-    STEP_TYPE_MESSAGE_GOSTOP,
-    STEP_TYPE_MESSAGE_GOSTOP_WAIT,
-    STEP_TYPE_MESSAGE_OK,
-    STEP_TYPE_MESSAGE_OK_WAIT,
-    STEP_TYPE_MESSAGE_YESNO,
-    STEP_TYPE_MESSAGE_YESNO_WAIT,
+    STEP_TYPE_MESSAGE,
     STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_SERIAL_PUT,
     STEP_TYPE_SFTP_GET,
@@ -50,10 +45,7 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
     _COL_TYPE,
 )
 
-MESSAGE_LABELS = (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                  STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
-                  STEP_TYPE_MESSAGE_YESNO_WAIT,
-                  STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+MESSAGE_LABELS = (STEP_TYPE_MESSAGE,)
 TRANSFER_LABELS = (STEP_TYPE_SFTP_PUT, STEP_TYPE_SFTP_GET,
                    STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL)
 WIFI_LABELS = (STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
@@ -103,18 +95,13 @@ def _entries(panel, title: str) -> list:
 
 
 class TestSubmenuStructure:
-    def test_message_submenu_has_three_console_entries(self, panel):
-        """M48: the three plain operator dialogs moved to the STANDARD
-        Operation group; Message (Console) keeps the three _to_Console
-        variants."""
-        assert _entries(panel, "Message (Console)") == [
-            STEP_TYPE_MESSAGE_OK_WAIT, STEP_TYPE_MESSAGE_YESNO_WAIT,
-            STEP_TYPE_MESSAGE_GOSTOP_WAIT]
+    def test_message_submenu_has_one_console_entry(self, panel):
+        """M48: the plain operator dialog moved to the STANDARD Operation
+        group; Message (Console) keeps the single console Message entry."""
+        assert _entries(panel, "Message (Console)") == [STEP_TYPE_MESSAGE]
 
-    def test_plain_message_entries_sit_in_operation(self, panel):
-        for label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                      STEP_TYPE_MESSAGE_GOSTOP):
-            assert label in panel._op_add_actions, label
+    def test_plain_message_entry_sits_in_operation(self, panel):
+        assert STEP_TYPE_MESSAGE in panel._op_add_actions
 
     def test_ict_measurements_submenu_is_ict_only(self, panel):
         """M48: the ICT-only group stays visible but grayed in FCT."""
@@ -134,11 +121,9 @@ class TestSubmenuStructure:
 
     def test_operation_submenu_keeps_the_standard_ops_only(self, panel):
         entries = [t for t in panel._op_add_actions]
-        # M48: 9 ops + Delay + the three plain operator messages
-        assert entries[-4] == "Delay — plain wait (ms)"
-        assert entries[-3:] == [STEP_TYPE_MESSAGE_OK,
-                                STEP_TYPE_MESSAGE_YESNO,
-                                STEP_TYPE_MESSAGE_GOSTOP]
+        # M48: 9 ops + Delay + the plain operator message
+        assert entries[-2] == "Delay — plain wait (ms)"
+        assert entries[-1] == STEP_TYPE_MESSAGE
         assert STEP_TYPE_SERIAL_PUT not in entries
         assert STEP_TYPE_SERIAL_PULL not in entries
 

@@ -155,6 +155,18 @@ def kind_writes_console(kind: str) -> bool:
     return normalize_message_kind(kind) in CONSOLE_MESSAGE_KINDS
 
 
+def message_kind_for(dialog_style: str, console: bool) -> str:
+    """Map a Message step's dialog_style (+ console flag) to the on-disk
+    ``fct_test_cases`` kind (backward-compatible spelling)."""
+    style = str(dialog_style or "")
+    if console:
+        return {"ok": "MessageOKtoConsole",
+                "yesno": "MessageYesNotoConsole"}.get(
+            style, "MessageGoStoptoConsole")
+    return {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
+        style, "MessageGoStop")
+
+
 def flash_gui_message(cmd) -> str:
     """M83/C12: the ONE operator prompt of a Flash_GUI row.
 
@@ -327,12 +339,7 @@ LEGACY_STEP_TYPE_ALIASES = {"SFTP_put": STEP_TYPE_SFTP_PUT,
 _LEGACY_SFTP_KINDS = {"SFTP_put": KIND_SFTP_PUT,
                       "SFTP_get": KIND_SFTP_GET}
 STEP_TYPE_CONSOLE_CLI = "Console_cli"
-STEP_TYPE_MESSAGE_OK = "MessageOK"
-STEP_TYPE_MESSAGE_YESNO = "MessageYesNo"
-STEP_TYPE_MESSAGE_GOSTOP = "MessageGoStop"
-STEP_TYPE_MESSAGE_OK_WAIT = "MessageOK_to_Console"
-STEP_TYPE_MESSAGE_YESNO_WAIT = "MessageYesNo_to_Console"
-STEP_TYPE_MESSAGE_GOSTOP_WAIT = "MessageGoStop_to_Console"
+STEP_TYPE_MESSAGE = "Message"
 #: M33: the third-party firmware flash GUI step (launch / reuse + Go /
 #: Stop operator verdict)
 STEP_TYPE_FLASH_GUI = "Flash_GUI"
@@ -355,10 +362,7 @@ STEP_TYPE_SERIAL_PULL = "Serial: Pull file from DUT"
 STEP_TYPE_LABELS = (STEP_TYPE_OPERATION, STEP_TYPE_CONSOLE_SERIAL,
                     STEP_TYPE_CONSOLE_SSH, STEP_TYPE_SFTP_PUT,
                     STEP_TYPE_SFTP_GET, STEP_TYPE_CONSOLE_CLI,
-                    STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                    STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK_WAIT,
-                    STEP_TYPE_MESSAGE_YESNO_WAIT,
-                    STEP_TYPE_MESSAGE_GOSTOP_WAIT, STEP_TYPE_FLASH_GUI,
+                    STEP_TYPE_MESSAGE, STEP_TYPE_FLASH_GUI,
                     STEP_TYPE_WIFI_SCAN, STEP_TYPE_WIFI_PING,
                     STEP_TYPE_WIFI_IPERF, STEP_TYPE_BT_RSSI,
                     STEP_TYPE_BT_PAIR, STEP_TYPE_BT_TONE)
@@ -956,14 +960,12 @@ class ConsoleCommand:
         # kinds only.  A plain Message kind never writes to a console, so
         # serialising send_yes / send_no for it would make every reload
         # look like a legacy row (and emit a false warning).
-        if self.kind != KIND_MESSAGE or kind_writes_console(
-                step_type_label(self)):
+        is_msg = self.kind == KIND_MESSAGE
+        is_console_msg = is_msg and bool(self.wait_enabled)
+        if not is_msg or is_console_msg:
             d["send_yes"] = self.send_yes
             d["send_no"] = self.send_no
-        if (self.kind == KIND_MESSAGE
-                and step_type_label(self) in MESSAGE_CONSOLE_STEP_LABELS
-                and normalize_message_kind(step_type_label(self))
-                == "MessageOKtoConsole"):
+        if is_console_msg and str(self.dialog_style or "") == DIALOG_OK:
             d["send_ok"] = str(self.send_ok or "")
         # M83/C6: the CLI working directory travels only when it is set -
         # an empty value keeps the historic "process CWD" behaviour.
@@ -1175,17 +1177,7 @@ def step_type_label(cmd: "ConsoleCommand") -> str:
     if kind == KIND_HOST:
         return STEP_TYPE_CONSOLE_CLI
     if kind == KIND_MESSAGE:
-        style = str(getattr(cmd, "dialog_style", "") or "")
-        waits = bool(getattr(cmd, "wait_enabled", False))
-        if waits:
-            return ({DIALOG_OK: STEP_TYPE_MESSAGE_OK_WAIT,
-                     DIALOG_YESNO: STEP_TYPE_MESSAGE_YESNO_WAIT,
-                     DIALOG_GOSTOP: STEP_TYPE_MESSAGE_GOSTOP_WAIT}
-                    .get(style, STEP_TYPE_MESSAGE_OK_WAIT))
-        return ({DIALOG_OK: STEP_TYPE_MESSAGE_OK,
-                 DIALOG_YESNO: STEP_TYPE_MESSAGE_YESNO,
-                 DIALOG_GOSTOP: STEP_TYPE_MESSAGE_GOSTOP}
-                .get(style, STEP_TYPE_MESSAGE_YESNO))
+        return STEP_TYPE_MESSAGE
     # wait | send | capture interact rows
     return (STEP_TYPE_CONSOLE_SSH
             if str(getattr(cmd, "transport", "") or "") == "ssh"
@@ -1267,25 +1259,17 @@ def console_command_for_label(label: str,
         return ConsoleCommand(kind="send", name=name or "",
                               transport="serial", wait_enabled=False,
                               send_enabled=True, capture_enabled=False)
-    if label in (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_OK_WAIT):
-        style = DIALOG_OK
-    elif label in (STEP_TYPE_MESSAGE_YESNO, STEP_TYPE_MESSAGE_YESNO_WAIT):
-        style = DIALOG_YESNO
-    else:
-        style = DIALOG_GOSTOP
-    waits = label in (STEP_TYPE_MESSAGE_OK_WAIT,
-                      STEP_TYPE_MESSAGE_YESNO_WAIT,
-                      STEP_TYPE_MESSAGE_GOSTOP_WAIT)
-    cmd = ConsoleCommand(
-        kind=KIND_MESSAGE, name=name or "", transport="serial",
-        dialog_style=style, wait_enabled=waits,
-        wait_timeout=10.0 if waits else 0.0,
-        send_enabled=True, capture_enabled=False,
-        confirm_enabled=False, retries=0,
-        timeout=(4.0 if style in (DIALOG_YESNO, DIALOG_GOSTOP) else 0.0))
-    if cmd.send_enabled:
-        cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
-    return cmd
+    if label == STEP_TYPE_MESSAGE:
+        cmd = ConsoleCommand(
+            kind=KIND_MESSAGE, name=name or "", transport="serial",
+            dialog_style=DIALOG_GOSTOP, wait_enabled=False,
+            wait_timeout=0.0,
+            send_enabled=True, capture_enabled=False,
+            confirm_enabled=False, retries=0,
+            timeout=4.0)
+        if cmd.send_enabled:
+            cmd.send = f"{cmd.send_yes} / {cmd.send_no}"
+        return cmd
 
 
 def default_assets_dir(project: str = "", tenant_base: str = "",
@@ -1968,7 +1952,8 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     # six-kind label travels as ``message_kind`` - only the *toConsole
     # kinds write to the console; a plain kind never does.
     if cmd.kind == KIND_MESSAGE:
-        message_kind = normalize_message_kind(step_type_label(cmd))
+        message_kind = message_kind_for(cmd.dialog_style,
+                                        bool(cmd.wait_enabled))
         steps.append(FctStep(
             name=cmd.name or "Operator message",
             step_type=STEP_GUI_CONFIRM, channel=cmd.channel,

@@ -23,9 +23,7 @@ from mtkgui.engine.fct_test_config import (  # noqa: E402
     KIND_SERIAL_PUT,
     STEP_TYPE_DELAY,
     STEP_TYPE_LABELS,
-    STEP_TYPE_MESSAGE_GOSTOP,
-    STEP_TYPE_MESSAGE_OK,
-    STEP_TYPE_MESSAGE_YESNO,
+    STEP_TYPE_MESSAGE,
     STEP_TYPE_OPERATION,
     STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_SERIAL_PUT,
@@ -38,8 +36,7 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 )
 
 DELAY_LABEL = "Delay — plain wait (ms)"
-MESSAGE_LABELS = (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                  STEP_TYPE_MESSAGE_GOSTOP)
+MESSAGE_LABELS = (STEP_TYPE_MESSAGE,)
 #: M48: the standard operations (M83 removed the two network setups)
 STANDARD_OPS = tuple(OP_STEPS)
 
@@ -64,8 +61,8 @@ class TestOperationSubmenu:
     def test_submenu_has_exactly_the_catalog_entries(self, panel):
         texts = list(panel._op_add_actions)
         assert texts == _op_labels() + [DELAY_LABEL] + list(MESSAGE_LABELS)
-        # v2-9a: 5 standard operations + Delay + the three plain messages
-        assert len(texts) == len(STANDARD_OPS) + 4
+        # v2-9a: 5 standard operations + Delay + the plain message
+        assert len(texts) == len(STANDARD_OPS) + 2
         assert "Operation: Custom" not in texts
         assert STEP_TYPE_SERIAL_PUT not in texts
         assert STEP_TYPE_SERIAL_PULL not in texts
@@ -87,7 +84,7 @@ class TestOperationSubmenu:
                 == STEP_TYPE_OPERATION
 
     def test_plain_message_entries_add_message_rows(self, panel):
-        """M48: the three plain operator dialogs are STANDARD steps."""
+        """M48: the plain operator dialog is a STANDARD step."""
         from mtkgui.engine.fct_test_config import KIND_MESSAGE
         for label in MESSAGE_LABELS:
             before = panel.cmd_table.rowCount()
@@ -144,7 +141,7 @@ class TestOperationSubmenu:
                   | set(MESSAGE_LABELS)
                   | {DELAY_LABEL})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 28   # v2-9b: 7 standard ops
+        assert len(panel._add_actions) == 23   # v2-9b: 7 standard ops
         assert STEP_TYPE_DELAY not in panel._add_actions
         assert "Delay" not in panel._add_actions
         # Operation is not a direct item any more - it is the submenu

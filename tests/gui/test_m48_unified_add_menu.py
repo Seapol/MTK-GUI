@@ -25,7 +25,7 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 )
 
 DELAY_LABEL = "Delay — plain wait (ms)"
-MESSAGES = ("MessageOK", "MessageYesNo", "MessageGoStop")
+MESSAGES = ("Message",)
 ICT_GROUP = "ICT Measurements"
 FCT_GROUPS = ("File Transfer", "Console", "Message (Console)",
               "Wi-Fi Tests", "Bluetooth Tests", "Flash")
@@ -108,7 +108,7 @@ class TestUnifiedStructure:
     def test_fct_group_sizes(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
         sizes = {"File Transfer": 4, "Console": 3,
-                 "Message (Console)": 3, "Wi-Fi Tests": 3,
+                 "Message (Console)": 1, "Wi-Fi Tests": 3,
                  "Bluetooth Tests": 3, "Flash": 1}
         for title, n in sizes.items():
             texts = _texts(_submenu(menu, title))
@@ -184,7 +184,7 @@ class TestEntriesAddDirectly:
 
     def test_fct_message_and_transfer_entries_add_rows(self, fct_panel):
         menu = fct_panel._add_menu
-        for label, group in (("MessageOK", "Operation"),
+        for label, group in (("Message", "Operation"),
                              ("SSH SFTP: Push file to DUT",
                               "File Transfer"),
                              ("Console_serial", "Console"),

@@ -97,12 +97,7 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_SFTP_PUT,
     STEP_TYPE_SFTP_GET,
     STEP_TYPE_CONSOLE_CLI,
-    STEP_TYPE_MESSAGE_OK,
-    STEP_TYPE_MESSAGE_YESNO,
-    STEP_TYPE_MESSAGE_GOSTOP,
-    STEP_TYPE_MESSAGE_OK_WAIT,
-    STEP_TYPE_MESSAGE_YESNO_WAIT,
-    STEP_TYPE_MESSAGE_GOSTOP_WAIT,
+    STEP_TYPE_MESSAGE,
     STEP_TYPE_FLASH_GUI,
     STEP_TYPE_DELAY,
     STEP_TYPE_SERIAL_PUT,
@@ -228,12 +223,7 @@ _ADD_ROW_NAMES = {
     STEP_TYPE_SFTP_PUT: "SFTP upload",
     STEP_TYPE_SFTP_GET: "SFTP download",
     STEP_TYPE_CONSOLE_CLI: "Host CLI",
-    STEP_TYPE_MESSAGE_OK: "MessageOK",
-    STEP_TYPE_MESSAGE_YESNO: "MessageYesNo",
-    STEP_TYPE_MESSAGE_GOSTOP: "MessageGoStop",
-    STEP_TYPE_MESSAGE_OK_WAIT: "MessageOKtoConsole",
-    STEP_TYPE_MESSAGE_YESNO_WAIT: "MessageYesNotoConsole",
-    STEP_TYPE_MESSAGE_GOSTOP_WAIT: "MessageGoStoptoConsole",
+    STEP_TYPE_MESSAGE: "Message",
     STEP_TYPE_FLASH_GUI: "Flash_GUI",
     STEP_TYPE_DELAY: "Delay",
     STEP_TYPE_WIFI_SCAN: "Wi-Fi: Scan / RSSI",
@@ -1385,6 +1375,9 @@ class FCTTestConfigPanel(QWidget):
         if key == "delay":
             self._add_row_for_label(STEP_TYPE_DELAY)
             return
+        if key == f"step:{STEP_TYPE_MESSAGE}:console":
+            self._add_message_row(DIALOG_GOSTOP)
+            return
         label = key[len("step:"):] if key.startswith("step:") else ""
         if label == STEP_TYPE_SERIAL_PUT:
             self._add_serial_transfer_row("push")
@@ -1941,7 +1934,8 @@ class FCTTestConfigPanel(QWidget):
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                         QLabel, QComboBox, QLineEdit,
                                         QDoubleSpinBox, QGroupBox,
-                                        QDialogButtonBox, QTextEdit)
+                                        QDialogButtonBox, QTextEdit,
+                                        QCheckBox)
         from mtkgui.gui.yamlbuild import dialog_layout as dlayout
         cmd = self._get_row_cmd(row)
         dlg = QDialog(self)
@@ -1961,26 +1955,23 @@ class FCTTestConfigPanel(QWidget):
             "FAILs and stops the run. Only the *toConsole kinds write to "
             "the console; the plain kinds never do.", dlayout.WIDTH_FORM))
         form = QFormLayout()
-        self._msg_style_items = (
-            (STEP_TYPE_MESSAGE_OK, DIALOG_OK, False),
-            (STEP_TYPE_MESSAGE_YESNO, DIALOG_YESNO, False),
-            (STEP_TYPE_MESSAGE_GOSTOP, DIALOG_GOSTOP, False),
-            (STEP_TYPE_MESSAGE_OK_WAIT, DIALOG_OK, True),
-            (STEP_TYPE_MESSAGE_YESNO_WAIT, DIALOG_YESNO, True),
-            (STEP_TYPE_MESSAGE_GOSTOP_WAIT, DIALOG_GOSTOP, True),
+        self._msg_styles = (
+            ("ok", DIALOG_OK),
+            ("yesno", DIALOG_YESNO),
+            ("gostop", DIALOG_GOSTOP),
         )
         style = QComboBox()
         style.setInsertPolicy(QComboBox.NoInsert)
-        for label, _st, _w in self._msg_style_items:
+        for label, _st in self._msg_styles:
             style.addItem(label)
-        cur_label = step_type_label(cmd)
-        try:
-            style.setCurrentIndex(
-                [lbl for lbl, _s, _w in self._msg_style_items]
-                .index(cur_label))
-        except ValueError:
-            style.setCurrentIndex(1)
+        cur_style = str(cmd.dialog_style or DIALOG_GOSTOP)
+        style.setCurrentIndex(
+            next((i for i, (_l, s) in enumerate(self._msg_styles)
+                  if s == cur_style), 2))
         form.addRow("Dialog:", style)
+        console_chk = QCheckBox("Console domain (write to serial / SSH)")
+        console_chk.setChecked(bool(cmd.wait_enabled))
+        form.addRow("Console:", console_chk)
         msg = QLineEdit(cmd.confirm_message or "")
         msg.setPlaceholderText("Text shown to the operator "
                                "(empty = row name)")
@@ -2027,18 +2018,16 @@ class FCTTestConfigPanel(QWidget):
         cform.addRow("Capture Unexpected:", cap_unexp)
 
         def _sync_kind() -> None:
-            label = self._msg_style_items[
-                style.currentIndex()][0]
-            is_console = label in (STEP_TYPE_MESSAGE_OK_WAIT,
-                                   STEP_TYPE_MESSAGE_YESNO_WAIT,
-                                   STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+            is_console = console_chk.isChecked()
+            show_ok = is_console and (
+                self._msg_styles[style.currentIndex()][1] == DIALOG_OK)
             console_box.setEnabled(is_console)
-            show_ok = label == STEP_TYPE_MESSAGE_OK_WAIT
             if ok_label is not None:
                 ok_label.setVisible(show_ok)
             send_ok.setVisible(show_ok)
 
         style.currentIndexChanged.connect(lambda _i: _sync_kind())
+        console_chk.toggled.connect(lambda _c: _sync_kind())
         _sync_kind()
         form.addRow(console_box)
         lay.addLayout(form)
@@ -2053,18 +2042,15 @@ class FCTTestConfigPanel(QWidget):
         outer.addWidget(buttons)
         if dlg.exec():
             self._push_history()
-            label, dialog_style, wait_label = self._msg_style_items[
-                style.currentIndex()]
-            is_console = label in (STEP_TYPE_MESSAGE_OK_WAIT,
-                                   STEP_TYPE_MESSAGE_YESNO_WAIT,
-                                   STEP_TYPE_MESSAGE_GOSTOP_WAIT)
+            dialog_style = self._msg_styles[style.currentIndex()][1]
+            is_console = console_chk.isChecked()
             cmd.dialog_style = dialog_style
             cmd.confirm_message = msg.text().strip()
             cmd.expect_pass = expected.text().strip()
             cmd.expect_pass_is_regex = False
-            # an *toConsole row stays an *toConsole row even with an
-            # empty wait pattern (the kind is carried by wait_enabled)
-            cmd.wait_enabled = wait_label
+            # a console-domain Message row stays console-domain even with
+            # an empty wait pattern (the kind is carried by wait_enabled)
+            cmd.wait_enabled = is_console
             cmd.wait_timeout = float(wait_timeout.value())
             if is_console:
                 cmd.send_enabled = dialog_style != DIALOG_OK
@@ -2072,7 +2058,7 @@ class FCTTestConfigPanel(QWidget):
                 cmd.send_no = send_no.text().strip() or "n"
                 cmd.send = (f"{cmd.send_yes} / {cmd.send_no}"
                             if cmd.send_enabled else "")
-            if label == STEP_TYPE_MESSAGE_OK_WAIT:
+            if is_console and dialog_style == DIALOG_OK:
                 cmd.send_ok = send_ok.text().strip()
             cmd.timeout = float(timeout.value())
             cmd.capture_expected = cap_exp.toPlainText().strip()

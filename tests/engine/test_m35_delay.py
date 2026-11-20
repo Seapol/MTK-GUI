@@ -44,7 +44,7 @@ class TestDelayModel:
         # M43: Delay is no longer a standalone Add-menu Type item (it
         # lives in the Operation submenu); the kind stays valid
         assert STEP_TYPE_DELAY not in STEP_TYPE_LABELS
-        assert len(STEP_TYPE_LABELS) == 19   # M83: DUT login retired
+        assert len(STEP_TYPE_LABELS) == 14   # M83: DUT login retired
         cmd = console_command_for_label(STEP_TYPE_DELAY, "Delay")
         assert cmd.kind == KIND_DELAY
         assert cmd.wait_ms == 1000
@@ -183,8 +183,7 @@ class TestAddMenus:
         """M43/M45d/M48: every Type label is reachable; Operation is a
         submenu (13 entries incl. Delay + the three plain messages)."""
         from mtkgui.engine.fct_test_config import (
-            STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK,
-            STEP_TYPE_MESSAGE_YESNO, STEP_TYPE_OPERATION,
+            STEP_TYPE_MESSAGE, STEP_TYPE_OPERATION,
             STEP_TYPE_SERIAL_PULL, STEP_TYPE_SERIAL_PUT)
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_TYPE)
@@ -194,11 +193,10 @@ class TestAddMenus:
         direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
                   | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
                   | {f"Operation: {name}" for name in standard}
-                  | {STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
-                     STEP_TYPE_MESSAGE_GOSTOP}
+                  | {STEP_TYPE_MESSAGE}
                   | {"Delay — plain wait (ms)"})
         assert set(panel._add_actions) == direct
-        assert len(panel._add_actions) == 28   # v2-9b: 7 standard ops
+        assert len(panel._add_actions) == 23   # v2-9b: 7 standard ops
         for label in direct:
             if label.startswith("Operation: ") or label in (
                     "Delay — plain wait (ms)"):
@@ -267,8 +265,7 @@ class TestAddMenus:
         op_texts = [a.text() for a in op_menu.actions() if a.text()]
         standard = list(OP_STEPS)
         assert op_texts == ([f"Operation: {n}" for n in standard]
-                            + ["Delay — plain wait (ms)", "MessageOK",
-                               "MessageYesNo", "MessageGoStop"])
+                            + ["Delay — plain wait (ms)", "Message"])
         assert not any(t.startswith(("Sendto", "Waitfor", "Capturefrom"))
                        for t in op_texts)
         # the FCT-only groups are grayed with the redirect tooltip
@@ -293,7 +290,7 @@ class TestAddMenus:
                        if a.text() == "Operation")
         op_texts = [a.text() for a in op_menu.actions() if a.text()]
         assert "Delay — plain wait (ms)" in op_texts
-        assert "MessageOK" in op_texts            # M48: standard now
+        assert "Message" in op_texts            # M48: standard now
         ict_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
                         if a.text() == "ICT Measurements")
         ict_texts = [a.text() for a in ict_menu.actions() if a.text()]

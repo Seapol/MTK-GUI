@@ -189,6 +189,18 @@ def test_gui_path_maps_to_messagegostop():
                 and str(s.params.get("flash_mode", "")).lower() == FLASH_GUI))
 
 
+def test_message_dialog_style_round_trips_to_kind():
+    """A Message step's dialog_style (+ console flag) maps to the on-disk
+    kind: gostop -> MessageGoStop, console gostop -> MessageGoStoptoConsole."""
+    from mtkgui.engine.fct_test_config import message_kind_for
+    assert message_kind_for("ok", False) == "MessageOK"
+    assert message_kind_for("yesno", False) == "MessageYesNo"
+    assert message_kind_for("gostop", False) == "MessageGoStop"
+    assert message_kind_for("ok", True) == "MessageOKtoConsole"
+    assert message_kind_for("yesno", True) == "MessageYesNotoConsole"
+    assert message_kind_for("gostop", True) == "MessageGoStoptoConsole"
+
+
 def test_external_tool_family_mapping():
     seq = FctSequence(name="rf", steps=[
         FctStep(name="wifi", step_type="EXTERNAL_TOOL",

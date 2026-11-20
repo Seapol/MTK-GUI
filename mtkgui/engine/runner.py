@@ -460,10 +460,17 @@ class TestRunner(QObject):
                       else getattr(self, "_last_op_error", None))
             return
 
-        if kind in ("MessageOK", "MessageYesNo", "MessageGoStop"):
+        if kind in ("MessageOK", "MessageYesNo", "MessageGoStop",
+                    "Message"):
             # M48: the plain operator-dialog kinds are STANDARD steps, so
             # an ICT sequence may carry them too (same semantics as the
             # FCT rows; the operator answer drives the DUT console).
+            # v2-15 C: the collapsed single "Message" kind defaults to the
+            # GoStop dialog unless a dialog_style param says otherwise.
+            if kind == "Message":
+                kind = {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
+                    str((params or {}).get("dialog_style") or ""),
+                    "MessageGoStop")
             if not getattr(self, "_op_interactive", True):
                 env._log(f"ICT {name}: operator message simulated -> PASS")
                 self._put("ict", r, StepStatus.PASS)

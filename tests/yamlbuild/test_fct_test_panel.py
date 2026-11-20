@@ -384,12 +384,12 @@ def test_message_rows_render_and_round_trip(qapp):
     panel = FCTTestConfigPanel()
     panel.set_values({"fct_test_config_yaml": MESSAGE_YAML})
     t = panel.cmd_table
-    # m30: a message row shows its Message* Type label; the Yes/No rows
+    # m30: a message row shows the Message Type label; the Yes/No rows
     # render the answer payloads, the OK row shows (off) send
-    assert t.item(1, _COL_TYPE).text() == "MessageYesNo"
+    assert t.item(1, _COL_TYPE).text() == "Message"
     assert t.item(1, _COL_SEND).text() == "YES='y' / NO='n'"
     assert t.item(1, _COL_TIMEOUT).text() == "S:30s"
-    assert t.item(2, _COL_TYPE).text() == "MessageOK"
+    assert t.item(2, _COL_TYPE).text() == "Message"
     assert t.item(2, _COL_SEND).text() == "(off)"
     assert t.item(2, _COL_TIMEOUT).text() == "T:10s"
     assert t.item(0, _COL_TYPE).text() == "Console_serial"
@@ -397,8 +397,8 @@ def test_message_rows_render_and_round_trip(qapp):
     assert cmd.kind == "message" and cmd.dialog_style == "yesno"
     # values() keeps the message rows (no data loss on OK)
     steps = _steps(panel)
-    assert [s["type"] for s in steps] == ["Console_serial", "MessageYesNo",
-                                          "MessageOK"]
+    assert [s["type"] for s in steps] == ["Console_serial", "Message",
+                                          "Message"]
     assert [s["dialog_style"] for s in steps] == ["yesno", "yesno", "ok"]
 
 
@@ -446,7 +446,7 @@ def test_message_row_survives_bare_metal_switch(qapp):
     cmd = panel._get_row_cmd(1)
     assert cmd.kind == "message" and cmd.transport == "serial"
     steps = _steps(panel)
-    assert steps[1]["type"] == "MessageYesNo"
+    assert steps[1]["type"] == "Message"
     assert steps[1]["transport"] == "serial"
 
 
