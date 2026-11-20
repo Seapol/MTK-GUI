@@ -83,8 +83,7 @@ def _model() -> YamlBuildModel:
             upper_khz="24001.200").to_dict()],
         "gpio": [AllocatedRow(
             net="GPIO_RST", test_point="TP2.1",
-            dio_channel=GPIO_DIO_CHANNELS[0],
-            op_type="U2355A DIO Write", drive_level="High").to_dict()],
+            dio_channel=GPIO_DIO_CHANNELS[0]).to_dict()],
     })
     return model
 
@@ -215,12 +214,10 @@ def test_import_applies_limits_and_ignores_structure(tmp_path):
     assert report.applied_changes == ["Power VDD_3V3: r_gnd_min_ohm"]
     assert target.get_channel_allocation()["power"][0]["r_gnd_min_ohm"] \
         == "2.000"
-    # structure unchanged (test point / resources / op type / drive level)
+    # structure unchanged (test point / resources)
     power = target.get_channel_allocation()["power"][0]
     assert power["test_point"] == "TP1.1"
     assert power["impedance"] == DAQM908A_SENSE_CHANNELS[0]
-    assert target.get_channel_allocation()["gpio"][0]["op_type"] \
-        == "U2355A DIO Write"
     # YamlBuild: the structural (text) value stays, difference ignored
     assert target.get_params("rails") == before_params
     assert any("test point" in item for item in report.ignored_changes)

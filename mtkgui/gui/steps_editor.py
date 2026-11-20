@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
 
 from .dialog_sizing import apply_scroll_to_dialog, fit_dialog
 from ..engine import (
-    DIO_OPS,
     FCT_METHODS,
     FIXTURE_OPS,
     INSTRUMENT_OPS,
@@ -238,24 +237,6 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
             else:
                 param_form.addRow(
                     QLabel("N5747A output OFF — no setpoints."))
-        elif t == "dio_out":
-            channels = QLineEdit(str(
-                params.get("channels")
-                or OP_STEPS.get(op_combo.currentText().strip(),
-                                {}).get("channels") or "DIO01-DIO08"))
-            channels.setPlaceholderText("e.g. DIO01-DIO08")
-            pattern = QLineEdit(str(
-                params.get("pattern")
-                or OP_STEPS.get(op_combo.currentText().strip(),
-                                {}).get("pattern") or "0x00"))
-            pattern.setPlaceholderText("hex (0x3C) or DIO01=1,DIO03=0")
-            fields["channels"], fields["pattern"] = channels, pattern
-            param_form.addRow("Channels:", channels)
-            param_form.addRow("Pattern:", pattern)
-        elif t == "dio_read":
-            param_form.addRow(QLabel(
-                "Reads the full U2355A DIO bank and reports each "
-                "allocated Control IO net level (reference only)."))
         else:
             param_form.addRow(
                 QLabel("Custom operation: no parameters."))
@@ -309,15 +290,6 @@ def edit_op_step_dialog(parent, name, params, enable, wait, timeout,
         new_params = {
             "type": "power",
             "state": ("on" if _power_row_is_on(new_name, params) else "off")}
-    elif t == "dio_out":
-        new_params = {
-            "type": "dio_out",
-            "channels": fields["channels"].text().strip()
-            or "DIO01-DIO08",
-            "pattern": fields["pattern"].text().strip() or "0x00",
-        }
-    elif t == "dio_read":
-        new_params = {"type": "dio_read"}
     else:
         new_params = None
     # Enable / Wait / Timeout have no controls any more - echo them.
@@ -513,8 +485,6 @@ class StepsEditorDialog(QDialog):
     @staticmethod
     def _op_blocked_tooltip(name: str) -> str:
         """Explain WHICH configuration makes one operation usable."""
-        if name in DIO_OPS:
-            return "Configure Control IO Nets (ICT module) first"
         if name in INSTRUMENT_OPS:
             return "Configure instruments (Equipment page) first"
         if name in FIXTURE_OPS:

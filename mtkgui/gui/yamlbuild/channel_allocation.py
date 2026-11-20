@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -59,7 +58,6 @@ from mtkgui.gui.yamlbuild.ict_sequence import (
     R_GND_MIN_OHM,
     _filled,
 )
-from mtkgui.ict.netparse.isolation import assess_net
 from mtkgui.gui.dialog_sizing import wrap_scrollable
 from mtkgui.gui.yamlbuild.power_alloc import (
     CLOCK_BANDS,
@@ -156,14 +154,6 @@ def allocation_configured_ok(data) -> bool:
                for row in data.gpio[:GPIO_CHANNEL_CAPACITY])
 
 
-#: Control-IO operation choice (M19b: every Control IO net defaults
-#: to High Z = NOT TESTED; the operator arms the nets that must be
-#: read / driven - Read needs the DIO channel, Write additionally the
-#: Drive level, and a DIO Write passes the active-IO isolation guard)
-OP_HIGH_Z = "High Z (Not Tested)"
-OP_CHOICES = (OP_HIGH_Z, "U2355A DIO Read", "U2355A DIO Write")
-#: drive level for the Control IO nets armed as DIO Write (M19b)
-DRIVE_LEVELS = ("High", "Low")
 #: numeric (user-editable) columns - rendered as spin boxes, their
 #: values feed the 04 ICT sequence Expected / Min / Max (M19)
 NUMERIC_COLUMNS = frozenset({
@@ -205,8 +195,6 @@ GPIO_COLUMNS = (
     ("net", "Net", None),
     ("test_point", "Test point", ()),
     ("dio_channel", "DIO Channel", GPIO_DIO_CHANNELS),
-    ("op_type", "Operation", OP_CHOICES),
-    ("drive_level", "Drive level", DRIVE_LEVELS),
 )
 TABLE_SPECS = (("power", POWER_COLUMNS), ("clock", CLOCK_COLUMNS),
                ("gpio", GPIO_COLUMNS))
@@ -251,7 +239,7 @@ class AllocatedRow:
     digital_input: str = GPIO_DI
     digital_output: str = GPIO_DO
     # M19: user-editable test limits (03 page) inherited by the 04
-    # sequence; op_type = Control-IO operation (IO Read / IO Write)
+    # sequence.
     # M19c: R-GND min limit (ohm) - default 30, mirrored by the ICT
     # plan export (r_gnd_min_ohm) and the 04 R-GND row Min cell
     r_gnd_min_ohm: str = UNSET
@@ -261,9 +249,6 @@ class AllocatedRow:
     nominal_khz: str = UNSET
     lower_khz: str = UNSET
     upper_khz: str = UNSET
-    op_type: str = UNSET
-    # M19b: drive level for a Control IO armed as DIO Write
-    drive_level: str = UNSET
 
     def to_dict(self) -> dict:
         """Persistable plain dict (only the relevant keys per kind are
@@ -284,8 +269,6 @@ class AllocatedRow:
             "nominal_khz": self.nominal_khz,
             "lower_khz": self.lower_khz,
             "upper_khz": self.upper_khz,
-            "op_type": self.op_type,
-            "drive_level": self.drive_level,
         }
 
     @classmethod
@@ -298,8 +281,7 @@ class AllocatedRow:
                     "digital_input", "digital_output",
                     "r_gnd_min_ohm",
                     "nominal_v", "lower_v", "upper_v",
-                    "nominal_khz", "lower_khz", "upper_khz",
-                    "op_type", "drive_level"):
+                    "nominal_khz", "lower_khz", "upper_khz"):
             if data.get(key):
                 setattr(row, key, str(data[key]))
         return row
@@ -310,22 +292,12 @@ class AllocatedRow:
 
         M19: power_rails is NOT required - the U2355A AI pool is 12
         channels while a board can carry 55+ rails; R-GND / Voltage
-        (DAQM908A, 80 channels) and the test limits ARE required.
-        M19b: a Control IO row defaulting to High Z (NOT TESTED) is a
-        valid row - no DIO channel / drive level required.  Read needs
-        the DIO channel, Write additionally the drive level."""
+        (DAQM908A, 80 channels) and the test limits ARE required.  A
+        Control IO row is configured when its test point and DIO
+        channel are set."""
         if kind == "gpio":
-            op = self.op_type
-            if op in ("", UNSET):
-                return False
-            if op == OP_HIGH_Z:
-                return True
-            if op == "U2355A DIO Read":
-                return (self.test_point not in ("", UNSET)
-                        and self.dio_channel not in ("", UNSET))
             return (self.test_point not in ("", UNSET)
-                    and self.dio_channel not in ("", UNSET)
-                    and self.drive_level not in ("", UNSET))
+                    and self.dio_channel not in ("", UNSET))
         required = {
             "power": ("test_point", "r_gnd_min_ohm",
                       "impedance", "voltage",
@@ -370,8 +342,6 @@ def rows_from_testable(testable: dict, kind: str) -> list[AllocatedRow]:
                 row.nominal_khz = f"{khz:.3f}"
                 row.lower_khz = f"{khz * (1 - CLOCK_TOL_PPM * 1e-6):.3f}"
                 row.upper_khz = f"{khz * (1 + CLOCK_TOL_PPM * 1e-6):.3f}"
-        else:
-            row.op_type = OP_CHOICES[0]
         rows.append(row)
     return rows
 
@@ -380,14 +350,14 @@ def merge_rows(existing: list[AllocatedRow],
                nets: list[AllocatedRow]) -> list[AllocatedRow]:
     """Refresh the table rows for the current net set: keep the saved
     configuration of nets that are still present, add the new nets
-    WITH their defaults (nominal / limits / op_type - M19), drop the
+    WITH their defaults (nominal / limits - M19), drop the
     removed ones (ordered by the parse result)."""
     saved = {row.net: row for row in existing}
     merged = []
     for net_row in nets:
         old = saved.get(net_row.net)
-        # a fresh net keeps the parsed defaults (nominal_v / nominal_khz
-        # / op_type); a saved net keeps the operator's configuration
+        # a fresh net keeps the parsed defaults (nominal_v / nominal_khz);
+        # a saved net keeps the operator's configuration
         merged.append(old if old is not None else net_row)
     return merged
 
@@ -443,10 +413,6 @@ class ChannelAllocationData:
 
 class _NetTable(QWidget):
     """One dedicated dropdown-only table with auto Status."""
-
-    #: (net, old, new) - a Control-IO operation cell changed (M19b the
-    #: page runs the DIO-write isolation preflight on this)
-    operation_changed = Signal(str, str, str)
 
     def __init__(self, kind: str, columns, members_of,
                  parent: QWidget | None = None) -> None:
@@ -698,12 +664,6 @@ class _NetTable(QWidget):
             combo.addItems([*choices] if len(choices) == 1
                            else [UNSET, *choices])
             current = getattr(row, key)
-            # M19b: the Drive level is only relevant while the row is
-            # armed as DIO Write - otherwise it stays disabled + UNSET
-            if key == "drive_level":
-                if row.op_type != "U2355A DIO Write":
-                    combo.setEnabled(False)
-                    current = UNSET
             if current and current != UNSET:
                 combo.setCurrentText(current)
             combo.currentTextChanged.connect(
@@ -761,13 +721,10 @@ class _NetTable(QWidget):
     def _cell_changed(self, row_index: int, key: str, value: str) -> None:
         """A dropdown changed: store the value + recompute Status.
         Choosing an SE Clock resource auto-fills its fixed frequency
-        band (hardware mapping).  Choosing a Control-IO operation
-        syncs the Drive level cell and raises ``operation_changed`` for
-        the page-level DIO-write isolation preflight (M19b)."""
+        band (hardware mapping)."""
         if row_index >= len(self._rows):
             return
         row = self._rows[row_index]
-        old = getattr(row, key, UNSET)
         setattr(row, key, value)
         if key == "se_clock_hz":
             row.band = CLOCK_BANDS.get(value, UNSET)
@@ -777,32 +734,7 @@ class _NetTable(QWidget):
                 item = self.table.item(row_index, band_col)
                 if item is not None:
                     item.setText(row.band)
-        elif key == "op_type":
-            self._sync_drive_level(row_index)
-            if value != old:
-                self.operation_changed.emit(row.net, old, value)
         self._update_status(row_index, key)
-
-    def _sync_drive_level(self, row_index: int) -> None:
-        """M19b: the Drive level cell is enabled (and kept) ONLY while
-        the row is armed as U2355A DIO Write; otherwise it is disabled
-        and reset to UNSET (High Z / Read rows carry no drive value)."""
-        row = self._rows[row_index]
-        keys = [k for k, _l, *_r in self.columns]
-        if "drive_level" not in keys:
-            return
-        col = keys.index("drive_level")
-        combo = self.table.cellWidget(row_index, col)
-        if combo is None:
-            return
-        if row.op_type == "U2355A DIO Write":
-            combo.setEnabled(True)
-        else:
-            combo.setEnabled(False)
-            if str(combo.currentText()) not in ("", UNSET):
-                combo.setCurrentText(UNSET)   # also clears the row value
-            elif row.drive_level not in ("", UNSET):
-                row.drive_level = UNSET
 
     def _update_status(self, row_index: int, key: str) -> None:
         row = self._rows[row_index]
@@ -919,13 +851,6 @@ class ChannelAllocationPage(QWidget):
         self.tabs.addTab(self.table_power, "Power Nets")
         self.tabs.addTab(self.table_clock, "Clock Nets")
         self.tabs.addTab(self.table_gpio, "Control IO Nets")
-        # M19b: arming a Control IO net as DIO Write runs the active-IO
-        # isolation preflight right here in the allocation page
-        self.table_gpio.operation_changed.connect(
-            self._on_operation_changed)
-        # cached BOM library for the isolation assessment (lazy build
-        # from design_input.bom_file when not injected after a parse)
-        self._isolation_library_cache: dict | None = None
         # a hidden tab has a zero-height viewport - its dropdown window
         # renders the moment the tab is shown (lazy render, 2026-10-15)
         self.tabs.currentChanged.connect(
@@ -952,152 +877,17 @@ class ChannelAllocationPage(QWidget):
                 .get(net) if self.model else None) or {}
         return list(info.get("members") or [])
 
-    # --------------------------------------------------- DIO-write guard
-    def set_isolation_library(self, library) -> None:
-        """Cache the BOM library used by the DIO-write isolation
-        assessment (injected by the Parse Nets panel after a parse;
-        a lazy build from ``design_input.bom_file`` fills it when the
-        operator arms a Write before any parse ran)."""
-        self._isolation_library_cache = dict(library or {})
-
-    def _isolation_library(self) -> dict:
-        """The BOM library for :func:`assess_net` (lazy, cached)."""
-        if self._isolation_library_cache is not None:
-            return self._isolation_library_cache
-        bom = ""
-        if self.model is not None:
-            bom = str((self.model.get_params("design_input") or {})
-                      .get("bom_file") or "").strip()
-        cache: dict = {}
-        if bom:
-            try:
-                from mtkgui.ict.netparse.bom import load_bom_library
-                library, _report, _bom = load_bom_library(bom)
-                cache = dict(library or {})
-            except Exception:
-                cache = {}
-        self._isolation_library_cache = cache
-        return cache
-
-    def _on_operation_changed(self, net: str, old: str, new: str) -> None:
-        """M19b: a Control IO row switched to U2355A DIO Write -> run
-        the isolation assessment (same rules as the M7 run-time guard):
-
-          * NOT ISOLATED (active IO found)  -> strong warning, list the
-            active IO sources, Cancel reverts the row to High Z;
-          * PASSIVE-ONLY                     -> review request, list all
-            connections (human re-check against algorithm mistakes);
-          * cannot be confirmed              -> warning, continue at the
-            operator's own risk.
-
-        Read / High Z never trigger the guard."""
-        if new != "U2355A DIO Write":
-            return
-        members = self._net_members(net)
-        library = self._isolation_library()
-        try:
-            isolated, drivers = assess_net(members, library)
-        except Exception:
-            isolated, drivers = None, []
-        from mtkgui.startup_timing import begin as _t_begin
-        from mtkgui.startup_timing import end as _t_end
-        _t_begin("dio write: isolation confirm", category="ui",
-                 wait=True)
-        try:
-            self._confirm_dio_write(net, members, isolated, drivers)
-        finally:
-            _t_end("dio write: isolation confirm")
-
-    def _confirm_dio_write(self, net, members, isolated, drivers):
-        box = QMessageBox(self)
-        if isolated is False:
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("DIO Write - NOT ISOLATED")
-            box.setText(
-                f"Control IO '{net}' connects ACTIVE IO and is NOT "
-                "isolated.")
-            box.setInformativeText(
-                "Driving this net may conflict / short against the "
-                "active IO source(s). Active IO sources: "
-                + ", ".join(str(d) for d in drivers or ["unknown"])
-                + ".\n\nKeep the DIO Write only when the operator has "
-                "verified the board state (e.g. MCU held in reset).")
-            box.addButton("Cancel",
-                          QMessageBox.ButtonRole.RejectRole)
-            force = box.addButton(
-                "Force-Continue", QMessageBox.ButtonRole.AcceptRole)
-            box.setDefaultButton(box.buttons()[0])
-        elif isolated is True:
-            box.setIcon(QMessageBox.Icon.Information)
-            box.setWindowTitle("DIO Write - passive only (review)")
-            box.setText(
-                f"Control IO '{net}' connects only passive components "
-                "- no active IO found.")
-            box.setInformativeText(
-                "Algorithm check only: please human-review before "
-                "driving. All connections: "
-                + " ".join(str(m) for m in members or ["(none)"]) + ".")
-            box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
-            box.setDefaultButton(box.buttons()[0])
-        else:
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("DIO Write - isolation cannot be confirmed")
-            box.setText(
-                f"Control IO '{net}': the isolation cannot be confirmed "
-                "(components missing from the BOM / no pin info).")
-            box.setInformativeText(
-                "Driving an unconfirmed net is at the operator's own "
-                "risk. All connections: "
-                + " ".join(str(m) for m in members or ["(none)"]) + ".")
-            box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
-            box.setDefaultButton(box.buttons()[0])
-        box.exec()
-        if isolated is not False:
-            return
-        clicked = box.clickedButton()
-        if clicked is force:
-            return
-        # operator cancelled -> revert the row to High Z (not tested)
-        keys = [k for k, _l, *_r in
-                self.table_gpio.columns]
-        op_col = keys.index("op_type")
-        for r in range(self.table_gpio.table.rowCount()):
-            row = self.table_gpio.rows()[r]
-            if row.net != net:
-                continue
-            combo = self.table_gpio.table.cellWidget(r, op_col)
-            if combo is not None:
-                combo.setCurrentText(OP_HIGH_Z)   # re-enters _cell_changed
-            else:
-                row.op_type = OP_HIGH_Z
-                self.table_gpio._sync_drive_level(r)
-            break
-
     def set_edit_allowed(self, allowed: bool) -> None:
-        """Permission gate (T5 matrix): operators view only.
-
-        M19b: the Drive level cell is gated by the row's operation as
-        well - it stays enabled ONLY while the operator may edit AND
-        the row is armed as U2355A DIO Write (a blind enable-all would
-        override the op_type linkage rendered by _render_row)."""
+        """Permission gate (T5 matrix): operators view only."""
         self._edit_allowed = bool(allowed)
         for table in (self.table_power, self.table_clock,
                       self.table_gpio):
-            keys = [k for k, _l, *_r in table.columns]
             for r in range(table.table.rowCount()):
-                rows = table.rows()
                 for c in range(table.table.columnCount()):
                     widget = table.table.cellWidget(r, c)
                     if widget is None:
                         continue
-                    if keys[c] == "drive_level":
-                        write_armed = (
-                            r < len(rows)
-                            and rows[r].op_type == "U2355A DIO Write")
-                        widget.setEnabled(self._edit_allowed
-                                          and write_armed)
-                    else:
-                        widget.setEnabled(self._edit_allowed)
+                    widget.setEnabled(self._edit_allowed)
 
     # ---------------------------------------------------------- data flow
     def _source_fingerprint(self) -> str | None:

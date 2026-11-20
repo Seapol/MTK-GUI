@@ -47,8 +47,7 @@ POWER_HEADER = ("Net", "Test Point(s)", "R-GND Min limit (ohm)",
                 "R-V Channel", "DAQ AI Channel")
 CLOCK_HEADER = ("Net", "Test Point(s)", "Nominal (kHz)",
                 "Lower limit (kHz)", "Upper limit (kHz)", "FREQ Channel")
-CONTROL_IO_HEADER = ("Net", "Test Point(s)", "DIO Channel",
-                     "Op Type", "Drive Level")
+CONTROL_IO_HEADER = ("Net", "Test Point(s)", "DIO Channel")
 GND_HEADER = ("rank", "net", "sub_class(pcb/chassis/shield)",
               "test_point")
 OTHERS_HEADER = ("sub_class", "net", "provenance")
@@ -263,9 +262,7 @@ def _build_plan(result: ParseNetsResult, limits: ResourceLimits,
         control_rows.append(
             (rec.name,
              _test_points(rec, str(override.get("test_point") or "")),
-             _fmt(override.get("dio_channel")),
-             str(override.get("op_type") or ""),
-             str(override.get("drive_level") or "")))
+             _fmt(override.get("dio_channel"))))
 
     gnd_rows = []
     for rec in working.gnd:

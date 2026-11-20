@@ -105,12 +105,10 @@ def test_row_auto_validation_ok_nok():
         band="0 ~ 100 kHz").is_configured("clock")
 
     gpio = AllocatedRow(net="GPIO_LED1", test_point="U1.20",
-                        dio_channel="U2355A DIO01",
-                        op_type="U2355A DIO Read")
+                        dio_channel="U2355A DIO01")
     assert gpio.is_configured("gpio") is True
     assert not AllocatedRow(
-        net="GPIO_LED1", test_point="U1.20",
-        dio_channel="U2355A DIO01").is_configured("gpio")
+        net="GPIO_LED1", test_point="U1.20").is_configured("gpio")
 
 
 def test_power_columns_drop_instrument_channel_status():
@@ -231,26 +229,12 @@ def test_gpio_dio_pool(page):
     """The GPIO DIO Channel combo offers exactly the 24 U2355A DIO
     resources - the DAQM907A DIO is NOT offered (fixture-reserved)."""
     table = page.table_gpio.table
-    assert table.columnCount() == 5
+    assert table.columnCount() == 3
     combo = table.cellWidget(0, 2)
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items == [UNSET, *(f"U2355A DIO{n:02d}"
                               for n in range(1, 25))]
     assert not any("DAQM907A" in t for t in items)
-    # the Operation column offers High Z (default) / IO Read / IO
-    # Write (M19b); the UNSET placeholder mirrors the other dropdowns
-    op = table.cellWidget(0, 3)
-    assert [op.itemText(i) for i in range(op.count())] == \
-        [UNSET, "High Z (Not Tested)", "U2355A DIO Read",
-         "U2355A DIO Write"]
-    # every Control IO row DEFAULTS to High Z = not tested (M19b);
-    # the Drive level cell stays disabled + UNSET for such a row
-    assert page.table_gpio.rows()[0].op_type == "High Z (Not Tested)"
-    drive = table.cellWidget(0, 4)
-    assert not drive.isEnabled()
-    assert drive.currentText() == UNSET
-    assert [drive.itemText(i) for i in range(drive.count())] == \
-        [UNSET, "High", "Low"]
 
 
 def test_clock_resource_and_band_mapping(page):

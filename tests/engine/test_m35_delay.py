@@ -186,12 +186,11 @@ class TestAddMenus:
             STEP_TYPE_MESSAGE_GOSTOP, STEP_TYPE_MESSAGE_OK,
             STEP_TYPE_MESSAGE_YESNO, STEP_TYPE_OPERATION,
             STEP_TYPE_SERIAL_PULL, STEP_TYPE_SERIAL_PUT)
-        from mtkgui.engine.steps import DIO_OPS
         from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (
             FCTTestConfigPanel, _COL_TYPE)
         panel = FCTTestConfigPanel()
         panel.set_values({})
-        standard = [name for name in OP_STEPS if name not in DIO_OPS]
+        standard = list(OP_STEPS)
         direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
                   | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL}
                   | {f"Operation: {name}" for name in standard}
@@ -257,7 +256,6 @@ class TestAddMenus:
         """M48: the legacy FCT editor shares the unified grouped menu -
         the FCT-only groups stay visible but grayed ("add these in the
         FCT Sequence table")."""
-        from mtkgui.engine.steps import DIO_OPS
         from mtkgui.gui.steps_editor import StepsEditorDialog
         dlg = StepsEditorDialog("fct", [], [], [], [])
         texts = [a.text() for a in dlg.btn_add.menu().actions()]
@@ -267,7 +265,7 @@ class TestAddMenus:
         op_menu = next(a.menu() for a in dlg.btn_add.menu().actions()
                        if a.text() == "Operation")
         op_texts = [a.text() for a in op_menu.actions() if a.text()]
-        standard = [n for n in OP_STEPS if n not in DIO_OPS]
+        standard = list(OP_STEPS)
         assert op_texts == ([f"Operation: {n}" for n in standard]
                             + ["Delay — plain wait (ms)", "MessageOK",
                                "MessageYesNo", "MessageGoStop"])
@@ -285,7 +283,6 @@ class TestAddMenus:
     def test_legacy_ict_menu_keeps_measurements(self, qapp):
         """M48: the ICT editor shares the same grouped menu; its own
         FCT-only groups are grayed, the ICT groups stay usable."""
-        from mtkgui.engine.steps import DIO_OPS
         from mtkgui.gui.steps_editor import StepsEditorDialog
         dlg = StepsEditorDialog("ict", [], [], [], [])
         texts = [a.text() for a in dlg.btn_add.menu().actions()]
@@ -301,7 +298,7 @@ class TestAddMenus:
                         if a.text() == "ICT Measurements")
         ict_texts = [a.text() for a in ict_menu.actions() if a.text()]
         assert any(t.startswith("R-GND") for t in ict_texts)
-        assert len(ict_texts) == 5                # 3 measures + 2 DIO
+        assert len(ict_texts) == 3
         for title in ("File Transfer", "Console",
                       "Message (Console)", "Wi-Fi Tests",
                       "Bluetooth Tests", "Flash"):

@@ -19,8 +19,6 @@ from openpyxl.styles import PatternFill, Protection
 from openpyxl.worksheet.worksheet import Worksheet
 
 from mtkgui.gui.yamlbuild.channel_allocation import (
-    DRIVE_LEVELS,
-    OP_CHOICES,
     UNSET,
     ChannelAllocationData,
     TABLE_SPECS,
@@ -65,8 +63,7 @@ ALLOCATION_HEADERS = {
     "clock": ("Net name", "Test point", "SE Clock Hz",
               "Frequency band", "Nominal (kHz)", "Lower (kHz)",
               "Upper (kHz)"),
-    "gpio": ("Net name", "Test point", "DIO Channel", "Op Type",
-             "Drive Level"),
+    "gpio": ("Net name", "Test point", "DIO Channel"),
 }
 #: row keys written per table kind (no auto Status column anywhere)
 _ALLOC_ROW_KEYS = {
@@ -75,8 +72,7 @@ _ALLOC_ROW_KEYS = {
               "upper_v"),
     "clock": ("net", "test_point", "se_clock_hz", "band",
               "nominal_khz", "lower_khz", "upper_khz"),
-    "gpio": ("net", "test_point", "dio_channel", "op_type",
-             "drive_level"),
+    "gpio": ("net", "test_point", "dio_channel"),
 }
 #: M73 review-only guard: Excel is the "no-GUI quick review / light
 #: limits edit" carrier.  ONLY these limit fields are applied on import;
@@ -103,9 +99,7 @@ _ALLOC_POOLS = {
               "voltage": DAQM908A_SENSE_CHANNELS},
     "clock": {"se_clock_hz": CLOCK_CHANNELS,
               "band": tuple(dict.fromkeys(CLOCK_BANDS.values()))},
-    "gpio": {"dio_channel": GPIO_DIO_CHANNELS,
-             "op_type": OP_CHOICES,
-             "drive_level": DRIVE_LEVELS},
+    "gpio": {"dio_channel": GPIO_DIO_CHANNELS},
 }
 
 
@@ -344,8 +338,8 @@ def import_from_excel(model: YamlBuildModel, path: str) -> ImportReport:
     # GPIO) - optional (legacy workbooks stay importable); every
     # config cell must carry a valid dropdown enum value (no free
     # text); the Status column is read-only and ignored (auto).
-    # M70: a pre-M70 workbook without the new limit / op_type /
-    # drive_level columns still imports - the missing field keeps the
+    # M70: a pre-M70 workbook without the new limit columns still
+    # imports - the missing field keeps the
     # CURRENT model value (matched by net + test point), never reset.
     # M73 review-only guard: the allocation data stays fully GUI-owned
     # except for the whitelisted limit fields.  M75: start from a

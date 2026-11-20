@@ -5,9 +5,7 @@ Covers the three station capabilities:
 
 * **AI capture** - the 12 analog inputs record the power-rails
   up-sequence (CSV + waveform) at a configured rate,
-* **Counters** - the two counters (up to 6 MHz) measure CLK2 / CLK3,
-* **DIO** - the 24 TTL channels drive / read the DUT control-IO nets
-  through the level shifters (``U2355A DIO Write`` / ``DIO Read``).
+* **Counters** - the two counters (up to 6 MHz) measure CLK2 / CLK3.
 
 Verification status: the U2355A remote programming model must be
 confirmed against the official programming documentation during the
@@ -47,9 +45,6 @@ CMD = {
     "meas_vdc": "MEAS:VOLT:DC? AUTO,DEF,(@{chans})",
     # counters (CLK2 / CLK3)
     "meas_freq": "MEAS:FREQ? {gate},DEF,(@{chans})",
-    # DIO bank
-    "dio_write": "DIG:DATA {value},(@{chans})",
-    "dio_read": "DIG:DATA? (@{chans})",
 }
 
 #: Maximum AI sample count accepted by :meth:`U2355ADriver.capture_ai`.
@@ -220,46 +215,6 @@ class U2355ADriver(InstrumentDriver):
             gate=gate, chans=chans))
         return MeasurementResult.ok(
             parse_float(reply), "Hz", f"{self.MODEL}/{chans}")
-
-    # -- DIO ---------------------------------------------------------------------
-
-    def dio_write(self, channels: str, value: int) -> None:
-        """Write the DIO bank (control-IO nets through level shifters).
-
-        Args:
-            channels: DIO port channel string (from YAML).
-            value:    Bit pattern (decimal, 0..0xFFFFFF for 24 ch).
-
-        Raises:
-            InstrumentConfigError: Empty channel list or value out of
-                                   range.
-            ConnectionLostError / InstrumentIOError: See ``write``.
-        """
-        chans = self._validate_channels(channels)
-        value = int(value)
-        if not 0 <= value <= 0xFF_FFFF:
-            raise InstrumentConfigError(
-                f"dio_write: value {value} outside 0..16777215")
-        self.write(CMD["dio_write"].format(value=value, chans=chans))
-
-    def dio_read(self, channels: str) -> MeasurementResult:
-        """Read the DIO bank once (reference level sample, no assertion).
-
-        Args:
-            channels: DIO port channel string (from YAML).
-
-        Returns:
-            :class:`MeasurementResult` with the bit pattern (unit "").
-
-        Raises:
-            InstrumentConfigError: Empty channel list.
-            ConnectionLostError / InstrumentTimeoutError /
-            InstrumentIOError: See ``query``.
-        """
-        chans = self._validate_channels(channels)
-        reply = self.query(CMD["dio_read"].format(chans=chans))
-        value = int(parse_float(reply))
-        return MeasurementResult.ok(value, "", f"{self.MODEL}/{chans}")
 
     # -- helpers -------------------------------------------------------------------
 

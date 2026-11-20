@@ -494,41 +494,6 @@ class VirtualU2355A:
 
     def __init__(self, rng):
         self.rng = rng
-        #: M7: allocated control-IO rows (net <-> U2355A DIO channel),
-        #: injected by the workflow page before a DIO op runs
-        self.control_io: list[dict] = []
-
-    def dio_write(self, channels, pattern, fault):
-        """M7: drive the DIO bank (digital output, no readback)."""
-        if fault == "Error":
-            return Measurement("Error", "—", [
-                f"DAQ: U2355A DIO write {channels} = {pattern}: "
-                f"USB transfer error -> Error"])
-        return Measurement("Done", "—", [
-            f"DAQ: U2355A DIO write {channels} = {pattern} -> written"])
-
-    def dio_read(self, fault):
-        """M38: read the DIO bank once and PRESENT the levels (no
-        judgement - the operator reads the value)."""
-        if fault == "Error":
-            return Measurement("Error", "—", [
-                "DAQ: U2355A DIO bank: USB transfer error -> Error"])
-        lines = ["DAQ: U2355A DIO bank read (24 ch)"]
-        levels = []
-        for row in self.control_io:
-            net = str(row.get("net") or "")
-            dio = str(row.get("dio") or "")
-            if not net or not dio:
-                continue
-            # deterministic simulated level (hashed per net name)
-            level = "HIGH" if sum(ord(c) for c in net) % 2 else "LOW"
-            levels.append(f"{dio}={'H' if level == 'HIGH' else 'L'}")
-            lines.append(f"Control IO {net}: {dio} = {level}")
-        if not self.control_io:
-            lines.append("Control IO: no allocated control net (read "
-                         "the full bank)")
-        text = "DIO Read = " + (" ".join(levels) if levels else "24 ch")
-        return Measurement("Done", text, [text] + lines)
 
     def measure_counter(self, counter, tp_name, lo, hi, powered, fault):
         nominal = (lo + hi) / 2.0
@@ -561,8 +526,7 @@ class VirtualU2355A:
         """Legacy GPIO level check on the 24-ch U2355A DIO bank.
 
         Only a legacy project row whose name carries "gpio" reaches
-        this path - M7 replaced the walking template row with the
-        ``U2355A DIO Read`` / ``U2355A DIO Write`` standard ops.
+        this path.
         """
         if fault == "Error":
             return Measurement("Error", "—", [
@@ -711,15 +675,6 @@ class VirtualRack:
         self.psu.reset()
         self.fixture.reset()
 
-    @property
-    def control_io(self):
-        """M7: net <-> DIO rows the page injects for DIO Read/Write."""
-        return self.daq.control_io
-
-    @control_io.setter
-    def control_io(self, rows):
-        self.daq.control_io = list(rows or [])
-
     # -- operation steps --------------------------------------------------
     def init_instruments(self, instruments, reset=False):
         verb = "reset" if reset else "init"
@@ -770,11 +725,6 @@ class VirtualRack:
                          "PSU: no reply (USB/GPIB timeout) -> Error"]
                 ok = False
             return Measurement("Done" if ok else "Error", "—", lines)
-        if t == "dio_out":
-            return self.daq.dio_write(p.get("channels", ""),
-                                      p.get("pattern", ""), fault)
-        if t == "dio_read":
-            return self.daq.dio_read(fault)
         return Measurement("Done", "—", [f"{name} executed"])
 
     # -- measurement steps ------------------------------------------------

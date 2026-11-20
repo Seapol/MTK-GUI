@@ -115,18 +115,6 @@ class TestFixtureReadExpectation:
         assert out.verdict == "Done"
 
 
-class TestU2355AReadPresentsValue:
-    def test_real_read_value_line(self, gw, scripted_drivers):
-        rows = [{"net": "SOC_RST0", "dio": "DIO01"}]
-        out = gw.execute_op("U2355A DIO Read", {
-            "type": "dio_read", "control_io": rows})
-        assert out.verdict == "Done"          # no judgement
-        assert out.text.startswith("DIO Read = 0x18")
-        assert "DIO01=L" in out.text
-        assert any(line.startswith("Control IO SOC_RST0: DIO01 = ")
-                   for line in out.lines)
-
-
 class TestRunnerPropagation:
     def _env(self, tmp_path, mode="real"):
         env, _stages = make_env(make_config(), mode=mode, tmp_path=tmp_path)
@@ -172,15 +160,3 @@ class TestRunnerPropagation:
             "type": "fixture", "signal": "press", "level": "H",
             "expect": "High"}, interactive=False)
         assert verdict == "Done"
-
-    def test_virtual_dio_read_is_done_with_value_line(self, tmp_path):
-        env = self._env(tmp_path, mode="virtual")
-        env.control_io_provider = lambda: [
-            {"net": "SOC_RST0", "dio": "DIO01", "isolated": True,
-             "active_drivers": [], "members": []}]
-        runner = TestRunner(env)
-        env.runner = runner
-        verdict = runner._run_op("ICT", "U2355A DIO Read",
-                                 {"type": "dio_read"}, interactive=False)
-        assert verdict == "Done"
-        assert any("DIO Read = " in line for line in env._log_lines())

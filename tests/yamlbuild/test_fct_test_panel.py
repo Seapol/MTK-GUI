@@ -418,8 +418,8 @@ def test_add_menu_covers_all_twelve_types(qapp):
     panel.set_values({})
     # M48: the menu entries are the standard ops + messages + delay
     # (Operation group) + the FCT-only step types
-    from mtkgui.engine.steps import DIO_OPS, OP_STEPS
-    standard = [n for n in OP_STEPS if n not in DIO_OPS]
+    from mtkgui.engine.steps import OP_STEPS
+    standard = list(OP_STEPS)
     direct = ((set(STEP_TYPE_LABELS) - {STEP_TYPE_OPERATION})
               | {STEP_TYPE_SERIAL_PUT, STEP_TYPE_SERIAL_PULL,
                  "Delay — plain wait (ms)"}

@@ -84,7 +84,6 @@ def test_ict_add_menu_offers_ops_and_delay(qapp):
         texts = [a.text() for a in op_menu.actions() if a.text()]
         assert "Operation: Init Instruments" in texts
         assert "Operation: Flash FAT Firmware" not in texts
-        assert "Operation: U2355A DIO Read" not in texts  # M48: ICT group
         assert "Delay — plain wait (ms)" in texts
     finally:
         dlg.deleteLater()

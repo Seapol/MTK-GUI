@@ -66,8 +66,7 @@ def _build_workbook(path) -> str:
     ws.append(list(CONTROL_IO_HEADER))
     for index in range(1, 6):
         ws.append([f"GPIO_{index}", f"TP2{index}.1",
-                   GPIO_DIO_CHANNELS[index - 1],
-                   "U2355A DIO Write", "High"])
+                   GPIO_DIO_CHANNELS[index - 1]])
 
     ws = workbook.create_sheet(SHEET_GND)
     ws.append(list(GND_HEADER))

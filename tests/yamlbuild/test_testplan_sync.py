@@ -140,7 +140,7 @@ def test_roundtrip_keeps_every_net(tmp_path):
 
 def test_channel_b_roundtrip_keeps_limits_and_control_io(tmp_path):
     """M70: field-level Test Plan round trip (Power/Clock limits + the
-    Control IO DIO / op_type / drive_level cells)."""
+    Control IO DIO channel cells)."""
     from mtkgui.gui.yamlbuild.power_alloc import GPIO_DIO_CHANNELS
 
     model = YamlBuildModel()
@@ -157,9 +157,7 @@ def test_channel_b_roundtrip_keeps_limits_and_control_io(tmp_path):
                         "upper_khz": "24001.200"})
     for row in alloc["gpio"]:
         if row["net"] == "GPIO_RST":
-            row.update({"dio_channel": GPIO_DIO_CHANNELS[0],
-                        "op_type": "U2355A DIO Write",
-                        "drive_level": "High"})
+            row.update({"dio_channel": GPIO_DIO_CHANNELS[0]})
     model.set_channel_allocation(alloc)
 
     out = str(tmp_path / "limits.xlsx")
@@ -175,8 +173,6 @@ def test_channel_b_roundtrip_keeps_limits_and_control_io(tmp_path):
     assert float(clock["CLK_24M"][3]) == 23998.8
     assert float(clock["CLK_24M"][4]) == 24001.2
     assert control["GPIO_RST"][2] == GPIO_DIO_CHANNELS[0]
-    assert control["GPIO_RST"][3] == "U2355A DIO Write"
-    assert control["GPIO_RST"][4] == "High"
 
     other = YamlBuildModel()
     _import_plan(other, out, None, None, overwrite=True)
@@ -193,8 +189,6 @@ def test_channel_b_roundtrip_keeps_limits_and_control_io(tmp_path):
     assert float(imported_clock["CLK_24M"]["upper_khz"]) == 24001.2
     assert imported_gpio["GPIO_RST"]["dio_channel"] == \
         GPIO_DIO_CHANNELS[0]
-    assert imported_gpio["GPIO_RST"]["op_type"] == "U2355A DIO Write"
-    assert imported_gpio["GPIO_RST"]["drive_level"] == "High"
 
 
 def test_yaml_values_win_on_reexport(tmp_path):

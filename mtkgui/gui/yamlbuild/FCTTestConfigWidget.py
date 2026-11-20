@@ -126,7 +126,7 @@ from mtkgui.engine.fct_test_config import (
     rf_subtest_for_label,
     step_type_label,
 )
-from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
+from mtkgui.engine import FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.engine import host_platform
 from mtkgui.engine.fct_templates import TEMPLATE_LABELS
 from mtkgui.engine.steps import op_summary as _op_summary
@@ -1354,8 +1354,6 @@ class FCTTestConfigPanel(QWidget):
     @staticmethod
     def _op_blocked_tooltip(name: str) -> str:
         """Explain WHICH configuration makes one operation usable."""
-        if name in DIO_OPS:
-            return "Configure Control IO Nets (ICT module) first"
         if name in INSTRUMENT_OPS:
             return "Configure instruments (Equipment page) first"
         if name in FIXTURE_OPS:

@@ -15,8 +15,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QDialog, QMenu  # noqa: E402
 
-from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, \
-    OP_STEPS  # noqa: E402
+from mtkgui.engine import FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     KIND_DELAY,
     KIND_OP,
@@ -41,9 +40,8 @@ from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
 DELAY_LABEL = "Delay — plain wait (ms)"
 MESSAGE_LABELS = (STEP_TYPE_MESSAGE_OK, STEP_TYPE_MESSAGE_YESNO,
                   STEP_TYPE_MESSAGE_GOSTOP)
-#: M48: the 9 standard operations (DIO moved into the ICT-only group;
-#: M83 removed the two network setups)
-STANDARD_OPS = tuple(n for n in OP_STEPS if n not in DIO_OPS)
+#: M48: the standard operations (M83 removed the two network setups)
+STANDARD_OPS = tuple(OP_STEPS)
 
 
 @pytest.fixture(scope="module")
@@ -69,8 +67,6 @@ class TestOperationSubmenu:
         # v2-9a: 5 standard operations + Delay + the three plain messages
         assert len(texts) == len(STANDARD_OPS) + 4
         assert "Operation: Custom" not in texts
-        for moved in DIO_OPS:
-            assert f"Operation: {moved}" not in texts, moved
         assert STEP_TYPE_SERIAL_PUT not in texts
         assert STEP_TYPE_SERIAL_PULL not in texts
         # it really is a submenu of the Add dropdown
@@ -172,12 +168,10 @@ class TestOperationSubmenuGate:
             assert not act.isEnabled()
             assert act.toolTip() == tip
         assert acts[f"Operation: {allowed}"].isEnabled()
-        # M48: the DIO operations moved to the ICT-only submenu - it is
-        # always grayed in an FCT sequence
+        # M48: the ICT Measurements group is ICT-only - it is always
+        # grayed in an FCT sequence
         ict = panel._add_menu_groups["ICT Measurements"]
         assert not ict.isEnabled()
-        for name in DIO_OPS:
-            assert f"Operation: {name}" not in acts
         # the serial transfers are File Transfer entries now (M45d)
         assert panel._add_actions[STEP_TYPE_SERIAL_PUT].isEnabled()
         assert panel._add_actions[STEP_TYPE_SERIAL_PULL].isEnabled()

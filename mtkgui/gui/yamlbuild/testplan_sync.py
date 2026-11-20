@@ -389,25 +389,18 @@ def testplan_to_yaml(model: YamlBuildModel, xlsx_path: str | None = None,
         if alloc is None:
             alloc = {"net": net, "test_point": test_point or UNSET,
                      "dio_channel": str(row.get("DIO Channel") or "")
-                     or UNSET,
-                     "op_type": str(row.get("Op Type") or "") or UNSET,
-                     "drive_level": str(row.get("Drive Level") or "")
                      or UNSET}
             gpio_alloc.append(alloc)
             gpio_alloc_by_net[net] = alloc
             report.append(f"added control IO channel row {net}")
         elif overwrite:
             alloc["test_point"] = test_point or UNSET
-            for key, column in (("dio_channel", "DIO Channel"),
-                                ("op_type", "Op Type"),
-                                ("drive_level", "Drive Level")):
+            for key, column in (("dio_channel", "DIO Channel"),):
                 alloc[key] = str(row.get(column) or "").strip() or UNSET
             report.append(f"overwrote control IO channel row {net}")
         else:
             filled = False
-            for key, column in (("dio_channel", "DIO Channel"),
-                                ("op_type", "Op Type"),
-                                ("drive_level", "Drive Level")):
+            for key, column in (("dio_channel", "DIO Channel"),):
                 value = str(row.get(column) or "").strip()
                 current = str(alloc.get(key) or "").strip()
                 if current in ("", UNSET) and value:
@@ -745,7 +738,7 @@ def _yaml_overrides(model: YamlBuildModel) -> dict:
         # M70: the Control IO configuration travels with the workbook
         if not net:
             continue
-        for key in ("dio_channel", "op_type", "drive_level"):
+        for key in ("dio_channel",):
             value = str(row.get(key) or "").strip()
             if value not in ("", UNSET):
                 slot(net)[key] = row.get(key)

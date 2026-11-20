@@ -17,7 +17,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QMenu  # noqa: E402
 
-from mtkgui.engine.steps import DIO_OPS, OP_STEPS  # noqa: E402
+from mtkgui.engine.steps import OP_STEPS  # noqa: E402
 from mtkgui.gui.add_menu import MENU_TITLES, build_add_menu  # noqa: E402
 from mtkgui.gui.steps_editor import StepsEditorDialog  # noqa: E402
 from mtkgui.gui.yamlbuild.FCTTestConfigWidget import (  # noqa: E402
@@ -32,7 +32,7 @@ FCT_GROUPS = ("File Transfer", "Console", "Message (Console)",
 ICT_TIP = "ICT-only step — not available in an FCT sequence"
 FCT_TIP = "FCT-only step — not available in an ICT sequence"
 
-STANDARD_OPS = tuple(n for n in OP_STEPS if n not in DIO_OPS)
+STANDARD_OPS = tuple(OP_STEPS)
 
 
 @pytest.fixture(scope="module")
@@ -98,19 +98,11 @@ class TestUnifiedStructure:
                 assert "Operation: Custom" not in _texts(act.menu())
 
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
-    def test_operation_holds_no_dio_ops(self, request, menu_of):
-        menu = _menu_of(request.getfixturevalue(menu_of))
-        texts = _texts(_submenu(menu, "Operation"))
-        for moved in DIO_OPS:
-            assert f"Operation: {moved}" not in texts, moved
-
-    @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
-    def test_ict_measurements_has_five_entries(self, request, menu_of):
+    def test_ict_measurements_has_three_entries(self, request, menu_of):
         menu = _menu_of(request.getfixturevalue(menu_of))
         texts = _texts(_submenu(menu, ICT_GROUP))
-        assert len(texts) == 5
+        assert len(texts) == 3
         assert any(t.startswith("R-GND") for t in texts)
-        assert set(DIO_OPS) <= set(texts)
 
     @pytest.mark.parametrize("menu_of", ["ict_dlg", "fct_panel"])
     def test_fct_group_sizes(self, request, menu_of):

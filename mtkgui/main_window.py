@@ -756,9 +756,6 @@ class MainWindow(QMainWindow):
         # model: the configured rails land in the YAML preview / Apply
         self.workflow_page.rail_config_changed.connect(
             self._sync_rails_to_yaml)
-        # M7: control-IO rows (net <-> U2355A DIO channel + isolation
-        # verdict) consumed by the U2355A DIO Read/Write operations
-        self.workflow_page.control_io_provider = self._control_io_rows
 
         # jump back to the Test Work Flow page when a test completes
         self.workflow_page.run_finished.connect(
@@ -2561,32 +2558,6 @@ class MainWindow(QMainWindow):
         self._append_event_log(
             f"Power rails: {len(page_rails)} rails configured "
             f"from the Yaml Build model.")
-
-    def _control_io_rows(self):
-        """M7: allocated control-IO rows for the U2355A DIO ops.
-
-        Merges the Channel Allocation DIO assignment (net -> DIO
-        channel) with the parsed isolation evidence carried in
-        ``testable_nets`` (isolated / active_drivers / members).
-        """
-        testable = (self.yaml_build_page.model.imported.get(
-            "testable_nets") or {})
-        alloc = self.yaml_build_page.channel_alloc.collect()
-        rows = []
-        for row in alloc.get("gpio") or []:
-            net = str(row.get("net") or "").strip()
-            dio = str(row.get("dio_channel") or "").strip()
-            if not net or not dio or dio == "—":
-                continue
-            info = testable.get(net) or {}
-            rows.append({
-                "net": net,
-                "dio": dio,
-                "isolated": info.get("isolated"),
-                "active_drivers": list(info.get("active_drivers") or []),
-                "members": list(info.get("members") or []),
-            })
-        return rows
 
     @staticmethod
     def _rails_from_allocation(alloc):

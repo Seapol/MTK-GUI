@@ -210,13 +210,6 @@ def scripted_drivers():
         def measure_counter(self, channel, gate_s=None):
             return MeasurementResult(4000200.0, "Hz")
 
-        def dio_read(self, channels):
-            return MeasurementResult(24, "")
-
-        def dio_write(self, channels, value):
-            rec.calls.append(("u2355_dio_write", channels, value))
-            return None
-
         def capture_ai(self, channels, rate_hz, samples):
             n = int(samples)
             return [[3.3 if i > n // 4 else 0.0 for i in range(n)]

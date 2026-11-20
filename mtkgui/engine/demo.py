@@ -227,9 +227,6 @@ def _install_scripted_drivers(force: bool = True):
             return MeasurementResult(_scripted_value(channel, 4000200.0),
                                      "Hz")
 
-        def dio_read(self, channels):
-            return MeasurementResult(24, "")
-
         def capture_ai(self, channels, rate_hz, samples):
             n = int(samples)
             rows = []

@@ -659,10 +659,6 @@ class TestWorkFlowPage(QWidget):
         # the number of power rails assigned to DAQ AI channels in the
         # Channel Allocation tables (the DAQ AI Net cell is read-only)
         self.daq_ai_rail_count_provider = None
-        # M7: allocated control-IO rows (net / DIO channel / isolation
-        # verdict) set by the main window - the U2355A DIO Read/Write
-        # ops consume it (DIO Write runs the isolation preflight)
-        self.control_io_provider = None
         self._runner = TestRunner(self)
         self._runner.cycle_reset.connect(self._on_cycle_reset)
         self._runner.stage_skipped.connect(self._on_stage_skipped)
@@ -2513,50 +2509,6 @@ class TestWorkFlowPage(QWidget):
         policies (engine, mtkgui.engine.policies). Returns an abort log
         message, or None to continue."""
         return self._runner._policy_abort_reason(kind, args)
-
-    def _dio_write_preflight_dialog(self, blocked):
-        """M7: STRONG / SOFT isolation warning before a DIO Write.
-
-        *blocked* is the list of control-net rows the algorithm could
-        not clear (isolated False = active IO source, None = unknown).
-        Returns ``"force"`` when the operator chooses Force-Continue,
-        ``"cancel"`` otherwise (Cancel is the DEFAULT button).
-        """
-        box = QMessageBox(self)
-        box.setWindowTitle("U2355A DIO Write - isolation check")
-        box.setIcon(QMessageBox.Icon.Critical)
-        lines = []
-        for row in blocked or []:
-            net = str(row.get("net") or "")
-            drivers = ", ".join(str(d) for d in
-                                (row.get("active_drivers") or []))
-            if row.get("isolated") is False:
-                lines.append(
-                    f"Control IO {net} connects active IO - NOT "
-                    f"isolated; driving may conflict / short. "
-                    f"Active IO sources: {drivers}.")
-            else:
-                lines.append(
-                    f"Control IO {net}: isolation cannot be confirmed "
-                    f"(unknown refdes {drivers or 'unknown'}) - drive "
-                    f"at your own risk?")
-        box.setText("\n\n".join(lines) + "\n\nForce-Continue drives the "
-                   "U2355A DIO bank anyway.")
-        force = box.addButton("Force-Continue",
-                              QMessageBox.ButtonRole.DestructiveRole)
-        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
-        box.setDefaultButton(cancel)
-        box.exec()
-        return "force" if box.clickedButton() is force else "cancel"
-
-    def _dio_passive_reminder(self, net, members):
-        """M7: BENIGN reminder for an isolated (passive-only) control
-        net - review request, no cancel gate (INFO level)."""
-        QMessageBox.information(
-            self, "U2355A DIO Write - review request",
-            f"Algorithm assessed {net} as passive-only (no active IO "
-            f"found) - please human-review to avoid algorithm error.\n\n"
-            f"All connections: {members}")
 
     def _fct_message_dialog(self, kind, name, timeout_s: float = 0.0):
         """Modal operator dialog for the FCT message test methods.

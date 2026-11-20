@@ -20,7 +20,7 @@ from datetime import datetime
 
 import yaml
 
-from mtkgui.engine import DIO_OPS, FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
+from mtkgui.engine import FIXTURE_OPS, INSTRUMENT_OPS, OP_STEPS
 from mtkgui.gui.yamlbuild.channel_allocation import (
     ChannelAllocationData,
     UNSET,
@@ -98,9 +98,6 @@ def available_ops(model, virtual: bool = False) -> set[str] | None:
         return None
     equipment = dict(getattr(model, "_equipment_doc", None) or {})
     ops = set(OP_STEPS)
-    # DIO operations need the ICT Control IO nets
-    if not list(getattr(model, "gpio_allocation", None) or []):
-        ops.difference_update(DIO_OPS)
     # instrument Init / Reset need a configured instrument
     if not any(equipment.get(key) for key in _INSTRUMENT_DOC_KEYS):
         ops.difference_update(INSTRUMENT_OPS)

@@ -30,7 +30,7 @@ from .rails import (DURATION_S, SAMPLE_HZ, ai_wave_review,
                     write_csv)
 from .results import StepResult, StepStatus
 from .runner import TestRunner
-from .steps import (CONSOLE_KINDS, DIO_OPS, FCT_METHODS, FIXTURE_OPS,
+from .steps import (CONSOLE_KINDS, FCT_METHODS, FIXTURE_OPS,
                     INSTRUMENT_OPS, MESSAGE_CONSOLE_KINDS,
                     METHOD_R_GND, METHOD_R_GND_LEGACY,
                     OP_STEPS, console_keyword_fallback, display_text,
@@ -41,7 +41,6 @@ from .steps import (CONSOLE_KINDS, DIO_OPS, FCT_METHODS, FIXTURE_OPS,
 
 __all__ = [
     "CONSOLE_KINDS",
-    "DIO_OPS",
     "DURATION_S",
     "FCT_METHODS",
     "FIXTURE_OPS",

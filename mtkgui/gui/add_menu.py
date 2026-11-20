@@ -15,7 +15,7 @@ Every entry belongs to exactly one DOMAIN:
 A non-applicable domain is GRAYED OUT (disabled, never removed) with a
 tooltip naming the domain, so the operator can see what exists.
 
-Engine catalogs (``OP_STEPS`` / ``DIO_OPS`` / ``STEP_TYPE_*`` /
+Engine catalogs (``OP_STEPS`` / ``STEP_TYPE_*`` /
 ``KIND_*``) are untouched: only the menu grouping and
 ownership live here.
 """
@@ -49,7 +49,6 @@ from mtkgui.engine.fct_test_config import (
     STEP_TYPE_WIFI_SCAN,
 )
 from mtkgui.engine.steps import (
-    DIO_OPS,
     METHOD_R_GND,
     OP_STEPS,
 )
@@ -97,9 +96,9 @@ def _op_entries(names, group=OPERATION, domain=DOMAIN_STANDARD):
             for name in names]
 
 
-#: the standard Operation group: 9 catalog operations + Delay + the three
+#: the standard Operation group: the catalog operations + Delay + the three
 #: plain operator dialogs (M48 moved them out of the Message group)
-STANDARD_OPS = tuple(name for name in OP_STEPS if name not in DIO_OPS)
+STANDARD_OPS = tuple(OP_STEPS)
 
 ADD_ENTRIES = tuple(
     _op_entries(STANDARD_OPS) + [
@@ -111,8 +110,7 @@ ADD_ENTRIES = tuple(
         AddEntry(OPERATION, DOMAIN_STANDARD, STEP_TYPE_MESSAGE_GOSTOP,
                  f"step:{STEP_TYPE_MESSAGE_GOSTOP}"),
     ] + [
-        # M48: ICT-only measurements (the two DIO operations moved here
-        # from Operation - they need the ICT Control IO Nets)
+        # M48: ICT-only measurements
         AddEntry(ICT_MEASUREMENTS, DOMAIN_ICT,
                  "R-GND — rail-to-ground impedance",
                  f"measure:{METHOD_R_GND}"),
@@ -120,10 +118,6 @@ ADD_ENTRIES = tuple(
                  "measure:Power Voltage"),
         AddEntry(ICT_MEASUREMENTS, DOMAIN_ICT,
                  "Clock Hz — clock frequency", "measure:Clock Hz"),
-        AddEntry(ICT_MEASUREMENTS, DOMAIN_ICT, DIO_OPS[0],
-                 f"op:{DIO_OPS[0]}", DIO_OPS[0]),
-        AddEntry(ICT_MEASUREMENTS, DOMAIN_ICT, DIO_OPS[1],
-                 f"op:{DIO_OPS[1]}", DIO_OPS[1]),
     ] + [
         # FCT-only groups
         AddEntry(FILE_TRANSFER, DOMAIN_FCT, STEP_TYPE_SFTP_PUT,

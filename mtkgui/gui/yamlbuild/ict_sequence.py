@@ -16,8 +16,7 @@ import re
 
 from PySide6.QtWidgets import QLabel, QWidget
 
-from ...engine.steps import (METHOD_R_GND, dio_channel_index,
-                               dio_name, op_step)
+from ...engine.steps import METHOD_R_GND
 from ...ict.netparse.confidence import LOW, has_strong_power_token
 from ..steps_editor import StepsEditorDialog
 
@@ -157,42 +156,6 @@ def _fmt_clock(value: float) -> str:
     return f"{value:.1f}"
 
 
-#: the control-IO operations appended automatically when the parse
-#: result carries at least one GPIO net (M9 W1) - read / write happen
-#: while the DUT is powered, i.e. right after the clock tests
-DIO_AUTO_OP_NAMES = ("U2355A DIO Read", "U2355A DIO Write")
-
-
-def _dio_write_params(allocation: dict | None) -> dict | None:
-    """M19b: the U2355A DIO Write step parameters derived from the 03
-    allocation - the channels of every Control IO net armed as DIO
-    Write and the drive mask (High = 1, Low = 0).  Returns None when
-    no net is armed."""
-    nets: list[tuple[str, str]] = []
-    for row in (allocation or {}).get("gpio") or []:
-        if not isinstance(row, dict):
-            continue
-        if row.get("op_type") != "U2355A DIO Write":
-            continue
-        channel = str(row.get("dio_channel") or "")
-        if channel in ("", "—"):
-            continue
-        nets.append((dio_name(channel),
-                     str(row.get("drive_level") or "")))
-    if not nets:
-        return None
-    channels = ",".join(ch for ch, _level in nets)
-    mask = 0
-    for channel, level in nets:
-        index = dio_channel_index(channel)
-        if index is None:
-            continue
-        if level == "High":
-            mask |= (1 << index)
-    return {"type": "dio_out", "channels": channels,
-            "pattern": f"0x{mask:02X}"}
-
-
 def generate_sequence(testable: dict,
                       allocation: dict | None = None) -> list[tuple]:
     """The automatic sequence rows (module level so the Load-current-
@@ -200,15 +163,8 @@ def generate_sequence(testable: dict,
     net one R-GND and one Power Voltage test, per clock net one Clock
     Hz test - R-GND -> power rails (voltage) -> clock.
 
-    Control-IO operations (M19b): the 03 allocation decides - a DIO
-    Read step is appended when at least one Control IO net is armed as
-    Read, a DIO Write step (with the drive channels + High/Low mask)
-    when at least one net is armed as Write.  The default High Z
-    (NOT TESTED) rows generate NO operation.  Without an allocation
-    (legacy) the two U2355A DIO operations are appended when the parse
-    result holds at least one GPIO net (M9 W1).  The Expected / Min /
-    Max cells stay unset ("—"); combine with :func:`auto_fill_limits`
-    for the fully derived rows."""
+    The Expected / Min / Max cells stay unset ("—"); combine with
+    :func:`auto_fill_limits` for the fully derived rows."""
     testable = testable or {}
     rows: list[tuple] = []
     for method in METHOD_ORDER:
@@ -229,18 +185,6 @@ def generate_sequence(testable: dict,
                 method, f"{method} - {net}")
             rows.append(("test", label,
                          METHOD_UNITS[method], "—", "—", "—"))
-    dio_rows = (allocation or {}).get("gpio") or []
-    has_read = any(isinstance(r, dict)
-                   and r.get("op_type") == "U2355A DIO Read"
-                   for r in dio_rows)
-    write_params = _dio_write_params(allocation)
-    if has_read:
-        rows.append(op_step("U2355A DIO Read"))
-    if write_params is not None:
-        rows.append(op_step("U2355A DIO Write", write_params))
-    if allocation is None and             any((info or {}).get("category") == "GPIO"
-                for info in testable.values()):
-        rows.extend(op_step(name) for name in DIO_AUTO_OP_NAMES)
     return rows
 
 
@@ -319,10 +263,8 @@ def production_missing_limits_note(batch: str, steps) -> str | None:
 _SKELETON_OP_NAMES = frozenset(
     ICT_OPS_BEFORE_TEST + ICT_OPS_MID + ICT_OPS_AFTER_TEST
     + (RAILS_START_OP, RAILS_END_OP))
-#: generated operations that must appear exactly once.  The DIO ops are
-#: auto-appended by :func:`generate_sequence` (M9 W1) but are not part
-#: of the canonical skeleton - a saved plan may already carry them.
-_DEDUP_OP_NAMES = _SKELETON_OP_NAMES | frozenset(DIO_AUTO_OP_NAMES)
+#: generated operations that must appear exactly once.
+_DEDUP_OP_NAMES = _SKELETON_OP_NAMES
 
 
 def _drop_repeated_skeleton_ops(rows: list[tuple]) -> list[tuple]:

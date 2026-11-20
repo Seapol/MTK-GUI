@@ -19,7 +19,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui.engine import (  # noqa: E402
-    DIO_OPS,
     FIXTURE_OPS,
     INSTRUMENT_OPS,
     OP_STEPS,
@@ -75,13 +74,12 @@ def test_available_ops_none_means_everything():
 
 
 def test_available_ops_empty_project_greys_every_group():
-    """A blank project has no GPIO nets / instruments / fixture -> the
-    three resource groups are unavailable, Power stays usable."""
+    """A blank project has no instruments / fixture -> the two resource
+    groups are unavailable, Power stays usable."""
     model = YamlBuildModel()
     ops = available_ops(model)
     assert "Power On DUT" in ops
     assert "Power Off DUT" in ops
-    assert not set(DIO_OPS) & ops
     assert not set(INSTRUMENT_OPS) & ops
     assert not set(FIXTURE_OPS) & ops
 
@@ -98,9 +96,6 @@ def test_available_ops_equipment_section_restores_groups():
     ops = available_ops(model)
     assert set(INSTRUMENT_OPS) <= ops
     assert set(FIXTURE_OPS) <= ops
-    assert not set(DIO_OPS) & ops      # still no GPIO nets
-    model.gpio_allocation = [{"net": "GPIO_IN"}]
-    assert set(DIO_OPS) <= available_ops(model)
 
 
 # --------------------------------------------------------------- gating
@@ -118,7 +113,7 @@ def test_empty_available_ops_greys_every_operation(qapp, kind):
     is disabled, the Delay / message entries stay added-able."""
     dlg = _editor(kind, set())
     acts = _op_actions(dlg.btn_add.menu())
-    assert len(acts) == len(OP_STEPS) - len(DIO_OPS)   # M83: 9 ops
+    assert len(acts) == len(OP_STEPS)
     assert all(not act.isEnabled() for act in acts.values())
     op_menu = _submenu(dlg.btn_add.menu(), "Operation")
     others = [act for act in op_menu.actions()
@@ -128,14 +123,11 @@ def test_empty_available_ops_greys_every_operation(qapp, kind):
 
 @pytest.mark.parametrize("kind", ["ict", "fct"])
 def test_subset_available_ops_enables_only_the_subset(qapp, kind):
-    """Only the named operations stay usable (M48: the DIO operations
-    live in the ICT-only group, never in Operation)."""
+    """Only the named operations stay usable."""
     dlg = _editor(kind, {"Power On DUT"})
     acts = _op_actions(dlg.btn_add.menu())
     assert acts["Operation: Power On DUT"].isEnabled()
     assert not acts["Operation: Init Instruments"].isEnabled()
-    for name in DIO_OPS:
-        assert f"Operation: {name}" not in acts
 
 
 @pytest.mark.parametrize("kind", ["ict", "fct"])
@@ -147,17 +139,6 @@ def test_grayed_operation_tooltips_name_the_fix(qapp, kind):
         acts["Operation: Init Instruments"].toolTip()
     assert "fixture (Equipment page)" in \
         acts["Operation: Fixture Ready"].toolTip()
-    # M48: the DIO operations sit in the ICT-only group - in an ICT
-    # editor they keep the Control IO Nets tooltip
-    dio_menu = _submenu(dlg.btn_add.menu(), "ICT Measurements")
-    if kind == "ict":
-        dio = {act.text(): act for act in dio_menu.actions()
-               if act.text() in DIO_OPS}
-        assert "Control IO Nets" in \
-            dio[sorted(DIO_OPS)[0]].toolTip()
-    else:
-        assert not dio_menu.isEnabled()
-        assert "ICT-only step" in dio_menu.menuAction().toolTip()
 
 
 # ------------------------------------------------------------- plumbing
@@ -210,7 +191,6 @@ def test_block_flow_computes_from_yaml_model_and_virtual(qapp,
     model.gpio_allocation = [{"net": "GPIO_IN"}]
     flow.open_dialog("fct_build", {}, None, yaml_model=model)
     assert captured["available_ops"] is not None
-    assert set(DIO_OPS) <= captured["available_ops"]
 
     flow.open_dialog("fct_build", {}, None, yaml_model=model,
                      virtual=True)

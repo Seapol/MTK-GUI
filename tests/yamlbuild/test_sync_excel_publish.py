@@ -205,8 +205,7 @@ def _allocated_model() -> YamlBuildModel:
             upper_khz="24001.200").to_dict()],
         "gpio": [AllocatedRow(
             net="GPIO_RST", test_point="TP2.1",
-            dio_channel=GPIO_DIO_CHANNELS[0],
-            op_type="U2355A DIO Write", drive_level="High").to_dict()],
+            dio_channel=GPIO_DIO_CHANNELS[0]).to_dict()],
     })
     return model
 
@@ -243,9 +242,6 @@ def test_excel_round_trip_keeps_channel_allocation_fields(tmp_path):
     assert clock["nominal_khz"] == "24000.000"
     assert clock["lower_khz"] == "23998.800"
     assert clock["upper_khz"] == "24001.200"
-    gpio = other.get_channel_allocation()["gpio"][0]
-    assert gpio["op_type"] == "U2355A DIO Write"
-    assert gpio["drive_level"] == "High"
 
 
 def test_legacy_workbook_keeps_model_values(tmp_path):

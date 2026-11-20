@@ -502,7 +502,7 @@ def test_steps_editor_inline_dialogs_scroll_guard(qapp, monkeypatch):
     monkeypatch.setattr(QtDialog, "exec", lambda self: 0)
     ict_steps = [
         ("R-GND", "3V3", "Ω", "—", "30", "—"),
-        ("op", "U2355A DIO Read", "—", "—", "—", "—", {"type": "dio_read"}),
+        ("op", "Power On DUT", "—", "—", "—", "—", {"type": "power", "state": "on"}),
     ]
     editor = StepsEditorDialog("ict", ict_steps, [True, True], [100, 100],
                                [5000, 5000])

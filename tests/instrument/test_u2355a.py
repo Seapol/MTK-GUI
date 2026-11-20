@@ -99,30 +99,11 @@ def test_measure_counter(daq):
     assert daq._transport.written == ["MEAS:FREQ? 0.1,DEF,(@202)"]
 
 
-def test_dio_write_and_read(daq):
-    """DIO bank write/read use the documented DIG:DATA commands."""
-    daq.dio_write("301", 0b1010)
-    assert daq._transport.written == ["DIG:DATA 10,(@301)"]
-
-    daq._transport.script = {"DIG:DATA? (@301)": "+10"}
-    result = daq.dio_read("301")
-    assert result.value == 10
-    assert result.unit == ""
-    assert result.status is Status.OK
-
-
-def test_dio_write_rejects_out_of_range(daq):
-    """DIO write rejects values beyond the 24-bit bank."""
-    with pytest.raises(InstrumentConfigError):
-        daq.dio_write("301", 0x1_00_0000)
-
-
 def test_channel_validation(daq):
     """Empty channel strings are config errors."""
     for call in (
         lambda: daq.measure_voltage(""),
         lambda: daq.measure_counter("  "),
-        lambda: daq.dio_read(None),
     ):
         with pytest.raises(InstrumentConfigError):
             call()
