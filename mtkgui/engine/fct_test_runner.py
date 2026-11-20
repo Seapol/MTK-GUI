@@ -273,23 +273,46 @@ def capture_unified(serial, capture_expected: str, capture_unexpected: str,
     return verdict, detail, text
 
 
+def _write_console_line(serial, line: str) -> None:
+    """Write one command line.  A line longer than 512 bytes is sent in
+    256-byte chunks (short gap between) then a final newline, so a fast
+    multi-line command cannot overflow the DUT tty canonical buffer
+    (default 4096 bytes)."""
+    payload = line.encode()
+    if len(payload) > 512:
+        for offset in range(0, len(payload), 256):
+            serial.write(payload[offset:offset + 256])
+            time.sleep(0.02)
+        serial.write(b"\n")
+    else:
+        serial.write(payload + b"\n")
+
+
 def console_send_and_expect(serial, cmd: str, expect_pass: str,
                             expect_fail: str, timeout: float,
                             expect_pass_is_regex: bool = False,
                             expect_fail_is_regex: bool = False,
-                            case_sensitive: bool = True) -> tuple:
+                            case_sensitive: bool = True,
+                            inter_command_delay_ms: float = 50.0,
+                            verify_echo: bool = False) -> tuple:
     """Send one or more commands (multi-line = sequential sends) over
     the console, then judge the reply stream.
 
     Behavior:
     1. reset_input_buffer() BEFORE sending (stale output ignored)
-    2. Split cmd by newlines, send each line sequentially
-    3. After ALL commands sent, read inside `timeout` and judge output
+    2. Split cmd by newlines, send each line sequentially (long lines
+       are chunked to stay under the tty canonical buffer)
+    3. ``inter_command_delay_ms`` is the gap between commands (50 ms
+       default); when ``verify_echo`` is True the tty echo is read back
+       (up to 256 bytes) before the next line is sent
+    4. After ALL commands sent, read inside `timeout` and judge output
        with expect_pass / expect_fail (fail wins)
-    4. On timeout return TIMEOUT (caller treats as FAIL) — station never hangs.
+    5. On timeout return TIMEOUT (caller treats as FAIL) — station never hangs.
 
     Args:
         serial: pyserial-like (write / read / reset_input_buffer).
+        inter_command_delay_ms: gap between consecutive sends.
+        verify_echo: read back the echo after each line before the next.
 
     Returns:
         ``(verdict, text)`` — verdict in PASS / FAIL / TIMEOUT.
@@ -298,8 +321,12 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
     # send all lines sequentially
     lines = [l for l in cmd.splitlines() if l.strip()]
     for line in lines:
-        serial.write((line + "\n").encode())
-        time.sleep(0.05)  # small gap between sends
+        _write_console_line(serial, line)
+        time.sleep(inter_command_delay_ms / 1000.0)
+        if verify_echo:
+            # drain the tty echo before the next line so a fast burst
+            # cannot overflow the canonical buffer
+            serial.read(256)
     # now judge the accumulated output within timeout
     start = time.time()
     buffer = b""

@@ -246,6 +246,47 @@ def test_console_stale_output_does_not_judge():
     assert verdict == "TIMEOUT"
 
 
+class _RecordingSerial:
+    """Records raw writes / read sizes; returns a fixed reply."""
+
+    def __init__(self, reply=b"ok"):
+        self.writes: list = []
+        self.read_sizes: list = []
+        self.reply = reply
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, data):
+        self.writes.append(bytes(data))
+        return len(data)
+
+    def read(self, n):
+        self.read_sizes.append(n)
+        return self.reply
+
+
+def test_console_send_chunks_long_lines():
+    """A line over 512 bytes is written in 256-byte chunks + a newline."""
+    s = _RecordingSerial()
+    long_line = "x" * 600
+    verdict, _ = console_send_and_expect(
+        s, long_line, "ok", "", 1.0, inter_command_delay_ms=0.0)
+    assert [len(w) for w in s.writes] == [256, 256, 88, 1]
+    assert s.writes[-1] == b"\n"
+    assert verdict == "PASS"
+
+
+def test_console_send_verify_echo_reads_back():
+    """verify_echo=True drains (reads) 256 bytes after each send."""
+    s = _RecordingSerial()
+    verdict, _ = console_send_and_expect(
+        s, "uname -a", "ok", "", 1.0, verify_echo=True,
+        inter_command_delay_ms=0.0)
+    assert 256 in s.read_sizes
+    assert verdict == "PASS"
+
+
 # ------------------------------------------------------------- orchestrator
 @pytest.mark.skipif(
     sys.platform == "win32",
