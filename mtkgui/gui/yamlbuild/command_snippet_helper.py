@@ -250,6 +250,60 @@ class _SnippetTab(QWidget):
         self.preview.setPlainText(snippet.body)
 
 
+class _CustomSnippetForm(QDialog):
+    """Add / edit one user-defined snippet (page, title, comment, body)."""
+
+    def __init__(self, page: str = PAGE_LINUX, title: str = "",
+                 comment: str = "", body: str = "",
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Custom Command Snippet")
+        self.setMinimumWidth(560)
+        lay = QVBoxLayout(self)
+        from PySide6.QtWidgets import QComboBox, QFormLayout
+
+        form = QFormLayout()
+        self.combo_page = QComboBox()
+        self.combo_page.addItems([PAGE_LINUX, PAGE_WINDOWS])
+        self.combo_page.setCurrentIndex(
+            1 if page == PAGE_WINDOWS else 0)
+        self.edit_title = QLineEdit(title)
+        self.edit_comment = QLineEdit(comment)
+        self.edit_body = QPlainTextEdit()
+        self.edit_body.setPlainText(body)
+        self.edit_body.setMinimumHeight(130)
+        form.addRow("Page:", self.combo_page)
+        form.addRow("Title:", self.edit_title)
+        form.addRow("Comment:", self.edit_comment)
+        form.addRow("Body:", with_snippets(
+            self.edit_body, lambda: self.combo_page.currentText(), self))
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self.btn_ok = QPushButton("OK")
+        self.btn_ok.clicked.connect(self._on_ok)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        row.addWidget(self.btn_ok)
+        row.addWidget(self.btn_cancel)
+        lay.addLayout(row)
+
+    def _on_ok(self) -> None:
+        if not self.edit_body.toPlainText().strip():
+            self.edit_body.setFocus()
+            return
+        self.accept()
+
+    def entry(self) -> dict:
+        """The form values as one ``command_snippets`` entry."""
+        return {
+            "page": self.combo_page.currentText(),
+            "title": self.edit_title.text().strip() or "Custom command",
+            "comment": self.edit_comment.text().strip(),
+            "body": self.edit_body.toPlainText(),
+        }
+
+
 class CommandSnippetDialog(QDialog):
     """Three-tab snippet picker (Linux / Windows CLI / Custom)."""
 
@@ -263,6 +317,7 @@ class CommandSnippetDialog(QDialog):
         self._target = target
         self._custom_loader = custom_loader
         self._custom_saver = custom_saver
+        self._custom_entries: list[dict] = []
         self.inserted_text: str = ""
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -274,6 +329,7 @@ class CommandSnippetDialog(QDialog):
         self.tabs.addTab(self.tab_linux, PAGE_LINUX)
         self.tabs.addTab(self.tab_windows, PAGE_WINDOWS)
         self.tabs.addTab(self.tab_custom, PAGE_CUSTOM)
+        self._build_custom_controls()
         lay.addWidget(self.tabs, 1)
         row = QHBoxLayout()
         row.addStretch(1)
@@ -289,21 +345,116 @@ class CommandSnippetDialog(QDialog):
         self.reload_custom()
 
     # ------------------------------------------------------------ custom
+    def _build_custom_controls(self) -> None:
+        """Add / Edit / Delete row under the Custom tab's preview."""
+        tab_layout = self.tab_custom.layout()
+        row = QHBoxLayout()
+        self.btn_custom_add = QPushButton("Add")
+        self.btn_custom_edit = QPushButton("Edit")
+        self.btn_custom_delete = QPushButton("Delete")
+        self.btn_custom_add.clicked.connect(self._on_add_custom)
+        self.btn_custom_edit.clicked.connect(self._on_edit_custom)
+        self.btn_custom_delete.clicked.connect(self._on_delete_custom)
+        row.addWidget(self.btn_custom_add)
+        row.addWidget(self.btn_custom_edit)
+        row.addWidget(self.btn_custom_delete)
+        row.addStretch(1)
+        tab_layout.addLayout(row)
+
     def reload_custom(self) -> None:
         """Load the Custom list from the bound store (default empty)."""
-        if self._custom_loader is None:
-            self.tab_custom.set_snippets([])
+        loader = self._custom_loader or _LOADER
+        if loader is None:
+            raw: list = []
+        else:
+            try:
+                raw = list(loader() or [])
+            except Exception:  # noqa: BLE001 - a broken store never kills the dialog
+                raw = []
+        self._custom_entries = _clean_entries(raw)
+        snippets = [custom_to_snippet(e) for e in self._custom_entries]
+        self.tab_custom.set_snippets(
+            [s for s in snippets if s is not None])
+
+    def custom_snippets(self) -> list[dict]:
+        """The current Custom list (copy)."""
+        return copy.deepcopy(self._custom_entries)
+
+    def _persist_custom(self) -> None:
+        saver = self._custom_saver or _SAVER
+        if saver is not None:
+            saver(copy.deepcopy(self._custom_entries))
+            self.reload_custom()
             return
-        try:
-            raw = self._custom_loader() or []
-        except Exception:      # noqa: BLE001 - a broken store never kills the dialog
-            raw = []
-        snippets: list[SNIPPET] = []
-        for entry in raw:
-            snippet = custom_to_snippet(entry)
-            if snippet is not None:
-                snippets.append(snippet)
-        self.tab_custom.set_snippets(snippets)
+        snippets = [custom_to_snippet(e) for e in self._custom_entries]
+        self.tab_custom.set_snippets(
+            [s for s in snippets if s is not None])
+
+    def add_custom_snippet(self, page: str = PAGE_LINUX, title: str = "",
+                           comment: str = "", body: str = "") -> None:
+        """Append one custom snippet and persist it through the store."""
+        self._custom_entries = _clean_entries(self._custom_entries + [{
+            "page": page, "title": title,
+            "comment": comment, "body": body}])
+        self._persist_custom()
+
+    def update_custom_snippet(self, index: int, page: str,
+                              title: str, comment: str,
+                              body: str) -> None:
+        """Replace one custom snippet and persist the list."""
+        if not 0 <= index < len(self._custom_entries):
+            return
+        entries = list(self._custom_entries)
+        entries[index] = {"page": page, "title": title,
+                          "comment": comment, "body": body}
+        self._custom_entries = _clean_entries(entries)
+        self._persist_custom()
+
+    def delete_custom_snippet(self, index: int) -> None:
+        """Remove one custom snippet and persist the list."""
+        if not 0 <= index < len(self._custom_entries):
+            return
+        entries = list(self._custom_entries)
+        del entries[index]
+        self._custom_entries = entries
+        self._persist_custom()
+
+    def _selected_custom_index(self) -> int:
+        item = self.tab_custom.list.currentItem()
+        return self.tab_custom.list.row(item) if item is not None else -1
+
+    def _on_add_custom(self) -> None:
+        form = _CustomSnippetForm(parent=self)
+        if form.exec() == QDialog.Accepted:
+            entry = form.entry()
+            self.add_custom_snippet(entry["page"], entry["title"],
+                                    entry["comment"], entry["body"])
+
+    def _on_edit_custom(self) -> None:
+        index = self._selected_custom_index()
+        if not 0 <= index < len(self._custom_entries):
+            return
+        current = self._custom_entries[index]
+        form = _CustomSnippetForm(
+            page=str(current.get("page") or PAGE_LINUX),
+            title=str(current.get("title") or ""),
+            comment=str(current.get("comment") or ""),
+            body=str(current.get("body") or ""), parent=self)
+        if form.exec() == QDialog.Accepted:
+            entry = form.entry()
+            self.update_custom_snippet(index, entry["page"], entry["title"],
+                                       entry["comment"], entry["body"])
+
+    def _on_delete_custom(self) -> None:
+        index = self._selected_custom_index()
+        if not 0 <= index < len(self._custom_entries):
+            return
+        from PySide6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self, "Delete snippet",
+            "Delete the selected custom command snippet?")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.delete_custom_snippet(index)
 
     def _current_tab(self) -> _SnippetTab:
         return self.tabs.currentWidget()
@@ -332,21 +483,37 @@ class CommandSnippetDialog(QDialog):
         return True
 
 
+def _clean_entries(raw) -> list[dict]:
+    """Normalize custom entries (drop malformed / empty bodies)."""
+    out: list[dict] = []
+    if not isinstance(raw, list):
+        return out
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        body = str(entry.get("body") or "")
+        if not body.strip():
+            continue
+        page = PAGE_WINDOWS if str(entry.get("page") or "") == PAGE_WINDOWS \
+            else PAGE_LINUX
+        out.append({
+            "page": page,
+            "title": str(entry.get("title") or "") or "Custom command",
+            "comment": str(entry.get("comment") or ""),
+            "body": body,
+        })
+    return out
+
+
 def custom_to_snippet(entry) -> SNIPPET | None:
     """Convert one project-YAML entry to a snippet (lenient)."""
-    if not isinstance(entry, dict):
+    clean = _clean_entries([entry])
+    if not clean:
         return None
-    body = str(entry.get("body") or "")
-    if not body.strip():
-        return None
-    page = PAGE_WINDOWS if str(entry.get("page") or "") == PAGE_WINDOWS \
-        else PAGE_LINUX
+    item = clean[0]
     return SNIPPET(
-        GROUP_WINDOWS if page == PAGE_WINDOWS else GROUP_LINUX,
-        page,
-        str(entry.get("title") or "Custom command"),
-        str(entry.get("comment") or ""),
-        body)
+        GROUP_WINDOWS if item["page"] == PAGE_WINDOWS else GROUP_LINUX,
+        item["page"], item["title"], item["comment"], item["body"])
 
 
 # ---------------------------------------------- default (model-bound) store

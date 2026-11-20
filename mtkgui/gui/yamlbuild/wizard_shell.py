@@ -64,6 +64,10 @@ class YamlBuildWizard(QWidget):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.model = model or YamlBuildModel()
+        # v2-16 B: the Custom snippet page writes through to the
+        # project YAML (yaml_build.command_snippets) via this binding.
+        from mtkgui.gui.yamlbuild.command_snippet_helper import bind_model
+        bind_model(self.model)
         self.current: str = "design_input"
         self.visited: set[str] = {"design_input"}
         self.tree_created: bool = False

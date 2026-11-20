@@ -131,3 +131,92 @@ def test_with_snippets_wraps_the_editor_and_a_button():
     buttons = box.findChildren(QPushButton)
     assert [b.text() for b in buttons] == ["Snippets…"]
     assert editor.parent() is box
+
+
+# --------------------------------------------- custom snippets (project YAML)
+def test_custom_entries_roundtrip_through_project_yaml():
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+
+    entry = {"page": PAGE_LINUX, "title": "Custom one",
+             "comment": "note", "body": "uname -a\nip link"}
+    model = YamlBuildModel()
+    model.set_command_snippets([entry])
+    section = model.to_effective_dict()["yaml_build"]
+    # travel with the project - not global app settings
+    assert section["command_snippets"] == [entry]
+
+    other = YamlBuildModel()
+    other.apply_yaml_dict(model.to_effective_dict())
+    assert other.get_command_snippets() == [entry]
+    assert other.to_dict()["command_snippets"] == [entry]
+
+    restored = YamlBuildModel()
+    restored.apply_state(other.to_dict())
+    assert restored.get_command_snippets() == [entry]
+
+
+def test_legacy_yaml_without_command_snippets_loads_empty():
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+
+    model = YamlBuildModel()
+    model.set_command_snippets([{"page": PAGE_LINUX, "title": "x",
+                                 "comment": "", "body": "echo x"}])
+    model.apply_yaml_dict({"yaml_build": {"modules": {}}})
+    assert model.get_command_snippets() == []
+
+
+def test_malformed_custom_entries_are_dropped_silently():
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+
+    model = YamlBuildModel()
+    model.set_command_snippets([
+        "junk", {"title": "no body"},
+        {"page": "Other", "title": "T", "body": "echo ok"}])
+    entries = model.get_command_snippets()
+    assert len(entries) == 1
+    assert entries[0]["page"] == PAGE_LINUX
+    assert entries[0]["body"] == "echo ok"
+
+
+def test_dialog_add_edit_delete_persist_to_the_model():
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+
+    model = YamlBuildModel()
+    dialog = CommandSnippetDialog(
+        custom_loader=model.get_command_snippets,
+        custom_saver=model.set_command_snippets)
+    dialog.add_custom_snippet(PAGE_LINUX, "Custom one", "note",
+                              "uname -a\nip link")
+    assert model.get_command_snippets() == [{
+        "page": PAGE_LINUX, "title": "Custom one",
+        "comment": "note", "body": "uname -a\nip link"}]
+    assert dialog.tab_custom.list.count() == 1
+
+    # a new dialog reads it back from the project YAML
+    again = CommandSnippetDialog(
+        custom_loader=model.get_command_snippets,
+        custom_saver=model.set_command_snippets)
+    assert again.tab_custom.list.item(0).text() == "Custom one"
+
+    again.update_custom_snippet(0, PAGE_WINDOWS, "Custom two",
+                                "note2", "netsh wlan show interfaces")
+    assert model.get_command_snippets()[0]["title"] == "Custom two"
+    assert model.get_command_snippets()[0]["page"] == PAGE_WINDOWS
+
+    again.delete_custom_snippet(0)
+    assert model.get_command_snippets() == []
+    assert again.tab_custom.list.count() == 0
+
+
+def test_wizard_binds_the_custom_page_to_its_model():
+    from mtkgui.gui.yamlbuild.model import YamlBuildModel
+    from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard
+
+    model = YamlBuildModel()
+    wizard = YamlBuildWizard(model=model)
+    dialog = CommandSnippetDialog()
+    dialog.add_custom_snippet(PAGE_WINDOWS, "Wizard custom", "",
+                              "taskkill /F /IM iperf3.exe")
+    assert model.get_command_snippets()[0]["title"] == "Wizard custom"
+    assert wizard.model.get_command_snippets() == \
+        model.get_command_snippets()

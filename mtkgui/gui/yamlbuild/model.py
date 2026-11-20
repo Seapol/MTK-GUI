@@ -159,6 +159,33 @@ def _migrate_legacy_modules(modules: dict) -> dict:
     return out
 
 
+def _clean_snippets(raw) -> list[dict]:
+    """Normalize the user-defined command snippets (v2-16 B).
+
+    Legacy / malformed entries are dropped silently; a missing key
+    yields an empty list, never an error.
+    """
+    out: list[dict] = []
+    if not isinstance(raw, list):
+        return out
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        body = str(entry.get("body") or "")
+        if not body.strip():
+            continue
+        page = str(entry.get("page") or "Linux")
+        if page not in ("Linux", "Windows CLI"):
+            page = "Linux"
+        out.append({
+            "page": page,
+            "title": str(entry.get("title") or ""),
+            "comment": str(entry.get("comment") or ""),
+            "body": body,
+        })
+    return out
+
+
 def _coerce(field_type: str, text: str):
     """Coerce a raw string to the field type's natural value.
 
@@ -248,6 +275,10 @@ class YamlBuildModel:
         #: v2-10 node 04 equipment config (instruments / power source /
         #: channels / rails / fixture / peripherals)
         self.equipment_config: EquipmentConfig = EquipmentConfig()
+        #: v2-16 B: user-defined command snippets carried by the project
+        #: YAML (``yaml_build.command_snippets``); each entry is
+        #: ``{page, title, comment, body}``
+        self.command_snippets: list = []
         #: v2-11b node 05 engine-shape ICT sequence (one row per flat
         #: step: name / kind / enable / timeout_ms / limits / op_params)
         self.ict_test_cases: list = []
@@ -384,6 +415,16 @@ class YamlBuildModel:
         """Store the node 03 firmware config (nested fat/oobe shape)."""
         if isinstance(config, dict):
             self.firmware_config = copy.deepcopy(config)
+            self.changed = True
+
+    def get_command_snippets(self) -> list:
+        """Return a copy of the user-defined command snippets."""
+        return copy.deepcopy(self.command_snippets)
+
+    def set_command_snippets(self, items: list) -> None:
+        """Store the user-defined command snippets (project YAML)."""
+        if isinstance(items, list):
+            self.command_snippets = _clean_snippets(items)
             self.changed = True
 
     def get_equipment_config(self) -> EquipmentConfig:
@@ -523,6 +564,10 @@ class YamlBuildModel:
             section["gpio_allocation"] = self.gpio_allocation
         if self.path_risk:
             section["path_risk"] = self.path_risk
+        # v2-16 B: user-defined command snippets travel with the project
+        if self.command_snippets:
+            section["command_snippets"] = copy.deepcopy(
+                self.command_snippets)
         # M5 ICT Test Plan snapshot (the evidence behind the workbook)
         if self.ict_test_plan:
             section["ict_test_plan"] = self.ict_test_plan
@@ -646,6 +691,10 @@ class YamlBuildModel:
         eq = section.get("equipment_config")
         if isinstance(eq, dict):
             self.equipment_config = parse_equipment_config(eq)
+        # v2-16 B: user-defined command snippets (missing / legacy key
+        # loads as an empty list - never fatal)
+        self.command_snippets = _clean_snippets(
+            section.get("command_snippets"))
         # item 24 sections restore (empty / legacy: blank, no error);
         # a stale power_tree section from an old file is DROPPED
         # (the Power Tree page was retired)
@@ -769,6 +818,7 @@ class YamlBuildModel:
             "fct_test_cases": copy.deepcopy(self.fct_test_cases),
             "parsed_nets": copy.deepcopy(self.parsed_nets),
             "firmware_config": copy.deepcopy(self.firmware_config),
+            "command_snippets": copy.deepcopy(self.command_snippets),
             "equipment_config": emit_equipment_config(
                 self.equipment_config),
             "marks": dict(self.marks),
@@ -816,7 +866,8 @@ class YamlBuildModel:
                              ("ict_test_plan", {}),
                              ("fct_test_cases", []),
                              ("ict_test_cases", []),
-                             ("parsed_nets", {})):
+                             ("parsed_nets", {}),
+                             ("command_snippets", [])):
             value = state.get(key)
             if isinstance(value, type(default)):
                 setattr(self, key, value)
