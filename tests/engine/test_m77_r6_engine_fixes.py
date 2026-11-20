@@ -145,7 +145,7 @@ def test_bt_pair_windows_judges_on_the_dut(monkeypatch):
         "bluetoothctl info": ("Device B8:F4:4F:59:51:A0\n"
                               "  Paired: yes\n  Connected: yes\n"),
     })
-    cfg = _bt_cfg(expected_addr="B8:F4:4F:59:51:A0")
+    cfg = _bt_cfg()
     runner = FctTestRunner(cfg)
     result = runner._bt_dut_pair(
         serial, cfg.bluetooth, "Bluetooth Pair & Connect", 0.2)
@@ -156,7 +156,7 @@ def test_bt_pair_windows_judges_on_the_dut(monkeypatch):
 def test_bt_pair_windows_adapter_down_fails_not_error(monkeypatch):
     monkeypatch.setattr(hp, "platform_key", lambda: "windows")
     serial = _FakeSerial({"hciconfig hci0": _HCI_DOWN})
-    cfg = _bt_cfg(expected_addr="B8:F4:4F:59:51:A0")
+    cfg = _bt_cfg()
     runner = FctTestRunner(cfg)
     result = runner._bt_dut_pair(
         serial, cfg.bluetooth, "Bluetooth Pair & Connect", 0.2)
@@ -171,7 +171,7 @@ def test_bt_pair_windows_no_link_fails_not_error(monkeypatch):
         "bluetoothctl info": "Connected: no\n",
         "hcitool con": "Connections:\n",
     })
-    cfg = _bt_cfg(expected_addr="B8:F4:4F:59:51:A0")
+    cfg = _bt_cfg()
     runner = FctTestRunner(cfg)
     result = runner._bt_dut_pair(
         serial, cfg.bluetooth, "Bluetooth Pair & Connect", 0.2)
@@ -185,7 +185,7 @@ def test_bt_a2dp_windows_without_observability_is_an_explicit_fail(monkeypatch):
         "aplay -l": "aplay: command not found\n",
         "bluetoothctl info": "Connected: no\n",
     })
-    cfg = _bt_cfg(expected_addr="B8:F4:4F:59:51:A0")
+    cfg = _bt_cfg()
     runner = FctTestRunner(cfg)
     result = runner._bt_dut_a2dp(
         serial, cfg.bluetooth, "Bluetooth Tone / Music (A2DP)", 0.2)
@@ -201,7 +201,7 @@ def test_bt_row_no_longer_raises_platform_backend_missing(monkeypatch):
         "hciconfig hci0": _HCI_UP,
         "bluetoothctl info": "Paired: yes\nConnected: yes\n",
     })
-    cfg = _bt_cfg(expected_addr="B8:F4:4F:59:51:A0", l2ping_count=0)
+    cfg = _bt_cfg(l2ping_count=0)
     runner = FctTestRunner(cfg)
     rows = runner.run_bluetooth(serial, object())
     assert rows

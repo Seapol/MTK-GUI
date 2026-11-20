@@ -3649,7 +3649,7 @@ class FCTTestConfigPanel(QWidget):
             add(STEP_TYPE_BT_RSSI, "bluetooth", "rssi",
                 {"rssi_min": int(b.rssi_min),
                  "timeout_s": int(float(b.rssi_timeout))},
-                {"bt_name": b.expected_name, "addr": b.expected_addr})
+                {"bt_name": b.expected_name})
         if b.pair_enabled:
             add(STEP_TYPE_BT_PAIR, "bluetooth", "pair",
                 {"script": str(b.bt_pair_script or ""),

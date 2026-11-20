@@ -1483,10 +1483,6 @@ class BluetoothCfg:
     # sub-tests (the retired master switch used to keep it inert)
     rssi_enabled: bool = False
     expected_name: str = ""
-    # Optional fixed BD address (aa:bb:.. or aa-bb-..). When set, pair/tone
-    # skip the probabilistic inquiry and connect straight to it; RSSI still
-    # verifies discovery. Empty = always discover by expected_name.
-    expected_addr: str = ""
     scan_retries: int = 3          # extra inquiry rounds if the DUT is missed
     rssi_min: int = -70
     rssi_timeout: float = 15.0
@@ -1508,7 +1504,6 @@ class BluetoothCfg:
         return {
             "rssi_enabled": self.rssi_enabled,
             "expected_name": self.expected_name,
-            "expected_addr": self.expected_addr,
             "scan_retries": int(self.scan_retries),
             "rssi_min": int(self.rssi_min),
             "rssi_timeout": float(self.rssi_timeout),
@@ -1658,8 +1653,6 @@ class FctTestConfig:
                 bmode in ("rssi_only", "pair_connect",
                           "a2dp_sink"))),
             expected_name=str(bt.get("expected_name", "")),
-            expected_addr=(str(bt.get("expected_addr", "")).strip()
-                           .lower().replace("-", ":")),
             scan_retries=int(bt.get("scan_retries", 3) or 0),
             rssi_min=int(bt.get("rssi_min", -70)),
             rssi_timeout=float(bt.get("rssi_timeout",
@@ -2209,7 +2202,6 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
             params={"tool_family": "bluetooth", "fct_rf": {
                 "mode": "rssi_only",
                 "expected_name": b.expected_name,
-                "expected_addr": b.expected_addr,
                 "rssi_min": int(b.rssi_min),
                 "rf_timeout_s": float(b.rssi_timeout)}})]
     if subtest == "pair":

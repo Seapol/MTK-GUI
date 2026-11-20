@@ -437,16 +437,6 @@ def test_bt_step_match_by_name(monkeypatch):
     assert 'BT "DUT-BT": -50 dBm (min -70 dBm) PASS' in out.reason
 
 
-def test_bt_step_match_by_addr(monkeypatch):
-    monkeypatch.setattr(hr, "bt_scan", lambda target, **kw: -55)
-    out = fe._run_rf_tool(_rf_step("bluetooth", {
-        "mode": "rssi_only", "expected_addr": "AA:BB:CC:DD:EE:FF",
-        "expected_name": "DUT-BT", "rssi_min": -70}),
-        "bluetooth", fe.FctContext())
-    assert out.verdict == fe.VERDICT_PASS
-    assert "AA:BB:CC:DD:EE:FF" in out.reason
-
-
 def test_bt_step_not_found_is_fail_with_cause(monkeypatch):
     monkeypatch.setattr(hr, "bt_scan", lambda target, **kw: None)
     log = _Log()
@@ -526,14 +516,12 @@ def test_built_wifi_step_single_target_without_dut_ssid():
         {"role": "AP", "ssid": "AP-Office", "rssi_min": -60}]
 
 
-def test_built_bt_step_carries_addr_and_name():
+def test_built_bt_step_carries_name():
     cfg = FctTestConfig(dut_type="bare_metal",
                         bluetooth=BluetoothCfg(
                             rssi_enabled=True, expected_name="DUT-BT",
-                            expected_addr="AA:BB:CC:DD:EE:FF",
                             rssi_min=-70))
     step = build_fct_steps(cfg)[-1]
     assert step.name == "Bluetooth RSSI"
     assert step.params["fct_rf"]["mode"] == "rssi_only"
-    assert step.params["fct_rf"]["expected_addr"] == "AA:BB:CC:DD:EE:FF"
     assert step.params["fct_rf"]["expected_name"] == "DUT-BT"

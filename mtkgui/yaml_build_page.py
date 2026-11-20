@@ -561,7 +561,6 @@ class YamlBuildPage(QWidget):
                     if subtest == "rssi":
                         b.rssi_enabled = True
                         b.expected_name = str(ref_value(cmd, "bt_name", ""))
-                        b.expected_addr = str(ref_value(cmd, "addr", ""))
                         b.rssi_min = int(num(p.get("rssi_min"), b.rssi_min))
                         b.rssi_timeout = num(p.get("timeout_s"),
                                              b.rssi_timeout)
@@ -583,9 +582,6 @@ class YamlBuildPage(QWidget):
                     if not b.expected_name:
                         b.expected_name = str(eq(
                             "equipment.dut.bluetooth.name", ""))
-                    if not b.expected_addr:
-                        b.expected_addr = str(eq(
-                            "equipment.dut.bluetooth.bd_addr", ""))
                 # M76/D1: keep the RF reference row at ITS authored
                 # position - build_fct_steps expands the sub-test right
                 # here (the fallback block then has nothing left to

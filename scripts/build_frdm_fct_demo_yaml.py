@@ -481,9 +481,6 @@ FCT_TEST_CONFIG = {
         # 1) RSSI discovery (host inquiry) - always a real inquiry
         "rssi_enabled": True,
         "expected_name": DUT_BT_NAME,
-        # Fixed BD address: pair/tone connect straight to it if an inquiry
-        # happens to miss the DUT (classic discovery is probabilistic).
-        "expected_addr": "B8:F4:4F:59:51:A0",
         "scan_retries": 3,
         "rssi_min": -75,
         "rssi_timeout": 25,

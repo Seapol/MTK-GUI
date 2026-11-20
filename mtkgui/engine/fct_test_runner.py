@@ -1173,18 +1173,14 @@ class FctTestRunner:
             return FctStepResult(
                 label, "FAIL", "hciconfig hci0: adapter not UP/RUNNING",
                 duration=time.time() - t0)
-        addr = str(b.expected_addr or "") or (m.group(1) if m else "")
-        info = self._bt_dut_cmd(
-            serial, (f"bluetoothctl info {addr}" if addr
-                     else "bluetoothctl list"), label, timeout)
+        info = self._bt_dut_cmd(serial, "bluetoothctl info", label, timeout)
         connected = "Connected: yes" in info
         paired_ok = ("Paired: yes" in info) or ("Paired:" not in info)
-        detail = f"link {addr or '(any)'} connected"
+        detail = "link connected"
         link_ok = connected and paired_ok
         if not link_ok:
             con = self._bt_dut_cmd(serial, "hcitool con", label, timeout)
-            link_ok = "ACL" in con and (not addr or addr.lower()
-                                        in con.lower())
+            link_ok = "ACL" in con
             if link_ok:
                 detail = "link via hcitool con (ACL)"
         if not link_ok:
@@ -1204,10 +1200,7 @@ class FctTestRunner:
         if not re.search(r"\bsink\b", sinks, re.I) \
                 or "not found" in sinks.lower():
             sinks = self._bt_dut_cmd(serial, "aplay -l", label, timeout)
-        addr = str(b.expected_addr or "")
-        info = self._bt_dut_cmd(
-            serial, (f"bluetoothctl info {addr}" if addr
-                     else "bluetoothctl info"), label, timeout)
+        info = self._bt_dut_cmd(serial, "bluetoothctl info", label, timeout)
         sink_ok = bool(re.search(r"\bsink\b|a2dp|output", sinks, re.I)) \
             and "not found" not in sinks.lower()
         linked = "Connected: yes" in info
@@ -1231,10 +1224,7 @@ class FctTestRunner:
     def _bt_dut_rssi(self, serial, b, label: str, timeout: float):
         """Optional RSSI telemetry read on the DUT; unavailable -> SKIP."""
         t0 = time.time()
-        addr = str(b.expected_addr or "")
-        text = self._bt_dut_cmd(
-            serial, (f"hcitool rssi {addr}" if addr
-                     else "hciconfig -a"), label, timeout)
+        text = self._bt_dut_cmd(serial, "hciconfig -a", label, timeout)
         m = re.search(r"RSSI return value:\s*(-?\d+)", text) \
             or re.search(r"RSSI:\s*(-?\d+)", text)
         if not m:
@@ -1289,7 +1279,6 @@ class FctTestRunner:
                 ad = BluetoothAdapter(
                     {"bluetooth": {
                         "mode": mode, "expected_name": b.expected_name,
-                        "expected_addr": b.expected_addr,
                         "scan_retries": b.scan_retries,
                         "rssi_min": b.rssi_min,
                         "wav": b.test_tone,
@@ -1345,14 +1334,13 @@ class FctTestRunner:
         self._human_confirm = human_confirm
         # deployment values substituted into {{token}} placeholders in
         # console send / SFTP paths (per-site Wi-Fi SSID/password, Host
-        # PC IP, DUT Bluetooth address) - resolved ONCE per cycle
+        # PC IP, DUT Bluetooth name) - resolved ONCE per cycle
         w = self.cfg.wifi
         b = self.cfg.bluetooth
         self._cmd_vars = {
             "ssid": w.ap_ssid,
             "password": w.ap_password,
             "host_ip": w.host_ip or host_lan_ip(),
-            "bt_addr": b.expected_addr,
             "bt_name": b.expected_name,
         }
         results: list = []

@@ -87,7 +87,6 @@ fct_test_config:
     enabled: true
     rssi_enabled: true
     expected_name: FRDM-IMX93-DUT
-    expected_addr: B8:F4:4F:59:51:A0
     scan_retries: 2
     rssi_min: -70
     pair_enabled: false
@@ -122,7 +121,6 @@ def test_legacy_config_imports_into_single_page_rows(qapp):
     assert steps[1]["override"]["ap_ssid"] == "FRDM-IMX93-DUT"
     assert steps[1]["rssi_min"] == -70
     assert steps[2]["ref"]["bt_name"] == "equipment.dut.bluetooth.name"
-    assert steps[2]["override"]["addr"] == "b8:f4:4f:59:51:a0"
 
 
 def test_ui_edits_reach_values(qapp):

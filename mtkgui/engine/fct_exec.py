@@ -618,12 +618,10 @@ def _bt_rssi_host(step: FctStep, cfg: dict, ctx: FctContext) -> FctOutcome:
     A missing target is an ERROR; a target that is configured but not
     broadcasting is a FAIL carrying the cause line."""
     from . import host_rf
-    target = str(cfg.get("expected_addr")
-                 or cfg.get("expected_name") or "").strip()
+    target = str(cfg.get("expected_name") or "").strip()
     if not target:
         return FctOutcome(VERDICT_ERROR,
-                          "no Bluetooth target configured (DUT BT name / "
-                          "BD address)")
+                          "no Bluetooth target configured (DUT BT name)")
     timeout_s = float(cfg.get("rf_timeout_s")
                       or step.timeout_s or 10.0)
     try:

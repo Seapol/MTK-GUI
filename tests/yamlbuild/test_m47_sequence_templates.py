@@ -85,8 +85,7 @@ PROJECT_YAML = yaml.safe_dump({"fct_test_config": {
     "console": {"port": "/dev/cu.test", "baudrate": 115200},
     "wifi": {"interface": "mlan0", "ap_ssid": "FCT_AP",
              "ap_password": "secret", "rssi_min": -60},
-    "bluetooth": {"expected_name": "MTK-DUT",
-                  "expected_addr": "AA:BB:CC:DD:EE:FF", "rssi_min": -60},
+    "bluetooth": {"expected_name": "MTK-DUT", "rssi_min": -60},
 }}, sort_keys=False)
 
 

@@ -418,19 +418,18 @@ def test_iperf_throughput_retries_once(monkeypatch):
 # deployment {{token}} rendering (per-site Wi-Fi / Host / Bluetooth)
 # ---------------------------------------------------------------------------
 def test_render_substitutes_deployment_tokens():
-    """{{ssid}} / {{password}} / {{host_ip}} / {{bt_addr}} in console send
+    """{{ssid}} / {{password}} / {{host_ip}} / {{bt_name}} in console send
     resolve from the yaml at run time (per production site)."""
     cfg = FctTestConfig.from_dict({
         "dut_type": "linux",
         "wifi": {"enabled": True, "ap_ssid": "Line9-AP",
                  "ap_password": "s3cret", "host_ip": "10.0.0.9"},
-        "bluetooth": {"enabled": True, "expected_name": "DUT-01",
-                      "expected_addr": "aa:bb:cc:dd:ee:ff"},
+        "bluetooth": {"enabled": True, "expected_name": "DUT-01"},
     })
     runner = FctTestRunner(cfg, log_sink=lambda m: None)
     runner._cmd_vars = {
         "ssid": cfg.wifi.ap_ssid, "password": cfg.wifi.ap_password,
-        "host_ip": cfg.wifi.host_ip, "bt_addr": cfg.bluetooth.expected_addr,
+        "host_ip": cfg.wifi.host_ip,
         "bt_name": cfg.bluetooth.expected_name,
     }
     assert runner._render(
@@ -439,8 +438,7 @@ def test_render_substitutes_deployment_tokens():
         "WIFI_SSID='Line9-AP' WIFI_PASSWORD='s3cret' sh /root/connect_wifi.sh"
     assert runner._render("ping -I mlan0 -c 4 {{host_ip}}") == \
         "ping -I mlan0 -c 4 10.0.0.9"
-    assert runner._render("l2ping -c 10 {{bt_addr}}") == \
-        "l2ping -c 10 aa:bb:cc:dd:ee:ff"
+    assert runner._render("pair {{bt_name}}") == "pair DUT-01"
     # no token -> unchanged
     assert runner._render("uname -r") == "uname -r"
 
