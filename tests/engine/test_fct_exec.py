@@ -16,6 +16,7 @@ from mtkgui.engine.credentials import (
 from mtkgui.gui.yamlbuild.fct_build import (
     FLASH_CLI,
     FLASH_GUI,
+    STEP_OPERATION,
     build_fct_sequence,
     to_project_fct_cases,
 )
@@ -439,7 +440,7 @@ def test_load_fct_cases_replaces_rows_exactly(qapp):
 
 
 def test_standard_op_row_runs_instrument_op_not_dialog():
-    """P3-B5 FCT setup: a GUI_CONFIRM carrying params.op drives the
+    """P3-B5 FCT setup: an OPERATION carrying params.op drives the
     rack PSU / fixture (run_op hook), not an operator MessageGoStop."""
     calls = []
 
@@ -451,7 +452,7 @@ def test_standard_op_row_runs_instrument_op_not_dialog():
         raise AssertionError("op rows must not open a confirm dialog")
 
     ctx = FctContext(run_op=run_op, human_confirm=must_not_call)
-    step = FctStep(name="Power On DUT", step_type="GUI_CONFIRM",
+    step = FctStep(name="Power On DUT", step_type=STEP_OPERATION,
                    timeout_s=0, params={"op": "Power On DUT"})
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
@@ -462,16 +463,32 @@ def test_standard_op_row_runs_instrument_op_not_dialog():
 
 def test_standard_op_error_verdict():
     ctx = FctContext(run_op=lambda n, p: "Error")
-    step = FctStep(name="Fixture Clamp Down", step_type="GUI_CONFIRM",
+    step = FctStep(name="Fixture Clamp Down", step_type=STEP_OPERATION,
                    timeout_s=0, params={"op": "Fixture Clamp Down"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
 
 
 def test_standard_op_without_runner_is_error():
     ctx = FctContext()   # no run_op hook bound
-    step = FctStep(name="Power On DUT", step_type="GUI_CONFIRM",
+    step = FctStep(name="Power On DUT", step_type=STEP_OPERATION,
                    timeout_s=0, params={"op": "Power On DUT"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
+
+
+def test_operation_teardown_step_runs_op():
+    """A STEP_OPERATION teardown step (Power Off DUT) runs through
+    ctx.run_op and yields PASS on 'Done'."""
+    calls = []
+
+    def run_op(name, params):
+        calls.append(name)
+        return "Done"
+
+    ctx = FctContext(run_op=run_op)
+    step = FctStep(name="Power Off DUT", step_type=STEP_OPERATION,
+                   timeout_s=0, params={"op": "Power Off DUT"})
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    assert calls == ["Power Off DUT"]
 
 
 # ----------------------------------------------- RF per-sub-test execution

@@ -32,14 +32,15 @@ import yaml
 # vocabulary (spec §5.1)
 # ---------------------------------------------------------------------------
 
-#: the four FCT step types
+#: the five FCT step types
 STEP_MESSAGE_CHECK = "MESSAGE_CHECK"
 STEP_GUI_CONFIRM = "GUI_CONFIRM"
 STEP_CLI_RUN = "CLI_RUN"
 STEP_EXTERNAL_TOOL = "EXTERNAL_TOOL"
 STEP_FLASH = "FLASH"
+STEP_OPERATION = "OPERATION"
 STEP_TYPES = (STEP_MESSAGE_CHECK, STEP_GUI_CONFIRM, STEP_CLI_RUN,
-              STEP_EXTERNAL_TOOL, STEP_FLASH)
+              STEP_EXTERNAL_TOOL, STEP_FLASH, STEP_OPERATION)
 
 #: flash path modes (spec §3)
 FLASH_GUI = "gui"      # third-party flash GUI + human confirm
@@ -97,6 +98,7 @@ _KIND_MAP = {
     STEP_GUI_CONFIRM: "MessageGoStop",
     STEP_CLI_RUN: "SendtoCLI",
     STEP_EXTERNAL_TOOL: "MessageOK",       # refined per tool_family below
+    STEP_OPERATION: "MessageGoStop",
 }
 
 #: op step names reused from the engine catalog (spine anchors)
@@ -646,9 +648,9 @@ def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
         *body,
         _flash_step("oobe", flash_mode, channel, cli_command,
                     cli_done_keyword),
-        FctStep(name=OP_POWER_OFF, step_type=STEP_GUI_CONFIRM,
+        FctStep(name=OP_POWER_OFF, step_type=STEP_OPERATION,
                 timeout_s=0.0, params={"op": OP_POWER_OFF}),
-        FctStep(name=OP_RESET_INSTRUMENTS, step_type=STEP_GUI_CONFIRM,
+        FctStep(name=OP_RESET_INSTRUMENTS, step_type=STEP_OPERATION,
                 timeout_s=0.0, params={"op": OP_RESET_INSTRUMENTS}),
     ]
     return FctSequence(name=name, flash_mode=flash_mode, steps=steps)

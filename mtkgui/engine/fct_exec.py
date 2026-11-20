@@ -26,6 +26,7 @@ from ..gui.yamlbuild.fct_build import (
     STEP_EXTERNAL_TOOL,
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
+    STEP_OPERATION,
     FctStep,
 )
 
@@ -909,27 +910,28 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
     """One attempt, dispatched by step_type (B4 §2 flows)."""
     pass_kw, fail_kw = ctx.effective_keywords(step)
 
-    if step.step_type == STEP_GUI_CONFIRM:
+    if step.step_type == STEP_OPERATION:
+        # standard operation row (Power On/Off, Reset Instruments,
+        # fixture clamp/lock) - drive the instrument gateway, never an
+        # operator dialog.
         op_name = step.params.get("op")
-        if op_name:
-            # standard operation row (rack PSU Power On/Off, fixture
-            # clamp/lock via U2355A DIO) - drive the instrument gateway,
-            # not an operator dialog
-            if ctx.run_op is None:
-                return FctOutcome(VERDICT_ERROR,
-                                  f"standard op {op_name!r}: no op runner")
-            from .steps import OP_STEPS
-            op_params = dict(OP_STEPS.get(op_name, {}))
-            op_params.update({k: v for k, v in step.params.items()
-                              if k != "op"})
-            ctx.log(f"standard op: {op_name}")
-            verdict = ctx.run_op(op_name, op_params)
-            if verdict == "Done":
-                return FctOutcome(VERDICT_PASS, f"{op_name}: {verdict}")
-            if verdict == "Fail":
-                # M38: a failed fixture expectation is a test FAIL
-                return FctOutcome(VERDICT_FAIL, f"{op_name}: {verdict}")
-            return FctOutcome(VERDICT_ERROR, f"{op_name}: {verdict}")
+        if ctx.run_op is None:
+            return FctOutcome(VERDICT_ERROR,
+                              f"standard op {op_name!r}: no op runner")
+        from .steps import OP_STEPS
+        op_params = dict(OP_STEPS.get(op_name, {}))
+        op_params.update({k: v for k, v in step.params.items()
+                          if k != "op"})
+        ctx.log(f"standard op: {op_name}")
+        verdict = ctx.run_op(op_name, op_params)
+        if verdict == "Done":
+            return FctOutcome(VERDICT_PASS, f"{op_name}: {verdict}")
+        if verdict == "Fail":
+            # M38: a failed fixture expectation is a test FAIL
+            return FctOutcome(VERDICT_FAIL, f"{op_name}: {verdict}")
+        return FctOutcome(VERDICT_ERROR, f"{op_name}: {verdict}")
+
+    if step.step_type == STEP_GUI_CONFIRM:
         if step.params.get("console_dialog"):
             # Console-domain operator dialog (user direction 2026-10-18):
             # WAIT the expected console message first, THEN ask

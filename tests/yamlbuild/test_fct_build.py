@@ -23,6 +23,7 @@ from mtkgui.gui.yamlbuild.fct_build import (
     STEP_FLASH,
     STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
+    STEP_OPERATION,
     STEP_TYPES,
     TYPE_ACTION,
     TYPE_DIALOG,
@@ -116,7 +117,7 @@ def test_skeleton_spine_order_and_modes():
     assert gui.steps[0].params["slot"] == "fat"
     assert gui.steps[0].params["flash_mode"] == FLASH_GUI
     assert gui.steps[0].timeout_s == 0.0       # wait for the operator
-    assert types[-2:] == [STEP_GUI_CONFIRM] * 2  # power off + reset
+    assert types[-2:] == [STEP_OPERATION] * 2  # power off + reset
     assert gui.steps[2].params["slot"] == "oobe"
     assert gui.steps[2].params["flash_mode"] == FLASH_GUI
 
@@ -179,10 +180,11 @@ def test_gui_path_maps_to_messagegostop():
     kinds = [c["kind"] for c in to_project_fct_cases(seq)]
     assert kinds[0] == "MessageGoStop"           # human confirm flash
     # a GUI flash step maps to MessageGoStop exactly like a GUI_CONFIRM;
-    # the MESSAGE_CHECK body row maps to MessageOK
+    # the OPERATION teardown steps map to MessageGoStop too; the
+    # MESSAGE_CHECK body row maps to MessageOK
     assert kinds.count("MessageGoStop") == \
         sum(1 for s in seq.steps
-            if s.step_type == STEP_GUI_CONFIRM
+            if s.step_type in (STEP_GUI_CONFIRM, STEP_OPERATION)
             or (s.step_type == STEP_FLASH
                 and str(s.params.get("flash_mode", "")).lower() == FLASH_GUI))
 
