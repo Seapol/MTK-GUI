@@ -620,10 +620,10 @@ def _console_answer_runner(env, kind, answers, name="Ready?"):
 
 
 def test_console_message_ok_notice_sends_ok(msg_env):
-    """M83/C8: MessageOKtoConsole sends send_ok (default 'ok')."""
+    """M83/C8: MessageOKtoConsole sends send_ok (default newline / Enter)."""
     runner, w = _console_answer_runner(msg_env, "MessageOKtoConsole", [])
     runner._fct_console_message_answer(w)
-    assert msg_env.multi_console.sent == [("VCOM0", b"ok\n")]
+    assert msg_env.multi_console.sent == [("VCOM0", b"\n\n")]
     assert msg_env.rows[("fct", 0)] == "PASS"
 
 

@@ -958,7 +958,7 @@ class TestRunner(QObject):
         send_yes = str(cfg.get("send_yes") or "y")
         send_no = str(cfg.get("send_no") or "n")
         send_ok = str(cfg.get("send_ok")
-                      if cfg.get("send_ok") is not None else "ok")
+                      if cfg.get("send_ok") is not None else "\n")
         writes = (tag == "FCT") and kind_writes_console(kind)
         base = (kind[:-len("toConsole")] if str(kind).endswith("toConsole")
                 else str(kind))
@@ -1293,7 +1293,7 @@ class TestRunner(QObject):
                     "send_no": str(step.params.get("send_no") or "n"),
                     "send_ok": str(step.params.get("send_ok")
                                    if step.params.get("send_ok") is not None
-                                   else "ok")}
+                                   else "\n")}
 
             def _ask(_s, _k=_ck, _t=_ct, _m=_ctm, _c=_chan, _cfg=_cfg):
                 if not interactive:

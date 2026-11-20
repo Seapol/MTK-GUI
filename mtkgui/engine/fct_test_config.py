@@ -118,9 +118,9 @@ DEFAULT_FLASH_GUI_MESSAGE = (
     "Flash GUI has been launched. Handle it. When you finished, press "
     "Go if flash success, press Stop if flash failure or error.")
 
-#: M83/C8: default console payload of a MessageOKtoConsole row (user
-#: direction 2026-11-06: "any key is fine, ok is the default").
-DEFAULT_MESSAGE_SEND_OK = "ok"
+#: M83/C8: default console payload of a MessageOKtoConsole row (the DUT
+#: waits on input() - a newline (Enter) unblocks it).
+DEFAULT_MESSAGE_SEND_OK = "\n"
 
 #: M83/C8: the six Message kinds (three plain + three *toConsole).
 PLAIN_MESSAGE_KINDS = ("MessageOK", "MessageYesNo", "MessageGoStop")
@@ -1280,7 +1280,7 @@ def console_command_for_label(label: str,
         kind=KIND_MESSAGE, name=name or "", transport="serial",
         dialog_style=style, wait_enabled=waits,
         wait_timeout=10.0 if waits else 0.0,
-        send_enabled=(style != DIALOG_OK), capture_enabled=False,
+        send_enabled=True, capture_enabled=False,
         confirm_enabled=False, retries=0,
         timeout=(4.0 if style in (DIALOG_YESNO, DIALOG_GOSTOP) else 0.0))
     if cmd.send_enabled:
