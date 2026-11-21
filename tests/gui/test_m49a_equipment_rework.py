@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,  # noqa: E402
                                QLineEdit, QPushButton)
 
@@ -99,22 +100,44 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# §1 - left column: exactly 3 / 1 / 2 / 1 configurable entries
+# §1 - left column: configurable hardware + optional placeholders
 # ---------------------------------------------------------------------------
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
-        ("Instruments", 3), ("Fixture", 1), ("DUT", 2), ("Peripherals", 1)]
+        ("Instruments", 4), ("Fixture", 1), ("Debugger", 1),
+        ("Peripherals", 1)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
                    "t1", "media converter", "power rail"):
         assert all(banned not in label.lower() for label in labels), banned
-    # every entry has a Config button ONLY (M54 §1: the Test / self-test
-    # actions live inside the Config dialogs now)
+    # instrument / form entries have a Config button ONLY; the optional
+    # placeholder entries have a disabled "Not developed" button
     for _g, entries in LEFT_ENTRIES:
-        for key, _label, _kind, _src in entries:
+        for key, _label, kind, _src in entries:
             buttons = page.entry_buttons[key]
-            assert set(buttons) == {"config"}, key
+            if kind == "optional":
+                assert set(buttons) == {"optional"}, key
+            else:
+                assert set(buttons) == {"config"}, key
+
+
+def test_left_entries_has_no_dut_group():
+    groups = [group for group, _entries in LEFT_ENTRIES]
+    assert "DUT" not in groups
+    keys = [key for _g, entries in LEFT_ENTRIES
+            for key, _label, _kind, _src in entries]
+    assert "dut_interface" not in keys
+    assert "dut_console" not in keys
+    assert "dut_ssh" not in keys
+
+
+def test_optional_entry_renders_disabled_not_developed(page):
+    for key in ("rf_test_set", "jlink"):
+        btn = page.entry_buttons[key]["optional"]
+        assert btn.text() == "Not developed"
+        assert btn.isEnabled() is False
+        assert btn.cursor().shape() == Qt.CursorShape.ForbiddenCursor
 
 
 def test_left_column_collapses_and_expands(page):

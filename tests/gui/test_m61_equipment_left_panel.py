@@ -65,7 +65,9 @@ def test_config_button_is_92_px_and_fits_its_label(page, qapp):
 def test_name_label_plus_button_fit_the_column(page):
     checked = 0
     for _group, entries in LEFT_ENTRIES:
-        for key, label, _kind, _source in entries:
+        for key, label, kind, _source in entries:
+            if kind == "optional":
+                continue
             name = _name_label(page, key, label)
             btn = page.entry_buttons[key]["config"]
             # M80-1: no elision at the computed default width; the
@@ -134,5 +136,6 @@ def test_arrow_and_tooltip_follow_the_state(page, qapp):
 
 
 def test_every_config_button_has_the_same_width(page):
-    widths = {b["config"].width() for b in page.entry_buttons.values()}
+    widths = {b["config"].width() for b in page.entry_buttons.values()
+              if "config" in b}
     assert widths == {92}

@@ -34,7 +34,6 @@ from mtkgui.equipment_page import (  # noqa: E402
     LEFT_COLUMN_MAX_PX,
     LEFT_COLUMN_MIN_PX,
     MODE_TITLES,
-    DutInterfaceDialog,
     RouterNetworkDialog,
     _ControlBoardDialog,
     _InstrumentDialog,
@@ -43,7 +42,6 @@ from mtkgui.equipment_page import (  # noqa: E402
     _TESTABLE_FORM_KEYS,
     _mock_configs,
     host_bluetooth_block,
-    normalise_dut_ports,
 )
 from mtkgui.gui.yamlbuild.instrument_status import HUB  # noqa: E402
 
@@ -209,14 +207,12 @@ def test_m80_fixture_yaml_key_still_round_trips(page):
 
 
 # ------------------------------------------------------- M80-5 control board
-def test_m80_control_board_config_gated_by_daq_status(qapp):
+def test_control_board_config_opens_without_daq_gate(qapp):
     page = EquipmentPage()
     button = page.entry_buttons["control_board"]["config"]
     try:
-        assert button.isEnabled() is False
-        assert button.toolTip() == "Connect DAQ973A Mainframe first"
-        HUB.set_connected(True)
-        HUB.set_test_connection("OK")
+        # M100: the DAQ973A "connect first" gate is gone - the Config
+        # button and the dialog's OK are always enabled
         assert button.isEnabled() is True
         assert button.toolTip() == ""
     finally:
@@ -226,8 +222,7 @@ def test_m80_control_board_config_gated_by_daq_status(qapp):
 def test_m80_control_board_channel_dropdown_is_dio01_dio08(qapp):
     signals = {key: {"channel": channel, "direction": direction}
                for key, _label, channel, direction in DIO_SIGNALS}
-    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", signals,
-                              True)
+    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", signals)
     try:
         assert DIO_CHANNELS == tuple(f"DIO{index:02d}"
                                      for index in range(1, 9))
@@ -239,7 +234,7 @@ def test_m80_control_board_channel_dropdown_is_dio01_dio08(qapp):
 
 
 def test_m80_control_board_duplicate_channel_is_error(qapp):
-    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {}, True)
+    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {})
     try:
         dlg._rows["inpos"][0].setCurrentText("DIO01")
         errors = dlg.validate()
@@ -250,7 +245,7 @@ def test_m80_control_board_duplicate_channel_is_error(qapp):
 
 
 def test_m80_control_board_direction_round_trip(qapp):
-    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {}, True)
+    dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {})
     try:
         dlg._rows["press"][2].setChecked(True)      # Output
         dlg._rows["estop"][1].setChecked(True)      # Input
@@ -259,7 +254,7 @@ def test_m80_control_board_direction_round_trip(qapp):
         assert values["estop"]["direction"] == "input"
         assert values["estop"]["channel"] == "DIO04"
         back = _ControlBoardDialog(None, "ATE Fixture Control Board",
-                                   values, True)
+                                   values)
         try:
             assert back.values() == values
         finally:
@@ -274,62 +269,13 @@ def test_m80_dut_board_os_entry_removed(page):
     assert ("dut", "board_os") not in GROUP_FIELDS
 
 
-def test_m80_dut_interface_edits_wifi_bt_lan_together(qapp, page):
-    dlg = DutInterfaceDialog(None, {"ssid": "old", "interface": "mlan0"},
-                             {"name": "old-bt", "bd_addr": ""},
-                             "eth0", "10.0.0.2")
-    try:
-        dlg._wifi["ssid"].setText("DUT-AP")
-        dlg._bt["name"].setText("DUT-BT")
-        dlg.edit_ports.setText("eth0,eth1")
-        values = dlg.values()
-    finally:
-        dlg.deleteLater()
-    assert values["wifi"]["ssid"] == "DUT-AP"
-    assert values["bluetooth"]["name"] == "DUT-BT"
-    assert values["ethernet_ports"] == "eth0,eth1"
-    page.apply_dut_interface(values["wifi"], values["bluetooth"],
-                             values["ethernet_ports"])
-    groups = page.configs["dut"]["groups"]
-    assert groups["wifi"]["ssid"] == "DUT-AP"
-    assert groups["bluetooth"]["name"] == "DUT-BT"
-    assert groups["interface"]["ethernet"]["ports"] == "eth0,eth1"
-
-
-def test_m80_dut_interface_ports_comma_normalised(qapp):
-    assert normalise_dut_ports(" eth0, ,eth1,eth0,bad port! ") == "eth0,eth1"
-    assert normalise_dut_ports("") == ""
-    dlg = DutInterfaceDialog(None, {}, {}, "eth0, eth0, eth2, bad!", "")
-    try:
-        assert dlg.values()["ethernet_ports"] == "eth0,eth2"
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_dut_interface_has_no_test_button(page, monkeypatch):
-    captured = {}
-
-    def fake_exec(dlg):
-        captured["dlg"] = dlg
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
-    page.open_entry("dut_interface")
-    dlg = captured["dlg"]
-    try:
-        labels = [button.text() for button in dlg.findChildren(QWidget)
-                  if hasattr(button, "text")]
-        assert "Test Connection" not in labels
-    finally:
-        dlg.deleteLater()
-    assert "dut_interface" not in _TESTABLE_FORM_KEYS
-
-
 def test_m80_ssh_login_entry_removed(page):
     assert "dut_ssh" not in _entry_keys()
     assert "dut_ssh" not in page.entry_buttons
-    # the YAML paths stay alive (fed by the Console panel)
-    assert ("dut", "ssh") in GROUP_FIELDS
+    # M100: the DUT SSH / console editor moved into the FCT steps (the
+    # Console panel still mirrors serial / SSH into equipment.dut.*)
+    assert ("dut", "ssh") not in GROUP_FIELDS
+    assert ("dut", "console") not in GROUP_FIELDS
 
 
 def test_m80_console_mirrors_into_equipment_yaml(qapp):
@@ -354,26 +300,6 @@ def test_m80_console_mirrors_into_equipment_yaml(qapp):
         assert groups["ssh"]["username"] == "root"
     finally:
         page.deleteLater()
-
-
-def test_m80_console_config_navigates_to_workflow(qapp, monkeypatch):
-    window = QMainWindow()
-    tabs = QTabWidget(window)
-    workflow = QWidget()
-    tabs.addTab(workflow, "Test Work Flow")
-    window.tabs = tabs
-    window.workflow_page = workflow
-    window.setCentralWidget(tabs)
-    page = EquipmentPage(window)
-    window.show()
-    monkeypatch.setattr(QMessageBox, "information",
-                        lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
-    try:
-        page._open_console_pointer()
-        assert tabs.currentWidget() is workflow
-    finally:
-        page.deleteLater()
-        window.deleteLater()
 
 
 # -------------------------------------------- M80-7 network dialog layout
@@ -450,7 +376,7 @@ def test_m80_router_mode_has_no_host_wired_ip(qapp):
             "the DUT also uses it when joining the same AP"
         assert dlg._edits["wifi_dut_iface"].toolTip() == (
             "login to the DUT and run 'ifconfig' to read the interface "
-            "name (e.g. mlan0)")
+            "name")
     finally:
         dlg.deleteLater()
 
@@ -589,8 +515,6 @@ def test_m80_save_writes_only_selected_mode(qapp):
 def test_m80_fct_refs_still_resolve(page):
     from mtkgui.engine import ref_resolver
 
-    page.apply_dut_interface({"ssid": "DUT-AP", "interface": "mlan0"},
-                             {"name": "DUT-BT", "bd_addr": ""}, "eth0")
     page.configs["dut"]["groups"]["ssh"] = {
         "ip": "192.168.1.60", "username": "root", "password": "secret"}
     page.configs["dut"]["groups"]["console"] = {
@@ -600,7 +524,6 @@ def test_m80_fct_refs_still_resolve(page):
         "ap_ssid": "AP", "ap_ip": "", "host_ip": "10.0.0.5",
         "ap_password": "pw"}
     doc = {"equipment": project_config._equipment_to_yaml(page.configs)}
-    assert ref_resolver.resolve("equipment.dut.wifi.ssid", doc) == "DUT-AP"
     assert ref_resolver.resolve("equipment.dut.ssh.ip", doc) == \
         "192.168.1.60"
     assert ref_resolver.resolve("equipment.dut.console.port", doc) == \

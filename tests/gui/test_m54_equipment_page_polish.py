@@ -49,7 +49,9 @@ def page(qapp):
 # ---------------------------------------------------------------------------
 def test_no_entry_row_has_a_test_button(page):
     for _group, entries in LEFT_ENTRIES:
-        for key, _label, _kind, _source in entries:
+        for key, _label, kind, _source in entries:
+            if kind == "optional":
+                continue
             buttons = page.entry_buttons[key]
             assert set(buttons) == {"config"}, key
             assert "Test" not in buttons["config"].text()

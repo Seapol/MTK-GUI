@@ -208,14 +208,14 @@ LEFT_ENTRIES = (
         ("daq973a", "DAQ973A Mainframe", "instrument", ("daq973a", None)),
         ("u2355a", "U2355A", "instrument", ("u2355a", None)),
         ("psu", "N5747A", "instrument", ("psu", None)),
+        ("rf_test_set", "RF Test Set (WiFi/BT)", "optional", None),
     )),
     ("Fixture", (
         ("control_board", "ATE Fixture Control Board", "form",
          ("control_board", None)),
     )),
-    ("DUT", (
-        ("dut_interface", "DUT Interface", "form", ("dut", "interface")),
-        ("dut_console", "DUT Console", "form", ("dut", "console")),
+    ("Debugger", (
+        ("jlink", "J-Link for Boundary Scan Analyzer", "optional", None),
     )),
     ("Peripherals", (
         ("router", "Wired & Wireless Network", "form",
@@ -237,27 +237,13 @@ _TESTABLE_FORM_KEYS = ("router",)
 LEFT_COLUMN_MIN_PX = 320
 LEFT_COLUMN_MAX_PX = 480
 
-#: M49a §5: grouped DUT / peripheral configs.  (owner key, group key) ->
+#: M49a §5: grouped peripheral configs.  (owner key, group key) ->
 #: editable fields (field key, label, default).  The YAML carries these
-#: as nested keys (``equipment.dut.ssh.ip`` ...) so FCT steps can
-#: reference them at runtime (M50).
+#: as nested keys (``equipment.peripherals.wifi.ap_ssid`` ...) so FCT
+#: steps can reference them at runtime (M50).  DUT-side Wi-Fi / BT /
+#: SSH / console / ethernet moved into the FCT steps (M100) - no editor
+#: lives here.
 GROUP_FIELDS = {
-    ("dut", "wifi"): [
-        ("ssid", "DUT SSID", ""), ("interface", "Interface", "mlan0")],
-    ("dut", "bluetooth"): [
-        ("name", "BT name", ""), ("bd_addr", "BD address", "")],
-    ("dut", "ssh"): [
-        ("ip", "IP address", ""), ("username", "Username", ""),
-        ("password", "Password", "")],
-    ("dut", "console"): [
-        ("channel", "Console channel", ""), ("port", "Serial port", ""),
-        ("baud", "Baud rate", "115200"), ("parity", "Parity", "None")],
-    # M80-6b: one DUT Interface dialog edits Wi-Fi / Bluetooth / LAN
-    ("dut", "interface"): [
-        ("ssid", "DUT SSID", ""), ("wifi_interface", "DUT Wi-Fi interface",
-                                   "mlan0"),
-        ("bt_name", "BT name", ""), ("bd_addr", "BD address", ""),
-        ("ethernet_ports", "Ethernet port(s)", "")],
     ("peripherals", "wifi"): [
         ("ap_ssid", "AP SSID", ""), ("ap_ip", "AP IP", ""),
         ("host_ip", "Host IP", ""), ("ap_password", "AP password", "")],
@@ -289,7 +275,7 @@ NETWORK_FIELDS = [
     ("wired_host_ip", "Host PC wired IP", ""),
     ("wired_gateway", "Router gateway IP", ""),
     ("wifi_mode", "Wireless mode", "hotspot"),
-    ("wifi_dut_iface", "DUT Wi-Fi interface", "mlan0"),
+    ("wifi_dut_iface", "DUT Wi-Fi interface", ""),
     ("hotspot_ssid", "Hotspot SSID", ""),
     ("hotspot_password", "Hotspot password", ""),
     ("router_ap_ssid", "Router AP SSID", ""),
@@ -312,9 +298,9 @@ NETWORK_MODES = {
     ],
     "wifi": [
         ("hotspot", "Host PC hotspot (no router)",
-         "DUT (mlan0) ~~ Wi-Fi ~~ Host PC AP (netsh)"),
+         "DUT ~~ Wi-Fi ~~ Host PC AP (netsh)"),
         ("router", "Wi-Fi router",
-         "DUT (mlan0) ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
+         "DUT ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
     ],
 }
 
@@ -625,16 +611,11 @@ def _mock_configs():
                 ("GPIO nets", "TP_GPIO0 - TP_GPIO23"),
                 ("Reference", "stress / strain gauge"),
             ],
-            # M49a §5: the DUT group (Wi-Fi / Bluetooth / SSH login /
-            # console).  M80: board OS and the separate Wi-Fi / Bluetooth
-            # entries are gone - "interface" edits all three blocks.
-            "groups": {
-                "wifi": _default_group("dut", "wifi"),
-                "bluetooth": _default_group("dut", "bluetooth"),
-                "ssh": _default_group("dut", "ssh"),
-                "console": _default_group("dut", "console"),
-                "interface": {"ethernet": {"ports": ""}},
-            },
+            # M100: DUT-side Wi-Fi / Bluetooth / SSH / console / ethernet
+            # moved into the FCT steps; the Console panel still mirrors
+            # its serial / SSH channels into ``equipment.dut.console.*`` /
+            # ``equipment.dut.ssh.*`` at runtime.
+            "groups": {},
         },
         "grp_power": {
             "title": "Power Nets TP_P1-P80",
@@ -1887,125 +1868,22 @@ class _GroupConfigDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
-# M80-6b: one "DUT Interface" dialog editing Wi-Fi / Bluetooth / Ethernet
-# ---------------------------------------------------------------------------
-def normalise_dut_ports(text) -> str:
-    """Comma list of RJ45 port names: trim, drop empties, de-duplicate
-    and keep only ``[A-Za-z0-9._-]``.  Empty is legal (= no wired link)."""
-    import re
-    seen = []
-    for token in str(text or "").split(","):
-        token = token.strip()
-        if not token or not re.fullmatch(r"[A-Za-z0-9._-]+", token):
-            continue
-        if token not in seen:
-            seen.append(token)
-    return ",".join(seen)
-
-
-class DutInterfaceDialog(QDialog):
-    """M80-6b: DUT Wi-Fi + Bluetooth + Ethernet in one dialog.
-
-    The three blocks keep their existing YAML paths (``dut.wifi.*`` /
-    ``dut.bluetooth.*`` / ``dut.interface.ethernet.ports``); the DUT IP
-    is single-sourced in ``peripherals.router.dut_ip`` and only shown
-    read-only here."""
-
-    def __init__(self, parent, wifi: dict, bluetooth: dict,
-                 ethernet_ports: str, dut_ip: str):
-        super().__init__(parent)
-        self.setWindowTitle(f"DUT Interface - Configuration")
-        fit_dialog(self, 640, 520)
-        root = QVBoxLayout(self)
-        body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
-
-        self._wifi = {}
-        wifi_box = QGroupBox("DUT Wi-Fi")
-        wform = QFormLayout(wifi_box)
-        wform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        for key, label, default in GROUP_FIELDS[("dut", "wifi")]:
-            edit = QLineEdit(str((wifi or {}).get(key, default) or ""))
-            edit.setPlaceholderText(default or "optional")
-            self._wifi[key] = edit
-            wform.addRow(f"{label}:", edit)
-        lay.addWidget(wifi_box)
-
-        self._bt = {}
-        bt_box = QGroupBox("DUT Bluetooth")
-        bform = QFormLayout(bt_box)
-        bform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        for key, label, default in GROUP_FIELDS[("dut", "bluetooth")]:
-            edit = QLineEdit(str((bluetooth or {}).get(key, default) or ""))
-            edit.setPlaceholderText(default or "optional")
-            self._bt[key] = edit
-            bform.addRow(f"{label}:", edit)
-        lay.addWidget(bt_box)
-
-        lan_box = QGroupBox("DUT Ethernet (RJ45)")
-        lform = QFormLayout(lan_box)
-        lform.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.edit_ports = QLineEdit(str(ethernet_ports or ""))
-        self.edit_ports.setPlaceholderText("eth0,eth1")
-        lform.addRow("Ethernet port(s):", self.edit_ports)
-        dut_ip_edit = QLineEdit(str(dut_ip or ""))
-        dut_ip_edit.setReadOnly(True)
-        dut_ip_edit.setPlaceholderText("set on Wired & Wireless Network")
-        lform.addRow("DUT IP (read-only):", dut_ip_edit)
-        lay.addWidget(lan_box)
-
-        note = QLabel(
-            "DUT IP stays single-sourced on the Wired & Wireless Network "
-            "page; this dialog only edits the DUT-side identifiers.")
-        note.setObjectName("muted")
-        note.setWordWrap(True)
-        lay.addWidget(note)
-        apply_scroll_to_dialog(self, body)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-    def values(self) -> dict:
-        return {
-            "wifi": {key: edit.text().strip()
-                     for key, edit in self._wifi.items()},
-            "bluetooth": {key: edit.text().strip()
-                          for key, edit in self._bt.items()},
-            "ethernet_ports": normalise_dut_ports(self.edit_ports.text()),
-        }
-
-
-# ---------------------------------------------------------------------------
 # M80-5: ATE fixture control board - DIO channel + direction
 # ---------------------------------------------------------------------------
 class _ControlBoardDialog(QDialog):
     """Four signal rows: DIO channel combo + exclusive Input / Output.
 
-    Gated by the instrument status hub: the Config button and this
-    dialog's OK stay disabled until DAQ973A is connected and its Test
-    Connection result is OK."""
+    M100: the DAQ973A "connect first" gate is gone - Config opens
+    immediately and the OK button is always enabled."""
 
-    #: exact gating tooltip required by the directive
-    GATE_TOOLTIP = "Connect DAQ973A Mainframe first"
-
-    def __init__(self, parent, title, signals: dict, ready: bool):
+    def __init__(self, parent, title, signals: dict):
         super().__init__(parent)
         self.setWindowTitle(f"{title} - DIO signals")
         fit_dialog(self, 720, 460)
-        self._ready = bool(ready)
         root = QVBoxLayout(self)
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
-
-        self.gate_label = QLabel(self.GATE_TOOLTIP)
-        self.gate_label.setObjectName("warn")
-        self.gate_label.setVisible(not self._ready)
-        lay.addWidget(self.gate_label)
 
         grid = QGridLayout()
         grid.addWidget(QLabel("Signal"), 0, 0)
@@ -2053,9 +1931,6 @@ class _ControlBoardDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
-        self.btn_ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self.btn_ok.setEnabled(self._ready)
-        self.btn_ok.setToolTip("" if self._ready else self.GATE_TOOLTIP)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -2280,7 +2155,7 @@ MODE_TITLES = {
 _MODE_FIELD_HINTS = {
     "router_ap_password": "the DUT also uses it when joining the same AP",
     "wifi_dut_iface": "login to the DUT and run 'ifconfig' to read the "
-                      "interface name (e.g. mlan0)",
+                      "interface name",
 }
 
 _MODE_NAMES = {"direct": "Direct (no router)", "lan": "LAN via router",
@@ -3387,12 +3262,6 @@ class EquipmentPage(QWidget):
         # entries are globally disabled (set from MainWindow on login)
         self._manual_fixture = False
         self._build()
-        # M80-5: the control-board gate follows the shared hub
-        from mtkgui.gui.yamlbuild.instrument_status import HUB
-        HUB.subscribe(self._refresh_control_board_gate)
-        self.destroyed.connect(
-            lambda *_: HUB.unsubscribe(self._refresh_control_board_gate))
-        self._refresh_control_board_gate()
 
     def set_manual_fixture(self, manual):
         """Manual fixture mode -> block fixture / IO-control entries."""
@@ -3543,9 +3412,9 @@ class EquipmentPage(QWidget):
         return max(LEFT_COLUMN_MIN_PX, min(LEFT_COLUMN_MAX_PX, width))
 
     def _entry_row(self, entry):
-        """One left-column row: label + Config only (M54 §1 - the Test /
-        self-test actions live INSIDE the Config dialogs)."""
-        key, label, _kind, _source = entry
+        """One left-column row: label + Config (instrument / form), or a
+        disabled "Not developed" button for kind ``optional``."""
+        key, label, kind, _source = entry
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
@@ -3557,6 +3426,16 @@ class EquipmentPage(QWidget):
         row.addWidget(name)
         row.addStretch(1)
         buttons = {}
+        if kind == "optional":
+            # M100: placeholder entry - greyed, non-clickable, does nothing
+            btn = QPushButton("Not developed")
+            btn.setMinimumWidth(92)
+            btn.setEnabled(False)
+            btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            row.addWidget(btn)
+            buttons["optional"] = btn
+            self.entry_buttons[key] = buttons
+            return row
         btn_cfg = QPushButton("Config")
         # M61 §1: 92 px fits "Config" with the app QSS padding (7px 16px)
         btn_cfg.setFixedWidth(92)
@@ -3878,20 +3757,10 @@ class EquipmentPage(QWidget):
             QMessageBox.information(
                 self, "Manual Fixture", MANUAL_FIXTURE_NOTICE)
             return
-        # M80-5/6b/6e: the merged / pointer entries have their own dialogs
+        # M80-5: the control-board Config opens immediately (M100 dropped
+        # the DAQ973A "connect first" gate)
         if entry_key == "control_board":
-            if not self._control_board_ready():
-                QMessageBox.information(
-                    self, "ATE Fixture Control Board",
-                    _ControlBoardDialog.GATE_TOOLTIP)
-                return
             self._open_dio_entry(self.configs["control_board"])
-            return
-        if entry_key == "dut_interface":
-            self._open_dut_interface()
-            return
-        if entry_key == "dut_console":
-            self._open_console_pointer()
             return
         if owner in _INSTRUMENT_CONN and group is None:
             self._open_instrument(owner)
@@ -3931,28 +3800,7 @@ class EquipmentPage(QWidget):
         self._instrument_connections[key] = dlg._connected
         dlg.apply_to_config(cfg)
 
-    # ------------------------------------- M80-5 control-board gating
-    @staticmethod
-    def _control_board_ready() -> bool:
-        """DAQ973A connected AND its Test Connection result is OK."""
-        from mtkgui.gui.yamlbuild.instrument_status import HUB
-        snapshot = HUB.snapshot()
-        return (bool(snapshot.get("connected"))
-                and snapshot.get("test_connection") == "OK")
-
-    def _refresh_control_board_gate(self) -> None:
-        try:
-            button = (self.entry_buttons.get("control_board")
-                      or {}).get("config")
-            if button is None:
-                return
-            ready = self._control_board_ready()
-            button.setEnabled(ready)
-            button.setToolTip("" if ready
-                              else _ControlBoardDialog.GATE_TOOLTIP)
-        except RuntimeError:                 # page already deleted
-            pass
-
+    # ------------------------------------- M80-5 control-board signals
     @staticmethod
     def _control_signals(cfg: dict) -> dict:
         """Signal values from ``signals`` or the legacy ``dio`` map."""
@@ -3971,55 +3819,7 @@ class EquipmentPage(QWidget):
             out[key] = {"channel": channel, "direction": direction}
         return out
 
-    # --------------------------------------------- M80-6b DUT Interface
-    def _router_group(self) -> dict:
-        return (((self.configs.get("peripherals") or {}).get("groups")
-                 or {}).get("router") or {})
-
-    def _dut_groups(self) -> dict:
-        cfg = self.configs.setdefault("dut", {"title": "DUT Board"})
-        return cfg.setdefault("groups", {})
-
-    def apply_dut_interface(self, wifi: dict, bluetooth: dict,
-                            ports: str) -> None:
-        """Write the three DUT Interface blocks on their existing paths."""
-        groups = self._dut_groups()
-        groups["wifi"] = {
-            key: str((wifi or {}).get(key, default) or "")
-            for key, _label, default in GROUP_FIELDS[("dut", "wifi")]}
-        groups["bluetooth"] = {
-            key: str((bluetooth or {}).get(key, default) or "")
-            for key, _label, default in GROUP_FIELDS[("dut", "bluetooth")]}
-        groups["interface"] = {
-            "ethernet": {"ports": normalise_dut_ports(ports)}}
-        self.apply_save_requested.emit()
-
-    def _open_dut_interface(self):
-        groups = self._dut_groups()
-        wifi = dict(groups.get("wifi") or _default_group("dut", "wifi"))
-        bluetooth = dict(groups.get("bluetooth")
-                         or _default_group("dut", "bluetooth"))
-        ports = str(((groups.get("interface") or {}).get("ethernet")
-                     or {}).get("ports") or "")
-        dut_ip = str(self._router_group().get("dut_ip") or "")
-        dlg = DutInterfaceDialog(self, wifi, bluetooth, ports, dut_ip)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            values = dlg.values()
-            self.apply_dut_interface(values["wifi"], values["bluetooth"],
-                                     values["ethernet_ports"])
-
-    # --------------------------------------------- M80-6e DUT Console
-    def _open_console_pointer(self):
-        """DUT Console is a pointer to the Test Work Flow Console panel."""
-        QMessageBox.information(
-            self, "DUT Console",
-            "Configure the DUT console in Test Work Flow -> Console.")
-        window = self.window()
-        tabs = getattr(window, "tabs", None)
-        workflow = getattr(window, "workflow_page", None)
-        if tabs is not None and workflow is not None:
-            tabs.setCurrentWidget(workflow)
-
+    # --------------------------------------------- grouped config entries
     def _open_group_entry(self, owner, group, entry_key=None):
         cfg = self.configs.setdefault(owner, {"title": owner})
         groups = cfg.setdefault("groups", {})
@@ -4120,8 +3920,7 @@ class EquipmentPage(QWidget):
     def _open_dio_entry(self, cfg):
         """M80-5: ATE Fixture Control Board - channel + direction rows."""
         dlg = _ControlBoardDialog(self, cfg["title"],
-                                  self._control_signals(cfg),
-                                  self._control_board_ready())
+                                  self._control_signals(cfg))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             cfg.setdefault("groups", {})["signals"] = dlg.values()
             cfg.pop("dio", None)
@@ -4184,37 +3983,6 @@ class EquipmentPage(QWidget):
             return True, "\n".join(
                 lines + ["", "Test Connection PASSED: the SSH channel is "
                         "available."])
-
-        if entry_key == "dut_console":
-            port = str(values.get("port") or "").strip()
-            baud = str(values.get("baud") or "115200").strip()
-            parity = str(values.get("parity") or "None").strip()
-            if not port:
-                return False, ("DUT Console is not configured.\n"
-                               "Open Config and select the serial port.")
-            try:
-                from serial.tools import list_ports
-                devices = host_platform.serial_port_devices(
-                    [p.device for p in list_ports.comports()])
-            except Exception:                   # noqa: BLE001
-                devices = []
-            if port not in devices:
-                available = ", ".join(devices) if devices else "(none)"
-                return False, (f"Serial port {port} is not present.\n"
-                               f"Available ports: {available}\n"
-                               "Test Connection FAILED: the serial port "
-                               "cannot be opened.")
-            try:
-                import serial
-                with serial.Serial(port=port, baudrate=int(baud),
-                                   timeout=1):
-                    pass
-            except Exception as exc:            # noqa: BLE001
-                return False, (f"Serial port {port} could not be opened: "
-                               f"{exc}")
-            return True, (f"Serial port: {port}\nBaud rate: {baud}\n"
-                          f"Parity: {parity}\n\nTest Connection PASSED: "
-                          "the serial port opens.")
 
         if entry_key == "pc_wifi":
             ssid = str(values.get("ap_ssid") or "").strip()
