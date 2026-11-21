@@ -257,6 +257,31 @@ def test_dio_signal_directions_read_group():
             assert direction == "output", key
 
 
+def test_legacy_dio_default_migrates_to_rw_vocabulary(qapp):
+    page = EquipmentPage()
+    try:
+        cfg = {"groups": {"signals": {}},
+               "dio": {"press": "DIO01", "inpos": "DIO02",
+                       "presence": "DIO03", "estop": "DIO04"}}
+        signals = page._control_signals(cfg)
+        assert signals["press"]["channel"] == "DIO_W01"
+        assert signals["inpos"]["channel"] == "DIO_R01"
+        assert signals["presence"]["channel"] == "DIO_R02"
+        assert signals["estop"]["channel"] == "DIO_R03"
+    finally:
+        page.deleteLater()
+
+
+def test_legacy_obsolete_dio_channel_is_cleared(qapp):
+    page = EquipmentPage()
+    try:
+        cfg = {"groups": {"signals": {}}, "dio": {"press": "DIO07"}}
+        signals = page._control_signals(cfg)
+        assert signals["press"]["channel"] == ""
+    finally:
+        page.deleteLater()
+
+
 def test_m80_control_board_duplicate_channel_is_error(qapp):
     dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {})
     try:

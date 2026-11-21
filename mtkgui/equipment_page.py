@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import logging
 import os
 import random
 
@@ -317,6 +318,16 @@ DIO_SIGNALS = [
 #: legacy 3-tuple view (channel only) still read by the old ``dio:`` map
 DIO_FIELDS = [(key, label, channel)
               for key, label, channel, _direction in DIO_SIGNALS]
+
+#: M100 B.2.4: old per-signal default channel -> new 8R+8W channel.  A
+#: saved legacy value that equals one of these defaults migrates; any
+#: other obsolete value is cleared so the operator re-picks it.
+_LEGACY_DIO_DEFAULT = {
+    "DIO01": "DIO_W01",   # press
+    "DIO02": "DIO_R01",   # inpos
+    "DIO03": "DIO_R02",   # presence
+    "DIO04": "DIO_R03",   # estop
+}
 
 
 def _default_group(owner, name):
@@ -3527,7 +3538,11 @@ class EquipmentPage(QWidget):
     # ------------------------------------- M80-5 control-board signals
     @staticmethod
     def _control_signals(cfg: dict) -> dict:
-        """Signal values from ``signals`` or the legacy ``dio`` map."""
+        """Signal values from ``signals`` or the legacy ``dio`` map.
+
+        M100 B.2.4: a saved legacy default channel migrates to the new
+        8-read + 8-write vocabulary; any other obsolete value is cleared
+        (with a notice) so the operator re-assigns it."""
         groups = (cfg or {}).get("groups") or {}
         saved = dict(groups.get("signals") or {})
         legacy = dict((cfg or {}).get("dio") or {})
@@ -3537,6 +3552,13 @@ class EquipmentPage(QWidget):
             channel = str(entry.get("channel")
                           or legacy.get(key)
                           or (cfg or {}).get(key) or "")
+            if channel in _LEGACY_DIO_DEFAULT:
+                channel = _LEGACY_DIO_DEFAULT[channel]
+            elif channel and channel not in DIO_CHANNELS:
+                logging.getLogger(__name__).warning(
+                    "DIO channel %s is obsolete (8R+8W split); re-assign it",
+                    channel)
+                channel = ""
             direction = str(entry.get("direction") or default_dir).lower()
             if direction not in ("input", "output"):
                 direction = default_dir
