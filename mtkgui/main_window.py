@@ -1060,6 +1060,7 @@ class MainWindow(QMainWindow):
         # M49a §4: page-level Apply Save YAML -> the File-menu slot
         self._equipment_page.apply_save_requested.connect(
             self.apply_and_save_yaml)
+        self._equipment_page.log_line.connect(self._append_event_log)
         # Event-Log detail from the Yaml Build page (T6); the long-task
         # progress now drives the page's own FOREGROUND dialog
         # (ProgressBridge, M15) - the status-bar progress bar no longer

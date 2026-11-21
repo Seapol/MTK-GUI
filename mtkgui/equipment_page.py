@@ -62,7 +62,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import logging
 import os
 import random
 
@@ -2794,6 +2793,8 @@ class EquipmentPage(QWidget):
     # M49a §4: page-level "Apply Save YAML" (handled by MainWindow with
     # the same mechanism as the other config pages)
     apply_save_requested = Signal()
+    # M100-fix3: one-line notices for the main-window Event Log
+    log_line = Signal(str)
 
     #: instrument dialog key -> status-bar LED abbreviation
     _INSTRUMENT_ABBR = {
@@ -3536,13 +3537,12 @@ class EquipmentPage(QWidget):
         self._set_instrument_led(key)
 
     # ------------------------------------- M80-5 control-board signals
-    @staticmethod
-    def _control_signals(cfg: dict) -> dict:
+    def _control_signals(self, cfg: dict) -> dict:
         """Signal values from ``signals`` or the legacy ``dio`` map.
 
         M100 B.2.4: a saved legacy default channel migrates to the new
         8-read + 8-write vocabulary; any other obsolete value is cleared
-        (with a notice) so the operator re-assigns it."""
+        (with an Event Log notice) so the operator re-assigns it."""
         groups = (cfg or {}).get("groups") or {}
         saved = dict(groups.get("signals") or {})
         legacy = dict((cfg or {}).get("dio") or {})
@@ -3555,9 +3555,9 @@ class EquipmentPage(QWidget):
             if channel in _LEGACY_DIO_DEFAULT:
                 channel = _LEGACY_DIO_DEFAULT[channel]
             elif channel and channel not in DIO_CHANNELS:
-                logging.getLogger(__name__).warning(
-                    "DIO channel %s is obsolete (8R+8W split); re-assign it",
-                    channel)
+                self.log_line.emit(
+                    f"DIO channel {channel} is obsolete "
+                    "(8R+8W split); re-assign it")
                 channel = ""
             direction = str(entry.get("direction") or default_dir).lower()
             if direction not in ("input", "output"):

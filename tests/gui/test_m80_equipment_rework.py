@@ -282,6 +282,20 @@ def test_legacy_obsolete_dio_channel_is_cleared(qapp):
         page.deleteLater()
 
 
+def test_obsolete_dio_emits_event_log(qapp):
+    page = EquipmentPage()
+    lines: list = []
+    page.log_line.connect(lines.append)
+    try:
+        page._control_signals(
+            {"groups": {"signals": {}}, "dio": {"press": "DIO07"}})
+        assert len(lines) == 1
+        assert "DIO07" in lines[0]
+        assert "obsolete (8R+8W split); re-assign it" in lines[0]
+    finally:
+        page.deleteLater()
+
+
 def test_m80_control_board_duplicate_channel_is_error(qapp):
     dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {})
     try:
