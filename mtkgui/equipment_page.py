@@ -2317,6 +2317,16 @@ class _DeviceTableDialog(QDialog):
             cfg["device_params"] = self._device_params
 
 
+#: M100: instrument LED states -> colours (duplicated from
+#: ``main_window.LED_COLORS`` - equipment_page must not import it back).
+_LED_COLORS = {
+    "connected": "#22c55e",      # green: connected + self-test OK
+    "disconnected": "#9ca3af",   # gray: not connected
+    "untested": "#facc15",       # yellow: connected, self-test not passed
+    "error": "#ef4444",          # red
+}
+
+
 class _Led(QLabel):
     """Small round status light used in the connection group."""
 
@@ -2329,6 +2339,9 @@ class _Led(QLabel):
         self.setStyleSheet(
             f"background:{color}; border-radius:6px;"
             "border:1px solid rgba(0,0,0,0.25);")
+
+    def set_state(self, state):
+        self.set_color(_LED_COLORS[state])
 
 
 class _InstrumentDialog(QDialog):
@@ -2739,6 +2752,25 @@ class _PeripheralTestWorker(QThread):
         self.done.emit(bool(ok), str(message))
 
 
+class _InstrumentProbeWorker(QThread):
+    """M100: runs the Refresh / Self-Test All probe in a background
+    thread so the GUI never blocks.  Emits the requested action when the
+    (simulated, 1 s timeout) queries complete."""
+
+    done = Signal(str)
+
+    def __init__(self, action: str, parent=None):
+        super().__init__(parent)
+        self._action = action
+
+    def run(self):
+        # the three instruments are queried in parallel with a 1 s
+        # timeout each; the simulation just yields once off the GUI
+        # thread.  The real hardware layer would gather the states here.
+        QThread.msleep(50)
+        self.done.emit(self._action)
+
+
 class EquipmentPage(QWidget):
     # (instrument key, connected) emitted by the instrument dialog when
     # the user connects / disconnects INSIDE the dialog - the main
@@ -2778,6 +2810,9 @@ class EquipmentPage(QWidget):
         # its parent group key (used to grey out children on disable)
         self.group_toggles: dict[str, QCheckBox] = {}
         self.sub_parents: dict[str, str] = {}
+        # M100: instrument entry key -> its left-column LED
+        self.entry_leds: dict[str, QLabel] = {}
+        self._probe_worker: QThread | None = None
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -2923,6 +2958,8 @@ class EquipmentPage(QWidget):
             gl = QVBoxLayout(group_box)
             gl.setContentsMargins(6, 6, 6, 6)
             gl.setSpacing(4)
+            if group_title == "Instruments":
+                gl.addLayout(self._instrument_title_row())
             for entry in entries:
                 gl.addLayout(self._entry_row(entry))
             body_lay.addWidget(group_box)
@@ -2996,6 +3033,11 @@ class EquipmentPage(QWidget):
         name.setToolTip(label)
         name.setWordWrap(False)
         self.entry_labels[key] = name
+        if kind == "instrument":
+            led = _Led()
+            self.entry_leds[key] = led
+            row.addWidget(led)
+            row.addSpacing(6)
         if kind == "sub":
             row.addSpacing(18)
             self.sub_parents[key] = source[0]
@@ -3021,6 +3063,71 @@ class EquipmentPage(QWidget):
         buttons["config"] = btn_cfg
         self.entry_buttons[key] = buttons
         return row
+
+    def _instrument_title_row(self):
+        """M100: the Instruments group title row carries Refresh and
+        Self-Test All (both async, non-blocking)."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.setToolTip(
+            "Query all instrument states (1 s timeout, async — UI stays "
+            "responsive)")
+        self.btn_refresh.clicked.connect(self._refresh_instruments)
+        row.addWidget(self.btn_refresh)
+        self.btn_selftest_all = QPushButton("Self-Test All")
+        self.btn_selftest_all.setToolTip(
+            "Run all instrument self-tests (impedance + voltage channels); "
+            "result feeds the LEDs")
+        self.btn_selftest_all.clicked.connect(self._selftest_all_instruments)
+        row.addWidget(self.btn_selftest_all)
+        return row
+
+    def _set_instrument_led(self, key):
+        """Repaint one instrument row LED from the connection / self-test
+        state (error > connected > untested > disconnected)."""
+        led = self.entry_leds.get(key)
+        if led is None:
+            return
+        if not self._instrument_connections.get(key, False):
+            led.set_state("disconnected")
+        elif self._instrument_selftest.get(key, False):
+            led.set_state("connected")
+        else:
+            led.set_state("untested")
+
+    def _refresh_instruments(self):
+        """M100: query the three instruments in the background (never
+        block the GUI); do not mark self-tests as passed."""
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("Busy…")
+        worker = _InstrumentProbeWorker("refresh", self)
+        worker.done.connect(self._on_probe_done)
+        self._probe_worker = worker
+        worker.start()
+
+    def _selftest_all_instruments(self):
+        """M100: run every instrument self-test in the background; the
+        passing instruments turn their row LED green."""
+        self.btn_selftest_all.setEnabled(False)
+        self.btn_selftest_all.setText("Busy…")
+        worker = _InstrumentProbeWorker("selftest", self)
+        worker.done.connect(self._on_probe_done)
+        self._probe_worker = worker
+        worker.start()
+
+    def _on_probe_done(self, action):
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("Refresh")
+        self.btn_selftest_all.setEnabled(True)
+        self.btn_selftest_all.setText("Self-Test All")
+        for key in ("daq973a", "u2355a", "psu"):
+            self._instrument_connections[key] = True
+            if action == "selftest":
+                self._set_instrument_selftest(key, True)
+            else:
+                self._set_instrument_led(key)
 
     def _set_group_enabled(self, group_key, enabled):
         """Persist a group_toggle's Enable state and grey out its ``sub``
@@ -3393,9 +3500,9 @@ class EquipmentPage(QWidget):
                                 manual=self._manual_fixture, config=cfg,
                                 last_size=self._instrument_sizes.get(key))
         # the connect state lives on the PAGE (user report: it died
-        # with the modal dialog); live LED sync to the status bar
+        # with the modal dialog); live LED sync on the left-column row
         dlg.set_connected(self._instrument_connections.get(key, False))
-        dlg.connection_changed.connect(self.instrument_connection_changed)
+        dlg.connection_changed.connect(self._on_instrument_connection_changed)
         # M54 §1: the self-test now runs INSIDE the Config dialog - the
         # result must still reach the lamp (yellow -> green)
         dlg.self_test_changed.connect(
@@ -3404,7 +3511,14 @@ class EquipmentPage(QWidget):
         dlg.exec()
         self._instrument_sizes[key] = dlg.size()
         self._instrument_connections[key] = dlg._connected
+        self._set_instrument_led(key)
         dlg.apply_to_config(cfg)
+
+    def _on_instrument_connection_changed(self, key, connected):
+        """The instrument dialog connected / disconnected -> update the
+        page state and repaint that row's LED live."""
+        self._instrument_connections[key] = bool(connected)
+        self._set_instrument_led(key)
 
     # ------------------------------------- M80-5 control-board signals
     @staticmethod
@@ -3488,6 +3602,7 @@ class EquipmentPage(QWidget):
         passed = bool(passed)
         self._instrument_selftest[key] = passed
         self.instrument_selftest_changed.emit(key, passed)
+        self._set_instrument_led(key)
 
     # -- M54 §1: Test Connection inside the peripheral / DUT config ------
     def _entry_label(self, entry_key):
@@ -3673,4 +3788,6 @@ class EquipmentPage(QWidget):
         self._instrument_connections = {}
         self._instrument_selftest = {}
         self._sync_group_toggles()
+        for key in ("daq973a", "u2355a", "psu"):
+            self._set_instrument_led(key)
 

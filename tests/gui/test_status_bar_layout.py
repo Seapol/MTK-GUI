@@ -42,15 +42,17 @@ def test_station_id_removed(window):
 
 # ----------------------------------------------------- console lights gone
 def test_console_lights_removed(window):
-    """M95: the status bar keeps the instrument lights and the date; the
-    Console caption and its per-channel LEDs are gone."""
+    """M95 + M100: the status bar keeps the Shopfloor light and the date;
+    the Console caption, its per-channel LEDs and the instrument LED row
+    are gone (instruments now light their Equipment-page rows)."""
     assert not hasattr(window, "serial_status")
+    assert not hasattr(window, "instr_status")
     labels = window.statusBar().findChildren(QLabel)
     assert not any(label.text() == "Console:" for label in labels)
+    assert not any(label.text() == "Instruments:" for label in labels)
     leds = window.statusBar().findChildren(StatusLed)
-    # M86: the Shopfloor light is the one extra light in the bar.
-    # A fifth light, or a console light coming back, must still fail.
-    assert len(leds) == len(window.instr_status.leds) + 1
+    # M100: only the Shopfloor light remains in the status bar.
+    assert len(leds) == 1
     assert window.shopfloor_led in leds
 
 
@@ -97,7 +99,7 @@ def test_running_run_cancels_pending_reset(window):
 def test_version_label_and_neighbors_intact(window):
     assert window.status_version.text() == "GUI version: v4.1.1.1287"
     for attr in ("status_role", "status_mode", "status_user",
-                 "instr_status", "status_date"):
+                 "status_date"):
         assert getattr(window, attr) is not None, attr
 
 

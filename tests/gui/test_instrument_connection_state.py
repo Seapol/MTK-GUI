@@ -164,32 +164,23 @@ def test_virtual_startup_does_not_force_green(qapp):
     w = MainWindow(role=ROLE_SUPERVISOR, mode="Virtual",
                    fixture=FIXTURE_ATE)
     try:
-        w._connect_virtual_instruments()   # the old force-green path
-        for abbr in ("DAQM", "DAQ", "PSU"):
-            assert w.instr_status.states[abbr] == "disconnected", abbr
-        # ... and a manual Equipment-page connect lights YELLOW until
-        # the instrument self-test passes (M49a §3)
-        w.equipment_page.instrument_connection_changed.emit("psu", True)
-        assert w.instr_status.states["PSU"] == "untested"
+        w._connect_virtual_instruments()   # Event Log only now
+        for key in ("daq973a", "u2355a", "psu"):
+            assert w.equipment_page._instrument_connections.get(key) \
+                is not True
     finally:
         w.close()
         w.deleteLater()
 
 
-def test_status_leds_follow_equipment_connect(window, monkeypatch):
-    """M49a §3: connect -> YELLOW; a passed self-test -> GREEN; a
-    disconnect -> GRAY."""
-    window.instr_status.set_all("disconnected")
-    events = []
-    window.equipment_page.instrument_connection_changed.connect(
-        lambda key, conn: events.append((key, conn)))
-    window.equipment_page.instrument_connection_changed.emit(
-        "u2355a", True)
-    assert window.instr_status.states["DAQ"] == "untested"
-    window.equipment_page._instrument_connections["u2355a"] = True
-    window.equipment_page.instrument_selftest_changed.emit("u2355a", True)
-    assert window.instr_status.states["DAQ"] == "connected"
-    window.equipment_page.instrument_connection_changed.emit(
-        "u2355a", False)
-    assert window.instr_status.states["DAQ"] == "disconnected"
-    assert events == [("u2355a", True), ("u2355a", False)]
+def test_status_leds_follow_equipment_connect(page):
+    """M100: connect -> YELLOW (untested); a passed self-test -> GREEN;
+    a disconnect -> GRAY on the Equipment-page row LED."""
+    page._instrument_connections["u2355a"] = True
+    page._set_instrument_led("u2355a")
+    assert "#facc15" in page.entry_leds["u2355a"].styleSheet()
+    page._set_instrument_selftest("u2355a", True)
+    assert "#22c55e" in page.entry_leds["u2355a"].styleSheet()
+    page._instrument_connections["u2355a"] = False
+    page._set_instrument_led("u2355a")
+    assert "#9ca3af" in page.entry_leds["u2355a"].styleSheet()

@@ -202,22 +202,6 @@ def test_m83_instruments_panel_connect_publishes_the_gateway(
     page.deleteLater()
 
 
-# ------------------------------------------------------------ LEDs
-def test_m83_instrument_leds_follow_the_run_start_connect(
-        window, monkeypatch):
-    _fake_gateway(monkeypatch)
-    window.mode = "Real"
-    window.equipment_page.configs = {
-        "daq973a": {"fields": {"Address": _DAQ_ADDRESS}},
-        "psu": {"fields": {"Address": _PSU_ADDRESS}},
-    }
-    window.workflow_page.gateway = None
-    assert window.workflow_page._ensure_rack_for_run() is True
-    assert window.instr_status.states["DAQM"] == "connected"
-    assert window.instr_status.states["PSU"] == "connected"
-    window.workflow_page._release_rack()
-
-
 def test_m83_gateway_is_closed_on_stop(page, monkeypatch):
     gw = _FakeGateway({"psu": {"fields": {"Address": _PSU_ADDRESS}}})
     page.gateway = gw

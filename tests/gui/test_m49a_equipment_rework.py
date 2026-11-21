@@ -252,16 +252,48 @@ def test_instrument_state_grey_yellow_green(page):
     assert page.instrument_state("daq973a") == "green"
 
 
-def test_main_window_has_three_instrument_lamps(qapp):
-    from mtkgui.main_window import MainWindow, INSTRUMENTS
-    w = MainWindow(role="Supervisor", fixture="ATE")
-    try:
-        assert [abbr for abbr, _title in INSTRUMENTS] == [
-            "DAQM", "DAQ", "PSU"]
-        assert len(w.instr_status.leds) == 3
-    finally:
-        w.close()
-        w.deleteLater()
+def test_instrument_row_has_led(page):
+    """M100: the per-instrument LEDs moved from the status bar onto each
+    instrument row in the left column."""
+    for key in ("daq973a", "u2355a", "psu"):
+        assert key in page.entry_leds, key
+    assert page.btn_refresh.text() == "Refresh"
+    assert page.btn_selftest_all.text() == "Self-Test All"
+
+
+def test_refresh_runs_in_background_and_does_not_block(page, qapp):
+    page._refresh_instruments()
+    # the button flips to Busy immediately; the GUI thread was not held
+    assert page.btn_refresh.text() == "Busy…"
+    assert page.btn_refresh.isEnabled() is False
+    _pump(qapp, lambda: page.btn_refresh.text() == "Refresh")
+    for key in ("daq973a", "u2355a", "psu"):
+        assert page._instrument_connections[key] is True
+    # Refresh never marks the self-test as passed (still untested)
+    assert page._instrument_selftest.get("psu") is not True
+
+
+def test_selftest_all_turns_led_green(page, qapp):
+    page._selftest_all_instruments()
+    assert page.btn_selftest_all.text() == "Busy…"
+    _pump(qapp, lambda: page.btn_selftest_all.text() == "Self-Test All")
+    for key in ("daq973a", "u2355a", "psu"):
+        assert page._instrument_connections[key] is True
+        assert page._instrument_selftest[key] is True
+        assert "#22c55e" in page.entry_leds[key].styleSheet()
+
+
+def _pump(qapp, predicate, timeout_ms=3000):
+    from PySide6.QtCore import QThread
+    deadline = 0
+    while deadline < timeout_ms:
+        qapp.processEvents()
+        if predicate():
+            return True
+        QThread.msleep(10)
+        deadline += 10
+    qapp.processEvents()
+    return predicate()
 
 
 # ---------------------------------------------------------------------------

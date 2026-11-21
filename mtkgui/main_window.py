@@ -349,57 +349,6 @@ class StatusLed(QLabel):
             f"border:1px solid rgba(0,0,0,0.25);")
 
 
-class InstrumentStatusBar(QWidget):
-    """'Instruments:' caption plus one LED + abbreviation per instrument."""
-
-    def __init__(self, instruments, parent=None):
-        super().__init__(parent)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(6, 0, 6, 0)
-        row.setSpacing(6)
-
-        caption = QLabel("Instruments:")
-        caption.setObjectName("muted")
-        row.addWidget(caption)
-
-        self.titles = {}
-        self.leds = {}
-        for i, (abbr, title) in enumerate(instruments):
-            self.titles[abbr] = title
-            led = StatusLed()
-            self.leds[abbr] = led
-            row.addWidget(led)
-            name = QLabel(abbr)
-            name.setObjectName("strong")
-            row.addWidget(name)
-            if i < len(instruments) - 1:
-                row.addSpacing(10)
-
-        self.states = {abbr: "disconnected" for abbr, _ in instruments}
-        self._refresh_tooltips()
-        # hard minimum: the QStatusBar squeeze must hit the stretch
-        # progress bar, never overlap the LEDs / captions (polish first
-        # so the hint uses the real stylesheet font metrics)
-        self.ensurePolished()
-        self.setMinimumWidth(self.sizeHint().width())
-
-    def set_state(self, abbr, state):
-        if self.states.get(abbr) == state:
-            return
-        self.states[abbr] = state
-        self.leds[abbr].set_state(state)
-        self._refresh_tooltips()
-
-    def set_all(self, state):
-        for abbr in self.states:
-            self.set_state(abbr, state)
-
-    def _refresh_tooltips(self):
-        for abbr, led in self.leds.items():
-            led.setToolTip(
-                f"{self.titles[abbr]}: {LED_TEXT[self.states[abbr]]}")
-
-
 class DialogCenterer(QObject):
     """QApplication event filter: every dialog window (config dialogs,
     message boxes, the login box, ...) shows up centered on the screen
@@ -723,8 +672,6 @@ class MainWindow(QMainWindow):
         # M83/C14: the Run press opens the instrument rack itself
         self.workflow_page.equipment_configs_provider = (
             lambda: self.equipment_page.configs)
-        self.workflow_page.instruments_connected.connect(
-            self._on_instruments_connected)
         _startup_mark("ui: TestWorkFlowPage built")
         self.tabs.addTab(self.workflow_page, "Test Work Flow")
 
@@ -890,10 +837,6 @@ class MainWindow(QMainWindow):
         self._run_clock = QTimer(self)
         self._run_clock.setInterval(1000)
         self._run_clock.timeout.connect(self._tick_run_clock)
-
-        # Instruments connection LEDs
-        self.instr_status = InstrumentStatusBar(INSTRUMENTS)
-        sb.addPermanentWidget(self.instr_status)
 
         # M86: Shopfloor light - the SharePoint upload state, persisted in
         # state.json, so it is correct on the next launch too
@@ -1114,12 +1057,6 @@ class MainWindow(QMainWindow):
         yb.yaml_apply_committed.connect(self._on_yaml_apply_committed)
         # M44: a config page's Exit prompt chose "Save as new yaml"
         yb.save_as_yaml_requested.connect(self.save_yaml_as)
-        # instrument connection lights: synced from the Equipment page
-        self._equipment_page.instrument_connection_changed.connect(
-            self._on_instrument_connection)
-        # M49a §3: self-test OK turns the lamp green
-        self._equipment_page.instrument_selftest_changed.connect(
-            self._on_instrument_selftest)
         # M49a §4: page-level Apply Save YAML -> the File-menu slot
         self._equipment_page.apply_save_requested.connect(
             self.apply_and_save_yaml)
@@ -3078,65 +3015,21 @@ class MainWindow(QMainWindow):
         else:
             self._update_run_progress(0, 0)
 
-    #: M83/C14: Equipment key -> status-bar LED abbreviation
-    _LED_KEY = {"daq973a": "DAQM", "u2355a": "DAQ", "psu": "PSU"}
-
-    def _on_instruments_connected(self, states):
-        """M83/C14: the Run press opened the rack -> paint the status-bar
-        LEDs (the truth the deleted Tools batch painted)."""
-        for key, state in dict(states or {}).items():
-            abbr = self._LED_KEY.get(key)
-            if abbr and state == "connected":
-                self.instr_status.set_state(abbr, "connected")
-
-    def _on_instrument_connection(self, key, connected):
-        """Equipment page instrument dialog connect / disconnect ->
-        sync the matching status-bar LED (user report: never synced).
-
-        M49a §3 lamp semantics: connected but not (yet) self-tested is
-        YELLOW; only a passed self-test turns it GREEN."""
-        abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
-        if abbr:
-            self.instr_status.set_state(
-                abbr, "untested" if connected else "disconnected")
-
-    def _on_instrument_selftest(self, key, passed):
-        """M49a §3: a self-test result drives the instrument lamp."""
-        abbr = EquipmentPage._INSTRUMENT_ABBR.get(key)
-        if not abbr:
-            return
-        connected = self._equipment_page._instrument_connections.get(
-            key, False)
-        if passed and connected:
-            self.instr_status.set_state(abbr, "connected")
-        elif connected:
-            self.instr_status.set_state(abbr, "untested")
-        else:
-            self.instr_status.set_state(abbr, "disconnected")
-
     def _connect_virtual_instruments(self):
-        """Virtual mode: the simulated instruments are READY, but the
-        status-bar LEDs reflect the EQUIPMENT PAGE connect state (user
-        direction: no force-green - the operator connects manually and
-        the LEDs follow)."""
+        """Virtual mode: the simulated instruments are READY; the operator
+        connects on the Equipment page and the per-row LEDs follow that
+        state (no force-green)."""
         self._append_event_log(
             "Virtual mode: simulated instruments ready - connect on "
-            "the Equipment page; the status-bar LEDs follow that "
-            "state.", level=IMPORTANT)
+            "the Equipment page; the row LEDs follow that state.",
+            level=IMPORTANT)
 
     def _on_instrument_error(self, abbr):
-        """Virtual equipment fault: red light, auto-recover after 2.5 s."""
-        self.instr_status.set_state(abbr, "error")
+        """Virtual equipment fault: report it in the Event Log only (the
+        per-instrument LEDs now live on the Equipment page)."""
         self._append_event_log(
             f"Instrument {abbr}: equipment fault "
             f"(virtual fault injection, auto-recover).")
-        QTimer.singleShot(2500, self,
-                          qt_safe(lambda: self._recover_instrument(abbr)))
-
-    def _recover_instrument(self, abbr):
-        if self.instr_status.states.get(abbr) == "error":
-            self.instr_status.set_state(abbr, "connected")
-            self._append_event_log(f"Instrument {abbr}: reconnected.")
 
     def _toggle_event_log(self):
         """Collapse / expand the Event Log pane (user direction
