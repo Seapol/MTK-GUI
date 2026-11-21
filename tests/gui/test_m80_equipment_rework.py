@@ -219,13 +219,15 @@ def test_control_board_config_opens_without_daq_gate(qapp):
         page.deleteLater()
 
 
-def test_m80_control_board_channel_dropdown_is_dio01_dio08(qapp):
+def test_m80_control_board_channel_dropdown_is_8_read_8_write(qapp):
     signals = {key: {"channel": channel, "direction": direction}
                for key, _label, channel, direction in DIO_SIGNALS}
     dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", signals)
     try:
-        assert DIO_CHANNELS == tuple(f"DIO{index:02d}"
-                                     for index in range(1, 9))
+        assert DIO_CHANNELS == tuple(
+            [f"DIO_R{index:02d}" for index in range(1, 9)]
+            + [f"DIO_W{index:02d}" for index in range(1, 9)])
+        assert len(DIO_CHANNELS) == 16
         for combo, _in, _out in dlg._rows.values():
             assert [combo.itemText(index) for index in range(combo.count())] \
                 == ["", *DIO_CHANNELS]
@@ -233,13 +235,35 @@ def test_m80_control_board_channel_dropdown_is_dio01_dio08(qapp):
         dlg.deleteLater()
 
 
+def test_dio_channels_are_8_read_8_write():
+    read = [f"DIO_R{index:02d}" for index in range(1, 9)]
+    write = [f"DIO_W{index:02d}" for index in range(1, 9)]
+    assert DIO_CHANNELS == tuple(read + write)
+    assert len(read) == 8 and len(write) == 8
+
+
+def test_dio_signal_directions_read_group():
+    directions = {key: direction
+                  for key, _label, _channel, direction in DIO_SIGNALS}
+    assert directions["press"] == "output"
+    assert directions["inpos"] == "input"
+    assert directions["presence"] == "input"
+    assert directions["estop"] == "input"
+    # the read group (DIO_R*) is input, the write group (DIO_W*) output
+    for key, _label, channel, direction in DIO_SIGNALS:
+        if channel.startswith("DIO_R"):
+            assert direction == "input", key
+        elif channel.startswith("DIO_W"):
+            assert direction == "output", key
+
+
 def test_m80_control_board_duplicate_channel_is_error(qapp):
     dlg = _ControlBoardDialog(None, "ATE Fixture Control Board", {})
     try:
-        dlg._rows["inpos"][0].setCurrentText("DIO01")
+        dlg._rows["inpos"][0].setCurrentText("DIO_R02")
         errors = dlg.validate()
         assert errors
-        assert "DIO01" in errors[0]
+        assert "DIO_R02" in errors[0]
     finally:
         dlg.deleteLater()
 
@@ -252,7 +276,7 @@ def test_m80_control_board_direction_round_trip(qapp):
         values = dlg.values()
         assert values["press"]["direction"] == "output"
         assert values["estop"]["direction"] == "input"
-        assert values["estop"]["channel"] == "DIO04"
+        assert values["estop"]["channel"] == "DIO_R03"
         back = _ControlBoardDialog(None, "ATE Fixture Control Board",
                                    values)
         try:

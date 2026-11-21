@@ -117,8 +117,8 @@ W, H = 1440, 1120
 _INSTRUMENT_PARAMS = {
     "daq973a": [("Scan speed (ch/s)", "450"), ("Timeout (ms)", "2000"),
                 ("NPLC", "1.0")],
-    "m908a_1": [("Wire mode", "2-wire"), ("Bias source", "off")],
-    "m908a_2": [("Wire mode", "2-wire"), ("Bias source", "off")],
+    "m908a_1": [("Wire mode", "1-wire (single-ended)"), ("Bias source", "off")],
+    "m908a_2": [("Wire mode", "1-wire (single-ended)"), ("Bias source", "off")],
     "m907a": [("Totalizer gate (s)", "1"), ("AO0 (V)", "0.0"),
               ("AO1 (V)", "0.0")],
     "u2355a": [("Sample rate (kSa/s)", "20"), ("Range (V)", "10"),
@@ -134,7 +134,7 @@ _INSTRUMENT_ACTIONS = {
         ("Measure DCV",
          lambda p: f"DCV = {random.uniform(3.28, 3.32):.4f} V "
                    f"(nominal 3.30 V) -> PASS"),
-        ("Measure 2-wire Ω",
+        ("Measure Ω (1-wire SE)",
          lambda p: f"R = {random.uniform(0.9, 1.4):.2f} Ω "
                    f"(< 1.5 Ω threshold) -> PASS"),
         ("Measure Frequency",
@@ -304,17 +304,21 @@ NETWORK_MODES = {
     ],
 }
 
-#: M80-5: canonical DIO channel vocabulary of the control board
-#: (same set as steps.py "DIO01-DIO08")
-DIO_CHANNELS = tuple(f"DIO{index:02d}" for index in range(1, 9))
+#: M100: canonical DIO channel vocabulary of the control board - the
+#: DAQM907A exposes two 8-bit ports: one 8-channel READ group and one
+#: 8-channel WRITE group (16 names total).
+DIO_CHANNELS = tuple(
+    [f"DIO_R{index:02d}" for index in range(1, 9)]
+    + [f"DIO_W{index:02d}" for index in range(1, 9)])
 
 #: the 4 DIO signals of the ATE fixture control board (DAQM907A Port1/2):
-#: (signal key, label, default channel, default direction)
+#: (signal key, label, default channel, default direction).  The read
+#: group (DIO_R*) is input-only, the write group (DIO_W*) output-only.
 DIO_SIGNALS = [
-    ("press", "Press cylinder", "DIO01", "output"),
-    ("inpos", "Cylinder in-position", "DIO02", "output"),
-    ("presence", "DUT presence", "DIO03", "output"),
-    ("estop", "E-stop healthy", "DIO04", "input"),
+    ("press", "Press cylinder", "DIO_W01", "output"),
+    ("inpos", "Cylinder in-position", "DIO_R01", "input"),
+    ("presence", "DUT presence", "DIO_R02", "input"),
+    ("estop", "E-stop healthy", "DIO_R03", "input"),
 ]
 
 #: legacy 3-tuple view (channel only) still read by the old ``dio:`` map
