@@ -201,4 +201,15 @@ def test_command_helper_shows_linux_only_and_fills_send(page):
     assert sent == []
 
 
+def test_status_progress_fixed_width(qapp):
+    from mtkgui.main_window import MainWindow
+    w = MainWindow(role="Supervisor")
+    try:
+        assert w.status_progress.minimumWidth() == 350
+        assert w.status_progress.maximumWidth() == 350
+    finally:
+        w.close()
+        w.deleteLater()
+
+
 

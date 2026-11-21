@@ -827,7 +827,8 @@ class MainWindow(QMainWindow):
         self.status_progress.setFormat("Idle")
         self.status_progress.setRange(0, 1)
         self.status_progress.setValue(0)
-        sb.addWidget(self.status_progress, 1)  # stretch = adaptive
+        self.status_progress.setFixedWidth(350)  # M101-E: fixed, no stretch
+        sb.addWidget(self.status_progress)
         self._last_progress = (0, 1)
         self._progress_args = (0, 0)
         self._progress_reset_pending = False
