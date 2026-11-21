@@ -2947,6 +2947,10 @@ class EquipmentPage(QWidget):
         self.left_list = QScrollArea()
         self.left_list.setWidgetResizable(True)
         self.left_list.setMinimumWidth(240)
+        # M100: the left column is a fixed-width config list - labels are
+        # never horizontally scrolled (the full text lives in a tooltip).
+        self.left_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.left_list.setStyleSheet(
             "QScrollArea {background:#ffffff; border:1px solid #d4d9e0;}")
         body = QWidget()
