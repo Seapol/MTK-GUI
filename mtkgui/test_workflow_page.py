@@ -32,7 +32,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QRectF, QRegularExpression, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QRectF, QRegularExpression, QTimer, Signal, QSettings
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -73,6 +73,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -107,7 +108,7 @@ from .gui.test_case_viewer import TestCaseViewer
 from .qt_guard import qt_safe
 from .startup_timing import mark as _startup_mark
 from .startup_timing import begin, end
-from .style import gui_theme_color, saved_theme, text_for_card
+from .style import APP_NAME, APP_ORG, gui_theme_color, saved_theme, text_for_card
 from .virtual_hardware import VirtualRack
 from .widgets.console_widget import ERROR_COLOR
 from .widgets.multi_console import MultiConsoleWidget
@@ -857,49 +858,27 @@ class TestWorkFlowPage(QWidget):
         layout = QVBoxLayout(body)
         layout.setSpacing(14)
 
-        mid = QSplitter(Qt.Orientation.Horizontal)
-        mid.setChildrenCollapsible(False)
-        mid.addWidget(self._build_ict())
-        mid.addWidget(self._build_rails())
-        mid.setStretchFactor(0, 1)   # ICT 50%
-        mid.setStretchFactor(1, 1)   # Rails 50%
-        mid.setSizes([500, 500])     # initial 1:1 ratio
-        # first show re-splits by sizeHint -> enforce 1:1 afterwards
-        QTimer.singleShot(
-            0, self, qt_safe(lambda: mid.setSizes([500, 500])))
-        mid.setHandleWidth(10)
-        # the Power Rails pane may occupy at most half of the row:
-        # a Resize on the splitter re-clamps the rails max width
-        self._mid_splitter = mid
-        mid.installEventFilter(self)
-
-        # FCT table (50%) | multi serial/SSH console (50%)
-        fct_split = QSplitter(Qt.Orientation.Horizontal)
-        fct_split.setChildrenCollapsible(False)
-        fct_split.addWidget(self._build_fct())
         self.multi_console = MultiConsoleWidget()
         self.multi_console.channels_changed.connect(
             self._mirror_console_channels)
-        fct_split.addWidget(self.multi_console)
         _startup_mark("twf: fct + console built")
-        fct_split.setStretchFactor(0, 1)   # FCT 50%
-        fct_split.setStretchFactor(1, 1)   # Console 50%
-        fct_split.setSizes([500, 500])     # initial 1:1 ratio
-        # first show re-splits by sizeHint -> enforce 1:1 afterwards
-        QTimer.singleShot(
-            0, self, qt_safe(lambda: fct_split.setSizes([500, 500])))
-        fct_split.setHandleWidth(10)
-        # keep the FCT table's 12-row viewport (and the console bars)
-        # intact; the outer scroll area scrolls when the window is short
-        fct_split.setMinimumHeight(self.fct.minimumHeight() + 30)
 
-        # ICT / (FCT + console) rows can be resized via the splitter handle
+        ict_stage = self._build_stage(
+            "ICT — In-Circuit Test", "numeric tests Ω / V / Hz",
+            self._build_ict(), self._build_rails(), "ict")
+        fct_stage = self._build_stage(
+            "FCT — Functional Test", "message tests",
+            self._build_fct(), self.multi_console, "fct")
+
+        # ICT / FCT rows can be resized via the splitter handle
         splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(mid)
-        splitter.addWidget(fct_split)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.addWidget(ict_stage)
+        splitter.addWidget(fct_stage)
         splitter.setChildrenCollapsible(False)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([500, 500])
+        self._vertical_splitter = splitter
         layout.addWidget(splitter)
 
         scroll.setWidget(body)
@@ -907,7 +886,108 @@ class TestWorkFlowPage(QWidget):
         # the scroll guard recognises this page as protected (no re-wrap)
         wrap_scrollable(body)
         root.addWidget(scroll, 1)
+        self._restore_splitter_state()
         _startup_mark("twf: page layout done")
+
+    def _build_stage(self, title, subtitle, left, right, key):
+        """M101-B: one stage = header + horizontal splitter (left | chevron
+        | right), with the right pane collapsible via the chevron."""
+        stage = QWidget()
+        v = QVBoxLayout(stage)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+
+        header = QHBoxLayout()
+        title_label = QLabel(title)
+        title_label.setObjectName("strong")
+        header.addWidget(title_label)
+        sub_label = QLabel(subtitle)
+        sub_label.setObjectName("muted")
+        header.addWidget(sub_label)
+        header.addStretch(1)
+        v.addLayout(header)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(left)
+        chevron = QToolButton()
+        chevron.setArrowType(Qt.ArrowType.RightArrow)
+        chevron.setAutoRaise(True)
+        chevron.setToolTip("Collapse right pane")
+        chevron.setFixedWidth(24)
+        splitter.addWidget(chevron)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 1)
+        splitter.setHandleWidth(8)
+        splitter.setSizes([500, 24, 500])
+        chevron.clicked.connect(
+            lambda _=False, s=splitter, c=chevron, r=right, k=key:
+            self._toggle_pane(s, c, r, k))
+        v.addWidget(splitter, 1)
+
+        if key == "ict":
+            self._ict_splitter = splitter
+            self._ict_chevron = chevron
+            self._ict_right = right
+            # keep the historical rails width clamp working on this row
+            self._mid_splitter = splitter
+            splitter.installEventFilter(self)
+        else:
+            self._fct_splitter = splitter
+            self._fct_chevron = chevron
+            self._fct_right = right
+        return stage
+
+    def _toggle_pane(self, splitter, chevron, right, key):
+        """M101-B: collapse / restore the right pane of one stage."""
+        total = splitter.width()
+        chevron_w = max(chevron.width(), 24)
+        if right.isVisible():
+            right.hide()
+            chevron.setArrowType(Qt.ArrowType.LeftArrow)
+            chevron.setToolTip("Expand right pane")
+        else:
+            right.show()
+            chevron.setArrowType(Qt.ArrowType.RightArrow)
+            chevron.setToolTip("Collapse right pane")
+            half = max(0, (total - chevron_w) // 2)
+            splitter.setSizes([half, chevron_w, half])
+        self._save_splitter_state()
+
+    def _save_splitter_state(self):
+        """M101-B: persist stage collapsed state + splitter sizes."""
+        settings = QSettings(APP_ORG, APP_NAME)
+        settings.setValue("workflow_page/vertical",
+                          self._vertical_splitter.sizes())
+        settings.setValue("workflow_page/ict", self._ict_splitter.sizes())
+        settings.setValue("workflow_page/fct", self._fct_splitter.sizes())
+        settings.setValue("workflow_page/ict_collapsed",
+                          not self._ict_right.isVisible())
+        settings.setValue("workflow_page/fct_collapsed",
+                          not self._fct_right.isVisible())
+
+    def _restore_splitter_state(self):
+        """M101-B: restore persisted sizes; a missing key stays 1:1 /
+        expanded (the defaults set during build)."""
+        settings = QSettings(APP_ORG, APP_NAME)
+        vertical = settings.value("workflow_page/vertical")
+        if isinstance(vertical, list) and len(vertical) == 2:
+            self._vertical_splitter.setSizes([int(v) for v in vertical])
+        for key, splitter, chevron, right in (
+                ("ict", self._ict_splitter, self._ict_chevron,
+                 self._ict_right),
+                ("fct", self._fct_splitter, self._fct_chevron,
+                 self._fct_right)):
+            sizes = settings.value(f"workflow_page/{key}")
+            if isinstance(sizes, list) and len(sizes) == 3:
+                splitter.setSizes([int(s) for s in sizes])
+            if settings.value(f"workflow_page/{key}_collapsed",
+                              type=bool):
+                right.hide()
+                chevron.setArrowType(Qt.ArrowType.LeftArrow)
+                chevron.setToolTip("Expand right pane")
 
     def open_test_case_viewer(self):
         """M12: open the detachable viewer (one merged ICT + FCT table)."""
@@ -1497,7 +1577,7 @@ class TestWorkFlowPage(QWidget):
         # read-only result view (task: single sequence source): the
         # sequence itself is edited in the "Build ICT Test Work Flow
         # Sequence" dialog (double-click here opens it)
-        group = QGroupBox("ICT Test Results")
+        group = QWidget()
         layout = QVBoxLayout(group)
         self.ict = QTableWidget(len(ICT_STEPS), 8)
         self.ict.setHorizontalHeaderLabels(
@@ -1618,7 +1698,7 @@ class TestWorkFlowPage(QWidget):
             res_item.setFont(QFont())
 
     def _build_rails(self):
-        group = QGroupBox("Power Rails Up Sequence")
+        group = QWidget()
         self.rails_group = group   # width capped at 50% (see eventFilter)
         layout = QVBoxLayout(group)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -1836,7 +1916,7 @@ class TestWorkFlowPage(QWidget):
 
     def _build_fct(self):
         # read-only result view (task: single sequence source)
-        group = QGroupBox("FCT Test Results")
+        group = QWidget()
         layout = QVBoxLayout(group)
         self.fct = QTableWidget(7, 5)
         self.fct.setHorizontalHeaderLabels(
