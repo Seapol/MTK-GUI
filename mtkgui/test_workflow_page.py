@@ -586,6 +586,21 @@ class _ZoomWaveformPage(QWidget):
 # --------------------------------------------------------------------------
 # the page
 # --------------------------------------------------------------------------
+class _FloatedTableWindow(QWidget):
+    """A top-level window hosting one floated table.  The ``Dock back``
+    button or the OS close (×) re-docks the table into its page pane."""
+
+    def __init__(self, title, dock_callback):
+        super().__init__(None, Qt.WindowType.Window)
+        self.setWindowTitle(title)
+        self._dock_callback = dock_callback
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+
+    def closeEvent(self, event):                    # noqa: N802 - Qt
+        self._dock_callback()
+        event.accept()
+
+
 class TestWorkFlowPage(QWidget):
     # emitted when a whole test cycle completes -> main window jumps here
     run_finished = Signal()
@@ -727,6 +742,11 @@ class TestWorkFlowPage(QWidget):
         self._active_row = -1
         # M12: detachable Test Case Viewer (created on first open)
         self._case_viewer = None
+        # M101-C: floated ICT / FCT table windows + their placeholders
+        self._ict_float_win = None
+        self._ict_placeholder = None
+        self._fct_float_win = None
+        self._fct_placeholder = None
         # virtual serial number counter (Auto-SN)
         self._sn_counter = 0
         # account permissions (defaults = supervisor until apply_permissions)
@@ -1579,6 +1599,7 @@ class TestWorkFlowPage(QWidget):
         # Sequence" dialog (double-click here opens it)
         group = QWidget()
         layout = QVBoxLayout(group)
+        self._ict_pane = group
         self.ict = QTableWidget(len(ICT_STEPS), 8)
         self.ict.setHorizontalHeaderLabels(
             ["#", "Test / Operation", "EN",
@@ -1918,6 +1939,7 @@ class TestWorkFlowPage(QWidget):
         # read-only result view (task: single sequence source)
         group = QWidget()
         layout = QVBoxLayout(group)
+        self._fct_pane = group
         self.fct = QTableWidget(7, 5)
         self.fct.setHorizontalHeaderLabels(
             ["#", "Test", "EN", "Duration (s)", "Result"])
@@ -2197,6 +2219,9 @@ class TestWorkFlowPage(QWidget):
         act_comment = None
         if self._can_edit_ict:
             act_comment = menu.addAction("Edit comment...")
+        act_edit = None
+        if self._can_edit_ict:
+            act_edit = menu.addAction("Edit sequence...")
         chosen = menu.exec(self.ict.viewport().mapToGlobal(pos))
         if chosen is act_bp:
             self._toggle_breakpoint(self.ict, row, self.ict_breakpoints)
@@ -2205,6 +2230,8 @@ class TestWorkFlowPage(QWidget):
              else self.ict_sim_fail.discard)(row)
         elif act_comment is not None and chosen is act_comment:
             self._edit_comment(self.ict, row, self.ict_comments)
+        elif act_edit is not None and chosen is act_edit:
+            self._emit_edit_sequence("ict")
 
     def _fct_context_menu(self, pos):
         """Right-click an FCT row -> breakpoint / simulate FAIL / edit
@@ -2224,6 +2251,9 @@ class TestWorkFlowPage(QWidget):
         act_comment = None
         if self._can_edit_fct:
             act_comment = menu.addAction("Edit comment...")
+        act_edit = None
+        if self._can_edit_fct:
+            act_edit = menu.addAction("Edit sequence...")
         chosen = menu.exec(self.fct.viewport().mapToGlobal(pos))
         if chosen is act_bp:
             self._toggle_breakpoint(self.fct, row, self.fct_breakpoints)
@@ -2232,6 +2262,16 @@ class TestWorkFlowPage(QWidget):
              else self.fct_sim_fail.discard)(row)
         elif act_comment is not None and chosen is act_comment:
             self._edit_comment(self.fct, row, self.fct_comments)
+        elif act_edit is not None and chosen is act_edit:
+            self._emit_edit_sequence("fct")
+
+    def _emit_edit_sequence(self, kind):
+        """M101-C: request the Build ICT / FCT sequence dialog (the edit
+        entry point moved from double-click to the right-click menu)."""
+        if kind == "ict":
+            self.ict_build_requested.emit()
+        else:
+            self.fct_build_requested.emit()
 
     def _edit_comment(self, table, row, comments):
         """Node comment editor: a small QInputDialog, stored per row and
@@ -2305,22 +2345,80 @@ class TestWorkFlowPage(QWidget):
     # place where the sequence is edited.  The permission / staged-yaml
     # gates stay here.
     def _edit_ict_item(self, row, _col):
-        """Double-click ICT -> request the Build ICT dialog."""
+        """Double-click ICT -> float the table as a read-only window."""
         if getattr(self, "_yaml_loading", False):
             return                  # staged yaml load in progress
-        if not self._can_edit_ict:
-            self._deny_edit("ICT test cases")
-            return
-        self.ict_build_requested.emit()
+        self._float_table("ict")
 
     def _edit_fct_item(self, row, _col):
-        """Double-click FCT -> request the Build FCT dialog."""
+        """Double-click FCT -> float the table as a read-only window."""
         if getattr(self, "_yaml_loading", False):
             return                  # staged yaml load in progress
-        if not self._can_edit_fct:
-            self._deny_edit("FCT test cases")
+        self._float_table("fct")
+
+    # ------------------------------------------- float / dock a table (M101-C)
+    def _float_table(self, key):
+        """Reparent the table into a top-level window; the vacated pane
+        shows a placeholder.  The run keeps writing into the same table."""
+        if getattr(self, f"_{key}_float_win") is not None:
             return
-        self.fct_build_requested.emit()
+        table = getattr(self, key)
+        pane = getattr(self, f"_{key}_pane")
+        title = "ICT — In-Circuit Test" if key == "ict" else \
+            "FCT — Functional Test"
+
+        win = _FloatedTableWindow(
+            title, lambda: self._dock_table(key))
+        root = QVBoxLayout(win)
+        bar = QHBoxLayout()
+        btn_dock = QPushButton("Dock back")
+        btn_dock.clicked.connect(lambda: self._dock_table(key))
+        bar.addWidget(btn_dock)
+        bar.addStretch(1)
+        root.addLayout(bar)
+
+        pane.layout().removeWidget(table)
+        table.setParent(win)
+        root.addWidget(table, 1)
+
+        placeholder = QLabel(
+            f"{title} floated — Dock back to return")
+        placeholder.setObjectName("muted")
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pane.layout().addWidget(placeholder, 1)
+        setattr(self, f"_{key}_placeholder", placeholder)
+
+        settings = QSettings(APP_ORG, APP_NAME)
+        geometry = settings.value(f"floated_table/{key}/geometry")
+        if geometry is not None:
+            win.restoreGeometry(geometry)
+        setattr(self, f"_{key}_float_win", win)
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _dock_table(self, key):
+        """Re-insert the floated table into its page pane and close the
+        window (never orphans the table)."""
+        win = getattr(self, f"_{key}_float_win")
+        if win is None:
+            return
+        table = getattr(self, key)
+        pane = getattr(self, f"_{key}_pane")
+        placeholder = getattr(self, f"_{key}_placeholder")
+        if placeholder is not None:
+            pane.layout().removeWidget(placeholder)
+            placeholder.deleteLater()
+            setattr(self, f"_{key}_placeholder", None)
+        win.layout().removeWidget(table)
+        table.setParent(pane)
+        pane.layout().addWidget(table, 1)
+        settings = QSettings(APP_ORG, APP_NAME)
+        settings.setValue(f"floated_table/{key}/geometry",
+                          win.saveGeometry())
+        setattr(self, f"_{key}_float_win", None)
+        win.close()
+        win.deleteLater()
 
 
     # ------------------------------------------------------------ demo data
