@@ -1,27 +1,31 @@
 # -*- coding: utf-8 -*-
-"""M65: "Ethernet Router" -> "Wired & Wireless Network" (RJ45 + AP
-modules, per-mode topology cards, Auto Detect, Test Connection, netsh
-Hosted Network)."""
+"""M65 / M100: the Equipment page splits the legacy "Wired & Wireless
+Network" peripheral into a Host PC group (serial / SSH / RJ45 / Wi-Fi /
+Bluetooth) and a Router group (RJ45 Ethernet / Wi-Fi AP) with an Enable
+toggle.  Legacy ``peripherals.*`` project YAML migrates to the new
+``host_pc`` / ``router`` keys on load and the old keys are never written
+back."""
 from __future__ import annotations
 
 import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QThread  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mtkgui import project_config  # noqa: E402
 from mtkgui.engine import host_platform  # noqa: E402
-from mtkgui.engine.ref_resolver import describe, resolve  # noqa: E402
 from mtkgui.equipment_page import (  # noqa: E402
+    GROUP_FIELDS,
     LEFT_ENTRIES,
-    NETWORK_FIELDS,
-    NETWORK_MODES,
-    NETWORK_TITLE,
-    RouterNetworkDialog,
-    _RouterModeDialog,
+    EquipmentPage,
+    _HostBluetoothDialog,
+    _SerialChannelsDialog,
+    _SshChannelDialog,
     _default_group,
+    _default_serial_channels,
+    _default_ssh_channel,
+    _migrate_peripherals,
     _mock_configs,
 )
 
@@ -31,247 +35,190 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _entry(key):
-    for _group, entries in LEFT_ENTRIES:
-        for ekey, label, _kind, _source in entries:
-            if ekey == key:
-                return label
-    return None
+def _entries():
+    return {key: (label, kind, source)
+            for _group, entries in LEFT_ENTRIES
+            for key, label, kind, source in entries}
 
 
-def _values(**kw):
-    data = _default_group("peripherals", "router")
-    data.update(kw)
-    return data
+# ------------------------------------------------------ left-column structure
+def test_host_pc_router_left_entries():
+    entries = _entries()
+    assert entries["host_pc"] == ("Host PC", "group", None)
+    assert entries["serial_console"][1] == "sub"
+    assert entries["serial_console"][2] == ("host_pc", "serial")
+    assert entries["ssh_console"][2] == ("host_pc", "ssh")
+    assert entries["rj45_wired"][2] == ("host_pc", "rj45")
+    assert entries["wifi_wireless"][2] == ("host_pc", "wifi")
+    assert entries["host_bt"][2] == ("host_pc", "bluetooth")
+    assert entries["router"][1] == "group_toggle"
+    assert entries["router_ethernet"][2] == ("router", "ethernet")
+    assert entries["router_ap"][2] == ("router", "ap")
+    # the combined network entry is gone from the left column
+    labels = [label for _group, es in LEFT_ENTRIES
+              for _key, label, _kind, _src in es]
+    assert "Wired & Wireless Network" not in labels
 
 
-def _pump(app, predicate, timeout_ms=3000):
-    """Wait for an async dialog worker without blocking the UI thread."""
-    deadline = 0
-    while deadline < timeout_ms:
-        app.processEvents()
-        if predicate():
-            return True
-        QThread.msleep(10)
-        deadline += 10
-    app.processEvents()
-    return predicate()
+def test_group_field_defaults_match_the_yaml_contract():
+    assert _default_group("host_pc", "rj45") == {
+        "host_ip": "", "lan_port": "", "gateway": ""}
+    assert _default_group("host_pc", "wifi") == {
+        "host_ip": "", "hotspot_ssid": "", "hotspot_password": ""}
+    assert _default_group("host_pc", "bluetooth") == {
+        "adapter": "", "scan_targets": ""}
+    assert _default_group("router", "ethernet") == {
+        "router_ip": "", "gateway": ""}
+    assert _default_group("router", "ap") == {"ssid": "", "password": ""}
+    assert _default_group("router", "enabled") == {"enabled": True}
 
 
-# ------------------------------------------------------------- naming
-def test_peripheral_is_relabelled():
-    assert _entry("router") == NETWORK_TITLE
-    table = dict((row[0], row[1])
-                 for row in _mock_configs()["peripherals"]["table"])
-    assert "Wired & Wireless Network" in table
-    assert table["Wired & Wireless Network"] == "Wired / Wi-Fi connectivity"
+def test_serial_and_ssh_channel_defaults():
+    serial = _default_serial_channels()
+    assert list(serial) == [f"ser{i}" for i in range(1, 5)]
+    for channel in serial.values():
+        assert channel == {"port": "", "baud": "115200", "data": "8",
+                           "parity": None, "stop": "1", "flow": None}
+    assert _default_ssh_channel() == {
+        "ssh1": {"host": "", "port": "22", "user": "", "password": ""}}
 
 
-def test_ref_descriptions_use_the_new_name():
-    assert describe("equipment.peripherals.router.dut_ip").startswith(
-        NETWORK_TITLE)
-    assert describe("equipment.peripherals.router.gateway").startswith(
-        NETWORK_TITLE)
+def test_mock_configs_own_host_pc_and_router_groups():
+    configs = _mock_configs()
+    assert set(configs["host_pc"]["groups"]) == {
+        "serial", "ssh", "rj45", "wifi", "bluetooth"}
+    assert set(configs["router"]["groups"]) == {"enabled", "ethernet", "ap"}
+    assert "groups" not in configs["peripherals"]
 
 
-def test_legacy_router_refs_still_resolve():
-    equipment = {"equipment": {"peripherals": {"router": {
-        "setup_mode": "via_ap", "dut_ip": "10.0.0.2",
-        "router_ip": "10.0.0.1", "netmask": "255.255.255.0",
-        "gateway": "10.0.0.1"}}}}
-    assert resolve("equipment.peripherals.router.setup_mode",
-                   equipment) == "via_ap"
-    assert resolve("equipment.peripherals.router.dut_ip",
-                   equipment) == "10.0.0.2"
-
-
-def test_new_fields_are_in_the_yaml_group():
-    keys = [key for key, _label, _default in NETWORK_FIELDS]
-    assert "wired_enabled" in keys and "wifi_enabled" in keys
-    assert "wired_mode" in keys and "wifi_mode" in keys
-    assert "hotspot_ssid" in keys and "router_ap_ssid" in keys
-    defaults = _default_group("peripherals", "router")
-    assert defaults["wired_enabled"] is True
-    assert defaults["wifi_enabled"] is True
-    assert defaults["wired_mode"] == "direct"
-    assert defaults["wifi_mode"] == "hotspot"
-    assert defaults["wifi_dut_iface"] == ""
-
-
-# -------------------------------------------------- mode-selection page
-def test_default_selection_and_hints(qapp):
-    dlg = RouterNetworkDialog(None, _values())
+# ----------------------------------------------------- enable toggle gating
+def test_router_enable_disables_children(qapp):
+    page = EquipmentPage()
     try:
-        assert dlg._cards["wired"]["direct"]._selected
-        assert not dlg._cards["wired"]["lan"]._selected
-        assert dlg._cards["wifi"]["hotspot"]._selected
-        assert not dlg._cards["wifi"]["router"]._selected
-        assert dlg._hints["wired"].text() == \
-            "Current selection: Direct (no router)"
-        assert dlg._hints["wifi"].text() == \
-            "Current selection: Host PC hotspot (no router)"
+        toggle = page.group_toggles["router"]
+        assert toggle.isChecked() is True
+        for key in ("router_ethernet", "router_ap"):
+            assert page.entry_buttons[key]["config"].isEnabled() is True
+        toggle.setChecked(False)
+        qapp.processEvents()
+        assert page.configs["router"]["groups"]["enabled"]["enabled"] is False
+        for key in ("router_ethernet", "router_ap"):
+            assert page.entry_labels[key].isEnabled() is False
+            assert page.entry_buttons[key]["config"].isEnabled() is False
+        # Host PC subs are not gated by the Router toggle
+        assert page.entry_buttons["rj45_wired"]["config"].isEnabled() is True
+    finally:
+        page.deleteLater()
+
+
+# -------------------------------------------------------------- sub dialogs
+def test_serial_dialog_round_trips_channels(qapp):
+    dlg = _SerialChannelsDialog(None, _default_serial_channels())
+    try:
+        dlg._edits["ser1"]["port"].setText("/dev/ttyUSB0")
+        dlg._edits["ser2"]["baud"].setText("9600")
+        values = dlg.values()
+        assert values["ser1"]["port"] == "/dev/ttyUSB0"
+        assert values["ser2"]["baud"] == "9600"
+        assert values["ser3"]["parity"] == ""
     finally:
         dlg.deleteLater()
 
 
-def test_modes_are_mutually_exclusive(qapp, monkeypatch):
-    monkeypatch.setattr(_RouterModeDialog, "exec", lambda self: 0)
-    dlg = RouterNetworkDialog(None, _values())
+def test_ssh_dialog_round_trips_single_channel(qapp):
+    dlg = _SshChannelDialog(None, _default_ssh_channel())
     try:
-        dlg._cards["wired"]["lan"].clicked.emit("lan")
-        assert dlg.values()["wired_mode"] == "lan"
-        assert dlg._cards["wired"]["lan"]._selected
-        assert not dlg._cards["wired"]["direct"]._selected
-        assert dlg._hints["wired"].text() == \
-            "Current selection: LAN via router"
-        # the wireless module keeps its own independent selection
-        assert dlg.values()["wifi_mode"] == "hotspot"
-        dlg._cards["wifi"]["router"].clicked.emit("router")
-        assert dlg.values()["wifi_mode"] == "router"
-        assert dlg._cards["wifi"]["hotspot"]._selected is False
+        dlg._edits["host"].setText("192.168.1.60")
+        dlg._edits["user"].setText("root")
+        values = dlg.values()
+        assert values["ssh1"]["host"] == "192.168.1.60"
+        assert values["ssh1"]["user"] == "root"
     finally:
         dlg.deleteLater()
 
 
-def test_yaml_values_prefill_the_page(qapp):
-    values = _values(wired_mode="lan", wifi_mode="router",
-                     wired_gateway="192.168.1.1")
-    dlg = RouterNetworkDialog(None, values)
+def test_bluetooth_dialog_read_only_adapter(qapp, monkeypatch):
+    monkeypatch.setattr(host_platform, "host_bt_identity",
+                        lambda: ("PC-BT", "AA:BB:CC:DD:EE:FF"))
+    dlg = _HostBluetoothDialog(None, {"adapter": "", "scan_targets": ""})
     try:
-        assert dlg._cards["wired"]["lan"]._selected
-        assert dlg._cards["wifi"]["router"]._selected
-        assert dlg.values()["wired_gateway"] == "192.168.1.1"
+        assert dlg.edit_adapter.isReadOnly() is True
+        assert dlg.edit_adapter.text() == "PC-BT"
+        dlg.edit_scan.setText("DUT-BT")
+        values = dlg.values()
+        assert values["adapter"] == "PC-BT"
+        assert values["scan_targets"] == "DUT-BT"
     finally:
         dlg.deleteLater()
 
 
-def test_old_project_values_get_the_new_defaults(qapp):
-    """Only legacy fields saved: the new module fields default (saved
-    values still win)."""
-    legacy = {"setup_mode": "via_ap", "router_ip": "10.0.0.1",
-              "dut_ip": "10.0.0.2", "netmask": "255.255.255.0",
-              "gateway": "10.0.0.1"}
-    values = dict(_default_group("peripherals", "router"))
-    values.pop("wired_mode", None)
-    values.update(legacy)
-    dlg = RouterNetworkDialog(None, values)
-    try:
-        assert dlg.values()["wifi_dut_iface"] == ""
-        # legacy via_ap maps onto the LAN mode (not silently "direct")
-        assert dlg.values()["wired_mode"] == "lan"
-        assert dlg._cards["wired"]["lan"]._selected
-        assert dlg.values()["dut_ip"] == "10.0.0.2"
-        assert dlg.values()["router_ip"] == "10.0.0.1"
-        assert dlg.values()["setup_mode"] == "via_ap"
-    finally:
-        dlg.deleteLater()
+# ------------------------------------------------------------------ migration
+def test_legacy_peripherals_yaml_migrates_to_host_pc_router():
+    configs = {"peripherals": {"title": "Test Peripherals", "groups": {
+        "wifi": {"ap_ssid": "AP", "ap_ip": "", "host_ip": "",
+                 "ap_password": ""},
+        "bluetooth": {"adapter": "PC-BT", "scan_targets": "DUT-BT"},
+        "router": {
+            "router_ip": "10.0.0.1", "gateway": "10.0.0.1",
+            "router_ap_ssid": "Factory-AP", "router_ap_password": "pw",
+            "wired_host_ip": "10.0.0.5", "wired_host_port": "en5",
+            "wired_gateway": "10.0.0.1", "wifi_host_ip": "10.0.0.6",
+            "hotspot_ssid": "AP", "hotspot_password": "pw",
+            "wired_enabled": False,
+        },
+    }}}
+    _migrate_peripherals(configs)
+    host = configs["host_pc"]["groups"]
+    assert host["rj45"]["host_ip"] == "10.0.0.5"
+    assert host["rj45"]["lan_port"] == "en5"
+    assert host["rj45"]["gateway"] == "10.0.0.1"
+    assert host["wifi"]["host_ip"] == "10.0.0.6"
+    assert host["wifi"]["hotspot_ssid"] == "AP"
+    assert host["bluetooth"]["adapter"] == "PC-BT"
+    assert host["bluetooth"]["scan_targets"] == "DUT-BT"
+    router = configs["router"]["groups"]
+    assert router["ethernet"]["router_ip"] == "10.0.0.1"
+    assert router["ethernet"]["gateway"] == "10.0.0.1"
+    assert router["ap"]["ssid"] == "Factory-AP"
+    assert router["ap"]["password"] == "pw"
+    assert router["enabled"]["enabled"] is False
+    assert "groups" not in configs["peripherals"]
 
 
-def test_values_keep_the_legacy_fct_fields(qapp):
-    dlg = RouterNetworkDialog(None, _values(
-        wired_mode="lan", wired_gateway="10.0.0.1"))
-    try:
-        data = dlg.values()
-        assert data["setup_mode"] == "via_ap"
-        assert data["router_ip"] == "10.0.0.1"
-        assert data["gateway"] == "10.0.0.1"
-    finally:
-        dlg.deleteLater()
-    dlg = RouterNetworkDialog(None, _values(router_ip="10.9.9.9"))
-    try:
-        # direct mode: the legacy value is never clobbered
-        assert dlg.values()["setup_mode"] == "direct"
-        assert dlg.values()["router_ip"] == "10.9.9.9"
-    finally:
-        dlg.deleteLater()
+def test_legacy_keys_not_written_back():
+    legacy_yaml = {"equipment": {"peripherals": {"router": {
+        "router_ip": "10.0.0.1", "gateway": "10.0.0.1",
+        "router_ap_ssid": "AP", "wired_host_ip": "10.0.0.5",
+        "wired_enabled": True, "setup_mode": "via_ap",
+    }}}}
+    configs = project_config._equipment_from_yaml(legacy_yaml["equipment"])
+    _migrate_peripherals(configs)
+    out = project_config._equipment_to_yaml(configs)
+    for legacy_key in ("router", "wifi", "bluetooth"):
+        assert legacy_key not in out["peripherals"]
+    assert out["host_pc"]["rj45"]["host_ip"] == "10.0.0.5"
+    assert out["router"]["ethernet"]["router_ip"] == "10.0.0.1"
+    assert out["router"]["ap"]["ssid"] == "AP"
 
 
 def test_group_round_trips_through_yaml(qapp):
-    values = _values(wired_mode="lan", wifi_mode="router",
-                     wired_dut_ports="eth0, eth1",
-                     hotspot_ssid="MTK-HOTSPOT", wifi_gateway="10.1.1.1")
-    cfg = {"peripherals": {"title": "Test Peripherals",
-                           "groups": {"router": values}}}
+    cfg = {
+        "host_pc": {"title": "Host PC", "groups": {
+            "rj45": _default_group("host_pc", "rj45"),
+            "wifi": _default_group("host_pc", "wifi")}},
+        "router": {"title": "Router", "groups": {
+            "enabled": _default_group("router", "enabled"),
+            "ethernet": _default_group("router", "ethernet"),
+            "ap": _default_group("router", "ap")}},
+    }
+    cfg["host_pc"]["groups"]["rj45"]["host_ip"] = "10.0.0.5"
+    cfg["router"]["groups"]["ap"]["ssid"] = "MTK-AP"
     equipment = project_config._equipment_to_yaml(cfg)
-    assert equipment["peripherals"]["router"]["wired_mode"] == "lan"
-    assert equipment["peripherals"]["router"]["wifi_mode"] == "router"
-    assert equipment["peripherals"]["router"]["hotspot_ssid"] == \
-        "MTK-HOTSPOT"
+    assert equipment["host_pc"]["rj45"]["host_ip"] == "10.0.0.5"
+    assert equipment["router"]["ap"]["ssid"] == "MTK-AP"
     restored = project_config._equipment_from_yaml(equipment)
-    router = restored["peripherals"]["groups"]["router"]
-    assert router["wired_dut_ports"] == "eth0, eth1"
-    assert router["wifi_gateway"] == "10.1.1.1"
-
-
-# ------------------------------------------------------ per-mode dialogs
-def test_direct_mode_has_no_test_connection(qapp):
-    dlg = _RouterModeDialog(None, "direct", _values(
-        wired_dut_ports="eth0"))
-    try:
-        assert dlg.btn_test is None
-        assert "wired_dut_ports" in dlg._edits
-        assert dlg._edits["wired_dut_ports"].text() == "eth0"
-        readonly = [e.text() for e in dlg.findChildren(QLineEdit)
-                    if e.isReadOnly()]
-        assert "— not applicable" in readonly
-    finally:
-        dlg.deleteLater()
-
-
-def test_router_modes_expose_test_connection(qapp):
-    for mode in ("lan", "router"):
-        dlg = _RouterModeDialog(None, mode, _values())
-        try:
-            assert dlg.btn_test is not None
-            assert dlg.btn_test.text() == "Test Connection"
-        finally:
-            dlg.deleteLater()
-
-
-def test_hotspot_mode_has_start_stop_control(qapp):
-    dlg = _RouterModeDialog(None, "hotspot", _values())
-    try:
-        assert dlg.btn_hotspot_start.text() == "Start Hotspot"
-        assert dlg.btn_hotspot_stop.text() == "Stop Hotspot"
-        assert dlg.btn_test is None
-        assert "hotspot_ssid" in dlg._edits
-        assert "hotspot_password" in dlg._edits
-        assert dlg._edits["wifi_dut_iface"].text() == ""
-    finally:
-        dlg.deleteLater()
-
-
-def test_apply_and_save_writes_the_mode_fields(qapp):
-    seen = []
-    dlg = _RouterModeDialog(None, "lan", _values(),
-                            on_save=lambda data: seen.append(dict(data)))
-    try:
-        dlg._edits["wired_dut_ports"].setText("eth0, eth1")
-        dlg._edits["wired_gateway"].setText("192.168.1.1")
-        dlg.btn_apply.click()
-        assert dlg.result() == dlg.DialogCode.Accepted
-        assert seen and seen[0]["wired_dut_ports"] == "eth0, eth1"
-        assert seen[0]["wired_gateway"] == "192.168.1.1"
-    finally:
-        dlg.deleteLater()
-
-
-def test_auto_detect_fills_the_host_fields(qapp, monkeypatch):
-    monkeypatch.setattr(host_platform, "detect_host_network", lambda: {
-        "wired_ip": "192.168.1.10", "wifi_ip": "192.168.137.1",
-        "wired_port": "Ethernet", "wifi_port": "Wi-Fi",
-        "gateway": "192.168.1.1"})
-    app = qapp
-    dlg = _RouterModeDialog(None, "lan", _values())
-    try:
-        dlg._detect()
-        assert _pump(app, lambda: "Auto Detect:" in dlg.result_label.text())
-        assert dlg._edits["wired_host_port"].text() == "Ethernet"
-        assert dlg._edits["wired_host_ip"].text() == "192.168.1.10"
-        assert dlg._edits["wifi_host_ip"].text() == "192.168.137.1"
-        assert dlg._edits["wired_gateway"].text() == "192.168.1.1"
-    finally:
-        dlg.deleteLater()
+    assert restored["host_pc"]["groups"]["rj45"]["host_ip"] == "10.0.0.5"
+    assert restored["router"]["groups"]["ap"]["ssid"] == "MTK-AP"
 
 
 # ------------------------------------------------------- host detection

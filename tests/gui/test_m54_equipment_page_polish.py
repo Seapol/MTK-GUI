@@ -50,7 +50,7 @@ def page(qapp):
 def test_no_entry_row_has_a_test_button(page):
     for _group, entries in LEFT_ENTRIES:
         for key, _label, kind, _source in entries:
-            if kind == "optional":
+            if kind in ("optional", "group", "group_toggle"):
                 continue
             buttons = page.entry_buttons[key]
             assert set(buttons) == {"config"}, key

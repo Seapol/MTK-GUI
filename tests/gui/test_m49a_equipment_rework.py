@@ -105,19 +105,25 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
         ("Instruments", 4), ("Fixture", 1), ("Debugger", 1),
-        ("Peripherals", 1)]
+        ("Peripherals", 9)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
                    "t1", "media converter", "power rail"):
         assert all(banned not in label.lower() for label in labels), banned
-    # instrument / form entries have a Config button ONLY; the optional
-    # placeholder entries have a disabled "Not developed" button
+    # instrument / form / sub entries have a Config button ONLY; the
+    # optional placeholders have a disabled "Not developed" button; the
+    # group header has no button and the group_toggle has an Enable
+    # checkbox.
     for _g, entries in LEFT_ENTRIES:
         for key, _label, kind, _src in entries:
             buttons = page.entry_buttons[key]
             if kind == "optional":
                 assert set(buttons) == {"optional"}, key
+            elif kind == "group":
+                assert set(buttons) == set(), key
+            elif kind == "group_toggle":
+                assert set(buttons) == {"enable"}, key
             else:
                 assert set(buttons) == {"config"}, key
 
@@ -268,23 +274,21 @@ def test_grouped_equipment_state_round_trips(page):
 
     page.configs["dut"]["groups"]["ssh"] = {
         "ip": "192.168.1.60", "username": "root", "password": "secret"}
-    page.configs["peripherals"]["groups"]["router"] = {
-        "setup_mode": "via_ap", "router_ip": "10.0.0.1",
-        "dut_ip": "10.0.0.2"}
+    page.configs["host_pc"]["groups"]["rj45"] = {
+        "host_ip": "10.0.0.5", "lan_port": "en5", "gateway": "10.0.0.1"}
     page.configs["control_board"]["groups"]["signals"]["press"]["channel"] = \
         "DIO09"
 
     equipment = project_config._equipment_to_yaml(page.configs)
     assert equipment["dut"]["ssh"]["ip"] == "192.168.1.60"
-    assert equipment["peripherals"]["router"]["setup_mode"] == "via_ap"
+    assert equipment["host_pc"]["rj45"]["host_ip"] == "10.0.0.5"
     assert equipment["control_board"]["signals"]["press"]["channel"] == \
         "DIO09"
 
     restored = project_config._equipment_from_yaml(
         pyyaml.safe_load(pyyaml.safe_dump(equipment)))
     assert restored["dut"]["groups"]["ssh"]["username"] == "root"
-    assert restored["peripherals"]["groups"]["router"]["setup_mode"] == \
-        "via_ap"
+    assert restored["host_pc"]["groups"]["rj45"]["host_ip"] == "10.0.0.5"
     assert restored["control_board"]["groups"]["signals"]["press"][
         "channel"] == "DIO09"
 

@@ -66,7 +66,7 @@ def test_name_label_plus_button_fit_the_column(page):
     checked = 0
     for _group, entries in LEFT_ENTRIES:
         for key, label, kind, _source in entries:
-            if kind == "optional":
+            if kind in ("optional", "group", "group_toggle"):
                 continue
             name = _name_label(page, key, label)
             btn = page.entry_buttons[key]["config"]

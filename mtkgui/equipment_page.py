@@ -218,91 +218,84 @@ LEFT_ENTRIES = (
         ("jlink", "J-Link for Boundary Scan Analyzer", "optional", None),
     )),
     ("Peripherals", (
-        ("router", "Wired & Wireless Network", "form",
-         ("peripherals", "router")),
+        ("host_pc", "Host PC", "group", None),
+        ("serial_console", "Serial Console", "sub",
+         ("host_pc", "serial")),
+        ("ssh_console", "SSH Console", "sub", ("host_pc", "ssh")),
+        ("rj45_wired", "RJ45 Wired Network", "sub", ("host_pc", "rj45")),
+        ("wifi_wireless", "Wi-Fi Wireless Network", "sub",
+         ("host_pc", "wifi")),
+        ("host_bt", "Bluetooth", "sub", ("host_pc", "bluetooth")),
+        ("router", "Router", "group_toggle", None),
+        ("router_ethernet", "RJ45 Ethernet", "sub", ("router", "ethernet")),
+        ("router_ap", "Wi-Fi AP", "sub", ("router", "ap")),
     )),
 )
 
 #: instruments that own a main-window indicator lamp (M49a §3)
 INDICATOR_INSTRUMENTS = ("daq973a", "u2355a", "psu")
 
-#: M50 §4 / M80: peripheral configs that expose a Test Connection button
-#: (availability check for a SAMPLE DUT / host setup - the real per-unit
-#: verification runs inside the FCT Sequence steps).  M80-6c/9 dropped
-#: the DUT Wi-Fi / Bluetooth / PC Wi-Fi / PC Bluetooth probes; the
-#: network dialog owns its own probe.
-_TESTABLE_FORM_KEYS = ("router",)
+#: M100: no equipment form exposes a Test Connection probe anymore -
+#: the network mode-selection page (the last probe owner) is gone.
+_TESTABLE_FORM_KEYS = ()
 
 #: M80-1: left column width clamp (px)
 LEFT_COLUMN_MIN_PX = 320
 LEFT_COLUMN_MAX_PX = 480
 
-#: M49a §5: grouped peripheral configs.  (owner key, group key) ->
+#: M49a §5 / M100: grouped equipment configs.  (owner key, group key) ->
 #: editable fields (field key, label, default).  The YAML carries these
-#: as nested keys (``equipment.peripherals.wifi.ap_ssid`` ...) so FCT
-#: steps can reference them at runtime (M50).  DUT-side Wi-Fi / BT /
-#: SSH / console / ethernet moved into the FCT steps (M100) - no editor
-#: lives here.
+#: as nested keys (``equipment.host_pc.rj45.host_ip`` ...) so FCT steps
+#: can reference them at runtime.  The station console channels
+#: (host_pc.serial / host_pc.ssh) are nested channel maps handled by
+#: dedicated dialogs (not this flat table).  DUT-side Wi-Fi / BT / SSH /
+#: console / ethernet moved into the FCT steps (M100) - no editor lives
+#: here.
 GROUP_FIELDS = {
-    ("peripherals", "wifi"): [
-        ("ap_ssid", "AP SSID", ""), ("ap_ip", "AP IP", ""),
-        ("host_ip", "Host IP", ""), ("ap_password", "AP password", "")],
-    ("peripherals", "bluetooth"): [
+    ("host_pc", "rj45"): [
+        ("host_ip", "Host PC wired IP", ""),
+        ("lan_port", "Host PC LAN port", ""),
+        ("gateway", "Gateway", ""),
+    ],
+    ("host_pc", "wifi"): [
+        ("host_ip", "Host PC Wi-Fi IP", ""),
+        ("hotspot_ssid", "Hotspot SSID", ""),
+        ("hotspot_password", "Hotspot password", ""),
+    ],
+    ("host_pc", "bluetooth"): [
         ("adapter", "Host adapter", ""),
-        ("scan_targets", "Scan targets", "")],
-    ("peripherals", "router"): [
-        ("setup_mode", "Setup mode", "direct"),
-        ("router_ip", "Router IP", ""), ("dut_ip", "DUT IP", ""),
-        # M55: runtime sources for the LAN Setup / Wi-Fi Connect static
-        # addressing (the step dialogs no longer edit these)
-        ("netmask", "Netmask", "255.255.255.0"), ("gateway", "Gateway", ""),
-        # M65: the two network modules (see NETWORK_FIELDS below)
+        ("scan_targets", "Scan targets", ""),
+    ],
+    ("router", "enabled"): [
+        ("enabled", "Enabled", True),
+    ],
+    ("router", "ethernet"): [
+        ("router_ip", "Router IP", ""),
+        ("gateway", "Gateway", ""),
+    ],
+    ("router", "ap"): [
+        ("ssid", "Router AP SSID", ""),
+        ("password", "Router AP password", ""),
     ],
 }
 
-#: user-visible name of the combined wired / wireless peripheral
-NETWORK_TITLE = "Wired & Wireless Network"
-
-#: M65: per-module fields of the "Wired & Wireless Network" peripheral.
-#: Names are part of the YAML contract (plain scalars, snake_case).
-NETWORK_FIELDS = [
-    ("wired_enabled", "Wired module enabled", True),
-    ("wifi_enabled", "Wireless module enabled", True),
-    ("wired_mode", "Wired mode", "direct"),
-    ("wired_dut_ports", "DUT port(s)", ""),
-    ("wired_host_port", "Host PC LAN port", ""),
-    ("wired_eth_ports", "Ethernet port(s)", ""),
-    ("wired_host_ip", "Host PC wired IP", ""),
-    ("wired_gateway", "Router gateway IP", ""),
-    ("wifi_mode", "Wireless mode", "hotspot"),
-    ("wifi_dut_iface", "DUT Wi-Fi interface", ""),
-    ("hotspot_ssid", "Hotspot SSID", ""),
-    ("hotspot_password", "Hotspot password", ""),
-    ("router_ap_ssid", "Router AP SSID", ""),
-    ("router_ap_password", "Router AP password", ""),
-    ("wifi_host_ip", "Host PC Wi-Fi IP", ""),
-    ("wifi_gateway", "Router gateway IP (Wi-Fi)", ""),
+#: station serial console channel fields (snake_case, nested per channel)
+_SERIAL_CHANNEL_FIELDS = [
+    ("port", "Port", ""),
+    ("baud", "Baud", "115200"),
+    ("data", "Data bits", "8"),
+    ("parity", "Parity", None),
+    ("stop", "Stop bits", "1"),
+    ("flow", "Flow control", None),
 ]
 
-#: the network module fields join the legacy router group (YAML contract)
-GROUP_FIELDS[("peripherals", "router")] = (
-    GROUP_FIELDS[("peripherals", "router")] + NETWORK_FIELDS)
-
-#: module -> [(mode key, mode name, one-line description)]
-NETWORK_MODES = {
-    "wired": [
-        ("direct", "Direct (no router)",
-         "DUT -- RJ45 -- Host PC LAN port"),
-        ("lan", "LAN via router",
-         "DUT -> Ethernet switch/router -> Host PC RJ45"),
-    ],
-    "wifi": [
-        ("hotspot", "Host PC hotspot (no router)",
-         "DUT ~~ Wi-Fi ~~ Host PC AP (netsh)"),
-        ("router", "Wi-Fi router",
-         "DUT ~~ Wi-Fi ~~ Router AP ~~ Wi-Fi ~~ Host PC"),
-    ],
-}
+#: station SSH console channel fields
+_SSH_CHANNEL_FIELDS = [
+    ("host", "Host", ""),
+    ("port", "Port", "22"),
+    ("user", "Username", ""),
+    ("password", "Password", ""),
+]
 
 #: M100: canonical DIO channel vocabulary of the control board - the
 #: DAQM907A exposes two 8-bit ports: one 8-channel READ group and one
@@ -330,6 +323,89 @@ def _default_group(owner, name):
     """Fresh dict with the default field values of one grouped config."""
     return {key: default
             for key, _label, default in GROUP_FIELDS[(owner, name)]}
+
+
+def _default_serial_channels() -> dict:
+    """The four named station serial channels (ser1..ser4)."""
+    return {f"ser{i}": {key: default
+                        for key, _label, default in _SERIAL_CHANNEL_FIELDS}
+            for i in range(1, 5)}
+
+
+def _default_ssh_channel() -> dict:
+    """The single optional station SSH channel (ssh1)."""
+    return {"ssh1": {key: default
+                     for key, _label, default in _SSH_CHANNEL_FIELDS}}
+
+
+def _migrate_peripherals(configs: dict) -> dict:
+    """M100: migrate the legacy ``peripherals.wifi/bluetooth/router``
+    groups into the ``host_pc`` / ``router`` configs (backward
+    compatible).  Runs once per load; the obsolete keys are dropped and
+    never written back."""
+    peripherals = configs.get("peripherals")
+    if not isinstance(peripherals, dict):
+        return configs
+    groups = peripherals.get("groups") or {}
+    if not groups:
+        return configs
+    old_router = dict(groups.get("router") or {})
+    old_wifi = dict(groups.get("wifi") or {})
+    old_bt = dict(groups.get("bluetooth") or {})
+
+    host_pc = configs.setdefault("host_pc", {"title": "Host PC"})
+    host_groups = host_pc.setdefault("groups", {})
+    router = configs.setdefault("router", {"title": "Router"})
+    router_groups = router.setdefault("groups", {})
+
+    rj45 = host_groups.setdefault("rj45", _default_group("host_pc", "rj45"))
+    if old_router.get("wired_host_ip"):
+        rj45["host_ip"] = str(old_router["wired_host_ip"])
+    if old_router.get("wired_host_port"):
+        rj45["lan_port"] = str(old_router["wired_host_port"])
+    if old_router.get("wired_gateway"):
+        rj45["gateway"] = str(old_router["wired_gateway"])
+
+    wifi = host_groups.setdefault("wifi", _default_group("host_pc", "wifi"))
+    if old_router.get("wifi_host_ip"):
+        wifi["host_ip"] = str(old_router["wifi_host_ip"])
+    if old_router.get("hotspot_ssid"):
+        wifi["hotspot_ssid"] = str(old_router["hotspot_ssid"])
+    if old_router.get("hotspot_password"):
+        wifi["hotspot_password"] = str(old_router["hotspot_password"])
+
+    bt = host_groups.setdefault("bluetooth",
+                                _default_group("host_pc", "bluetooth"))
+    if old_bt.get("adapter"):
+        bt["adapter"] = str(old_bt["adapter"])
+    if old_bt.get("scan_targets"):
+        bt["scan_targets"] = str(old_bt["scan_targets"])
+
+    ethernet = router_groups.setdefault("ethernet",
+                                        _default_group("router", "ethernet"))
+    if old_router.get("router_ip"):
+        ethernet["router_ip"] = str(old_router["router_ip"])
+    if old_router.get("gateway"):
+        ethernet["gateway"] = str(old_router["gateway"])
+
+    ap = router_groups.setdefault("ap", _default_group("router", "ap"))
+    if old_router.get("router_ap_ssid"):
+        ap["ssid"] = str(old_router["router_ap_ssid"])
+    if old_router.get("router_ap_password"):
+        ap["password"] = str(old_router["router_ap_password"])
+
+    enabled = router_groups.setdefault("enabled",
+                                       _default_group("router", "enabled"))
+    if old_router.get("wired_enabled") is False or \
+            old_router.get("wifi_enabled") is False:
+        enabled["enabled"] = False
+
+    # drop the obsolete groups so they are never serialised again
+    for key in ("wifi", "bluetooth", "router"):
+        groups.pop(key, None)
+    if not groups:
+        peripherals.pop("groups", None)
+    return configs
 
 
 
@@ -429,12 +505,25 @@ def _mock_configs():
                 ("Microphone / Earphone", "Audio path check", "Not connected"),
                 ("Speaker", "Audio output check", "Not connected"),
             ],
-            # M49a §5: shared PC-side parameters (runtime-referenced by
-            # FCT steps in M50).  Router setup mode: direct | via_ap.
+            # M100: the station network / console configs moved into the
+            # dedicated ``host_pc`` / ``router`` configs below.
+        },
+        "host_pc": {
+            "title": "Host PC",
             "groups": {
-                "wifi": _default_group("peripherals", "wifi"),
-                "bluetooth": _default_group("peripherals", "bluetooth"),
-                "router": _default_group("peripherals", "router"),
+                "serial": _default_serial_channels(),
+                "ssh": _default_ssh_channel(),
+                "rj45": _default_group("host_pc", "rj45"),
+                "wifi": _default_group("host_pc", "wifi"),
+                "bluetooth": _default_group("host_pc", "bluetooth"),
+            },
+        },
+        "router": {
+            "title": "Router",
+            "groups": {
+                "enabled": _default_group("router", "enabled"),
+                "ethernet": _default_group("router", "ethernet"),
+                "ap": _default_group("router", "ap"),
             },
         },
         # ---- layer 2: DAQ973A -------------------------------------------
@@ -1977,703 +2066,136 @@ class _ControlBoardDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
-# M80-8: read-only Host PC Bluetooth information
 # ---------------------------------------------------------------------------
-def host_bluetooth_block(parent=None) -> QGroupBox:
-    """Read-only Host PC Bluetooth name / address; never raises and
-    never writes YAML.  A failed probe renders ``unavailable``."""
-    box = QGroupBox("Host PC Bluetooth")
-    lay = QFormLayout(box)
-    lay.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-    name_edit = QLineEdit("")
-    addr_edit = QLineEdit("")
-    for edit in (name_edit, addr_edit):
-        edit.setReadOnly(True)
-    try:
-        from .engine import host_platform
-        name, address = host_platform.host_bt_identity()
-    except Exception:                        # noqa: BLE001 - read-only info
-        name, address = "", ""
-    name_edit.setText(str(name or "") or "unavailable")
-    addr_edit.setText(str(address or "") or "unavailable")
-    lay.addRow("Host Bluetooth name:", name_edit)
-    lay.addRow("Host Bluetooth address:", addr_edit)
-    return box
-
-
+# M100: station console / network configs (Host PC serial / SSH / Bluetooth)
 # ---------------------------------------------------------------------------
-# M65: "Wired & Wireless Network" - mode-selection page + per-mode dialogs
-# ---------------------------------------------------------------------------
-class _TopologyDiagram(QWidget):
-    """Small schematic topology drawing of one network mode."""
+class _SerialChannelsDialog(QDialog):
+    """Four station serial channels (ser1..ser4), one field block each."""
 
-    #: M80-7: minimum topology font size (pt)
-    FONT_PT = 10.0
-
-    def __init__(self, topology: str, parent=None):
+    def __init__(self, parent, values: dict):
         super().__init__(parent)
-        self._topology = topology
-        self.setMinimumHeight(86)
-        self.setToolTip("Schematic topology of this mode")
-
-    def _nodes(self):
-        if self._topology == "lan":
-            return ["DUT", "Router / switch", "Host PC"]
-        if self._topology == "router":
-            return ["DUT", "Router AP", "Host PC"]
-        if self._topology == "hotspot":
-            return ["DUT", "Host PC (AP)"]
-        return ["DUT", "Host PC"]
-
-    def paintEvent(self, _event):                    # noqa: N802 - Qt
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        w, h = self.width(), self.height()
-        nodes = self._nodes()
-        n = len(nodes)
-        margin = 8
-        gap = 8
-        box_w = max(40, int((w - 2 * margin - gap * (n - 1)) / n))
-        box_h = 30
-        top = 12
-        centers = []
-        for i, name in enumerate(nodes):
-            x = margin + i * (box_w + gap)
-            painter.setPen(QPen(QColor("#8a94a6"), 1.2))
-            painter.setBrush(QColor("#f3f5f8"))
-            painter.drawRoundedRect(x, top, box_w, box_h, 6, 6)
-            painter.setPen(QColor("#2b3445"))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            font = QFont(self.font())
-            font.setPointSizeF(self.FONT_PT)
-            painter.setFont(font)
-            painter.drawText(x, top, box_w, box_h,
-                             Qt.AlignmentFlag.AlignCenter, name)
-            centers.append((x + box_w // 2, top + box_h // 2))
-        wireless = self._topology in ("hotspot", "router")
-        pen = QPen(QColor("#2f6fb3" if not wireless else "#b45309"), 1.4)
-        if wireless:
-            pen.setStyle(Qt.PenStyle.DashLine)
-        painter.setPen(pen)
-        for (x1, y1), (x2, _y2) in zip(centers, centers[1:]):
-            painter.drawLine(x1 + box_w // 2, y1, x2 - box_w // 2, y1)
-        font = QFont(self.font())
-        font.setPointSizeF(self.FONT_PT)
-        painter.setFont(font)
-        painter.setPen(QColor("#6b7280"))
-        caption = {
-            "direct": "RJ45 (no router)",
-            "lan": "RJ45 - router gateway",
-            "hotspot": "Wi-Fi (netsh hotspot)",
-            "router": "Wi-Fi - router gateway",
-        }.get(self._topology, "")
-        painter.drawText(0, h - 18, w, 16, Qt.AlignmentFlag.AlignCenter,
-                         caption)
-
-
-class _ModeCard(QFrame):
-    """Clickable radio-style mode card (diagram + name + description)."""
-
-    clicked = Signal(str)
-    doubleClicked = Signal(str)
-
-    def __init__(self, mode_key: str, name: str, description: str,
-                 topology: str, parent=None):
-        super().__init__(parent)
-        self.mode_key = mode_key
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumWidth(240)
-        # M80-7: 12 px card padding, 12 px inter-card spacing and a real
-        # minimum height so a maximised dialog grows the cards
-        self.setMinimumHeight(170)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(12)
-        lay.addWidget(_TopologyDiagram(topology))
-        title = QLabel(name)
-        font = QFont(title.font())
-        font.setBold(True)
-        title.setFont(font)
-        title.setWordWrap(True)
-        lay.addWidget(title)
-        desc = QLabel(description)
-        desc.setObjectName("muted")
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
-        self._selected = False
-        self._apply_style()
-
-    def _apply_style(self):
-        if self._selected:
-            self.setStyleSheet(
-                "QFrame { border: 2px solid #2f6fb3; border-radius: 8px; "
-                "background: #eaf2fb; }")
-        else:
-            self.setStyleSheet(
-                "QFrame { border: 1px solid #c9d1dc; border-radius: 8px; "
-                "background: #ffffff; }")
-
-    def set_selected(self, selected: bool):
-        self._selected = bool(selected)
-        self._apply_style()
-
-    def mousePressEvent(self, event):                # noqa: N802 - Qt
-        self.clicked.emit(self.mode_key)
-        super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event):          # noqa: N802 - Qt
-        self.doubleClicked.emit(self.mode_key)
-        super().mouseDoubleClickEvent(event)
-
-
-#: (field key, shown label) per network mode
-_MODE_FIELD_LABELS = {
-    "direct": [("wired_dut_ports", "DUT Port"),
-               ("wired_host_port", "Host PC LAN Port"),
-               ("wired_host_ip", "Host PC IP")],
-    "lan": [("wired_dut_ports", "DUT Port(s)"),
-            ("wired_host_port", "Host PC RJ45 Port"),
-            ("wired_host_ip", "Host PC wired IP"),
-            ("wifi_host_ip", "Host PC Wi-Fi IP"),
-            ("wired_gateway", "Router gateway IP")],
-    "hotspot": [("wifi_dut_iface", "DUT Wi-Fi interface"),
-                ("hotspot_ssid", "Host PC AP SSID"),
-                ("hotspot_password", "Host PC AP password"),
-                ("wifi_host_ip", "Host PC Wi-Fi IP")],
-    "router": [("wifi_dut_iface", "DUT Wi-Fi interface"),
-               ("router_ap_ssid", "Router AP SSID"),
-               ("router_ap_password", "Router AP password"),
-               ("wifi_host_ip", "Host PC Wi-Fi IP"),
-               ("wifi_gateway", "Router gateway IP")],
-}
-
-#: M80-12: exact mode dialog titles (wired vs wireless distinguished)
-MODE_TITLES = {
-    "direct": "Wired (RJ45) - Direct (no router)",
-    "lan": "Wired (RJ45) - LAN via router",
-    "hotspot": "Wireless (AP hotspot) - Host PC hotspot (no router)",
-    "router": "Wireless (AP hotspot) - Wi-Fi router",
-}
-
-#: M80-10: exact field hints
-_MODE_FIELD_HINTS = {
-    "router_ap_password": "the DUT also uses it when joining the same AP",
-    "wifi_dut_iface": "login to the DUT and run 'ifconfig' to read the "
-                      "interface name",
-}
-
-_MODE_NAMES = {"direct": "Direct (no router)", "lan": "LAN via router",
-               "hotspot": "Host PC hotspot (no router)",
-               "router": "Wi-Fi router"}
-
-_MODE_GATEWAY_KEY = {"lan": "wired_gateway", "router": "wifi_gateway"}
-
-
-class _RouterModeDialog(QDialog):
-    """Pure-field configuration dialog of ONE network mode."""
-
-    def __init__(self, parent, mode: str, values: dict, on_save=None):
-        super().__init__(parent)
-        self._mode = mode
-        self._values = dict(values or {})
-        self._on_save = on_save
-        self._auto_detected = set()
-        self.setWindowTitle(MODE_TITLES.get(mode, f"{NETWORK_TITLE} - "
-                                            f"{_MODE_NAMES.get(mode, mode)}"))
-        fit_dialog(self, 640, 540)
+        self.setWindowTitle("Serial Console - Configuration")
+        fit_dialog(self, 640, 620)
         root = QVBoxLayout(self)
         body = QWidget()
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 0, 0)
+        self._edits = {}
+        saved = dict(values or {})
+        for channel in (f"ser{i}" for i in range(1, 5)):
+            box = QGroupBox(channel.upper())
+            form = QFormLayout(box)
+            form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            channel_values = dict(saved.get(channel) or {})
+            self._edits[channel] = {}
+            for key, label, default in _SERIAL_CHANNEL_FIELDS:
+                value = channel_values.get(key, default)
+                edit = QLineEdit("" if value is None else str(value))
+                edit.setPlaceholderText(
+                    "optional" if default in (None, "") else str(default))
+                form.addRow(f"{label}:", edit)
+                self._edits[channel][key] = edit
+            lay.addWidget(box)
+        apply_scroll_to_dialog(self, body)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
 
-        hint = QLabel({
-            "direct": "Direct RJ45 link between the DUT and the Host PC "
-                      "(no router in between).",
-            "lan": "The Host PC reaches the DUT through the router / switch.",
-            "hotspot": "The Host PC runs the Wi-Fi access point (netsh "
-                       "Hosted Network); the DUT joins it.",
-            "router": "The Host PC joins the Router AP; the DUT joins the "
-                      "same router.",
-        }.get(mode, ""))
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
+    def values(self) -> dict:
+        return {channel: {key: edit.text().strip()
+                          for key, edit in fields.items()}
+                for channel, fields in self._edits.items()}
 
+
+class _SshChannelDialog(QDialog):
+    """Single optional station SSH channel (ssh1)."""
+
+    def __init__(self, parent, values: dict):
+        super().__init__(parent)
+        self.setWindowTitle("SSH Console - Configuration")
+        fit_dialog(self, 560, 340)
+        root = QVBoxLayout(self)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        saved = dict(values or {}).get("ssh1") or {}
         self._edits = {}
-        for key, label in _MODE_FIELD_LABELS.get(mode, []):
-            edit = QLineEdit(str(self._values.get(key, "") or ""))
-            # bounded fields: two modules fit side by side without a
-            # horizontal scrollbar / oversized stretched rows
-            edit.setMaximumWidth(400)
-            if key in _MODE_FIELD_HINTS:
-                edit.setToolTip(_MODE_FIELD_HINTS[key])
-            if key in ("wired_dut_ports", "wired_eth_ports",
-                       "wifi_dut_iface"):
-                edit.setPlaceholderText("typed by hand from the DUT (ifconfig)")
-            elif key.endswith("password"):
-                edit.setPlaceholderText("empty = open hotspot")
-            else:
-                edit.setPlaceholderText("empty = not configured")
-            self._edits[key] = edit
+        for key, label, default in _SSH_CHANNEL_FIELDS:
+            value = saved.get(key, default)
+            edit = QLineEdit("" if value is None else str(value))
+            edit.setPlaceholderText(
+                "optional" if default in (None, "") else str(default))
+            if key == "password":
+                edit.setEchoMode(QLineEdit.EchoMode.Password)
             form.addRow(f"{label}:", edit)
-        if mode in ("direct", "hotspot"):
-            gw = QLineEdit("— not applicable")
-            gw.setReadOnly(True)
-            gw.setMaximumWidth(400)
-            form.addRow("Gateway:", gw)
-        lay.addLayout(form)
-
-        if mode in _MODE_GATEWAY_KEY:
-            router_hint = QLabel(
-                "Host PC wired RJ45 and Wi-Fi are both assumed connected to "
-                "the router.")
-            router_hint.setObjectName("muted")
-            router_hint.setWordWrap(True)
-            lay.addWidget(router_hint)
-            warn = QLabel(
-                "Configure the Host PC <-> Router link in the system "
-                "network settings first; otherwise fill the fields in by "
-                "hand.")
-            warn.setObjectName("warn")
-            warn.setWordWrap(True)
-            lay.addWidget(warn)
-
-        buttons = QHBoxLayout()
-        self.btn_detect = QPushButton("Auto Detect")
-        buttons.addWidget(self.btn_detect)
-        self.btn_test = None
-        if mode in _MODE_GATEWAY_KEY:
-            self.btn_test = QPushButton("Test Connection")
-            buttons.addWidget(self.btn_test)
-        buttons.addStretch(1)
-        lay.addLayout(buttons)
-
-        if mode == "hotspot":
-            lay.addWidget(self._hotspot_block())
-
-        self.result_label = QLabel("")
-        self.result_label.setWordWrap(True)
-        lay.addWidget(self.result_label)
-
+            self._edits[key] = edit
+        body_lay.addLayout(form)
+        note = QLabel("Saved in the project yaml and referenced by test "
+                      "steps at runtime.")
+        note.setObjectName("muted")
+        body_lay.addWidget(note)
         apply_scroll_to_dialog(self, body)
-        bottom = QHBoxLayout()
-        self.btn_apply = QPushButton("Apply && Save YAML")
-        bottom.addWidget(self.btn_apply)
-        bottom.addStretch(1)
-        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close.rejected.connect(self.reject)
-        bottom.addWidget(close)
-        root.addLayout(bottom)
-
-        self.btn_detect.clicked.connect(self._detect)
-        if self.btn_test is not None:
-            self.btn_test.clicked.connect(self._test_connection)
-        self.btn_apply.clicked.connect(self._apply_save)
-        # M80-10/11: run the detect path once when the dialog opens
-        QTimer.singleShot(0, self, qt_safe(self._auto_detect_on_open))
-
-    # --------------------------------------------- M80-10/11 auto-detect
-    def _auto_detect_on_open(self):
-        from .engine import host_platform
-        try:
-            self._fill_auto(host_platform.detect_host_network() or {})
-        except Exception:                    # noqa: BLE001 - best effort
-            pass
-
-    def _mark_auto(self, key):
-        edit = self._edits.get(key)
-        if edit is None:
-            return
-        self._auto_detected.add(key)
-        tooltip = edit.toolTip().strip()
-        edit.setToolTip(f"{tooltip} - auto-detected" if tooltip
-                        else "auto-detected")
-
-    def _fill_auto(self, info: dict):
-        """Fill the auto-detected fields from one detect result."""
-        if self._mode == "router":
-            ssid = str((info or {}).get("wifi_ssid") or "").strip()
-            edit = self._edits.get("router_ap_ssid")
-            if ssid and edit is not None:
-                if not edit.text().strip():
-                    edit.setText(ssid)
-                self._mark_auto("router_ap_ssid")
-        if self._mode == "lan":
-            for key, source in (("wired_host_port", "wired_port"),
-                                ("wired_host_ip", "wired_ip"),
-                                ("wired_gateway", "gateway")):
-                value = str((info or {}).get(source) or "").strip()
-                edit = self._edits.get(key)
-                if value and edit is not None:
-                    edit.setText(value)
-                    self._mark_auto(key)
-
-    # ---------------------------------------------------------- helpers
-    def _report(self, ok: bool, message: str):
-        self.result_label.setText(message)
-        self.result_label.setStyleSheet(
-            "color: %s;" % ("#15803d" if ok else "#b91c1c"))
-
-    def _run_async(self, fn, on_done):
-        worker = _PeripheralTestWorker(fn, self)
-        worker.done.connect(lambda ok, msg: (worker.deleteLater(),
-                                             on_done(ok, msg)))
-        worker.start()
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
 
     def values(self) -> dict:
-        return {key: edit.text().strip()
-                for key, edit in self._edits.items()}
-
-    def collected_values(self) -> dict:
-        """The whole group dict with this mode's edits applied."""
-        data = dict(self._values)
-        data.update(self.values())
-        return data
-
-    def _detect(self):
-        self.btn_detect.setEnabled(False)
-        self.result_label.setStyleSheet("")
-        self.result_label.setText("Auto Detect ...")
-        self._detected = {}
-
-        def work():
-            from .engine import host_platform
-            info = host_platform.detect_host_network()
-            self._detected = dict(info or {})
-            return bool(any(str(v or "").strip()
-                            for v in self._detected.values())), \
-                "Auto Detect finished"
-
-        def done(_ok, _message):
-            self.btn_detect.setEnabled(True)
-            info = dict(self._detected or {})
-            wired = str(info.get("wired_ip") or "")
-            wifi = str(info.get("wifi_ip") or "")
-            gw = str(info.get("gateway") or "")
-            port = str(info.get("wired_port") or "")
-            if self._mode in ("direct", "lan") and port:
-                if "wired_host_port" in self._edits:
-                    self._edits["wired_host_port"].setText(port)
-                    self._mark_auto("wired_host_port")
-            if self._mode in ("direct", "lan") and wired:
-                if "wired_host_ip" in self._edits:
-                    self._edits["wired_host_ip"].setText(wired)
-                    self._mark_auto("wired_host_ip")
-            if self._mode in ("lan", "hotspot", "router") and wifi:
-                if "wifi_host_ip" in self._edits:
-                    self._edits["wifi_host_ip"].setText(wifi)
-                    self._mark_auto("wifi_host_ip")
-            gateway_key = _MODE_GATEWAY_KEY.get(self._mode)
-            if gateway_key and gw:
-                self._edits[gateway_key].setText(gw)
-                self._mark_auto(gateway_key)
-            ssid = str(info.get("wifi_ssid") or "").strip()
-            if self._mode == "router" and ssid and \
-                    "router_ap_ssid" in self._edits \
-                    and not self._edits["router_ap_ssid"].text().strip():
-                self._edits["router_ap_ssid"].setText(ssid)
-                self._mark_auto("router_ap_ssid")
-            if not (wired or wifi or gw or port):
-                self._report(False, "Auto Detect found nothing - fill the "
-                                    "Host PC fields in by hand.")
-            else:
-                self._report(True, "Auto Detect: host values updated "
-                                   "(empty fields were not detected).")
-
-        self._run_async(work, done)
-
-    def _test_connection(self):
-        gateway_key = _MODE_GATEWAY_KEY.get(self._mode)
-        if not gateway_key:
-            return
-        gateway = self._edits[gateway_key].text().strip()
-        self.btn_test.setEnabled(False)
-        self.result_label.setStyleSheet("")
-        self.result_label.setText("Test Connection ...")
-
-        def work():
-            from .engine import host_platform
-            return host_platform.test_router_gateway(gateway)
-
-        def done(ok, message):
-            self.btn_test.setEnabled(True)
-            self._report(ok, message)
-
-        self._run_async(work, done)
-
-    def _hotspot_block(self):
-        box = QGroupBox("Hosted Network")
-        lay = QVBoxLayout(box)
-        self.hotspot_status = QLabel("Status: not checked")
-        self.hotspot_status.setObjectName("muted")
-        lay.addWidget(self.hotspot_status)
-        row = QHBoxLayout()
-        self.btn_hotspot_start = QPushButton("Start Hotspot")
-        self.btn_hotspot_stop = QPushButton("Stop Hotspot")
-        row.addWidget(self.btn_hotspot_start)
-        row.addWidget(self.btn_hotspot_stop)
-        row.addStretch(1)
-        lay.addLayout(row)
-        explain = QLabel(
-            "Requires Windows 11 with a Wi-Fi driver that reports "
-            '"Hosted network supported: Yes" and administrator rights. '
-            "PASS = hotspot up and the DUT can scan/join the SSID; "
-            "FAIL = check driver support and administrator rights.")
-        explain.setObjectName("muted")
-        explain.setWordWrap(True)
-        lay.addWidget(explain)
-        self.btn_hotspot_start.clicked.connect(self._start_hotspot)
-        self.btn_hotspot_stop.clicked.connect(self._stop_hotspot)
-        self._refresh_hotspot_status()
-        return box
-
-    def _refresh_hotspot_status(self):
-        def work():
-            from .engine import host_platform
-            return True, host_platform.hostednetwork_status() or "(unknown)"
-
-        def done(_ok, message):
-            self.hotspot_status.setText(f"Status: {message}")
-
-        self._run_async(work, done)
-
-    def _start_hotspot(self):
-        ssid = self._edits["hotspot_ssid"].text().strip()
-        key = self._edits["hotspot_password"].text().strip()
-        self.btn_hotspot_start.setEnabled(False)
-
-        def work():
-            from .engine import host_platform
-            return host_platform.start_hotspot(ssid, key)
-
-        def done(ok, message):
-            self.btn_hotspot_start.setEnabled(True)
-            self._report(ok, message)
-            self._refresh_hotspot_status()
-
-        self._run_async(work, done)
-
-    def _stop_hotspot(self):
-        self.btn_hotspot_stop.setEnabled(False)
-
-        def work():
-            from .engine import host_platform
-            return host_platform.stop_hotspot()
-
-        def done(ok, message):
-            self.btn_hotspot_stop.setEnabled(True)
-            self._report(ok, message)
-            self._refresh_hotspot_status()
-
-        self._run_async(work, done)
-
-    def _apply_save(self):
-        data = self.collected_values()
-        self._values = data
-        if self._on_save is not None:
-            self._on_save(data)
-        self.accept()
+        return {"ssh1": {key: edit.text().strip()
+                         for key, edit in self._edits.items()}}
 
 
-class RouterNetworkDialog(QDialog):
-    """Mode-selection page of the "Wired & Wireless Network" peripheral.
+class _HostBluetoothDialog(QDialog):
+    """Host PC Bluetooth: read-only adapter + editable scan targets."""
 
-    Two modules side by side; each module shows two schematic mode cards
-    (radio-style, mutually exclusive).  Clicking a card selects the mode
-    and opens its pure-field configuration dialog.
-    """
-
-    def __init__(self, parent, values, save_callback=None):
+    def __init__(self, parent, values: dict):
         super().__init__(parent)
-        # M80-C3: snapshot BEFORE any mode edit can clear a sibling field
-        self._initial_values = dict(values or {})
-        self._values = dict(values or {})
-        self._save_callback = save_callback
-        self.setWindowTitle(f"{NETWORK_TITLE} - Configuration")
-        fit_dialog(self, 700, 620)
+        self.setWindowTitle("Bluetooth - Configuration")
+        fit_dialog(self, 560, 340)
         root = QVBoxLayout(self)
         body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
-
-        note = QLabel(
-            "Wired (RJ45) and Wireless (AP hotspot) are independent: use "
-            "either or both.  Mode selection only affects topology and the "
-            "Host PC IP/gateway detection - FCT Wi-Fi steps remain Host "
-            "PC <-> DUT end-to-end tests.")
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        saved = dict(values or {})
+        adapter = str(saved.get("adapter") or "")
+        try:
+            from .engine import host_platform
+            detected, _address = host_platform.host_bt_identity()
+        except Exception:                        # noqa: BLE001 - best effort
+            detected = ""
+        if not adapter and detected:
+            adapter = str(detected)
+        self.edit_adapter = QLineEdit(adapter or "unavailable")
+        self.edit_adapter.setReadOnly(True)
+        form.addRow("Host adapter:", self.edit_adapter)
+        self.edit_scan = QLineEdit(str(saved.get("scan_targets") or ""))
+        self.edit_scan.setPlaceholderText("DUT-BT or AA:BB:CC:DD:EE:FF")
+        form.addRow("Scan targets:", self.edit_scan)
+        body_lay.addLayout(form)
+        note = QLabel("Saved in the project yaml and referenced by test "
+                      "steps at runtime.")
         note.setObjectName("muted")
-        note.setWordWrap(True)
-        # M80-7: the wrapped note must not swallow the spare height
-        note.setSizePolicy(QSizePolicy.Policy.Preferred,
-                           QSizePolicy.Policy.Maximum)
-        lay.addWidget(note)
-
-        modules = QHBoxLayout()
-        self._panels = {}
-        self._cards = {"wired": {}, "wifi": {}}
-        self._hints = {}
-        self._edit_buttons = {}
-        for module in ("wired", "wifi"):
-            panel = QGroupBox("Wired (RJ45)" if module == "wired"
-                              else "Wireless (AP hotspot)")
-            pl = QVBoxLayout(panel)
-            enabled = QCheckBox("Module enabled")
-            enabled.setChecked(bool(self._values.get(
-                f"{module}_enabled", True)))
-            pl.addWidget(enabled)
-            self._panels[module] = enabled
-            current = self._current_mode(module)
-            cards = QVBoxLayout()
-            for key, name, desc in NETWORK_MODES[module]:
-                card = _ModeCard(key, name, desc, key)
-                card.set_selected(key == current)
-                card.clicked.connect(
-                    lambda chosen, m=module: self._select(m, chosen))
-                card.doubleClicked.connect(
-                    lambda chosen, m=module: self._open_mode(m, chosen))
-                self._cards[module][key] = card
-                cards.addWidget(card, 1)
-            pl.addLayout(cards, 1)
-            hint = QLabel(
-                f"Current selection: {_MODE_NAMES.get(current, current)}")
-            hint.setObjectName("muted")
-            hint.setWordWrap(True)
-            self._hints[module] = hint
-            pl.addWidget(hint)
-            edit_btn = QPushButton("Edit")
-            edit_btn.setToolTip("Open the selected mode's configuration")
-            edit_btn.clicked.connect(
-                lambda _=False, m=module: self._open_mode(
-                    m, self._current_mode(m)))
-            self._edit_buttons[module] = edit_btn
-            pl.addWidget(edit_btn)
-            modules.addWidget(panel, 1)
-        lay.addLayout(modules, 2)
-
-        # M80-8/9: read-only Host PC Bluetooth identity + the one editable
-        # scan-target field (peripherals.bluetooth.scan_targets)
-        lay.addWidget(host_bluetooth_block(self))
-        scan_box = QGroupBox("Host PC Bluetooth scan targets")
-        scan_form = QFormLayout(scan_box)
-        scan_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.edit_scan_targets = QLineEdit(
-            str(self._values.get("bt_scan_targets") or ""))
-        self.edit_scan_targets.setPlaceholderText("DUT-BT or AA:BB:CC:DD:EE:FF")
-        scan_form.addRow("Scan targets:", self.edit_scan_targets)
-        lay.addWidget(scan_box)
-
+        body_lay.addWidget(note)
         apply_scroll_to_dialog(self, body)
-        # M80-7: no empty band above the note / under the cards
-        lay.addStretch(1)
-        bottom = QHBoxLayout()
-        btn_save = QPushButton("Apply && Save YAML")
-        btn_save.setToolTip(
-            "Persist the network configuration into the project yaml")
-        btn_save.clicked.connect(self._apply_save)
-        bottom.addWidget(btn_save)
-        bottom.addStretch(1)
-        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close.rejected.connect(self.accept)
-        bottom.addWidget(close)
-        root.addLayout(bottom)
-
-    # ---------------------------------------------------------- helpers
-    def _current_mode(self, module):
-        value = str(self._values.get(f"{module}_mode") or "").strip()
-        if value:
-            return value
-        # legacy projects only know setup_mode -> map it onto the wired mode
-        if module == "wired" and str(
-                self._values.get("setup_mode") or "").strip() == "via_ap":
-            return "lan"
-        return NETWORK_MODES[module][0][0]
-
-    def _select(self, module, mode):
-        self._values[f"{module}_mode"] = mode
-        for key, card in self._cards[module].items():
-            card.set_selected(key == mode)
-        self._hints[module].setText(
-            f"Current selection: {_MODE_NAMES.get(mode, mode)}")
-
-    def _select_and_open(self, module, mode):
-        self._select(module, mode)
-        self._open_mode(module, mode)
-
-    def _open_mode(self, module, mode):
-        """M80-12: open one mode's dialog; the sibling mode inside the
-        same module is mutually exclusive, so its fields are cleared
-        before editing."""
-        self._select(module, mode)
-        for other_key, _name, _desc in NETWORK_MODES[module]:
-            if other_key == mode:
-                continue
-            for key, _label in _MODE_FIELD_LABELS.get(other_key, []):
-                self._values[key] = ""
-        dlg = _RouterModeDialog(self, mode, self._values,
-                                on_save=self._absorb_values)
-        dlg.exec()
-
-    def scan_targets(self) -> str:
-        return self.edit_scan_targets.text().strip()
-
-    def _absorb_values(self, data):
-        self._values.update(dict(data or {}))
-        if self._save_callback is not None:
-            self._save_callback(self.values())
-
-    def _apply_save(self):
-        if self._save_callback is not None:
-            self._save_callback(self.values())
-        self.accept()
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
 
     def values(self) -> dict:
-        # M80-12: the saved dict carries the SELECTED mode's fields only
-        # (plus the enabled flags); unselected mode keys are not written.
-        # Non-mode group keys (dut_ip / netmask / legacy router_ip ...)
-        # pass through, so old YAML values stay untouched.
-        data = {}
-        mode_keys = {key for labels in _MODE_FIELD_LABELS.values()
-                     for key, _label in labels}
-        for key, value in self._values.items():
-            if key not in mode_keys and key != "bt_scan_targets":
-                data[key] = value
-        for module in ("wired", "wifi"):
-            mode = self._current_mode(module)
-            data[f"{module}_enabled"] = bool(
-                self._panels[module].isChecked())
-            data[f"{module}_mode"] = mode
-            for key, _label in _MODE_FIELD_LABELS.get(mode, []):
-                data[key] = self._values.get(key, "")
-        # M80-C3: keep the sibling mode's stored keys.  A mode edit clears
-        # them in self._values, so copy back from the __init__ snapshot -
-        # only keys that came from the project YAML and that the selected
-        # mode does not write itself.
-        for module in ("wired", "wifi"):
-            selected = data[f"{module}_mode"]
-            selected_keys = {key for key, _label
-                             in _MODE_FIELD_LABELS.get(selected, [])}
-            for mode_key, _name, _desc in NETWORK_MODES[module]:
-                if mode_key == selected:
-                    continue
-                for key, _label in _MODE_FIELD_LABELS.get(mode_key, []):
-                    if key in selected_keys:
-                        continue
-                    if key in self._initial_values:
-                        data[key] = self._initial_values[key]
-        # legacy compatibility for the FCT LAN Setup / Wi-Fi Connect steps
-        data["setup_mode"] = ("direct"
-                              if data.get("wired_mode") == "direct"
-                              else "via_ap")
-        gateway = ""
-        if data.get("wired_mode") == "lan":
-            gateway = str(data.get("wired_gateway") or "").strip()
-        elif data.get("wifi_mode") == "router":
-            gateway = str(data.get("wifi_gateway") or "").strip()
-        if gateway:
-            data["router_ip"] = gateway
-            data["gateway"] = gateway
-        return data
+        return {"adapter": self.edit_adapter.text().strip(),
+                "scan_targets": self.edit_scan.text().strip()}
 
 
 class _DeviceEditDialog(QDialog):
@@ -3252,6 +2774,10 @@ class EquipmentPage(QWidget):
         self.entry_buttons: dict[str, dict[str, QPushButton]] = {}
         # entry key -> name label (M80-1 tooltip / width assertions)
         self.entry_labels: dict[str, QLabel] = {}
+        # M100: group_toggle key -> Enable checkbox; sub entry key ->
+        # its parent group key (used to grey out children on disable)
+        self.group_toggles: dict[str, QCheckBox] = {}
+        self.sub_parents: dict[str, str] = {}
         # Virtual mode: the instrument dialog's Connect / Test Connection
         # succeed with a simulated link (set from MainWindow on login).
         # _mode carries the full Real / Virtual distinction for the
@@ -3403,6 +2929,7 @@ class EquipmentPage(QWidget):
         body_lay.addStretch(1)
         self.left_list.setWidget(body)
         outer.addWidget(self.left_list, 1)
+        self._sync_group_toggles()
         return panel
 
     def _left_column_width(self) -> int:
@@ -3416,9 +2943,51 @@ class EquipmentPage(QWidget):
         return max(LEFT_COLUMN_MIN_PX, min(LEFT_COLUMN_MAX_PX, width))
 
     def _entry_row(self, entry):
-        """One left-column row: label + Config (instrument / form), or a
-        disabled "Not developed" button for kind ``optional``."""
-        key, label, kind, _source = entry
+        """One left-column row.  ``kind`` selects the widget set:
+
+        * ``instrument`` / ``form`` -> label + Config button
+        * ``optional``            -> disabled "Not developed" button
+        * ``group``               -> bold header, no button
+        * ``group_toggle``        -> bold header + Enable checkbox
+        * ``sub``                 -> indented label + Config (greyed with
+          its group_toggle parent when one exists)
+        """
+        key, label, kind, source = entry
+
+        if kind == "group":
+            name = QLabel(label)
+            font = QFont(name.font())
+            font.setBold(True)
+            name.setFont(font)
+            name.setToolTip(label)
+            self.entry_labels[key] = name
+            self.entry_buttons[key] = {}
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(name)
+            row.addStretch(1)
+            return row
+
+        if kind == "group_toggle":
+            name = QLabel(label)
+            font = QFont(name.font())
+            font.setBold(True)
+            name.setFont(font)
+            name.setToolTip(label)
+            self.entry_labels[key] = name
+            enable = QCheckBox("Enable")
+            enable.setChecked(True)
+            enable.toggled.connect(
+                lambda checked, k=key: self._set_group_enabled(k, checked))
+            self.group_toggles[key] = enable
+            self.entry_buttons[key] = {"enable": enable}
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(name)
+            row.addStretch(1)
+            row.addWidget(enable)
+            return row
+
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
@@ -3427,6 +2996,9 @@ class EquipmentPage(QWidget):
         name.setToolTip(label)
         name.setWordWrap(False)
         self.entry_labels[key] = name
+        if kind == "sub":
+            row.addSpacing(18)
+            self.sub_parents[key] = source[0]
         row.addWidget(name)
         row.addStretch(1)
         buttons = {}
@@ -3449,6 +3021,36 @@ class EquipmentPage(QWidget):
         buttons["config"] = btn_cfg
         self.entry_buttons[key] = buttons
         return row
+
+    def _set_group_enabled(self, group_key, enabled):
+        """Persist a group_toggle's Enable state and grey out its ``sub``
+        children (both the label and the Config button)."""
+        enabled = bool(enabled)
+        cfg = self.configs.setdefault(group_key, {"title": group_key})
+        groups = cfg.setdefault("groups", {})
+        groups.setdefault("enabled", _default_group("router", "enabled"))[
+            "enabled"] = enabled
+        for key, parent in self.sub_parents.items():
+            if parent != group_key:
+                continue
+            label = self.entry_labels.get(key)
+            if label is not None:
+                label.setEnabled(enabled)
+            buttons = self.entry_buttons.get(key) or {}
+            if "config" in buttons:
+                buttons["config"].setEnabled(enabled)
+
+    def _sync_group_toggles(self):
+        """Re-read each group_toggle's state from the configs (after a
+        YAML load) and apply it to the checkbox + children."""
+        for key, checkbox in self.group_toggles.items():
+            cfg = self.configs.get(key) or {}
+            enabled = ((cfg.get("groups") or {}).get("enabled") or {}) \
+                .get("enabled", True)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(enabled))
+            checkbox.blockSignals(False)
+            self._set_group_enabled(key, bool(enabled))
 
     def _toggle_left_column(self):
         """M54 §2: collapse the left column to the diagram / expand it
@@ -3827,81 +3429,31 @@ class EquipmentPage(QWidget):
     def _open_group_entry(self, owner, group, entry_key=None):
         cfg = self.configs.setdefault(owner, {"title": owner})
         groups = cfg.setdefault("groups", {})
-        values = groups.setdefault(group, _default_group(owner, group))
-        if (owner, group) == ("peripherals", "router"):
-            self._open_network_entry(groups, group, values)
+        title = self._entry_label(entry_key) if entry_key else \
+            f"{cfg['title']} - {group}"
+        if (owner, group) == ("host_pc", "serial"):
+            values = groups.setdefault(group, _default_serial_channels())
+            dlg = _SerialChannelsDialog(self, values)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                groups[group] = dlg.values()
             return
+        if (owner, group) == ("host_pc", "ssh"):
+            values = groups.setdefault(group, _default_ssh_channel())
+            dlg = _SshChannelDialog(self, values)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                groups[group] = dlg.values()
+            return
+        if (owner, group) == ("host_pc", "bluetooth"):
+            values = groups.setdefault(group, _default_group(owner, group))
+            dlg = _HostBluetoothDialog(self, values)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                groups[group] = dlg.values()
+            return
+        values = groups.setdefault(group, _default_group(owner, group))
         spec = GROUP_FIELDS[(owner, group)]
-        probe = None
-        if entry_key in _TESTABLE_FORM_KEYS:
-            probe = (lambda vals, k=entry_key:
-                     self._probe_with_span(k, vals))
-        dlg = _GroupConfigDialog(self, f"{cfg['title']} - {group}",
-                                 spec, values, test_probe=probe)
+        dlg = _GroupConfigDialog(self, title, spec, values)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             groups[group] = dlg.values()
-
-    def _open_network_entry(self, groups, group, values):
-        """M65: mode-selection page + per-mode dialogs (replaces the flat
-        Ethernet Router form)."""
-        # old projects carry only the legacy fields: fill the new module
-        # fields with their defaults, the saved values always win
-        saved = dict(values or {})
-        merged = dict(_default_group("peripherals", "router"))
-        merged.update(saved)
-        if not str(saved.get("wired_mode") or "").strip():
-            # legacy setup_mode "via_ap" -> the LAN mode (kept intact)
-            merged["wired_mode"] = (
-                "lan" if str(merged.get("setup_mode") or "") == "via_ap"
-                else "direct")
-        # M80-9: the one editable scan-target field lives in the dialog
-        saved_bt = ((self.configs.get("peripherals") or {}).get("groups")
-                    or {}).get("bluetooth") or {}
-        merged["bt_scan_targets"] = str(saved_bt.get("scan_targets") or "")
-        groups[group] = merged
-        holder = {}
-
-        def save(new_values):
-            groups[group].update(dict(new_values))
-            dialog = holder.get("dlg")
-            scan = dialog.scan_targets() if dialog is not None else ""
-            self._mirror_network_peripherals(groups[group], scan)
-            self.apply_save_requested.emit()
-
-        dlg = RouterNetworkDialog(self, merged, save_callback=save)
-        holder["dlg"] = dlg
-        dlg.exec()
-        if dlg.result() == QDialog.DialogCode.Accepted:
-            groups[group].update(dict(dlg.values()))
-            self._mirror_network_peripherals(groups[group],
-                                             dlg.scan_targets())
-
-    def _mirror_network_peripherals(self, router_values: dict,
-                                    scan_targets: str = "") -> None:
-        """M80-9: one-way mirror from the network dialog into the legacy
-        reference paths (``peripherals.wifi.*`` /
-        ``peripherals.bluetooth.*``).  No ref is rewired."""
-        cfg = self.configs.setdefault("peripherals",
-                                      {"title": "Test Peripherals"})
-        groups = cfg.setdefault("groups", {})
-        wifi = dict(groups.get("wifi")
-                    or _default_group("peripherals", "wifi"))
-        wifi["ap_ssid"] = str(router_values.get("hotspot_ssid") or "")
-        wifi["ap_password"] = str(router_values.get("hotspot_password") or "")
-        wifi["host_ip"] = str(router_values.get("wifi_host_ip") or "")
-        groups["wifi"] = wifi
-        bluetooth = dict(groups.get("bluetooth")
-                         or _default_group("peripherals", "bluetooth"))
-        if scan_targets:
-            bluetooth["scan_targets"] = str(scan_targets)
-        try:
-            from .engine import host_platform
-            adapter, _address = host_platform.host_bt_identity()
-        except Exception:                    # noqa: BLE001 - derived only
-            adapter = ""
-        if adapter:
-            bluetooth["adapter"] = str(adapter)
-        groups["bluetooth"] = bluetooth
 
     def _open_plain_entry(self, owner, cfg, entry_key=None):
         if owner == "control_board":
@@ -4117,6 +3669,8 @@ class EquipmentPage(QWidget):
     def refresh_from_configs(self):
         """M49a §4: after a YAML load the page re-reads the configs.
         Connection / self-test state is project-scoped and resets."""
+        _migrate_peripherals(self.configs)
         self._instrument_connections = {}
         self._instrument_selftest = {}
+        self._sync_group_toggles()
 

@@ -33,15 +33,10 @@ from mtkgui.equipment_page import (  # noqa: E402
     LEFT_ENTRIES,
     LEFT_COLUMN_MAX_PX,
     LEFT_COLUMN_MIN_PX,
-    MODE_TITLES,
-    RouterNetworkDialog,
     _ControlBoardDialog,
     _InstrumentDialog,
-    _RouterModeDialog,
-    _TopologyDiagram,
     _TESTABLE_FORM_KEYS,
     _mock_configs,
-    host_bluetooth_block,
 )
 from mtkgui.gui.yamlbuild.instrument_status import HUB  # noqa: E402
 
@@ -187,8 +182,13 @@ def test_m80_pc_wifi_bt_peripheral_entries_removed(page):
     assert "PC Wi-Fi" not in names
     assert "PC Bluetooth" not in names
     assert "Wired & Wireless Network" in names
-    assert {"wifi", "bluetooth", "router"} <= set(
-        page.configs["peripherals"]["groups"])
+    # M100: the network groups moved out of ``peripherals`` into the
+    # dedicated ``host_pc`` / ``router`` configs.
+    assert "groups" not in page.configs["peripherals"]
+    assert set(page.configs["host_pc"]["groups"]) == {
+        "serial", "ssh", "rj45", "wifi", "bluetooth"}
+    assert set(page.configs["router"]["groups"]) == {
+        "enabled", "ethernet", "ap"}
 
 
 def test_m80_fixture_probe_board_diagram_block_removed(page):
@@ -326,214 +326,11 @@ def test_m80_console_mirrors_into_equipment_yaml(qapp):
         page.deleteLater()
 
 
-# -------------------------------------------- M80-7 network dialog layout
-def test_m80_network_dialog_no_top_gap(qapp):
-    dlg = RouterNetworkDialog(None, {}, save_callback=None)
-    dlg.resize(700, 620)
-    dlg.show()
-    qapp.processEvents()
-    try:
-        note = next(label for label in dlg.findChildren(QLabel)
-                    if label.text().startswith("Wired (RJ45) and Wireless"))
-        assert note.height() <= note.sizeHint().height() + 4
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_network_dialog_fonts_at_least_10pt(qapp):
-    assert _TopologyDiagram.FONT_PT >= 10.0
-
-
-# --------------------------------------------- M80-8 / M80-9 host PC blocks
-def test_m80_host_bt_info_is_read_only(qapp, monkeypatch):
-    monkeypatch.setattr(host_platform, "host_bt_identity",
-                        lambda: ("PC-BT", "AA:BB:CC:DD:EE:FF"))
-    box = host_bluetooth_block()
-    try:
-        edits = box.findChildren(QLineEdit)
-        assert [edit.text() for edit in edits] == \
-            ["PC-BT", "AA:BB:CC:DD:EE:FF"]
-        assert all(edit.isReadOnly() for edit in edits)
-    finally:
-        box.deleteLater()
-    monkeypatch.setattr(host_platform, "host_bt_identity",
-                        lambda: (_ for _ in ()).throw(RuntimeError("no bt")))
-    box = host_bluetooth_block()
-    try:
-        assert [edit.text() for edit in box.findChildren(QLineEdit)] == \
-            ["unavailable", "unavailable"]
-    finally:
-        box.deleteLater()
-
-
 def test_m80_pc_wifi_and_pc_bt_entries_removed(page):
     assert "pc_wifi" not in _entry_keys()
     assert "pc_bt" not in _entry_keys()
     assert "pc_wifi" not in _TESTABLE_FORM_KEYS
     assert "pc_bt" not in _TESTABLE_FORM_KEYS
-
-
-def test_m80_peripherals_wifi_mirrored_from_network(page, monkeypatch):
-    monkeypatch.setattr(host_platform, "host_bt_identity",
-                        lambda: ("PC-BT", ""))
-    page._mirror_network_peripherals({
-        "hotspot_ssid": "AP", "hotspot_password": "pw",
-        "wifi_host_ip": "10.0.0.5"}, "DUT-BT")
-    groups = page.configs["peripherals"]["groups"]
-    assert groups["wifi"]["ap_ssid"] == "AP"
-    assert groups["wifi"]["ap_password"] == "pw"
-    assert groups["wifi"]["host_ip"] == "10.0.0.5"
-    assert groups["bluetooth"]["scan_targets"] == "DUT-BT"
-    assert groups["bluetooth"]["adapter"] == "PC-BT"
-    equipment = project_config._equipment_to_yaml(page.configs)
-    assert equipment["peripherals"]["wifi"]["ap_ssid"] == "AP"
-
-
-# ===================================================== M80-B network modes
-def test_m80_router_mode_has_no_host_wired_ip(qapp):
-    dlg = _RouterModeDialog(None, "router", {}, None)
-    try:
-        assert "wired_host_ip" not in dlg._edits
-        assert "router_ap_ssid" in dlg._edits
-        assert "router_ap_password" in dlg._edits
-        assert dlg._edits["router_ap_password"].toolTip() == \
-            "the DUT also uses it when joining the same AP"
-        assert dlg._edits["wifi_dut_iface"].toolTip() == (
-            "login to the DUT and run 'ifconfig' to read the interface "
-            "name")
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_router_ssid_auto_detected(qapp, monkeypatch):
-    monkeypatch.setattr(host_platform, "platform_key", lambda: "mac")
-    canned = ("Interfaces:\n"
-              "  en0:\n"
-              "    Current Network Information:\n"
-              "      Factory-AP:\n"
-              "        Signal / Noise: -45 dBm / -90 dBm\n")
-
-    def fake_cmd(cmd, *_args, **_kwargs):
-        return canned if "SPAirPortDataType" in cmd else ""
-
-    monkeypatch.setattr(host_platform, "run_link_cmd", fake_cmd)
-    info = host_platform.detect_host_network()
-    assert info["wifi_ssid"] == "Factory-AP"
-    dlg = _RouterModeDialog(None, "router", {}, None)
-    try:
-        dlg._fill_auto(info)
-        assert dlg._edits["router_ap_ssid"].text() == "Factory-AP"
-        assert "router_ap_ssid" in dlg._auto_detected
-        assert dlg._edits["router_ap_ssid"].isReadOnly() is False
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_lan_mode_has_no_ethernet_ports(qapp):
-    dlg = _RouterModeDialog(None, "lan", {}, None)
-    try:
-        assert "wired_eth_ports" not in dlg._edits
-        assert "wired_host_port" in dlg._edits
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_lan_mode_auto_detects_host_fields(qapp):
-    dlg = _RouterModeDialog(None, "lan", {}, None)
-    try:
-        dlg._fill_auto({"wired_port": "en5", "wired_ip": "10.0.0.7",
-                        "gateway": "10.0.0.1", "wifi_ip": ""})
-        assert dlg._edits["wired_host_port"].text() == "en5"
-        assert dlg._edits["wired_host_ip"].text() == "10.0.0.7"
-        assert dlg._edits["wired_gateway"].text() == "10.0.0.1"
-        assert {"wired_host_port", "wired_host_ip",
-                "wired_gateway"} <= dlg._auto_detected
-        # DUT Port(s) stays purely manual
-        assert dlg._edits["wired_dut_ports"].text() == ""
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_mode_titles_distinguish_wired_wireless(qapp):
-    assert MODE_TITLES == {
-        "direct": "Wired (RJ45) - Direct (no router)",
-        "lan": "Wired (RJ45) - LAN via router",
-        "hotspot": "Wireless (AP hotspot) - Host PC hotspot (no router)",
-        "router": "Wireless (AP hotspot) - Wi-Fi router",
-    }
-    for mode, title in MODE_TITLES.items():
-        dlg = _RouterModeDialog(None, mode, {}, None)
-        try:
-            assert dlg.windowTitle() == title
-        finally:
-            dlg.deleteLater()
-
-
-def test_m80_single_click_only_selects(qapp, monkeypatch):
-    opened = []
-    monkeypatch.setattr(_RouterModeDialog, "exec",
-                        lambda self: opened.append(self._mode))
-    dlg = RouterNetworkDialog(None, {"wired_mode": "direct"}, None)
-    try:
-        dlg._cards["wired"]["lan"].clicked.emit("lan")
-        assert opened == []
-        assert dlg._values["wired_mode"] == "lan"
-        assert dlg._cards["wired"]["lan"]._selected is True
-        assert dlg._cards["wired"]["direct"]._selected is False
-        assert "LAN via router" in dlg._hints["wired"].text()
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_edit_button_opens_mode_dialog(qapp, monkeypatch):
-    opened = []
-    monkeypatch.setattr(_RouterModeDialog, "exec",
-                        lambda self: opened.append(self._mode))
-    dlg = RouterNetworkDialog(None, {"wired_mode": "lan"}, None)
-    try:
-        dlg._edit_buttons["wired"].click()
-        assert opened == ["lan"]
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_sibling_mode_resets_on_edit(qapp, monkeypatch):
-    monkeypatch.setattr(_RouterModeDialog, "exec", lambda self: None)
-    dlg = RouterNetworkDialog(None, {
-        "wired_mode": "direct", "wired_host_port": "COM3",
-        "wired_host_ip": "10.0.0.9",
-        "wifi_mode": "hotspot", "hotspot_ssid": "AP"}, None)
-    try:
-        dlg._open_mode("wired", "lan")
-        assert dlg._values["wired_host_port"] == ""
-        assert dlg._values["wired_host_ip"] == ""
-        # the wireless module keeps its own values
-        assert dlg._values["hotspot_ssid"] == "AP"
-    finally:
-        dlg.deleteLater()
-
-
-def test_m80_save_writes_only_selected_mode(qapp):
-    dlg = RouterNetworkDialog(None, {
-        "wired_mode": "lan", "wifi_mode": "router",
-        "wired_host_port": "en5", "wired_gateway": "10.0.0.1",
-        "router_ap_ssid": "Factory-AP", "wifi_gateway": "10.0.0.1",
-        "router_ap_password": "pw", "hotspot_ssid": "stale"}, None)
-    try:
-        values = dlg.values()
-    finally:
-        dlg.deleteLater()
-    assert values["wired_mode"] == "lan"
-    assert values["wifi_mode"] == "router"
-    assert values["wired_host_port"] == "en5"
-    assert values["wired_gateway"] == "10.0.0.1"
-    assert values["router_ap_ssid"] == "Factory-AP"
-    assert "wired_eth_ports" not in values
-    # M80-C3: an unselected mode's key that came from the input survives;
-    # the selected mode's own field set is unchanged.
-    assert values["hotspot_ssid"] == "stale"
-    assert values["wired_enabled"] is True
-    assert values["wifi_enabled"] is True
 
 
 def test_m80_fct_refs_still_resolve(page):
@@ -544,16 +341,11 @@ def test_m80_fct_refs_still_resolve(page):
     page.configs["dut"]["groups"]["console"] = {
         "channel": "ser1", "port": "/dev/tty.test", "baud": "115200",
         "parity": "None"}
-    page.configs["peripherals"]["groups"]["wifi"] = {
-        "ap_ssid": "AP", "ap_ip": "", "host_ip": "10.0.0.5",
-        "ap_password": "pw"}
     doc = {"equipment": project_config._equipment_to_yaml(page.configs)}
     assert ref_resolver.resolve("equipment.dut.ssh.ip", doc) == \
         "192.168.1.60"
     assert ref_resolver.resolve("equipment.dut.console.port", doc) == \
         "/dev/tty.test"
-    assert ref_resolver.resolve("equipment.peripherals.wifi.ap_ssid", doc) \
-        == "AP"
     # equipment.fixture stays in the schema (engine op path untouched)
     assert "fixture" in doc["equipment"]
     restored = project_config._equipment_from_yaml(doc["equipment"])
@@ -603,21 +395,3 @@ def test_m80_console_mirror_keeps_console_when_no_serial_channel(qapp):
     TestWorkFlowPage._mirror_console_channels(shim)
     assert configs["dut"]["groups"]["console"]["port"] == "COM5"
     assert configs["dut"]["groups"]["ssh"]["ip"] == "192.168.1.60"
-
-
-def test_m80_save_keeps_unselected_mode_keys(qapp):
-    dlg = RouterNetworkDialog(None, {
-        "wired_mode": "direct", "wired_dut_ports": "eth0",
-        "wired_host_port": "COM3", "wired_host_ip": "10.0.0.9",
-        "wired_gateway": "10.0.0.1"}, None)
-    try:
-        values = dlg.values()
-    finally:
-        dlg.deleteLater()
-    # the unselected LAN key that came from the input survives
-    assert values["wired_gateway"] == "10.0.0.1"
-    assert values["wired_dut_ports"] == "eth0"
-    assert values["wired_host_port"] == "COM3"
-    assert values["wired_host_ip"] == "10.0.0.9"
-    # a key that was never in the YAML is not created out of nothing
-    assert "router_ap_ssid" not in values
