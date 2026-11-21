@@ -1849,8 +1849,8 @@ class TestWorkFlowPage(QWidget):
             "WaitforConsole: COM1, 'Pass' or 'OK' (expected)",
             "SendtoCLI: \"wifi_test --scan\", 'Pass'/'Success' (expected)",
             "SendtoCLI: \"bt_test --scan\", 'Pass'/'Success' (expected)",
-            "MessageGoStop: Flash FAT Firmware (3rd-party GUI)",
-            "MessageGoStop: Flash OOBE Firmware (3rd-party GUI)",
+            "MessageGoStop: Flash FAT Firmware",
+            "MessageGoStop: Flash OOBE Firmware",
         ]
         self.fct_enables = [True] * len(self.fct_rows)
         self.fct_waits = [100] * len(self.fct_rows)
