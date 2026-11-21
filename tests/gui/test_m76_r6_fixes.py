@@ -6,7 +6,8 @@ D2 MessageGoStop console answer is opt-in (send_console_answer).
 D3 login-step executor (the step TYPE itself was retired in M83).
 D4 send+capture rows judge only bytes received after the send.
 D5 wait-only rows are bounded by wait_timeout.
-D6 the Console panel renders one view per connected channel.
+D6 the Console panel send line writes to the channel and mirrors the
+   send into the Event Log.
 """
 from __future__ import annotations
 
@@ -285,21 +286,6 @@ class _FakeWorker:
         return True
 
 
-def test_console_panel_shows_the_connected_channel(qapp):
-    widget = MultiConsoleWidget()
-    try:
-        channel = widget.channels["ser1"]
-        assert channel["inline"] is not None
-        assert channel["inline"].isHidden()
-        widget.on_connection_changed("ser1", True)
-        assert not channel["inline"].isHidden()
-        widget.on_connection_changed("ser1", False)
-        assert channel["inline"].isHidden()
-        assert widget.scroll.minimumHeight() >= 120
-    finally:
-        widget.deleteLater()
-
-
 def test_console_panel_input_sends_and_logs(qapp):
     widget = MultiConsoleWidget()
     worker = _FakeWorker()
@@ -308,11 +294,8 @@ def test_console_panel_input_sends_and_logs(qapp):
     try:
         widget.channels["ser1"]["worker"] = worker
         widget.on_connection_changed("ser1", True)
-        inline = widget.channels["ser1"]["inline"]
-        inline.edit.setText("ls -l")
-        inline.edit.returnPressed.emit()
+        widget.handle_send("ser1", "ls -l", False, "crlf")
         assert worker.written == [b"ls -l\r\n"]
-        assert "console send: 'ls -l'" in inline.view.toPlainText()
         assert logs == ["console send: 'ls -l'"]
     finally:
         widget.deleteLater()

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """M71: Windows R3 fixes.
 
-F1  Console "Add Serial" adds a channel row AND opens the serial
-    connection dialog (cancel removes the just-added row again).
 F2  DUT-side Wi-Fi interface default is mlan0 (NXP mwifiex / moal);
     the Host PC adapter keeps its wlan0 semantics.
 F3  A legacy Wifi_Scan row without scan_via loads as dut_console
@@ -18,15 +16,12 @@ pytest.importorskip("PySide6")
 
 import yaml  # noqa: E402
 from PySide6.QtCore import QSettings  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
-import mtkgui.widgets.multi_console as mc_mod  # noqa: E402
 from mtkgui.engine import fct_templates  # noqa: E402
 from mtkgui.widgets.multi_console import (  # noqa: E402
     APP_NAME,
     APP_ORG,
-    MAX_SERIAL,
-    MultiConsoleWidget,
 )
 from mtkgui.yaml_build_page import YamlBuildPage  # noqa: E402
 
@@ -50,115 +45,6 @@ def page(qapp):
     widget = YamlBuildPage()
     yield widget
     widget.deleteLater()
-
-
-class _FakeSerialDialog:
-    """Stands in for SerialConfigDialog (records construction + result)."""
-
-    instances: list = []
-    accepted = True
-    payload: dict = {}
-
-    def __init__(self, parent, params=None):
-        self.seen_params = dict(params or {})
-        _FakeSerialDialog.instances.append(self)
-
-    def exec(self):
-        return (QDialog.DialogCode.Accepted if _FakeSerialDialog.accepted
-                else QDialog.DialogCode.Rejected)
-
-    def get_params(self):
-        return dict(_FakeSerialDialog.payload or self.seen_params)
-
-
-@pytest.fixture()
-def serial_dialog(monkeypatch):
-    _FakeSerialDialog.instances = []
-    _FakeSerialDialog.accepted = True
-    _FakeSerialDialog.payload = {}
-    monkeypatch.setattr(mc_mod, "SerialConfigDialog", _FakeSerialDialog)
-    return _FakeSerialDialog
-
-
-def _keys(widget):
-    return list(widget.channels)
-
-
-# ------------------------------------------- F1 Add Serial dialog + row
-def test_add_serial_click_opens_the_dialog_and_keeps_the_row(
-        qapp, console_settings, serial_dialog):
-    _FakeSerialDialog.payload = {"port": "COM7"}
-    widget = MultiConsoleWidget()
-    try:
-        assert _keys(widget) == ["ser1"]
-        widget.btn_add_serial.click()
-        assert _keys(widget) == ["ser1", "ser2"]
-        assert len(_FakeSerialDialog.instances) == 1
-        assert _FakeSerialDialog.instances[0].seen_params["port"] is None
-        assert widget.channels["ser2"]["params"]["port"] == "COM7"
-    finally:
-        widget.deleteLater()
-
-
-def test_add_serial_cancel_removes_the_new_row(
-        qapp, console_settings, serial_dialog):
-    _FakeSerialDialog.accepted = False
-    widget = MultiConsoleWidget()
-    try:
-        widget.btn_add_serial.click()
-        assert _keys(widget) == ["ser1"]
-        assert widget._next_serial_number() == 2
-    finally:
-        widget.deleteLater()
-
-
-def test_add_serial_works_after_a_project_with_empty_console(
-        qapp, console_settings, serial_dialog):
-    # project load with "console: []" clears every channel and the
-    # project applier re-adds the default serial row
-    widget = MultiConsoleWidget()
-    try:
-        widget.clear_channels()
-        assert _keys(widget) == []
-        widget.add_serial()
-        assert _keys(widget) == ["ser1"]
-        widget.btn_add_serial.click()
-        assert _keys(widget) == ["ser1", "ser2"]
-        assert len(_FakeSerialDialog.instances) == 1
-    finally:
-        widget.deleteLater()
-
-
-def test_add_serial_respects_the_max_serial_cap(
-        qapp, console_settings, serial_dialog):
-    widget = MultiConsoleWidget()
-    try:
-        while len(widget._serial_numbers) < MAX_SERIAL:
-            assert widget.add_serial() is not None
-        widget.btn_add_serial.click()
-        assert len(widget.channels) == MAX_SERIAL
-        assert _FakeSerialDialog.instances == []
-    finally:
-        widget.deleteLater()
-
-
-def test_add_serial_respects_operator_permissions(
-        qapp, console_settings, serial_dialog):
-    widget = MultiConsoleWidget()
-    try:
-        widget.apply_permissions({}, False)
-        assert not widget.btn_add_serial.isEnabled()
-        assert widget.add_serial_interactive() is None
-        assert _keys(widget) == ["ser1"]
-        assert _FakeSerialDialog.instances == []
-        # manage_channels without edit_serial_params: the row is added
-        # but the parameter dialog stays closed
-        widget.apply_permissions({"manage_channels": True}, False)
-        widget.btn_add_serial.click()
-        assert _keys(widget) == ["ser1", "ser2"]
-        assert _FakeSerialDialog.instances == []
-    finally:
-        widget.deleteLater()
 
 
 # ------------------------------- F2 DUT interface defaults = mlan0

@@ -98,7 +98,6 @@ def test_m81_jump_focuses_console_without_adding_channel(qapp, window):
     window.yaml_build_page.console_config_requested.emit()
     assert list(mc.channels) == before
     assert mc.isVisibleTo(window)
-    assert mc.btn_add_serial.focusPolicy() != 0
 
 
 def test_m81_jump_writes_no_yaml(qapp, window, tmp_path, monkeypatch):

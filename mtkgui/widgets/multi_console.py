@@ -3,31 +3,33 @@
 
 Used on the Test Work Flow page, next to the FCT table:
 
-* 1-4 serial channels and 0-1 SSH channel, each shown as a compact row
+* 1-4 serial channels and 0-1 SSH channel, each hosted in its own tab
 * per-channel accent colors identify the channels at a glance
-* Add Serial / Add SSH / Remove live in the top bar; each row has its
-  own Open/Close, Console, Configure (advanced params) and Remove
-* a per-channel popup ConsoleWindow hosts the ConsoleWidget, a Quick
-  Commands dropdown and a Send line (HEX / CR+LF, Enter or Send)
-* closing a popup only hides it; the ConsoleWidget keeps receiving data
-* RX / TX byte counters are shown per row
+* each tab hosts the ConsoleWidget (log), a Quick Commands dropdown, a
+  Linux Command Helper and a Send line (HEX / CR+LF, Enter or Send)
+* a "⧉ Float" control detaches one channel's console into a floating
+  window ("Dock back" returns it); channels are managed on the Equipment
+  page, so this page is read-only
+* the ConsoleWidget keeps receiving data while floated
+* RX / TX byte counters are tracked per channel
 * a Quick Commands dropdown copies saved snippets into the Send line;
   the current line can be saved as a new snippet (max 15)
 """
 
 import shiboken6
-from PySide6.QtCore import QSettings, QThread, Signal
+from PySide6.QtCore import QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFontDialog,
     QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
+    QPlainTextEdit, QPushButton, QSpinBox, QTabWidget, QVBoxLayout,
     QWidget,
 )
 from serial.tools import list_ports
 
 from ..at_commands import AT_COMMANDS
+from ..command_library import load_command_library
 from ..quick_commands import MAX_QUICK_COMMANDS, load_commands, save_commands
 from ..serial_params import BAUDRATES, BYTESIZE_MAP, STOPBITS_MAP, PARITY_MAP
 from ..serial_worker import SerialWorker
@@ -232,6 +234,189 @@ class VirtualWorker(QThread):
         self.wait(2000)
 
 
+# ==================================================== float / dock host
+class _FloatedHost(QWidget):
+    """Top-level window hosting one floated widget (a channel console or
+    the Command Helper).  The ``Dock back`` button or the OS close (×)
+    re-docks the widget into its tab."""
+
+    def __init__(self, title, dock_callback):
+        super().__init__(None, Qt.WindowType.Window)
+        self.setWindowTitle(title)
+        self._dock_callback = dock_callback
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+
+    def closeEvent(self, event):                    # noqa: N802 - Qt
+        self._dock_callback()
+        event.accept()
+
+
+# ==================================================== command helper
+class CommandHelper(QWidget):
+    """Linux-only Command Helper for one console channel.
+
+    Docked it is a collapsible strip of command chips above the Send
+    line; the ``⧉`` button floats the helper into its own window showing
+    the full Linux command list (each row carries an ``Insert`` action
+    that fills the Send line without sending).  The shared command
+    library is the single source of truth; only ``category == "linux"``
+    entries are shown here.
+    """
+
+    def __init__(self, send_panel, settings_key, parent=None):
+        super().__init__(parent)
+        self.send_panel = send_panel
+        self._settings_key = settings_key
+        # only the Linux category is rendered on this page
+        self.entries = [e for e in load_command_library()
+                        if e.get("category") == "linux"]
+        self._collapsed = False
+        self._float_win = None
+        self._home_parent = None
+        self._home_index = -1
+        self._chips = []
+        self._insert_btns = []
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(2)
+
+        # ------------------------------------------------ collapsible strip
+        strip = QHBoxLayout()
+        strip.setContentsMargins(0, 0, 0, 0)
+        strip.setSpacing(4)
+        self.btn_toggle = QPushButton("\u2304 Cmd Helper: Linux \u25be")
+        self.btn_toggle.setObjectName("flat")
+        self.btn_toggle.setToolTip(
+            "Collapse / expand the Linux command chips")
+        self.btn_toggle.clicked.connect(self._toggle)
+        strip.addWidget(self.btn_toggle)
+
+        self.chips = QWidget()
+        chips_layout = QHBoxLayout(self.chips)
+        chips_layout.setContentsMargins(0, 0, 0, 0)
+        chips_layout.setSpacing(4)
+        for entry in self.entries:
+            chip = QPushButton(entry["name"])
+            chip.setObjectName("flat")
+            chip.setToolTip(entry["command"])
+            chip.clicked.connect(
+                lambda checked=False, cmd=entry["command"]:
+                    self.fill_send(cmd))
+            chips_layout.addWidget(chip)
+            self._chips.append(chip)
+        chips_layout.addStretch(1)
+        strip.addWidget(self.chips, 1)
+
+        self.btn_float = QPushButton("\u29c9")
+        self.btn_float.setObjectName("flat")
+        self.btn_float.setToolTip(
+            "Float the Command Helper into its own window")
+        self.btn_float.clicked.connect(self._float_helper)
+        strip.addWidget(self.btn_float)
+        root.addLayout(strip)
+
+        # --------------------------- full list (shown only while floated)
+        self.list_panel = QWidget()
+        self.list_panel.setVisible(False)
+        list_layout = QVBoxLayout(self.list_panel)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setSpacing(2)
+        for entry in self.entries:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            name = QLabel(entry["name"])
+            name.setMinimumWidth(120)
+            row.addWidget(name)
+            cmd = QLabel(entry["command"])
+            cmd.setObjectName("muted")
+            cmd.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            row.addWidget(cmd, 1)
+            btn_insert = QPushButton("Insert")
+            btn_insert.setObjectName("flat")
+            btn_insert.setToolTip(entry["command"])
+            btn_insert.clicked.connect(
+                lambda checked=False, c=entry["command"]: self.fill_send(c))
+            row.addWidget(btn_insert)
+            self._insert_btns.append(btn_insert)
+            list_layout.addLayout(row)
+        list_layout.addStretch(1)
+        root.addWidget(self.list_panel, 1)
+
+    # --------------------------------------------------------- fill Send
+    def fill_send(self, command: str) -> None:
+        """Copy a command into the Send line (never sends)."""
+        self.send_panel.set_text(command)
+        self.send_panel.edit.setFocus()
+
+    # ------------------------------------------------------ strip toggle
+    def _toggle(self) -> None:
+        self._collapsed = not self._collapsed
+        self.chips.setVisible(not self._collapsed)
+        self.btn_toggle.setText(
+            "\u25b8 Cmd Helper: Linux \u25be" if self._collapsed
+            else "\u2304 Cmd Helper: Linux \u25be")
+
+    # ------------------------------------------------------ float / dock
+    def _float_helper(self) -> None:
+        """Reparent the helper into its own window (full Linux list)."""
+        if self._float_win is not None:
+            return
+        home = self.parentWidget()
+        home_layout = home.layout() if home is not None else None
+        home_index = (home_layout.indexOf(self)
+                      if home_layout is not None else -1)
+        self._home_parent = home
+        self._home_index = home_index
+        if home_layout is not None and home_index >= 0:
+            home_layout.removeWidget(self)
+
+        win = _FloatedHost("Command Helper: Linux", self._dock_helper)
+        root = QVBoxLayout(win)
+        bar = QHBoxLayout()
+        btn_dock = QPushButton("Dock back")
+        btn_dock.clicked.connect(self._dock_helper)
+        bar.addWidget(btn_dock)
+        bar.addStretch(1)
+        root.addLayout(bar)
+
+        self.setParent(win)
+        root.addWidget(self, 1)
+        self.list_panel.setVisible(True)
+        self.chips.setVisible(False)
+
+        settings = QSettings(APP_ORG, APP_NAME)
+        geometry = settings.value(f"{self._settings_key}/helper_geometry")
+        if geometry is not None:
+            win.restoreGeometry(geometry)
+
+        self._float_win = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _dock_helper(self) -> None:
+        """Re-insert the helper into its console and close its window."""
+        win = self._float_win
+        if win is None:
+            return
+        self._float_win = None
+        win.layout().removeWidget(self)
+        if self._home_parent is not None:
+            self.setParent(self._home_parent)
+            home_layout = self._home_parent.layout()
+            if home_layout is not None:
+                home_layout.insertWidget(self._home_index, self)
+        self.list_panel.setVisible(False)
+        self.chips.setVisible(not self._collapsed)
+        settings = QSettings(APP_ORG, APP_NAME)
+        settings.setValue(f"{self._settings_key}/helper_geometry",
+                          win.saveGeometry())
+        win.close()
+        win.deleteLater()
+
+
 # ============================================================ popup window
 class ConsoleWindow(QDialog):
     """Popup per-channel console: hosts the ConsoleWidget, a Quick
@@ -307,6 +492,14 @@ class ConsoleWindow(QDialog):
         self.btn_font.clicked.connect(self._choose_font)
         quick_row.addWidget(self.btn_font)
         self._restore_window_state()
+
+        # M101-D: shared Command Helper (Linux category only) sits between
+        # the log and the Send line; it can float to its own window with
+        # a full command list.
+        self._cmd_helper = CommandHelper(self.send_panel, self._settings_key,
+                                         self)
+        layout.insertWidget(layout.indexOf(self.send_panel),
+                            self._cmd_helper)
 
     # --------------------------------------------- window state memory
     def _restore_window_state(self):
@@ -815,38 +1008,17 @@ class MultiConsoleWidget(QGroupBox):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # --------------------------------------------------- top tool bar
-        bar = QHBoxLayout()
-        self.btn_add_serial = QPushButton("Add Serial")
-        self.btn_add_serial.setObjectName("flat")
-        self.btn_add_serial.clicked.connect(self.add_serial_interactive)
-        self.btn_add_ssh = QPushButton("Add SSH")
-        self.btn_add_ssh.setObjectName("flat")
-        self.btn_add_ssh.clicked.connect(self.add_ssh)
-        # top-level Remove kept for backward compat (removes last channel)
-        self.btn_remove = QPushButton("Remove")
-        self.btn_remove.setObjectName("flat")
-        self.btn_remove.clicked.connect(self.remove_current)
-        bar.addWidget(self.btn_add_serial)
-        bar.addWidget(self.btn_add_ssh)
-        bar.addWidget(self.btn_remove)
-        bar.addStretch(1)
-        layout.addLayout(bar)
+        # M101-D: the page is read-only - channels are defined on the
+        # Equipment page.  Each channel gets one tab hosting its full
+        # console (ConsoleWidget + Quick commands + Send + Command Helper).
+        self._tabs = QTabWidget()
+        self._tabs.setDocumentMode(True)
+        layout.addWidget(self._tabs, 1)
 
-        # ------------------------------------------- scrollable channel rows
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_content = QWidget()
-        self.rows_layout = QVBoxLayout(self.scroll_content)
-        self.rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.rows_layout.setSpacing(4)
-        self.rows_layout.addStretch(1)  # rows packed at the top
-        self.scroll.setWidget(self.scroll_content)
-        # M76/D6: the panel must never collapse to the button strip -
-        # keep a real output/view area at every window size
-        self.scroll.setMinimumHeight(120)
-        layout.addWidget(self.scroll, 1)
+        # key -> floated console host window (None while docked) and the
+        # per-tab "⧉ Float" button that detaches the console
+        self._float_win = {}
+        self._float_btn = {}
 
         # one serial channel always exists
         self.add_serial()
@@ -894,9 +1066,9 @@ class MultiConsoleWidget(QGroupBox):
         return key
 
     def add_serial_interactive(self):
-        """Top bar "Add Serial": add a row and immediately open its
-        Serial connection dialog (same dialog as the row gear button).
-        Cancelling the dialog removes the just-added row again."""
+        """Add a serial channel and immediately open its connection
+        dialog.  Cancelling the dialog removes the just-added channel
+        again (kept for programmatic callers)."""
         if not self._can_manage_channels():
             return None
         key = self.add_serial()
@@ -937,6 +1109,9 @@ class MultiConsoleWidget(QGroupBox):
         console_window.quick_commands_changed.connect(
             self._on_quick_commands_changed)
 
+        # The ChannelRow stays as the params-sync holder (its inline
+        # fields feed open_channel / set_channel_params) but is not shown:
+        # channel management moved to the Equipment page (M101-D).
         row = ChannelRow(key, kind, label, accent, params, parent=self)
         row.open_requested.connect(self.open_channel)
         row.close_requested.connect(self.close_channel)
@@ -947,18 +1122,32 @@ class MultiConsoleWidget(QGroupBox):
         row.apply_permissions(self._can_manage_channels(),
                               self._can_configure())
 
-        # M76/D6: one inline view (output + single-line input) per
-        # channel, shown while the channel is CONNECTED
-        inline = _InlineChannelView(key, label, accent, self.theme, self)
-        inline.setVisible(False)
-        inline.send_text.connect(lambda text, k=key: self._send_inline(
-            k, text))
-        container = QWidget()
-        box = QVBoxLayout(container)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(2)
-        box.addWidget(row)
-        box.addWidget(inline, 1)
+        # one tab per channel: a small header bar (label + ⧉ Float) above
+        # the full console (ConsoleWindow hosts log + quick + send + helper)
+        tab_page = QWidget()
+        tab_layout = QVBoxLayout(tab_page)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(2)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(4, 2, 4, 2)
+        header.addWidget(QLabel(f"{label} console"))
+        header.addStretch(1)
+        btn_float = QPushButton("\u29c9 Float")
+        btn_float.setObjectName("flat")
+        btn_float.setToolTip(
+            "Detach this channel's console into a floating window")
+        btn_float.clicked.connect(
+            lambda checked=False, k=key: self._float_console(k))
+        header.addWidget(btn_float)
+        tab_layout.addLayout(header)
+        tab_layout.addWidget(console_window, 1)
+
+        idx = self._tabs.addTab(tab_page, label)
+        if idx < 0:
+            # extremely defensive: never strand the console window
+            tab_layout.removeWidget(console_window)
+            console_window.setParent(None)
 
         channel = {
             "kind": kind,
@@ -967,8 +1156,8 @@ class MultiConsoleWidget(QGroupBox):
             "console": console,
             "console_window": console_window,
             "row": row,
-            "inline": inline,
-            "container": container,
+            "tab_page": tab_page,
+            "placeholder": None,
             "params": params,
             "worker": None,
             "connected": False,
@@ -976,14 +1165,12 @@ class MultiConsoleWidget(QGroupBox):
             "read_buffer": bytearray(),
         }
         self.channels[key] = channel
-
-        # insert the row container before the trailing stretch
-        self.rows_layout.insertWidget(
-            self.rows_layout.count() - 1, container)
+        self._float_win[key] = None
+        self._float_btn[key] = btn_float
 
         console.append_message(
             "SYS",
-            f"{label} ready. Click \u2699 to configure "
+            f"{label} ready. Double-click the log to configure "
             + ("serial parameters." if kind == "serial"
                else "SSH parameters."),
             color=self.theme["sys"])
@@ -1008,14 +1195,19 @@ class MultiConsoleWidget(QGroupBox):
                 pass
             channel["worker"] = None
         channel["console_window"].hide()
-        container = channel.get("container")
-        if container is not None:
-            self.rows_layout.removeWidget(container)
-            container.setParent(None)
-            container.deleteLater()
+        # dock the channel's console back into its tab (if floated) and
+        # drop the tab page
+        win = self._float_win.get(key)
+        if win is not None:
+            self._dock_console(key)
+        tab_page = channel.get("tab_page")
+        if tab_page is not None:
+            idx = self._tabs.indexOf(tab_page)
+            if idx >= 0:
+                self._tabs.removeTab(idx)
+            tab_page.deleteLater()
         else:                             # backward-compatible fallback
             row = channel["row"]
-            self.rows_layout.removeWidget(row)
             row.setParent(None)
             row.deleteLater()
         if channel["kind"] == "ssh":
@@ -1024,6 +1216,8 @@ class MultiConsoleWidget(QGroupBox):
             n = int(key[3:])
             if n in self._serial_numbers:
                 self._serial_numbers.remove(n)
+        self._float_win.pop(key, None)
+        self._float_btn.pop(key, None)
         del self.channels[key]
         self._refresh_actions()
         self.connection_changed.emit()
@@ -1037,12 +1231,9 @@ class MultiConsoleWidget(QGroupBox):
         self.remove_channel(key)
 
     def _refresh_actions(self):
-        can_manage = self._can_manage_channels()
-        serial_count = len(self._serial_numbers)
-        self.btn_add_serial.setEnabled(
-            can_manage and serial_count < MAX_SERIAL)
-        self.btn_add_ssh.setEnabled(can_manage and not self._ssh_open)
-        self.btn_remove.setEnabled(can_manage and len(self.channels) > 0)
+        """No-op: channel add / remove moved to the Equipment page
+        (M101-D).  Kept for the apply_permissions / _create_channel
+        call sites."""
 
     def current_key(self):
         """Key of the last channel in insertion order (backward compat)."""
@@ -1250,8 +1441,8 @@ class MultiConsoleWidget(QGroupBox):
             self.close_channel(key)
 
     def clear_channels(self):
-        """Remove every channel row entirely (no YAML loaded: the
-        console starts empty; Add Serial / Add SSH rebuilds rows)."""
+        """Remove every channel entirely (no YAML loaded: the console
+        starts empty; channels are rebuilt from the Equipment page)."""
         for key in list(self.channels):
             self.remove_channel(key)
         self._yaml_channel_keys = None
@@ -1336,7 +1527,8 @@ class MultiConsoleWidget(QGroupBox):
         return payload
 
     def handle_send(self, key, text, hex_mode, crlf):
-        """Send a payload on a specific channel (key)."""
+        """Send a payload on a specific channel (key) and mirror the
+        send into the Event Log (``console_log``)."""
         try:
             payload = self.encode_payload(text, hex_mode, crlf)
         except ValueError:
@@ -1356,6 +1548,7 @@ class MultiConsoleWidget(QGroupBox):
         if (channel and channel["worker"]
                 and channel["worker"].isRunning()):
             channel["console_window"].send_panel.commit_sent(text)
+        self.console_log.emit(f"console send: {text!r}")
 
     def _write_to_channel(self, key, payload, shown):
         """Send a payload on a channel and show the TX line; updates
@@ -1420,14 +1613,99 @@ class MultiConsoleWidget(QGroupBox):
             channel["console_window"].reload_quick_combo()
 
     def _show_console(self, key):
-        """Popup the per-channel ConsoleWindow."""
+        """Bring a channel's console to the front (its tab, or its
+        floated window when detached)."""
         channel = self.channels.get(key)
         if not channel:
             return
-        win = channel["console_window"]
+        win = self._float_win.get(key)
+        if win is not None:
+            win.show()
+            win.raise_()
+            win.activateWindow()
+            return
+        tab_page = channel.get("tab_page")
+        if tab_page is not None:
+            self._tabs.setCurrentWidget(tab_page)
+
+    # --------------------------------------------- float / dock a console
+    def _float_console(self, key):
+        """Reparent a channel's whole console (ConsoleWindow) into a
+        top-level window; the vacated tab shows a placeholder.  The run
+        engine keeps writing into the same ConsoleWidget object."""
+        if self._float_win.get(key) is not None:
+            return
+        channel = self.channels.get(key)
+        if not channel:
+            return
+        console_window = channel["console_window"]
+        tab_page = channel["tab_page"]
+        tab_layout = tab_page.layout()
+
+        win = _FloatedHost(
+            f"{channel['label']} Console",
+            lambda k=key: self._dock_console(k))
+        root = QVBoxLayout(win)
+        bar = QHBoxLayout()
+        btn_dock = QPushButton("Dock back")
+        btn_dock.clicked.connect(lambda k=key: self._dock_console(k))
+        bar.addWidget(btn_dock)
+        bar.addStretch(1)
+        root.addLayout(bar)
+
+        idx = tab_layout.indexOf(console_window)
+        if idx >= 0:
+            tab_layout.removeWidget(console_window)
+        console_window.setParent(win)
+        root.addWidget(console_window, 1)
+
+        placeholder = QLabel(
+            f"{channel['label']} console floated — Dock back to return")
+        placeholder.setObjectName("muted")
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tab_layout.addWidget(placeholder, 1)
+        channel["placeholder"] = placeholder
+
+        settings = QSettings(APP_ORG, APP_NAME)
+        geometry = settings.value(
+            f"{console_window._settings_key}/float_geometry")
+        if geometry is not None:
+            win.restoreGeometry(geometry)
+
+        self._float_win[key] = win
         win.show()
         win.raise_()
         win.activateWindow()
+
+    def _dock_console(self, key):
+        """Re-insert a floated console into its tab and close the
+        window (never orphans the console)."""
+        win = self._float_win.get(key)
+        if win is None:
+            return
+        channel = self.channels.get(key)
+        if channel is None:
+            self._float_win[key] = None
+            win.close()
+            win.deleteLater()
+            return
+        console_window = channel["console_window"]
+        tab_page = channel["tab_page"]
+        tab_layout = tab_page.layout()
+        placeholder = channel.get("placeholder")
+        if placeholder is not None:
+            tab_layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            channel["placeholder"] = None
+        win.layout().removeWidget(console_window)
+        console_window.setParent(tab_page)
+        tab_layout.addWidget(console_window, 1)
+        settings = QSettings(APP_ORG, APP_NAME)
+        settings.setValue(f"{console_window._settings_key}/float_geometry",
+                          win.saveGeometry())
+        self._float_win[key] = None
+        win.close()
+        win.deleteLater()
 
     # ------------------------------------------------------------ theme
     def set_background(self, color):

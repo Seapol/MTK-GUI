@@ -140,3 +140,65 @@ def test_edit_sequence_emits_build_requested(page):
     assert emitted_fct == [True]
 
 
+def test_console_uses_tabs_one_per_channel(page):
+    from PySide6.QtWidgets import QTabWidget
+    mc = page.multi_console
+    assert isinstance(mc._tabs, QTabWidget)
+    assert mc._tabs.count() == len(mc.channels)
+    labels = [mc._tabs.tabText(i) for i in range(mc._tabs.count())]
+    assert labels == ["SER1"]
+    for key, channel in mc.channels.items():
+        assert channel["label"] in labels
+
+
+def test_add_remove_controls_absent(page):
+    mc = page.multi_console
+    assert getattr(mc, "btn_add_serial", None) is None
+    assert getattr(mc, "btn_add_ssh", None) is None
+    assert getattr(mc, "btn_remove", None) is None
+
+
+def test_console_float_and_dock_back(page, qapp):
+    mc = page.multi_console
+    key = "ser1"
+    console_window = mc.channels[key]["console_window"]
+    tab_page = mc.channels[key]["tab_page"]
+    assert console_window.parent() is tab_page
+    assert mc._float_win[key] is None
+    mc._float_console(key)
+    qapp.processEvents()
+    assert mc._float_win[key] is not None
+    assert console_window.parent() is mc._float_win[key]
+    assert mc.channels[key]["placeholder"] is not None
+    mc._dock_console(key)
+    qapp.processEvents()
+    assert mc._float_win[key] is None
+    assert console_window.parent() is tab_page
+    assert mc.channels[key]["placeholder"] is None
+
+
+def test_command_helper_shows_linux_only_and_fills_send(page):
+    from mtkgui.command_library import load_command_library
+    mc = page.multi_console
+    console_window = mc.channels["ser1"]["console_window"]
+    helper = console_window._cmd_helper
+    send_panel = console_window.send_panel
+
+    assert "Cmd Helper: Linux" in helper.btn_toggle.text()
+    assert all(e["category"] == "linux" for e in helper.entries)
+    assert any(b.text() == "Insert" for b in helper._insert_btns)
+
+    library = load_command_library()
+    non_linux = [e for e in library if e["category"] != "linux"]
+    assert non_linux  # sanity: the shared library carries other categories
+    shown = {e["name"] for e in helper.entries}
+    assert not any(e["name"] in shown for e in non_linux)
+
+    sent = []
+    console_window.send_requested.connect(lambda *a: sent.append(a))
+    helper.fill_send("uname -a")
+    assert send_panel.edit.text() == "uname -a"
+    assert sent == []
+
+
+
