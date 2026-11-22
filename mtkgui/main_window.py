@@ -18,7 +18,8 @@ from pathlib import Path
 
 from PySide6.QtCore import (QEvent, QObject, QSettings, Qt, QThread,
                             QTimer, Signal)
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFontMetrics
+from PySide6.QtGui import (QAction, QActionGroup, QColor, QFontMetrics,
+                           QKeySequence)
 from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtWidgets import (
     QApplication,
@@ -1154,14 +1155,17 @@ class MainWindow(QMainWindow):
         self._file_menu = file_menu
         self.act_load_yaml = file_menu.addAction(
             "Load Yaml…", self.load_yaml)
+        self.act_load_yaml.setShortcut(QKeySequence("Ctrl+O"))
         # M103: the menu (write to the current file) and node 07
         # (publish Draft + archive) had one label for two behaviours
         self.act_save_yaml = file_menu.addAction(
             "Save Yaml (current file)", self.apply_and_save_yaml)
+        self.act_save_yaml.setShortcut(QKeySequence("Ctrl+S"))
         self.act_save_yaml.setToolTip(
             "No current file yet - this opens Save Yaml As…")
         self.act_save_yaml_as = file_menu.addAction(
             "Save Yaml As… (current file)", self.save_yaml_as)
+        self.act_save_yaml_as.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self.act_close_yaml = file_menu.addAction(
             "Close Yaml", self.close_yaml)
         file_menu.addSeparator()
@@ -1312,14 +1316,18 @@ class MainWindow(QMainWindow):
         # folders - the reports themselves are generated automatically
         # after every counted test run
         self.report_menu = self.menuBar().addMenu("Report")
-        self.report_menu.addAction("DUT Report",
-                                   self._open_dut_report_folder)
-        self.report_menu.addAction("Event Log Folder…",
-                                   self._open_report_event_log)
+        self.act_dut_report = self.report_menu.addAction(
+            "DUT Report", self._open_dut_report_folder)
+        self.act_dut_report.setShortcut(QKeySequence("Ctrl+Shift+D"))
+        self.act_report_event_log = self.report_menu.addAction(
+            "Event Log Folder…", self._open_report_event_log)
+        self.act_report_event_log.setShortcut(QKeySequence("Ctrl+Shift+E"))
         # M96: 'DAQ CSV Data' opened the very same folder as 'DUT Report'
         # (the DAQ captures live inside the per-DUT identity folders) and
         # the folder configuration moved to Settings > Report Folders….
-        self.report_menu.addAction("Statistics", self._open_statistics)
+        self.act_statistics = self.report_menu.addAction(
+            "Statistics", self._open_statistics)
+        self.act_statistics.setShortcut(QKeySequence("Ctrl+Shift+T"))
         # 2026-11 user direction: SharePoint upload is re-enabled for the
         # Supervisor (the browser-session import is an engineer/setup task).
         # The enabled state and tooltip are set in apply_permissions.
