@@ -1121,6 +1121,7 @@ class MultiConsoleWidget(QGroupBox):
         row.params_changed.connect(self._on_row_params_changed)
         row.apply_permissions(self._can_manage_channels(),
                               self._can_configure())
+        row.hide()  # params-sync holder only, never shown (M101-fix)
 
         # one tab per channel: a small header bar (label + ⧉ Float) above
         # the full console (ConsoleWindow hosts log + quick + send + helper)
