@@ -237,10 +237,10 @@ def test_rf_dialog_hides_every_referenced_field(qapp, monkeypatch):
 
 
 # -------------------------------------- §2.5 Equipment router fields
-def test_equipment_router_group_exposes_netmask_and_gateway(qapp):
+def test_equipment_router_group_exposes_ethernet_fields(qapp):
     fields = {key: default for key, _label, default
-              in GROUP_FIELDS[("peripherals", "router")]}
-    assert fields["netmask"] == "255.255.255.0"
+              in GROUP_FIELDS[("router", "ethernet")]}
+    assert fields["router_ip"] == ""
     assert fields["gateway"] == ""
 
 
