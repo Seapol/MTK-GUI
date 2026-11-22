@@ -75,6 +75,9 @@ class YamlBuildWizard(QWidget):
         self.current: str = "design_input"
         self.visited: set[str] = {"design_input"}
         self.tree_created: bool = False
+        # M103: a live test run makes every node read-only (set by the
+        # MainWindow's single _apply_yaml_guards()).
+        self._run_active: bool = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -377,12 +380,18 @@ class YamlBuildWizard(QWidget):
             return ok
         return True
 
+    def set_run_active(self, active: bool) -> None:
+        """M103: lock / unlock every node for the active-run window."""
+        self._run_active = bool(active)
+
     def _is_editable(self, key: str) -> bool:
-        """Editable when enabled, not skipped and every prerequisite is
-        complete."""
+        """Editable when enabled, not skipped, not running and every
+        prerequisite is complete."""
         if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
             return False
         if self._is_skipped(key):
+            return False
+        if self._run_active:
             return False
         return all(self._is_complete(p) for p in flow_view.PREREQS[key])
 
@@ -420,6 +429,14 @@ class YamlBuildWizard(QWidget):
             note = QLabel(flow_view.skip_message(key))
             note.setWordWrap(True)
             note.setProperty("tone", "info")
+            lay.addWidget(note)
+        elif self._run_active:
+            # M103: the run owns the configuration - view only
+            note = QLabel(
+                "A test run is active - stop it before editing the Yaml "
+                "configuration.")
+            note.setWordWrap(True)
+            note.setProperty("tone", "warning")
             lay.addWidget(note)
         else:
             lock = QLabel(flow_view.lock_message(key))

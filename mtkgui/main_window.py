@@ -542,11 +542,20 @@ class MainWindow(QMainWindow):
         self._can_yaml_build = True
         self._can_equipment_config = True
         self._manual_fixture = False
+        # M103 run-state lock: active = running / paused (contract §8.3)
+        self._run_active = False
+        #: a save performed during a run is reloaded only after a prompt
+        self._pending_reload_path: str | None = None
         self.apply_gui_theme(saved_theme())
         _startup_mark("ui: theme applied")
 
         self._build_ui()
         _startup_mark("ui: _build_ui done")
+        # M103: the runner's single transition funnel feeds the lock
+        self.workflow_page._runner.state_changed.connect(
+            self._on_run_state_changed)
+        # a freshly built model is not "dirty" (Close / Load stay quiet)
+        self.yaml_build_page.model.changed = False
         self._build_menus()
         _startup_mark("ui: _build_menus done")
         self.apply_permissions()
@@ -1098,6 +1107,9 @@ class MainWindow(QMainWindow):
         # the FCT launcher node opens the v1 page's dialog owner
         self._yaml_wizard.build_fct_requested.connect(yb.open_fct_sequence)
 
+        # M103: mounting the wizard seeds derived sequences into the
+        # model - that is initialisation, not a user edit
+        self.yaml_build_page.model.changed = False
         self._apply_page_permissions()
         # restore the power-rails capture from the persisted Yaml Build
         # model state (channel allocation / previous rail config)
@@ -1109,14 +1121,11 @@ class MainWindow(QMainWindow):
         idx = self.tabs.indexOf(self._yaml_build_host)
         if idx >= 0:
             self.tabs.setTabVisible(idx, self._can_yaml_build)
-        self._yaml_build_page.set_edit_allowed(self._can_yaml_build)
         # M37: Virtual mode offers every standard operation in the
         # sequence editors (no hardware configuration needed)
         self._yaml_build_page.set_virtual(self.mode == "Virtual")
-        self._yaml_build_page.channel_alloc.set_edit_allowed(
-            self._can_yaml_build)
-        # M103: the four Excel items have one enabled-state owner
-        self._apply_excel_menu_state()
+        # M103: one decision owns the Excel items + the whole editor
+        self._apply_yaml_guards()
         self._equipment_page.set_config_allowed(self._can_equipment_config)
         self._equipment_page.set_mode(self.mode)
         self._equipment_page.set_manual_fixture(self._manual_fixture)
@@ -1835,7 +1844,20 @@ class MainWindow(QMainWindow):
             badge + mode_colors.get(self.mode, ""))
 
     def switch_account(self):
-        """File > Switch Account: re-login without restarting the GUI."""
+        """File ▸ Switch Account: re-login without restarting the GUI.
+
+        M103: refused while a run is active; a dirty model is confirmed
+        once; a successful Supervisor → Operator switch closes the
+        project so an unpublished Draft never stays reachable under an
+        Operator account (contract §8.1 item 9 / §8.3a D-b).
+        """
+        if self._run_active:
+            QMessageBox.information(
+                self, "Run Active",
+                "A test run is active - stop it before switching "
+                "accounts.")
+            return
+        previous_role = self.role
         result = LoginDialog.login(self, allow_cancel=True)
         if result is None:
             return
@@ -1848,6 +1870,19 @@ class MainWindow(QMainWindow):
         self.permissions = load_permissions()
         self.apply_permissions()
         self._update_identity_status()
+        dirty = bool(getattr(self.yaml_build_page.model, "changed", False))
+        if dirty:
+            answer = QMessageBox.question(
+                self, "Switch Account",
+                "The current configuration is not saved. Discard it?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        if (previous_role == ROLE_SUPERVISOR
+                and self.role == ROLE_OPERATOR):
+            self._reset_to_factory(auto=True)
+            self._append_event_log(
+                "Account switched to Operator - current project closed",
+                level=IMPORTANT)
 
     def _open_fault_dialog(self):
         """Settings > Virtual Fault Injection (Virtual mode + supervisor)."""
@@ -1946,6 +1981,15 @@ class MainWindow(QMainWindow):
         foreground modal progress dialog (2026-10-26: the big ICT plans
         used to show only a status-bar progress; the front dialog keeps
         the window responsive and visible) - see _begin_yaml_load."""
+        # M103 (contract §8.2 item 13): refuse BEFORE the file dialog -
+        # the operator must not pick a file only to be told no.  Active
+        # means running / paused; aborted / frozen are terminal.
+        if self._run_active:
+            QMessageBox.information(
+                self, "Run Active",
+                "A test run is active - stop it before loading "
+                "another project.")
+            return
         _startup_begin("load yaml: file pick", category="ui",
                        wait=True)
         try:
@@ -1955,11 +1999,7 @@ class MainWindow(QMainWindow):
             _startup_end("load yaml: file pick")
         if not path:
             return
-        if self.workflow_page._runner.state != "idle":
-            QMessageBox.information(
-                self, "Run Active",
-                "A test run is active - stop it before loading "
-                "another project.")
+        if not self._confirm_frozen_evidence():
             return
         # M39: validate the file BEFORE the previous project is closed -
         # a blocking issue stops the load (the current project stays
@@ -1997,6 +2037,16 @@ class MainWindow(QMainWindow):
         4. every control is restored once the load completes."""
         if getattr(self, "_yaml_loading", False):
             return
+        # M103 (contract §8.2 item 14 / D-a): a pathless session that
+        # already carries content would otherwise blend into the loaded
+        # file (apply_yaml_dict keeps missing modules' current state).
+        if self._project_path is None and self._model_has_content():
+            answer = QMessageBox.question(
+                self, "Load Yaml",
+                "The build in progress was never saved. Discard it and "
+                f"load {Path(path).name}?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self._yaml_loading = True
         self._prompt_product_info_after_load = bool(prompt_product_info)
         self._yaml_config = None
@@ -2008,7 +2058,7 @@ class MainWindow(QMainWindow):
         self._yaml_load_queue = [
             ("Close previous project", 5,
              lambda: self._reset_to_factory(auto=True)
-             if self._project_path else None),
+             if (self._project_path or self._model_has_content()) else None),
             ("Reading file", 25, lambda: self._yaml_parse(path)),
             ("Applying project", 45, lambda: self._yaml_apply(path)),
             ("Yaml Build refresh", 95, lambda: self._yaml_finish(path)),
@@ -2126,6 +2176,8 @@ class MainWindow(QMainWindow):
             dlg.close_done()
         self._yaml_config = None
         self._yaml_plan_errors = None
+        # M103: the loaded file is the clean baseline
+        self.yaml_build_page.model.changed = False
 
     def _prompt_product_information(self) -> None:
         """M44: a legacy project loaded without Product Information (no
@@ -2155,19 +2207,39 @@ class MainWindow(QMainWindow):
         self.apply_and_save_yaml()
 
     def close_yaml(self):
-        """File > Close Yaml: drop the current project and reset the
+        """File ▸ Close Yaml: drop the current project and reset the
         GUI to the factory no-yaml state (blank product info, default
         stop policies, EMPTY ICT/FCT tables - zero rows since the
         2026-10-15 direction - no rails / consoles, equipment
-        defaults, fresh Yaml Build model)."""
-        if self._project_path:
-            answer = QMessageBox.question(
-                self, "Close Yaml",
-                "Close the current YAML and reset to the factory "
-                "state?\n\nUnsaved changes are kept on disk only if "
-                "you saved before.")
+        defaults, fresh Yaml Build model).
+
+        M103: refused while a run is active, gated by ``_can_yaml_build``
+        and confirmed when the model is dirty even without a path
+        (contract §8 / §8.1 items 1–2).
+        """
+        if self._run_active:
+            QMessageBox.information(
+                self, "Run Active",
+                "A test run is active - stop it before closing the "
+                "project.")
+            return
+        if not self._can_yaml_build:
+            QMessageBox.information(
+                self, "Permission",
+                "Operator account cannot modify the YAML configuration.")
+            return
+        dirty = bool(getattr(self.yaml_build_page.model, "changed", False))
+        if self._project_path or dirty:
+            text = ("The current configuration is not saved. Discard it?"
+                    if dirty else
+                    "Close the current YAML and reset to the factory "
+                    "state?\n\nUnsaved changes are kept on disk only if "
+                    "you saved before.")
+            answer = QMessageBox.question(self, "Close Yaml", text)
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        if not self._confirm_frozen_evidence():
+            return
         self._reset_to_factory()
 
     def _reset_to_factory(self, auto: bool = False) -> None:
@@ -2206,6 +2278,8 @@ class MainWindow(QMainWindow):
         # clears imported nets / allocation / rail config, keeps the
         # factory parameter defaults)
         self.yaml_build_page.model.apply_state({})
+        # M103: the factory state is the clean baseline (no dirty prompt)
+        self.yaml_build_page.model.changed = False
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
         # the preview pane must NOT keep showing the stale document
@@ -2564,11 +2638,13 @@ class MainWindow(QMainWindow):
                 "A test run is active - stop it before loading another "
                 "project.")
             return
-        if self._project_path:
+        if self._project_path or self._model_has_content():
             answer = QMessageBox.question(
                 self, "Import ICT Workbook", self.IMPORT_CLOSE_TEXT)
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        if not self._confirm_frozen_evidence():
+            return
         self._reset_to_factory(auto=True)
         idx = self.tabs.indexOf(self._yaml_build_host)
         if idx >= 0:
@@ -2601,30 +2677,119 @@ class MainWindow(QMainWindow):
 
     def _refresh_excel_menu(self):
         """Contract §8.1 item 12: re-evaluate the gates on every open."""
-        self._apply_excel_menu_state()
+        self._apply_yaml_guards()
 
-    def _apply_excel_menu_state(self) -> None:
-        """The four Excel items' enabled state (single place)."""
-        can = self._can_yaml_build and not getattr(self, "_run_active", False)
-        self.act_import_excel.setEnabled(can)
-        self.act_import_ict_plan.setEnabled(can)
-        self.act_export_excel.setEnabled(can)
+    def _apply_yaml_guards(self) -> None:
+        """The single Yaml lock: permission **and** active-run state.
+
+        Contract §8.3: one ``editable = _can_yaml_build and not
+        _run_active`` value feeds the imports and the whole Yaml Build
+        editor; the two exports are read-only, so they follow the
+        permission alone (plus "a YAML is loaded").  Nothing else sets
+        these actions.
+        """
+        editable = self._can_yaml_build and not self._run_active
+        self.act_import_excel.setEnabled(editable)
+        self.act_import_ict_plan.setEnabled(editable)
+        # exports are read-only: allowed under a live run (§8.3 table)
+        self.act_export_excel.setEnabled(
+            self._can_yaml_build and self._project_path is not None)
         self.act_export_ict_plan.setEnabled(
-            can and self._project_path is not None
+            self._can_yaml_build and self._project_path is not None
             and not self.yaml_build_page.model.validate_all())
+        self.yaml_build_page.set_edit_allowed(editable)
+        self.yaml_build_page.channel_alloc.set_edit_allowed(editable)
+        wizard = getattr(self, "_yaml_wizard", None)
+        if wizard is not None:
+            wizard.set_run_active(self._run_active)
+
+    def _on_run_state_changed(self, state: str) -> None:
+        """M103: ``running`` / ``paused`` lock the configuration.
+
+        ``aborted`` counts as idle; ``frozen`` counts as idle after the
+        per-action confirmation (``_confirm_frozen_evidence``), so the
+        terminal states never extend the lock (contract §8.3).
+        """
+        was_active = self._run_active
+        self._run_active = state in ("running", "paused")
+        self._apply_yaml_guards()
+        if was_active and not self._run_active:
+            self._ask_pending_reload()
+
+    def _ask_pending_reload(self) -> None:
+        """Ask once about a save performed during the run (never auto).
+
+        An automatic reload would clear the verdict, the per-product
+        counters and the rail capture the operator still has to read
+        (contract §8.3 item 6).
+        """
+        path = self._pending_reload_path
+        if not path:
+            return
+        self._pending_reload_path = None
+        answer = QMessageBox.question(
+            self, "Reload Yaml",
+            "Saved during the run. Reload now? The results on screen will "
+            "be cleared.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self._reload_saved_yaml(path)
+        else:
+            self._append_event_log(
+                f"Reload skipped - use Load Yaml… to pick up {path}")
+
+    def _confirm_frozen_evidence(self) -> bool:
+        """One confirmation before discarding a safety-frozen run."""
+        if self.workflow_page._runner.state != "frozen":
+            return True
+        answer = QMessageBox.question(
+            self, "Run Ended Abnormally",
+            "The last run ended abnormally. Loading another project "
+            "discards the evidence on screen - continue?")
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _model_has_content(self) -> bool:
+        """True when the Yaml Build model carries anything worth keeping.
+
+        The startup skeleton (empty net lists + the ``column_widths``
+        UI preference) is NOT content, otherwise every first Load would
+        prompt (contract §8.2 item 14 counts real net / allocation rows).
+        """
+        model = self.yaml_build_page.model
+        nets = model.get_parsed_nets() or {}
+        if any(nets.get(key) for key in ("power_nets", "clock_nets",
+                                         "gnd_nets", "other_nets")):
+            return True
+        alloc = model.get_channel_allocation() or {}
+        if any(alloc.get(kind) for kind in ("power", "clock", "gpio")):
+            return True
+        return bool(getattr(model, "changed", False))
 
     def apply_and_save_yaml(self):
-        """File > Apply and Save Yaml: save back to the current file, then
-        reload it so the GUI state equals the file state (M44).
-
-        Without a current file (never loaded/saved) this falls back to
-        Save as new yaml."""
+        """File ▸ Save Yaml (current file): save back to the current
+        file, then reload it so the GUI state equals the file state
+        (M44).  Without a current file this falls back to Save Yaml
+        As… (contract §8.2 item 15)."""
         if not self._project_path:
             self.save_yaml_as()
             return
         path = self._project_path
         if self._save_yaml_to(path):
-            self._reload_saved_yaml(path)
+            self._after_save_reload(path)
+
+    def _after_save_reload(self, path: str) -> None:
+        """Reload after a save - deferred (never silent) during a run.
+
+        The reload starts with ``_reset_to_factory`` → ``clear_results``,
+        so doing it under a live run would wipe the run in progress
+        (contract §8.3 item 6).  The pending path is asked about once
+        the run leaves the active state.
+        """
+        if self._run_active:
+            self._pending_reload_path = path
+            self._append_event_log(
+                f"Saved during the run - reload deferred: {path}")
+            return
+        self._reload_saved_yaml(path)
 
     def _reload_saved_yaml(self, path: str) -> None:
         """M44: close the current project, clear the GUI, then load the
@@ -2669,8 +2834,8 @@ class MainWindow(QMainWindow):
             return
         if self._save_yaml_to(path):
             # M44: save-as-new takes effect -> reload the new file so the
-            # GUI state equals the file state
-            self._reload_saved_yaml(path)
+            # GUI state equals the file state (deferred during a run)
+            self._after_save_reload(path)
 
     def _ensure_product_information(self, config: dict) -> bool:
         """M45c: Product Information prompt on apply-save / save-as-new.
@@ -2768,6 +2933,8 @@ class MainWindow(QMainWindow):
                 return False
             self._project_path = path
             self.workflow_page.set_project_file(path)
+            # M103: the file now equals the model - the dirty flag clears
+            self.yaml_build_page.model.changed = False
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] Yaml saved: {path}")
             # M22b: the ONE save path also repaints every view that reads
@@ -3093,6 +3260,26 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ close
     def closeEvent(self, event):
+        # M103: Exit is refused while the rack is still driving the DUT
+        if self._run_active:
+            QMessageBox.information(
+                self, "Run Active",
+                "Stop the run before exiting - the fixture is still "
+                "driving the DUT.")
+            event.ignore()
+            return
+        # M103 (contract §8 item 3): one unsaved-changes confirmation.
+        # Only a visible window prompts - a programmatic teardown /
+        # test close with no UI on screen must not block on a modal.
+        if self.isVisible() and getattr(
+                self.yaml_build_page.model, "changed", False):
+            answer = QMessageBox.question(
+                self, "Exit",
+                "The current configuration is not saved. Discard it and "
+                "exit?")
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
         # M0 ordered cleanup: tear down child-dialog bindings and
         # instances, flush the Qt event queue (mitigates the harmless
         # macOS IMKCFRunLoopWakeUpReliable mach-port noise on exit)

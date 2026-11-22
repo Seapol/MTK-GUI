@@ -36,6 +36,9 @@ def window(qapp, tmp_path, monkeypatch):
     # every node dialog closes immediately (offscreen)
     monkeypatch.setattr(QDialog, "exec",
                         lambda dialog: QDialog.DialogCode.Rejected)
+    # the import flow may ask to close the current build - answer Yes
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
     yield w
     w.close()
     w.deleteLater()

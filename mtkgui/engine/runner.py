@@ -82,6 +82,9 @@ class TestRunner(QObject):
     # --- page bridge signals (rendering side effects) ---
     cycle_reset = Signal()
     stage_skipped = Signal(int, str)            # stage row + log text
+    # M103: every state transition funnels through _transition(), so the
+    # GUI's run-state lock hears every change from this one signal.
+    state_changed = Signal(str)                 # new state name
 
     def __init__(self, env):
         super().__init__(env if isinstance(env, QObject) else None)
@@ -185,6 +188,7 @@ class TestRunner(QObject):
         old = self.state
         self.state = new_state
         self.env._log(f"[STATE] {old} -> {new_state} (trigger={trigger})")
+        self.state_changed.emit(new_state)
 
     @property
     def can_start(self) -> bool:
