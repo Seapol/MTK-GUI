@@ -114,6 +114,14 @@ def lock_message(key: str) -> str:
     )
 
 
+def skip_message(_key: str) -> str:
+    """The read-only note of a node skipped by the design route."""
+    return (
+        "Skipped — ICT nets were parsed on import from the MTK ICT Excel "
+        "Sheet (Route C). Read-only preview."
+    )
+
+
 #: state → (border colour, glyph) for the node painting
 _STATE_STYLE = {
     "disabled": (QColor("#9aa0a6"), ""),
@@ -121,6 +129,8 @@ _STATE_STYLE = {
     "editable": (QColor("#2471a3"), ""),
     "valid":    (QColor("#1e8449"), "✓"),
     "invalid":  (QColor("#c0392b"), "✗"),
+    # M102: node 02 on Route C - enterable, read-only, auditable
+    "skipped":  (QColor("#8e8e8e"), ""),
 }
 
 
@@ -256,7 +266,17 @@ class YamlBuildFlowView(QWidget):
         painter.setBrush(colour)
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(int(dot_x), int(dot_y), int(dot), int(dot))
-        if glyph:
+        if state == "skipped":
+            # M102: the literal read-only marker replaces the glyph
+            skip_font = QFont(painter.font())
+            skip_font.setPointSizeF(7.0)
+            skip_font.setBold(False)
+            painter.setFont(skip_font)
+            painter.setPen(QColor("#6b7280"))
+            painter.drawText(
+                QRectF(rect.right() - 42.0, rect.top() + 2.0, 38.0, 18.0),
+                Qt.AlignRight | Qt.AlignVCenter, "SKIP")
+        elif glyph:
             glyph_font = QFont(painter.font())
             glyph_font.setPointSizeF(10.0)
             painter.setFont(glyph_font)

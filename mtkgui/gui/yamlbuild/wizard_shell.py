@@ -127,6 +127,11 @@ class YamlBuildWizard(QWidget):
             panel.content_changed.connect(
                 lambda: self.model.set_params("design_input",
                                               panel.values()))
+            # M102: Route C parses on import here; the result is applied
+            # to the model (nets + limits) immediately.
+            panel.mtk_sheet_imported.connect(self._apply_route_c)
+            # keep the live panel for the route read of node 02
+            self._design_panel = panel
             return panel
         if key == "parse_ict":
             from mtkgui.gui.yamlbuild.parse_nets_v2_panel import \
@@ -134,11 +139,21 @@ class YamlBuildWizard(QWidget):
             panel = ParseNetsV2Panel()
             # v2-4: Route B re-imports the ICT Excel recorded on node 01
             # (LOAD ONLY there); Route A is driven by an explicit parse.
-            design = self.model.get_params("design_input") or {}
-            if str(design.get("ict_route") or "") == "excel":
+            # M102: Route C reads the route from the LIVE node 01 values -
+            # the model only sees node 01 after its first content change.
+            design = self._design_values()
+            route = str(design.get("ict_route") or "")
+            loaded = True
+            if route == "excel":
                 excel = str(design.get("ict_excel_file") or "").strip()
                 if excel:
                     panel.load_route_b(excel)
+            elif route == "mtk_sheet":
+                mtk = str(design.get("ict_mtk_sheet_file") or "").strip()
+                if mtk:
+                    loaded, error = panel.load_route_c(mtk)
+                    if not loaded:
+                        panel.lbl_summary.setText(f"Parse failed: {error}")
             # v2-12a A: the Parse button runs a Route A parse from the raw
             # NET text recorded on node 01 (load only there).
             panel.parse_requested.connect(lambda: self._parse_route_a(panel))
@@ -148,7 +163,10 @@ class YamlBuildWizard(QWidget):
             panel.content_changed.connect(
                 lambda: self.model.set_parsed_nets(
                     _parsed_nets_dict(panel.state())))
-            self.model.set_parsed_nets(_parsed_nets_dict(panel.state()))
+            if loaded:
+                # an unreadable file must never wipe the applied nets
+                self.model.set_parsed_nets(
+                    _parsed_nets_dict(panel.state()))
             return panel
         if key == "firmware":
             from mtkgui.gui.yamlbuild.firmware_panel import \
@@ -227,6 +245,67 @@ class YamlBuildWizard(QWidget):
             fixture_type=eq.fixture.type,
             instruments=[k for k, on in eq.instruments.items() if on])
 
+    def _design_values(self) -> dict:
+        """The LIVE node 01 values (fallback: the persisted params).
+
+        The model only receives node 01 after its first
+        ``content_changed``; the route read must not depend on that.
+        """
+        panel = getattr(self, "_design_panel", None)
+        if panel is not None:
+            try:
+                return dict(panel.values())
+            except Exception:                    # noqa: BLE001 - defensive
+                pass
+        return self.model.get_params("design_input") or {}
+
+    def _design_route(self) -> str:
+        """The selected ICT input route (``files`` / ``excel`` /
+        ``mtk_sheet``)."""
+        return str(self._design_values().get("ict_route") or "files")
+
+    # ------------------------------------------------------------ parse
+    def _apply_route_c(self, result) -> None:
+        """M102: apply an imported MTK sheet (nets + allocation limits).
+
+        Fresh limits / test points come from the sheet; the operator's
+        resource cells (instrument, channel, ...) are carried over for
+        the same net so a corrected re-import keeps the channel picks.
+        """
+        from mtkgui.gui.yamlbuild.channel_allocation import (
+            UNSET, AllocatedRow)
+
+        self.model.set_parsed_nets(result.to_parsed_nets())
+        fresh = result.to_allocation_rows()
+        existing = self.model.get_channel_allocation() or {}
+        carry = ("instrument", "channel", "impedance", "power_rails",
+                 "voltage", "se_clock_hz", "band")
+        merged: dict = {}
+        for kind in ("power", "clock"):
+            previous = {
+                str(row.get("net") or ""): row
+                for row in (existing.get(kind) or [])
+                if isinstance(row, dict)}
+            rows = []
+            for data in fresh.get(kind) or []:
+                row = AllocatedRow.from_dict(data)
+                old = previous.get(row.net) or {}
+                for key in carry:
+                    value = old.get(key)
+                    if value not in (None, "", UNSET):
+                        setattr(row, key, str(value))
+                rows.append(row)
+            merged[kind] = [row.to_dict() for row in rows]
+        # Route C never seeds GPIO rows and never touches power_rails
+        merged["gpio"] = list(existing.get("gpio") or [])
+        self.model.set_channel_allocation(merged)
+        # node 02 is the read-only audit view of the same sheet
+        panel = self._panels.get("parse_ict")
+        path = str(self._design_values().get("ict_mtk_sheet_file") or "")
+        if panel is not None and path and hasattr(panel, "load_route_c"):
+            panel.load_route_c(path)
+        self._refresh()
+
     # ------------------------------------------------------------ parse
     def _parse_route_a(self, panel) -> None:
         """Run a Route A parse from the raw NET text recorded on node 01.
@@ -271,10 +350,25 @@ class YamlBuildWizard(QWidget):
         return str(design.get("fct_block_enabled", "true")).lower() \
             not in ("false", "0", "no")
 
+    def _is_skipped(self, key: str) -> bool:
+        """M102: node 02 is skipped on Route C (nets parsed on import).
+
+        A failed gate is never skipped (nothing was applied).
+        """
+        if key != "parse_ict":
+            return False
+        if self._design_route() != "mtk_sheet":
+            return False
+        nets = self.model.get_parsed_nets() or {}
+        return nets.get("gate_ok") is not False
+
     def _is_complete(self, key: str) -> bool:
-        """A node is complete when disabled (skipped), or when its
-        ``validate()`` returns ok (nodes without one are always complete)."""
+        """A node is complete when disabled (skipped), skipped by the
+        route, or when its ``validate()`` returns ok (nodes without one
+        are always complete)."""
         if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
+            return True
+        if self._is_skipped(key):
             return True
         panel = self._panels.get(key)
         validator = getattr(panel, "validate", None)
@@ -284,8 +378,11 @@ class YamlBuildWizard(QWidget):
         return True
 
     def _is_editable(self, key: str) -> bool:
-        """Editable when enabled and every prerequisite is complete."""
+        """Editable when enabled, not skipped and every prerequisite is
+        complete."""
         if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
+            return False
+        if self._is_skipped(key):
             return False
         return all(self._is_complete(p) for p in flow_view.PREREQS[key])
 
@@ -305,7 +402,8 @@ class YamlBuildWizard(QWidget):
             self._seed_build_ict(panel)
         elif key == "apply_save":
             panel.refresh()
-        editable = self._is_editable(key)
+        skipped = self._is_skipped(key)
+        editable = self._is_editable(key) and not skipped
         dlg = QDialog(self)
         dlg.setWindowTitle(sv.step_label(key))
         lay = QVBoxLayout(dlg)
@@ -317,6 +415,12 @@ class YamlBuildWizard(QWidget):
                 nxt = QLabel(flow_view.STEP_NEXT[key])
                 nxt.setProperty("tone", "info")
                 lay.addWidget(nxt)
+        elif skipped:
+            # M102: enterable + read-only, so the import can be audited
+            note = QLabel(flow_view.skip_message(key))
+            note.setWordWrap(True)
+            note.setProperty("tone", "info")
+            lay.addWidget(note)
         else:
             lock = QLabel(flow_view.lock_message(key))
             lock.setWordWrap(True)
@@ -376,6 +480,9 @@ class YamlBuildWizard(QWidget):
             key = step.key
             if not sv.is_step_enabled(key, ict_on, fct_on):
                 state = "disabled"
+            elif self._is_skipped(key):
+                # M102: checked before "editable" - Route C node 02
+                state = "skipped"
             elif not self._is_editable(key):
                 state = "locked"
             else:

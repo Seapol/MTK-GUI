@@ -103,7 +103,7 @@ def _make_sheet(path, *, power=None, voltage=None, clock=None, gnd=None,
         clk.cell(row=row, column=2, value=test_point)
         clk.cell(row=row, column=3, value=nominal)
         clk.cell(row=row, column=4, value=ppm)
-        if isinstance(clock_limits, str):
+        if isinstance(clock_limits, str) or clock_limits[index] is None:
             clk.cell(row=row, column=5,
                      value=f"=ROUND(C{row}*(1-D{row}/1000000),3)")
             clk.cell(row=row, column=6,

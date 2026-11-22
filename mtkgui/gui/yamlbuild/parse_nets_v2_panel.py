@@ -29,9 +29,10 @@ from mtkgui.ict.netparse.model import (CATEGORY_GND, CATEGORY_OTHER,
                                        CATEGORY_POWER,
                                        CATEGORY_SE_CLOCK)
 from mtkgui.ict.netparse.route_b import parse_results_sheet
+from mtkgui.ict.netparse.route_c import parse_mtk_sheet
 from mtkgui.gui.yamlbuild.parse_nets_v2 import (
-    NA, ROUTE_A, ROUTE_B, V2_COLUMNS, V2_CATEGORIES, V2ParseState,
-    collapse_route_a, collapse_route_b)
+    NA, ROUTE_A, ROUTE_B, ROUTE_C, V2_COLUMNS, V2_CATEGORIES, V2ParseState,
+    collapse_route_a, collapse_route_b, collapse_route_c)
 
 #: categories shown in the LEFT table (Parsed Nets)
 _LEFT_CATEGORIES = (CATEGORY_POWER, CATEGORY_SE_CLOCK, CATEGORY_GND)
@@ -133,6 +134,21 @@ class ParseNetsV2Panel(QWidget):
         self._render()
         return True, ""
 
+    def load_route_c(self, path: str) -> tuple[bool, str]:
+        """Load a Route C MTK ICT Excel Sheet (read-only audit view).
+
+        Returns ``(ok, error)``; ``ok=False`` means the file could not
+        be parsed and the applied nets must not be wiped.
+        """
+        try:
+            result = parse_mtk_sheet(path)
+        except ValueError as exc:
+            return False, str(exc)
+        self._state = collapse_route_c(result)
+        self._overrides = {}
+        self._render()
+        return True, ""
+
     def set_state(self, state: V2ParseState) -> None:
         self._state = state
         self._overrides = {}
@@ -167,13 +183,16 @@ class ParseNetsV2Panel(QWidget):
         left, right = self._left_rows(), self._right_rows()
         self._fill_table(self.table, left)
         self._fill_table(self.table_other, right)
-        # Route B: the right table is greyed with the named note
+        # Route B / C: the right table is greyed (read-only route)
+        read_only = self._state.route in (ROUTE_B, ROUTE_C)
         route_b = self._state.route == ROUTE_B
-        self.table_other.setEnabled(not route_b)
+        self.table_other.setEnabled(not read_only)
         self.lbl_other_note.setText(ROUTE_B_OTHER_NOTE if route_b else "")
         # Move Up / Down exist on the LEFT table only, Route A only
-        self.btn_up.setEnabled(not route_b and len(left) > 1)
-        self.btn_down.setEnabled(not route_b and len(left) > 1)
+        self.btn_up.setEnabled(not read_only and len(left) > 1)
+        self.btn_down.setEnabled(not read_only and len(left) > 1)
+        # Route C parses on node 01: no Parse control on this node
+        self.btn_parse.setVisible(self._state.route != ROUTE_C)
         if self._state.rows:
             self.lbl_summary.setText(self._state.summary())
         else:
@@ -189,13 +208,13 @@ class ParseNetsV2Panel(QWidget):
                     old.hide()
                     old.deleteLater()
         table.setRowCount(len(rows))
-        route_b = self._state.route == ROUTE_B
+        read_only = self._state.route in (ROUTE_B, ROUTE_C)
         for row_index, row in enumerate(rows):
             category = self._effective(row)
             values = (row.name, category, row.sub_type, row.test_point,
                       row.nominal, row.limits, row.confidence)
             for col, value in enumerate(values):
-                if col == 1 and not route_b:
+                if col == 1 and not read_only:
                     self._category_cell(table, row_index, row, category)
                     continue
                 item = QTableWidgetItem(value)

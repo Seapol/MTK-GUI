@@ -147,6 +147,8 @@ class DesignInputPanel(QWidget):
     task_progress = Signal(int, str)
     #: emitted after every successful import (file entry changed)
     content_changed = Signal()
+    #: M102 Route C: a parsed MTK ICT Excel Sheet (``RouteCResult``)
+    mtk_sheet_imported = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -158,6 +160,7 @@ class DesignInputPanel(QWidget):
         self.bom_records: int = 0    # parsed BOM record count
         self.bom_dnp: int = 0        # parsed BOM DNP count
         self._ict_excel_path: str = ""  # Route B workbook (LOAD ONLY)
+        self._mtk_sheet_path: str = ""  # Route C workbook (parse on import)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Expanding)
@@ -216,24 +219,30 @@ class DesignInputPanel(QWidget):
 
     # --------------------------------------------------------- block 2
     def _build_ict_block(self) -> QWidget:
-        """Block 2 — Design Files for ICT: Enable + two exclusive routes."""
+        """Block 2 — Design Files for ICT: Enable + three exclusive routes."""
         box = QGroupBox("Design Files for ICT")
         lay = QVBoxLayout(box)
         self.chk_ict = QCheckBox("Enable")
         self.chk_ict.setChecked(True)
         lay.addWidget(self.chk_ict)
 
-        # two mutually exclusive routes
+        # three mutually exclusive routes (never mixed)
         self._route_group = QButtonGroup(box)
-        self.radio_files = QRadioButton("SPF + NET + BoM")
-        self.radio_excel = QRadioButton("ICT Excel Spreadsheet")
+        self.radio_files = QRadioButton("A  SPF + NET + BoM")
+        self.radio_excel = QRadioButton("B  ICT Excel Spreadsheet")
+        self.radio_mtk = QRadioButton("C  MTK ICT Excel Sheet")
         self.radio_files.setChecked(True)
         self._route_group.addButton(self.radio_files)
         self._route_group.addButton(self.radio_excel)
-        route_row = QHBoxLayout()
-        route_row.addWidget(self.radio_files)
-        route_row.addWidget(self.radio_excel)
-        route_row.addStretch(1)
+        self._route_group.addButton(self.radio_mtk)
+        # two compact lines: the three labels do not fit the 600 px
+        # design dialog on one line once the app stylesheet is applied
+        route_row = QGridLayout()
+        route_row.addWidget(self.radio_files, 0, 0)
+        route_row.addWidget(self.radio_excel, 0, 1)
+        route_row.addWidget(self.radio_mtk, 1, 0, 1, 2)
+        route_row.setColumnStretch(2, 1)
+        route_row.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(route_row)
 
         # files route: the three import buttons + captions
@@ -271,9 +280,28 @@ class DesignInputPanel(QWidget):
         excel_lay.addLayout(excel_row)
         lay.addWidget(self._excel_route)
 
+        # Route C: one MTK-authored workbook, parsed on import
+        self._mtk_route = QWidget()
+        mtk_lay = QVBoxLayout(self._mtk_route)
+        mtk_lay.setContentsMargins(0, 0, 0, 0)
+        mtk_row = QHBoxLayout()
+        self.btn_import_mtk = QPushButton("Import MTK ICT Excel Sheet…")
+        self.btn_import_mtk.clicked.connect(self._import_mtk_sheet)
+        self.lbl_mtk = QLabel("Sheet: (not imported)")
+        self.lbl_mtk.setObjectName("muted")
+        mtk_row.addWidget(self.btn_import_mtk)
+        mtk_row.addWidget(self.lbl_mtk, 1)
+        mtk_lay.addLayout(mtk_row)
+        self.lbl_mtk_note = QLabel(
+            "Nets are parsed on import — node 02 is skipped (read-only).")
+        self.lbl_mtk_note.setObjectName("muted")
+        mtk_lay.addWidget(self.lbl_mtk_note)
+        lay.addWidget(self._mtk_route)
+
         self.chk_ict.toggled.connect(self._on_ict_toggled)
         self.radio_files.toggled.connect(self._on_route_changed)
         self.radio_excel.toggled.connect(self._on_route_changed)
+        self.radio_mtk.toggled.connect(self._on_route_changed)
         return box
 
     # --------------------------------------------------------- block 3
@@ -310,14 +338,20 @@ class DesignInputPanel(QWidget):
     def _on_route_changed(self, _button) -> None:
         """Grey / enable the right route; only the chosen files persist."""
         excel = self.radio_excel.isChecked()
-        self._files_route.setEnabled(not excel)
+        mtk = self.radio_mtk.isChecked()
+        self._files_route.setEnabled(not excel and not mtk)
         self._excel_route.setEnabled(excel)
+        self._mtk_route.setEnabled(mtk)
 
     def _on_ict_toggled(self, checked: bool) -> None:
         self.radio_files.setEnabled(checked)
         self.radio_excel.setEnabled(checked)
-        self._files_route.setEnabled(checked and not self.radio_excel.isChecked())
+        self.radio_mtk.setEnabled(checked)
+        self._files_route.setEnabled(
+            checked and not self.radio_excel.isChecked()
+            and not self.radio_mtk.isChecked())
         self._excel_route.setEnabled(checked and self.radio_excel.isChecked())
+        self._mtk_route.setEnabled(checked and self.radio_mtk.isChecked())
 
     def _on_fct_toggled(self, checked: bool) -> None:
         self.combo_board_software.setEnabled(checked)
@@ -334,6 +368,45 @@ class DesignInputPanel(QWidget):
         self._ict_excel_path = path
         self.lbl_excel.setText(f"Workbook: {_rel_path(path)}")
         self.content_changed.emit()
+
+    def _import_mtk_sheet(self) -> None:
+        """Import + parse the MTK ICT Excel Sheet (Route C).
+
+        A rejected sheet writes nothing: the path stays empty, the
+        caption stays ``Sheet: (not imported)`` and no override is
+        offered.
+        """
+        from PySide6.QtWidgets import QFileDialog
+
+        from mtkgui.ict.netparse.route_c import parse_mtk_sheet
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import MTK ICT Excel Sheet", "", "Excel (*.xlsx)")
+        if not path:
+            return
+        try:
+            result = parse_mtk_sheet(path)
+        except ValueError as exc:
+            self._reject_mtk_sheet(str(exc))
+            return
+        if not result.gate_ok:
+            self._reject_mtk_sheet(result.gate_error)
+            return
+        self._mtk_sheet_path = path
+        self.lbl_mtk.setText(f"Sheet: {_rel_path(path)}")
+        self.lbl_mtk_note.setText(result.summary())
+        self.mtk_sheet_imported.emit(result)
+        self.content_changed.emit()
+
+    def _reject_mtk_sheet(self, reason: str) -> None:
+        """Show the rejection (no override) and keep the model untouched."""
+        self.task_log.emit("ERROR", reason)
+        box = QMessageBox(self)
+        box.setWindowTitle("Cannot import MTK ICT Excel Sheet")
+        box.setText(
+            f"{reason}\n\nNo data was written. Fix the sheet and import "
+            "again.")
+        box.exec()
 
     # ------------------------------------------------------------ import
     def _import_spf(self) -> None:
@@ -603,8 +676,11 @@ class DesignInputPanel(QWidget):
             "hw_version": self.edit_hw_version.text().strip(),
             "batch": self.batch_value(),
             "ict_block_enabled": _bool_text(self.chk_ict.isChecked()),
-            "ict_route": "excel" if self.radio_excel.isChecked() else "files",
+            "ict_route": ("mtk_sheet" if self.radio_mtk.isChecked()
+                          else ("excel" if self.radio_excel.isChecked()
+                                else "files")),
             "ict_excel_file": _stored_path(self._ict_excel_path),
+            "ict_mtk_sheet_file": _stored_path(self._mtk_sheet_path),
             "fct_block_enabled": _bool_text(self.chk_fct.isChecked()),
             "dut_board_software": self.combo_board_software.currentText(),
             "fct_supported_tests": fct_tests,
@@ -630,13 +706,20 @@ class DesignInputPanel(QWidget):
             str(params.get("hw_version") or ""))
         self.set_batch(str(params.get("batch") or ""))
         self.chk_ict.setChecked(_true_text(params.get("ict_block_enabled")))
-        excel = str(params.get("ict_route") or "files") == "excel"
-        self.radio_excel.setChecked(excel)
-        self.radio_files.setChecked(not excel)
+        route = str(params.get("ict_route") or "files")
+        if route not in ("files", "excel", "mtk_sheet"):
+            route = "files"          # unknown value: old YAML keeps loading
+        self.radio_mtk.setChecked(route == "mtk_sheet")
+        self.radio_excel.setChecked(route == "excel")
+        self.radio_files.setChecked(route == "files")
         self._ict_excel_path = str(params.get("ict_excel_file") or "")
         self.lbl_excel.setText(
             f"Workbook: {self._ict_excel_path}" if self._ict_excel_path
             else "Workbook: (not imported)")
+        self._mtk_sheet_path = str(params.get("ict_mtk_sheet_file") or "")
+        self.lbl_mtk.setText(
+            f"Sheet: {self._mtk_sheet_path}" if self._mtk_sheet_path
+            else "Sheet: (not imported)")
         self.chk_fct.setChecked(_true_text(params.get("fct_block_enabled")))
         sw = str(params.get("dut_board_software") or "linux")
         if sw in ("linux", "bare_metal", "slave_daughter"):
@@ -678,7 +761,10 @@ class DesignInputPanel(QWidget):
         if not self.batch_value().strip():
             return False, "Batch # is required"
         if self.chk_ict.isChecked():
-            if self.radio_excel.isChecked():
+            if self.radio_mtk.isChecked():
+                if not self._mtk_sheet_path.strip():
+                    return False, "MTK ICT Excel Sheet is required"
+            elif self.radio_excel.isChecked():
                 if not self._ict_excel_path.strip():
                     return False, "ICT Excel Spreadsheet is required"
             else:

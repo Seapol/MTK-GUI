@@ -9,7 +9,9 @@ Other Nets = Other).
 
 Route A (SPF + NET + BoM) collapses a :class:`ParseNetsResult`; Route B
 (ICT Excel) collapses a :class:`RouteBResult` from
-:mod:`mtkgui.ict.netparse.route_b`.
+:mod:`mtkgui.ict.netparse.route_b`; Route C (MTK ICT Excel Sheet)
+collapses a :class:`RouteCResult` from
+:mod:`mtkgui.ict.netparse.route_c`.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from mtkgui.ict.netparse.model import (CATEGORY_GND, CATEGORY_OTHER,
                                        NET_TYPE_GND_REF, NET_TYPE_POWER,
                                        NET_TYPE_SIGNAL)
 from mtkgui.ict.netparse.route_b import RouteBResult
+from mtkgui.ict.netparse.route_c import RouteCResult
 
 NA = "NA"
 
@@ -35,6 +38,8 @@ V2_COLUMNS = ("Net Name", "Category", "Sub-type", "Test Point",
 
 ROUTE_A = "files"
 ROUTE_B = "excel"
+#: M102 Route C: the MTK-authored sheet, parsed on node 01
+ROUTE_C = "mtk_sheet"
 
 
 @dataclass
@@ -136,6 +141,40 @@ def collapse_route_b(result: RouteBResult) -> V2ParseState:
             nominal=net.nominal or NA,
             limits=_limits(net.min_v, net.max_v),
             confidence=NA, route=ROUTE_B))
+    return state
+
+
+def collapse_route_c(result: RouteCResult) -> V2ParseState:
+    """Collapse a Route C MTK ICT Excel Sheet parse.
+
+    The sheet is already applied by node 01, so this collapse is only
+    the read-only audit view of node 02.  Power / Clock / GND rows share
+    the ``MTK sheet`` sub-type; the gate fields travel verbatim.
+    """
+    state = V2ParseState(route=ROUTE_C,
+                         gate_ok=result.gate_ok,
+                         gate_error=result.gate_error,
+                         skipped=list(result.skipped))
+    for net in result.power:
+        state.rows.append(V2NetRow(
+            name=net.name, category=CATEGORY_POWER, sub_type="MTK sheet",
+            test_point=net.test_point or NA,
+            nominal=f"{net.nominal_v:.3f} V",
+            limits=f"{net.lower_v:.3f} / {net.upper_v:.3f} V",
+            confidence=NA, route=ROUTE_C))
+    for net in result.clock:
+        state.rows.append(V2NetRow(
+            name=net.name, category=CATEGORY_SE_CLOCK,
+            sub_type="MTK sheet",
+            test_point=net.test_point or NA,
+            nominal=f"{net.nominal_khz:.3f} kHz",
+            limits=f"{net.min_khz:.3f} / {net.max_khz:.3f} kHz",
+            confidence=NA, route=ROUTE_C))
+    for net in result.gnd:
+        state.rows.append(V2NetRow(
+            name=net.name, category=CATEGORY_GND, sub_type="MTK sheet",
+            test_point=net.test_points or NA,
+            confidence=NA, route=ROUTE_C))
     return state
 
 
