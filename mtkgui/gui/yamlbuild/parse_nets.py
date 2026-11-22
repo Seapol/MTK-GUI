@@ -24,8 +24,6 @@ package - this module only provides the Block 02 Qt panel.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -329,60 +327,9 @@ class ParseNetsPanel(QWidget):
             "block once) before syncing with the YAML.")
         return False
 
-    def _project_name(self) -> str:
-        from mtkgui.ict.netparse.export_testplan import (
-            project_name_from_path,
-        )
-        product = ""
-        if self.yaml_model is not None:
-            product = str(self.yaml_model.get_params("design_input")
-                          .get("product_id") or "").strip()
-        return product or project_name_from_path(self._net_name or "")
-
     def _log_report(self, title: str, report: list) -> None:
         for line in report:
             self.task_log.emit("INFO", f"{title}: {line}")
-
-    def export_test_plan(self) -> None:
-        """Write the workbook + evidence markdown from the current
-        parse (allowed in DRAFT - it is a design artifact)."""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
-
-        from mtkgui.ict.netparse.capacity import DEFAULT_LIMITS
-        from mtkgui.ict.netparse.export_testplan import (
-            export_testplan_pair,
-        )
-        if self.result is None:
-            QMessageBox.warning(self, "Export ICT Test Plan",
-                                "Parse the nets first.")
-            return
-        project = self._project_name()
-        default = f"ICT Test Plan for {project}.xlsx"
-        begin("parse: export testplan pick", category="ui", wait=True)
-        try:
-            path, _selected = QFileDialog.getSaveFileName(
-                self, "Export ICT Test Plan", default, "Excel (*.xlsx)")
-        finally:
-            end("parse: export testplan pick")
-        if not path:
-            return
-
-        def work(stage):
-            stage(0, "Export ICT Test Plan: writing workbook")
-            rows, sections = export_testplan_pair(
-                self.result, DEFAULT_LIMITS, path, project)
-            stage(100, "Export ICT Test Plan: done")
-            return rows, sections
-
-        written = guarded_run(self, None,
-                              "Export ICT Test Plan", work)
-        if written is None:
-            return
-        rows, sections = written
-        self.task_log.emit(
-            "INFO",
-            f"ICT Test Plan written: {path} ({rows} rows) + evidence "
-            f"({sections} nets)")
 
     def import_to_yaml(self) -> None:
         """Workbook -> project YAML (gate: project YAML + parsed data)."""
@@ -409,36 +356,6 @@ class ParseNetsPanel(QWidget):
         if guarded_run(self, None, "Import to YAML", work) is not True:
             return
         self._log_report("import to YAML",
-                         self.yaml_model.testplan_sync_report)
-
-    def export_from_yaml(self) -> None:
-        """Project YAML -> workbook + evidence markdown."""
-        from PySide6.QtWidgets import QFileDialog
-
-        from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
-        if not self._sync_allowed("Export from YAML"):
-            return
-        default = f"ICT Test Plan for {self._project_name()}.xlsx"
-        begin("parse: export from yaml pick", category="ui", wait=True)
-        try:
-            path, _selected = QFileDialog.getSaveFileName(
-                self, "Export from YAML", default, "Excel (*.xlsx)")
-        finally:
-            end("parse: export from yaml pick")
-        if not path:
-            return
-        md_path = str(Path(path).with_name(
-            Path(path).stem + "_evidence.md"))
-
-        def work(stage):
-            stage(0, "Export from YAML: writing workbook")
-            yaml_to_testplan(self.yaml_model, path, md_path)
-            stage(100, "Export from YAML: done")
-            return True
-
-        if guarded_run(self, None, "Export from YAML", work) is not True:
-            return
-        self._log_report("export from YAML",
                          self.yaml_model.testplan_sync_report)
 
     # ---------------------------------------------------------- item 24

@@ -10,11 +10,6 @@ from __future__ import annotations
 
 from openpyxl import Workbook, load_workbook
 
-from mtkgui.gui.yamlbuild.excel_io import (
-    SHEET_NAME as PARAM_SHEET,
-    export_to_excel,
-    import_from_excel,
-)
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild.power_alloc import GPIO_DIO_CHANNELS
 from mtkgui.gui.yamlbuild.testplan_sync import (
@@ -102,21 +97,6 @@ def _cell_of(path, sheet, net, column=0) -> str:
     raise AssertionError(f"{net} missing from {sheet}")
 
 
-def _setup_model(path) -> YamlBuildModel:
-    """Import the sample workbook and fill the fields the GUI would fill."""
-    model = YamlBuildModel()
-    import_plan(model, path)
-    model.set_params("design_input", {
-        "product_id": "IMXRT700", "part_number": "MTK12345",
-        "sw_version": "1.2.3", "hw_version": "A",
-        "batch": "MP (Production)"})
-    model.set_params("instruments", {
-        "psu_visa": "TCPIP0::192.168.1.20::inst0",
-        "daq_visa": "GPIB0::9::INSTR", "dmm_visa": "",
-        "self_test": "true"})
-    return model
-
-
 # ------------------------------------------------------------------ tests
 def test_workbook_only_import_keeps_every_row_and_point(tmp_path):
     model = YamlBuildModel()
@@ -134,27 +114,6 @@ def test_reexport_writes_every_sheet_row_and_all_five_points(tmp_path):
     assert _counts(out) == EXPECTED_PER_SHEET
     assert _cell_of(out, SHEET_POWER, "DC_5V_IN", column=0) == "DC_5V_IN"
     assert _cell_of(out, SHEET_POWER, "DC_5V_IN", column=1) == " ".join(POINTS)
-
-
-def test_excel_numeric_edit_is_applied_without_touching_allocation(tmp_path):
-    model = _setup_model(_build_workbook(tmp_path / "in.xlsx"))
-    params = str(tmp_path / "params.xlsx")
-    export_to_excel(model, params)
-    before_allocation = model.get_channel_allocation()
-
-    workbook = load_workbook(params)
-    ws = workbook[PARAM_SHEET]
-    row = next(r for r in range(2, ws.max_row + 1)
-               if ws.cell(row=r, column=3).value == "on_voltage_v")
-    ws.cell(row=row, column=4).value = "7.5"
-    workbook.save(params)
-
-    report = import_from_excel(model, params)
-    assert report.applied, report.errors
-    assert report.errors == []
-    assert report.applied_changes == ["YamlBuild rails.on_voltage_v"]
-    assert model.get_params("rails")["on_voltage_v"] == "7.5"
-    assert model.get_channel_allocation() == before_allocation
 
 
 def test_two_round_trips_keep_the_same_row_counts(tmp_path):

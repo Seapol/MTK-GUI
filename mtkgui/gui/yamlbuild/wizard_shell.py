@@ -517,3 +517,30 @@ class YamlBuildWizard(QWidget):
         self.current = key
         self.visited.add(key)
         self._refresh()
+
+    # ------------------------------------------------- public entry points
+    def open_step(self, key: str) -> None:
+        """Open one node's dialog (read-only when the node is locked).
+
+        The ``File ▸ Excel`` imports use this to land the operator on
+        node 01 after the factory reset.
+        """
+        self._open_step_dialog(key)
+
+    def select_route(self, route: str) -> None:
+        """Check a Design Input route radio: ``files`` / ``excel`` /
+        ``mtk_sheet``.
+
+        Only the radio state changes here; the route is persisted by
+        node 01's own ``content_changed`` when the operator edits it
+        (an import through the panel does so immediately).
+        """
+        if route not in ("files", "excel", "mtk_sheet"):
+            return
+        panel = getattr(self, "_design_panel", None)
+        if panel is None:
+            return
+        button = {"files": panel.radio_files, "excel": panel.radio_excel,
+                  "mtk_sheet": panel.radio_mtk}[route]
+        button.setChecked(True)
+        panel._on_route_changed(None)

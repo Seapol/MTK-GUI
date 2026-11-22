@@ -1083,11 +1083,11 @@ class MainWindow(QMainWindow):
         host_lay = QVBoxLayout(host)
         host_lay.setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
-        for text, slot in (("Import from Excel", yb._import_excel),
-                           ("Export to Excel", yb._export_excel)):
-            btn = QPushButton(text)
-            btn.clicked.connect(slot)
-            bar.addWidget(btn)
+        # M103: the config workbook is export-only (the import entry is
+        # gone); the button stays as the in-page shortcut
+        btn = QPushButton("Export to Excel")
+        btn.clicked.connect(yb._export_excel)
+        bar.addWidget(btn)
         bar.addStretch(1)
         host_lay.addLayout(bar)
         host_lay.addWidget(self._yaml_wizard, 1)
@@ -1115,10 +1115,8 @@ class MainWindow(QMainWindow):
         self._yaml_build_page.set_virtual(self.mode == "Virtual")
         self._yaml_build_page.channel_alloc.set_edit_allowed(
             self._can_yaml_build)
-        self.act_import_excel.setEnabled(self._can_yaml_build)
-        self.act_export_excel.setEnabled(self._can_yaml_build)
-        self.act_export_ict_plan.setEnabled(self._can_yaml_build)
-        self.act_import_ict_plan.setEnabled(self._can_yaml_build)
+        # M103: the four Excel items have one enabled-state owner
+        self._apply_excel_menu_state()
         self._equipment_page.set_config_allowed(self._can_equipment_config)
         self._equipment_page.set_mode(self.mode)
         self._equipment_page.set_manual_fixture(self._manual_fixture)
@@ -1143,32 +1141,43 @@ class MainWindow(QMainWindow):
         # bar moves them to the top of the screen and the window shows none
         self.menuBar().setNativeMenuBar(False)
         file_menu = self.menuBar().addMenu("File")
+        # a Python reference keeps the wrapper (and its submenus) alive
+        self._file_menu = file_menu
         self.act_load_yaml = file_menu.addAction(
             "Load Yaml…", self.load_yaml)
+        # M103: the menu (write to the current file) and node 07
+        # (publish Draft + archive) had one label for two behaviours
         self.act_save_yaml = file_menu.addAction(
-            "Apply and Save Yaml", self.apply_and_save_yaml)
+            "Save Yaml (current file)", self.apply_and_save_yaml)
+        self.act_save_yaml.setToolTip(
+            "No current file yet - this opens Save Yaml As…")
         self.act_save_yaml_as = file_menu.addAction(
-            "Save as Yaml…", self.save_yaml_as)
+            "Save Yaml As… (current file)", self.save_yaml_as)
         self.act_close_yaml = file_menu.addAction(
             "Close Yaml", self.close_yaml)
-        # M19d: the Yaml Build page buttons are gone - Excel import /
-        # export live here (permission-gated like the old buttons)
-        self.act_import_excel = file_menu.addAction(
-            "Import from Excel…", self._import_excel_menu)
-        self.act_export_excel = file_menu.addAction(
-            "Export to Excel…", self._export_excel_menu)
-        # M19e: ICT Test Plan workbook <-> YAML sync (was the four
-        # Parse-Nets buttons)
-        self.act_export_ict_plan = file_menu.addAction(
-            "Export ICT Test plan from Yaml to Excel",
-            self._export_ict_plan_menu)
-        self.act_import_ict_plan = file_menu.addAction(
-            "Import ICT Test from Excel to Yaml",
-            self._import_ict_plan_menu)
+        file_menu.addSeparator()
+        # M103: one Excel submenu (contract §7).  The four items keep
+        # the _can_yaml_build gate; Export MTK ICT Sheet also needs a
+        # loaded YAML whose validate_all() is empty (re-checked on
+        # every submenu open - contract §8.1 item 12).
+        self._excel_menu = file_menu.addMenu("Excel")
+        self.act_export_excel = self._excel_menu.addAction(
+            "Export Config Workbook…", self._export_excel_menu)
+        self.act_import_ict_plan = self._excel_menu.addAction(
+            "Import Traditional ICT Test Plan…",
+            self._import_traditional_plan_menu)
+        self.act_import_excel = self._excel_menu.addAction(
+            "Import MTK ICT Sheet (Route C)…",
+            self._import_mtk_sheet_menu)
+        self.act_export_ict_plan = self._excel_menu.addAction(
+            "Export MTK ICT Sheet (Route C)…",
+            self._export_mtk_sheet_menu)
+        self._excel_menu.aboutToShow.connect(self._refresh_excel_menu)
         file_menu.addSeparator()
         self.act_switch = file_menu.addAction(
             "Switch Account…", self.switch_account)
-        file_menu.addAction("Exit", self.close)
+        file_menu.addSeparator()
+        self.act_exit = file_menu.addAction("Exit", self.close)
 
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(
@@ -2524,107 +2533,85 @@ class MainWindow(QMainWindow):
         the GUI state equals the file state."""
         self.apply_and_save_yaml()
 
-    def _import_excel_menu(self):
-        """File > Import from Excel… (the page button is gone, M19d)."""
-        self.yaml_build_page._import_excel()
-
     def _export_excel_menu(self):
-        """File > Export to Excel… (the page button is gone, M19d)."""
+        """File ▸ Excel ▸ Export Config Workbook… (export only, M103)."""
         self.yaml_build_page._export_excel()
 
-    def _export_ict_plan_menu(self):
-        """File > Export ICT Test plan from Yaml to Excel: write the
-        workbook + evidence markdown from the CURRENT project YAML
-        (user direction 2026-10-25; the four Parse-Nets buttons are
-        gone)."""
-        from PySide6.QtWidgets import QFileDialog
+    #: contract §8.1 item 11 - the import close confirmation
+    IMPORT_CLOSE_TEXT = (
+        "This closes the current Yaml. The new project starts from an "
+        "empty build; cancelling the import does not restore the "
+        "previous one.")
 
-        from mtkgui.gui.yamlbuild.testplan_sync import yaml_to_testplan
-        model = self.yaml_build_page.model
-        if not (model.imported or {}).get("testable_nets"):
+    def _import_traditional_plan_menu(self):
+        """File ▸ Excel ▸ Import Traditional ICT Test Plan… (Route B).
+
+        One-way into a NEW build: close → factory reset → node 01 with
+        Route B preselected.  Never applies the workbook to an
+        existing model (contract §7).
+        """
+        self._start_import_build("excel")
+
+    def _import_mtk_sheet_menu(self):
+        """File ▸ Excel ▸ Import MTK ICT Sheet (Route C)…"""
+        self._start_import_build("mtk_sheet")
+
+    def _start_import_build(self, route: str) -> None:
+        """Shared Import flow: close-confirm → reset → node 01 + route."""
+        if getattr(self, "_run_active", False):
             QMessageBox.warning(
-                self, "Export ICT Test plan",
-                "No parsed ICT data in the project YAML - parse the "
-                "nets first.")
+                self, "Run Active",
+                "A test run is active - stop it before loading another "
+                "project.")
             return
-        default = (f"ICT Test Plan for "
-                   f"{self.yaml_build_page._project_name()}.xlsx")
-        path, _selected = QFileDialog.getSaveFileName(
-            self, "Export ICT Test plan from Yaml to Excel",
-            default, "Excel (*.xlsx)")
-        if not path:
-            return
-        md_path = str(Path(path).with_name(
-            Path(path).stem + "_evidence.md"))
-        from mtkgui.gui.progress_dialog import guarded_run
+        if self._project_path:
+            answer = QMessageBox.question(
+                self, "Import ICT Workbook", self.IMPORT_CLOSE_TEXT)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._reset_to_factory(auto=True)
+        idx = self.tabs.indexOf(self._yaml_build_host)
+        if idx >= 0:
+            self.tabs.setCurrentIndex(idx)
+        wizard = self._yaml_wizard
+        wizard.goto("design_input")
+        wizard.select_route(route)
+        wizard.open_step("design_input")
 
-        def work(stage):
-            stage(0, "Export ICT Test plan: writing workbook")
-            yaml_to_testplan(model, path, md_path)
-            stage(100, "Export ICT Test plan: done")
-            return True
+    def _export_mtk_sheet_menu(self):
+        """File ▸ Excel ▸ Export MTK ICT Sheet (Route C)….
 
-        if guarded_run(self, None, "Export ICT Test plan",
-                       work) is not True:
-            return
-        report = list(getattr(model, "testplan_sync_report", None)
-                      or [])
-        for line in report:
-            self._append_event_log(f"export ICT Test plan: {line}")
-
-    def _import_ict_plan_menu(self):
-        """File > Import ICT Test from Excel to Yaml.
-
-        Guides the user to NEW or OVERWRITE the project YAML; an
-        overwrite replaces ONLY the ICT portion (power rails / channel
-        allocation / clocks / control IO / DNT) - every other YAML
-        section stays untouched (user direction 2026-10-25)."""
-        from PySide6.QtWidgets import QFileDialog
-
-        from mtkgui.gui.progress_dialog import guarded_run
-        from mtkgui.gui.yamlbuild.testplan_sync import testplan_to_yaml
-        path, _selected = QFileDialog.getOpenFileName(
-            self, "Import ICT Test from Excel to Yaml",
-            "", "Excel (*.xlsx)")
-        if not path:
-            return
-        model = self.yaml_build_page.model
+        Rule R14a: jump to node 07 and call its export handler - the
+        writer is never re-implemented here.
+        """
         if not self._project_path:
-            answer = QMessageBox.question(
-                self, "Import ICT Test",
-                "No project YAML is loaded.\n\nCreate a NEW YAML from "
-                "this Test Plan?")
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            mode = "new"
-        else:
-            answer = QMessageBox.question(
-                self, "Import ICT Test",
-                "Overwrite the ICT portion of the current YAML?\n\n"
-                "Only the ICT section (power / clocks / control IO / "
-                "limits / channels) is replaced - all other sections "
-                "stay unchanged.")
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            mode = "overwrite"
-
-        def work(stage):
-            stage(0, "Import ICT Test: reading workbook")
-            testplan_to_yaml(model, path, None, None, overwrite=True)
-            stage(100, "Import ICT Test: done")
-            return True
-
-        if guarded_run(self, None, "Import ICT Test", work) is not True:
+            QMessageBox.information(
+                self, "Export MTK ICT Sheet",
+                "Load a project YAML before exporting the MTK ICT Sheet.")
             return
-        report = list(getattr(model, "testplan_sync_report", None)
-                      or [])
-        for line in report:
-            self._append_event_log(f"import ICT Test: {line}")
-        self.yaml_build_page.refresh_all()
-        if mode == "new":
-            self.save_yaml_as()
-        else:
-            self._save_yaml_to(self._project_path)
+        errors = list(self.yaml_build_page.model.validate_all())
+        if errors:
+            QMessageBox.warning(self, "Cannot export", "\n".join(errors))
+            return
+        self._yaml_wizard.goto("apply_save")
+        panel = self._yaml_wizard._panels.get("apply_save")
+        handler = getattr(panel, "export_mtk_sheet_dialog", None)
+        if callable(handler):
+            handler()
+
+    def _refresh_excel_menu(self):
+        """Contract §8.1 item 12: re-evaluate the gates on every open."""
+        self._apply_excel_menu_state()
+
+    def _apply_excel_menu_state(self) -> None:
+        """The four Excel items' enabled state (single place)."""
+        can = self._can_yaml_build and not getattr(self, "_run_active", False)
+        self.act_import_excel.setEnabled(can)
+        self.act_import_ict_plan.setEnabled(can)
+        self.act_export_excel.setEnabled(can)
+        self.act_export_ict_plan.setEnabled(
+            can and self._project_path is not None
+            and not self.yaml_build_page.model.validate_all())
 
     def apply_and_save_yaml(self):
         """File > Apply and Save Yaml: save back to the current file, then

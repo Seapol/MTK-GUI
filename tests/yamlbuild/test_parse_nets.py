@@ -472,27 +472,10 @@ def test_import_to_yaml_lazy_parses_and_syncs(panel, tmp_path,
     assert any("import to YAML" in msg for msg in logs)
 
 
-def test_export_from_yaml_reopened_dialog(panel, tmp_path, monkeypatch):
-    """Reopened dialog (model applied earlier, no parse inside this
-    instance): Export from YAML writes the workbook + evidence md."""
-    model = YamlBuildModel()
-    model.imported["testable_nets"] = {
-        "3V3": {"category": "Power", "members": ["U1.5", "U2.VOUT"]}}
-    panel.set_yaml_model(model)
-    out = str(tmp_path / "out.xlsx")
-    warnings, logs = [], []
-    monkeypatch.setattr(QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or 0)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName",
-                        lambda *a, **k: (out, ""))
-    panel.task_log.connect(lambda _lvl, msg: logs.append(msg))
-
-    panel.export_from_yaml()
-
-    assert warnings == []
-    assert Path(out).exists()
-    assert Path(out).with_name("out_evidence.md").exists()
-    assert any("export from YAML" in msg for msg in logs)
+def test_export_from_yaml_entry_is_gone(panel):
+    """M103: the Parse-Nets workbook export lost its UI entry."""
+    assert not hasattr(panel, "export_from_yaml")
+    assert not hasattr(panel, "export_test_plan")
 
 
 # ---------------------------------------- GUI-FIX2 F2: rank ordering

@@ -57,8 +57,7 @@ from mtkgui.gui.yamlbuild.channel_allocation import ChannelAllocationPage
 from mtkgui.gui.dialog_sizing import wrap_page
 from mtkgui.gui.progress_dialog import ProgressBridge
 from mtkgui.startup_timing import begin, end
-from mtkgui.gui.yamlbuild.excel_io import export_to_excel, \
-    import_from_excel
+from mtkgui.gui.yamlbuild.excel_io import export_to_excel
 from mtkgui.gui.yamlbuild.model import YamlBuildModel, available_ops
 from mtkgui.gui.yamlbuild.publish import (
     archive_copy,
@@ -1275,44 +1274,6 @@ class YamlBuildPage(QWidget):
             self, "Export to Excel",
             f"Exported {rows} rows to {path}")
         end("yamlbuild: export excel")
-
-    def _import_excel(self) -> None:
-        """Import a workbook with full-workbook validation (invalid
-        rows abort the import with the error list).  Long-task aware
-        (T6): global progress + Event-Log step detail, failures with
-        the exact row reasons."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import from Excel", "", "Excel (*.xlsx)")
-        if not path:
-            return
-        begin("yamlbuild: import excel")
-        self._task(0, "import: reading workbook")
-        self._tlog("INFO", f"Excel import started: {Path(path).name}")
-        self._task(40, "import: validating + applying rows")
-        report = import_from_excel(self.model, path)
-        if report.errors:
-            # precise failure reasons (first rows), no silent fail
-            for err in report.errors[:5]:
-                self._tlog("ERROR", f"Excel import rejected: {err}")
-            self._task(0, "import: idle")
-            QMessageBox.warning(
-                self, "Import Rejected",
-                "The workbook was not applied:\n"
-                + "\n".join(report.errors[:20])
-                + (f"\n... and {len(report.errors) - 20} more"
-                   if len(report.errors) > 20 else ""))
-            end("yamlbuild: import excel")
-            return
-        self._after_model_change()      # parse -> project view refresh
-        self._task(100, "import: done")
-        summary = (f"Applied {len(report.applied_changes)} limit change(s); "
-                   f"Ignored {len(report.ignored_changes)} read-only "
-                   f"change(s)")
-        self._tlog("INFO", f"Excel import done: {summary} "
-                           f"from {Path(path).name}")
-        QMessageBox.information(
-            self, "Import from Excel", f"{summary}\n\n{path}")
-        end("yamlbuild: import excel")
 
     # ------------------------------------------------------- publishing
     def _publish(self, kind: str) -> None:
