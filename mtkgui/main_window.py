@@ -1314,24 +1314,17 @@ class MainWindow(QMainWindow):
         self.report_menu = self.menuBar().addMenu("Report")
         self.report_menu.addAction("DUT Report",
                                    self._open_dut_report_folder)
-        self.report_menu.addAction("Event Log",
+        self.report_menu.addAction("Event Log Folder…",
                                    self._open_report_event_log)
         # M96: 'DAQ CSV Data' opened the very same folder as 'DUT Report'
         # (the DAQ captures live inside the per-DUT identity folders) and
         # the folder configuration moved to Settings > Report Folders….
         self.report_menu.addAction("Statistics", self._open_statistics)
-        # 2026-10-27 user direction: SharePoint upload is temporarily
-        # DISABLED for the general operator (the browser-session import
-        # flow is too involved for the shop floor).  Keep the handler;
-        # re-enable with setEnabled(True) once a simpler path is
-        # approved by IT.
+        # 2026-11 user direction: SharePoint upload is re-enabled for the
+        # Supervisor (the browser-session import is an engineer/setup task).
+        # The enabled state and tooltip are set in apply_permissions.
         self.sp_upload_action = self.report_menu.addAction(
             "SharePoint Upload…", self._open_sharepoint_upload)
-        self.sp_upload_action.setEnabled(False)
-        self.sp_upload_action.setToolTip(
-            "Temporarily disabled (2026-10-27): SharePoint upload is "
-            "turned off for the general operator. Re-enable in "
-            "main_window.py when a simpler path is approved.")
 
         # ------------------------------------------------ V4.0: Help menu
         # Help stays the rightmost menu of the fixed final order; the
@@ -1647,31 +1640,19 @@ class MainWindow(QMainWindow):
             f"{report_paths.event_log_path().parent}", "IMPORTANT")
 
     def _open_report_event_log(self):
-        """Report > Event Log: open the Event Log folder - the session
-        .log auto-save files land in <station root>/logs/event (v2/C3)."""
+        """Report > Event Log Folder…: open the Event Log folder - the
+        session .log auto-save files land in <station root>/logs/event
+        (v2/C3)."""
         from mtkgui import report_paths
         self._open_report_dir(
-            report_paths.event_log_path().parent, "Event Log")
+            report_paths.event_log_path().parent, "Event Log Folder")
 
     def _open_sharepoint_upload(self):
         """Report > SharePoint Upload…: site link + connectivity test +
         local folder + upload mode (real-time sync / packaged upload
         with a period).  Virtual mode drives the FakeSharePoint
         transport (demo), Real mode talks HTTP to the configured site.
-        The 30 s auto-drive runs while the dialog is open.
-
-        Temporarily disabled (2026-10-27) - the guard below keeps the
-        handler from opening even if the menu item is re-enabled by
-        another path."""
-        if not (getattr(self, "sp_upload_action", None)
-                and self.sp_upload_action.isEnabled()):
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "SharePoint Upload",
-                "SharePoint upload is temporarily disabled for the "
-                "general operator (2026-10-27).\n\nRe-enable it in "
-                "main_window.py when a simpler path is approved.")
-            return
+        The 30 s auto-drive runs while the dialog is open."""
         from .gui.sharepoint_upload_dialog import SharePointUploadDialog
         dlg = SharePointUploadDialog(
             self, virtual=self.workflow_page.virtual_mode)
@@ -1739,6 +1720,10 @@ class MainWindow(QMainWindow):
         self.act_permissions.setVisible(supervisor)
         self.act_report_folders.setEnabled(supervisor)
         self.act_report_folders.setToolTip(
+            "" if supervisor else "Supervisor only")
+        # M104: SharePoint upload is a supervisor setup task
+        self.sp_upload_action.setEnabled(supervisor)
+        self.sp_upload_action.setToolTip(
             "" if supervisor else "Supervisor only")
         self.workflow_page.apply_permissions(perm, supervisor)
         # Yaml Build page (the YAML config editor): operator accounts
