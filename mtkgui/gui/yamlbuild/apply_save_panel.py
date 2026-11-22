@@ -214,7 +214,7 @@ class ApplySavePanel(QWidget):
         self.lbl_saved.setText(f"Saved: {path}\nArchived: {archive}")
         self.content_changed.emit()
 
-    def export_mtk_sheet_dialog(self) -> None:
+    def export_sheet_dialog(self) -> None:
         """The node 07 export entry (also called from ``File ▸ Excel``).
 
         One implementation for both entry points (rule R14a): validate,
@@ -248,7 +248,7 @@ class ApplySavePanel(QWidget):
         self.lbl_saved.setText(f"Exported: {path} ({rows} data rows)")
 
     def _on_export_sheet(self) -> None:
-        self.export_mtk_sheet_dialog()
+        self.export_sheet_dialog()
 
     def _on_save_as(self) -> None:
         if self._model is None:

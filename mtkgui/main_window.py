@@ -2627,7 +2627,7 @@ class MainWindow(QMainWindow):
         self._start_import_build("excel")
 
     def _import_mtk_sheet_menu(self):
-        """File ▸ Excel ▸ Import MTK ICT Sheet (Route C)…"""
+        """File ▸ Excel ▸ the Route C import entry."""
         self._start_import_build("mtk_sheet")
 
     def _start_import_build(self, route: str) -> None:
@@ -2671,7 +2671,7 @@ class MainWindow(QMainWindow):
             return
         self._yaml_wizard.goto("apply_save")
         panel = self._yaml_wizard._panels.get("apply_save")
-        handler = getattr(panel, "export_mtk_sheet_dialog", None)
+        handler = getattr(panel, "export_sheet_dialog", None)
         if callable(handler):
             handler()
 
