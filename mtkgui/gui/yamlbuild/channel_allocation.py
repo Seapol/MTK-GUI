@@ -249,6 +249,12 @@ class AllocatedRow:
     nominal_khz: str = UNSET
     lower_khz: str = UNSET
     upper_khz: str = UNSET
+    # M102: clock-only provenance (Route C).  ``tolerance_ppm`` keeps
+    # Clock!D for documentation / re-export; ``limits_source`` is
+    # "" / UNSET for the symmetric ppm path and "manual" when the
+    # operator overrode Clock!E / F with constants.
+    tolerance_ppm: str = UNSET
+    limits_source: str = UNSET
 
     def to_dict(self) -> dict:
         """Persistable plain dict (only the relevant keys per kind are
@@ -269,6 +275,8 @@ class AllocatedRow:
             "nominal_khz": self.nominal_khz,
             "lower_khz": self.lower_khz,
             "upper_khz": self.upper_khz,
+            "tolerance_ppm": self.tolerance_ppm,
+            "limits_source": self.limits_source,
         }
 
     @classmethod
@@ -281,7 +289,8 @@ class AllocatedRow:
                     "digital_input", "digital_output",
                     "r_gnd_min_ohm",
                     "nominal_v", "lower_v", "upper_v",
-                    "nominal_khz", "lower_khz", "upper_khz"):
+                    "nominal_khz", "lower_khz", "upper_khz",
+                    "tolerance_ppm", "limits_source"):
             if data.get(key):
                 setattr(row, key, str(data[key]))
         return row
