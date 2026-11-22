@@ -297,7 +297,14 @@ def _read_clock(ws, result: RouteCResult) -> list[tuple]:
         raw_tolerance = ws.cell(row=row, column=4).value
         raw_lower = ws.cell(row=row, column=5).value
         raw_upper = ws.cell(row=row, column=6).value
-        if _is_plain_number(raw_lower) and _is_plain_number(raw_upper):
+        lower_plain = _is_plain_number(raw_lower)
+        upper_plain = _is_plain_number(raw_upper)
+        if lower_plain != upper_plain:
+            # an override is a PAIR: one constant + one formula would
+            # silently re-symmetrise half of the window
+            raise ValueError(
+                f"Clock limits must be overridden as a pair: {name}")
+        if lower_plain and upper_plain:
             # the legal manual path: hand-authored asymmetric limits
             lo = float(raw_lower)
             hi = float(raw_upper)
@@ -336,8 +343,10 @@ def _read_info(ws) -> list[RouteCGndNet]:
             break
         if not name:
             raise ValueError(f"Net name is empty in Info row {row}")
-        if not points:
-            raise ValueError(f"Test point is empty in Info row {row}")
+        # rule R9: the GND test point is optional - the sample writes
+        # "— (no test point)" and an empty cell means the same
+        if _no_test_point(points):
+            points = ""
         nets.append(RouteCGndNet(name=name, test_points=points))
     return nets
 
@@ -405,6 +414,12 @@ def _text(value) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _no_test_point(text: str) -> bool:
+    """True when an Info GND cell means "no probe point" (rule R9)."""
+    return " ".join(text.split()).casefold() in (
+        "", "\u2014 (no test point)", "- (no test point)")
 
 
 def _as_float(value) -> float | None:

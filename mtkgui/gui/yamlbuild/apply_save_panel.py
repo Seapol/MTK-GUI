@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -27,6 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild import steps_v2
+from mtkgui.gui.yamlbuild.mtk_sheet_writer import (
+    default_mtk_sheet_name,
+    export_mtk_sheet,
+)
 from mtkgui.gui.yamlbuild.publish import (
     archive_copy,
     build_plan_document,
@@ -129,12 +134,16 @@ class ApplySavePanel(QWidget):
         self.btn_apply.clicked.connect(self._on_apply)
         self.btn_save_as = QPushButton("Save as new yaml")
         self.btn_save_as.clicked.connect(self._on_save_as)
+        self.btn_export_sheet = QPushButton("Export MTK ICT Excel Sheet\u2026")
+        self.btn_export_sheet.clicked.connect(self._on_export_sheet)
         buttons.addWidget(self.btn_apply)
         buttons.addWidget(self.btn_save_as)
+        buttons.addWidget(self.btn_export_sheet)
         root.addLayout(buttons)
 
         self.btn_apply.setEnabled(False)
         self.btn_save_as.setEnabled(False)
+        self.btn_export_sheet.setEnabled(False)
 
     # ------------------------------------------------------------ binding
     def set_values(self, model) -> None:
@@ -181,6 +190,7 @@ class ApplySavePanel(QWidget):
             self.lbl_errors.setText("")
         self.btn_apply.setEnabled(not errors)
         self.btn_save_as.setEnabled(not errors)
+        self.btn_export_sheet.setEnabled(not errors)
         try:
             self.edit_target.setText(plan_filename(self._model, "draft"))
         except ValueError:
@@ -203,6 +213,42 @@ class ApplySavePanel(QWidget):
         self.lbl_saved.setStyleSheet("")
         self.lbl_saved.setText(f"Saved: {path}\nArchived: {archive}")
         self.content_changed.emit()
+
+    def export_mtk_sheet_dialog(self) -> None:
+        """The node 07 export entry (also called from ``File ▸ Excel``).
+
+        One implementation for both entry points (rule R14a): validate,
+        pick the R16 default filename, write the fresh four-sheet
+        workbook.
+        """
+        if self._model is None:
+            return
+        errors = list(self._model.validate_all())
+        if errors:
+            QMessageBox.warning(self, "Cannot export", "\n".join(errors))
+            return
+        try:
+            default_name = default_mtk_sheet_name(self._model)
+        except Exception:          # noqa: BLE001 - never abort the dialog
+            default_name = "MTK_ICT_sheet.xlsx"
+        picked, _filter = QFileDialog.getSaveFileName(
+            self, "Export MTK ICT Excel Sheet",
+            str(_work_dir() / default_name), "Excel (*.xlsx)")
+        if not picked:
+            return
+        path = Path(picked)
+        if path.suffix.lower() != ".xlsx":
+            path = path.with_suffix(".xlsx")
+        try:
+            rows = export_mtk_sheet(self._model, str(path))
+        except (ValueError, OSError) as exc:
+            QMessageBox.critical(self, "Export Failed", str(exc))
+            return
+        self.lbl_saved.setStyleSheet("")
+        self.lbl_saved.setText(f"Exported: {path} ({rows} data rows)")
+
+    def _on_export_sheet(self) -> None:
+        self.export_mtk_sheet_dialog()
 
     def _on_save_as(self) -> None:
         if self._model is None:
