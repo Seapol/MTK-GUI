@@ -21,6 +21,15 @@ Design:
   * ledger + audit   — every attempt logged ``[UPLOAD]`` and recorded
                        in the JSON ledger (traceable book-keeping)
 
+  * session & re-login — Real mode reuses the operator's own
+    SharePoint session (``FedAuth`` / ``rtFa`` cookies).  The station
+    signs in ONCE through the embedded WebEngine window
+    (``SharePointSignInDialog``); MTK GUI stores no password.  When the
+    tenant / MCAS proxy expires the session, the next probe reports
+    401/403 and the operator re-signs in the same window.  Pending
+    files never leave the local outbox while the session is invalid, so
+    a stale session cannot lose data.
+
 Zero changes to the test flow, reports, metrics engine or archive.
 """
 from __future__ import annotations
@@ -321,7 +330,17 @@ class SharePointRestTransport:
         return data if isinstance(data, dict) else {}
 
     def _digest_value(self, refresh: bool = False) -> str:
-        """Form digest from ``_api/contextinfo`` (``X-RequestDigest``)."""
+        """Form digest from ``_api/contextinfo`` (``X-RequestDigest``).
+
+        Known limitation (NXP + MCAS proxy): on tenants where SharePoint
+        REST is fronted by an MCAS proxy, ``contextinfo`` answers with an
+        HTML ``Continue`` interstitial (a browser JavaScript handshake)
+        instead of JSON.  ``urllib`` cannot run that handshake, so
+        ``FormDigestValue`` stays empty and the upload is blocked even
+        though the session is still valid.  The ``session may have
+        expired`` wording below is therefore misleading in that case -
+        genuine expiry surfaces as HTTP 401/403 on the probe instead.
+        """
         if self._digest and not refresh:
             return self._digest
         _, body = self._request("GET", self._api("contextinfo"))

@@ -11,6 +11,15 @@ Rules, deliberately: never touch the browser's file lock (SQLite
 ``immutable=1`` first, a temp copy second, deleted in ``finally``); never log,
 persist or echo a cookie value; every failure - other platform, missing
 browser, locked DB, undecryptable value - answers ``None`` instead of raising.
+
+Factory path note: on managed Edge 156 hosts the cookie values are
+App-Bound encrypted (v20) and this module only understands the older
+v10/v11 scheme, so ``read_session_cookies`` returns ``None`` and the
+automatic import cannot work there.  The supported station flow is
+therefore the embedded WebEngine sign-in (``Connect & Sign in…`` in the
+SharePoint Upload dialog): sign in once, re-sign in when the tenant /
+MCAS proxy expires the session (probe 401/403).  See
+``mtkgui/gui/sharepoint_upload_dialog.py``.
 """
 from __future__ import annotations
 

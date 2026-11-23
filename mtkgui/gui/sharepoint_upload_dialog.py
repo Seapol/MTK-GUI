@@ -19,6 +19,15 @@ engine (precheck / retry / dedup / outbox / ledger stay in the engine):
 Virtual mode uses the FakeSharePoint transport (demo), Real mode talks
 HTTP to the configured site - mirroring the station-wide virtual/
 real split.
+
+Sign-in model (factory facing): the station signs in ONCE through the
+embedded WebEngine window (``Connect & Sign in…``); the resulting
+``FedAuth`` / ``rtFa`` cookies persist under
+``sharepoint_state/webprofile`` and ``session.json`` - the password
+never reaches MTK GUI.  When the tenant / MCAS proxy expires the
+session, the probe reports 401/403: sign in again in the same window.
+The local outbox keeps every pending file until the session is valid
+again, so a stale session cannot lose data.
 """
 from __future__ import annotations
 

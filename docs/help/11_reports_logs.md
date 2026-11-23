@@ -135,63 +135,62 @@ A failed write is a warning in the Event Log and never stops a run.
 
 ## SharePoint Upload (Report menu)
 
-> **TEMPORARILY DISABLED** (2026-10-27): the menu item is greyed out
-> for the general operator - the browser-session sign-in flow is too
-> involved for the shop floor. The dialog, engine and this guide stay
-> intact; re-enable `sp_upload_action.setEnabled(True)` in
-> `main_window.py` when a simpler path is approved by IT.
+> **Supervisor only** (2026-11): the menu item is enabled for the
+> Supervisor role and disabled for Operator.  A station is configured
+> once by the supervisor; the operator's run flow is unchanged.
 
-`Report > SharePoint Upload...` moves a local folder (reports, logs,
-archives) to the project SharePoint folder - either as a real-time
-mirror (new / changed files only) or as a timestamped zip once per
-period (day / week / bi-weekly / month / quarter / half-year / year).
-Virtual mode uses the built-in `FakeSharePoint` transport and marks
-every result `(virtual)`; the site is never contacted.
+`Report > SharePoint Upload...` moves the local report folder to the
+project SharePoint folder - either as a real-time mirror (new / changed
+files only) or as a timestamped zip once per period (day / week /
+bi-weekly / month / quarter / half-year / year).  Virtual mode uses the
+built-in `FakeSharePoint` transport and never contacts the site.
 
-Real mode talks to the NXP tenant over the SharePoint REST API with
-the operator's own browser session. The sign-in paths, fastest first:
+### One-time setup per station
 
-1. Paste the folder share link (modern `.../:f:/r/teams/...` or the
-   classic `.../:f:/teams/...` form; a link to a project sub-folder is
-   accepted - it simply becomes the upload root) into **Site link**.
-2. **Open in System Browser…** - one click opens the site in your own
-   browser AND the import dialog: sign in there if needed (MFA /
-   organizational policy all handled by the browser), then press
-   F12 > Application > Cookies, copy the `FedAuth` and `rtFa` cookie
-   lines for the site and paste them into the import dialog.
-3. **Import Browser Session…** - the same paste path when you are
-   already signed in (browser still open): the dialog validates the
-   cookies against the site host, runs **Test Connection**
-   automatically and confirms
-   `Signed in as <name> - SharePoint test-data upload ready`.
-4. **Connect & Sign in...** - an embedded login window opens; sign in
-   with your corporate account (MFA included). Some corporate tenants
-   reject the embedded window (e.g. AD account validation failures).
+1. Log in as **Supervisor** and open `Report > SharePoint Upload...`.
+2. Paste the folder share link into **Site link** (a link to a project
+   sub-folder is accepted - it becomes the upload root).
+3. Click **Connect & Sign in...** to open the embedded WebEngine
+   sign-in window.
 
-Why is there no fully automatic handover? An automatic Edge debug-port
-import was researched and implemented, then verified against this
-company Edge (v156): the browser **ignores** `--remote-debugging-port`
-on the real profile (2025 anti-debug protection), the cookie values
-are app-bound encrypted (a copied profile cannot decrypt them), and
-the `RemoteDebuggingAllowed` policies are locked by the company. The
-browser-session paste path above is the working one on managed hosts.
+   ![SharePoint Upload dialog](images/20_sharepoint_upload_dialog.png)
 
-MTK GUI stores no password - only the resulting `FedAuth` / `rtFa`
-session cookies, under `mtkgui/config/sharepoint_state/` on this OS
-user's profile. Test Connection reports OK only when the folder is
-reachable and writable; a 401/403 means the session expired (sign in
-again or import a fresh browser session), a 404 means the link is
-wrong. Until a session is present the dialog shows
-`not signed in - sign in in your own browser, then Import Browser
-Session (no password, no embedded login)` and never uploads with a
+4. Sign in with the station account (MFA included).  MTK GUI stores no
+   password - only the resulting `FedAuth` / `rtFa` session cookies,
+   under `sharepoint_state/webprofile` and `session.json`.
+
+   ![SharePoint sign-in window](images/21_sharepoint_signin.png)
+
+5. The dialog reports
+   `Signed in as <name> - SharePoint test-data upload ready` after a
+   successful **Test Connection**.
+
+### Re-sign in when the session expires
+
+The tenant / MCAS proxy expires the session after a while.  The upload
+dialog reports this honestly: **401/403 means the session expired -
+click Connect & Sign in... and sign in again.**  Until a valid session
+is present the dialog shows `not signed in...` and never uploads with a
 stale session.
 
-Then pick the local folder and the mode and press **Sync Now** /
-**Pack & Upload Now** (or let the 30 s driver work while the dialog is
-open). Uploads use `Files/add(overwrite=true)`; failures stay in the
-local outbox and are retried on the next sweep.
+### Upload and offline behaviour
 
-The **Token** field stays for legacy token-based sites.
+- Pick the local folder and the mode, then press **Sync Now** /
+  **Pack & Upload Now** (or let the 30 s driver work while the dialog is
+  open).
+- Good network → files upload one by one as each DUT report is written.
+- Bad network or expired session → files stay in the local outbox and
+  are retried on the next sweep; nothing is lost.  When the network or
+  the session is restored, the pending files are uploaded in one batch.
+
+### Known limitation: tenants behind an MCAS proxy
+
+Some NXP tenants front the SharePoint REST API with an MCAS proxy.  The
+proxy answers `contextinfo` with an HTML `Continue` page that requires a
+browser JavaScript handshake, which the programmatic transport cannot
+run - so real uploads can be blocked on those hosts even after a valid
+sign-in.  This is a tenant-side restriction, not a session problem; the
+sign-in and re-login steps above stay the same.
 
 ## Event Log (LogPanelWidget)
 

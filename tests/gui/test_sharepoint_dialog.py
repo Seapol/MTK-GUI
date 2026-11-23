@@ -245,26 +245,46 @@ def test_pack_failure_surfaces_reason(qapp, tmp_path):
 
 
 def test_menu_action_wired(qapp, tmp_path, monkeypatch):
-    """Report > SharePoint Upload… is present but temporarily DISABLED
-    (M15, 2026-10-27); the handler shows a notice instead of opening
-    the dialog."""
-    from PySide6.QtWidgets import QMessageBox
+    """Report > SharePoint Upload… is Supervisor-only (M104, 2026-11):
+    enabled for Supervisor, disabled for Operator, and the handler opens
+    the upload dialog."""
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QDialog
     from mtkgui.main_window import MainWindow
+    import mtkgui.gui.sharepoint_upload_dialog as sud
     MainWindow.__test__ = False
+
+    class _StubDialog(QDialog):
+        action_logged = Signal(str)
+
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            created.append(self)
+
+        def exec(self):  # never block the test
+            return 0
+
     win = MainWindow(role="Supervisor", mode="Virtual", fixture="ATE")
     try:
         action = win.report_menu.actions()[-1]
         assert action.text() == "SharePoint Upload…"
-        assert not action.isEnabled()  # M15: temporarily disabled
-        assert "Temporarily disabled" in action.toolTip()
-        notices = []
-        monkeypatch.setattr(
-            QMessageBox, "information",
-            staticmethod(
-                lambda *args, **kwargs: notices.append(args[2] or "")
-                or QMessageBox.StandardButton.Ok))
+        assert action.isEnabled()          # M104: Supervisor-only
+        assert "Supervisor only" not in action.toolTip()
+
+        created = []
+        monkeypatch.setattr(sud, "SharePointUploadDialog", _StubDialog)
         win._open_sharepoint_upload()
-        assert notices and "temporarily disabled" in notices[0].lower()
+        assert created
     finally:
         win.close()
         win.deleteLater()
+
+    win2 = MainWindow(role="Operator", mode="Virtual", fixture="ATE")
+    try:
+        action = win2.report_menu.actions()[-1]
+        assert action.text() == "SharePoint Upload…"
+        assert not action.isEnabled()
+        assert action.toolTip() == "Supervisor only"
+    finally:
+        win2.close()
+        win2.deleteLater()
