@@ -50,6 +50,9 @@ STREAM_BLOCK = 2048
 STREAM_DELAY_S = 0.03
 #: heredoc terminator (must not appear in base64 - it does not)
 HEREDOC_TAG = "PUSH_EOF"
+#: close sentinel - ``_`` is not in the base64 alphabet, so it can never
+#: appear inside the streamed content
+PUSH_DONE = "PUSH_DONE"
 STAGING = "/root/.push.b64"
 
 
@@ -75,6 +78,9 @@ def _pump_read(channel, timeout_s: float) -> str:
 def _send_wait(channel, command: str, prompt_re, timeout_s: float,
                tag: str = "") -> str:
     """Write one command, drain until the shell prompt appears."""
+    # M111: drop bytes already pending - a prompt echoed by a PREVIOUS
+    # command must never satisfy THIS command's wait.
+    channel.read_lines(max_lines=1000, timeout_s=0.0)
     channel.write(command + "\n")
     deadline = time.monotonic() + max(timeout_s, 0.1)
     seen = ""
@@ -129,7 +135,20 @@ def _stream_heredoc(channel, b64: str, prompt_re, progress, total_bytes: int,
         # read_lines also pumps the GUI loop (RX must reach the buffer)
         channel.read_lines(max_lines=200, timeout_s=0.0)
     channel.write(f"\n{HEREDOC_TAG}\n")
-    _send_wait(channel, "", prompt_re, 12.0, "heredoc close")
+    # M111: the close is confirmed by a sentinel, never by the generic
+    # prompt - a stale prompt already in the buffer would let the next
+    # command be swallowed while the shell is still in `>` mode.
+    channel.read_lines(max_lines=1000, timeout_s=0.0)
+    channel.write(f"echo {PUSH_DONE}\n")
+    deadline = time.monotonic() + 12.0
+    seen = ""
+    while time.monotonic() < deadline:
+        got = channel.read_lines(max_lines=200, timeout_s=0.1)
+        if got:
+            seen = (seen + "\n" + "\n".join(got)) if seen else "\n".join(got)
+            if PUSH_DONE in seen:
+                return
+    raise PushError(f"timeout waiting for heredoc close: {seen[-160:]!r}")
 
 
 def push_file(channel, local_path: str, remote_path: str, *,
