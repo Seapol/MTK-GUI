@@ -523,6 +523,18 @@ _WINDOWS_BT_DEVICES_CMD = (
     'Select-Object -ExpandProperty FriendlyName"')
 
 
+_WINDOWS_BT_ADDR_CMD = (
+    'powershell -NoProfile -Command "[Console]::OutputEncoding='
+    '[Text.Encoding]::UTF8;'
+    'Add-Type -AssemblyName System.Runtime.WindowsRuntime;'
+    '$null=[Windows.Devices.Bluetooth.BluetoothAdapter,'
+    'Windows.Devices.Bluetooth,ContentType=WindowsRuntime];'
+    '$a=[Windows.Devices.Bluetooth.BluetoothAdapter]'
+    '::GetDefaultAsync().Await();'
+    'if($a){ \'BTADDR=\' + $a.BluetoothAddress.ToString(\'X12\') }'
+    ' else { \'BTADDR=\' }"')
+
+
 def host_bt_status_cmd() -> str:
     """Host PC BT adapter power status command for THIS platform.
 
@@ -569,7 +581,15 @@ def host_bt_identity() -> tuple:
     """Best-effort Host PC Bluetooth identity ``(name, address)``.
 
     Returns ``("", "")`` when the backend is unavailable - the caller
-    renders the pair-script command WITHOUT fabricated identity values."""
+    renders the pair-script command WITHOUT fabricated identity values.
+
+    mac:     ``scutil`` ComputerName + the BD address regex'd out of
+             ``system_profiler SPBluetoothDataType``.
+    windows: ``$env:COMPUTERNAME`` + the LOCAL adapter's BD address via
+             ``BluetoothAdapter.GetDefaultAsync().BluetoothAddress``
+             (WinRT).  The 12-hex value is rendered ``AA:BB:CC:DD:EE:FF``
+             to match the mac branch (same ``ToString('X12')`` convention
+             as ``mtkgui.drivers.bluetooth_rf``)."""
     import re
     key = platform_key()
     if key == "mac":
@@ -588,7 +608,14 @@ def host_bt_identity() -> tuple:
         name = (run_link_cmd(
             'powershell -NoProfile -Command "$env:COMPUTERNAME"',
             timeout_s=10) or "").strip().splitlines()
-        return (name[0] if name else ""), ""
+        name = name[0] if name else ""
+        addr = ""
+        out = run_link_cmd(_WINDOWS_BT_ADDR_CMD, timeout_s=20)
+        m = re.search(r"BTADDR=([0-9A-Fa-f]{12})", out)
+        if m:
+            raw = m.group(1).upper()
+            addr = ":".join(raw[i:i + 2] for i in range(0, 12, 2))
+        return name, addr
     return "", ""
 
 

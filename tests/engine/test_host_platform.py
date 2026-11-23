@@ -235,3 +235,47 @@ def test_windows_capabilities_declares_supported_vs_unsupported():
     for op in ("bt_pair_connect", "bt_a2dp_tone"):
         assert caps[op]["ok"] is False, op
         assert caps[op]["hint"], op
+
+
+# -------------------------------------------------------- host_bt_identity
+def test_host_bt_identity_windows_returns_addr(monkeypatch):
+    _set_system(monkeypatch, "Windows")
+    calls = []
+
+    def fake_run(cmd_line, timeout_s=15):
+        calls.append(cmd_line)
+        if "COMPUTERNAME" in cmd_line:
+            return "WIN-PC\n"
+        if "BluetoothAdapter" in cmd_line:
+            return "BTADDR=a1b2c3d4e5f6\n"
+        return ""
+
+    monkeypatch.setattr(hp, "run_link_cmd", fake_run)
+    assert hp.host_bt_identity() == ("WIN-PC", "A1:B2:C3:D4:E5:F6")
+    assert any("BluetoothAdapter" in c for c in calls)
+
+
+def test_host_bt_identity_windows_no_adapter(monkeypatch):
+    _set_system(monkeypatch, "Windows")
+
+    def fake_run(cmd_line, timeout_s=15):
+        if "COMPUTERNAME" in cmd_line:
+            return "WIN-PC\n"
+        return "BTADDR=\n"
+
+    monkeypatch.setattr(hp, "run_link_cmd", fake_run)
+    assert hp.host_bt_identity() == ("WIN-PC", "")
+
+
+def test_host_bt_identity_mac_unchanged(monkeypatch):
+    _set_system(monkeypatch, "Darwin")
+
+    def fake_run(cmd_line, timeout_s=15):
+        if "ComputerName" in cmd_line:
+            return "Seapol-Mac\n"
+        if "SPBluetoothDataType" in cmd_line:
+            return "Address: 11-22-33-44-55-66\n"
+        return ""
+
+    monkeypatch.setattr(hp, "run_link_cmd", fake_run)
+    assert hp.host_bt_identity() == ("Seapol-Mac", "11:22:33:44:55:66")
