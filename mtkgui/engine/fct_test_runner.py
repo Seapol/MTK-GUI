@@ -257,20 +257,40 @@ def capture_unified(serial, capture_expected: str, capture_unexpected: str,
                     expected_is_regex: bool, unexpected_is_regex: bool,
                     case_sensitive: bool, timeout: float,
                     history: str = "") -> tuple:
-    """m30 unified capture window: drain the whole window, then judge
-    the complete output (send rows pass history="" so only post-send
-    bytes are judged; capture-only rows pass the session transcript).
+    """m30 unified capture window: early-exit on the first match.
+
+    The window stops the moment ``capture_unexpected`` matches (FAIL
+    wins over the expected pattern) or ``capture_expected`` matches
+    (PASS); only a timeout with neither hit falls back to
+    :func:`judge_capture` over the complete output, so "expected never
+    appeared" still reports ``expected not found``.  Send rows pass
+    ``history=""`` so only post-send bytes are judged; capture-only rows
+    pass the session transcript.
 
     Returns ``(verdict, detail, output)``."""
-    _, text = _read_until(serial, lambda _t: "", timeout, history=history)
-    verdict, detail = judge_capture(
-        text, capture_expected, capture_unexpected,
-        case_sensitive=case_sensitive,
-        expected_is_regex=expected_is_regex,
-        unexpected_is_regex=unexpected_is_regex)
-    if verdict == "":
-        return "PASS", "capture conditions met", text
-    return verdict, detail, text
+    def _stop(text: str) -> str:
+        if capture_unexpected and _pattern_hit(
+                capture_unexpected, unexpected_is_regex, case_sensitive,
+                text):
+            return "FAIL"
+        if capture_expected and _pattern_hit(
+                capture_expected, expected_is_regex, case_sensitive, text):
+            return "PASS"
+        return ""
+
+    status, text = _read_until(serial, _stop, timeout, history=history)
+    if status == "TIMEOUT":
+        verdict, detail = judge_capture(
+            text, capture_expected, capture_unexpected,
+            case_sensitive=case_sensitive,
+            expected_is_regex=expected_is_regex,
+            unexpected_is_regex=unexpected_is_regex)
+        if verdict == "":
+            return "PASS", "capture conditions met", text
+        return verdict, detail, text
+    if status == "FAIL":
+        return "FAIL", "unexpected found", text
+    return "PASS", "capture conditions met", text
 
 
 def _write_console_line(serial, line: str) -> None:

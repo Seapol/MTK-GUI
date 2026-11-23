@@ -153,3 +153,51 @@ def test_console_cli_unified_capture_windows_only():
     host_bad = _HostRunner(["Adapter", "Media disconnected"])
     v, d = runner._run_host_cli(bad, host_bad)
     assert v == "FAIL" and "unexpected found" in d
+
+
+# ------------------------------------------- m108: capture_unified early exit
+class _CountingSerial(FakeSerial):
+    """FakeSerial that counts read() calls (the drain discriminator)."""
+
+    def __init__(self, script):
+        super().__init__(script)
+        self.read_calls = 0
+
+    def read(self, n):
+        self.read_calls += 1
+        return super().read(n)
+
+
+def test_capture_unified_early_exit_pass():
+    serial = _CountingSerial({"run": "READY\r\n"})
+    cmd = ConsoleCommand(name="fat", kind="send", send="run",
+                         wait_enabled=False, send_enabled=True,
+                         capture_enabled=True, timeout=2.0,
+                         capture_expected="READY", capture_unexpected="")
+    res = _runner([cmd]).run_console(serial)
+    assert res[0].verdict == "PASS"
+    assert serial.read_calls <= 3
+
+
+def test_capture_unified_early_exit_fail_wins():
+    serial = _CountingSerial({"run": "READY\r\nFAILED\r\n"})
+    cmd = ConsoleCommand(name="fat", kind="send", send="run",
+                         wait_enabled=False, send_enabled=True,
+                         capture_enabled=True, timeout=2.0,
+                         capture_expected="READY",
+                         capture_unexpected="FAILED")
+    res = _runner([cmd]).run_console(serial)
+    assert res[0].verdict == "FAIL"
+    assert "unexpected found" in res[0].detail
+    assert serial.read_calls <= 3
+
+
+def test_capture_unified_expected_not_found_times_out():
+    serial = _CountingSerial({"run": "boot\r\n"})
+    cmd = ConsoleCommand(name="fat", kind="send", send="run",
+                         wait_enabled=False, send_enabled=True,
+                         capture_enabled=True, timeout=0.3,
+                         capture_expected="READY", capture_unexpected="")
+    res = _runner([cmd]).run_console(serial)
+    assert res[0].verdict == "FAIL"
+    assert "expected not found" in res[0].detail
