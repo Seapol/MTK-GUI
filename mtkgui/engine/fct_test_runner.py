@@ -25,6 +25,18 @@ import time
 from datetime import datetime
 
 from .fct_test_config import FctTestConfig, flash_gui_message
+from .host_platform import host_bt_identity
+
+
+def _build_cmd_vars(w, b) -> dict:
+    """{{token}} deployment map for console send / SFTP rendering."""
+    return {
+        "ssid": w.ap_ssid,
+        "password": w.ap_password,
+        "host_ip": w.host_ip or host_lan_ip(),
+        "bt_name": b.expected_name,
+        "host_bt_addr": host_bt_identity()[1],
+    }
 
 
 def host_lan_ip() -> str:
@@ -1381,15 +1393,8 @@ class FctTestRunner:
         self._human_confirm = human_confirm
         # deployment values substituted into {{token}} placeholders in
         # console send / SFTP paths (per-site Wi-Fi SSID/password, Host
-        # PC IP, DUT Bluetooth name) - resolved ONCE per cycle
-        w = self.cfg.wifi
-        b = self.cfg.bluetooth
-        self._cmd_vars = {
-            "ssid": w.ap_ssid,
-            "password": w.ap_password,
-            "host_ip": w.host_ip or host_lan_ip(),
-            "bt_name": b.expected_name,
-        }
+        # PC IP, DUT Bluetooth name/address) - resolved ONCE per cycle
+        self._cmd_vars = _build_cmd_vars(self.cfg.wifi, self.cfg.bluetooth)
         results: list = []
         teardown_results: list = []
         try:
