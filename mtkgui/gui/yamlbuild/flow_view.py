@@ -17,7 +17,7 @@ the shell imports them instead of redefining them.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -233,9 +233,9 @@ class YamlBuildFlowView(QWidget):
         vx, vy = dx - cx, dy - cy
         if abs(vx) >= abs(vy):
             half = (src.width() / 2.0) * scale * (1.0 if vx >= 0 else -1.0)
-            return (sx + half, sy)
+            return QPointF(sx + half, sy)
         half = (src.height() / 2.0) * scale * (1.0 if vy >= 0 else -1.0)
-        return (sx, sy + half)
+        return QPointF(sx, sy + half)
 
     def _draw_node(self, painter: QPainter, key: str) -> None:
         rect = self._widget_rect(self.node_rects[key])

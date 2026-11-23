@@ -19,9 +19,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -443,13 +445,27 @@ class YamlBuildWizard(QWidget):
             lock.setWordWrap(True)
             lock.setProperty("tone", "warning")
             lay.addWidget(lock)
-        lay.addWidget(panel, 1)          # re-parent into the dialog
-        panel.setEnabled(editable)       # read-only when prerequisites pending
+        # m106b: the panel is tall on small screens - keep it scrollable so the
+        # OK / Cancel row always stays reachable.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(panel)
+        lay.addWidget(scroll, 1)          # re-parent into the dialog
+        panel.setEnabled(editable)        # read-only when prerequisites pending
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         lay.addWidget(btns)
+        # keep the whole dialog inside the screen - the button box must remain
+        # visible even when the panel's sizeHint is taller than the monitor.
+        avail = self.screen().availableGeometry()
+        hint = dlg.sizeHint()
+        dlg.resize(min(hint.width(), int(avail.width() * 0.9)),
+                   min(hint.height(), int(avail.height() * 0.9)))
         dlg.exec()
+        scroll.takeWidget()
         self._panel_host_lay.addWidget(panel)   # re-parent back after close
         self._refresh()
 

@@ -249,6 +249,7 @@ class DesignInputPanel(QWidget):
         self._files_route = QWidget()
         files_lay = QVBoxLayout(self._files_route)
         files_lay.setContentsMargins(0, 0, 0, 0)
+        files_lay.setSpacing(6)
         buttons = QHBoxLayout()
         self.btn_import_spf = QPushButton("Import SPF…")
         self.btn_import_net = QPushButton("Import NET…")
@@ -258,6 +259,7 @@ class DesignInputPanel(QWidget):
         buttons.addWidget(self.btn_import_bom)
         buttons.addStretch(1)
         files_lay.addLayout(buttons)
+        files_lay.addSpacing(4)           # m106c: captions never share the button band
         self.lbl_spf = QLabel("SPF: (not imported)")
         self.lbl_net = QLabel("NET: (not imported)")
         self.lbl_bom = QLabel("BOM: (not imported)")

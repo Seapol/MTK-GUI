@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QScrollArea  # noqa: E402
 
 from mtkgui.gui.yamlbuild.model import YamlBuildModel  # noqa: E402
 from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard  # noqa: E402
@@ -41,12 +41,16 @@ def test_modal_dialog_hosts_the_node_panel_and_reparents_back(
         captured: dict = {}
 
         def fake_exec(self):
-            captured["panel_parent_is_dialog"] = panel.parent() is self
+            # m106b wraps the panel in a scroll area so OK/Cancel stay visible.
+            captured["panel_in_dialog"] = panel.window() is self
+            captured["scroll_ancestor"] = isinstance(
+                panel.parent().parent(), QScrollArea)
             return QDialog.Accepted
 
         monkeypatch.setattr(QDialog, "exec", fake_exec)
         w.flow.step_clicked.emit("design_input")
-        assert captured.get("panel_parent_is_dialog") is True
+        assert captured.get("panel_in_dialog") is True
+        assert captured.get("scroll_ancestor") is True
         assert panel.parent() is w._panel_host
         assert w.current == "design_input"
     finally:
@@ -62,12 +66,12 @@ def test_locked_node_dialog_disables_the_panel(qapp, monkeypatch):
 
         def fake_exec(self):
             captured["enabled"] = panel.isEnabled()
-            captured["panel_parent_is_dialog"] = panel.parent() is self
+            captured["panel_in_dialog"] = panel.window() is self
             return QDialog.Accepted
 
         monkeypatch.setattr(QDialog, "exec", fake_exec)
         w.flow.step_clicked.emit("parse_ict")
-        assert captured.get("panel_parent_is_dialog") is True
+        assert captured.get("panel_in_dialog") is True
         assert captured.get("enabled") is False
         assert panel.parent() is w._panel_host
     finally:
