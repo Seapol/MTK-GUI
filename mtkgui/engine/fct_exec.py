@@ -1362,6 +1362,8 @@ def _run_serial_transfer(step: FctStep, ctx: FctContext, channel) -> FctOutcome:
     spec = step.params.get("fct_serial_transfer") or {}
     direction = str(spec.get("direction") or "push").lower()
     local = str(spec.get("local") or "")
+    if ctx.dut_report:
+        local = local.replace("{{dut_report}}", ctx.dut_report)
     remote = str(spec.get("remote") or "").strip()
     baud = int(spec.get("baud") or 0)
     console_baud = int(spec.get("console_baud") or 115200)
