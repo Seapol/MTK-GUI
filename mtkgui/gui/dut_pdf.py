@@ -443,6 +443,16 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
         p for p in (f"DUT-{verdict}", report.serial_no,
                     f"{when:%Y%m%d-%H%M%S}") if p)
 
+    def _result_cell(result: str) -> str:
+        """One verdict cell: unreached stays blank, Ignore grey, else
+        the green / red verdict coding (M110)."""
+        if not result:
+            return "<td></td>"
+        if "ignore" in result.lower():
+            return f"<td><font color='#999999'>{esc(result)}</font></td>"
+        colour = GREEN if "PASS" in result.upper() else RED
+        return f"<td><b><font color='{colour}'>{esc(result)}</font></b></td>"
+
     def _items_table(items):
         """One judged-rows table (no CATEGORY column: the section
         title already names the group)."""
@@ -452,8 +462,7 @@ def dut_report_html(report, meta=None, when: datetime | None = None) -> str:
             f"<td>{esc(i.duration or i.measured)}</td>"
             f"<td>{esc(i.low)}</td><td>{esc(i.high)}</td>"
             f"<td>{esc(i.unit)}</td>"
-            f"<td><b><font color='{GREEN if 'PASS' in i.result.upper() else RED}'>"
-            f"{esc(i.result)}</font></b></td></tr>"
+            f"{_result_cell(i.result)}</tr>"
             for idx, i in enumerate(items, 1))
         return ("<table width='100%' cellspacing='0' cellpadding='3'"
                 " border='0'>"

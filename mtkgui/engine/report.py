@@ -134,8 +134,8 @@ class DutReport:
         for r, step in enumerate(getattr(page, "ict_steps", [])):
             kind, name = step[0], step[1]
             result = _cell(page.ict, r, 7)
-            if not result or result in ("Pending", "--"):
-                continue
+            # M110: every planned row is reported - an unreached row keeps
+            # its blank result instead of disappearing from the report
             if result == "TBD":
                 report.pending_count += 1
             category = CAT_ICT
@@ -161,8 +161,8 @@ class DutReport:
         # per-row Duration (s) cell
         for r, name in enumerate(getattr(page, "fct_rows", [])):
             result = _cell(page.fct, r, 4)
-            if not result or result in ("Pending", "--"):
-                continue
+            # M110: every planned row is reported - an unreached row keeps
+            # its blank result instead of disappearing from the report
             if result == "TBD":
                 report.pending_count += 1
             kind = (page.fct_kinds[r]

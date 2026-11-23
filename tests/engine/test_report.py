@@ -121,15 +121,35 @@ def test_report_matches_session_overall(qapp):
     page.deleteLater()
 
 
-def test_pending_rows_are_skipped(qapp):
-    """Pending / blank rows are NOT reported (never judged)."""
+def test_pending_row_is_still_listed(qapp):
+    """M110: a Pending row is reported (listed, pending counted)."""
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
+    page.fct_rows = []
+    page.fct.setRowCount(0)
     page.ict_steps = [("test", "t", "V", "—", "—", "—")]
     page.ict.setRowCount(1)
     page.ict.item(0, 7).setText("Pending")
     report = DutReport.from_session(page)
-    assert report.items == []
+    assert [i.result for i in report.items] == ["Pending"]
+    page.deleteLater()
+
+
+def test_blank_fct_row_is_listed_with_empty_result(qapp):
+    """M110: every planned FCT row appears; unreached rows keep ""."""
+    from mtkgui.test_workflow_page import TestWorkFlowPage
+    page = TestWorkFlowPage()
+    page.ict_steps = []
+    page.ict.setRowCount(0)
+    page.fct_rows = ["A", "B", "C"]
+    page.fct.setRowCount(3)
+    page.fct.item(0, 4).setText("PASS")
+    page.fct.item(1, 4).setText("")
+    page.fct.item(2, 4).setText("")
+    report = DutReport.from_session(page)
+    fct = [i for i in report.items if i.category == "FCT"]
+    assert len(fct) == 3
+    assert [i.result for i in fct] == ["PASS", "", ""]
     page.deleteLater()
 
 

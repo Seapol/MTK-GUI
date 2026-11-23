@@ -85,6 +85,32 @@ def test_certificate_html_carries_seal_and_signoff():
     assert "Console Log" not in html
 
 
+def _item_row(html: str, name: str) -> str:
+    """The rendered <tr> of one item (verdict-cell scoped assertions)."""
+    start = html.index(f"<td>{name}</td>")
+    return html[start:html.index("</tr>", start)]
+
+
+def test_ignore_result_renders_grey():
+    html = dut_pdf.dut_report_html(
+        _dut(items=[ReportItem(test_name="IgnoredNet", category="ICT",
+                               measured="1.0", result="Ignore")]), META)
+    row = _item_row(html, "IgnoredNet")
+    assert "#999999" in row
+    assert dut_pdf.GREEN not in row
+    assert dut_pdf.RED not in row
+
+
+def test_blank_result_renders_empty_cell():
+    html = dut_pdf.dut_report_html(
+        _dut(items=[ReportItem(test_name="UnreachedNet", category="ICT",
+                               measured="1.0", result="")]), META)
+    row = _item_row(html, "UnreachedNet")
+    assert "<td></td>" in row
+    assert dut_pdf.GREEN not in row
+    assert dut_pdf.RED not in row
+
+
 def test_certificate_html_console_appendix_and_fail():
     html = dut_pdf.dut_report_html(
         _dut(result="FAIL", console="\x1b[31mERR\x1b[0m boom"), META)
@@ -158,7 +184,9 @@ def test_from_session_classifies_ict_methods_and_rails(qapp):
     rails = [("VDD_3V3", "#38bdf8", 3.3, [0.0, 0.5, 1.0, 1.0])]
     page.rail_widget.set_data(rails, 6.0, -1.0)
     report = DR.from_session(page)
-    methods = [i.method for i in report.items]
+    # M110: the page's default FCT rows are listed too - the ICT detail
+    # keeps its method classification
+    methods = [i.method for i in report.items if i.category == "ICT"]
     assert methods == ["R-GND", "Power Voltage", "Clock Hz",
                        "Power Voltage"]
     assert report.rails == rails
