@@ -1296,6 +1296,11 @@ class TestRunner(QObject):
                   VERDICT_SKIP: StepStatus.IGNORED}.get(
             outcome.verdict, StepStatus.ERROR)
         self._put("fct", r, status, None, time.monotonic() - t0)
+        if outcome.sub_items:
+            # M107b: display-only fat.py per-item rows under the step row
+            render = getattr(env, "_render_fct_sub_items", None)
+            if callable(render):
+                render(r, outcome.sub_items)
         if _stop_flag["stop"]:
             # GoStop STOP: the step FAILED and the run stops
             # (operator-style abort - flagged teardown rows still run)
@@ -2151,6 +2156,10 @@ class TestRunner(QObject):
                     self._put("fct", r, StepStatus.ERROR, outcome.reason)
                 else:
                     self._put("fct", r, StepStatus.FAIL, outcome.reason)
+                if outcome.sub_items:
+                    render = getattr(env, "_render_fct_sub_items", None)
+                    if callable(render):
+                        render(r, outcome.sub_items)
             except Exception as exc:        # noqa: BLE001 - never let
                 self._put("fct", r, StepStatus.ERROR,
                           f"teardown exception: {exc}")

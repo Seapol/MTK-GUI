@@ -123,6 +123,11 @@ class FctOutcome:
     verdict: str
     reason: str = ""
     lines: list = field(default_factory=list)
+    #: M107b: display-only per-item rows parsed from a fat.py Summary
+    #: table.  Each entry is ``{"label": str, "status": str,
+    #: "duration_s": float}``; the GUI renders them under the step row
+    #: and they never become runner keys.
+    sub_items: list = field(default_factory=list)
 
 
 def judge_keywords(lines: list, pass_kw: list, fail_kw: list) -> tuple:
@@ -277,20 +282,26 @@ def _capture_loop(channel, pass_kw: list, fail_kw: list,
 def _fat_summary_outcome(text: str) -> FctOutcome:
     """parse_summary row (GUI work-flow parity): judge the captured
     fat.py Summary table — FAIL when any item FAILs, else PASS; the
-    per-status counts land in the reason.  (Per-item row expansion in
-    the GUI FCT table is a follow-up; the batch harness report carries
-    the full per-item rows.)"""
+    per-status counts land in the reason and the per-item rows travel
+    in ``sub_items`` for the GUI table (M107b)."""
     from .fct_test_runner import parse_fat_summary
     rows = parse_fat_summary(text)
     if not rows:
         return FctOutcome(VERDICT_FAIL, "no fat.py Summary found", [])
     counts: dict = {}
-    for _idx, _name, status, _dur in rows:
+    sub_items: list = []
+    for idx, name, status, dur in rows:
         counts[status] = counts.get(status, 0) + 1
+        try:
+            seconds = float(str(dur).rstrip("s"))
+        except (TypeError, ValueError):
+            seconds = 0.0
+        sub_items.append({"label": f"{idx}. {name}",
+                          "status": status, "duration_s": seconds})
     detail = f"{len(rows)} items: " + ", ".join(
         f"{k} {v}" for k, v in sorted(counts.items()))
     verdict = VERDICT_FAIL if counts.get("FAIL") else VERDICT_PASS
-    return FctOutcome(verdict, detail, [])
+    return FctOutcome(verdict, detail, [], sub_items=sub_items)
 
 
 def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:

@@ -2297,6 +2297,9 @@ class TestWorkFlowPage(QWidget):
 
     def _fill_fct_row(self, r):
         """Fill one FCT row: # / Test / Enable / Duration / Result."""
+        # M107b: a re-fill clears the previous run's per-item block
+        if self.fct.cellWidget(r, 1) is not None:
+            self.fct.removeCellWidget(r, 1)
         name = self.fct_rows[r]
         readonly = ~Qt.ItemFlag.ItemIsEditable
         # col 0: #
@@ -2521,6 +2524,30 @@ class TestWorkFlowPage(QWidget):
                          self.virtual_mode, stem=stem)
 
     # ------------------------------------------------------------ actions
+    def _status_style(self, status, virtual=False):
+        """(colour, bold) for one status text - the single verdict
+        palette shared by the step cell and the M107b per-item rows.
+
+        Virtual mode uses the dedicated palette (yellow-green PASS /
+        orange-red FAIL); FCT always runs on real hardware.
+        """
+        virtual = virtual and self.virtual_mode
+        if status in ("PASS", "Done"):
+            return gui_theme_color(
+                "virtual_ok" if virtual else "ok"), True
+        if status in ("FAIL", "Error"):
+            return gui_theme_color(
+                "virtual_bad" if virtual else "bad"), True
+        if status in ("Ignore", "Recorded"):
+            # v2-9b: a rails capture is RECORDED, never judged - neutral
+            # colour, no bold, and the rollup ignores it
+            return gui_theme_color("neutral"), status == "Ignore"
+        if status == "TBD":
+            # v2-9c: measured but no limit to compare against - yellow,
+            # no bold, and the rollup reports the board Pending
+            return gui_theme_color("warn"), False
+        return "", False
+
     def _set_status(self, table, row, col, status, virtual=False):
         """Write one status cell. Virtual mode prefixes ICT results
         with 'Virtual' and colours them with the dedicated virtual
@@ -2535,26 +2562,10 @@ class TestWorkFlowPage(QWidget):
             table.setItem(row, col, item)
         if item.text() != text:
             item.setText(text)   # skip unchanged: avoids column re-layout
+        colour, bold = self._status_style(status, virtual)
+        item.setForeground(QColor(colour) if colour else QBrush())
         font = QFont()
-        if status in ("PASS", "Done"):
-            key = "virtual_ok" if virtual else "ok"
-            item.setForeground(QColor(gui_theme_color(key)))
-            font.setBold(True)
-        elif status in ("FAIL", "Error"):
-            key = "virtual_bad" if virtual else "bad"
-            item.setForeground(QColor(gui_theme_color(key)))
-            font.setBold(True)
-        elif status in ("Ignore", "Recorded"):
-            # v2-9b: a rails capture is RECORDED, never judged - neutral
-            # colour, no bold, and the rollup ignores it
-            item.setForeground(QColor(gui_theme_color("neutral")))
-            font.setBold(status == "Ignore")
-        elif status == "TBD":
-            # v2-9c: measured but no limit to compare against - yellow,
-            # no bold, and the rollup reports the board Pending
-            item.setForeground(QColor(gui_theme_color("warn")))
-        else:
-            item.setForeground(QBrush())
+        font.setBold(bold)
         item.setFont(font)
 
     def _log(self, line):
@@ -2637,6 +2648,52 @@ class TestWorkFlowPage(QWidget):
             self._set_status(self.overall, row, 3, display_text(status))
             if duration is not None:
                 self.overall.item(row, 4).setText(f"{duration:.2f}")
+
+    def _render_fct_sub_items(self, row, sub_items):
+        """M107b: display-only fat.py per-item rows under one FCT step.
+
+        The block lives inside the step's Test cell as a stacked widget:
+        no table row is inserted, so ``fct_rows``, the step row indices
+        and ``runner._results`` stay untouched.  Each item's status text
+        uses the same verdict palette as a step status.
+        """
+        if not sub_items or not (0 <= row < len(self.fct_rows)):
+            return
+        widget = QWidget(self.fct)
+        widget.setObjectName("fct_sub_items")
+        lay = QVBoxLayout(widget)
+        lay.setContentsMargins(6, 0, 0, 0)
+        lay.setSpacing(0)
+        header = QLabel(self.fct_rows[row], widget)
+        header.setObjectName("fct_sub_items_step")
+        item = self.fct.item(row, 1)
+        if item is not None:
+            header.setToolTip(item.toolTip())
+        lay.addWidget(header)
+        for sub in sub_items:
+            status_text = str(sub.get("status") or "")
+            line = QWidget(widget)
+            line_lay = QHBoxLayout(line)
+            line_lay.setContentsMargins(14, 0, 0, 0)
+            line_lay.setSpacing(6)
+            label = QLabel(str(sub.get("label") or ""), line)
+            label.setObjectName("fct_sub_item_label")
+            status = QLabel(status_text, line)
+            status.setObjectName("fct_sub_item_status")
+            status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status.setMinimumWidth(56)
+            colour, bold = self._status_style(status_text)
+            if colour:
+                status.setStyleSheet(
+                    f"color: {colour};"
+                    + ("font-weight: 600;" if bold else ""))
+            line_lay.addWidget(label, 1)
+            line_lay.addWidget(status)
+            lay.addWidget(line)
+        self.fct.setCellWidget(row, 1, widget)
+        self.fct.resizeRowToContents(row)
+        self.fct.setRowHeight(row, max(self.fct.rowHeight(row),
+                                       widget.sizeHint().height() + 4))
 
     def _store_rail_capture(self, samples, volts, plot_cache, csv_path,
                             review):
@@ -3253,6 +3310,11 @@ class TestWorkFlowPage(QWidget):
         self._apply_rail_filter()
         self._fill_ict(placeholder=True)
         for r in range(self.fct.rowCount()):
+            if self.fct.cellWidget(r, 1) is not None:
+                # M107b: a cleared run drops the fat.py per-item block
+                self.fct.removeCellWidget(r, 1)
+                self.fct.setRowHeight(
+                    r, self.fct.verticalHeader().defaultSectionSize())
             self._set_status(self.fct, r, 3, "--")
             self._set_status(self.fct, r, 4, "Pending")
         for r in range(self.overall.rowCount()):
