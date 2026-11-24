@@ -193,16 +193,26 @@ def test_push_size_mismatch_is_an_explicit_failure(tmp_path):
     assert "size mismatch" in str(exc.value)
 
 
-def test_pull_writes_the_file_and_acks_every_chunk(tmp_path):
+def test_pull_does_not_ack_into_the_shell(tmp_path):
+    """M116: `read -r ack` read the pipe, not the console, so every host
+    ACK landed in the shell as `-sh: ACK: command not found`.  The pull
+    now streams chunks with no ACK and ignores interleaved noise."""
     clock = Clock()
-    data = b"hello world"
+    data = b"hello world " * 60          # > 512 b64 chars -> 2 chunks
     b64 = base64.b64encode(data).decode()
+    chunks = [b64[i:i + st.CHUNK_B64]
+              for i in range(0, len(b64), st.CHUNK_B64)]
+    assert len(chunks) >= 2
     ch = FakeChannel(clock)
 
     def script(m):
         assert "PULL_CHUNK" in m.string
-        return [f"PULL_START {len(data)}", f"PULL_CHUNK 1 {b64}",
-                f"PULL_OK {len(data)}"]
+        lines = [f"PULL_START {len(data)}"]
+        for i, chunk in enumerate(chunks, 1):
+            lines.append(f"PULL_CHUNK {i} {chunk}")
+            lines.append("-sh: ACK: command not found")
+        lines.append(f"PULL_OK {len(data)}")
+        return lines
 
     ch.responders = [(r"S=.*PULL_START", script)]
     dest = tmp_path / "out" / "hello.txt"
@@ -210,7 +220,7 @@ def test_pull_writes_the_file_and_acks_every_chunk(tmp_path):
                           sleep=clock.sleep, now=clock.now)
     assert dest.read_bytes() == data
     assert result["bytes"] == len(data)
-    assert "ACK 1\n" in ch.written
+    assert not any(w.startswith("ACK ") for w in ch.written)
     assert "base64" in next(w for w in ch.written if "PULL_START" in w)
 
 

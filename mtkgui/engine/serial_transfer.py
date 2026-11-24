@@ -257,11 +257,14 @@ def pull_file(channel, remote_path: str, local_path: str, *,
         script = (
             f"S=$(wc -c < {remote}); echo \"PULL_START $S\"; i=0; "
             f"base64 {remote} | fold -w {CHUNK_B64} | while read -r l; do "
-            f"i=$((i+1)); echo \"PULL_CHUNK $i $l\"; read -r ack; done; "
+            f"i=$((i+1)); echo \"PULL_CHUNK $i $l\"; done; "
             f"echo \"PULL_OK $S\"")
+        # M116: a stale prompt must not break the PULL_START framing
+        _drain(channel, sleep, now, 0.4)
         channel.write(script + "\n")
         collected: list = []
         total = -1
+        last_seq = 0
         deadline = now() + _TRANSFER_TIMEOUT_S
         buf = ""
         while True:
@@ -280,13 +283,19 @@ def pull_file(channel, remote_path: str, local_path: str, *,
                 m_chunk = re.search(r"PULL_CHUNK (\d+) ([A-Za-z0-9+/=]+)", buf)
                 if m_chunk:
                     seq = int(m_chunk.group(1))
-                    collected.append(m_chunk.group(2))
                     buf = buf[m_chunk.end():]
-                    channel.write(f"ACK {seq}\n")
-                    if progress is not None and total > 0:
-                        done = min(total, len("".join(collected)) * 6 // 8)
-                        progress(done, total, os.path.basename(remote))
+                    # M116: no host ACK - only a strictly increasing seq
+                    # reassembles; duplicates and shell noise are ignored
+                    if seq > last_seq:
+                        last_seq = seq
+                        collected.append(m_chunk.group(2))
+                        if progress is not None and total > 0:
+                            done = min(total,
+                                       len("".join(collected)) * 6 // 8)
+                            progress(done, total, os.path.basename(remote))
                     progressed = True
+                    # never let a later PULL_OK overtake an earlier chunk
+                    continue
                 m_ok = re.search(r"PULL_OK (\d+)", buf)
                 if m_ok:
                     got_total = int(m_ok.group(1))
