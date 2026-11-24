@@ -161,13 +161,15 @@ def test_fct_console_expected_no_clean_window_to_endline_passes():
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
 
 
-def test_fct_console_expected_no_no_endline_clean_timeout_passes():
-    # expected=no without an End Line: a whole window with no bad
-    # message is a PASS (bounded by timeout)
+def test_fct_console_expected_no_without_endline_is_error():
+    # m118: expected=no without an End Line has no evidence that the
+    # command ran - silence is not a PASS (End Line required)
     ctx, _ = make_virtual_context({"ser1": ["booting", "still fine"]})
     step = _console_step(expect_fail_re="FATAL",
                          capture_is_expected=False)
-    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    out = execute_fct_step(step, ctx)
+    assert out.verdict == VERDICT_ERROR
+    assert out.reason == "expected-absence row needs capture_end_line"
 
 
 def test_fct_console_regex_flag_is_honoured():

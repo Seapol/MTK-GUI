@@ -325,6 +325,18 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     is_expected = bool(p.get("capture_is_expected", True))
     # End Line shares the main pattern's Regex/Case setting
     end_is_re = pass_is_re if is_expected else fail_is_re
+    if not (pass_re or fail_re or end_line) and not (
+            step.expect_pass or step.expect_fail):
+        # m118: a row with no judge must never PASS on "any output" -
+        # an explicit setup row is SKIP, every other row is a config
+        # error (any echo is not evidence that the command ran).
+        if p.get("setup_only"):
+            return FctOutcome(VERDICT_SKIP,
+                              "setup row: no judge configured", [])
+        return FctOutcome(
+            VERDICT_ERROR,
+            "no judge configured: add expect_pass_re or set "
+            "setup_only: true", [])
     stall_s = _watchdog_s(ctx)
     budget_s = _step_budget(step)
     watchdog = (stall_s > 0 and _expects_positive(step)
@@ -396,15 +408,14 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
             ctx.log(f"{step.name}: {reason} -> FAIL")
             return FctOutcome(VERDICT_FAIL, reason, list(collected))
         if step.timeout_s and time.monotonic() > deadline:
-            text = "\n".join(collected)
-            if not is_expected and not end_line and not (
-                    fail_re and _pattern_hit(fail_re, fail_is_re,
-                                             case, text)):
-                # expected=no without an End Line: surviving the whole
-                # window without the bad message is a PASS
-                return FctOutcome(VERDICT_PASS,
-                                  "no unwanted message in window",
-                                  list(collected))
+            if not is_expected and not end_line:
+                # m118: silence is not evidence that the command ran -
+                # an expected-absence row needs the End Line as its
+                # positive proof (a fail hit already returned above).
+                return FctOutcome(
+                    VERDICT_ERROR,
+                    "expected-absence row needs capture_end_line",
+                    list(collected))
             return FctOutcome(VERDICT_FAIL,
                               "TIMEOUT waiting for "
                               f"{pass_re or end_line or 'output'}",

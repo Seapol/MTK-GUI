@@ -81,6 +81,90 @@ def rule_retired_flash_steps(doc: dict) -> list[YamlIssue]:
 _RULES.append(rule_retired_flash_steps)
 
 
+#: m118: a console row that can only PASS on "any output" is not a test.
+FCT_ROW_NO_JUDGE_MSG = (
+    "row has no judge: add expect_pass_re / expect_fail_re / "
+    "capture_end_line, or set setup_only: true")
+#: m118: the declared positive judge would be silently ignored.
+FCT_CAPTURE_CONTRADICTION_MSG = (
+    "capture_is_expected=false ignores expect_pass_re - remove one of "
+    "the two")
+
+
+def _fct_row_value(row: dict, params: dict, key: str):
+    """One judge key of an FCT row: the published step params first,
+    then the row itself (m118)."""
+    value = params.get(key)
+    if value not in (None, ""):
+        return value
+    return row.get(key)
+
+
+def _fct_row_marker(row: dict) -> dict:
+    marker = (row.get("op_params") or {}).get("fct_step") or {}
+    return marker if isinstance(marker, dict) else {}
+
+
+def rule_fct_row_without_judge(doc: dict) -> list[YamlIssue]:
+    """m118: every published console step must carry a positive judge.
+
+    The console executor used to PASS on any output (and on silence at
+    timeout) when a row carried no expect_pass_re / expect_fail_re /
+    capture_end_line.  Such a row is a configuration ERROR unless it
+    declares itself a setup row (``setup_only: true``).  Operation /
+    human-dialog / CLI / RF rows judge in their own executors.
+    """
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    judge_keys = ("expect_pass_re", "expect_fail_re", "capture_end_line",
+                  "parse_summary", "setup_only")
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        marker = _fct_row_marker(row)
+        step_type = str(marker.get("step_type") or marker.get("type") or "")
+        if step_type != "MESSAGE_CHECK":
+            # only the console capture executor can fake a PASS; op /
+            # dialog / CLI / RF rows judge through their own evidence
+            continue
+        if row.get("enable") is False or row.get("skip") is True:
+            continue
+        params = dict(marker.get("params") or {})
+        if params.get("skip") is True:
+            continue
+        if any(_fct_row_value(row, params, key) for key in judge_keys):
+            continue
+        issues.append(YamlIssue(SEVERITY_ERROR, FCT_ROW_NO_JUDGE_MSG,
+                                f"fct_test_cases[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_fct_row_without_judge)
+
+
+def rule_capture_is_expected_contradiction(doc: dict) -> list[YamlIssue]:
+    """m118: ``capture_is_expected: false`` silently ignores a declared
+    ``expect_pass_re`` - refuse the contradiction at load time."""
+    issues: list[YamlIssue] = []
+    workflow = (doc or {}).get("test_workflow") or {}
+    for index, row in enumerate(workflow.get("fct_test_cases") or []):
+        if not isinstance(row, dict):
+            continue
+        params = dict(_fct_row_marker(row).get("params") or {})
+        if _fct_row_value(row, params, "capture_is_expected") is not False:
+            continue
+        if not str(_fct_row_value(row, params, "expect_pass_re")
+                   or "").strip():
+            continue
+        issues.append(YamlIssue(
+            SEVERITY_ERROR, FCT_CAPTURE_CONTRADICTION_MSG,
+            f"fct_test_cases[{index}].name"))
+    return issues
+
+
+_RULES.append(rule_capture_is_expected_contradiction)
+
+
 def _carries_retired_console_login(row: dict) -> bool:
     """M83: True when a project row still expands the retired login step.
 
