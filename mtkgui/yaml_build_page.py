@@ -441,6 +441,7 @@ class YamlBuildPage(QWidget):
             STEP_TYPE_SFTP_GET,
             STEP_TYPE_SFTP_PUT,
             build_fct_steps,
+            unify_row_budgets,
         )
         from mtkgui.engine.ref_resolver import (
             RefError,
@@ -675,6 +676,9 @@ class YamlBuildPage(QWidget):
             cases.extend(row_cases)
         cases.extend(_cases(rf_fallback))
         cases.extend(_cases(teardown))
+        # m118 §2: the visible Timeout column (timeout_ms) is the one
+        # budget source - it rewrites a missing / >10 % stale marker
+        unify_row_budgets(cases, self._tlog)
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
 
@@ -712,7 +716,10 @@ class YamlBuildPage(QWidget):
     def _emit_fct_sequence_legacy(self, params: dict):
         """Legacy ``fct_test_config_yaml`` (pre-M50 project files)."""
         import yaml as _yaml
-        from mtkgui.engine.fct_test_config import FctTestConfig
+        from mtkgui.engine.fct_test_config import (
+            FctTestConfig,
+            unify_row_budgets,
+        )
         from mtkgui.gui.yamlbuild.fct_build import (
             FctSequence,
             to_project_fct_cases,
@@ -752,6 +759,9 @@ class YamlBuildPage(QWidget):
         for case, step in zip(cases, steps):
             case.setdefault("op_params", {})["fct_step"] = step.to_dict()
         cases = list(seq_cases) + cases
+        # m118 §2: the visible Timeout column (timeout_ms) is the one
+        # budget source - it rewrites a missing / >10 % stale marker
+        unify_row_budgets(cases, self._tlog)
         self._tlog("INFO", f"FCT sequence generated: {len(cases)} cases")
         return cases, []
 

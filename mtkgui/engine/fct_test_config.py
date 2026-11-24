@@ -2353,3 +2353,53 @@ def build_fct_steps(cfg: FctTestConfig,
                 steps.append(step)
     return steps
 
+
+
+def unify_row_budgets(cases: list, log=None) -> list:
+    """m118: the visible Timeout column is the ONE budget source.
+
+    The Yaml Build Timeout column writes ``timeout_ms`` on the case row
+    while the published step marker carries
+    ``op_params.fct_step.timeout_s`` - and the marker wins at run time
+    (``resolve_step_budget``), so an edit in the visible column used to
+    lose silently.  A row with a positive ``timeout_ms`` writes that
+    value into the marker when the marker is missing or disagrees by
+    more than 10 %.
+
+    Args:
+        cases: Project-shape FCT case dicts (mutated in place; rows
+               without an ``op_params.fct_step`` marker are left alone).
+        log:   Optional ``(level, message)`` callable (the page's
+               ``_tlog``); receives one INFO line per changed row.
+
+    Returns:
+        The same list (convenience for the call sites).
+    """
+    for case in cases or []:
+        if not isinstance(case, dict):
+            continue
+        try:
+            row_s = int(case.get("timeout_ms", 0) or 0) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if row_s <= 0:
+            continue
+        op_params = case.get("op_params")
+        if not isinstance(op_params, dict):
+            continue
+        marker = op_params.get("fct_step")
+        if not isinstance(marker, dict):
+            continue
+        current = marker.get("timeout_s")
+        try:
+            current_s = (None if current in (None, "")
+                         else float(current))
+        except (TypeError, ValueError):
+            current_s = None
+        if current_s is not None and abs(current_s - row_s) <= row_s * 0.1:
+            continue
+        marker["timeout_s"] = row_s
+        if callable(log):
+            log("INFO", f"budget unified: {case.get('name', '')} "
+                        f"{row_s:g}s (row timeout_ms wins)")
+    return cases
