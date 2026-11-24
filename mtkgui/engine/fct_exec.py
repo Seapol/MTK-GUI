@@ -751,8 +751,12 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
     interface = str(cfg.get("interface", "mlan0"))
     rssi_min = float(cfg.get("rssi_min", -70))
     dut_ip = str(cfg.get("dut_ip") or "").strip()
-    ctx.log(f"DUT: iw dev {interface} link")
-    channel.write(f"iw dev {interface} link\n")
+    command = f"iw dev {interface} link"
+    # M116: mark before sending - a previous step's leftovers (e.g.
+    # "-sh: ACK: command not found") must never judge this row
+    _mark_channel(channel)
+    ctx.log(f"DUT: {command}")
+    channel.write(command + "\n")
     deadline = time.monotonic() + max(step.timeout_s or 15.0, 1.0)
     collected: list = []
     while time.monotonic() < deadline:
@@ -763,7 +767,11 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                               list(collected))
         collected.extend(got)
         text = "\n".join(collected)
-        m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", text)
+        # judge only the reply to THIS command: the DUT echoes the
+        # command back, so drop everything up to its last occurrence
+        echo_at = text.rfind(command)
+        reply = text[echo_at + len(command):] if echo_at >= 0 else text
+        m = re.search(r"signal:\s*(-?[\d.]+)\s*dBm", reply)
         if m:
             rssi = float(m.group(1))
             ok = rssi >= rssi_min
@@ -784,7 +792,7 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
         # W3-2: an absent wireless interface is a capability problem, not
         # a deauthenticated station - ERROR, never the "not connected"
         # FAIL (the operator would chase an association that cannot exist)
-        if re.search(r"No such device|command not found", text,
+        if re.search(r"No such device|command not found", reply,
                      re.IGNORECASE):
             return FctOutcome(
                 VERDICT_ERROR,
@@ -792,7 +800,7 @@ def _wifi_rssi_dut_console(step: FctStep, cfg: dict,
                 "does not exist on the DUT (No such device) - set "
                 "wifi.scan_via: host for a DUT without a WLAN module",
                 list(collected))
-        if re.search(r"not connected|No station|Invalid", text,
+        if re.search(r"not connected|No station|Invalid", reply,
                      re.IGNORECASE):
             return FctOutcome(VERDICT_FAIL, "DUT Wi-Fi not connected",
                               list(collected))

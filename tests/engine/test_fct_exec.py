@@ -610,6 +610,36 @@ def test_wifi_dut_console_rssi_pass_unchanged():
     assert "RSSI -45.0 dBm vs min" in out.reason
 
 
+class _MarkingWifiChannel:
+    """Console double with mark(): pre-seeded leftovers are dropped."""
+
+    def __init__(self, stale: list) -> None:
+        self._lines = list(stale)
+        self.written: list = []
+
+    def mark(self) -> None:
+        self._lines.clear()
+
+    def write(self, text: str) -> None:
+        self.written.append(text)
+        # the DUT echoes the command, then answers with the link info
+        self._lines.extend([text.rstrip("\n"), "signal: -27 dBm"])
+
+    def read_lines(self, max_lines: int = 200, timeout_s: float = 0.0) -> list:
+        out = self._lines[:max_lines]
+        del self._lines[:len(out)]
+        return out
+
+
+def test_wifi_dut_console_ignores_stale_buffer():
+    """M116: a previous step's leftover stderr must never judge this row."""
+    channel = _MarkingWifiChannel(["-sh: ACK: command not found"])
+    ctx = FctContext(channels={"ser1": channel}, station_id="S", user="u")
+    out = execute_fct_step(_dut_console_wifi_step(), ctx)
+    assert out.verdict == VERDICT_PASS
+    assert "RSSI -27.0 dBm vs min" in out.reason
+
+
 def test_iperf_missing_server_ip_is_error(monkeypatch):
     # empty configured IP and undetectable host IP -> explicit ERROR
     monkeypatch.setattr(fe, "host_lan_ip", lambda ctx: "")
