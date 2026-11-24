@@ -524,15 +524,10 @@ _WINDOWS_BT_DEVICES_CMD = (
 
 
 _WINDOWS_BT_ADDR_CMD = (
-    'powershell -NoProfile -Command "[Console]::OutputEncoding='
-    '[Text.Encoding]::UTF8;'
-    'Add-Type -AssemblyName System.Runtime.WindowsRuntime;'
-    '$null=[Windows.Devices.Bluetooth.BluetoothAdapter,'
-    'Windows.Devices.Bluetooth,ContentType=WindowsRuntime];'
-    '$a=[Windows.Devices.Bluetooth.BluetoothAdapter]'
-    '::GetDefaultAsync().Await();'
-    'if($a){ \'BTADDR=\' + $a.BluetoothAddress.ToString(\'X12\') }'
-    ' else { \'BTADDR=\' }"')
+    'powershell -NoProfile -Command "$a = Get-NetAdapter | '
+    'Where-Object { $_.InterfaceDescription -like \'*Bluetooth*\' } | '
+    'Select-Object -First 1; if($a){ \'BTADDR=\' + '
+    '($a.MacAddress -replace \'[^0-9A-Fa-f]\',\'\') } else { \'BTADDR=\' }"')
 
 
 def host_bt_status_cmd() -> str:

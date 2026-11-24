@@ -246,16 +246,50 @@ def test_host_bt_identity_windows_returns_addr(monkeypatch):
         calls.append(cmd_line)
         if "COMPUTERNAME" in cmd_line:
             return "WIN-PC\n"
-        if "BluetoothAdapter" in cmd_line:
+        if "Get-NetAdapter" in cmd_line:
             return "BTADDR=a1b2c3d4e5f6\n"
         return ""
 
     monkeypatch.setattr(hp, "run_link_cmd", fake_run)
     assert hp.host_bt_identity() == ("WIN-PC", "A1:B2:C3:D4:E5:F6")
-    assert any("BluetoothAdapter" in c for c in calls)
+    assert any("Get-NetAdapter" in c for c in calls)
 
 
 def test_host_bt_identity_windows_no_adapter(monkeypatch):
+    _set_system(monkeypatch, "Windows")
+
+    def fake_run(cmd_line, timeout_s=15):
+        if "COMPUTERNAME" in cmd_line:
+            return "WIN-PC\n"
+        return "BTADDR=\n"
+
+    monkeypatch.setattr(hp, "run_link_cmd", fake_run)
+    assert hp.host_bt_identity() == ("WIN-PC", "")
+
+
+def test_windows_bt_addr_cmd_uses_netadapter():
+    """M117: PowerShell 5.1 cannot Await(); the Bluetooth PAN adapter's
+    MAC comes from Get-NetAdapter instead."""
+    cmd = hp._WINDOWS_BT_ADDR_CMD
+    assert "Get-NetAdapter" in cmd
+    assert "BTADDR=" in cmd
+    assert "Await(" not in cmd
+    assert "Windows.Devices.Bluetooth" not in cmd
+
+
+def test_host_bt_identity_parses_netadapter_mac(monkeypatch):
+    _set_system(monkeypatch, "Windows")
+
+    def fake_run(cmd_line, timeout_s=15):
+        if "COMPUTERNAME" in cmd_line:
+            return "WIN-PC\n"
+        return "BTADDR=2C6DC1AB9360\n"
+
+    monkeypatch.setattr(hp, "run_link_cmd", fake_run)
+    assert hp.host_bt_identity() == ("WIN-PC", "2C:6D:C1:AB:93:60")
+
+
+def test_host_bt_identity_empty_when_no_bt_adapter(monkeypatch):
     _set_system(monkeypatch, "Windows")
 
     def fake_run(cmd_line, timeout_s=15):
