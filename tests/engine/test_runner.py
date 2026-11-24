@@ -114,8 +114,9 @@ class TestStopStrategies:
         env.ict_sim_fail.add(1)
         runner = step_run(env)
         assert runner.verdict() == "FAIL"
-        # the run continued to the end: stage 0 completed, FCT judged
-        assert env.rows.get(("stage", 0)) == "PASS"
+        # the run continued to the end: stage 0 closed and rolled up the
+        # injected child FAIL (M116-C), FCT was still judged
+        assert env.rows.get(("stage", 0)) == "FAIL"
         assert ("fct", 0) in env.rows
 
     def test_fct_failure_stops_when_enabled(self, env):

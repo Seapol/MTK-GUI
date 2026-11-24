@@ -71,6 +71,17 @@ def op_verdict_status(verdict: str) -> StepStatus:
 DAQ_AI_STEP_NAME = "DAQ AI - Power rails"
 
 
+def stage_verdict(results: dict, kind: str) -> str | None:
+    """Roll up one Overall Flow stage from its child rows (M116).
+
+    Returns ``rollup()`` of the ``(kind, row)`` subset only - ignored
+    rows are excluded by :func:`rollup` itself, so a stage with nothing
+    judged yields ``None``.
+    """
+    return rollup({key: value for key, value in results.items()
+                   if key[0] == kind})
+
+
 class TestRunner(QObject):
     """Executes one test cycle: the step list produced by the page's
     _steps_template / the headless sequence template."""
@@ -1724,9 +1735,14 @@ class TestRunner(QObject):
 
     # -------------------------------------------------------- run control
     def _complete_stage(self, r: int) -> None:
-        """Mark one Overall Flow stage PASS and record its duration (s)."""
+        """Close one Overall Flow stage: roll up its child verdicts and
+        record the duration (s).  Never PASS when a child failed."""
         duration = time.monotonic() - self._stage_start
-        self._put("stage", r, StepStatus.PASS, None, duration)
+        kind = "ict" if r == 0 else "fct"
+        verdict = stage_verdict(self._results, kind)
+        status = (StepStatus.PASS if verdict in ("PASS", None)
+                  else StepStatus.FAIL)
+        self._put("stage", r, status, None, duration)
         self._stage_start = time.monotonic()
 
     def start(self, lr_total: int = 1) -> None:
