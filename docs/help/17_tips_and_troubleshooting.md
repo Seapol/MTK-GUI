@@ -1,6 +1,6 @@
 # Tips & Troubleshooting
 
-Twelve things that are worth knowing before they cost a shift. Each tip is
+Fifteen things that are worth knowing before they cost a shift. Each tip is
 one paragraph plus a pointer to the chapter that explains it in full.
 
 ### 1. Where your data lives
@@ -100,3 +100,32 @@ instrument traffic.
 use it to practise before the fixture and the real DUT are on the line.
 
 **More:** chapter 1 (Overview), under "Modes: Real and Virtual".
+
+### 13. `FAIL` is the board, `Error` is your station
+
+A row that never produced output - a console still busy with the previous
+command, an instrument backend throwing, a budget elapsing with nothing
+captured - is reported as `Error`, not `FAIL`. Admitting a board is honest
+only when the DUT actually answered something wrong. Read the Event Log line
+next to the verdict before you blame either side.
+
+**More:** chapter 4 (Test Work Flow Page), under "PASS, FAIL and Error - who owns the row".
+
+### 14. A disabled row is a coverage decision, not a deletion
+
+When the rack cannot perform a test (an AP that isolates clients, no paired
+Bluetooth peer, no loopback jumper), uncheck `EN`, keep the row, and write the
+reason as a YAML comment beside it. The run then logs
+`FCT <row> -> Ignore (disabled)` and the gap stays visible in the table and
+report. Coverage you cannot see is coverage you do not have.
+
+**More:** chapter 4 (Test Work Flow Page), under "A row the bench cannot support".
+
+### 15. The row budget must outlast the work inside it
+
+A 10 s BLE scan inside a 15 s row can only end in `budget exceeded ... (no
+verdict) -> ERROR`. Size the budget at least a couple of seconds above the
+sub-timeout it wraps, and watch the Event Log for the advisory
+`WARNING budget ... <= declared sub-timeout ...`.
+
+**More:** chapter 4 (Test Work Flow Page), under "PASS, FAIL and Error - who owns the row".

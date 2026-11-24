@@ -416,6 +416,50 @@ The factory sequence (7 steps): `MessageYesNo: LED Test`,
 `MessageGoStop: Flash FAT Firmware`, `MessageGoStop: Flash OOBE
 Firmware`.
 
+### PASS, FAIL and Error - who owns the row
+
+Three verdicts, three owners. Reading them the wrong way is the
+fastest route to scrapping a good board or shipping a bad one.
+
+| Verdict | Owner | Means | Typical cause |
+|---|---|---|---|
+| `PASS` | - | the row met its criteria with real data | - |
+| `FAIL` | the DUT | the DUT answered and the answer was wrong | a FAT case reporting `Overall result: FAIL`, RSSI below the limit, throughput below the minimum |
+| `Error` | the station | the row could not be judged at all | console still busy with the previous command, an instrument or backend exception, the row budget elapsed with no output |
+| `Ignore` | the plan | the row is disabled (`EN` unchecked) - no opinion, and no coverage | see below |
+
+- A row that produced **no output whatsoever** before its budget ran
+  out is an `Error`, never a `FAIL`: a silent console is a bench
+  problem (a command still running, a hung tool), not a board defect.
+  If the DUT did print something and it was wrong, that stays a
+  `FAIL`.
+- The row budget (`timeout_s` in `params.args`, shown in the Event Log
+  as `budget 35s (source timeout_s)`) is a **wall**: a row that overruns
+  it can never pass. Set the budget above the work it wraps - a 10 s
+  scan inside a 15 s row can only ever end in `budget exceeded`.
+- An overrun is logged as `budget exceeded 46.6s > 45s (no verdict) ->
+  ERROR` together with the reason, so the Event Log alone tells you
+  which side to look at.
+
+### A row the bench cannot support: disable it, keep the record
+
+Production testing is about **coverage under the hardware you actually
+have**. When a test cannot run on this rack (an AP that isolates
+clients, no paired Bluetooth peer, a fixture without the loopback
+jumper), do not delete the row and do not fake a verdict:
+
+1. Uncheck `EN` on the row. It then logs
+   `FCT <row name> -> Ignore (disabled)` and the run continues.
+2. Write the reason **next to the row in the YAML** as a comment
+   (what blocks it, what was measured instead, what would allow
+   re-enabling it). A comment survives every export and review.
+3. Keep the disabled row in the plan. The gap is then visible in the
+   table and in the report instead of disappearing from the count.
+
+Re-enable the row the moment the bench supports it - the comment is
+written so the next engineer can decide without repeating the
+investigation.
+
 ### FCT Test Methods
 
 The FCT `Test Method` dropdown carries twelve methods in three

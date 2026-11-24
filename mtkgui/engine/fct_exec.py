@@ -773,13 +773,25 @@ def _bt_rssi_host(step: FctStep, cfg: dict, ctx: FctContext) -> FctOutcome:
                           "no Bluetooth target configured (DUT BT name)")
     timeout_s = float(cfg.get("rf_timeout_s")
                       or step.timeout_s or 10.0)
-    try:
-        rssi = host_rf.bt_scan(
-            target, virtual=bool(cfg.get("virtual")),
-            virtual_rssi=cfg.get("virtual_rssi"), timeout_s=timeout_s)
-    except host_rf.HostRfError as exc:
-        ctx.log(f"BT scan failed: {exc}")
-        return FctOutcome(VERDICT_ERROR, str(exc))
+    # M120: a missed advertisement is a bench/timing event, not a DUT fault,
+    # so give the scan a second look before declaring a FAIL (the row budget
+    # must therefore exceed ONE scan, see the budget guard in run_step).
+    attempts = max(1, int(cfg.get("scan_attempts", 2) or 1))
+    rssi = None
+    for attempt in range(1, attempts + 1):
+        try:
+            rssi = host_rf.bt_scan(
+                target, virtual=bool(cfg.get("virtual")),
+                virtual_rssi=cfg.get("virtual_rssi"), timeout_s=timeout_s)
+        except host_rf.HostRfError as exc:
+            ctx.log(f"BT scan failed: {exc}")
+            return FctOutcome(VERDICT_ERROR, str(exc))
+        if rssi is not None:
+            break
+        ctx.log(f"BT scan attempt {attempt}/{attempts}: "
+                f'"{target}" not seen in {timeout_s:.0f}s')
+        if attempt < attempts:
+            time.sleep(2.0)
     if rssi is None:
         detail = (f'BT scan failed / DUT "{target}" not found '
                   "(is it broadcasting?)")
@@ -1032,6 +1044,19 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
         ctx.log(f"{step.name}: budget {budget_s:g}s (source {source})")
     else:
         ctx.log(f"{step.name}: budget unlimited (source {source})")
+    # M120: a row budget that is not bigger than the sub-timeout it declares
+    # can only ever end in "budget exceeded" - say so BEFORE the work starts
+    # instead of reporting a bench/DUT problem afterwards.
+    _declared_sub = 0.0
+    _rf_cfg = step.params.get("fct_rf") or {}
+    for _key in ("rf_timeout_s", "iperf_timeout_s", "pair_timeout"):
+        try:
+            _declared_sub = max(_declared_sub, float(_rf_cfg.get(_key) or 0.0))
+        except (TypeError, ValueError):
+            pass
+    if budget_s > 0 and _declared_sub > 0 and budget_s <= _declared_sub + 1.0:
+        ctx.log(f"{step.name}: WARNING budget {budget_s:g}s <= declared "
+                f"sub-timeout {_declared_sub:g}s - raise the row timeout")
     _label = f"testflow: fct step {step.step_type} {step.name}"
     _span_begin(_label, category="testflow", **_step_span_flags(step))
     started = time.monotonic()
