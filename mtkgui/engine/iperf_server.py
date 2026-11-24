@@ -78,14 +78,49 @@ def _start(binary: str) -> None:
         **kwargs)
 
 
-def ensure_server(host: str = "127.0.0.1", log=None) -> str:
-    """Make sure an iperf3 server answers on ``host``.
+def _health(host: str) -> bool:
+    """One-second client run: proves the listener really moves bytes.
+
+    A server left behind by an interrupted client accepts the TCP
+    connection and then answers nothing (measured on the Windows rack:
+    0 bytes for 186 s).  A port probe cannot see that, a short real test
+    can.
+    """
+    binary = find_binary()
+    if not binary:
+        return False
+    try:
+        res = subprocess.run(
+            [binary, "-c", host, "-p", str(PORT), "-t", "1", "-J"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=8,
+            check=False)
+    except Exception:                     # noqa: BLE001 - health probe
+        return False
+    return res.returncode == 0 and b'"sum_received"' in (res.stdout or b"")
+
+
+def ensure_server(host: str = "127.0.0.1", log=None,
+                  restart: bool = True) -> str:
+    """Make sure a *working* iperf3 server answers on ``host``.
 
     Returns "" when the server is up, otherwise a reason string starting
-    with "iperf server unavailable"."""
+    with "iperf server unavailable".
+
+    m119: a server started by an earlier row (or left behind by an
+    interrupted client) can be wedged while still accepting connections,
+    so the server this module owns is stopped and started again, and any
+    listener we do not own must pass a one-second throughput probe."""
     probe = host if host and host != "0.0.0.0" else "127.0.0.1"
+    if restart:
+        stop_server()
     if _port_open(probe):
-        return ""
+        if log:
+            log(f"iperf server: reusing the listener on {probe}:{PORT}")
+        if _health(probe):
+            return ""
+        return (f"iperf server unavailable ({probe}:{PORT} accepts "
+                "connections but moves no bytes - a wedged server; "
+                "stop it and re-run)")
     binary = find_binary()
     if not binary:
         return "iperf server unavailable (iperf3 binary not found)"

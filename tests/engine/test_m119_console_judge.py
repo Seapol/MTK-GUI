@@ -167,6 +167,32 @@ def test_below_limit_is_fail_and_above_is_pass():
         "PASS"
 
 
+def test_zero_measurement_is_error(monkeypatch):
+    # 0.0 Mbps means the bench moved nothing - not a slow DUT
+    doc = {"end": {"sum_received": {"bits_per_second": 0.0}}}
+    ser = _Feed(json.dumps(doc) + "\n")
+    verdict, detail = dut_wifi_iperf(ser, "iperf3", "192.168.71.8", 100.0, 5)
+    assert verdict == "ERROR"
+    assert "no iperf measurement" in detail
+
+
+def test_iperf_command_carries_no_omit_flag(monkeypatch):
+    """`-O 1 -J` hangs the DUT's iperf 3.16 forever (measured on the rack)."""
+    seen = {}
+
+    def fake_probe(serial, cmd, expect, budget):
+        seen["cmd"] = cmd
+        return "OK", json.dumps({"end": {"sum_received":
+                                         {"bits_per_second": 2.5e8}}})
+
+    monkeypatch.setattr(runner_mod, "_console_probe", fake_probe)
+    ser = _Feed("")
+    dut_wifi_iperf(ser, "iperf3", "192.168.71.8", 100.0, 5)
+    cmd = seen["cmd"]
+    assert " -O " not in f" {cmd} "
+    assert "-p 5201" in cmd and "-J" in cmd
+
+
 def test_dut_verdict_mapping_keeps_error_distinct():
     assert _dut_verdict("PASS") == VERDICT_PASS
     assert _dut_verdict("FAIL") == VERDICT_FAIL

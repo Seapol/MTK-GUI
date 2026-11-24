@@ -671,7 +671,10 @@ def dut_wifi_iperf(serial, tool: str, server_ip: str, min_mbps: float,
     * ``ERROR`` no measurement at all          (platform/bench problem)
     """
     if tool == "iperf3":
-        cmd = f"iperf3 -c {server_ip} -t {duration} -O 1 -J"
+        # m119: NO `-O`/omit - the DUT's iperf 3.16 hangs forever with
+        # `-O 1 -J` (measured: RC=124, JSON error "interrupt - the
+        # client has terminated"), which is the tool, not the DUT.
+        cmd = f"iperf3 -c {server_ip} -p 5201 -t {duration} -J"
         expect = r'"sum_received"'
     else:                                   # iperf2
         cmd = f"iperf -c {server_ip} -t {duration} -i 1"
@@ -686,6 +689,9 @@ def dut_wifi_iperf(serial, tool: str, server_ip: str, min_mbps: float,
     if mbps is None:
         return "ERROR", (f"no iperf measurement (server {server_ip}:5201 "
                          "unreachable?)")
+    if mbps <= 0.0:
+        return "ERROR", (f"iperf measured {mbps:.1f} Mbps - the server "
+                         "moved no bytes (wedged server or dead link)")
     ok = mbps >= min_mbps
     return ("PASS" if ok else "FAIL",
             f"{mbps:.1f} Mbps vs min {min_mbps} Mbps")
