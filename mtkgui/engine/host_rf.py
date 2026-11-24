@@ -268,6 +268,7 @@ def _bleak_discover(timeout_s: float = 10.0) -> list:
             "bleak is not installed (install it with 'pip install bleak'); "
             "BT scan failed") from exc
     import asyncio
+    import concurrent.futures
     hits: list = []
 
     def _on_detect(device, advertisement_data):
@@ -281,10 +282,16 @@ def _bleak_discover(timeout_s: float = 10.0) -> list:
         await asyncio.sleep(timeout_s)
         await scanner.stop()
 
-    try:
-        asyncio.run(_scan())
-    except Exception as exc:              # noqa: BLE001 - backend failure
-        raise HostRfError(f"BT scan failed: {exc}") from exc
+    def _run():
+        try:
+            asyncio.run(_scan())
+        except Exception as exc:          # noqa: BLE001 - backend failure
+            raise HostRfError(f"BT scan failed: {exc}") from exc
+
+    # M117: WinRT refuses asyncio.run on the Qt GUI thread ("Thread is
+    # configured for Windows GUI but callbacks are not working")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(_run).result()
     return hits
 
 
@@ -322,6 +329,10 @@ def parse_bleak_devices(devices, target: str):
         except (TypeError, ValueError):
             continue
         if (addr and tgt_addr == addr) or (name and tgt == name.lower()):
+            exact = value if exact is None else max(exact, value)
+        elif name and (tgt.startswith(name.lower()) or name.lower() in tgt):
+            # M117: BlueZ may advertise a shortened controller alias
+            # ("FRDM-IMX93" for the configured "FRDM-IMX93-DUT")
             exact = value if exact is None else max(exact, value)
         elif name and tgt in name.lower():
             partial = value if partial is None else max(partial, value)

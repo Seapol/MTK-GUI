@@ -276,6 +276,41 @@ def test_parse_bleak_devices_matches_by_address_and_name():
     assert hr.parse_bleak_devices(devices, "Nope") is None
 
 
+def test_parse_bleak_devices_matches_truncated_adv_name():
+    """M117: BlueZ may advertise a shortened controller alias."""
+    devices = [("b8:f4:4f:59:51:a0", "FRDM-IMX93", -43)]
+    assert hr.parse_bleak_devices(devices, "FRDM-IMX93-DUT") == -43
+
+
+def test_bleak_discover_runs_off_the_calling_thread(monkeypatch):
+    """M117: WinRT refuses asyncio.run on the Qt GUI thread, so the event
+    loop runs in a one-shot worker thread."""
+    import threading
+    import types
+    seen: list = []
+
+    class FakeScanner:
+        def __init__(self, detection_callback=None):
+            seen.append(threading.current_thread())
+            self._callback = detection_callback
+
+        async def start(self):
+            self._callback(
+                types.SimpleNamespace(address="aa:bb:cc:dd:ee:ff",
+                                      name="FRDM-IMX93"),
+                types.SimpleNamespace(rssi=-43))
+
+        async def stop(self):
+            pass
+
+    fake = types.ModuleType("bleak")
+    fake.BleakScanner = FakeScanner
+    monkeypatch.setitem(sys.modules, "bleak", fake)
+    devices = hr._bleak_discover(timeout_s=0.0)
+    assert devices == [("aa:bb:cc:dd:ee:ff", "FRDM-IMX93", -43)]
+    assert seen and seen[0] is not threading.current_thread()
+
+
 def test_parse_bleak_devices_exact_name_wins_over_partial():
     devices = [
         _Device("DUT-BT", "aa:aa:aa:aa:aa:aa", -50),
