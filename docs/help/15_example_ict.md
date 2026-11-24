@@ -155,6 +155,27 @@ manually (edit the allocation cells / mark them Do-Not-Test), or
 The ICT sequence is then generated from the allocated rails, clocks
 and GPIO nets.
 
+## Before you run: the PSU setpoints are not in the sequence
+
+`Power On DUT` is a **passive** row. It carries only the state (`on`); it
+neither knows nor sets a voltage. The N5747A setpoints come from the
+**04 · Equipment Config** card (power source + output voltage + current
+limit). If that card has never been filled for this product, the row still
+runs, the supply stays at 0 V, and every powered measurement behind it fails
+on a board that is perfectly good:
+
+```text
+DAQM: slot1 CH101: DCV = 0.001 V but PSU output is OFF (11.4..12.6 V expected) -> FAIL
+DAQM907A totalizer CH501: 0 Hz (DUT unpowered) -> FAIL
+```
+
+So the order is: design data -> limits -> allocation -> **Equipment Config
+(rail voltage + current limit)** -> Build ICT -> save -> run. In Virtual mode
+this is visible immediately as a full column of `PSU output is OFF` rows; on
+the rack it looks like a dead board. Check the card first, and take the rail
+voltage and the current allowance from the schematic power section rather than
+from the demo defaults.
+
 ## Step 7 - Save the project YAML
 
 Open **File > Save as Yaml...**. The dialog proposes a file name from

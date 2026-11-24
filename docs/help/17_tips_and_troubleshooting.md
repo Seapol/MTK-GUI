@@ -1,6 +1,6 @@
 # Tips & Troubleshooting
 
-Fifteen things that are worth knowing before they cost a shift. Each tip is
+Sixteen things that are worth knowing before they cost a shift. Each tip is
 one paragraph plus a pointer to the chapter that explains it in full.
 
 ### 1. Where your data lives
@@ -129,3 +129,13 @@ sub-timeout it wraps, and watch the Event Log for the advisory
 `WARNING budget ... <= declared sub-timeout ...`.
 
 **More:** chapter 4 (Test Work Flow Page), under "PASS, FAIL and Error - who owns the row".
+
+### 16. Every powered row reading ~0 V means the supply, not the board
+
+`Power On DUT` sets no voltage - it is a passive state row. The N5747A
+output and current limit live in **04 · Equipment Config**. Left empty, the
+supply stays off and the whole powered column fails together
+(`DCV = 0.001 V but PSU output is OFF`), clocks included (`0 Hz (DUT
+unpowered)`). Fill the Equipment Config card before blaming the DUT.
+
+**More:** chapter 15 (Example Build of ICT Test Case), under "Before you run".
