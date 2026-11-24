@@ -44,14 +44,25 @@ DEFAULT_PROMPT = re.compile(r"[#\$](\x1b\[[0-9;]*[A-Za-z])*\s*$")
 HIGH_BAUD = 921600
 #: production console rate (restored after the transfer)
 DEFAULT_BAUD = 115200
-#: base64 bytes per streamed block + inter-block delay (s).  At 921600 the
-#: link moves ~9216 B/s; 2048 B per 0.03 s keeps the host just behind the
-#: DUT reader (verified md5-clean).
-STREAM_BLOCK = 2048
-STREAM_DELAY_S = 0.03
+#: base64 bytes per streamed block.  Halved from 2048: at 921600 the tty
+#: input queue is still overrun when the GUI thread is busy, and a smaller
+#: block bounds the damage of a single lost write.
+STREAM_BLOCK = 1024
+#: inter-block delay (s) for the FIRST attempt.  Measured on the bench: the
+#: GUI stream averaged ~36 KB/s with a fixed 0.03 s and still dropped
+#: characters, so the first attempt starts slower and the caller escalates.
+STREAM_DELAY_S = 0.05
+#: escalation ladder: the same file is re-streamed at DELAY * scale while the
+#: staging byte count does not match.  Never a fixed retry count of one.
+STREAM_SCALE_STEPS = (1.0, 2.0, 4.0)
 #: heredoc terminator (must not appear in base64 - it does not)
 HEREDOC_TAG = "PUSH_EOF"
 STAGING = "/root/.push.b64"
+
+
+def _stream_delay_s(scale: float = 1.0) -> float:
+    """Inter-block delay for one streaming attempt."""
+    return STREAM_DELAY_S * max(1.0, float(scale))
 
 
 class PushError(RuntimeError):
@@ -171,7 +182,7 @@ def _switch_baud(channel, target: int, prompt_re, log) -> bool:
 # one file
 # ---------------------------------------------------------------------------
 def _stream_heredoc(channel, b64: str, prompt_re, progress, total_bytes: int,
-                    name: str) -> None:
+                    name: str, delay_s: float = STREAM_DELAY_S) -> None:
     """Open a quoted heredoc, stream the base64 in paced blocks, close it."""
     channel.write(f"cat > {STAGING} <<'{HEREDOC_TAG}'\n")
     time.sleep(0.4)
@@ -180,7 +191,7 @@ def _stream_heredoc(channel, b64: str, prompt_re, progress, total_bytes: int,
               for i in range(0, len(b64), STREAM_BLOCK)]
     for i, block in enumerate(blocks):
         channel.write(block)
-        time.sleep(STREAM_DELAY_S)
+        time.sleep(delay_s)
         if progress is not None:
             sent_b64 = min(len(b64), (i + 1) * STREAM_BLOCK)
             progress(int(sent_b64 * total_bytes / len(b64)), total_bytes,
@@ -197,7 +208,8 @@ def _stream_heredoc(channel, b64: str, prompt_re, progress, total_bytes: int,
 
 def push_file(channel, local_path: str, remote_path: str, *,
               log=None, progress=None, prompt_re=DEFAULT_PROMPT,
-              command_timeout_s: float = 20.0) -> dict:
+              command_timeout_s: float = 20.0,
+              stream_scale_steps: tuple | None = None) -> dict:
     """Deploy ONE local file over the serial console at the CURRENT baud
     (heredoc streaming, MD5-verified).  Use :func:`push_bundle` for the
     full high-speed multi-file flow.
@@ -221,7 +233,27 @@ def push_file(channel, local_path: str, remote_path: str, *,
     # the asset dir step only creates /root/fct_assets: subdirectories
     # (drivers/…) must exist before the decode redirect can land
     _ensure_remote_parent(channel, remote_path, prompt_re, command_timeout_s)
-    _stream_heredoc(channel, b64, prompt_re, progress, len(data), name)
+    # verify the staging bytes after the close marker, before any decode:
+    # a dropped character would otherwise only surface as a remote MD5
+    # mismatch after a wasted base64 -d (m115-B)
+    expected = len(b64) + 1          # the b64 body plus its newline
+    got = -1
+    for scale in tuple(stream_scale_steps or STREAM_SCALE_STEPS):
+        _stream_heredoc(channel, b64, prompt_re, progress, len(data), name,
+                        delay_s=_stream_delay_s(scale))
+        size_out = _send_wait(channel, f"wc -c < {STAGING}", prompt_re,
+                              command_timeout_s, "staging size")
+        # the computed completion marker is the second standalone number
+        sizes = [int(line) for line in size_out.splitlines()
+                 if line.strip().isdigit()]
+        got = sizes[0] if sizes else -1
+        if got == expected:
+            break
+        _log(f"staging size mismatch {name}: sent {expected} bytes, DUT kept "
+             f"{got} -> restream slower (scale {scale})")
+    else:
+        raise PushError(f"staging size mismatch for {name}: expected "
+                        f"{expected} bytes, DUT kept {got}")
     decode_out = _send_wait(
         channel, f"base64 -d {STAGING} > {remote_path}", prompt_re,
         command_timeout_s, "decode")

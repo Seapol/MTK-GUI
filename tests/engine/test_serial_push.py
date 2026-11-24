@@ -3,6 +3,7 @@
 (never with a shell prompt that a previous command printed)."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
 
@@ -10,8 +11,10 @@ import pytest
 
 from mtkgui.engine.serial_push import (
     DEFAULT_PROMPT,
+    STREAM_DELAY_S,
     PushError,
     _send_wait,
+    _stream_delay_s,
     push_file,
 )
 
@@ -27,13 +30,18 @@ class _WireChannel:
     the echo-ON case replays the literal command line before the sum.
     """
 
-    def __init__(self, md5: str = "", replies: dict | None = None) -> None:
+    def __init__(self, md5: str = "", replies: dict | None = None,
+                 size_replies: list | None = None) -> None:
         self.md5 = md5
         #: command prefix -> stderr lines emitted before the marker
         self.replies = dict(replies or {})
+        #: scripted `wc -c` answers (consumed first, then the real size)
+        self.size_replies = list(size_replies or [])
         self.writes: list[str] = []
         self.pending: list[str] = []
         self.stale_prompts_seen = 0
+        self._in_heredoc = False
+        self.staged_size = 0
         self._delayed: list[str] = []
         self._delayed_reads = 0
 
@@ -42,9 +50,19 @@ class _WireChannel:
         if data == "\n":
             self.pending.append("root@done:~# ")
             return
-        if data.endswith("PUSH_EOF\n"):
-            # heredoc still in continuation mode: stale prompt + "> >"
-            self.pending.extend(["root@stale:~# ", "> > "])
+        if data.startswith("cat > "):
+            self._in_heredoc = True
+            self.staged_size = 0
+            self.pending.append(data.rstrip("\n"))
+            return
+        if self._in_heredoc:
+            if data.endswith("PUSH_EOF\n"):
+                self._in_heredoc = False
+                self.staged_size += 1        # newline before the tag
+                # heredoc still in continuation mode: stale prompt + "> >"
+                self.pending.extend(["root@stale:~# ", "> > "])
+            else:
+                self.staged_size += len(data)
             return
         line = data.rstrip("\n")
         match = _MARKER.fullmatch(line)
@@ -57,6 +75,13 @@ class _WireChannel:
 
     def _queue(self, command: str, a: int, b: int, literal: str) -> None:
         marker = str(a + b)
+        if command.startswith("wc -c"):
+            size = (self.size_replies.pop(0) if self.size_replies
+                    else self.staged_size)
+            self.pending.append(str(size))
+            self.pending.append(marker)
+            self.pending.append("root@done:~# ")
+            return
         for prefix, lines in self.replies.items():
             if command.startswith(prefix):
                 self.pending.extend(lines)
@@ -195,3 +220,52 @@ def test_push_file_reports_mkdir_error(tmp_path):
     with pytest.raises(PushError, match="remote mkdir failed"):
         push_file(channel, str(source),
                   "/root/fct_assets/drivers/load_rf_drivers.sh")
+
+
+# ------------------------ m115-B: staging size verify + restream escalation
+def test_stream_delay_scales_with_attempt():
+    assert STREAM_DELAY_S == 0.05
+    assert _stream_delay_s() == STREAM_DELAY_S
+    assert _stream_delay_s(2.0) == pytest.approx(0.1)
+    assert _stream_delay_s(4.0) == pytest.approx(0.2)
+    assert _stream_delay_s(0.5) == STREAM_DELAY_S      # clamped to 1x
+
+
+def test_push_file_checks_staging_size_before_decode(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest())
+    push_file(channel, str(source), "/fat.log")
+    wc_at = next(i for i, write in enumerate(channel.writes)
+                 if write.startswith("wc -c < /root/.push.b64"))
+    decode_at = next(i for i, write in enumerate(channel.writes)
+                     if write.startswith("base64 -d"))
+    assert wc_at < decode_at
+
+
+def test_push_file_restreams_when_staging_size_short(tmp_path):
+    source, data = _source(tmp_path)
+    expected = len(base64.b64encode(data)) + 1
+    channel = _WireChannel(hashlib.md5(data).hexdigest(),
+                           size_replies=[expected - 3])
+    result = push_file(channel, str(source), "/fat.log")
+    assert result["md5"] == hashlib.md5(data).hexdigest()
+    assert sum(1 for w in channel.writes if w.startswith("cat > ")) == 2
+    assert sum(1 for w in channel.writes if w.startswith("wc -c")) == 2
+
+
+def test_push_file_raises_when_staging_size_never_matches(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest(),
+                           size_replies=[1, 2, 3])
+    with pytest.raises(PushError, match="staging size mismatch for"):
+        push_file(channel, str(source), "/fat.log")
+    assert sum(1 for w in channel.writes if w.startswith("wc -c")) == 3
+    assert not any(w.startswith("base64 -d") for w in channel.writes)
+
+
+def test_push_file_single_mismatch_still_verifies_md5(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel("0" * 32, size_replies=[1])
+    with pytest.raises(PushError, match="checksum mismatch"):
+        push_file(channel, str(source), "/fat.log")
+    assert any(w.startswith("md5sum") for w in channel.writes)
