@@ -503,6 +503,15 @@ def apply_config(config, workflow_page, equipment_page,
     state = config.get("yaml_build_state")
     if yaml_build_model is not None and isinstance(state, dict):
         yaml_build_model.apply_state(state)
+    # m118 (the m114 defect): the shipped project files carry their FCT
+    # rows in test_workflow.fct_test_cases while yaml_build_state holds
+    # an EMPTY list - the stored list is the one source of truth, so seed
+    # the model from it instead of rebuilding rows from the config.
+    if yaml_build_model is not None and not yaml_build_model.get_fct_test_cases():
+        stored = config.get("test_workflow", {}).get("fct_test_cases") or []
+        if stored:
+            yaml_build_model.set_fct_test_cases(stored)
+            _LOG.info("FCT sequence restored: %d cases", len(stored))
     # user direction 2026-10-14: Product Information ALWAYS follows the
     # Design Input identity after a load (older project files carry an
     # empty product section but a full design_input state)

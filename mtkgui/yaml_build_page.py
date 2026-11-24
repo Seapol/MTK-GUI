@@ -395,8 +395,26 @@ class YamlBuildPage(QWidget):
         or validation failure it carries the messages and cases is None.
         """
         if str((params or {}).get("fct_steps_yaml") or "").strip():
-            return self._emit_fct_steps(params)
-        return self._emit_fct_sequence_legacy(params)
+            cases, errors = self._emit_fct_steps(params)
+        else:
+            cases, errors = self._emit_fct_sequence_legacy(params)
+        if errors or cases is None:
+            return cases, errors
+        # m118 (the m114 defect): the model's stored FCT list wins over
+        # the config-derived rebuild - the shipped project files store
+        # 45 rows while the config derives 38.  ``get_fct_test_cases``
+        # already hands back a deep copy (order and names preserved).
+        stored = self.model.get_fct_test_cases()
+        if stored:
+            if len(stored) != len(cases):
+                self._tlog(
+                    "WARNING",
+                    f"stored FCT list has {len(stored)} rows, config "
+                    f"yields {len(cases)} rows - stored list wins")
+                self._tlog("INFO",
+                           f"FCT sequence generated: {len(stored)} cases")
+            cases = stored
+        return cases, []
 
     def _fct_console_config_jump(self, values: dict) -> None:
         """M81/C4: keep the edits in memory, then go to the Console panel.
