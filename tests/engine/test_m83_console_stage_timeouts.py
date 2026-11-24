@@ -103,19 +103,22 @@ def test_m83_wait_window_is_not_clamped_by_row_budget():
 
 
 def test_m83_send_window_counts_from_send_start():
-    channel = _SendWindowChannel("OK", "late", 0.35)
+    # m118 §4: the pre-send stale-drain (0.2 s) + the hardened quiet
+    # window (0.2 s) precede the write, so the scripted reply must
+    # arrive later than both to prove the send window owns it.
+    channel = _SendWindowChannel("OK", "late", 1.0)
     step = FctStep(
         name="send", step_type="MESSAGE_CHECK", channel="ser1",
-        timeout_s=0.6,
+        timeout_s=2.0,
         params={"fct_console": True, "kind": "send",
                 "send_enabled": True, "send": "run",
                 "capture_enabled": True,
                 "expect_pass_re": "late", "capture_is_expected": True,
-                "capture_timeout": 0.6})
+                "capture_timeout": 2.0})
     t0 = time.monotonic()
     out = execute_fct_step(step, _ctx(channel))
     assert out.verdict == "PASS"
-    assert time.monotonic() - t0 >= 0.2      # not an instant pre-send hit
+    assert time.monotonic() - t0 >= 0.8      # not an instant pre-send hit
 
 
 def test_m83_wait_only_row_uses_wait_timeout():

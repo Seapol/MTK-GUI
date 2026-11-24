@@ -46,6 +46,9 @@ DEFAULT_STALL_S = 8.0
 #: step inside this grace window is still on time.
 BUDGET_GRACE_S = 0.25
 
+#: m118 §4: quiet window used to drop stale console bytes before a send.
+FLUSH_QUIET_S = 0.2
+
 
 def _over_budget(elapsed: float, budget_s: float) -> bool:
     return budget_s > 0 and elapsed > budget_s + max(
@@ -472,6 +475,38 @@ def _mark_channel(channel) -> None:
             mark()
         except Exception:                 # noqa: BLE001 - never abort
             pass
+
+
+def _flush_channel(channel, ctx) -> int:
+    """m118 §4: drop stale console bytes before a new command is sent.
+
+    A slow echo from the PREVIOUS command can land inside the new
+    step's capture window.  Reads pending lines until the channel has
+    been quiet for ``FLUSH_QUIET_S`` (the serial-transfer drain shape),
+    drops them and logs one INFO line when anything was dropped.
+    """
+    if str(getattr(channel, "kind", "") or "") == "virtual":
+        # Virtual mode / the scripted test doubles queue their output
+        # ahead of time (there is no arrival timing to drain) - flushing
+        # them would eat the scripted reply.
+        return 0
+    dropped = 0
+    now = time.monotonic
+    quiet_until = now() + FLUSH_QUIET_S
+    hard_deadline = now() + max(FLUSH_QUIET_S * 5, 1.0)
+    while now() < quiet_until and now() < hard_deadline:
+        try:
+            got = channel.read_lines(max_lines=200, timeout_s=0.05)
+        except ChannelClosed:
+            break
+        if got:
+            dropped += len(got)
+            quiet_until = now() + FLUSH_QUIET_S
+        else:
+            time.sleep(0.02)
+    if dropped:
+        ctx.log(f"flush {dropped} stale line(s) before send")
+    return dropped
 
 
 def _console_login(step: FctStep, ctx: FctContext,
@@ -1136,6 +1171,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                     # received AFTER this command - a pre-run boot log
                     # can never satisfy the expected keyword
                     _mark_channel(channel)
+                    _flush_channel(channel, ctx)
                     from .serial_transport import apply_send_hardening
                     apply_send_hardening(channel, console_line(_send_text))
                 else:
@@ -1156,6 +1192,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         ctx.log(f"command sent: {step.command}")
         # M76/D4: judge only the output produced by THIS command
         _mark_channel(channel)
+        _flush_channel(channel, ctx)
         channel.write(step.command)
         outcome = _capture_loop(channel, pass_kw, fail_kw,
                                 step.timeout_s or 30.0, ctx, [])
@@ -1269,6 +1306,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             ctx.log(f"tool command sent: {step.command}")
             # M78-4: only output produced after this command may judge it
             _mark_channel(channel)
+            _flush_channel(channel, ctx)
             channel.write(step.command)
             outcome = _capture_loop(channel, pass_kw, fail_kw,
                                     step.timeout_s or 30.0, ctx, [])
