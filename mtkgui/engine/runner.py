@@ -1713,8 +1713,13 @@ class TestRunner(QObject):
             name = (self.env.fct_rows[r]
                     if r < len(self.env.fct_rows) else "")
             stop_fail, _stop_short = self.env._stop_flags()
+            # M115: the published step marker carries the per-step policy
+            marker = (self.env.fct_op_params[r] or {}).get("fct_step") \
+                if r < len(self.env.fct_op_params) else None
+            on_fail = str((marker or {}).get("on_fail") or "abort")
             return policy_abort_reason(
-                "fct", result, name, stop_if_failure=stop_fail)
+                "fct", result, name, stop_if_failure=stop_fail,
+                on_fail=on_fail)
         return None
 
     # -------------------------------------------------------- run control

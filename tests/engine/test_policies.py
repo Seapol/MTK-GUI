@@ -69,10 +69,52 @@ class TestPolicyAbortReason:
             "fct", "FAIL", "WIFI: scan", stop_if_failure=True)
         assert "FCT 'WIFI: scan' reported FAIL" in msg
 
-    def test_fct_error_does_not_stop(self):
-        # legacy behavior: FCT stop policy keys on FAIL only
+    def test_fct_error_aborts_when_stop_if_failure(self):
+        # M115: Error is judged-bad exactly like FAIL
+        msg = policy_abort_reason(
+            "fct", "Error", "Deploy test assets", stop_if_failure=True)
+        assert msg == ("Stop policy (Stop if failure): FCT 'Deploy test "
+                       "assets' reported Error -> run aborted. Overall "
+                       "Result: FAIL")
+
+    def test_fct_on_fail_continue_survives_failure(self):
         assert policy_abort_reason(
-            "fct", "Error", "WIFI: scan", stop_if_failure=True) is None
+            "fct", "FAIL", "Wi-Fi scan", stop_if_failure=False,
+            on_fail="continue") is None
+        assert policy_abort_reason(
+            "fct", "Error", "Wi-Fi scan", stop_if_failure=False,
+            on_fail="continue") is None
+
+    def test_fct_on_fail_continue_still_aborts_when_forced(self):
+        msg = policy_abort_reason(
+            "fct", "FAIL", "Wi-Fi scan", stop_if_failure=True,
+            on_fail="continue")
+        assert msg == ("Stop policy (Stop if failure, forced): FCT 'Wi-Fi "
+                       "scan' reported FAIL -> run aborted (on_fail=continue "
+                       "overridden). Overall Result: FAIL")
+
+    def test_fct_default_on_fail_aborts(self):
+        # an absent or unknown on_fail means abort, never continue
+        for on_fail in (None, "", "bogus"):
+            msg = policy_abort_reason(
+                "fct", "FAIL", "Load RF drivers", stop_if_failure=False,
+                on_fail=on_fail)
+            assert msg == ("Stop policy (Stop if failure): FCT 'Load RF "
+                           "drivers' reported FAIL -> run aborted. Overall "
+                           "Result: FAIL")
+
+    def test_fct_fail_message_unchanged(self):
+        msg = policy_abort_reason(
+            "fct", "FAIL", "WIFI: scan", stop_if_failure=True)
+        assert msg == ("Stop policy (Stop if failure): FCT 'WIFI: scan' "
+                       "reported FAIL -> run aborted. Overall Result: FAIL")
+
+    def test_ict_branch_ignores_on_fail(self):
+        assert policy_abort_reason(
+            "ict", "FAIL", "row", stop_if_failure=True,
+            on_fail="continue") == (
+            "Stop policy (Stop if failure): 'row' reported FAIL -> run "
+            "aborted. Overall Result: FAIL")
 
     def test_stage_rows_never_abort(self):
         assert policy_abort_reason(

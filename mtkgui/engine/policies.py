@@ -22,7 +22,8 @@ _JUDGED_BAD = ("FAIL", "Error")
 def policy_abort_reason(kind: str, raw_status: str | None, name: str,
                         *, is_short: bool = False,
                         stop_if_failure: bool = False,
-                        stop_if_any_short: bool = True) -> str | None:
+                        stop_if_any_short: bool = True,
+                        on_fail: str | None = None) -> str | None:
     """Check a just-finished step against the Overall Flow stop
     strategies. Returns an abort log message, or None to continue."""
     if kind == "ict":
@@ -45,10 +46,18 @@ def policy_abort_reason(kind: str, raw_status: str | None, name: str,
             return (f"Stop policy (Stop if failure): '{name}' reported "
                     f"{raw_status} -> run aborted. Overall Result: FAIL")
     elif kind == "fct":
-        if (raw_status == "FAIL" and stop_if_failure):
-            return (f"Stop policy (Stop if failure): FCT "
-                    f"'{name}' reported FAIL -> run "
-                    f"aborted. Overall Result: FAIL")
+        if raw_status not in _JUDGED_BAD:
+            return None
+        # M115: the step's own policy; absent / unknown means abort
+        policy = on_fail or "abort"
+        if stop_if_failure and policy == "continue":
+            return (f"Stop policy (Stop if failure, forced): FCT "
+                    f"'{name}' reported {raw_status} -> run aborted "
+                    f"(on_fail=continue overridden). Overall Result: FAIL")
+        if policy == "continue" and not stop_if_failure:
+            return None
+        return (f"Stop policy (Stop if failure): FCT '{name}' reported "
+                f"{raw_status} -> run aborted. Overall Result: FAIL")
     return None
 
 
