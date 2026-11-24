@@ -64,6 +64,12 @@ VERSION = "1.0.1"
 OUT_DIR = ROOT / "projects" / CORE
 OUT_NAME = f"{PART}_ICT_Demo_v{VERSION}.yaml"
 
+#: N5747A setpoints for the demo board input - the demo default, replaced
+#: by the real figure from the SPF power section before any real run
+#: (``Power On DUT`` carries no voltage of its own).
+DEMO_PSU_VOLTAGE_V = 12.0
+DEMO_PSU_CURRENT_A = 3.0
+
 #: the clock measurement targets 32.768 kHz (low-speed RTC clock)
 CLOCK_HZ = 32768.0
 CLOCK_TOL_PPM = 50.0
@@ -286,6 +292,15 @@ def apply_to_window(window, model) -> None:
     page.part_edit.setText(PART)
     page.batch_edit.setText(BATCH)
     window._on_yaml_apply_committed = lambda: None   # no save dialogs
+
+    # the N5747A setpoints are the ONE thing 'Power On DUT' cannot invent:
+    # the row is a passive state carrier and the gateway reads
+    # equipment.psu.params, so the demo declares them here
+    psu = window.equipment_page.configs.setdefault(
+        "psu", {"title": "N5747A DC Power Supply"})
+    psu.setdefault("params", {}).update({
+        "Voltage set (V)": DEMO_PSU_VOLTAGE_V,
+        "Current limit (A)": DEMO_PSU_CURRENT_A})
 
     # power-rails capture (12) must exist BEFORE the sequence builder
     # inserts the DAQ AI row
