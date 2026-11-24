@@ -126,6 +126,27 @@ def _send_wait(channel, command: str, prompt_re, timeout_s: float,
                     f"{seen[-160:]!r}")
 
 
+#: command stderr markers that mean the remote parent could not be made
+MKDIR_ERROR_MARKERS = ("Permission denied", "Read-only file system",
+                       "No such file or directory")
+#: command stderr markers that mean the decode redirect did not land
+DECODE_ERROR_MARKERS = ("No such file or directory", "Permission denied",
+                        "Read-only file system", "Is a directory")
+
+
+def _ensure_remote_parent(channel, remote_path: str, prompt_re,
+                          timeout_s: float, tag: str = "") -> None:
+    """mkdir -p the remote parent so the decode redirect can land."""
+    parent = os.path.dirname(remote_path)
+    if not parent or parent == "/":
+        return
+    out = _send_wait(channel, f"mkdir -p {parent}", prompt_re, timeout_s,
+                     tag or "mkdir parent")
+    for line in out.splitlines():
+        if any(marker in line for marker in MKDIR_ERROR_MARKERS):
+            raise PushError(f"remote mkdir failed: {line.strip()!r}")
+
+
 def _switch_baud(channel, target: int, prompt_re, log) -> bool:
     """Raise/lower the link on the DUT (``stty``) and then on the host.
     Returns True when both ends are confirmed at ``target``."""
@@ -197,9 +218,16 @@ def push_file(channel, local_path: str, remote_path: str, *,
     t0 = time.monotonic()
     _send_wait(channel, f"rm -f {STAGING}", prompt_re, command_timeout_s,
                "rm staging")
+    # the asset dir step only creates /root/fct_assets: subdirectories
+    # (drivers/…) must exist before the decode redirect can land
+    _ensure_remote_parent(channel, remote_path, prompt_re, command_timeout_s)
     _stream_heredoc(channel, b64, prompt_re, progress, len(data), name)
-    _send_wait(channel, f"base64 -d {STAGING} > {remote_path}", prompt_re,
-               command_timeout_s, "decode")
+    decode_out = _send_wait(
+        channel, f"base64 -d {STAGING} > {remote_path}", prompt_re,
+        command_timeout_s, "decode")
+    for line in decode_out.splitlines():
+        if any(marker in line for marker in DECODE_ERROR_MARKERS):
+            raise PushError(f"decode failed for {name}: {line.strip()!r}")
     out = _send_wait(channel, f"md5sum {remote_path}", prompt_re,
                      command_timeout_s, "md5")
     m = re.search(r"([0-9a-f]{32})", out)

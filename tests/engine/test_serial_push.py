@@ -6,8 +6,11 @@ from __future__ import annotations
 import hashlib
 import re
 
+import pytest
+
 from mtkgui.engine.serial_push import (
     DEFAULT_PROMPT,
+    PushError,
     _send_wait,
     push_file,
 )
@@ -24,8 +27,10 @@ class _WireChannel:
     the echo-ON case replays the literal command line before the sum.
     """
 
-    def __init__(self, md5: str = "") -> None:
+    def __init__(self, md5: str = "", replies: dict | None = None) -> None:
         self.md5 = md5
+        #: command prefix -> stderr lines emitted before the marker
+        self.replies = dict(replies or {})
         self.writes: list[str] = []
         self.pending: list[str] = []
         self.stale_prompts_seen = 0
@@ -52,6 +57,12 @@ class _WireChannel:
 
     def _queue(self, command: str, a: int, b: int, literal: str) -> None:
         marker = str(a + b)
+        for prefix, lines in self.replies.items():
+            if command.startswith(prefix):
+                self.pending.extend(lines)
+                self.pending.append(marker)
+                self.pending.append("root@done:~# ")
+                return
         if "md5sum" in command:
             self.pending.append(f"{self.md5}  /root/remote")
             self.pending.append(marker)
@@ -133,3 +144,54 @@ def test_send_wait_blank_command_still_waits_for_prompt():
     text = _send_wait(channel, "", DEFAULT_PROMPT, 0.5, "blank line")
     assert "root@done" in text
     assert channel.writes == ["\n"]      # no marker suffix on a blank line
+
+
+# --------------------------------------- m113: remote parent dir + decode errors
+def _source(tmp_path, name: str = "load_rf_drivers.sh"):
+    source = tmp_path / name
+    data = b"#!/bin/sh\necho ok\n"
+    source.write_bytes(data)
+    return source, data
+
+
+def test_push_file_creates_remote_parent_dir(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest())
+    push_file(channel, str(source),
+              "/root/fct_assets/drivers/load_rf_drivers.sh")
+    mkdir_at = next(i for i, write in enumerate(channel.writes)
+                    if write.startswith("mkdir -p /root/fct_assets/drivers"))
+    decode_at = next(i for i, write in enumerate(channel.writes)
+                     if write.startswith("base64 -d"))
+    assert mkdir_at < decode_at
+
+
+def test_push_file_skips_mkdir_for_flat_remote(tmp_path):
+    source, data = _source(tmp_path, "fat.log")
+    channel = _WireChannel(hashlib.md5(data).hexdigest())
+    # parent is "/" -> no `mkdir -p /`
+    push_file(channel, str(source), "/fat.log")
+    assert not any("mkdir -p" in write for write in channel.writes)
+
+
+def test_push_file_reports_decode_error_not_md5_parse(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest(), replies={
+        "base64 -d": ["-sh: /root/fct_assets/drivers/load_rf_drivers.sh: "
+                      "No such file or directory"]})
+    with pytest.raises(PushError,
+                       match="decode failed for load_rf_drivers.sh") as exc:
+        push_file(channel, str(source),
+                  "/root/fct_assets/drivers/load_rf_drivers.sh")
+    assert "cannot parse md5sum" not in str(exc.value)
+
+
+def test_push_file_reports_mkdir_error(tmp_path):
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest(), replies={
+        "mkdir -p /root/fct_assets": [
+            "mkdir: cannot create directory '/root/fct_assets': "
+            "Read-only file system"]})
+    with pytest.raises(PushError, match="remote mkdir failed"):
+        push_file(channel, str(source),
+                  "/root/fct_assets/drivers/load_rf_drivers.sh")
