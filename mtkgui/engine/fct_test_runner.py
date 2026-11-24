@@ -30,12 +30,15 @@ from .host_platform import host_bt_identity
 
 def _build_cmd_vars(w, b) -> dict:
     """{{token}} deployment map for console send / SFTP rendering."""
+    # M117: an unknown address keeps the literal token so the DUT-side
+    # guard still reports BT_L2CAP_UNCONFIGURED instead of l2ping ""
+    addr = host_bt_identity()[1] or "{{host_bt_addr}}"
     return {
         "ssid": w.ap_ssid,
         "password": w.ap_password,
         "host_ip": w.host_ip or host_lan_ip(),
         "bt_name": b.expected_name,
-        "host_bt_addr": host_bt_identity()[1],
+        "host_bt_addr": addr,
     }
 
 

@@ -25,9 +25,24 @@ def test_build_cmd_vars_includes_host_bt_addr(monkeypatch):
     assert v["bt_name"] == "FRDM-IMX93-DUT"
 
 
-def test_build_cmd_vars_host_bt_addr_empty_when_no_adapter(monkeypatch):
+def test_build_cmd_vars_host_bt_token_stays_unresolved(monkeypatch):
+    """M117: an unknown address keeps the literal token, so the DUT-side
+    guard still reports BT_L2CAP_UNCONFIGURED instead of `l2ping ""`."""
+    monkeypatch.setattr(ftr, "host_bt_identity", lambda: ("DLRM9K3", ""))
+    monkeypatch.setattr(ftr, "host_lan_ip", lambda: "192.168.71.8")
+    w, b = _cfg()
+    v = ftr._build_cmd_vars(w, b)
+    assert v["host_bt_addr"] == "{{host_bt_addr}}"
+
+
+def test_build_cmd_vars_host_bt_addr_keeps_placeholder_when_unknown(
+        monkeypatch):
     monkeypatch.setattr(ftr, "host_bt_identity", lambda: ("", ""))
     monkeypatch.setattr(ftr, "host_lan_ip", lambda: "192.168.71.8")
     w, b = _cfg()
     v = ftr._build_cmd_vars(w, b)
-    assert v["host_bt_addr"] == ""
+    assert v["host_bt_addr"] == "{{host_bt_addr}}"
+    # the replace is idempotent: the braces survive to the DUT guard
+    command = 'P="{{host_bt_addr}}"; echo "$P" | grep -q "{"'
+    rendered = command.replace("{{host_bt_addr}}", v["host_bt_addr"])
+    assert '"{{host_bt_addr}}"' in rendered
