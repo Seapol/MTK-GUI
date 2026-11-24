@@ -884,7 +884,9 @@ def test_interact_step_does_not_send_when_the_wait_times_out():
                            "send_enabled": True, "send": "y",
                            "capture_enabled": False})
     out = execute_fct_step(step, ctx)
-    assert out.verdict == VERDICT_FAIL
+    # m119: the prompt never arrived and nothing was reported - that is
+    # the platform (cable/console/tool), never a DUT defect
+    assert out.verdict == VERDICT_ERROR
     assert ch.written == []
 
 

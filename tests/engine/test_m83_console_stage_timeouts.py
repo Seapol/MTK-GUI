@@ -140,5 +140,6 @@ def test_m83_stall_watchdog_still_fires():
 
     out = execute_fct_step(_wait_step(60.0, 60.0),
                            _ctx(_Silent(), watchdog_s=0.5))
-    assert out.verdict == "FAIL"
+    # m119: silence = platform (nothing reported), never a DUT FAIL
+    assert out.verdict == "ERROR"
     assert "watchdog" in out.reason

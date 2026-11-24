@@ -27,6 +27,78 @@ from datetime import datetime
 from .fct_test_config import FctTestConfig, flash_gui_message
 from .host_platform import host_bt_identity
 
+# ---------------------------------------------------------------------------
+# m119: console text hygiene
+#
+# A DUT console separates lines with a bare CR (`\r`) and the tty echo of
+# the command we just sent sits in the same stream.  Both break judgement:
+#
+# * regex `.` matches `\r`, so a `.*` pattern spanned lines and a stale
+#   banner line ("Minimum throughput per direction: 100.0 Mbits/sec")
+#   satisfied the iperf pattern -> a fabricated PASS at exactly the limit;
+# * the echo carries the command text, so a marker string that appears
+#   inside the command satisfied its own judge 3 s after send.
+#
+# Therefore: normalise every line break to `\n` before matching, and drop
+# the echo fragments of the sent command before judging.
+# ---------------------------------------------------------------------------
+_LINE_BREAK = re.compile(r"\r\n|\r")
+_PROMPT_SPLIT = ("# ", "$ ")
+_ECHO_MIN_FRAGMENT = 12
+
+
+def normalize_console_text(text: str) -> str:
+    """Return `text` with every CR/CRLF turned into a plain LF."""
+    return _LINE_BREAK.sub("\n", text or "")
+
+
+def _echo_body(line: str) -> str:
+    """Strip a shell prompt prefix ("root@dut:~/dir# ") off an echo line."""
+    body = line.strip()
+    for sep in _PROMPT_SPLIT:
+        if sep in body:
+            body = body.rsplit(sep, 1)[1].strip()
+    return body
+
+
+def strip_sent_echo(text: str, sent_lines) -> str:
+    """Drop lines that are (a fragment of) the command we just sent.
+
+    A wrapped tty echo splits the command into physical lines, so an echo
+    fragment is accepted when it is a contiguous 12+ character substring
+    of the sent command (or the whole command).  Only such fragments are
+    removed - real output is never a substring of our own command.
+    """
+    sent = [str(s) for s in (sent_lines or []) if str(s).strip()]
+    if not sent:
+        return text
+    # the tty echo reproduces the command FROM ITS START, possibly
+    # wrapped over several physical lines.  Track the not-yet-echoed
+    # remainder of each command: a line only counts as echo while it
+    # continues at that offset, so a reported marker that merely shares
+    # its literal text with the command ("BT_DISCOVERABLE_OK") is never
+    # eaten.
+    rem = {cmd: cmd for cmd in sent}
+    keep = []
+    echo_done = False
+    for line in normalize_console_text(text).split("\n"):
+        if not echo_done:
+            body = _echo_body(line).strip()
+            matched = None
+            if body:
+                for cmd in sent:
+                    rest = rem[cmd].lstrip()
+                    if rest.startswith(body):
+                        matched = (cmd, len(body))
+                        break
+            if matched is not None:
+                cmd, advance = matched
+                rem[cmd] = rem[cmd].lstrip()[advance:]
+                continue
+            echo_done = True
+        keep.append(line)
+    return "\n".join(keep)
+
 
 def _build_cmd_vars(w, b) -> dict:
     """{{token}} deployment map for console send / SFTP rendering."""
@@ -218,6 +290,7 @@ def match_expectation(text: str, expect_pass: str,
     Returns ``(verdict, detail)`` with verdict PASS/FAIL.
     """
     flags = 0 if case_sensitive else re.IGNORECASE
+    text = normalize_console_text(text)
 
     def _matches(pattern: str, is_regex: bool, sample: str):
         if is_regex:
@@ -256,7 +329,7 @@ def judge_capture(output: str, capture_expected: str = "",
 
     Returns ``(verdict, detail)`` with verdict PASS / FAIL / "".
     """
-    text = output or ""
+    text = normalize_console_text(output or "")
     if capture_expected and not _pattern_hit(
             capture_expected, expected_is_regex, case_sensitive, text):
         return "FAIL", "expected not found"
@@ -369,7 +442,8 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
         chunk = serial.read(4096)
         if chunk:
             buffer += chunk
-            text = buffer.decode("utf-8", errors="replace")
+            text = strip_sent_echo(
+                buffer.decode("utf-8", errors="replace"), lines)
             verdict, _ = match_expectation(
                 text, expect_pass, expect_fail,
                 expect_pass_is_regex, expect_fail_is_regex,
@@ -377,7 +451,8 @@ def console_send_and_expect(serial, cmd: str, expect_pass: str,
             if verdict:
                 return verdict, text
         time.sleep(0.05)
-    return "TIMEOUT", buffer.decode("utf-8", errors="replace")
+    return "TIMEOUT", strip_sent_echo(
+        buffer.decode("utf-8", errors="replace"), lines)
 
 
 def _pattern_hit(pattern: str, is_regex: bool, case_sensitive: bool,
@@ -385,6 +460,7 @@ def _pattern_hit(pattern: str, is_regex: bool, case_sensitive: bool,
     """True if pattern matches text (regex or exact substring)."""
     if not pattern:
         return False
+    text = normalize_console_text(text)
     if is_regex:
         flags = 0 if case_sensitive else re.IGNORECASE
         return re.search(pattern, text, flags) is not None
@@ -559,8 +635,10 @@ def dut_wifi_ping(serial, gateway: str, count: int,
     m = re.search(r"(\d+) (?:packets )?received, ([\d.]+)% packet loss",
                   text)
     if not m:
-        return "FAIL", ("TIMEOUT waiting for ping summary"
-                        if verdict == "TIMEOUT" else "no ping summary")
+        # m119: no ping summary = the command never reported anything
+        # (console/bench problem), not a DUT defect
+        return "ERROR", ("no ping summary (console did not answer)"
+                         if verdict == "TIMEOUT" else "no ping summary")
     received, loss = int(m.group(1)), float(m.group(2))
     ok = received == count and loss <= loss_max
     return ("PASS" if ok else "FAIL",
@@ -580,28 +658,94 @@ def dut_default_gateway(serial) -> str:
 
 def dut_wifi_iperf(serial, tool: str, server_ip: str, min_mbps: float,
                    duration: int = 10) -> tuple:
-    """DUT-side iperf (client -> host PC server): PASS when the
-    receiver bitrate >= min_mbps.  iperf3 prints a receiver summary;
-    iperf2's last bitrate line is used (auto-scaled M/G normalised)."""
+    """DUT-side iperf (client -> host PC server).
+
+    m119: the verdict needs a REAL measurement, not a text match.
+    iperf3 runs with ``-J`` and the receiver bitrate is read from the
+    JSON (``end.sum_received.bits_per_second``); a text summary is only
+    the fallback and only when its receiver line carries real transfer.
+    Returns three states:
+
+    * ``PASS``  measured >= min_mbps
+    * ``FAIL``  measured < min_mbps            (DUT problem)
+    * ``ERROR`` no measurement at all          (platform/bench problem)
+    """
     if tool == "iperf3":
-        cmd = f"iperf3 -c {server_ip} -t {duration} -O 1"
-        expect = r"\d+\.\d+\s+[MG]bits/sec.*receiver"
+        cmd = f"iperf3 -c {server_ip} -t {duration} -O 1 -J"
+        expect = r'"sum_received"'
     else:                                   # iperf2
         cmd = f"iperf -c {server_ip} -t {duration} -i 1"
         expect = r"\d+\.\d+\s+[MG]bits/sec"
     verdict, text = _console_probe(serial, cmd, expect,
                                    duration + 25.0)
-    m = re.findall(r"([\d.]+)\s+([MG])bits/sec", text)
-    if not m:
-        return "FAIL", ("TIMEOUT waiting for iperf summary"
-                        if verdict == "TIMEOUT"
-                        else f"no iperf summary (server {server_ip} "
-                             "reachable?)")
-    val, unit = m[-1]
-    mbps = float(val) * (1000.0 if unit.upper() == "G" else 1.0)
+    if verdict == "TIMEOUT":
+        # never leave the client on the tty: it would swallow the next
+        # row's command (m119: observed 186 s after a failed connect)
+        _interrupt_console(serial)
+    mbps = _parse_iperf_mbps(text)
+    if mbps is None:
+        return "ERROR", (f"no iperf measurement (server {server_ip}:5201 "
+                         "unreachable?)")
     ok = mbps >= min_mbps
     return ("PASS" if ok else "FAIL",
             f"{mbps:.1f} Mbps vs min {min_mbps} Mbps")
+
+
+def _interrupt_console(serial, settle_s: float = 0.6) -> None:
+    """Send Ctrl-C and drain, so a hung client cannot own the tty."""
+    try:
+        serial.write(b"\x03")
+        time.sleep(settle_s)
+        serial.read(8192)
+    except Exception:                     # noqa: BLE001 - best effort
+        pass
+
+
+def _parse_iperf_mbps(text: str):
+    """Receiver bitrate from an iperf3 ``-J`` JSON block or, failing
+    that, from a text summary whose receiver line moved real bytes.
+
+    Returns ``None`` when the stream carries no measurement - the m119
+    rule: a limit echoed by the DUT's own checklist ("Minimum throughput
+    per direction: 100.0 Mbits/sec") is never a measurement."""
+    import json
+    text = normalize_console_text(text or "")
+    start, end = text.find("{"), text.rfind("}")
+    if start >= 0 and end > start:
+        blob = text[start:end + 1]
+        try:
+            doc = json.loads(blob)
+        except ValueError:
+            doc = None
+        if isinstance(doc, dict):
+            end_info = doc.get("end") or {}
+            recv = end_info.get("sum_received") or {}
+            bps = recv.get("bits_per_second")
+            if isinstance(bps, (int, float)) and bps > 0:
+                return float(bps) / 1e6
+            err = doc.get("error")
+            if err:
+                return None
+    # text fallback: only a receiver line with a non-zero transfer
+    for line in text.split("\n"):
+        if "receiver" not in line:
+            continue
+        m = re.match(
+            r"\s*\[\s*\d+\]\s+\S+-\S+\s+sec\s+"
+            r"([\d.]+)\s+(Bytes|KBytes|MBytes|GBytes)\s+"
+            r"([\d.]+)\s+([MG])bits/sec", line)
+        if not m:
+            continue
+        transfer = float(m.group(1))
+        unit = m.group(2)
+        if unit != "Bytes":
+            transfer *= 1000.0
+        if transfer <= 0:
+            continue
+        mbps = float(m.group(3)) * (1000.0 if m.group(4).upper() == "G"
+                                    else 1.0)
+        return mbps
+    return None
 
 
 def dut_bt_l2ping(serial, host_runner, count: int) -> tuple:
@@ -610,15 +754,16 @@ def dut_bt_l2ping(serial, host_runner, count: int) -> tuple:
     PASS when 0% loss (all pings answered)."""
     addr = host_bt_address(host_runner)
     if not addr:
-        return "FAIL", "host Bluetooth address not found"
+        return "ERROR", "host Bluetooth address not found"
     verdict, text = _console_probe(
         serial, f"l2ping -c {count} {addr}",
         r"\d+ sent, \d+ received, [\d.]+% loss", count * 3.0 + 10.0)
     m = re.search(r"(\d+) sent, (\d+) received, ([\d.]+)% loss", text)
     if not m:
-        return "FAIL", ("TIMEOUT waiting for l2ping summary"
-                        if verdict == "TIMEOUT" else
-                        f"no l2ping summary (host {addr})")
+        # m119: no l2ping summary = the command never reported anything
+        return "ERROR", ("no l2ping summary (console did not answer)"
+                         if verdict == "TIMEOUT"
+                         else f"no l2ping summary (host {addr})")
     sent, received, loss = (int(m.group(1)), int(m.group(2)),
                             float(m.group(3)))
     ok = received == sent == count and loss == 0.0

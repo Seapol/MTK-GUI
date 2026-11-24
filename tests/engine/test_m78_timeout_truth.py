@@ -101,7 +101,11 @@ def test_m78_no_silent_clamp():
 
 # ------------------------------------------------------ M78-3 watchdog
 def test_m78_stall_watchdog_fails_fast():
-    """D6: a silent channel fails at the app-level window, not at 60 s."""
+    """D6: a silent channel stops at the app-level window, not at 60 s.
+
+    m119: it now reports ERROR - a console that printed nothing is the
+    platform's problem, and calling it a DUT FAIL hides a dead console
+    behind a product verdict."""
     channel = VirtualFctChannel()
     channel.inject_fault("no_response")
     sink: list = []
@@ -109,7 +113,7 @@ def test_m78_stall_watchdog_fails_fast():
     t0 = time.time()
     outcome = execute_fct_step(_wait_step(60.0), ctx)
     elapsed = time.time() - t0
-    assert outcome.verdict == "FAIL"
+    assert outcome.verdict == "ERROR"
     assert "watchdog" in outcome.reason
     assert DEFAULT_STALL_S <= elapsed < DEFAULT_STALL_S + 4.0
     assert any("watchdog: no output" in line for line in sink)
@@ -150,14 +154,15 @@ def test_m78_stall_watchdog_setting_from_tools(tmp_path):
     t0 = time.time()
     outcome = execute_fct_step(_wait_step(60.0),
                                _ctx(silent, sink, watchdog_s=0.5))
-    assert outcome.verdict == "FAIL" and "watchdog" in outcome.reason
+    assert outcome.verdict == "ERROR" and "watchdog" in outcome.reason
     assert time.time() - t0 < 3.0
     # 0 = watchdog off: the step then ends at its own budget/timeout
     silent2 = VirtualFctChannel()
     silent2.inject_fault("no_response")
     outcome = execute_fct_step(_wait_step(0.3),
                                _ctx(silent2, [], watchdog_s=0.0))
-    assert outcome.verdict == "FAIL" and "watchdog" not in outcome.reason
+    # silent row, watchdog off: its own timeout fires -> still ERROR
+    assert outcome.verdict == "ERROR" and "watchdog" not in outcome.reason
 
 
 # ------------------------------------------------------ M78-4 run purity

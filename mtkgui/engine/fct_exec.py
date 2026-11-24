@@ -14,6 +14,7 @@ human answer) — no instrument/ICT logic.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -61,6 +62,21 @@ def _step_budget(step) -> float:
         return max(0.0, float(getattr(step, "timeout_s", 0.0) or 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+# m119 verdict ownership: a DUT measurement runner returns PASS / FAIL /
+# ERROR with the m114 rule in mind - FAIL is a DUT functional defect,
+# ERROR is the MTK platform / bench (no measurement, no console, no
+# server).  "Command never reported anything" is an ERROR, never a FAIL.
+_DUT_VERDICT_MAP = {
+    "PASS": VERDICT_PASS,
+    "FAIL": VERDICT_FAIL,
+    "ERROR": VERDICT_ERROR,
+}
+
+
+def _dut_verdict(verdict: str) -> str:
+    return _DUT_VERDICT_MAP.get(str(verdict).upper(), VERDICT_ERROR)
 
 
 def _watchdog_s(ctx) -> float:
@@ -317,7 +333,7 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
     positive pattern is still unmatched fails the step early; a match
     still wins instantly.  M78-4: the run-start clear pins the read
     offset, so only bytes from THIS run can satisfy the pattern."""
-    from .fct_test_runner import match_expectation, _pattern_hit
+    from .fct_test_runner import match_expectation, _pattern_hit, strip_sent_echo
     p = step.params
     pass_re = str(p.get("expect_pass_re", "") or "")
     fail_re = str(p.get("expect_fail_re", "") or "")
@@ -363,7 +379,9 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
             last_data = time.monotonic()
         if got:
             collected.extend(got)
-            text = "\n".join(collected)
+            # m119: the tty echo carries the command text - drop it so a
+            # marker string inside the command can never judge itself
+            text = _judge_text(collected, step)
             if not (pass_re or fail_re or end_line):
                 if not (step.expect_pass or step.expect_fail):
                     # no expectations at all (e.g. the BT piscan setup
@@ -408,6 +426,11 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                         list(collected))
         if watchdog and (time.monotonic() - last_data) >= stall_s:
             reason = _watchdog_reason(stall_s, budget_s)
+            if not _judge_text(collected, step).strip():
+                # m119: total silence = the platform (nothing ran),
+                # never a DUT defect
+                ctx.log(f"{step.name}: {reason} -> ERROR")
+                return FctOutcome(VERDICT_ERROR, reason, list(collected))
             ctx.log(f"{step.name}: {reason} -> FAIL")
             return FctOutcome(VERDICT_FAIL, reason, list(collected))
         if step.timeout_s and time.monotonic() > deadline:
@@ -419,6 +442,14 @@ def _regex_capture(channel, step: FctStep, ctx: FctContext) -> FctOutcome:
                     VERDICT_ERROR,
                     "expected-absence row needs capture_end_line",
                     list(collected))
+            silent = not _judge_text(collected, step).strip()
+            if silent:
+                # m119: the command produced NO report at all - console
+                # busy / tool hung is a platform problem, not a DUT one
+                return FctOutcome(
+                    VERDICT_ERROR,
+                    f"no verdict within {step.timeout_s or 0:g}s "
+                    "(command produced no report)", list(collected))
             return FctOutcome(VERDICT_FAIL,
                               "TIMEOUT waiting for "
                               f"{pass_re or end_line or 'output'}",
@@ -465,6 +496,23 @@ def _console_wait(channel, step: FctStep, ctx: FctContext,
     return _regex_capture(channel, wait_step, ctx)
 
 
+def _judge_text(collected, step) -> str:
+    """The text a row is judged on: its own echo removed (m119).
+
+    The console echoes what was typed, so a marker string that appears
+    inside the sent command satisfied ``expect_fail_re`` 3 s after send
+    on the Windows rack - the row failed before the command ran.
+    """
+    from .fct_test_runner import strip_sent_echo
+    sent = []
+    payload = step.params.get("send")
+    if payload:
+        sent.append(str(payload))
+    if getattr(step, "command", ""):
+        sent.append(step.command)
+    return strip_sent_echo("\n".join(collected), sent)
+
+
 def _mark_channel(channel) -> None:
     """M76/D4: remember "now" on a channel so a send+capture row judges
     ONLY the bytes received after its command (a pre-run boot log must
@@ -507,6 +555,45 @@ def _flush_channel(channel, ctx) -> int:
     if dropped:
         ctx.log(f"flush {dropped} stale line(s) before send")
     return dropped
+
+
+_PROMPT_TAIL = re.compile(r"[#$]\s*$")
+IDLE_QUIET_S = 1.2
+IDLE_TIMEOUT_S = 8.0
+
+
+def _wait_console_idle(channel, step, ctx) -> bool:
+    """m119/F: only type into a console that is back at its prompt.
+
+    On the Windows rack the next row's command was written while the
+    previous row's ``iperf3`` client still owned the tty: the echo
+    appeared, the command never ran, and the row burned its whole
+    budget.  The prompt proves the shell is free, so gate every send.
+    Silence for ``IDLE_QUIET_S`` also counts as idle (a quiet prompt is
+    indistinguishable from a quiet console) - the gate only blocks a
+    console that is actively printing.
+    """
+    if str(getattr(channel, "kind", "") or "") not in ("serial", "ssh"):
+        # virtual / host CLI channels: no tty queue to protect
+        return True
+    now = time.monotonic
+    deadline = now() + IDLE_TIMEOUT_S
+    quiet_until = now() + IDLE_QUIET_S
+    while now() < deadline:
+        try:
+            got = channel.read_lines(max_lines=200, timeout_s=0.05)
+        except ChannelClosed as exc:
+            ctx.log(f"console idle probe failed: {exc}")
+            return False
+        for line in got or []:
+            if _PROMPT_TAIL.search(str(line)):
+                return True
+        if got:
+            quiet_until = min(now() + IDLE_QUIET_S, deadline)
+        if now() >= quiet_until:
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def _console_login(step: FctStep, ctx: FctContext,
@@ -964,10 +1051,13 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
         elapsed = time.monotonic() - started
         if _over_budget(elapsed, budget_s):
             ctx.log(f"{step.name}: budget exceeded: {elapsed:.1f}s > "
-                    f"{budget_s:g}s -> FAIL")
+                    f"{budget_s:g}s -> ERROR")
+            # m119: the row produced no verdict in time = platform
+            # problem (busy console / hung tool), not a DUT defect
             outcome = FctOutcome(
-                VERDICT_FAIL,
-                f"timeout after {elapsed:.1f}s (budget {budget_s:g}s)",
+                VERDICT_ERROR,
+                f"budget exceeded {elapsed:.1f}s > {budget_s:g}s "
+                "(no verdict)",
                 list(getattr(outcome, "lines", []) or []))
         ctx.log(f"{step.name}: verdict {outcome.verdict} ({outcome.reason})")
         return outcome
@@ -1167,6 +1257,13 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 if step.params.get("send_enabled", True) and \
                         _send_text.strip():
                     ctx.log(f"console send: {_send_text!r}")
+                    # m119/F: never type into a console that still runs
+                    # a command (a hung client ate a row's whole budget)
+                    if not _wait_console_idle(channel, step, ctx):
+                        return FctOutcome(
+                            VERDICT_ERROR,
+                            "console busy: previous command still running",
+                            [])
                     # M76/D4: the capture stage must judge only bytes
                     # received AFTER this command - a pre-run boot log
                     # can never satisfy the expected keyword
@@ -1266,8 +1363,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 ConsoleSerialShim(channel), p["gateway"], p["count"],
                 p["loss_max"])
             ctx.log(f"DUT ping: {detail}")
-            return FctOutcome(VERDICT_PASS if verdict == "PASS"
-                              else VERDICT_FAIL, detail)
+            return FctOutcome(_dut_verdict(verdict), detail)
         if step.params.get("fct_wifi_iperf") and channel is not None:
             from .fct_test_runner import ConsoleSerialShim, dut_wifi_iperf
             p = step.params["fct_wifi_iperf"]
@@ -1277,20 +1373,26 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                     VERDICT_ERROR,
                     "iperf: cannot determine host server IP (set it in "
                     "the Wi-Fi iPerf config)")
+            # m119/D: no listener = no measurement.  Guarantee the host
+            # server before the DUT client is started, otherwise the row
+            # is an ERROR about the bench (never a DUT FAIL).
+            from .iperf_server import ensure_server
+            server_err = ensure_server(server_ip, log=ctx.log)
+            if server_err:
+                ctx.log(f"DUT iperf: {server_err}")
+                return FctOutcome(VERDICT_ERROR, server_err)
             verdict, detail = dut_wifi_iperf(
                 ConsoleSerialShim(channel), p["tool"], server_ip,
                 p["min_mbps"], p.get("duration", 10))
             ctx.log(f"DUT iperf: {detail}")
-            return FctOutcome(VERDICT_PASS if verdict == "PASS"
-                              else VERDICT_FAIL, detail)
+            return FctOutcome(_dut_verdict(verdict), detail)
         if step.params.get("fct_bt_l2ping") and channel is not None:
             from .fct_test_runner import (ConsoleSerialShim, dut_bt_l2ping)
             verdict, detail = dut_bt_l2ping(
                 ConsoleSerialShim(channel), runner_for(ctx),
                 step.params["fct_bt_l2ping"]["count"])
             ctx.log(f"DUT l2ping: {detail}")
-            return FctOutcome(VERDICT_PASS if verdict == "PASS"
-                              else VERDICT_FAIL, detail)
+            return FctOutcome(_dut_verdict(verdict), detail)
         # B5: RF tool steps (wifi / bluetooth) run through the B4
         # adapters - the sub-config travels in params.fct_rf
         family = str(step.params.get("tool_family", "")).lower()
@@ -1304,6 +1406,11 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 return FctOutcome(VERDICT_ERROR,
                                   f"channel '{step.channel}' not bound")
             ctx.log(f"tool command sent: {step.command}")
+            # m119/F: gated like every other console send
+            if not _wait_console_idle(channel, step, ctx):
+                return FctOutcome(
+                    VERDICT_ERROR,
+                    "console busy: previous command still running", [])
             # M78-4: only output produced after this command may judge it
             _mark_channel(channel)
             _flush_channel(channel, ctx)
