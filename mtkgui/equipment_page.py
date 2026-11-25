@@ -446,8 +446,9 @@ _INSTRUMENT_IDN = {
 # Text lines drawn inside each block on the diagram.
 DIAGRAM_LINES = {
     "host": ["Common Test Platform", "ICT / FCT / Flash / Reports"],
-    "peripherals": ["Wi-Fi · Bluetooth · Router · Media converter",
-                    "Display · Camera · Mic · Earphone · Speaker"],
+    "peripherals": ["Host PC links + Router (RJ45 / AP)",
+                    "Media conv. · Display · Mic",
+                    "Speaker · SD card · USB drive"],
     "m908a_1": ["40-ch SE MUX", "CH101 - CH140",
                 "TP_P1 - TP_P40", "Ω + DCV reuse"],
     "m908a_2": ["40-ch SE MUX", "CH201 - CH240",
@@ -455,8 +456,8 @@ DIAGRAM_LINES = {
     "m907a": ["TOT: 0-100 kHz->CLK1",
               "AO x2: ±12 V 16-bit",
               "DIO 16-ch open-drain"],
-    "u_ai": ["AI x16 (max)", "12 critical rails",
-             "≈20 kSa/s/ch -> CSV"],
+    "u_ai": ["Rails capture: 12 ch", "200 Hz / ch -> CSV",
+             "±10 V, 16-bit"],
     "u_ctr": ["CTR0/1: 0.1 Hz - 6 MHz",
               "DIO 24 ch -> DUT GPIO",
               "AO x2 backup ±10 V"],
@@ -597,14 +598,13 @@ def _mock_configs():
             ],
         },
         "u_ai": {
-            "title": "U2355A - Analog Inputs",
-            "short": "Analog Inputs",
+            "title": "U2355A - Rails Capture",
+            "short": "Rails Capture",
             "fields": [
-                ("Resource", "AI x16 (max)"),
-                ("Used", "12 critical rails"),
-                ("Rate", "≈20 kSa/s/ch -> CSV"),
+                ("Channels", "12 rails, one per DUT power point"),
+                ("Rate", "200 Hz per channel -> CSV log"),
                 ("Range", "±10 V, 16-bit"),
-                ("Tap", "parallel at power net points"),
+                ("Share", "same timebase as the up-sequence"),
             ],
         },
         "u_ctr": {
@@ -3404,7 +3404,7 @@ class EquipmentPage(QWidget):
         self._add_block("grp_adc", 906, 902, 154, 112)
         self._add_block("grp_vin", 1068, 902, 218, 112)
         self._add_block("grp_gnd", 1304, 902, 118, 112)
-        self._add_block("grp_gpio", 76, 1026, 960, 72)
+        self._add_block("grp_gpio", 640, 1026, 520, 72)
 
     def _add_container(self, key, x, y, w, h, border, fill, header,
                        subtitle, abbr=None, icon=None):

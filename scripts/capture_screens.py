@@ -42,15 +42,25 @@ def _activate(app, window, widget):
 
 
 def _grab(app, window, widget):
+    """Grab *widget* at a size where nothing is clipped.
+
+    Offscreen pages that were never current keep their 640x480 default,
+    so the page is resized explicitly; if the layout still constrains it
+    (nested pages), the whole window is grabbed and cropped to the
+    widget, which is the size the user actually sees."""
     _activate(app, window, widget)
-    if widget.parentWidget() is window.tabs:
-        # offscreen pages never get a real layout pass - force a
-        # full-size canvas before grabbing (large enough that no
-        # text is clipped)
-        widget.resize(1560, 900)
+    widget.resize(2400, 950)
     for _ in range(3):
         app.processEvents()
-    return widget.grab()
+    pix = widget.grab()
+    if pix.width() < 1100:                     # layout refused the resize
+        window.resize(2640, 1800)
+        for _ in range(5):
+            app.processEvents()
+        top_left = widget.mapTo(window, widget.rect().topLeft())
+        pix = window.grab().copy(top_left.x(), top_left.y(),
+                                 widget.width(), widget.height())
+    return pix
 
 
 SCREENS = {
@@ -187,7 +197,7 @@ def _capture_examples(app, window) -> list[tuple[str, str]]:
         try:
             if full_page:
                 _activate(app, window, widget)
-                widget.resize(1560, 900)
+                widget.resize(2400, 950)
                 for _ in range(3):
                     app.processEvents()
                 pix = widget.grab()
@@ -236,7 +246,7 @@ def main() -> int:
     # 2240px wide: the five workflow cards get ~430 px each so every
     # card title fits ONE line (the card height is locked at 46 px -
     # wrapped titles would clip, user directive 2026-10-14)
-    window.resize(2240, 1750)
+    window.resize(2640, 1800)
     window.show()
     # user directive 2026-10-14: ALL guide screenshots use the Ocean
     # theme.  Apply the stylesheet DIRECTLY - apply_gui_theme() would
@@ -258,6 +268,14 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     tabs = window.tabs
     saved = tabs.currentIndex()
+
+    # load the ICT reference plan FIRST: an empty model would produce
+    # screenshots of blank tables (user direction 2026-11-25 - every
+    # guide shot must show real content)
+    try:
+        _load_plan(app, window, EXAMPLE_ICT)
+    except Exception as exc:                   # noqa: BLE001
+        print(f"example plan not loaded: {exc}", file=sys.stderr)
 
     failures = []
     for name, getter in SCREENS.items():

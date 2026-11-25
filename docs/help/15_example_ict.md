@@ -1,259 +1,250 @@
 # Example Build of ICT Test Case
 
-This chapter walks you end-to-end through building an **ICT** (In-Circuit
-Test) test case with a real example product: **96317 (FRDM-IMXRT700)**.
-You go from the raw design data (schematic PDF, netlist, BOM) to a
-completed test-plan YAML, and then export the plan to Excel for review
-with the design engineer. The same five-card flow applies to any other
-product; only the input files change.
+This chapter walks you through an **ICT** (In-Circuit Test) plan from the raw
+design data to a saved YAML, using a real board: **CORE 96624 / part
+A-96624**. Every number below was read off the screens in this chapter on
+2026-11-25 - if your build shows a different count, the difference is in your
+input files, not in the procedure.
 
-**Goal of this tutorial**
+The Yaml Build page has five nodes in one row:
 
-- Import the design data (SPF / NET / BOM).
-- Parse and classify the nets (power / clock / control IO).
-- Review and adjust the test points and limits (thresholds).
-- Allocate the instrument channels.
-- Build the ICT sequence, save the project YAML.
-- Export the test plan Excel for the design engineer to review.
-- Iterate: adjust tests and limits, re-export.
+```text
+01 Design Input -> 02 Parse nets for ICT -> 03 Channel Allocation
+-> 04 Build ICT Test Work Flow Sequence -> 05 Build FCT
+```
+
+Nodes 01-03 are the authoring steps; node 04 opens the ICT step editor (the
+rails capture, voltage, clock and GPIO rows all live inside that one
+sequence), and node 05 does the same for FCT. The three tables under the
+nodes are the channel allocation, and the status line under them carries the
+counts.
 
 ## Prerequisites
 
-- MTK GUI is running and you are logged in (Supervisor or Operator;
-  channel editing requires the YAML project to be open).
-- The product design files are available on disk. For this example:
+- MTK GUI logged in as **Supervisor** (channel editing needs the Yaml Build
+  page; an Operator can open it read-only).
+- The design files on disk. For this walkthrough:
 
 ```text
-C:\MTK All-in-One\MTK-GUI\projects\96317\SPF-96317_a.pdf
-C:\MTK All-in-One\MTK-GUI\projects\96317\NET-96317_A.net
-C:\MTK All-in-One\MTK-GUI\projects\96317\BOM-750-96317.xlsx
+projects\96624\SPF-96624_A.pdf        (Allegro Smart PDF)
+projects\96624\NET-96624_A.net        (Allegro netlist)
+projects\96624\BoM-750-96624.xlsx     (BOM, optional but recommended)
 ```
 
-## Step 1 - Open the Yaml Build page
+`projects\` is your data folder, not part of the repository - the plans
+travel with the exe only under `_internal\projects`. The finished reference
+plan for this board ships as `examples\ict_96624\` and is described at the
+end of the chapter.
 
-Select the **Yaml Build** tab at the top of the middle pane. The page
-shows the five-card block flow:
+## Step 1 - Open Yaml Build and node 01
 
-`01 · Design Input` -> `02 · Parse nets for ICT` -> `03 · Channel
-Allocation` -> `04 · Build ICT Test Work Flow Sequence` -> `05 · Build
-FCT Test Work Flow Sequence`
+Select the **Yaml Build** tab. The flowchart shows the seven nodes with the
+project path band at the top and the channel-allocation tables below. Open
+**01 - Design Input** by clicking the node.
 
-![Yaml Build page, five-card flow](images/18_01_yaml_build_start.png)
+![Node 01 before any file is imported](images/15_01_design_input.png)
 
-The Channel Allocation tables (Power Nets / Clock Nets / Control IO
-Nets) sit directly below the cards; the live YAML preview is on the
-right. Work top-to-bottom.
+The panel has three parts:
 
-## Step 2 - Import the design data (Block 01 · Design Input)
+- **Product Information** - `Product Part #`, `Core ID`, FSW/HW version,
+  `Batch #`.
+- **Design Files for ICT** - the route selector **A** (`SPF + NET + BoM`),
+  **B** (`ICT Excel Spreadsheet`) or **C** (`MTK ICT Excel Sheet`); route A is
+  the default and the one this chapter uses.
+- The three import buttons plus the route-B/C shortcuts underneath.
 
-Click the **01 · Design Input** card. The `Configure - Design Input`
-dialog opens with three import buttons and the product metadata
-fields.
+`Batch #` decides whether this plan counts as production: a batch containing
+`Production` flips the OEE switch to production, anything else (here
+`EVT (Proto-1)`) keeps it engineering. Set it correctly now - it is copied
+into the YAML's `design_input`.
 
-![Design Input dialog, empty](images/18_02_design_input_empty.png)
+## Step 2 - Import the three files, one at a time
 
-1. Click **Import SPF...** and select `SPF-96317_a.pdf` (an Allegro
-   Smart PDF). The file is read and the project info is auto-parsed:
-   **Product ID** fills `96317` and **Project Part #** fills
-   `FRDM-IMXRT700` from the PDF title block.
-2. Click **Import NET...** and select `NET-96317_A.net`. The netlist
-   is loaded (raw load only - it is parsed by the Parse Nets module).
-3. Click **Import BOM...** and select `BOM-750-96317.xlsx`. The BOM
-   import reports the record count and DNP count.
+1. **Import SPF...** - pick `SPF-96624_A.pdf`. The Smart PDF is extracted in
+   a worker (about 1 s for this file), then the title block fills
+   `Product Part # = S32N79-RDB-S` and `Core ID = 96624` automatically. The
+   status line under the buttons shows the imported path.
+2. **Import NET...** - pick `NET-96624_A.net`. This is a **load only** step:
+   the file is read into memory and nothing is parsed yet. Node 02 does the
+   parsing, which is why the node stays locked until the file is present.
+3. **Import BOM...** - pick `BoM-750-96624.xlsx`. The line reports
+   `3 545 records, 437 DNP, 0 conflicts, 0 warnings` for this board.
 
-![SPF imported - Core ID 96317 auto-detected](images/18_03_spf_imported.png)
+![SPF imported - Core ID and part number filled from the title block](images/15_02_spf_imported.png)
 
-![All three files imported (1003 BOM records, 76 DNP)](images/18_04_bom_imported.png)
+![All three files in place, route A selected](images/15_03_three_files.png)
 
-Optionally fill **SW Version** / **HW Version** and keep the **Batch #**
-drop-down (default `EVT (Proto-1)`). Click **OK** to close the dialog.
+Tick **Enable** when the panel is complete. Leaving it unticked is legal - the
+plan simply does not claim design input yet - but the later nodes then build
+from an empty model.
 
-## Step 3 - Parse the nets (Block 02 · Parse nets for ICT)
+Then press **Apply_Save yaml**. This applies the panel to the model and writes
+the project YAML in place; the node gets its star and node 02 unlocks.
 
-Click the **02 · Parse nets for ICT** card, then click
-**Parse Nets for ICT** in the dialog. The module reads the netlist and
-BOM and classifies every net:
+## Step 3 - Parse the nets (node 02)
+
+Open **02 - Parse nets for ICT** and press **Parse Nets for ICT**. The heavy
+part runs in a worker thread; the progress dialog shows
+`reading netlist -> classifying -> ranking` and never closes itself early.
+
+![Parse result on 96624, with the BOM applied](images/15_04_parse_result.png)
+
+Read the line above the table left-to-right:
 
 ```text
-70 nets parsed: power=10 clock=1 control_io=5 others=23 gnd=2 filtered=29
-BOM: 1003 records, 76 DNP, 0 conflicts, 0 warnings
+2230 nets parsed: power=49 clock=20 control_io=24 others=701 gnd=4 filtered=1432
+BOM: 3545 records, 437 DNP, 0 conflicts, 0 warnings
 ```
 
-![Parse results - 70 nets classified](images/18_05_parse_results.png)
+- **Parsed Nets** - every testable net with its test point, the assigned
+  category, a confidence (`high` / `medium` / `low`), the input-rail flag and
+  the sub-class. The first rows of this board are `VDD_12V (TP114.1)`,
+  `VDD_12V_CONN (J64.2)`, `VBAT_SENSE (R424.2)`.
+- **Filtered Nets** - what the exclude regex took out, with the reason
+  (`excluded by Exclude Parse Nets regex`), and a dropdown so you can move a
+  net back into the test set.
+- **GND integrity** - one line under the tables. Here it reports four
+  reference grounds (`GND`, `GND_EARTH`, `GND_SH_P5`, `GND_SH_P7`) as a
+  warning, which is the tool telling you to check the star-ground topology on
+  the fixture rather than trusting the plane.
 
-- **Parsed Nets** table: every testable net with its test point, the
-  auto-assigned category (`Power` / `Clock` / `Control IO` / `GND` /
-  `Other`), the confidence (`high` / `medium` / `low`), the input rail
-  and the sub-class. Example rows for 96317: `DC_5V_IN` (TP72.1,
-  Power), `DCDC_3V3` (TP37.1, Power), `DCDC_1V0` (TP87.1, Power).
-- **Filtered Nets** table: nets excluded by the Exclude Parse Nets
-  regex (e.g. `BRG_I2C0_SCL`, `BT_DEV_WAKE`) with the reason.
-- **GND integrity** line: a warning is shown when more than one
-  reference ground is found (`AGND` + `GND`) - possible multi-point /
-  segmented ground. Review the star-ground topology on the fixture
-  before releasing the plan.
+Numbers worth knowing before you compare with a colleague's build:
 
-Click **OK** to apply the result. The Yaml Build tables below the
-cards are now filled: the **Power Nets** tab lists every power net
-with its test point, `R-GND Min limit (ohm)`, `Nominal (V)`,
-`Lower limit (V)` and `Upper limit (V)`.
+- **How the counter adds up.** `2 230` is every classified row plus every
+  filtered row of this netlist (`82 + 20 + 24 + 668 + 4 + 1 432`); nothing is
+  lost between the tables and the number.
+- **The BOM changes the power count.** With the BOM loaded, `power=49`: nets
+  whose parts are marked DNP (437 of them here) are not testable and drop
+  out. The same netlist parsed without a BOM gives `power=82 gpio=692`. The
+  shipped reference plan was built from the netlist alone, which is why its
+  model reads `power=82`. Decide once per product whether DNP parts count,
+  and keep that decision in the plan.
+- **`control_io=24`** is the allocated DIO count, not a classification
+  bucket: the pool has 24 lines, so at most 24 control-IO nets can be driven.
 
-![Power Nets table filled after parse](images/18_06_power_nets_table.png)
+Press **OK** (Apply_Save yaml) to write the classification into the model.
 
-## Step 4 - Review and adjust limits
+## Step 4 - Check the instruments on the Equipment page
 
-Each row is editable through the cells (dropdown-only where a fixed
-choice applies). Review the values against the product requirements:
+Switch to the **Equipment** tab and confirm the five instruments are the
+ones physically on the rack:
 
-- `R-GND Min limit (ohm)` - the anti-short / anti-over-current floor.
-  A power rail that reads below this resistance is flagged as a
-  short-risk. The default template value is `30.000`; for production
-  set it from the rail budget, e.g. for a 3.3 V rail with a 2 A
-  allowance: `R_min = V_rail / I_allow = 3.3 / 2.0 = 1.65 ohm`.
-- `Nominal (V)` / `Lower limit (V)` / `Upper limit (V)` - the
-  expected rail voltage and the pass window. Default template values
-  come from the design data (e.g. `DCDC_3V3`: 3.300 / 3.135 / 3.465).
+| Instrument | Role in ICT | Connection |
+|---|---|---|
+| DAQ973A mainframe | 80-point 2-wire Ω + DCV, clock frequency | GPIB |
+| DAQM908A #1 / #2 | 40 + 40 single-ended MUX channels | inside the mainframe |
+| DAQM907A | AO stimulus for the DUT ADC, totalizer for CLK1 | inside the mainframe |
+| U2355A | 12-rail up-sequence, CTR0/1 for CLK2/CLK3, 24 DIO | USB |
+| N5747A | DUT supply, 5 / 12 / 24 / 48 V single output | LAN |
 
-Adjust the cells to the values agreed with the design engineer. The
-validation line below the tables shows the row counts and the overall
-state (`validation: OK` or `NOK (incomplete rows)` - incomplete rows
-are rows that still miss a test point or an allocation).
+Press **Test Connection** per instrument if you are on the rack; in Virtual
+mode the check is simulated and returns the configured identity. A wrong
+connection string here is the most common reason a real run fails at row 1
+with `no instrument at address`.
 
-## Step 5 - Allocate the instrument channels (Block 03 · Channel Allocation)
+## Step 5 - Build the ICT sequence (node 04)
 
-Click the **03 · Channel Allocation** card. The auto-assign runs
-immediately and fills the allocation columns:
-
-- **R-GND** - measured on the DAQM908A multiplexer channels
-  (e.g. `DAQM908A #1 CH10`).
-- **Power rails** - the 12 rails are wired to the U2355A analog inputs
-  (`U2355A AI01` - `AI07` for the 96317 rails).
-- **Voltage** - also routed to a DAQM908A channel per rail.
-
-![Channel allocation auto-assigned](images/18_07_channel_alloc.png)
-
-The status line reports the allocation result, for example
-`power=10 power_rails=10/10 clock=1 gpio=24 (+4 over capacity)` -
-`+4 over capacity` means four control-IO nets could not be mapped
-because the DIO pool is full. These nets are handled in Step 6.
-
-## Step 6 - Build the ICT sequence (Block 04 · Build ICT)
-
-Click **04 · Build ICT Test Work Flow Sequence**. If any net still
-has no instrument channel, a dialog explains the situation:
+Open **04 - Build ICT Test Work Flow Sequence**. The editor lists one row per
+test or operation in the order the engine runs them:
 
 ```text
-4 of 39 testable nets have no instrument channel assigned -
-unallocated nets are auto Do-Not-Test and will NOT appear in the sequence.
+Power On DUT -> rails capture (Start) -> voltage rows -> clock rows
+-> GPIO drive/read/toggle -> rails capture (End) -> Power Off DUT
 ```
 
-![Unallocated-channel warning](images/18_08_unallocated_warning.png)
+The rails capture brackets the measurement block, so the waveform you see
+later belongs to one run instead of being stitched together. Every row
+carries its test point, limits, timeout and instrument channel, and
+double-click edits it.
 
-Choose **Open Channel Allocation** to assign the remaining nets
-manually (edit the allocation cells / mark them Do-Not-Test), or
-**Continue anyway** to let the builder auto-mark them Do-Not-Test.
-The ICT sequence is then generated from the allocated rails, clocks
-and GPIO nets.
+The shipped `examples/ict_96624` plan settles at 34 rows - 27 numeric tests
+(R-GND, voltage, clock) plus 7 standard operations - with 12 rails armed for
+the DAQ capture. A fresh build from all 82 raw power nets would need more
+voltage rows than the 80-point front end can serve, which the footer reports
+as over capacity instead of dropping nets quietly. If a net has no channel the
+builder says so before opening an empty table, and the net becomes Do-Not-Test
+with a reason.
 
-## Before you run: the PSU setpoints are not in the sequence
+The rails capture settings themselves (sample rate, pre/post-trigger window,
+anomaly policy) come from the plan's `equipment.rails` block; the values this
+demo plan carries are a 200 Hz sample rate, a -0.5 s pre-trigger, a 6.0 s
+post-trigger window and `stop` as the anomaly policy. They are data in the
+YAML, not hidden defaults.
 
-`Power On DUT` is a **passive** row. It carries only the state (`on`); it
-neither knows nor sets a voltage. The N5747A setpoints come from the
-**04 · Equipment Config** card (power source + output voltage + current
-limit). If that card has never been filled for this product, the row still
-runs, the supply stays at 0 V, and every powered measurement behind it fails
-on a board that is perfectly good:
+## Step 6 - Read the model back on the page
+
+The three tables under the flowchart are the model the plan was built from.
+The status line reports the four counts at a glance:
 
 ```text
-DAQM: slot1 CH101: DCV = 0.001 V but PSU output is OFF (11.4..12.6 V expected) -> FAIL
-DAQM907A totalizer CH501: 0 Hz (DUT unpowered) -> FAIL
+rows: power=82 power_rails=12/82 clock=20 gpio=24
 ```
 
-So the order is: design data -> limits -> allocation -> **Equipment Config
-(rail voltage + current limit)** -> Build ICT -> save -> run. In Virtual mode
-this is visible immediately as a full column of `PSU output is OFF` rows; on
-the rack it looks like a dead board. Check the card first, and take the rail
-voltage and the current allowance from the schematic power section rather than
-from the demo defaults.
+![Yaml Build with the 96624 model](images/04_yaml_build.png)
 
-## Step 7 - Save the project YAML
+Channel allocation shows what landed where - `R-GND` and voltage on the
+DAQM908A channels, the 12 armed rails on `U2355A AI01..AI12`, clocks split
+between the DAQM907A totalizer and the U2355A counters:
 
-Open **File > Save as Yaml...**. The dialog proposes a file name from
-the product metadata:
+![Channel allocation auto-assigned](images/05_channel_allocation.png)
+
+Any net that did not fit a pool is listed as over capacity and is auto
+Do-Not-Test when the sequence is built - it stays visible in the model so the
+gap is auditable.
+
+## Step 7 - Save the YAML
+
+`Apply_Save yaml` on any node writes the project YAML in place. For a named
+copy use **File → Save as Yaml...**; the proposed name comes from the product
+metadata:
 
 ```text
-FRDM-IMXRT700_96317_EVT-(Proto-1)_rev_1.0.0_Draft.yaml
+S32N79-RDB-S_96624_EVT-(Proto-1)_rev_1.0.0_Draft.yaml
 ```
 
-Navigate to the product folder (`projects\96317`), then click **Save**.
-The project file name now shows in the **Overall Flow** panel and the
-Event Log records `Yaml saved: ...`.
+Confirm the **Overall Flow** band shows that file, and the Event Log records
+`Yaml saved: ...`. An empty sequence raises `No Test Items - Save anyway?`;
+answer **Yes** only when you mean to keep a half-built model.
 
-![YAML saved - project file active](images/18_09_yaml_saved.png)
+## Step 8 - Run it and export for review
 
-If the sequence tables are empty (no test items built yet), a
-`No Test Items` dialog asks `Save anyway?` - answer **Yes** to keep
-the configuration, or **No** and build the sequences first.
+Open **Test Work Flow** and press **Run** in Virtual mode: the ICT stage
+runs the whole sequence with no hardware, and the rails chart fills in.
 
-## Step 8 - Export the test plan Excel for review
+![The 96624 plan after a Virtual run](images/02_test_workflow.png)
 
-Open **File > Export ICT Test plan from Yaml to Excel**. Choose the
-target folder and file name (e.g. `YamlBuild_96317_FRDM-IMXRT700.xlsx`)
-and click **Save**. The export confirmation reports the number of rows
-written, and the Event Log records `Excel export done`.
+![Power rails waveform](images/11_power_rails.png)
 
-![Excel export done - 86 rows](images/18_10_excel_exported.png)
-
-The workbook contains the plan sheets (`YamlBuild`, `Power`, `Clock`,
-`GPIO`) - hand this file to the design engineer to review the test
-points, categories and limits.
-
-## Iterating after review
-
-1. Adjust the limits in the GUI (Step 4) or edit the exported Excel
-   and re-import with **File > Import from Excel...**.
-2. Re-run **Parse Nets for ICT** if the netlist or BOM changed.
-3. Re-save the YAML and re-export the Excel; the version field in the
-   YAML (`plan_version`) tracks the iterations.
-4. When the plan is approved, publish the final version
-   (`Draft` -> `Final`) and archive the plan from the Yaml Build page.
+For the design engineer, export the plan instead of the screenshots:
+**File → Excel → Export ICT Test plan** writes the plan sheets (`YamlBuild`,
+`Power`, `Clock`, `GPIO`) with the test point, the `R-GND` floor, the nominal
+and the pass window per row. Hand that file over, get the limits agreed, edit
+them in the GUI, and re-export - the round trip is field-lossless, and
+`File → Import from Excel...` will not break the YAML structure.
 
 ## Summary - the ICT build loop
 
-- Import design data -> Parse nets -> Review/adjust limits ->
-  Allocate channels -> Build sequence -> Save YAML -> Export Excel.
-- The four "numbers" the design engineer reviews are the test point,
-  the `R-GND` floor, the voltage nominal and the voltage pass window.
-- Unallocated nets are auto Do-Not-Test: keep the DIO pool and the
-  U2355A AI channels in mind when the plan grows.
+- Design input → parse → instruments → rails / clocks / GPIOs → save → run →
+  export.
+- The four numbers the design engineer signs off are the test point, the
+  `R-GND` floor, the voltage nominal and the voltage window.
+- Everything you cannot measure stays visible: a net with no limit becomes a
+  disabled row with a reason, never a silent omission.
 
 ## Load the reference plan instead of rebuilding: 96624
 
-The repository ships one finished ICT plan built entirely by Route A, so you
-can see the end state before you build your own:
+The repository ships the finished plan for this board, built entirely by
+route A with no hand editing:
 
 ```text
 examples\ict_96624\A-96624_ICT_Demo_v1.0.1.yaml
 ```
 
-It is board CORE 96624, part A-96624, built from a 2 231-net netlist with no
-hand editing. `File → Load Project` and open it, then look at three pages in
-this order.
-
-**Yaml Build** - the model the plan was built from. The status line under the
-tables reads `rows: power=82 power_rails=12/82 clock=20 gpio=24`.
-
-![Yaml Build with the 96624 model](images/04_yaml_build.png)
-
-**Test Work Flow** - 34 rows: 27 numeric tests plus 7 standard operations, and
-12 rails armed for the DAQ capture.
-
-![The 96624 plan after a Virtual run](images/02_test_workflow.png)
-
-**The rails chart** - press **Run** in Virtual mode and the 12 rails draw
-themselves; the CSV and its AI review text land in `logs\`.
-
-![Power rails waveform](images/11_power_rails.png)
+`File → Load Project` and open it, then look at three pages in this order: the
+Yaml Build model (above, `rows: power=82 power_rails=12/82 clock=20 gpio=24`),
+the Test Work Flow table (34 rows: 27 numeric tests plus 7 standard
+operations, 12 rails armed for the capture) and the rails chart after a
+Virtual run.
 
 ### Why three rows are disabled
 
@@ -278,3 +269,6 @@ nominal fixes both at once.
   row against the schematic before production.
 - 24 control IO nets for the fixture DIO, 4 GND nets, and 1 432 filtered
   (mostly differential pairs and exclude-regex matches).
+- The three disabled rows carry `nominal_v: 0.0` because nobody authored a
+  limit for them yet; that is the one cosmetic gap the example shows on
+  purpose.

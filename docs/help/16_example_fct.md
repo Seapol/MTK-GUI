@@ -25,31 +25,34 @@ production products.
     port on Windows (e.g. `COM4`) or `/dev/cu.usbmodem...` on macOS.
   - Optional: Ethernet / Wi-Fi link between the DUT and the host for
     the file copy and the throughput tests.
-- A project YAML to work on. The screenshots below use the FRDM-IMX93 demo
-  project; if your `projects\FRDM-IMX93\` folder holds no YAML yet, build one
-  in chapter `09_yaml_build.md` and save it there.
+- A project YAML to work on. The screenshots below use the shipped FRDM-IMX93
+  reference plan, `examples\fct_frdm_imx93\`; the same steps apply to your
+  own product once you have built its plan in chapter `09_yaml_build.md`.
 
 ## Step 1 - Load the project YAML
 
-Open **File > Load Yaml...**, navigate to `projects\FRDM-IMX93` inside your
-MTK-GUI folder and open the demo YAML.
+Open **File → Load Project** (the same entry as **Load current yaml** on the
+Yaml Build page) and pick the plan:
 
-![Load dialog pointed at the FRDM-IMX93 folder](images/19_01_load_yaml_imx93.png)
+```text
+examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml
+```
 
-The project loads and the product metadata is filled automatically:
-**Product Part #** = `FRDM-IMX93`, **Core ID** = `94611`, **Batch #** =
-`Demo FCT`. The **Overall Flow** panel shows the project file name.
+The loader fills the model, the product metadata and the Overall Flow band in
+one pass; nothing is parsed twice. Forty-five rows appear in **Test Work
+Flow**, the ICT stage stays empty because this plan is FCT-only
+(`overall_flow = ICT, FCT`), and every row sits at **Pending** until you run.
 
-![FRDM-IMX93 project loaded](images/19_02_imx93_loaded.png)
+![The shipped FCT plan loaded in Test Work Flow](images/32_example_fct_plan.png)
 
-## Step 2 - Build the FCT sequence (Block 05 · Build FCT)
+## Step 2 - Open the FCT sequence editor (node 05)
 
-Go to the **Yaml Build** tab and click the **05 · Build FCT Test Work
-Flow Sequence** card. The editor is one page: the ordered step table plus the
-buttons underneath it (`Add` / `Load Template` / `Clean up` / `Remove` /
-`Duplicate` / `Edit` / `Move Up` / `Move Down` / `Undo` / `Redo`).
+Go to **Yaml Build** and open the last node, **07 - Build FCT Test Work Flow
+Sequence**. The editor is one page: the ordered step table plus the buttons
+underneath it (`Add` / `Load Template` / `Clean up` / `Remove` / `Duplicate` /
+`Edit` / `Move Up` / `Move Down` / `Undo` / `Redo`).
 
-![FCT sequence editor - one page, one row per step](images/19_03_fct_sequence.png)
+![The FRDM-IMX93 sequence editor - one row per step](images/16_01_fct_sequence.png)
 
 Every step is one row, whatever its kind: a standard operation
 (`Init Instruments`, `Fixture Clamp Down`, `Power On/Off DUT`, `Delay`), a
@@ -102,7 +105,8 @@ row by row. Pick one of three:
 | `Linux DUT` | Linux BSP DUT, full chain: operations, console login, asset folder, `Serial Push`, `SSH SFTP`, Wi-Fi and Bluetooth tests |
 | `Wifi_Scan (Host<->DUT)` | short Wi-Fi radio run: driver load, asset folder, `Serial Push`, Wi-Fi connect, address check, `Wifi_Scan` |
 
-![The Wi-Fi scan template in the sequence table](images/19_08_wifi_scan_template.png)
+`Load Template` writes the template's rows into the table in place; the shot
+above is what a loaded template looks like before you edit it.
 
 A template is a starting point, not a finished sequence: after it loads,
 `Remove` the rows your product does not need and `Edit` the ones it does. The

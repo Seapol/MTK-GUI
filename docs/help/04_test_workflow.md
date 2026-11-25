@@ -9,6 +9,10 @@ Sequence waveform and the multi-channel Console (see chapter
 
 ![Test Work Flow page](images/02_test_workflow.png)
 
+The shot is an ICT-only plan after a Virtual run, so the FCT table below is
+still empty: each section shows only the stages its plan declares, and ICT runs
+first.
+
 ## Page Layout
 
 - **Top row** (above the tabs, always visible): `Product Information`,

@@ -16,7 +16,8 @@ tool covering the complete production flow:
 - **Flash OOBE**: out-of-box-experience firmware, same dual path.
 
 The Test Work Flow page renders the whole flow as one table; the
-Yaml Build page (five-card block flow) authors the project.
+Yaml Build page (five nodes: 01 design input to 05 FCT) authors
+the project.
 
 ## Main Window Layout
 
@@ -25,7 +26,8 @@ from three horizontal regions stacked in a vertical splitter:
 
 - **Top** - the common area (Product Information, Run Control,
   Overall Flow, Overall Result), shared by every tab.
-- **Middle** - the tabbed workspace with four pages.
+- **Middle** - the tabbed workspace with three pages
+  (`Test Work Flow`, `Equipment`, `Yaml Build`).
 - **Bottom** - the Event Log pane.
 
 The splitter handle between the regions lets you resize them, but no
@@ -40,13 +42,18 @@ The menu bar has a fixed order that never changes:
 `File / View / Settings / Tools / Run / Report / Help` (Help is always
 the rightmost menu).
 
-- **File**: `Load Yaml…`, `Apply and Save Yaml`, `Save as Yaml…`,
-  `Close Yaml`, `Switch Account…`, `Exit`.
+- **File**: `Load Yaml…` (Ctrl+O), `Save Yaml (current file)` (Ctrl+S),
+  `Save Yaml As… (current file)` (Ctrl+Shift+S), `Close Yaml`, the
+  `Excel` submenu (export config workbook, import traditional ICT plan,
+  import / export the MTK ICT Sheet), `Switch Account…`, `Exit`.
 - **View**: `Console Background Color…`, `Reset Background (Black)`,
-  and the `GUI Theme` submenu (Light / Dark application-wide themes).
+  and the `GUI Theme` submenu (Light / Dark / Ocean / Forest /
+  High Contrast, application-wide).
 - **Settings**: `Operator Permissions…` (supervisor only),
   `Auto-SN` (checkable), `Serial Number Format Check...`,
-  `Virtual Fault Injection...` (Virtual mode only).
+  `Virtual Fault Injection...` (Virtual mode only),
+  `Report Folders…`, and the `Event Log` submenu (Simplified /
+  Detailed).
 - **Tools**: `Performance Timing Log` and `FCT Watchdog…`. Instruments are opened automatically when you
   press Run; connect them individually on the Instruments panel.
 - **Run**: Visual Studio style shortcuts - Run (F5),
@@ -54,9 +61,11 @@ the rightmost menu).
   Restart (Ctrl+Shift+F5), Step (F10), Step Into (F11),
   Continue (Shift+F11), Toggle Breakpoint (F9),
   Clear Breakpoints (Ctrl+Shift+F9), Run to Cursor (Ctrl+F10).
-- **Report**: `Generate Report…`, `Event Log`, `Statistics`.
-- **Help**: `User Guide`, `Page Guide`, `FAQ / Troubleshooting`,
-  `Security & Roles`, `About`.
+- **Report**: `DUT Report` (Ctrl+Shift+D), `Event Log Folder…`
+  (Ctrl+Shift+E), `Statistics` (Ctrl+Shift+T), `SharePoint Upload…`
+  (Supervisor only).
+- **Help**: `User Guide`, `Version History`, `About` - the first two
+  open this guide and the release log from inside the application.
 
 **Note:** On macOS the menu bar is rendered inside the window on
 purpose (the native top-of-screen menu bar is disabled), so the menus

@@ -35,6 +35,28 @@ Entry format:
   permission management; five GUI themes; Windows packaging via
   PyInstaller + GitHub Actions.
 
+## Latest activity (2026-11)
+
+`develop` head when this guide was built: **`d0cb067` - 2026-11-25**.
+
+- `d0cb067` (m122) - suite-green follow-ups: clear stale rows on load,
+  status colours no longer pinned by a previous run, tests kept off modals
+- `737bb3d` - User Guide reaches the station: Windows build, SharePoint
+  upload, Bitbucket mirror
+- `420d544` (m122) - GUI: stale-row clearing, status colour fix
+- `d99a7ef` - the 96624 ICT and FRDM-IMX93 FCT plans ship as loadable
+  examples under `examples/`
+- `d31a9ba` (m121) - virtual PSU honours the power-op state and the
+  equipment setpoints, so a virtual rails capture matches a real one
+- `c634996` (m120) - BT RSSI scan retry plus a budget-vs-subtimeout advisory
+- `82eb613` (m119b) - `--no-omit` removed, iperf server restart and health
+  check
+- `d72fb87` (m119) - console verdict truth: CR-safe judge, echo strip,
+  iperf JSON, idle gate
+
+The complete commit-by-commit list follows below; release entries stay
+above it, because `develop` commits do not bump the version.
+
 ## Development milestones (not releases)
 
 Engineering traceability only: these are `develop` commits. They do
@@ -135,7 +157,8 @@ as its current release.
   (`/root/preflight.sh`, `/root/load_rf_drivers.sh`, `/root/fat.py`,
   `fat_result.json`, `fat.log`, `iperf3`) and the scp / sftp copy
   steps). Both chapters are driven by live GUI walks with 15 new
-  screenshots (`images/18_01..18_10`, `19_01..19_05`); the chapter
+  screenshots (`18_01`…`18_10`, `19_01`…`19_05` - retired on
+  2026-11-25 and replaced by the walkthrough shots of M122); the chapter
   mount list (`help_content.py` `CHAPTERS`) grows from fourteen to
   sixteen chapters.
 - **M18** (2026-10-27, `develop`) - FCT SFTP result round-trip: the
@@ -183,3 +206,164 @@ as its current release.
 
 
 
+- **M79** (2026-11-06, `develop`) - the sequence builder rejects a
+  sequence that contains no real test (an operations-only plan is
+  configuration, not a test plan).
+- **M80-A** (2026-11-07, `develop`) - Equipment page layout pass:
+  deletions, dialog merges, and the left column restructured.
+- **M80-B** (2026-11-07, `develop`) - network mode selection with
+  schema additions and auto-detect for the host/router links.
+- **M80-C** (2026-11-08, `develop`) - mirror guard, mode-key
+  preservation and the address-combo test fix.
+- **M83** (2026-11-07, `develop`) - shared editor layout kit: every
+  editor page is built from one set of spacing / button / dialog
+  helpers instead of per-page magic numbers.
+- **M84** (2026-11-08, `develop`) - `Tools > Config assets` removed;
+  assets are project-owned.
+- **M85** (2026-11-08, `develop`) - the Config assets panel and the
+  `Sync from Equipment` helper removed.
+- **M87** (2026-11-09, `develop`) - statistics history moved to
+  `work\statistics\<PROJECT>\` as monthly JSONL.
+- **M87-F** (2026-11-09, `develop`) - `append_run` shards by the
+  record month, not the wall clock.
+- **M90** (2026-11-08, `develop`) - the two Event Log entries folded
+  into one Settings submenu.
+- **M92** (2026-11-08, `develop`) - `Stop if any short` renamed to
+  `Stop if any R-GND short`, so the policy names what it measures.
+- **M93** (2026-11-08, `develop`) - the checked checkbox draws a real
+  check mark in the indicator.
+- **M95** (2026-11-08, `develop`) - the Console LEDs left the status
+  bar; the channel state lives in the Console tabs.
+- **M96** (2026-11-08, `develop`) - `DAQ CSV Data` entry removed and
+  the report folders moved into Settings.
+- **M97 / M98** (2026-11-08 / 2026-11-11, `develop`) - the
+  supervisor password was briefly stored as a station hash (M97) and
+  then restored as the single source constant in
+  `mtkgui/permissions.py` (M98), so nobody has two places to change.
+- **v2-0** (2026-11-18, `develop`) - housekeeping: the pending M99
+  follow-ups landed before the v2 rework.
+- **v2-1** (2026-11-18, `develop`) - **retired flash-probe vendors**:
+  J-Link, PEmicro, Lauterbach and CMSIS-DAP support removed
+  everywhere; the acceptance is a grep test
+  (`tests/test_no_jlink_references.py`) over `mtkgui/`, `tests/` and
+  `docs/`.
+- **v2-2 / v2-2b** (2026-11-18, `develop`) - config, settings and the
+  event log moved out of the package into the station workspace, and
+  the timing suite re-greened.
+- **v2-3a** (2026-11-18, `develop`) - the seven-step Yaml Build shell
+  landed; the tab presents it as five visible nodes (04 Build ICT is one
+  editor, not three separate step pages).
+- **v2-3b** (2026-11-18, `develop`) - node 01 rebuilt as three
+  blocks: route select, product information, design files.
+- **v2-3c / v2-3d** (2026-11-18, `develop`) - the demo clock row got
+  its test point so 4 MHz routes to the U2355A counter, and the four
+  suites the rebuild left stale went green.
+- **v2-3e** (2026-11-19, `develop`) - the seven-step wizard mounted in
+  the Yaml Build tab and shares one model with the page.
+- **v2-4** (2026-11-19, `develop`) - Route B (traditional ICT Excel)
+  importer plus the rules.v2 schema.
+- **v2-5** (2026-11-19, `develop`) - node 03 Firmware Config panel.
+- **v2-9a** (2026-11-18, `develop`) - the five fixture operations
+  collapsed into one `Fixture Ready` verdict.
+- **v2-9b** (2026-11-18, `develop`) - power rails captured with a
+  DAQ AI `Start/End` operation pair, so the waveform is one run's
+  data.
+- **v2-9c** (2026-11-18, `develop`) - run without limits: rows report
+  **TBD** and the board ends **Pending** instead of a false PASS.
+- **v2-10** (2026-11-19, `develop`) - node 04 Equipment Config
+  (seven-tab model, panel, gate).
+- **v2-11 / v2-11b** (2026-11-19, `develop`) - node 05 Build ICT
+  sequence (flat model, six blocks) emitted as engine
+  `ict_test_cases`.
+- **v2-12a** (2026-11-19, `develop`) - Route A parse triggered from
+  node 02's Parse button.
+- **v2-13** (2026-11-19, `develop`) - `STEP_FLASH` became a one-class
+  step type in the FCT model.
+- **v2-14** (2026-11-20, `develop`) - `Message(Console)` OK also
+  replies to the DUT console.
+- **v2-15** (2026-11-20, `develop`) - the U2355A DIO Read/Write
+  standard operations removed; GPIO drive/read/toggle is a test row.
+- **v2-16** (2026-11-20, `develop`) - Command Snippet Helper with
+  Linux / Windows CLI templates.
+- **v2-17** (2026-11-20, `develop`) - node 07 Apply_Save Yaml panel
+  (read-only preview plus publish).
+- **v2-18** (2026-11-20, `develop`) - horizontal Yaml Build
+  **flowchart** view with per-node dialog editing and jump-to-failed.
+- **m100-A** (2026-11-21, `develop`) - Equipment left column:
+  DUT group dropped, control board ungated, `mlan0` cleanup, optional
+  placeholders.
+- **m100-B** (2026-11-21, `develop`) - single-ended MUX default,
+  one-wire SE resistance action, DIO split into `8R + 8W`.
+- **m100-C** (2026-11-21, `develop`) - Peripherals split into
+  **Host PC** and **Router** with an enable toggle and legacy
+  migration.
+- **m100-D** (2026-11-21, `develop`) - instrument LEDs moved to the
+  left column, async `Refresh` and `Self-Test All`.
+- **m101-A…E** (2026-11-21, `develop`) - Test Work Flow rework:
+  `STEP_FLASH` names for the default flash rows, 2x2 body layout with
+  chevron collapse, read-only float view on double-click, Console as
+  a tab widget with the Command Helper, fixed 350 px status progress.
+- **m102a / m102b** (2026-11-22, `develop`) - Route C: headless
+  parser for the MTK ICT Excel Sheet, import on node 01, read-only
+  skipped node 02.
+- **m103a / m103b / m103c** (2026-11-22, `develop`) - four-sheet
+  MTK ICT Excel writer with the node 07 export button, `File ▸ Excel`
+  submenu and import flows, run-state lock and File-menu hygiene.
+- **m104a / m104b** (2026-11-22, `develop`) - SharePoint Upload
+  re-enabled for Supervisor, `Report > Event Log` renamed to
+  `Event Log Folder…`, and the menu shortcuts
+  (`Ctrl+O/S/Shift+S`, `Ctrl+Shift+D/E/T`).
+- **m106** (2026-11-23, `develop`) - Yaml Build flowchart paint fixed,
+  node dialogs scroll, caption band added.
+- **m107a / m107b** (2026-11-23, `develop`) - `serial_pull` honours
+  the `{{dut_report}}` local-path token; `fat.py` per-item Summary
+  rows render in the FCT table.
+- **m108** (2026-11-23, `develop`) - unified FCT capture early-exits
+  on an expected or unexpected match instead of waiting out the
+  window.
+- **m109** (2026-11-23, `develop`) - `{{host_bt_addr}}` token
+  available to FCT console commands.
+- **m110** (2026-11-23, `develop`) - the DUT report lists every
+  planned FCT/ICT item, so an omission is visible on the DUT.
+- **m111 / m112 / m113** (2026-11-24, `develop`) - serial push
+  confirms the heredoc close with `PUSH_DONE`, confirms command
+  completion with a computed marker on the DUT, and the deploy step
+  creates the remote parent directory and reports decode errors.
+- **m115** (2026-11-24, `develop`) - the FCT stop policy honours the
+  per-step `on_fail` and treats `Error` like `FAIL` when deciding to
+  stop.
+- **m116** (2026-11-24, `develop`) - stage rows roll up their child
+  verdicts instead of always PASS; serial pull streams without a shell
+  ACK round-trip; Wi-Fi console RSSI judges only the reply to its own
+  command.
+- **m117** (2026-11-24, `develop`) - Windows host Bluetooth BD
+  address resolved without the WinRT `Await` (no WinRT dependency in
+  the packaged build); BLE scan runs on a worker thread and tolerates
+  a truncated advertising name; an unresolved token stays visible
+  instead of turning into an empty address.
+- **m118** (2026-11-24, `develop`) - console truth and budget truth:
+  no PASS without a positive judge (a console row must name what it
+  expects), the visible Timeout column is the single budget source,
+  stale console bytes are drained before each send, and Yaml Build
+  restores the stored 45-row FCT list instead of re-deriving 38.
+- **m119 / m119b** (2026-11-24, `develop`) - CR-safe judge, echo
+  strip, iperf JSON parsing, idle gate, plus the no-omit flag and an
+  iperf server restart/health check.
+- **m120** (2026-11-24, `develop`) - Bluetooth RSSI scan retry and the
+  budget-vs-sub-timeout advisory (`budget <= sub-timeout + 1.0` logs a
+  warning at run start instead of failing mid-run).
+- **m121** (2026-11-25, `develop`) - the Virtual rack's `Power On/Off`
+  honours the operation `state` and takes its setpoints from
+  `equipment.psu.params`; a missing setpoint is an **Error**, never a
+  silent 0 V. This is the defect that made an ICT plan fail every
+  powered row in Virtual mode.
+- **m122** (2026-11-25, `develop`) - **two reference plans shipped**:
+  `examples\ict_96624\` (34 rows, 31 enabled, 12 rails, built by
+  Route A from a 2 231-net netlist) and `examples\fct_frdm_imx93\`
+  (45 rows, 3 disabled with a reason, the plan that passed on the
+  bench). Plus: an empty stage clears the table on load instead of
+  leaving the previous project's rows, the status colours come from
+  the theme, a one-row stored FCT list no longer overrides the
+  derived rows, and the FCT budget wall stops retries instead of
+  re-judging a real FAIL as a platform ERROR. Suite:
+  **3 370 passed, 12 skipped**.
