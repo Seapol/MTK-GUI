@@ -47,7 +47,7 @@ def _import(wizard, monkeypatch, path):
 def test_route_c_radio_round_trips_ict_route_key(qapp):
     panel = DesignInputPanel()
     try:
-        assert panel.radio_mtk.text() == "C  MTK ICT Excel Sheet"
+        assert panel.radio_mtk.text() == "Route C - MTK ICT Excel Sheet"
         panel.radio_mtk.setChecked(True)
         assert panel.values()["ict_route"] == "mtk_sheet"
         panel.set_values({"ict_route": "mtk_sheet"})

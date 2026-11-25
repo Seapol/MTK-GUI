@@ -144,12 +144,14 @@ MODULE_FIELDS: dict[str, tuple[FieldSpec, ...]] = {
                    "part number across parse / build / test / report"),
         _f("product_id", "Core ID", required=True,
            remarks="Core ID extracted from the SPF file name"),
-        # FSW Version = the WHOLE test-software package version (not the
-        # YAML version)
-        _f("sw_version", "FSW Version", required=True,
-           remarks="the whole test-software package version"),
-        _f("hw_version", "HW Revision", required=True,
-           remarks="report metadata only - no test logic impact"),
+        # FSW Revision = the WHOLE test-software package revision (not
+        # the YAML revision); M126 renamed the field and made both
+        # revisions a Rev A..H dropdown
+        _f("sw_version", "FSW Revision", required=True,
+           remarks="the whole test-software package revision"),
+        _f("hw_version", "700 HW Revision", required=True,
+           remarks="board revision - report metadata and the MTK ICT "
+                   "Sheet file name"),
         _f("batch", "Batch #", ftype=T_CHOICE,
            choices=BATCH_OPTIONS, required=True),
         _f("ict_block_enabled", "Design Files for ICT", ftype=T_BOOL,

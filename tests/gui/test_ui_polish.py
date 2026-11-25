@@ -79,11 +79,23 @@ def test_parse_nets_dialog_initial_size(qapp):
 
 # ------------------------------------------------------------------ F3
 def test_design_input_dialog_is_compact(qapp):
+    """M126: the size follows the CONTENT (the ICT / FCT blocks sit in
+    two columns), so there is no hardcoded 600 px any more - the width is
+    the panel's own minimum plus the frame, capped by the screen."""
     dlg = BlockConfigDialog("design_input", {})
     try:
-        assert (dlg.width(), dlg.height()) == (600, 540)
+        panel = dlg.panel
+        content_w = max(panel.minimumSizeHint().width(),
+                        panel.minimumSize().width())
+        assert dlg.minimumWidth() == content_w + 40
+        avail = dlg.screen().availableGeometry()
+        expected_w = max(content_w + 40,
+                         min(content_w + 60,
+                             max(420, min(int(avail.width() * 0.92),
+                                          avail.width() - 70))))
+        assert dlg.width() == expected_w
+        assert dlg.height() == 560
         assert dlg.property("_dlg_enlarged") is True
-        assert dlg.minimumWidth() == 560
     finally:
         dlg.deleteLater()
 

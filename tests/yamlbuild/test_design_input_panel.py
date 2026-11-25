@@ -289,8 +289,8 @@ def test_values_yaml_round_trip(panel):
     batch string."""
     panel.edit_product_id.setText("92722")
     panel.edit_part_number.setText("FRDM Board")
-    panel.edit_sw_version.setText("1.0")
-    panel.edit_hw_version.setText("B")
+    panel._set_revision(panel.combo_sw_revision, "1.0")
+    panel._set_revision(panel.combo_hw_revision, "B")
     panel.set_batch(BATCH_CUSTOMIZED_PREFIX + "VIP run")
     data = panel.values()
     fresh = DesignInputPanel()
@@ -390,8 +390,8 @@ def test_optional_labels_and_only_product_id_required():
         assert specs[name].required is True, name
     assert specs["part_number"].label == "Product Part #"
     assert specs["product_id"].label == "Core ID"
-    assert specs["sw_version"].label == "FSW Version"
-    assert specs["hw_version"].label == "HW Revision"
+    assert specs["sw_version"].label == "FSW Revision"
+    assert specs["hw_version"].label == "700 HW Revision"
     assert specs["batch"].label == "Batch #"
     # empty required values now validate as errors
     assert specs["sw_version"].validate("") != ""
@@ -409,8 +409,8 @@ def test_accept_with_blank_optional_fields_passes(qapp, monkeypatch):
     try:
         dlg.panel.edit_part_number.setText("MTK12345")
         dlg.panel.edit_product_id.setText("10342")
-        dlg.panel.edit_sw_version.setText("1.0")
-        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel._set_revision(dlg.panel.combo_sw_revision, "1.0")
+        dlg.panel._set_revision(dlg.panel.combo_hw_revision, "B")
         dlg.panel.set_batch("EVT (Proto-1)")
         dlg._on_accept()          # fully filled -> passes
         assert not warnings       # no validation popup at all
@@ -428,8 +428,8 @@ def test_accept_blank_part_number_blocked(qapp, monkeypatch):
     dlg = BlockConfigDialog("design_input", {})
     try:
         dlg.panel.edit_product_id.setText("10342")
-        dlg.panel.edit_sw_version.setText("1.0")
-        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel._set_revision(dlg.panel.combo_sw_revision, "1.0")
+        dlg.panel._set_revision(dlg.panel.combo_hw_revision, "B")
         dlg.panel.set_batch("EVT (Proto-1)")
         dlg._on_accept()
         assert warnings            # validation popup shown
@@ -447,8 +447,8 @@ def test_accept_empty_product_id_still_blocked(qapp, monkeypatch):
     dlg = BlockConfigDialog("design_input", {})
     try:
         dlg.panel.edit_part_number.setText("MTK12345")
-        dlg.panel.edit_sw_version.setText("1.0")
-        dlg.panel.edit_hw_version.setText("B")
+        dlg.panel._set_revision(dlg.panel.combo_sw_revision, "1.0")
+        dlg.panel._set_revision(dlg.panel.combo_hw_revision, "B")
         dlg.panel.set_batch("EVT (Proto-1)")
         dlg._on_accept()
         assert warnings            # validation popup shown
@@ -458,13 +458,11 @@ def test_accept_empty_product_id_still_blocked(qapp, monkeypatch):
 
 
 def test_panel_layout_adaptive(qapp):
-    """Item 21: the panel is expanding in both directions, the meta
-    form uses the flat evenly-spaced Qt form layout and all fields
-    grow proportionally when the dialog widens."""
-    from PySide6.QtWidgets import (
-        QFormLayout,
-        QSizePolicy,
-    )
+    """M126: the panel is expanding in both directions and the meta
+    fields sit in a two-column grid - the columns stay aligned and
+    capped instead of stretching across the dialog."""
+    from PySide6.QtWidgets import QGridLayout, QSizePolicy
+
     dlg = BlockConfigDialog("design_input", {})
     try:
         p = dlg.panel
@@ -472,11 +470,13 @@ def test_panel_layout_adaptive(qapp):
             == QSizePolicy.Policy.Expanding
         assert p.sizePolicy().verticalPolicy() \
             == QSizePolicy.Policy.Expanding
-        form = p.findChild(QFormLayout)
-        assert form is not None
-        assert form.verticalSpacing() >= 12
-        assert form.fieldGrowthPolicy() \
-            == QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        grid = p.findChild(QGridLayout)
+        assert grid is not None
+        # two fields per row: label, field, label, field
+        assert grid.itemAtPosition(0, 1) is not None
+        assert grid.itemAtPosition(0, 3) is not None
+        assert grid.itemAtPosition(1, 1) is not None
+        assert grid.itemAtPosition(1, 3) is not None
         dlg.resize(460, 500)
         dlg.show()
         qapp.processEvents()
@@ -487,11 +487,9 @@ def test_panel_layout_adaptive(qapp):
         # a wide dialog must not stretch a short field across the row
         assert p.edit_product_id.width() >= w_small
         assert p.edit_product_id.width() <= 420
-        # all input boxes share the same width (aligned columns)
-        assert p.edit_product_id.width() \
-            == p.edit_part_number.width() \
-            == p.edit_sw_version.width() \
-            == p.edit_hw_version.width()
+        # the two columns stay aligned with each other
+        assert p.edit_product_id.width() == p.edit_part_number.width()
+        assert p.combo_sw_revision.width() == p.combo_hw_revision.width()
         dlg.hide()
     finally:
         dlg.deleteLater()

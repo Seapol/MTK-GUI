@@ -46,12 +46,15 @@ project path band at the top and the channel-allocation tables below. Open
 
 The panel has three parts:
 
-- **Product Information** - `Product Part #`, `Core ID`, FSW/HW version,
-  `Batch #`.
-- **Design Files for ICT** - the route selector **A** (`SPF + NET + BoM`),
-  **B** (`ICT Excel Spreadsheet`) or **C** (`MTK ICT Excel Sheet`); route A is
-  the default and the one this chapter uses.
-- The three import buttons plus the route-B/C shortcuts underneath.
+- **Product Information** - `Product Part #` / `Core ID` on the first row,
+  `FSW Revision` / `700 HW Revision` on the second (both a `Rev A` ... `Rev
+  H` dropdown), `Batch #` on the third.
+- **Design Files for ICT** - the route selector **Route A** (`SPF + NET +
+  BoM`), **Route B** (`ICT Excel Spreadsheet`) or **Route C** (`MTK ICT
+  Excel Sheet`), stacked top to bottom; route A is the default and the one
+  this chapter uses, the other two stay greyed out.
+- **Pre-Configure for FCT**, next to it - the DUT board software and the
+  FCT test types this plan supports.
 
 `Batch #` decides whether this plan counts as production: a batch containing
 `Production` flips the OEE switch to production, anything else (here

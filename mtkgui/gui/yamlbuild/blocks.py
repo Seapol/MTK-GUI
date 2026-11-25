@@ -227,8 +227,15 @@ class BlockConfigDialog(QDialog):
             # it to 1.5x sizeHint on first show (it honours
             # _dlg_enlarged as "size already chosen").
             self.setProperty("_dlg_enlarged", True)
-            self.setMinimumSize(560, 0)
-            fit_dialog(self, 600, 540)
+            # M126: the ICT / FCT blocks sit side by side, so the 600 px
+            # column of M125 cannot hold them any more.  The size comes
+            # from the CONTENT (sum of the two half-width columns) rather
+            # than a guess - that is what keeps a horizontal scrollbar
+            # out of the dialog.  The window still resizes / maximizes.
+            content_w = max(self.panel.minimumSizeHint().width(),
+                            self.panel.minimumSize().width())
+            self.setMinimumSize(content_w + 40, 0)
+            fit_dialog(self, content_w + 60, 560)
         elif module_key == "instruments":
             # T9: the simplified Configure Instruments panel - the
             # instrument parameters stay on the Equipment page

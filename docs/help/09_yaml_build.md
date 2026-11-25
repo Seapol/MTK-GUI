@@ -61,13 +61,42 @@ instead of dropping the extra nets quietly.
 
 ![Design Input panel](images/06_yaml_design_input.png)
 
-Three route choices at the top of the panel:
+Three cards, top to bottom: **Product Information**, then **Design Files
+for ICT** and **Pre-Configure for FCT** side by side.
+
+**Product Information** is a two-column grid, so the rows use the width
+without stretching a short field across the dialog:
+
+| Row | Left | Right |
+|---|---|---|
+| 1 | `Product Part #` (editable) | `Core ID` (editable) |
+| 2 | `FSW Revision` | `700 HW Revision` |
+| 3 | `Batch #` | detail of the customized / deviation batch |
+
+Both revisions are dropdowns: `Rev A` ... `Rev H` plus `Customized ...`.
+Picking `Customized ...` asks for the text; cancelling keeps the previous
+choice. A value loaded from an older YAML is added as its own item and
+stays verbatim (e.g. `1.0.3` or `Rev C-2`), so an old project never gets
+silently rewritten.
+
+Each card has its own `Enable` checkbox. Clearing it turns the whole card
+grey - labels, radios, buttons, dropdowns and text - not just the
+controls, so a disabled card is unmistakable. The `Enable` checkbox
+itself stays clickable.
+
+Three route choices inside **Design Files for ICT**, stacked top to
+bottom:
 
 | Route | Input | What it does |
 |---|---|---|
-| **A** `SPF + NET + BoM` | Allegro Smart PDF + netlist (+ BOM) | the normal path: node 02 classifies the nets |
-| **B** `ICT Excel Spreadsheet` | a traditional ICT Excel | imports a prepared per-net test list |
-| **C** `MTK ICT Excel Sheet` | the four-sheet workbook written by this tool | round trip for stations that review plans in Excel |
+| **Route A** `SPF + NET + BoM` | Allegro Smart PDF + netlist (+ BOM) | the normal path: node 02 classifies the nets |
+| **Route B** `ICT Excel Spreadsheet` | a traditional ICT Excel | imports a prepared per-net test list |
+| **Route C** `MTK ICT Excel Sheet` | the four-sheet workbook written by this tool | round trip for stations that review plans in Excel |
+
+Only one route is live at a time: the two you did not pick - radio label
+and its body alike - grey out. **Switching route clears every imported
+ICT file**, so a Route A project can never carry a Route B workbook into
+node 02; the Event Log says so and you import again for the new route.
 
 Route A fields:
 
@@ -80,7 +109,19 @@ Route A fields:
   their nets untestable (see node 02).
 - **Batch #** - a batch containing `Production` marks the plan as
   production (OEE counts it); anything else stays engineering.
-- **Enable** - tick it when the panel is complete.
+
+**Pre-Configure for FCT** holds `DUT Board Software` and the list of
+supported FCT test types, split into `Standard test steps` (Console
+serial, Serial file transfer, SSH SFTP, Message dialogs) and
+`FCT-specific test steps` (Wi-Fi, Bluetooth). `Select all` and
+`Select none` are shortcuts; selecting nothing is a legal configuration.
+
+The board software picks the default tick set: `linux` ticks everything,
+`bare_metal` ticks `Console serial` and `Message dialogs`, `slave_daughter`
+ticks `Message dialogs` only. A project YAML that already stores a list -
+including an empty one - wins over those defaults.
+
+Press **Apply_Save yaml** to apply and write the project YAML.
 
 Press **Apply_Save yaml** to apply and write the project YAML.
 

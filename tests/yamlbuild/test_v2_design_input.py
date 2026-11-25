@@ -35,8 +35,8 @@ def test_node01_blocks_in_order(qapp):
 
 def test_node01_field_labels():
     labels = [spec.label for spec in fields_for("design_input")[:5]]
-    assert labels == ["Product Part #", "Core ID", "FSW Version",
-                      "HW Revision", "Batch #"]
+    assert labels == ["Product Part #", "Core ID", "FSW Revision",
+                      "700 HW Revision", "Batch #"]
 
 
 def test_design_input_field_names():
