@@ -459,17 +459,30 @@ class BlockFlowWidget(QWidget):
         available = None
         if not virtual and yaml_model is not None:
             available = available_ops(yaml_model)
-        dialog = BlockConfigDialog(module_key, params, parent,
-                                   net_source=net_source,
-                                   panel_state=panel_state,
-                                   yaml_model=yaml_model,
-                                   apply_save_cb=apply_save_cb,
-                                   available_ops=available,
-                                   save_as_cb=save_as_cb,
-                                   equipment_provider=equipment_provider,
-                                   console_channels_provider=
-                                   console_channels_provider,
-                                   console_config_cb=console_config_cb)
+        # M124: building the dialog (embedded tables / panels) is the
+        # slow part on the station laptops - show the wait cursor for
+        # that span instead of leaving the screen unresponsive-looking,
+        # and record how long it took for the Event Log.
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+        import time
+        started = time.perf_counter()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            dialog = BlockConfigDialog(
+                module_key, params, parent,
+                net_source=net_source,
+                panel_state=panel_state,
+                yaml_model=yaml_model,
+                apply_save_cb=apply_save_cb,
+                available_ops=available,
+                save_as_cb=save_as_cb,
+                equipment_provider=equipment_provider,
+                console_channels_provider=console_channels_provider,
+                console_config_cb=console_config_cb)
+        finally:
+            QApplication.restoreOverrideCursor()
+        dialog.build_ms = int((time.perf_counter() - started) * 1000)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:

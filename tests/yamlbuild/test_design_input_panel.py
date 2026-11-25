@@ -481,9 +481,12 @@ def test_panel_layout_adaptive(qapp):
         dlg.show()
         qapp.processEvents()
         w_small = p.edit_product_id.width()
-        dlg.resize(760, 500)
+        dlg.resize(980, 500)
         qapp.processEvents()
-        assert p.edit_product_id.width() > w_small
+        # M124: the field follows the dialog until the shared cap -
+        # a wide dialog must not stretch a short field across the row
+        assert p.edit_product_id.width() >= w_small
+        assert p.edit_product_id.width() <= 420
         # all input boxes share the same width (aligned columns)
         assert p.edit_product_id.width() \
             == p.edit_part_number.width() \

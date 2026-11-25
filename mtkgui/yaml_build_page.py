@@ -920,6 +920,10 @@ class YamlBuildPage(QWidget):
             self.ict_sequence_ready.emit(list(dlg.result_data()))
             # configured (OK) -> star mark (user direction)
             self._set_mark(DISPLAY_ICT_WORKFLOW, MARK_STAR)
+            # M124: "Next" inside node 04 opens node 05 right away
+            if getattr(dlg, "requested_next", None):
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self.open_fct_sequence)
 
     def open_fct_sequence(self) -> None:
         """Open the "Build FCT Test Work Flow Sequence" dialog.
@@ -1137,6 +1141,12 @@ class YamlBuildPage(QWidget):
             save_as_cb=lambda values: self._save_as_new_yaml(
                 module_key, values))
         if params is None:
+            # M124: the dialog is built before this call returns - log
+            # how long it took so a slow node can be named, not guessed
+            self.task_log.emit(
+                "info",
+                f"node {module_key}: dialog ready in "
+                f"{getattr(dialog, 'build_ms', 0)} ms")
             return
         self.model.set_params(module_key, params)
         # configured (OK) -> star mark (user direction); the full
@@ -1201,6 +1211,29 @@ class YamlBuildPage(QWidget):
             # unstarred, so its next level stays locked
             self._set_mark(module_key, MARK_STAR)
         self._after_model_change()
+        # M124: the dialog's "Next" button walks the node chain without
+        # a trip back to the diagram; open the next node once this one
+        # has been saved and the gating re-validated.
+        nxt = getattr(dialog, "requested_next", None)
+        if nxt:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda key=nxt: self._open_next_node(key))
+
+    def _open_next_node(self, module_key: str) -> None:
+        """Open the node the dialog's "Next" button asked for (M124).
+
+        Node 03 has no window of its own - it is the click-to-allocate
+        card - so stepping from 02 to 04 runs the allocation first and
+        says so in the Event Log instead of leaving the operator in
+        front of a diagram that silently did nothing.
+        """
+        if module_key == "ict_workflow" and not self.model.allocated_testable:
+            self.channel_alloc.auto_allocate()
+            self._set_mark("channel_alloc", MARK_STAR)
+            self.task_log.emit(
+                "info",
+                "channel allocation (03) ran automatically on the way to 04")
+        self._open_block(module_key)
 
     def _save_as_new_yaml(self, module_key: str, values: dict) -> None:
         """M44: a config page's Exit prompt chose "Save as new yaml" -

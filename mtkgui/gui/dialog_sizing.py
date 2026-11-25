@@ -46,13 +46,74 @@ def fit_dialog(dlg: QWidget, width: int, height: int,
     enable_dialog_controls(dlg)
     screen = dlg.screen() if dlg.screen() is not None \
         else QApplication.primaryScreen()
+    target_w = int(width)
     target_h = int(height)
     if screen is not None:
         avail = screen.availableGeometry()
+        # M124: a 1180 px dialog on a 1366 px laptop left no room for the
+        # desktop and pushed content off the edge - keep it inside the
+        # screen and let the operator maximize when more space is needed.
+        # leave the window frame reachable on both sides; 92% is the
+        # same ceiling the app-wide DialogCenterer uses
+        max_w = max(420, min(int(avail.width() * 0.92),
+                             avail.width() - 70))
+        target_w = min(target_w, max_w)
         max_h = max(_MIN_DIALOG_H, int(avail.height()) - bottom_margin)
-        target_h = min(int(height), max_h)
-    dlg.resize(int(width), target_h)
+        target_h = min(target_h, max_h)
+    dlg.resize(target_w, target_h)
+    cap_form_inputs(dlg)
     return dlg
+
+
+#: M124: the widest a single-line form field may grow.  A wide dialog
+#: used to stretch a 4-character field to the full row (the "too wide"
+#: input the operator kept reporting) - a cap keeps the field near its
+#: content while the window can still be resized freely.
+_INPUT_CAPS = (
+    ("QLineEdit", 420, 320),
+    ("QComboBox", 360, 260),
+    ("QSpinBox", 200, 180),
+    ("QDoubleSpinBox", 200, 180),
+    ("QPlainTextEdit", 560, 480),
+    ("QTextEdit", 560, 480),
+)
+
+
+def cap_form_inputs(root: QWidget) -> int:
+    """Stop a form input from stretching across a wide dialog.
+
+    Walks every input of ``root`` (dialog, panel or page body) and
+    lowers only the ones whose ``maximumWidth`` is still unbounded;
+    widgets with their own bounded width (a 120 px numeric entry, a
+    channel row capped at 280 px) are left exactly as designed.  Inputs
+    living inside an item view (cell editors of a table) are skipped -
+    those must follow the cell, not the form.  Returns the count capped.
+    """
+    from PySide6.QtWidgets import QAbstractItemView
+    capped = 0
+    for type_name, cap, floor in _INPUT_CAPS:
+        for widget in root.findChildren(QWidget):
+            if type(widget).__name__ != type_name:
+                continue
+            if widget.minimumWidth() == widget.maximumWidth():
+                # the caller deliberately fixed this width (a 120 px
+                # numeric entry, a 480 px path field + Browse...)
+                continue
+            # the cap follows the field's own content hint as well: a
+            # 99 px combo must not become 360 px just because the tier
+            # cap allows it (still "2.5x the hint" oversized)
+            limit = max(floor, min(cap, widget.sizeHint().width() * 2 + 50))
+            if widget.maximumWidth() <= limit:
+                continue
+            ancestor = widget.parentWidget()
+            while ancestor is not None:
+                if isinstance(ancestor, QAbstractItemView):
+                    break
+                ancestor = ancestor.parentWidget()
+            else:
+                widget.setMaximumWidth(limit)
+                capped += 1
+    return capped
 
 
 # --------------------------------------------------------------- M34 scroll
@@ -113,9 +174,14 @@ def wrap_scrollable(content: QWidget, min_w: int = 0,
         _mark_scrolled(content)
         content._m34_scroll_wrapper = candidate
         return candidate
+    cap_form_inputs(content)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
+    # M124: a long path / wide table must stay reachable - the bar shows
+    # up only when the content really is wider than the viewport.
+    scroll.setHorizontalScrollBarPolicy(
+        Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     scroll.setWidget(content)
     if min_w > 0 or min_h > 0:
         scroll.setMinimumSize(max(0, int(min_w)), max(0, int(min_h)))

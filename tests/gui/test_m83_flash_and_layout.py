@@ -86,11 +86,13 @@ def test_m83_flash_gui_placeholder_block_removed(qapp, monkeypatch):
     texts = _labels(dlg)
     assert not any("An empty GUI path fails the row." in text
                    for text in texts)
-    assert dlg.minimumWidth() == dlg.maximumWidth() == dlayout.WIDTH_FORM
+    # M124: the tier width is a floor (resizable), the body scrolls
+    assert dlg.minimumWidth() == dlayout.WIDTH_FORM
+    assert dlg.maximumWidth() > dlg.minimumWidth()
     for area in dlg.findChildren(QScrollArea):
         from PySide6.QtCore import Qt
         assert area.horizontalScrollBarPolicy() \
-            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            == Qt.ScrollBarPolicy.ScrollBarAsNeeded
 
 
 def test_m83_serial_transfer_estimated_time_is_bottom_hint(
@@ -111,7 +113,7 @@ def test_m83_serial_transfer_inputs_have_fixed_width(qapp, monkeypatch):
     assert len(fixed) >= 2
 
 
-def test_m83_delay_hint_wraps_without_horizontal_scroll(qapp, monkeypatch):
+def test_m83_delay_hint_wraps_and_body_scrolls(qapp, monkeypatch):
     dlg = _open(monkeypatch, STEP_TYPE_DELAY)
     hints = [label for label in dlg.findChildren(QLabel)
              if label.wordWrap()]
@@ -119,4 +121,4 @@ def test_m83_delay_hint_wraps_without_horizontal_scroll(qapp, monkeypatch):
     from PySide6.QtCore import Qt
     for area in dlg.findChildren(QScrollArea):
         assert area.horizontalScrollBarPolicy() \
-            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            == Qt.ScrollBarPolicy.ScrollBarAsNeeded

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import re
 
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import (QLabel, QDialogButtonBox, QPushButton,
+                               QWidget)
 
 from ...engine.steps import METHOD_R_GND
 from ...ict.netparse.confidence import LOW, has_strong_power_token
@@ -448,6 +449,16 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
             "ict", steps, [True] * n, [100] * n, [5000] * n, parent,
             available_ops=available_ops)
         self.setWindowTitle("Build ICT Test Work Flow Sequence")
+        # M124: the node chain continues INSIDE the dialog - "Next"
+        # applies this sequence and opens node 05 straight away.
+        self.requested_next: str | None = None
+        box = self.findChild(QDialogButtonBox)
+        if box is not None:
+            self.btn_next = QPushButton("Next: 05 Build FCT →")
+            self.btn_next.setToolTip(
+                "Apply the ICT sequence and open the FCT builder")
+            self.btn_next.clicked.connect(self._on_next_clicked)
+            box.addButton(self.btn_next, QDialogButtonBox.ButtonRole.AcceptRole)
         self.setMinimumSize(640, 460)
         # the step editor offers the nets PER TEST METHOD from the
         # parse result; the DAQ AI Net stays a read-only rail count
@@ -470,6 +481,11 @@ class IctWorkFlowSequenceDialog(StepsEditorDialog):
         self.layout().addWidget(self._production_note)
         self._refresh_limits_hint()
         self._refresh_production_note()
+
+    def _on_next_clicked(self) -> None:
+        """M124: accept the sequence and hand over to node 05."""
+        self.requested_next = "fct_build"
+        self.accept()
 
     def _populate(self):
         super()._populate()

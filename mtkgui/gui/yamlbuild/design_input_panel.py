@@ -368,7 +368,7 @@ class DesignInputPanel(QWidget):
         if not path:
             return
         self._ict_excel_path = path
-        self.lbl_excel.setText(f"Workbook: {_rel_path(path)}")
+        _path_text(self.lbl_excel, "Workbook:", _rel_path(path))
         self.content_changed.emit()
 
     def _import_mtk_sheet(self) -> None:
@@ -395,7 +395,7 @@ class DesignInputPanel(QWidget):
             self._reject_mtk_sheet(result.gate_error)
             return
         self._mtk_sheet_path = path
-        self.lbl_mtk.setText(f"Sheet: {_rel_path(path)}")
+        _path_text(self.lbl_mtk, "Sheet:", _rel_path(path))
         self.lbl_mtk_note.setText(result.summary())
         self.mtk_sheet_imported.emit(result)
         self.content_changed.emit()
@@ -499,7 +499,7 @@ class DesignInputPanel(QWidget):
             self.edit_product_id.setText(core_id)
         if title:
             self.edit_part_number.setText(title)
-        self.lbl_spf.setText(f"SPF: {_rel_path(path)}")
+        _path_text(self.lbl_spf, "SPF:", _rel_path(path))
         self.task_progress.emit(100, "spf import: done")
         self.task_log.emit(
             "INFO",
@@ -536,7 +536,7 @@ class DesignInputPanel(QWidget):
             return
         self.net_path = path
         self.net_text = text            # load only - never parsed here
-        self.lbl_net.setText(f"NET: {_rel_path(path)}")
+        _path_text(self.lbl_net, "NET:", _rel_path(path))
         self.task_progress.emit(100, "net import: done")
         self.task_log.emit(
             "INFO",
@@ -576,9 +576,9 @@ class DesignInputPanel(QWidget):
         self.bom_path = path
         self.bom_records = len(bom.records)
         self.bom_dnp = sum(1 for rec in bom.records if rec.dnp)
-        self.lbl_bom.setText(
-            f"BOM: imported ({self.bom_records} records, "
-            f"{self.bom_dnp} DNP) - {_rel_path(path)}")
+        _path_text(self.lbl_bom, "BOM:", _rel_path(path),
+                   f" - imported ({self.bom_records} records, "
+                   f"{self.bom_dnp} DNP)")
         self.task_log.emit(
             "INFO",
             f"BOM import done: {Path(path).name} "
@@ -715,13 +715,15 @@ class DesignInputPanel(QWidget):
         self.radio_excel.setChecked(route == "excel")
         self.radio_files.setChecked(route == "files")
         self._ict_excel_path = str(params.get("ict_excel_file") or "")
-        self.lbl_excel.setText(
-            f"Workbook: {self._ict_excel_path}" if self._ict_excel_path
-            else "Workbook: (not imported)")
+        if self._ict_excel_path:
+            _path_text(self.lbl_excel, "Workbook:", self._ict_excel_path)
+        else:
+            self.lbl_excel.setText("Workbook: (not imported)")
         self._mtk_sheet_path = str(params.get("ict_mtk_sheet_file") or "")
-        self.lbl_mtk.setText(
-            f"Sheet: {self._mtk_sheet_path}" if self._mtk_sheet_path
-            else "Sheet: (not imported)")
+        if self._mtk_sheet_path:
+            _path_text(self.lbl_mtk, "Sheet:", self._mtk_sheet_path)
+        else:
+            self.lbl_mtk.setText("Sheet: (not imported)")
         self.chk_fct.setChecked(_true_text(params.get("fct_block_enabled")))
         sw = str(params.get("dut_board_software") or "linux")
         if sw in ("linux", "bare_metal", "slave_daughter"):
@@ -733,13 +735,15 @@ class DesignInputPanel(QWidget):
             check.setChecked(key in supported)
         self.spf_path = str(params.get("spf_file")
                             or params.get("schematic_file") or "")
-        self.lbl_spf.setText(
-            f"SPF: {self.spf_path}" if self.spf_path
-            else "SPF: (not imported)")
+        if self.spf_path:
+            _path_text(self.lbl_spf, "SPF:", self.spf_path)
+        else:
+            self.lbl_spf.setText("SPF: (not imported)")
         self.net_path = str(params.get("net_file") or "")
-        self.lbl_net.setText(
-            f"NET: {self.net_path}" if self.net_path
-            else "NET: (not imported)")
+        if self.net_path:
+            _path_text(self.lbl_net, "NET:", self.net_path)
+        else:
+            self.lbl_net.setText("NET: (not imported)")
         self.bom_path = str(params.get("bom_file") or "")
         self._reload_bom_label()
         self._on_route_changed(None)
@@ -788,13 +792,31 @@ class DesignInputPanel(QWidget):
             bom = parse_bom(self.bom_path)
         except (OSError, ValueError):
             self.bom_records = self.bom_dnp = 0
-            self.lbl_bom.setText(f"BOM: {self.bom_path} (not readable)")
+            _path_text(self.lbl_bom, "BOM:", self.bom_path,
+                       " (not readable)")
             return
         self.bom_records = len(bom.records)
         self.bom_dnp = sum(1 for rec in bom.records if rec.dnp)
-        self.lbl_bom.setText(
-            f"BOM: imported ({self.bom_records} records, "
-            f"{self.bom_dnp} DNP) - {_rel_path(self.bom_path)}")
+        _path_text(self.lbl_bom, "BOM:", _rel_path(self.bom_path),
+                   f" - imported ({self.bom_records} records, "
+                   f"{self.bom_dnp} DNP)")
+
+
+def _path_text(label, prefix: str, path: str, tail: str = "") -> None:
+    """M124: bound a path label so an import never widens the dialog.
+
+    A plain ``QLabel`` grew with the whole path and pushed the dialog
+    past the screen edge (user report 2026-11-25: "import 文件后，路径
+    长度会改变窗体宽度").  A long path is shown as its file name, the
+    full path stays in the tooltip, and the label wraps inside a fixed
+    width.
+    """
+    path = str(path or "")
+    shown = Path(path).name if len(path) > 48 else path
+    label.setText(f"{prefix} {shown}{tail}")
+    label.setToolTip(f"{prefix} {path}" if path else prefix)
+    label.setWordWrap(True)
+    label.setMaximumWidth(520)
 
 
 def _rel_path(path: str) -> str:

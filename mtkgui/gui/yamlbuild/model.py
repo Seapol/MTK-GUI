@@ -327,6 +327,21 @@ class YamlBuildModel:
             self.marks.pop(module_key, None)
         self.changed = True
 
+    def reset_to_factory(self) -> None:
+        """M124: every module parameter back to its schema default.
+
+        Close Yaml used to call ``apply_state({})``, which MERGES: a
+        missing module entry simply kept the previous project's values,
+        so node 01 (and every other node) still showed the old part
+        number, paths and notes after the project was closed.  This is
+        the explicit factory reset the GUI now calls.
+        """
+        for key in STAGE_KEYS:
+            self._params[key] = {
+                f.name: f.default for f in MODULE_FIELDS.get(key, ())
+            }
+            self._enabled[key] = True
+
     def get_params(self, module_key: str) -> dict:
         """Return a copy of one module's parameters.
 
@@ -839,6 +854,10 @@ class YamlBuildModel:
         """
         if not isinstance(state, dict):
             return
+        if not state:
+            # M124: an empty state means the factory baseline - do not
+            # let the previous project's module parameters survive.
+            self.reset_to_factory()
         version = str(state.get("plan_version", "")).strip()
         if re.match(r"^\d+\.\d+\.\d+$", version):
             self._plan_version = version

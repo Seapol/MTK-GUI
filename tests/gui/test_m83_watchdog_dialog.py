@@ -83,6 +83,8 @@ def test_m83_watchdog_dialog_persists_value(qapp, monkeypatch, tmp_path):
 
 
 def test_m83_watchdog_dialog_width_matches_form_tier(qapp):
+    """M124: FORM is the floor; the window is not locked to it."""
     dlg = FctWatchdogDialog(8.0)
-    assert dlg.minimumWidth() == dlg.maximumWidth() == dlayout.WIDTH_FORM
+    assert dlg.minimumWidth() == dlayout.WIDTH_FORM
+    assert dlg.maximumWidth() > dlg.minimumWidth()
     dlg.deleteLater()

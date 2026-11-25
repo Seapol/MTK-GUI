@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""M83: shared editor layout kit (C0).
+"""M83/M124: shared editor layout kit (C0).
 
 The three dialogs reported by the user shared one layout defect: a long
 ``QLabel`` without word wrap inflates the dialog past its own maximum
@@ -29,17 +29,42 @@ HINT_MARGIN = 16
 
 
 def apply_fixed_width(dlg, width: int = WIDTH_SIMPLE) -> None:
-    """Lock one dialog's width; vertical resizing stays free.
+    """M124: give the dialog a sensible MINIMUM width, never a lock.
 
-    ``setFixedWidth`` makes minimum == maximum, so neither the operator
-    nor a layout pass can widen the dialog past its designed width (the
-    clipping root cause)."""
+    The M83 version called ``setFixedWidth`` - minimum == maximum - so
+    the operator could neither maximise the dialog nor widen it to read
+    a long path, and the usual answer was "the window is too wide / the
+    right side is cut".  A floor plus free resizing is what the editors
+    actually need: the layout stays readable, maximize / minimize work
+    and a wider screen can be used.
+    """
     if dlg is None:
         return
-    dlg.setFixedWidth(int(width))
+    from mtkgui.gui.dialog_sizing import enable_dialog_controls
+    enable_dialog_controls(dlg)
+    dlg.setMinimumWidth(int(width))
     setter = getattr(dlg, "setSizeGripEnabled", None)
     if callable(setter):
-        setter(False)
+        setter(True)
+
+
+#: M124: readable caps per editor kind - a form field grows with the
+#: dialog in a plain QFormLayout, so a 1180 px dialog ended up with
+#: 1100 px-wide single-line inputs and drop-downs.
+EDITOR_CAPS: dict[str, tuple[int, int]] = {
+    "line": (360, 640),
+    "combo": (220, 420),
+    "text": (360, 760),
+}
+
+
+def cap_editor_width(editor, kind: str = "line") -> None:
+    """Bound one form editor's width to a readable range."""
+    if editor is None:
+        return
+    lo, hi = EDITOR_CAPS.get(kind, EDITOR_CAPS["line"])
+    editor.setMinimumWidth(int(lo))
+    editor.setMaximumWidth(int(hi))
 
 
 def hint(text: str, parent_width: int, muted: bool = True) -> QLabel:
@@ -53,12 +78,38 @@ def hint(text: str, parent_width: int, muted: bool = True) -> QLabel:
 
 
 def disable_horizontal_scroll(scroll_area) -> None:
-    """Forbid a horizontal scrollbar inside a vertical scroll area."""
+    """M124: keep the horizontal scrollbar AVAILABLE (as needed).
+
+    The M83 version forced ``ScrollBarAlwaysOff``: when the content was
+    wider than the viewport (a long path, a wide table) the right side
+    simply disappeared with no way to reach it.  The bar now appears
+    only when it is needed, and never forces a phantom bar otherwise.
+    """
     if scroll_area is None:
         return
     scroll_area.setWidgetResizable(True)
     scroll_area.setHorizontalScrollBarPolicy(
-        Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+
+def path_label(label, prefix: str, path: str, width: int = 0) -> None:
+    """M124: show a file path on one line without widening the dialog.
+
+    A plain ``QLabel`` sized itself to the whole path, which stretched
+    the dialog past the screen edge after an import.  The label now
+    elides in the middle, keeps the full path in the tooltip, wraps as
+    a last resort and is bounded in width.
+    """
+    import os
+    if label is None:
+        return
+    text = os.path.basename(str(path or "")) or str(path or "")
+    full = f"{prefix} {path}" if prefix else str(path or "")
+    label.setText(f"{prefix} {text}" if prefix else text)
+    label.setToolTip(full)
+    label.setWordWrap(True)
+    if width:
+        label.setMaximumWidth(int(width))
 
 
 def finish(dlg) -> None:

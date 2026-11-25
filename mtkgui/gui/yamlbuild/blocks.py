@@ -35,7 +35,23 @@ from mtkgui.gui.yamlbuild.schema import (
     fields_for,
 )
 from mtkgui.gui.dialog_sizing import apply_scroll_to_dialog, fit_dialog
+from mtkgui.gui.yamlbuild import dialog_layout as dlayout_kit
 from mtkgui.gui.yamlbuild.stages import STAGE_BY_KEY
+
+#: M124: the node order the "Next" button walks inside the dialogs.
+#: 03 Channel Allocation is an in-page action (the tables live on the
+#: Yaml Build page), so node 02 hands over to it rather than to a popup.
+#: M124: the "Next" chain inside the node dialogs.  Node 03 (Channel
+#: Allocation) owns no window - it is the click-to-allocate card - so
+#: node 02 hands over to 04 and the page runs the allocation on the way.
+NEXT_NODE: dict[str, str] = {
+    "design_input": "parse_ict",
+    "parse_ict": "ict_workflow",
+}
+NEXT_LABEL: dict[str, str] = {
+    "parse_ict": "02 Parse nets for ICT",
+    "ict_workflow": "04 Build ICT Test Work Flow",
+}
 
 
 def spec_tooltip(spec: FieldSpec) -> str:
@@ -180,6 +196,8 @@ class BlockConfigDialog(QDialog):
         # Parse Nets "Open Power Tree Editor" button); the page reads
         # this after the dialog accepts
         self.requested_page: str | None = None
+        #: M124: the "Next" button names the node to open after this one
+        self.requested_next: str | None = None
         self.setWindowTitle(
             f"Configure - {STAGE_BY_KEY[module_key].title}")
         self.setMinimumWidth(460)
@@ -305,6 +323,17 @@ class BlockConfigDialog(QDialog):
             "Exit")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self._on_exit)
+        # M124: the node chain lives INSIDE the dialog - the operator no
+        # longer closes one node, finds the diagram card, opens the next.
+        self._next_key = NEXT_NODE.get(module_key)
+        self.btn_next = None
+        if self._next_key:
+            self.btn_next = QPushButton(f"Next: {NEXT_LABEL[self._next_key]} →")
+            self.btn_next.setToolTip(
+                "Apply_Save this node, close it and open the next one")
+            self.btn_next.clicked.connect(self._on_next)
+            buttons.addButton(
+                self.btn_next, QDialogButtonBox.ButtonRole.ActionRole)
         # the dirty check compares the values read back at Exit time with
         # the values the dialog opened with
         self._initial_values = self._current_values()
@@ -358,6 +387,7 @@ class BlockConfigDialog(QDialog):
             editor.setMinimumHeight(72)
             editor.setPlaceholderText(spec.remarks)
             editor.setToolTip(spec_tooltip(spec))
+            dlayout_kit.cap_editor_width(editor, "text")
             return editor
         if spec.ftype == T_BOOL:
             editor = QCheckBox()
@@ -372,10 +402,12 @@ class BlockConfigDialog(QDialog):
             if value in spec.choices:
                 editor.setCurrentText(value)
             editor.setToolTip(spec_tooltip(spec))
+            dlayout_kit.cap_editor_width(editor, "combo")
             return editor
         editor = QLineEdit(value)
         editor.setPlaceholderText(spec.remarks)
         editor.setToolTip(spec_tooltip(spec))
+        dlayout_kit.cap_editor_width(editor, "line")
         return editor
 
     def _editor_value(self, spec: FieldSpec) -> str:
@@ -459,6 +491,22 @@ class BlockConfigDialog(QDialog):
             # M5 commit gate: a workbook import may write the
             # production YAML only after the block was applied
             self.nets_panel.mark_applied()
+        self.accept()
+
+    def _on_next(self) -> None:
+        """M124: apply-save this node, then ask the page for the next."""
+        values = self._collect()
+        if values is None:
+            return
+        if self._apply_save_cb is not None:
+            error = self._apply_save_cb(values)
+            if error:
+                self.error_label.setText(str(error))
+                return
+            self.error_label.setText("")
+        if self.nets_panel is not None:
+            self.nets_panel.mark_applied()
+        self.requested_next = self._next_key
         self.accept()
 
     def _current_values(self) -> dict:

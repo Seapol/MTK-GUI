@@ -41,6 +41,21 @@ instead of dropping the extra nets quietly.
   neither opens before the parse is applied; node 05 (FCT) is independent
   and always opens - an FCT-only project is legal.
 - **If any of the three design files is missing**, only node 01 opens.
+- **`Next` lives inside the dialog** (M124). Node 01 hands over to 02,
+  node 02 to 04 (the Channel Allocation card runs automatically on the
+  way and says so in the Event Log), node 04 to 05. Node 05 is the end
+  of the chain - `Apply_Save yaml` finishes it.
+- **Every node dialog is resizable** (M124): minimize / maximize and
+  free resize are enabled, the width you see is a *minimum*, long
+  content scrolls both ways instead of being clipped, and form fields
+  stop growing at a sensible cap - a wide window no longer stretches a
+  four-character field across the whole row.
+- **Node 01 shows the file name, not the full path** (M124): SPF / NET /
+  BOM / workbook rows display the base name, with the full path in the
+  tooltip.
+- **File -> Close Yaml empties every node** (M124): the project values
+  are replaced by the schema defaults, so opening a node right after a
+  close never shows the previous project's data.
 
 ## Node 01 - Design Input
 

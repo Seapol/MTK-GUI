@@ -220,8 +220,10 @@ class TestAddMenus:
 
         def fake_exec(dlg):
             assert dlg.windowTitle() == "Delay editor"
-            # narrow single-column form (M42)
-            assert dlg.maximumWidth() <= 420
+            # narrow single-column form (M42); M124: 420 is the floor,
+            # the operator may still widen the window
+            assert dlg.minimumWidth() <= 420
+            assert dlg.maximumWidth() > dlg.minimumWidth()
             labels = [lab.text() for lab in dlg.findChildren(QLabel)]
             assert not any("Timeout" in t for t in labels)
             assert dlg.findChildren(QDoubleSpinBox) == []

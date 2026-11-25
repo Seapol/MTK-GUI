@@ -56,7 +56,11 @@ def test_parsed_nets_default_column_widths(qapp):
 def test_parse_nets_dialog_initial_size(qapp):
     dlg = BlockConfigDialog("parse_ict", {})
     try:
-        assert dlg.width() == 1060
+        # M124: 1060 is the preferred width, clamped by fit_dialog to
+        # the screen (92% / screen-70) - never wider than the screen
+        avail = dlg.screen().availableGeometry().width()
+        expect = max(420, min(1060, int(avail * 0.92), avail - 70))
+        assert dlg.width() == expect
         # 2026-10-26 (fit_dialog): the height is clamped to the
         # screen's available area so the button row stays visible -
         # 780 on a tall screen, less on short / offscreen ones
@@ -90,7 +94,10 @@ def test_sharepoint_dialog_is_bounded(qapp, tmp_path):
         None, virtual=True, config_path=tmp_path / "cfg.json",
         state_dir=tmp_path / "state")
     try:
-        assert (dlg.width(), dlg.height()) == (720, 560)
+        avail_w = dlg.screen().availableGeometry().width()
+        expect_w = max(420, min(720, int(avail_w * 0.92), avail_w - 70))
+        assert dlg.width() == expect_w
+        assert dlg.height() == 560
         # 2026-10-26: the hard maximum size is gone so the dialog can
         # be maximized - fit_dialog keeps the default height and clamps
         # it to the screen instead

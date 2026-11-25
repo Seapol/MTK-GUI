@@ -91,12 +91,15 @@ def test_m83_sftp_editor_shows_read_only_ssh_channel(qapp, monkeypatch):
     bare.deleteLater()
 
 
-def test_m83_sftp_editor_width_is_locked(qapp, monkeypatch):
+def test_m83_sftp_editor_width_is_minimum(qapp, monkeypatch):
+    """M124: FORM is the floor and the body scrolls on demand, so a long
+    remote path never clips the right-hand side."""
     panel = FCTTestConfigPanel()
     panel.set_values({})
     dlg, _row = _open(panel, monkeypatch)
-    assert dlg.minimumWidth() == dlg.maximumWidth() == dlayout.WIDTH_FORM
+    assert dlg.minimumWidth() == dlayout.WIDTH_FORM
+    assert dlg.maximumWidth() > dlg.minimumWidth()
     for area in dlg.findChildren(QScrollArea):
         assert area.horizontalScrollBarPolicy() \
-            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            == Qt.ScrollBarPolicy.ScrollBarAsNeeded
     panel.deleteLater()
