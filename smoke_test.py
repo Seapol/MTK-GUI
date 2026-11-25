@@ -104,44 +104,15 @@ print("send-while-disconnected ok")
 #    Clear Cmd state) and every run ENDS with [] as well - the step
 #    must not depend on leftover user state.
 cw = mc.channels["ser1"]["console_window"]
-cw.quick_entries = [
-    {"label": "idn", "command": "*IDN?", "crlf": True},
-    {"label": "ver", "command": "AT+GMR", "crlf": True}]
-cw._reload_quick_combo()
-entry = cw.combo_quick.itemData(1)
-assert entry and entry["command"]
-cw._on_quick_picked(1)
-assert cw.send_panel.edit.text() == entry["command"]
-assert cw.combo_quick.currentIndex() == 0  # combo resets for re-pick
-assert cw.send_panel.check_crlf.isChecked() == bool(entry.get("crlf", True))
-# saving the current line adds a persisted snippet (cap = 15)
-from mtkgui.quick_commands import (
-    MAX_QUICK_COMMANDS, load_commands, save_commands,
-    user_commands_path)
-cmd_file = user_commands_path()
-cmd_existed = cmd_file.exists()
-cw.send_panel.edit.setText("smoke_cmd_xyz")
-cw.save_current_quick()
-saved = load_commands()
-assert any(c["command"] == "smoke_cmd_xyz" for c in saved)
-assert any(cw.combo_quick.itemData(i)
-           and cw.combo_quick.itemData(i)["command"] == "smoke_cmd_xyz"
-           for i in range(cw.combo_quick.count()))
-# cap: 15 entries disables Save Cmd
-cw.quick_entries = [
-    {"label": str(i), "command": str(i), "crlf": True}
-    for i in range(MAX_QUICK_COMMANDS)]
-cw._reload_quick_combo()
-assert cw.btn_save_cmd.isEnabled() is False
-# Clear Cmd empties all quick commands
-assert cw.combo_quick.count() > 1  # has entries beyond the placeholder
-cw.clear_all_quick()
-assert cw.combo_quick.count() == 1  # only placeholder left
-assert cw.quick_entries == []
-assert load_commands() == []
-if not cmd_existed and cmd_file.exists():
-    cmd_file.unlink()
-print("quick commands ok")
+# M132: the Quick Commands row is gone; only the font picker survives
+# in the Send row and the AT catalog still feeds Tab completion.
+for gone in ("combo_quick", "btn_save_cmd", "btn_clear_cmd"):
+    assert not hasattr(cw, gone), gone
+assert cw.btn_font.parentWidget() is cw.send_panel
+cw.send_panel.edit.setText("AT")
+assert any(cmd.startswith("AT") for cmd in
+           cw.send_panel.edit._extra_candidates)
+print("console window without quick commands ok")
 
 # 6. Payload encoding, including invalid HEX raising ValueError.
 from mtkgui.widgets.multi_console import MultiConsoleWidget

@@ -2,8 +2,8 @@
 
 The **Console** panel is embedded in the bottom-right area of the
 **Test Work Flow** page, next to the FCT Test Cases table (50% / 50%
-split). It provides multi-channel serial / SSH terminals, quick
-command snippets and pop-out console windows. FCT message tests read
+split). It provides multi-channel serial / SSH terminals, a Linux
+command helper and pop-out console windows. FCT message tests read
 the channel read buffers to judge the DUT output.
 
 ![Console panel](images/12_console.png)
@@ -100,7 +100,7 @@ area offers:
 
 Click `Console` on a channel row (or reuse the window) to pop out the
 dedicated per-channel window (minimum size 1200 x 800). It hosts the
-console log area, a quick commands row and a send panel.
+console log area and a send panel.
 
 - **Closing the window only hides it** - the console keeps receiving
   data in the background, so a hidden channel never loses RX bytes.
@@ -108,24 +108,6 @@ console log area, a quick commands row and a send panel.
   are remembered per channel and restored on the next open.
 - The console background is adjustable in the `View` menu and applies
   to every channel (default black).
-
-## Quick Commands
-
-- The `Quick:` dropdown copies a saved snippet into the Send line
-  (its line-ending flag - `CR+LF`, `LF only` or none - is applied and
-  `HEX` is cleared); press `Enter` / `Send` to transmit.
-- `Save Cmd` saves the current Send line as a new quick command
-  (max 15). Saving a command that already exists only updates its
-  line-ending flag instead of duplicating it.
-- `Clear Cmd` removes every saved quick command.
-- Quick commands persist in `config/commands.json`; built-in defaults
-  (`AT`, `ATI`, `ATE0`, `help`, `version`, `status`, `reset`) apply
-  when the file is missing.
-- All open pop-out windows reload their dropdowns when one window
-  saves or clears commands.
-- The Send line supports `Up` / `Down` history (last 50 commands) and
-  `Tab` completion cycling through history, quick commands and the AT
-  command catalog.
 
 ## Sending Data
 
@@ -241,5 +223,3 @@ with the elapsed `Duration (s)`.
   channels connected manually beforehand are skipped by the
   auto-connect, so opening them before pressing Run is a valid
   workaround.
-- **Quick command limit reached** - the maximum is 15; remove unused
-  entries by editing `config/commands.json`.

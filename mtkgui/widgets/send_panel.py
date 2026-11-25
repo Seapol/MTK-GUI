@@ -17,7 +17,7 @@ class CommandLineEdit(QLineEdit):
     """QLineEdit with Up/Down history and Tab completion.
 
     Completion candidates are drawn from the sent-command history plus an
-    externally-supplied list (quick commands, AT commands, ...).  The
+    externally-supplied list (AT commands, ...).  The
     first Tab expands to the longest common prefix of all matches; a
     single match is completed in full.  Repeated Tab presses cycle
     through the matches; Shift+Tab cycles backwards.

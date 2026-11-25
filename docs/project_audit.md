@@ -68,7 +68,7 @@
 | Login / Supervisor-Operator roles / permissions | Done | `permissions.py`, `main_window.apply_permissions` |
 | Real/Virtual mode gating (Virtual = Supervisor only) | Done | `main.py:27`, `main_window.py` |
 | Equipment page: block diagram + config dialogs | Done (UI); connect is simulated | `equipment_page.py:963-977` |
-| Console: serial + SSH + virtual DUT, quick commands | Done | `widgets/multi_console.py`, `serial_worker.py`, `ssh_worker.py` |
+| Console: serial + SSH + virtual DUT | Done | `widgets/multi_console.py`, `serial_worker.py`, `ssh_worker.py` |
 | ICT/FCT tables, sequence editor, op steps | Done | `test_workflow_page.py` |
 | Virtual-mode full run (fault injection, "Virtual" results) | Done | `virtual_hardware.py`, `_virtual_fault_roll` |
 | Real-mode ICT/rail/voltage/clock measurement | **Placeholder** | `test_workflow_page.py:1841` "Real mode keeps the legacy placeholder verdict until the SCPI ...", `:1890` "instrument drivers pending" |

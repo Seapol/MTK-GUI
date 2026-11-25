@@ -5,15 +5,13 @@ Used on the Test Work Flow page, next to the FCT table:
 
 * 1-4 serial channels and 0-1 SSH channel, each hosted in its own tab
 * per-channel accent colors identify the channels at a glance
-* each tab hosts the ConsoleWidget (log), a Quick Commands dropdown, a
-  Linux Command Helper and a Send line (HEX / CR+LF, Enter or Send)
+* each tab hosts the ConsoleWidget (log), a Linux Command Helper and a
+  Send line (HEX / CR+LF, Enter or Send)
 * a "⧉ Float" control detaches one channel's console into a floating
   window ("Dock back" returns it); channels are managed on the Equipment
   page, so this page is read-only
 * the ConsoleWidget keeps receiving data while floated
 * RX / TX byte counters are tracked per channel
-* a Quick Commands dropdown copies saved snippets into the Send line;
-  the current line can be saved as a new snippet (max 15)
 """
 
 import shiboken6
@@ -30,7 +28,6 @@ from serial.tools import list_ports
 
 from ..at_commands import AT_COMMANDS
 from ..command_library import load_command_library
-from ..quick_commands import MAX_QUICK_COMMANDS, load_commands, save_commands
 from ..serial_params import BAUDRATES, BYTESIZE_MAP, STOPBITS_MAP, PARITY_MAP
 from ..serial_worker import SerialWorker
 from ..ssh_worker import SshWorker
@@ -419,12 +416,11 @@ class CommandHelper(QWidget):
 
 # ============================================================ popup window
 class ConsoleWindow(QDialog):
-    """Popup per-channel console: hosts the ConsoleWidget, a Quick
-    Commands dropdown and a Send line. Closing the window only hides
-    it; the ConsoleWidget keeps receiving data in the background."""
+    """Popup per-channel console: hosts the ConsoleWidget and a Send
+    line. Closing the window only hides it; the ConsoleWidget keeps
+    receiving data in the background."""
 
     send_requested = Signal(str, str, bool, str)  # key, text, hex, ending
-    quick_commands_changed = Signal()
 
     def __init__(self, key, label, accent, console, theme, bg_color,
                  parent=None):
@@ -449,28 +445,6 @@ class ConsoleWindow(QDialog):
         # Console widget (reparented into this dialog by Qt)
         layout.addWidget(console, 1)
 
-        # Quick commands row
-        quick_row = QHBoxLayout()
-        quick_row.addWidget(QLabel("Quick:"))
-        self.combo_quick = QComboBox()
-        self.combo_quick.setToolTip(
-            "Select a saved command to copy it into the Send line")
-        quick_row.addWidget(self.combo_quick, 1)
-        self.btn_save_cmd = QPushButton("Save Cmd")
-        self.btn_save_cmd.setObjectName("flat")
-        self.btn_save_cmd.setToolTip(
-            "Save the current Send line as a quick command (max "
-            f"{MAX_QUICK_COMMANDS})")
-        self.btn_save_cmd.clicked.connect(self.save_current_quick)
-        quick_row.addWidget(self.btn_save_cmd)
-        self.btn_clear_cmd = QPushButton("Clear Cmd")
-        self.btn_clear_cmd.setObjectName("flat")
-        self.btn_clear_cmd.setToolTip(
-            "Remove all saved quick commands")
-        self.btn_clear_cmd.clicked.connect(self.clear_all_quick)
-        quick_row.addWidget(self.btn_clear_cmd)
-        layout.addLayout(quick_row)
-
         # Send panel
         self.send_panel = SendPanel(key, "Send")
         self.send_panel.send_requested.connect(
@@ -478,19 +452,19 @@ class ConsoleWindow(QDialog):
                 self.send_requested.emit(k, text, hex_mode, ending))
         layout.addWidget(self.send_panel)
 
-        self.quick_entries = load_commands()
-        self._reload_quick_combo()
-        self.combo_quick.activated.connect(self._on_quick_picked)
-        self._refresh_completion_candidates()
-
-        # P3-B2 console window memory: position / size / font / color
-        # scheme persisted per channel key (QSettings), restored here
+        # M132: the Quick Commands row is gone (the AT catalog plus the
+        # Send-line Tab completion covers the same need); only the font
+        # picker stays, docked at the right end of the Send row.
         self._settings_key = f"console_window/{key}"
         self.btn_font = QPushButton("Font...")
         self.btn_font.setObjectName("flat")
         self.btn_font.setToolTip("Console log font (persisted)")
         self.btn_font.clicked.connect(self._choose_font)
-        quick_row.addWidget(self.btn_font)
+        send_row = self.send_panel.layout()
+        if send_row is not None:
+            send_row.addWidget(self.btn_font)
+        self._refresh_completion_candidates()
+
         self._restore_window_state()
 
         # M101-D: shared Command Helper (Linux category only) sits between
@@ -553,112 +527,15 @@ class ConsoleWindow(QDialog):
         self.theme = THEMES[theme_for(color)]
         self.console.set_background(color)
 
-    # --------------------------------------------------------- quick cmds
-    def reload_quick_combo(self):
-        """Reload entries from disk and repopulate the combo (called
-        when another window saved or cleared quick commands)."""
-        self.quick_entries = load_commands()
-        self._reload_quick_combo()
-        self._refresh_completion_candidates()
-
-    def _reload_quick_combo(self):
-        self.combo_quick.blockSignals(True)
-        self.combo_quick.clear()
-        self.combo_quick.addItem("Quick Commands\u2026", None)
-        for entry in self.quick_entries:
-            label = entry["label"]
-            shown = label if len(label) <= 24 else label[:21] + "..."
-            self.combo_quick.addItem(shown, entry)
-        self.combo_quick.setCurrentIndex(0)
-        self.combo_quick.blockSignals(False)
-        self.btn_save_cmd.setEnabled(
-            len(self.quick_entries) < MAX_QUICK_COMMANDS)
-
+    # --------------------------------------------------------- completion
     def _refresh_completion_candidates(self):
-        """Feed quick commands + AT commands into the Send-line Tab
-        completer (history is added by the line edit itself)."""
+        """Feed the AT command catalog into the Send-line Tab completer
+        (sent history is added by the line edit itself)."""
         candidates = []
-        for entry in self.quick_entries:
-            cmd = entry.get("command", "")
-            if cmd:
-                candidates.append(cmd)
         for _label, cmd, _desc in AT_COMMANDS:
             if cmd and cmd not in candidates:
                 candidates.append(cmd)
         self.send_panel.edit.set_extra_candidates(candidates)
-
-    def _on_quick_picked(self, index):
-        entry = self.combo_quick.itemData(index)
-        if not entry:
-            return
-        # copy the saved command into the Send line (sent on Enter/Send)
-        self.send_panel.set_text(entry["command"])
-        if entry.get("lf"):
-            ending = "lf"
-        elif entry.get("crlf", True):
-            ending = "crlf"
-        else:
-            ending = ""
-        self.send_panel.set_line_ending(ending)
-        self.send_panel.check_hex.setChecked(False)
-        self.send_panel.edit.setFocus()
-        self.combo_quick.setCurrentIndex(0)
-
-    def save_current_quick(self):
-        """Add the current Send line text to the quick command list."""
-        command = self.send_panel.edit.text().strip()
-        if not command:
-            return
-        ending = self.send_panel.line_ending()
-        entry = {"label": command, "command": command,
-                 "crlf": ending == "crlf", "lf": ending == "lf"}
-
-        # update an identical command instead of duplicating it
-        for existing in self.quick_entries:
-            if existing["command"] == command:
-                existing["crlf"] = entry["crlf"]
-                existing["lf"] = entry["lf"]
-                break
-        else:
-            if len(self.quick_entries) >= MAX_QUICK_COMMANDS:
-                QMessageBox.information(
-                    self, "Quick Commands",
-                    f"Quick command limit reached ({MAX_QUICK_COMMANDS}). "
-                    "Remove unused entries by editing config/commands.json.")
-                return
-            self.quick_entries.append(entry)
-
-        try:
-            self.quick_entries = save_commands(self.quick_entries)
-        except OSError as exc:
-            QMessageBox.critical(
-                self, "Quick Commands", f"Failed to save: {exc}")
-            return
-        self._reload_quick_combo()
-        self._refresh_completion_candidates()
-        self.console.append_message(
-            "SYS", f"Quick command saved: {command}",
-            color=self.theme["sys"])
-        # tell sibling windows to reload
-        self.quick_commands_changed.emit()
-
-    def clear_all_quick(self):
-        """Remove every saved quick command (persist the empty list)."""
-        if not self.quick_entries:
-            return
-        try:
-            self.quick_entries = save_commands([])
-        except OSError as exc:
-            QMessageBox.critical(
-                self, "Quick Commands", f"Failed to save: {exc}")
-            return
-        self._reload_quick_combo()
-        self._refresh_completion_candidates()
-        self.console.append_message(
-            "SYS", "All quick commands cleared", color=self.theme["sys"])
-        # tell sibling windows to reload
-        self.quick_commands_changed.emit()
-
 
 # ============================================================ compact row
 class _CompactPortCombo(QComboBox):
@@ -1106,8 +983,6 @@ class MultiConsoleWidget(QGroupBox):
             key, label, accent, console, self.theme, self.bg_color,
             parent=self)
         console_window.send_requested.connect(self.handle_send)
-        console_window.quick_commands_changed.connect(
-            self._on_quick_commands_changed)
 
         # The ChannelRow stays as the params-sync holder (its inline
         # fields feed open_channel / set_channel_params) but is not shown:
@@ -1124,7 +999,7 @@ class MultiConsoleWidget(QGroupBox):
         row.hide()  # params-sync holder only, never shown (M101-fix)
 
         # one tab per channel: a small header bar (label + ⧉ Float) above
-        # the full console (ConsoleWindow hosts log + quick + send + helper)
+        # the full console (ConsoleWindow hosts log + send + helper)
         tab_page = QWidget()
         tab_layout = QVBoxLayout(tab_page)
         tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -1605,13 +1480,6 @@ class MultiConsoleWidget(QGroupBox):
         channel = self.channels.get(key)
         if channel:
             channel["read_buffer"].clear()
-
-    # ------------------------------------------------------- quick cmds
-    def _on_quick_commands_changed(self):
-        """One window saved or cleared a quick command: reload combos
-        in all windows."""
-        for channel in self.channels.values():
-            channel["console_window"].reload_quick_combo()
 
     def _show_console(self, key):
         """Bring a channel's console to the front (its tab, or its
