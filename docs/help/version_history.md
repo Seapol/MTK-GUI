@@ -37,8 +37,11 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-`develop` head when this guide was built: **`d0cb067` - 2026-11-25**.
+`develop` head when this guide was built: **`13908ca` - 2026-11-25**.
 
+- `13908ca` / `7b0c25c` - the User Guide rebuilt against the live five-node
+  Yaml Build page and the current rack (Equipment rails-capture block,
+  Version History current, fresh screenshots at 2400x950)
 - `d0cb067` (m122) - suite-green follow-ups: clear stale rows on load,
   status colours no longer pinned by a previous run, tests kept off modals
 - `737bb3d` - User Guide reaches the station: Windows build, SharePoint
