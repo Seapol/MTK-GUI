@@ -82,13 +82,15 @@ def test_build_ict_is_a_panel_step(window):
     assert isinstance(panel, BuildIctSequencePanel)
 
 
-def test_excel_buttons_still_call_the_v1_page(window, monkeypatch):
-    """The top-row Export to Excel button calls the v1 page's slot."""
+def test_excel_export_lives_in_the_file_menu_only(window, monkeypatch):
+    """M127: the in-page Export strip is gone; the menu keeps the slot."""
     yb = window.yaml_build_page
     calls: list = []
     monkeypatch.setattr(yb, "_export_excel", lambda: calls.append("export"))
-    buttons = [b for b in window._yaml_build_host.findChildren(QPushButton)
-               if b.text() == "Export to Excel"]
-    assert len(buttons) == 1
-    buttons[0].click()
+    # no in-page button any more
+    assert not [b for b in window._yaml_build_host.findChildren(QPushButton)
+                if b.text() == "Export to Excel"]
+    # File > Export Config Workbook... still reaches the same slot
+    assert window.act_export_excel.text().startswith("Export Config Workbook")
+    window._export_excel_menu()
     assert calls == ["export"]

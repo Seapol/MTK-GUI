@@ -1098,14 +1098,10 @@ class MainWindow(QMainWindow):
         host.setObjectName("YamlBuildWizardHost")
         host_lay = QVBoxLayout(host)
         host_lay.setContentsMargins(0, 0, 0, 0)
-        bar = QHBoxLayout()
-        # M103: the config workbook is export-only (the import entry is
-        # gone); the button stays as the in-page shortcut
-        btn = QPushButton("Export to Excel")
-        btn.clicked.connect(yb._export_excel)
-        bar.addWidget(btn)
-        bar.addStretch(1)
-        host_lay.addLayout(bar)
+        # M127: the in-page "Export to Excel" strip is gone - the page
+        # shows nothing but the flowchart.  The workbook export stays
+        # reachable through File > "Export Config Workbook..." (same
+        # slot: yb._export_excel_menu -> yb._export_excel).
         host_lay.addWidget(self._yaml_wizard, 1)
         self._yaml_build_host = host
         self._replace_secondary_tab(
@@ -2200,6 +2196,11 @@ class MainWindow(QMainWindow):
     def _yaml_finish(self, path: str) -> None:
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()
+        # M128: the wizard reloads its own node panels from the model and
+        # picks up the file's lock state (yaml_build.locks)
+        wizard = getattr(self, "_yaml_wizard", None)
+        if wizard is not None:
+            wizard.refresh_from_model()
         # M45b: modules re-validate sequentially 01 -> 04 - passing
         # levels get their star (and unlock the next one), the first
         # failing level stops the chain
@@ -2351,6 +2352,12 @@ class MainWindow(QMainWindow):
         # factory parameter defaults)
         self.yaml_build_page.model.apply_state({})
         # M103: the factory state is the clean baseline (no dirty prompt)
+        self.yaml_build_page.model.changed = False
+        # M128: Close Yaml unlocks and empties every node of the wizard
+        wizard = getattr(self, "_yaml_wizard", None)
+        if wizard is not None:
+            wizard.refresh_from_model()
+        # the node reload must not leave the factory state dirty
         self.yaml_build_page.model.changed = False
         self._sync_rails_to_workflow()
         self.yaml_build_page.refresh_all()

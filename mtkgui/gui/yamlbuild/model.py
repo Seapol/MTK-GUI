@@ -43,6 +43,7 @@ from mtkgui.gui.yamlbuild.schema import (
     T_INT,
     T_TEXT,
 )
+from mtkgui.gui.yamlbuild.steps_v2 import STEP_KEYS
 from mtkgui.gui.yamlbuild.stages import LEGACY_MODULE_MAP, \
     LEGACY_ORDER_SWAP, NO_UI_MODULE_KEYS, REMOVED_MODULES, \
     STAGE_BY_KEY, STAGE_KEYS
@@ -252,6 +253,11 @@ class YamlBuildModel:
         # card marks (user direction): module_key -> "star" (edited,
         # OK saved) / "check" (passed the block-09 full validation)
         self.marks: dict[str, str] = {}
+        # M128: per-module completion lock.  A locked module means
+        # "input / configuration finished AND validated" and unlocks
+        # ``Next``; unlocking a module unlocks every module after it.
+        # The flags travel with the project (YAML ``yaml_build.locks``).
+        self.locks: dict[str, bool] = {}
         # T10-adjacent: the Test Work Flow page's power-rails capture
         # config synced into the model (user question: the configured
         # power rails MUST appear in the YAML preview / Apply)
@@ -327,6 +333,60 @@ class YamlBuildModel:
             self.marks.pop(module_key, None)
         self.changed = True
 
+    # ------------------------------------------------------------ locks
+    def is_locked(self, module_key: str) -> bool:
+        """True when the module is locked (complete + validated)."""
+        return bool(self.locks.get(module_key, False))
+
+    def set_locked(self, module_key: str, locked: bool) -> None:
+        """Lock / unlock one module."""
+        if module_key not in STEP_KEYS:
+            return
+        if locked:
+            self.locks[module_key] = True
+        else:
+            self.locks.pop(module_key, None)
+        self.changed = True
+
+    def reset_locks(self) -> None:
+        """Unlock every module (Close Yaml / a fresh project)."""
+        self.locks = {}
+
+    def locked_keys(self) -> tuple[str, ...]:
+        """The locked stage keys, in workflow order."""
+        return tuple(k for k in STEP_KEYS if self.locks.get(k))
+
+    def module_has_content(self, module_key: str) -> bool:
+        """True when the module carries anything beyond schema defaults.
+
+        Used for the node badge: Empty (untouched) vs Edited (has
+        content, still unlocked).  Locked modules always read as
+        Completed.
+        """
+        defaults = {f.name: f.default for f in MODULE_FIELDS.get(module_key, ())}
+        current = self._params.get(module_key) or {}
+        for name, default in defaults.items():
+            value = current.get(name, default)
+            if str(value if value is not None else "").strip() != \
+                    str(default if default is not None else "").strip():
+                return True
+        if module_key == "parse_ict":
+            nets = self.parsed_nets or {}
+            return bool(self.imported.get("testable_nets")) or any(
+                nets.get(k) for k in
+                ("power_nets", "clock_nets", "gnd_nets", "other_nets"))
+        if module_key == "firmware":
+            return self.firmware_config != default_firmware()
+        if module_key == "equipment":
+            return bool(getattr(self, "channel_allocation", {}))
+        if module_key == "build_ict":
+            return bool(self.ict_test_plan)
+        if module_key == "build_fct":
+            return bool(self.fct_test_cases)
+        if module_key == "apply_save":
+            return False
+        return False
+
     def reset_to_factory(self) -> None:
         """M124: every module parameter back to its schema default.
 
@@ -341,6 +401,8 @@ class YamlBuildModel:
                 f.name: f.default for f in MODULE_FIELDS.get(key, ())
             }
             self._enabled[key] = True
+        # M128: Close Yaml unlocks every module
+        self.locks = {}
 
     def get_params(self, module_key: str) -> dict:
         """Return a copy of one module's parameters.
@@ -542,6 +604,12 @@ class YamlBuildModel:
             "plan_version": self._plan_version,
             "modules": modules,
         }
+        # M128: module completion locks.  Only LOCKED modules are listed
+        # (an absent entry means "unlocked"), so older files and lean
+        # exports stay unchanged.
+        locked = {k: True for k in STEP_KEYS if self.locks.get(k)}
+        if locked:
+            section["locks"] = locked
         # T7/T8 design data: NET file reference + the formal Parse
         # Nets result (the Channel Allocation data source)
         net = self.imported.get("net") or {}
@@ -628,6 +696,13 @@ class YamlBuildModel:
         modules = section.get("modules") or {}
         if not isinstance(modules, dict):
             return ["'modules' must be a mapping"]
+        # M128: the loaded file owns the lock state (absent = unlocked),
+        # so loading another project never inherits the previous one's
+        # locks.
+        locks = section.get("locks") or {}
+        self.locks = ({k: True for k, v in locks.items()
+                       if v and k in STEP_KEYS}
+                      if isinstance(locks, dict) else {})
         version = str(section.get("plan_version", "")).strip()
         if version:
             if re.match(r"^\d+\.\d+\.\d+$", version):
@@ -837,6 +912,7 @@ class YamlBuildModel:
             "equipment_config": emit_equipment_config(
                 self.equipment_config),
             "marks": dict(self.marks),
+            "locks": dict(self.locks),
             "modules": {
                 key: {
                     "enabled": self._enabled[key],
@@ -900,6 +976,11 @@ class YamlBuildModel:
             self.equipment_config = parse_equipment_config(eq)
         marks = state.get("marks")
         self.marks = dict(marks) if isinstance(marks, dict) else {}
+        # M128: lock state travels with the project state
+        locks = state.get("locks")
+        self.locks = ({k: True for k, v in locks.items()
+                       if v and k in STEP_KEYS}
+                      if isinstance(locks, dict) else {})
         modules = state.get("modules") or {}
         # legacy (pre-M0) migration: the absorbed power_dut block
         # hands its retained parameters to the rails block (04)

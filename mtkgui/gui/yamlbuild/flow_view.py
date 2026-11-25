@@ -24,22 +24,23 @@ from PySide6.QtWidgets import QWidget
 from mtkgui.gui.yamlbuild import steps_v2 as sv
 
 #: logical canvas size (scaled to the widget in paintEvent)
-CANVAS_W = 1200.0
+CANVAS_W = 1340.0
 CANVAS_H = 320.0
 
-#: node footprint in logical coordinates
-NODE_W = 150.0
-NODE_H = 76.0
+#: node footprint in logical coordinates (M128: grown for the larger
+#: fonts and the bottom-right status badge)
+NODE_W = 215.0
+NODE_H = 104.0
 
 #: node centres in logical coordinates (design_input left, apply_save right)
 NODE_CENTRES = {
-    "design_input": (60.0, 160.0),
-    "parse_ict":    (350.0, 70.0),
-    "firmware":     (350.0, 250.0),
+    "design_input": (130.0, 160.0),
+    "parse_ict":    (360.0, 70.0),
+    "firmware":     (360.0, 250.0),
     "equipment":    (640.0, 160.0),
-    "build_ict":    (930.0, 70.0),
-    "build_fct":    (930.0, 250.0),
-    "apply_save":   (1120.0, 160.0),
+    "build_ict":    (920.0, 70.0),
+    "build_fct":    (920.0, 250.0),
+    "apply_save":   (1160.0, 160.0),
 }
 
 #: directed edges (solid main line; parallel pairs use a dashed branch)
@@ -133,6 +134,26 @@ _STATE_STYLE = {
     "skipped":  (QColor("#8e8e8e"), ""),
 }
 
+#: M128 module colouring (user direction): unused = grey,
+#: needs configuration = light yellow, locked (completed) = green
+_UNUSED = {
+    "border": QColor("#9aa0a6"), "fill": QColor("#f2f3f5"),
+    "title": QColor("#6b7280"), "hint": QColor("#9aa0a6"),
+    "badge_bg": QColor("#9aa0a6"), "badge_text": QColor("#ffffff"),
+}
+_TODO = {
+    "border": QColor("#d9a400"), "fill": QColor("#fff8dc"),
+    "title": QColor("#1c2430"), "hint": QColor("#6b7280"),
+    "badge_bg": QColor("#b7791f"), "badge_text": QColor("#ffffff"),
+}
+_LOCKED = {
+    "border": QColor("#1e8449"), "fill": QColor("#eaf7ec"),
+    "title": QColor("#12351f"), "hint": QColor("#4a6b55"),
+    "badge_bg": QColor("#1e8449"), "badge_text": QColor("#ffffff"),
+}
+#: badge caption for "never edited" in the yellow state
+_EMPTY_BADGE = (QColor("#8a9099"), QColor("#ffffff"))
+
 
 class YamlBuildFlowView(QWidget):
     """Horizontal flowchart: one clickable node per ``sv.YAML_STEPS``."""
@@ -143,6 +164,7 @@ class YamlBuildFlowView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._states: dict[str, str] = {}
+        self._visual: dict[str, dict] = {}
         self.node_rects: dict[str, QRectF] = self._compute_rects()
         self.setMinimumHeight(180)
         self.setMinimumWidth(420)
@@ -183,6 +205,29 @@ class YamlBuildFlowView(QWidget):
 
     def step_state(self, key: str) -> str:
         return self._states.get(key, "disabled")
+
+    # ------------------------------------------------------ M128 visual
+    def set_step_visual(self, key: str, *, unused: bool = False,
+                        locked: bool = False, edited: bool = False) -> None:
+        """Set the module colour family and the status badge.
+
+        Args:
+            key:    Step key.
+            unused: True when the ICT/FCT selection does not use it
+                    (grey card, no configuration needed).
+            locked: True when the module is locked (green card, badge
+                    ``Completed``).
+            edited: True when the module carries content but is still
+                    open (badge ``Edited``; else ``Empty``).
+        """
+        self._visual[key] = {"unused": bool(unused),
+                             "locked": bool(locked),
+                             "edited": bool(edited)}
+        self.update()
+
+    def step_visual(self, key: str) -> dict:
+        """The visual flags of *key* (all False when never set)."""
+        return dict(self._visual.get(key) or {})
 
     # ------------------------------------------------------------ paint
     def paintEvent(self, _event) -> None:
@@ -240,66 +285,80 @@ class YamlBuildFlowView(QWidget):
     def _draw_node(self, painter: QPainter, key: str) -> None:
         rect = self._widget_rect(self.node_rects[key])
         state = self.step_state(key)
-        colour, glyph = _STATE_STYLE[state]
+        flags = self._visual.get(key) or {}
         step = sv.STEP_BY_KEY[key]
 
+        # M128 colour family: unused (grey) / locked (green) / todo (yellow)
+        unused = bool(flags.get("unused")) or state in ("disabled", "skipped")
+        locked = bool(flags.get("locked")) and not unused
+        edited = bool(flags.get("edited", True))
+        palette = _UNUSED if unused else (_LOCKED if locked else _TODO)
+        if locked:
+            badge_text = "Completed"
+        elif unused:
+            badge_text = "Unused"
+        elif edited:
+            badge_text = "Edited"
+        else:
+            badge_text = "Empty"
+
         painter.save()
-        # fill
-        painter.setBrush(QColor("#fbfcfd"))
-        painter.setPen(QPen(colour, 2.5))
+        painter.setBrush(palette["fill"])
+        painter.setPen(QPen(palette["border"], 2.5))
         painter.drawRoundedRect(rect, 8.0, 8.0)
 
-        # title
+        # title (M128: bigger - the card text was hard to read)
         title_font = QFont(painter.font())
-        title_font.setPointSizeF(10.0)
+        title_font.setPointSizeF(12.0)
         title_font.setBold(True)
         painter.setFont(title_font)
-        painter.setPen(QColor("#1c2430"))
-        title_rect = rect.adjusted(10, 6, -26, -rect.height() + 24)
-        painter.drawText(title_rect, Qt.AlignLeft | Qt.AlignVCenter,
-                         step.title)
+        painter.setPen(palette["title"])
+        title_rect = rect.adjusted(10, 8, -8, -rect.height() + 32)
+        title_metrics = QFontMetrics(title_font)
+        painter.drawText(
+            title_rect, Qt.AlignLeft | Qt.AlignVCenter,
+            title_metrics.elidedText(step.title, Qt.ElideRight,
+                                     int(title_rect.width())))
 
-        # status dot + glyph (top-right corner)
-        dot = 10.0
-        dot_x = rect.right() - 6.0 - dot
-        dot_y = rect.top() + 8.0
-        painter.setBrush(colour)
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(int(dot_x), int(dot_y), int(dot), int(dot))
-        if state == "skipped":
-            # M102: the literal read-only marker replaces the glyph
-            skip_font = QFont(painter.font())
-            skip_font.setPointSizeF(7.0)
-            skip_font.setBold(False)
-            painter.setFont(skip_font)
-            painter.setPen(QColor("#6b7280"))
-            painter.drawText(
-                QRectF(rect.right() - 42.0, rect.top() + 2.0, 38.0, 18.0),
-                Qt.AlignRight | Qt.AlignVCenter, "SKIP")
-        elif glyph:
-            glyph_font = QFont(painter.font())
-            glyph_font.setPointSizeF(10.0)
-            painter.setFont(glyph_font)
-            painter.setPen(QColor("#1c2430"))
-            painter.drawText(
-                QRectF(rect.right() - 26.0, rect.top() + 2.0, 22.0, 18.0),
-                Qt.AlignRight | Qt.AlignVCenter, glyph)
-
-        # hint lines (small muted font, elided to fit)
+        # hint lines (bigger than the old 8 pt, elided to fit)
         hint_font = QFont(painter.font())
-        hint_font.setPointSizeF(8.0)
+        hint_font.setPointSizeF(9.5)
         painter.setFont(hint_font)
-        painter.setPen(QColor("#6b7280"))
+        painter.setPen(palette["hint"])
         metrics = QFontMetrics(hint_font)
         hint = STEP_HINTS[key]
-        line_y = rect.top() + 28.0
+        line_y = rect.top() + 34.0
         for line in hint.split("\n"):
             elided = metrics.elidedText(line, Qt.ElideRight,
                                         int(rect.width() - 18))
             painter.drawText(QRectF(rect.left() + 9.0, line_y,
-                                    rect.width() - 18, 12.0),
+                                    rect.width() - 18, 14.0),
                              Qt.AlignLeft | Qt.AlignVCenter, elided)
-            line_y += 13.0
+            line_y += 14.0
+
+        # M128: status badge - bottom-right, coloured background
+        badge_font = QFont(painter.font())
+        badge_font.setPointSizeF(8.0)
+        badge_font.setBold(True)
+        painter.setFont(badge_font)
+        badge_metrics = QFontMetrics(badge_font)
+        badge_w = badge_metrics.horizontalAdvance(badge_text) + 12.0
+        badge_h = 16.0
+        badge = QRectF(rect.right() - 7.0 - badge_w,
+                       rect.bottom() - 6.0 - badge_h, badge_w, badge_h)
+        if unused:
+            bg, fg = _UNUSED["badge_bg"], _UNUSED["badge_text"]
+        elif locked:
+            bg, fg = _LOCKED["badge_bg"], _LOCKED["badge_text"]
+        elif edited:
+            bg, fg = _TODO["badge_bg"], _TODO["badge_text"]
+        else:
+            bg, fg = _EMPTY_BADGE
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(badge, 5.0, 5.0)
+        painter.setPen(fg)
+        painter.drawText(badge, Qt.AlignCenter, badge_text)
         painter.restore()
 
     # ----------------------------------------------------------- events

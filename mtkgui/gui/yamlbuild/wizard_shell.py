@@ -2,10 +2,13 @@
 """v2-18: the seven-step Yaml Build wizard — flowchart + per-node dialogs.
 
 The page hosts the seven steps of ``mtkgui/gui/yamlbuild/steps_v2.py``:
-a horizontal flowchart (node 01 on the left, node 07 on the right) and a
-footer ``[Cancel] [Save Draft] [Next]``.  Clicking a node opens a modal
-dialog that hosts that node's panel; ``Next`` jumps to the first
-validation-failed node.
+a horizontal flowchart (node 01 on the left, node 07 on the right) and
+nothing else.  Clicking a node opens a modal dialog that hosts that node's
+panel together with the node's own actions - ``Save Draft`` and, for every
+node but the last, ``Next: <node> ->``.  (M127: the page-level
+``[Cancel] [Save Draft] [Next]`` footer and the in-page
+``Export to Excel`` strip were removed; the workbook export lives in
+``File > Export Config Workbook...``.)
 
 Routing, greying and the project tree / draft hook come from
 ``steps_v2`` (Qt-free, tested separately).  This widget is the thin Qt
@@ -15,19 +18,21 @@ into a hidden host so ``findChildren`` and ``self._panels`` keep working).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from mtkgui.gui.yamlbuild import model as model_module
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild import steps_v2 as sv
 from mtkgui.gui.yamlbuild import flow_view
@@ -104,19 +109,8 @@ class YamlBuildWizard(QWidget):
             self._panels[step.key] = panel
             self._panel_host_lay.addWidget(panel)
 
-        # ------------------------------------------------ footer
-        footer = QHBoxLayout()
-        self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.clicked.connect(self._on_cancel)
-        self.btn_save_draft = QPushButton("Save Draft")
-        self.btn_save_draft.clicked.connect(self._on_save_draft)
-        self.btn_next = QPushButton("Next")
-        self.btn_next.clicked.connect(self._on_next)
-        footer.addWidget(self.btn_cancel)
-        footer.addWidget(self.btn_save_draft)
-        footer.addStretch(1)
-        footer.addWidget(self.btn_next)
-        root.addLayout(footer)
+        # M127: the page carries the flowchart only - Cancel / Save Draft /
+        # Next are node-window actions now (see _open_step_dialog).
 
         self._refresh()
 
@@ -345,13 +339,22 @@ class YamlBuildWizard(QWidget):
         self.model.set_parsed_nets(_parsed_nets_dict(panel.state()))
 
     # ------------------------------------------------------------- state
+    def _design_values(self) -> dict:
+        """Live node 01 values, falling back to the saved model."""
+        panel = self._panels.get("design_input")
+        getter = getattr(panel, "values", None)
+        payload = getter() if callable(getter) else None
+        if isinstance(payload, dict) and payload:
+            return payload
+        return self.model.get_params("design_input") or {}
+
     def ict_on(self) -> bool:
-        design = self.model.get_params("design_input") or {}
+        design = self._design_values()
         return str(design.get("ict_block_enabled", "true")).lower() \
             not in ("false", "0", "no")
 
     def fct_on(self) -> bool:
-        design = self.model.get_params("design_input") or {}
+        design = self._design_values()
         return str(design.get("fct_block_enabled", "true")).lower() \
             not in ("false", "0", "no")
 
@@ -368,19 +371,14 @@ class YamlBuildWizard(QWidget):
         return nets.get("gate_ok") is not False
 
     def _is_complete(self, key: str) -> bool:
-        """A node is complete when disabled (skipped), skipped by the
-        route, or when its ``validate()`` returns ok (nodes without one
-        are always complete)."""
+        """A node is complete when it is unused (disabled / route-skipped)
+        or when the operator locked it (M128: the padlock is the
+        completion contract - it validates before it locks)."""
         if not sv.is_step_enabled(key, self.ict_on(), self.fct_on()):
             return True
         if self._is_skipped(key):
             return True
-        panel = self._panels.get(key)
-        validator = getattr(panel, "validate", None)
-        if callable(validator):
-            ok, _msg = validator()
-            return ok
-        return True
+        return self.model.is_locked(key)
 
     def set_run_active(self, active: bool) -> None:
         """M103: lock / unlock every node for the active-run window."""
@@ -453,18 +451,92 @@ class YamlBuildWizard(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(panel)
         lay.addWidget(scroll, 1)          # re-parent into the dialog
-        panel.setEnabled(editable)        # read-only when prerequisites pending
+        # M128: the node window owns a padlock.  Default = Unlock (open);
+        # clicking it validates the module behind a foreground progress
+        # bar and locks it (read-only, *Completed*), which is what opens
+        # ``Next``.
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        btn_lock = QPushButton()
+        status = QLabel("")
+        status.setProperty("tone", "info")
+        btn_draft = QPushButton("Save Draft")
+        btn_draft.setToolTip(
+            "Write the current node values into the project draft YAML "
+            "(no validation, no file is deleted)")
+        btn_draft.clicked.connect(lambda: self._save_node_draft(key, status))
+        next_step = self._next_node_key(key)
+        btn_next = None
+        if next_step:
+            btn_next = QPushButton(f"Next: {sv.step_label(next_step)} →")
+            btn_next.setToolTip(
+                f"Lock this module, then open {sv.step_label(next_step)}")
+            btn_next.clicked.connect(
+                lambda: self._advance_node(key, next_step, dlg))
+        actions.addWidget(btn_lock)
+        actions.addWidget(btn_draft)
+        actions.addWidget(status, 1)
+        if btn_next is not None:
+            actions.addWidget(btn_next)
+        lay.addLayout(actions)
+
+        def sync_actions() -> None:
+            """Paint the window from the CURRENT lock / editability state."""
+            locked_now = self.model.is_locked(key)
+            if locked_now:
+                btn_lock.setText("🔒 Locked")
+                btn_lock.setToolTip(
+                    "This module is locked (complete + validated). Click "
+                    "to unlock it - every later module unlocks with it.")
+            else:
+                btn_lock.setText("🔓 Unlock")
+                btn_lock.setToolTip(
+                    "Click to check this module (validation, foreground "
+                    "progress) and lock it as completed.")
+            btn_lock.setEnabled(editable)
+            can_edit = editable and not locked_now
+            panel.setEnabled(can_edit)
+            btn_draft.setEnabled(can_edit)
+            if btn_next is not None:
+                btn_next.setEnabled(editable and locked_now)
+                btn_next.setToolTip(
+                    f"Open {sv.step_label(next_step)}"
+                    if locked_now else
+                    "Lock this module first - Next unlocks once the "
+                    "module is completed.")
+
+        btn_lock.clicked.connect(
+            lambda: self._toggle_lock(key, panel, sync_actions, status))
+        sync_actions()
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok = btns.button(QDialogButtonBox.Ok)
+        ok.setText("Apply_Save yaml")
+        ok.setToolTip("Close the node; values stay in the configuration")
+        cancel = btns.button(QDialogButtonBox.Cancel)
+        cancel.setText("Exit")
+        cancel.setToolTip("Close the node without changing the configuration")
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         lay.addWidget(btns)
-        # keep the whole dialog inside the screen - the button box must remain
-        # visible even when the panel's sizeHint is taller than the monitor.
+        # keep the whole dialog inside the screen - the action row and the
+        # button box must remain visible even when the panel's sizeHint is
+        # taller than the monitor.  M127: the panel's own minimum width
+        # (QSS padding included) drives the dialog width, otherwise the
+        # two-column node-01 layout is clipped on the right.
         avail = self.screen().availableGeometry()
+        content_w = max(panel.minimumSizeHint().width(),
+                        panel.minimumSize().width(), panel.sizeHint().width())
         hint = dlg.sizeHint()
-        dlg.resize(min(hint.width(), int(avail.width() * 0.9)),
-                   min(hint.height(), int(avail.height() * 0.9)))
-        dlg.exec()
+        width = max(hint.width(), content_w + 48)
+        height = max(hint.height() + 44, 560)
+        dlg.resize(min(width, int(avail.width() * 0.9)),
+                   min(height, int(avail.height() * 0.9)))
+        accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit
+        if accepted:
+            # M127: the dialog's own [Apply_Save yaml] now really applies -
+            # the panel's live values reach the model before the window
+            # closes (``Exit`` leaves the configuration untouched).
+            self._collect_panel_values(key)
         scroll.takeWidget()
         self._panel_host_lay.addWidget(panel)   # re-parent back after close
         self._refresh()
@@ -498,17 +570,214 @@ class YamlBuildWizard(QWidget):
 
     def _on_cancel(self) -> None:
         """Stop the wizard.  Nothing on disk is deleted — whatever an
-        earlier [Next] / [Save Draft] already created stays."""
+        earlier [Save Draft] / [Next] already created stays."""
         self.current = "design_input"
         self.visited = {"design_input"}
         self.tree_created = False
         self.cancelled.emit()
         self._refresh()
 
-    def _refresh(self) -> None:
-        """Paint the flowchart state and the footer."""
+    # ----------------------------------------------------- node actions
+    def _next_node_key(self, key: str) -> str | None:
+        """The successor node to offer on *key*'s window (M127).
+
+        Auto-skipped steps (Route C node 02) are stepped over so ``Next``
+        never lands on a node that is entered read-only.
+        """
         ict_on, fct_on = self.ict_on(), self.fct_on()
-        first_invalid: str | None = None
+        nxt = sv.next_key(key, ict_on, fct_on)
+        while nxt and self._is_skipped(nxt):
+            nxt = sv.next_key(nxt, ict_on, fct_on)
+        return nxt
+
+    def _collect_panel_values(self, key: str) -> None:
+        """Push the node panel's live values into the model (M127).
+
+        The panel stays the single source of truth while the window is
+        open; without this its edits would only reach the model on
+        ``Apply_Save yaml`` and a draft would store stale values.
+        """
+        panel = self._panels.get(key)
+        values = getattr(panel, "values", None)
+        if not callable(values):
+            return
+        try:
+            payload = values()
+        except Exception:   # pragma: no cover - a panel must not kill the dialog
+            return
+        # only plain parameter dicts are pushed here; panels returning
+        # their own config object (equipment) write through by themselves
+        if isinstance(payload, dict):
+            self.model.set_params(key, payload)
+
+    def _save_node_draft(self, key: str, status: QLabel | None = None) -> None:
+        """``Save Draft`` inside a node window (M127).
+
+        Writes the current (possibly incomplete) configuration to the
+        project draft YAML - drafts bypass validation on purpose - and
+        reports the destination inside the window.
+        """
+        self._collect_panel_values(key)
+        if key == "design_input":
+            design = self.model.get_params("design_input") or {}
+            core = str(design.get("product_id") or "").strip()
+            if core:
+                sv.ensure_project_tree(core)
+                self.tree_created = True
+        try:
+            path = sv.save_draft(self.model)
+        except Exception as exc:   # pragma: no cover - disk failure
+            if status is not None:
+                status.setText(f"Draft NOT saved: {exc}")
+            return
+        if status is not None:
+            status.setText(f"Draft saved: {path}")
+
+    def _advance_node(self, key: str, next_key: str, dlg: QDialog) -> None:
+        """``Next`` inside a node window: save, close, open next."""
+        if not self.model.is_locked(key):
+            return                     # Next stays closed until locked
+        self._save_node_draft(key)
+        dlg.accept()
+        QTimer.singleShot(0, lambda target=next_key:
+                          self._open_step_dialog(target))
+
+    # ---------------------------------------------------------- locks
+    def _toggle_lock(self, key: str, panel: QWidget, sync, status: QLabel) -> None:
+        """Padlock click: lock (validate first) or unlock (cascade)."""
+        if self.model.is_locked(key):
+            self._unlock_from(key)
+            status.setText(
+                f"Unlocked {sv.step_label(key)} - every later module "
+                "unlocked with it")
+            sync()
+            return
+        ok, message = self._check_and_lock(key, panel)
+        if ok:
+            status.setText(f"{sv.step_label(key)} locked - Completed")
+        else:
+            status.setText("Not locked - fix the findings first")
+            QMessageBox.warning(self, "Module check", message)
+        sync()
+
+    def _check_and_lock(self, key: str, panel: QWidget) -> tuple[bool, str]:
+        """Validate a module behind a foreground progress bar, then lock.
+
+        The check runs synchronously but the modal progress dialog pumps
+        the event loop between stages, so the window never freezes
+        (M128 user direction: "耗时操作用前置进度条，不要卡死界面").
+        """
+        from mtkgui.gui.progress_dialog import busy_progress
+
+        ok = False
+        message = ""
+        try:
+            with busy_progress(self, f"Checking {sv.step_label(key)}…") as stage:
+                stage(5, "Collecting the module inputs…")
+                self._collect_panel_values(key)
+                stage(45, "Validating the module…")
+                validator = getattr(panel, "validate", None)
+                if callable(validator):
+                    ok, message = validator()
+                else:
+                    ok, message = True, ""
+                if ok:
+                    stage(75, "Saving the draft…")
+                    try:
+                        sv.save_draft(self.model)
+                    except Exception:       # draft is a bonus, not a gate
+                        pass
+                    stage(95, "Locking the module…")
+                    self.model.set_locked(key, True)
+                stage(100, "Done")
+        except Exception as exc:            # noqa: BLE001 - a check must not crash
+            return False, str(exc) or exc.__class__.__name__
+        if ok:
+            self._sync_visuals()
+        return ok, message
+
+    def _unlock_from(self, key: str) -> None:
+        """Unlock *key* AND every module after it (M128 rule 4)."""
+        keys = sv.enabled_step_keys(self.ict_on(), self.fct_on())
+        targets = (keys[keys.index(key):]
+                   if key in keys else (key,))
+        for target in targets:
+            self.model.set_locked(target, False)
+        self._sync_visuals()
+
+    # -------------------------------------------------------- visuals
+    def _panel_has_content(self, key: str) -> bool:
+        """True when the live panel holds more than its schema defaults.
+
+        Badges must react to what the engineer has typed, not only to
+        what has already been written back to the model, so this mirrors
+        ``YamlBuildModel.module_has_content`` on the panel side.
+        """
+        panel = self._panels.get(key)
+        getter = getattr(panel, "values", None)
+        payload = getter() if callable(getter) else None
+        if isinstance(payload, dict) and payload:
+            defaults = {f.name: f.default for f in
+                        model_module.MODULE_FIELDS.get(key, ())}
+            for name, default in defaults.items():
+                value = payload.get(name, default)
+                if str(value if value is not None else "").strip() != \
+                        str(default if default is not None else "").strip():
+                    return True
+        if key == "parse_ict":
+            state = panel.state() if hasattr(panel, "state") else None
+            if state is not None and (getattr(state, "rows", None)
+                                      or getattr(state, "skipped", None)):
+                return True
+        return False
+
+    def _sync_visuals(self) -> None:
+        """Repaint every card without touching the panels (M128)."""
+        ict_on, fct_on = self.ict_on(), self.fct_on()
+        for key in sv.STEP_KEYS:
+            self.flow.set_step_visual(
+                key,
+                unused=(not sv.is_step_enabled(key, ict_on, fct_on))
+                or self._is_skipped(key),
+                locked=self.model.is_locked(key),
+                edited=(self.model.module_has_content(key)
+                        or self._panel_has_content(key)))
+
+    def refresh_from_model(self) -> None:
+        """Reload every node from the model (Close Yaml / Load Yaml).
+
+        Close Yaml unlocks and empties all modules; loading another
+        project clears the previous values, fills the nodes from the
+        file and restores the file's lock state.
+        """
+        design = self.model.get_params("design_input") or {}
+        design_panel = self._panels.get("design_input")
+        setter = getattr(design_panel, "set_values", None)
+        if callable(setter):
+            setter(design)
+        firmware = self._panels.get("firmware")
+        setter = getattr(firmware, "set_values", None)
+        if callable(setter):
+            setter(self.model.get_params("firmware") or {})
+        equipment = self._panels.get("equipment")
+        setter = getattr(equipment, "set_values", None)
+        if callable(setter):
+            setter(self.model.get_equipment_config())
+        parse = self._panels.get("parse_ict")
+        if parse is not None:
+            from mtkgui.gui.yamlbuild.parse_nets_v2 import V2ParseState
+            state = parse.state()
+            if not (state.rows if state is not None else []):
+                parse.set_state(V2ParseState())
+        self.current = "design_input"
+        self.visited = {"design_input"}
+        self.tree_created = False
+        self._refresh()
+        self._sync_visuals()
+
+    def _refresh(self) -> None:
+        """Paint the flowchart state."""
+        ict_on, fct_on = self.ict_on(), self.fct_on()
         for step in sv.YAML_STEPS:
             key = step.key
             if not sv.is_step_enabled(key, ict_on, fct_on):
@@ -527,8 +796,7 @@ class YamlBuildWizard(QWidget):
                     ok, _msg = validator()
                     state = "valid" if ok else "invalid"
             self.flow.set_step_state(key, state)
-            if state == "invalid" and first_invalid is None:
-                first_invalid = key
+        self._sync_visuals()
         # v2-11b C: revisiting node 05 re-seeds from the latest 02/04 facts
         if self.current == "build_ict":
             panel = self._panels.get("build_ict")
@@ -539,10 +807,6 @@ class YamlBuildWizard(QWidget):
             panel = self._panels.get("apply_save")
             if panel is not None:
                 panel.refresh()
-        self.btn_next.setText("Next")
-        self.btn_next.setEnabled(first_invalid is not None)
-        self.btn_next.setToolTip(
-            sv.step_label(first_invalid) if first_invalid is not None else "")
 
     # --------------------------------------------------------- test hook
     def goto(self, key: str) -> None:

@@ -36,15 +36,35 @@ instead of dropping the extra nets quietly.
   YAML it generates.
 - **A star** on the node means it has been applied and validated at least
   once in this project. Stars persist with the project.
-- **Gating** follows the data, not the clock: node 02 opens once node 01
-  carries SPF + NET + BOM; nodes 03 and 04 share the same gate level, so
-  neither opens before the parse is applied; node 05 (FCT) is independent
-  and always opens - an FCT-only project is legal.
-- **If any of the three design files is missing**, only node 01 opens.
-- **`Next` lives inside the dialog** (M124). Node 01 hands over to 02,
-  node 02 to 04 (the Channel Allocation card runs automatically on the
-  way and says so in the Event Log), node 04 to 05. Node 05 is the end
-  of the chain - `Apply_Save yaml` finishes it.
+- **Every node dialog has a padlock** (M128) on its right-hand action row,
+  showing the current state: `Unlock` while the module is open,
+  `Locked` once it has been checked. Clicking it runs the full validation
+  behind a foreground progress bar, so a long check never freezes the
+  window; a failed check lists the findings in a message box and leaves
+  the node unlocked. Locking means *this module's input is finished and
+  still valid* - only then does `Next` become available.
+- **Gating follows the padlocks, not the clock**: node 02 opens once node
+  01 is locked; 03 and 04 open once the parse is locked; 05 needs 02 and
+  04 locked, 06 needs its ICT counterpart, and 07 needs both build nodes.
+  An FCT-only project is still legal - the ICT nodes grey out instead of
+  blocking the chain.
+- **Unlocking cascades forward**: releasing a node also releases every
+  later node, so a changed upstream fact always re-opens the modules it
+  feeds.
+- **`Next` and `Save Draft` live inside the dialog** (M124 / M127). Node 01
+  hands over to 02, node 02 to 04 (the Channel Allocation card runs
+  automatically on the way and says so in the Event Log), node 04 to 05.
+  Node 07 is the end of the chain and shows no `Next`; `Save Draft` is on
+  every node window and writes the current (possibly incomplete) values
+  to the draft YAML without validating them.
+- **The page carries the flowchart only** (M127): the old `Cancel` /
+  `Save Draft` / `Next` footer and the top `Export to Excel` strip are
+  gone. The workbook export stays in `File -> Export Config Workbook...`.
+- **Cards are colour-coded and badged** (M128): grey = not used by the
+  project (the ICT / FCT switch in node 01 skips it), pale yellow = still
+  to be configured, green = locked and complete. The bottom-right badge
+  reads `Empty`, `Edited` or `Completed` / `Unused` to match. Lock states
+  travel with the project - reopening a YAML restores the padlocks.
 - **Every node dialog is resizable** (M124): minimize / maximize and
   free resize are enabled, the width you see is a *minimum*, long
   content scrolls both ways instead of being clipped, and form fields
@@ -56,6 +76,10 @@ instead of dropping the extra nets quietly.
 - **File -> Close Yaml empties every node** (M124): the project values
   are replaced by the schema defaults, so opening a node right after a
   close never shows the previous project's data.
+- **Close Yaml also clears every lock and badge** (M128): the flowchart
+  returns to the untouched state. Loading another YAML clears the old
+  values first, then fills every node from that file - including the
+  padlock state it carries in `yaml_build.locks`.
 
 ## Node 01 - Design Input
 
@@ -212,6 +236,9 @@ save is blocked with that reason.
 
 - **`Apply_Save yaml`** in every node dialog: validate, apply to the model,
   write the project YAML in place.
+- **`Save Draft`** in every node dialog (M127): snapshot the current node
+  values - no validation, no file is deleted - and the window reports the
+  draft path. An unfinished node can be parked this way and finished later.
 - **File -> Save Yaml (current file)** (`Ctrl+S`) writes the current file;
   **File -> Save Yaml As... (current file)** (`Ctrl+Shift+S`) writes a named
   copy; **File -> Close Yaml** clears the page.

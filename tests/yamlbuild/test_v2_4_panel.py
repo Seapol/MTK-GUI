@@ -118,9 +118,12 @@ def test_gate_mismatch_marks_parse_ict_invalid():
         panel.set_state(V2ParseState(
             route="excel", gate_ok=False,
             gate_error="impedance power nets do not match voltage"))
+        # M128: node 02 is reachable only once 01 is locked
+        wizard.model.set_locked("design_input", True)
         wizard._refresh()
         assert wizard.flow.step_state("parse_ict") == "invalid"
-        assert wizard.btn_next.isEnabled() is True
+        # M127: the page keeps no [Next]; the node window owns the action
+        assert not hasattr(wizard, "btn_next")
     finally:
         wizard.deleteLater()
 
@@ -136,6 +139,7 @@ def test_gate_ok_marks_parse_ict_valid():
         })
         panel = wizard._panels["parse_ict"]
         panel.set_state(V2ParseState(route="excel", gate_ok=True))
+        wizard.model.set_locked("design_input", True)
         wizard._refresh()
         assert wizard.flow.step_state("parse_ict") == "valid"
     finally:

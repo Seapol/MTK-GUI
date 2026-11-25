@@ -60,13 +60,16 @@ def test_wizard_equipment_node_marks_invalid_until_checked():
     wizard = YamlBuildWizard()
     try:
         wizard.goto("equipment")
+        # M128: 03/04 need 01 and 02 (and 03) locked to be reachable
+        for key in ("design_input", "firmware", "parse_ict"):
+            wizard.model.set_locked(key, True)
         wizard._refresh()
-        # the gate fails until the instrument check runs -> invalid node,
-        # so Next is enabled and targets it (the tooltip names some invalid
-        # node; the equipment node itself is invalid)
+        # the gate fails until the instrument check runs -> invalid node
         assert wizard.flow.step_state("equipment") == "invalid"
-        assert wizard.btn_next.isEnabled() is True
-        assert wizard.btn_next.toolTip()
+        # M127: no page-level [Next] any more - the node windows carry
+        # the actions (Save Draft / Next) themselves
+        assert not hasattr(wizard, "btn_next")
+        assert not hasattr(wizard, "btn_save_draft")
         wizard._panels["equipment"].btn_check.click()
         wizard._refresh()
         assert wizard.flow.step_state("equipment") == "valid"

@@ -255,10 +255,9 @@ project - one copy, no separate `scripts/` folder.
 
 1. **File > Save as Yaml...** - save the updated project (the demo
    draft, or a new file name for your product).
-2. **File > Export to Excel...** (or the Yaml Build top button row) -
-   export the full plan (Console / Wi-Fi / Bluetooth / Sequence rows)
-   and hand the workbook to the design engineer with the DUT script
-   list for review.
+2. **File > Export Config Workbook...** - export the full plan
+   (Console / Wi-Fi / Bluetooth / Sequence rows) and hand the workbook
+   to the design engineer with the DUT script list for review.
 3. Iterate on the captured patterns / limits and re-export until the
    plan is approved, then publish `Draft` -> `Final`.
 
