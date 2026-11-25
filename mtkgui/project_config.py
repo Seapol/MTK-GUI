@@ -294,6 +294,31 @@ def load_config(path):
         return yaml.safe_load(f)
 
 
+def _clear_ict_rows(workflow_page) -> None:
+    """An empty ict_test_cases list means "this plan has no ICT rows" -
+    the previous project's rows must not survive a load."""
+    workflow_page.ict_steps = []
+    workflow_page.ict_enables = []
+    workflow_page.ict_waits = []
+    workflow_page.ict_timeouts = []
+    workflow_page.ict_comments = []
+    workflow_page.ict_breakpoints = set()
+    workflow_page.ict.setRowCount(0)
+
+
+def _clear_fct_rows(workflow_page) -> None:
+    """Same rule for FCT: an empty list clears, it never inherits."""
+    workflow_page.fct_rows = []
+    workflow_page.fct_kinds = []
+    workflow_page.fct_op_params = []
+    workflow_page.fct_enables = []
+    workflow_page.fct_waits = []
+    workflow_page.fct_timeouts = []
+    workflow_page.fct_comments = []
+    workflow_page.fct_breakpoints = set()
+    workflow_page.fct.setRowCount(0)
+
+
 def _ict_step_from_yaml(c):
     """YAML ict case dict -> step tuple (op steps carry op_params).
 
@@ -427,6 +452,10 @@ def apply_config(config, workflow_page, equipment_page,
             pass
         else:
             workflow_page._fill_ict(placeholder=True)
+    elif "ict_test_cases" in (config.get("test_workflow") or {}):
+        # the file declares an EMPTY ICT stage: clear the previous
+        # project's rows instead of leaving them armed and runnable
+        _clear_ict_rows(workflow_page)
 
     # per-step enable / wait / timeout for FCT. The row list (name /
     # justification) is rebuilt from the YAML so a project file can
@@ -437,6 +466,7 @@ def apply_config(config, workflow_page, equipment_page,
     # following step (one row per FCT step).  This must run on the plain
     # File > Load Yaml path too, not only the block-07 apply path.
     from .gui.yamlbuild.fct_build import normalize_fct_cases
+    fct_declared = "fct_test_cases" in (config.get("test_workflow") or {})
     fct_cases = normalize_fct_cases(fct_cases)
     if fct_cases:
         try:
@@ -474,6 +504,8 @@ def apply_config(config, workflow_page, equipment_page,
             pass
         else:
             workflow_page._fill_fct_all()
+    elif fct_declared:
+        _clear_fct_rows(workflow_page)
 
     equipment = config.get("equipment")
     if equipment:

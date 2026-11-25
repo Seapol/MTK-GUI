@@ -32,8 +32,10 @@ def test_all_chapters_exist():
     # 2026-10-14: Channel Allocation merged into the Yaml Build
     # chapter, Cluster removed, Instruments + Station Equipment added
     # 2026-10-27: chapters 15 (Example ICT) and 16 (Example FCT) added
-    assert len(HELP_TOPICS) == 17
-    assert len(CHAPTERS) == 17
+    # 2026-11-25: chapters 18 (Windows Build & Deployment) and 19
+    # (SharePoint & Bitbucket) added - station setup finally documented
+    assert len(HELP_TOPICS) == 19
+    assert len(CHAPTERS) == 19
 
 
 def test_every_chapter_renders_non_empty():

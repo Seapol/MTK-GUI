@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui.yamlbuild import steps_v2
+from mtkgui.style import gui_theme_color
 from mtkgui.gui.yamlbuild.mtk_sheet_writer import (
     default_mtk_sheet_name,
     export_mtk_sheet,
@@ -182,11 +183,13 @@ class ApplySavePanel(QWidget):
         errors = self.validation_errors()
         if errors:
             self.lbl_status.setText(f"Validation: {len(errors)} error(s)")
-            self.lbl_status.setStyleSheet("color: #c0392b;")
+            self.lbl_status.setStyleSheet(
+                f"color: {gui_theme_color('bad')};")
             self.lbl_errors.setText("\n".join(errors))
         else:
             self.lbl_status.setText("Validation: OK")
-            self.lbl_status.setStyleSheet("color: #1e8449;")
+            self.lbl_status.setStyleSheet(
+                f"color: {gui_theme_color('ok')};")
             self.lbl_errors.setText("")
         self.btn_apply.setEnabled(not errors)
         self.btn_save_as.setEnabled(not errors)
@@ -208,7 +211,8 @@ class ApplySavePanel(QWidget):
             path, archive = apply_and_save(self._model)
         except (ValueError, OSError) as exc:
             self.lbl_saved.setText(f"Apply failed: {exc}")
-            self.lbl_saved.setStyleSheet("color: #c0392b;")
+            self.lbl_saved.setStyleSheet(
+                f"color: {gui_theme_color('bad')};")
             return
         self.lbl_saved.setStyleSheet("")
         self.lbl_saved.setText(f"Saved: {path}\nArchived: {archive}")
@@ -266,7 +270,8 @@ class ApplySavePanel(QWidget):
             path, archive = save_as(self._model, picked)
         except OSError as exc:
             self.lbl_saved.setText(f"Save failed: {exc}")
-            self.lbl_saved.setStyleSheet("color: #c0392b;")
+            self.lbl_saved.setStyleSheet(
+                f"color: {gui_theme_color('bad')};")
             return
         self.lbl_saved.setStyleSheet("")
         self.lbl_saved.setText(f"Saved: {path}\nArchived: {archive}")

@@ -22,9 +22,10 @@ MainWindow.__test__ = False
 
 FCT_TEXT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
-    "console": {"port": "/dev/cu.test", "test_commands": [
+    "console": {"enabled": True, "port": "/dev/cu.test", "test_commands": [
+        # m118: a console row without a positive judge is a save error
         {"name": "Kernel check", "channel": "ser1", "send": "uname -a",
-         "timeout": 5}]},
+         "timeout": 5, "expect_pass": "Linux"}]},
     # the setup node must NOT inject Power On/Off or Fixture rows (M44)
     "setup": {"power_mode": "psu", "use_fixture": True},
 }}, sort_keys=False)

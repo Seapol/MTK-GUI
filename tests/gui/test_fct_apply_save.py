@@ -27,8 +27,13 @@ FCT_TEXT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"enabled": True, "port": "/dev/cu.test",
                 "test_commands": [
+                    # m118: a console row needs a positive judge, so the
+                    # fixture carries one (the kernel banner is the
+                    # first thing every Linux DUT prints). test_commands
+                    # keeps the legacy key name: expect_pass.
                     {"name": "Kernel check", "channel": "ser1",
-                     "send": "uname -a", "timeout": 5}]},
+                     "send": "uname -a", "timeout": 5,
+                     "expect_pass": "Linux"}]},
     "setup": {"power_mode": "none"},
 }}, sort_keys=False)
 
@@ -129,9 +134,13 @@ def test_apply_refreshes_workflow_table_and_saves(window, tmp_path):
     # a STALE generated case - the save must repaint it from the model
     # (manual standard ops without the fct_step marker are legitimately
     # kept by the P3-B7 merge protection, so mark this one generated)
+    # m118 blocks a save whose rows have no judge - the stale row carries
+    # one so the assertion below is about the repaint, not the validator
     window.workflow_page.load_fct_cases([{
         "name": "Stale case", "kind": "MessageOK",
-        "op_params": {"fct_step": {"name": "Stale case"}}}])
+        "expect_pass_re": "Linux",
+        "op_params": {"fct_step": {"name": "Stale case",
+                                    "expect_pass_re": "Linux"}}}])
     path = tmp_path / "project.yaml"
 
     window._save_yaml_to(str(path))
