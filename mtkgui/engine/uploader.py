@@ -44,7 +44,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 from mtkgui.engine.archive import file_sha256  # reuse P2-7 hashing
 from mtkgui.engine.sharepoint_site import join_folder  # M10 link roots
@@ -262,6 +262,7 @@ class SharePointRestTransport:
         self.timeout = float(timeout)
         self._digest = ""
         self._known_dirs: set[str] = set()
+        self._web = ""            # owning web for ``_api`` (lazy probe)
         if opener is not None:
             self._opener = opener
         else:
@@ -271,8 +272,56 @@ class SharePointRestTransport:
                 urllib.request.HTTPCookieProcessor(jar))
 
     # ------------------------------------------------------ plumbing
+    def _candidate_webs(self) -> list[str]:
+        """Candidate ``scheme://host/<web>`` bases of the folder, deepest
+        first.  A folder share link carries only the server-relative
+        folder path, so the site collection / sub-site that owns it has
+        to be discovered by probing ``_api/web``."""
+        parts = urlsplit(self.site_url)
+        head = f"{parts.scheme}://{parts.netloc}"
+        segs = [s for s in
+                unquote(str(self.folder_path or "")).strip("/").split("/")
+                if s]
+        return [f"{head}/" + "/".join(quote(seg, safe="") for seg in
+                                       segs[:i])
+                for i in range(len(segs) - 1, 0, -1)]
+
+    def _web_base(self) -> str:
+        """``_api`` base: the web that owns ``folder_path``.
+
+        Project libraries live in sub-sites (``/teams/ext158``,
+        ``/teams/ext158/BTD``) while the link only names the tenant
+        host.  Addressing REST from the tenant root makes
+        ``GetFolderByServerRelativeUrl`` reach across site collections
+        and SharePoint answers 403 "access denied" even for a properly
+        signed-in user.  The owning web is probed once, then cached.
+        """
+        if self._web:
+            return self._web
+        folder = unquote(str(self.folder_path or "")).rstrip("/").lower()
+        if not folder:
+            self._web = self.site_url
+            return self._web
+        for candidate in self._candidate_webs():
+            try:
+                _, body = self._request(
+                    "GET", f"{candidate}/_api/web"
+                           "?$select=ServerRelativeUrl",
+                    timeout=min(self.timeout, 5.0))
+            except (TransportError, ConnectionError):
+                continue
+            web = str((self._json(body).get("d") or {}).get(
+                "ServerRelativeUrl") or "").rstrip("/").lower()
+            if web and folder.startswith(f"{web}/"):
+                self._web = candidate
+                return self._web
+        # no probe answered: keep the historical behaviour (tenant /
+        # site root as given in the link) so the 403 names the real URL
+        self._web = self.site_url
+        return self._web
+
     def _api(self, tail: str) -> str:
-        return f"{self.site_url}/_api/{tail}"
+        return f"{self._web_base()}/_api/{tail}"
 
     def _folder_url(self, relative: str = "") -> str:
         folder = join_folder(self.folder_path, relative)
@@ -288,8 +337,9 @@ class SharePointRestTransport:
 
     def _status_error(self, code: int, url: str) -> Exception:
         if code in (401, 403):
+            base = f" [web {self._web}]" if self._web else ""
             return TransportError(
-                f"not signed in / access denied (http {code}): {url}")
+                f"not signed in / access denied (http {code}): {url}{base}")
         if code == 404:
             return TransportError(
                 f"not found - check the site link / folder "
@@ -300,14 +350,16 @@ class SharePointRestTransport:
 
     def _request(self, method: str, url: str, data: bytes | None = None,
                  headers: dict | None = None,
-                 allow: tuple[int, ...] = ()) -> tuple[int, bytes]:
+                 allow: tuple[int, ...] = (),
+                 timeout: float | None = None) -> tuple[int, bytes]:
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Accept", "application/json;odata=verbose")
         req.add_header("User-Agent", self.USER_AGENT)
         for key, value in (headers or {}).items():
             req.add_header(key, value)
         try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
+            with self._opener.open(req,
+                                   timeout=timeout or self.timeout) as resp:
                 status = int(getattr(resp, "status", 200) or 200)
                 body = resp.read() or b""
         except urllib.error.HTTPError as exc:

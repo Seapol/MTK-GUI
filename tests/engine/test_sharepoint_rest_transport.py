@@ -94,8 +94,11 @@ def test_digest_is_fetched_once_and_reused():
 def test_head_ignores_absolute_probe_and_hits_the_link_root():
     transport_, opener = transport(ok_handler)
     transport_.head(f"{SITE}/teams/ext158/BTD")   # engine precheck probe
+    folder_calls = [r for r in opener.requests
+                    if "/_api/web/GetFolderByServerRelativeUrl" in r.full_url]
+    assert folder_calls, "the precheck probe must reach the upload root"
     assert f"/_api/web/GetFolderByServerRelativeUrl('{ROOT_REF}')" \
-           in opener.requests[0].full_url
+           in folder_calls[0].full_url
 
 
 def test_mkdirs_creates_each_missing_segment_and_tolerates_409():
@@ -192,3 +195,59 @@ def test_current_user_title_and_login_name_fallback():
 
     transport_3, _opener = transport(lambda req: Resp(b"{}"))
     assert transport_3.current_user() == ""
+
+
+def test_api_resolves_the_web_that_owns_the_folder():
+    """M123: the link only carries the folder path, so ``_api`` must sit
+    on the web that owns it - the tenant root answers 403 across
+    site collections even for a signed-in user (field 2026-11-25)."""
+    web = "https://nxp1.sharepoint.com/teams/ext158"
+    probes = []
+
+    def handler(req):
+        url = req.full_url
+        if url.endswith("?$select=ServerRelativeUrl"):
+            probes.append(url)
+            if url.startswith(f"{web}/_api/web"):
+                return Resp(json.dumps(
+                    {"d": {"ServerRelativeUrl": "/teams/ext158"}}).encode())
+            raise http_error(url, 404)
+        if "/_api/web/GetFolderByServerRelativeUrl" in url:
+            assert url.startswith(f"{web}/_api/"), \
+                f"probe still on the wrong web: {url}"
+            return Resp()
+        raise http_error(url, 404)
+
+    transport_, _opener = transport(handler)
+    transport_.head()
+    assert probes, "the owning web must be probed before the first call"
+    assert web == transport_._web
+
+
+def test_api_falls_back_to_the_link_site_when_no_probe_answers():
+    def handler(req):
+        raise http_error(req.full_url, 403)
+
+    transport_, _opener = transport(handler)
+    with pytest.raises(TransportError) as exc:
+        transport_.head()
+    assert "http 403" in str(exc.value)
+    assert transport_._web == SITE
+
+
+def test_current_user_uses_the_owning_web_too():
+    web = "https://nxp1.sharepoint.com/teams/ext158"
+
+    def handler(req):
+        if req.full_url.endswith("?$select=ServerRelativeUrl"):
+            if req.full_url.startswith(f"{web}/_api/web"):
+                return Resp(json.dumps(
+                    {"d": {"ServerRelativeUrl": "/teams/ext158"}}).encode())
+            raise http_error(req.full_url, 404)
+        if req.full_url.endswith("/_api/web/currentuser"):
+            assert req.full_url.startswith(f"{web}/_api/")
+            return Resp(json.dumps({"d": {"Title": "Seapol Shen"}}).encode())
+        raise http_error(req.full_url, 404)
+
+    transport_, _opener = transport(handler)
+    assert transport_.current_user() == "Seapol Shen"

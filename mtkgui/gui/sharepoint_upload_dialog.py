@@ -324,6 +324,8 @@ class SharePointUploadDialog(QDialog):
         self._last_pack_ts = 0.0
         # F3: until this epoch an auto pack is suppressed after a failure
         self._auto_pack_backoff_until = 0.0
+        # M123: one synchronous probe at a time (no queued button clicks)
+        self._probe_busy = False
         # signed-in session: injected (tests / embedders) or restored
         # from the persisted session.json; virtual mode never signs in
         self._session = session if session is not None else (
@@ -842,6 +844,24 @@ class SharePointUploadDialog(QDialog):
 
     # --------------------------------------------------------- actions
     def test_connection(self) -> list[str]:
+        """Connectivity + permission + writable probe (honest result).
+
+        One probe at a time: the web call is synchronous on the UI
+        thread, so queued button clicks would only pile up HTTP calls
+        and freeze the window.  A second press while a probe runs is
+        ignored.
+        """
+        if self._probe_busy:
+            return []
+        self._probe_busy = True
+        self.btn_test.setEnabled(False)
+        try:
+            return self._test_connection()
+        finally:
+            self._probe_busy = False
+            self.btn_test.setEnabled(True)
+
+    def _test_connection(self) -> list[str]:
         """Connectivity + permission + writable probe (honest result).
 
         Real mode needs a signed-in session: without one the honest

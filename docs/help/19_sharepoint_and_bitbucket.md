@@ -30,6 +30,13 @@ run, or at least one real report folder, when you validate a station.
 2. `Report → SharePoint Upload...`.
 3. Paste the folder share link into **Site link**. A link to a project
    sub-folder is fine: it becomes the upload root.
+
+   The link only names the folder, so the GUI finds the web that owns it
+   on its own: REST calls are addressed to that web (`/teams/<site>` or
+   a sub-site), never to the tenant root. A probe against the tenant
+   root answers `403 access denied` for any folder in another site
+   collection - that is a wrong-base error, not a permission problem,
+   and it no longer happens.
 4. **Connect & Sign in...** opens the embedded sign-in window; complete MFA
    there.
 
@@ -69,6 +76,18 @@ retry-with-old-cookie path.
 | 3 | A report lands | file timestamp on the site matches the local file |
 | 4 | A second Sync is idempotent | nothing new is uploaded |
 | 5 | Expiry is honest | `401/403` message plus a working re-sign-in |
+
+### A 403 that is not a session problem
+
+`Test Connection` may answer `not signed in / access denied (http 403)`
+while the sign-in line already names the account. Read the URL in the
+message: if `_api` sits on `https://<tenant>/` while the folder is under
+`/teams/<site>/...`, REST is being served by the tenant root for a folder
+in another site collection, and SharePoint refuses it. The transport
+resolves the owning web before the first call, so this is fixed on the
+current build; if you still see it, the probe found no web and the
+message carries the base it used (`[web ...]`). Report that line, the
+link and the account.
 
 ### Known tenant limitation
 

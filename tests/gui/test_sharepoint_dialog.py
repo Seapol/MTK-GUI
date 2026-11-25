@@ -288,3 +288,26 @@ def test_menu_action_wired(qapp, tmp_path, monkeypatch):
     finally:
         win2.close()
         win2.deleteLater()
+
+
+def test_test_connection_ignores_a_second_press_while_probing(qapp, tmp_path):
+    """M123: the probe is synchronous on the UI thread, so a queued
+    second press would only stack HTTP calls and freeze the window."""
+    uploader = SharePointUploader(tmp_path / "outbox",
+                                  state_dir=tmp_path / "state",
+                                  transport=FakeSharePoint())
+    dlg = SharePointUploadDialog(virtual=True, uploader=uploader,
+                                 state_dir=tmp_path / "state")
+    calls = []
+
+    def fake_probe():
+        calls.append(1)
+        # a nested press arrives while the first probe is still running
+        dlg.test_connection()
+        assert not dlg.btn_test.isEnabled()
+        return []
+
+    dlg._test_connection = fake_probe
+    dlg.test_connection()
+    assert len(calls) == 1
+    assert dlg.btn_test.isEnabled()      # restored after the probe
