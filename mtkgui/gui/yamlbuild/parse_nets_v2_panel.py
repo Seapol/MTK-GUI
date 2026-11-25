@@ -58,7 +58,7 @@ class ParseNetsV2Panel(QWidget):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.setMinimumWidth(860)
+        self.setMinimumWidth(900)
 
         # ------------------------------------------ move controls
         move_row = QHBoxLayout()
@@ -75,23 +75,36 @@ class ParseNetsV2Panel(QWidget):
         move_row.addStretch(1)
         lay.addLayout(move_row)
 
-        # ------------------------------------------ left: Parsed Nets
+        # ------------------------------------------ two columns, side by side
+        # M129: Parsed Nets and Other Nets used to be stacked, which left
+        # two huge empty tables in the dialog.  They now share one row so
+        # the four-class split reads left (used) to right (unused).
+        columns = QHBoxLayout()
+        columns.setSpacing(10)
+
+        left_col = QVBoxLayout()
+        left_col.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel("Parsed Nets:")
         lbl.setObjectName("strong")
-        lay.addWidget(lbl)
+        left_col.addWidget(lbl)
         self.table = self._make_table()
-        lay.addWidget(self.table, 1)
+        left_col.addWidget(self.table, 1)
 
-        # ------------------------------------------ right: Other Nets
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
         lbl_other = QLabel("Other Nets:")
         lbl_other.setObjectName("strong")
-        lay.addWidget(lbl_other)
+        right_col.addWidget(lbl_other)
         self.table_other = self._make_table()
-        lay.addWidget(self.table_other, 1)
+        right_col.addWidget(self.table_other, 1)
         self.lbl_other_note = QLabel("")
         self.lbl_other_note.setObjectName("muted")
         self.lbl_other_note.setWordWrap(True)
-        lay.addWidget(self.lbl_other_note)
+        right_col.addWidget(self.lbl_other_note)
+
+        columns.addLayout(left_col, 1)
+        columns.addLayout(right_col, 1)
+        lay.addLayout(columns, 1)
 
         # ------------------------------------------ import summary
         self.lbl_summary = QLabel("no parse yet")
@@ -107,12 +120,12 @@ class ParseNetsV2Panel(QWidget):
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive)
         table.horizontalHeader().setStretchLastSection(True)
-        for column, width in enumerate((180, 110, 120, 120, 110, 120, 90)):
+        for column, width in enumerate((150, 95, 105, 100, 95, 105, 85)):
             table.setColumnWidth(column, width)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Expanding)
-        table.setMinimumHeight(110)
+        table.setMinimumHeight(280)
         return table
 
     # ----------------------------------------------------------- loading

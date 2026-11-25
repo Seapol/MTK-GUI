@@ -163,6 +163,12 @@ Press **Apply_Save yaml** to apply and write the project YAML.
 - **GND integrity** - one line under the tables; more than one reference
   ground raises a warning instead of being silently accepted.
 
+`Parsed Nets` and `Other Nets` are laid out **side by side** (M129): the
+nets that feed the ICT sequence sit on the left, the ones the rule set
+parked in `Other` on the right, so the classification reads left to right
+instead of two stacked tables with empty space between them. Each table
+keeps its own horizontal scrollbar for the wide column set.
+
 `Edit Net Classification Rules` opens the regex rule set (power tree
 patterns, clock patterns, exclude patterns, DNP handling). Two behaviours
 worth knowing:
