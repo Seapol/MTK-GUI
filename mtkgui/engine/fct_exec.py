@@ -1072,18 +1072,28 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
             outcome = _execute_once(step, ctx)
             if outcome.verdict in (VERDICT_PASS, VERDICT_ERROR):
                 break
-        # M78-2: the budget is a WALL - an overrun can never PASS
+        # M78-2: the budget is a WALL - an overrun can never PASS.
+        # m122: but a row that already judged FAIL keeps its FAIL. The
+        # wall equals the capture window, so a "the expected message
+        # never came" row always ends a moment past it; turning that into
+        # ERROR would report a DUT defect as a platform defect, which
+        # reverses the FAIL / ERROR split. Only "no verdict at all" is
+        # the platform's problem (m119).
         elapsed = time.monotonic() - started
         if _over_budget(elapsed, budget_s):
-            ctx.log(f"{step.name}: budget exceeded: {elapsed:.1f}s > "
-                    f"{budget_s:g}s -> ERROR")
-            # m119: the row produced no verdict in time = platform
-            # problem (busy console / hung tool), not a DUT defect
-            outcome = FctOutcome(
-                VERDICT_ERROR,
-                f"budget exceeded {elapsed:.1f}s > {budget_s:g}s "
-                "(no verdict)",
-                list(getattr(outcome, "lines", []) or []))
+            if (outcome.verdict == VERDICT_FAIL
+                    and outcome.reason != "not executed"):
+                # the row ran and judged, the wall only stops retries
+                ctx.log(f"{step.name}: budget exceeded {elapsed:.1f}s > "
+                        f"{budget_s:g}s - row already judged FAIL")
+            else:
+                ctx.log(f"{step.name}: budget exceeded: {elapsed:.1f}s > "
+                        f"{budget_s:g}s -> ERROR")
+                outcome = FctOutcome(
+                    VERDICT_ERROR,
+                    f"budget exceeded {elapsed:.1f}s > {budget_s:g}s "
+                    "(no verdict)",
+                    list(getattr(outcome, "lines", []) or []))
         ctx.log(f"{step.name}: verdict {outcome.verdict} ({outcome.reason})")
         return outcome
     finally:

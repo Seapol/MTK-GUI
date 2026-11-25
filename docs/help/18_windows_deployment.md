@@ -105,7 +105,7 @@ can leave a partial DAQ CSV.
    package.
 3. Install the instrument stack: Keysight IO Libraries (GPIB for the DAQ973A),
    the USB serial driver of the DUT console (CP210x / FTDI), and the vendor
-   tools your FCT rows call (`iperf3`, `lswifi`, J-Link, the flashing tool).
+   tools your FCT rows call (`iperf3`, `lswifi`, the boundary-scan analyzer, the flashing tool).
 4. Start the GUI as **Supervisor**, **Real** mode, and open **Equipment**:
    every instrument block must show `connected`. A yellow block is a
    connection that has not been opened yet, not a broken instrument.

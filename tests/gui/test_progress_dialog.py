@@ -131,7 +131,14 @@ def test_parse_button_re_enabled_after_missing_net(qapp, monkeypatch):
 
 def test_parse_button_stages_reach_dialog(qapp, monkeypatch):
     """The button path feeds task_progress into its own determinate
-    dialog and re-enables the button after a successful stub run."""
+    dialog and re-enables the button when the parse ends.
+
+    m122: the handler no longer calls a ``parse_nets`` method - it
+    pre-checks the loaded NET text, then runs the stages inline and
+    hands the heavy part to ``_ParseWorker``. A run without a NET file
+    stops at the pre-check warning, so the test plants a NET text and
+    stubs the worker: what it pins is the dialog wiring (task_progress
+    -> set_stage), not the parser."""
     from mtkgui.gui.yamlbuild import parse_nets as pn
 
     stages = []
@@ -147,18 +154,42 @@ def test_parse_button_stages_reach_dialog(qapp, monkeypatch):
             stages.append((value, label))
             super().set_stage(value, label)
 
+    class _Sig:
+        def connect(self, *_a, **_k):
+            pass
+
+    class IdleWorker:
+        done = _Sig()
+        failed = _Sig()
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
     monkeypatch.setattr(pn, "ProgressDialog", Recording)
+    monkeypatch.setattr(pn, "_ParseWorker", IdleWorker)
     panel = pn.ParseNetsPanel()
+    panel._net_text = "*SPF header\nR1 A B 10\n"
+    panel._net_name = "stub.spf"
 
-    def stub_parse():
-        panel.task_progress.emit(0, "parse nets: reading raw data")
-        panel.task_progress.emit(55, "parse nets: classifying nets")
-        panel.task_progress.emit(100, "parse nets: done")
-
-    panel.parse_nets = stub_parse
     panel._on_parse_clicked()
 
-    assert [v for v, _l in stages] == [0, 55, 100]
-    assert made and not made[0].isVisible()
+    assert made, "the run must open its own progress dialog"
+    assert [v for v, _l in stages][0] == 0
+    # the panel keeps pushing the remaining stages into the same dialog
+    panel.task_progress.emit(55, "parse nets: classifying nets")
+    panel.task_progress.emit(100, "parse nets: done")
+    assert [v for v, _l in stages][-2:] == [55, 100]
+    # the bar carry the latest stage (100) - the panel closes it when
+    # the worker reports, not on the number alone
+    assert made[0]._value == 100
+    assert made[0].isVisible()          # delay 0 -> shown immediately
+    # the button stays disabled for the whole run and comes back when
+    # the worker reports (success or failure both re-enable it)
+    assert not panel.btn_parse.isEnabled()
+    panel._on_parse_failed("stub")
     assert panel.btn_parse.isEnabled()
+    panel.deleteLater()
     panel.deleteLater()

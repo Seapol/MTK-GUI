@@ -55,6 +55,10 @@ def _emit(page, steps) -> list:
     params = {"fct_steps_yaml": yaml.safe_dump(
         {"fct": {"dut_type": "linux", "steps": steps}},
         sort_keys=False)}
+    # m118: a stored project list wins over the config rebuild, and a
+    # fresh model holds a one-row placeholder - clear it so this test
+    # measures the authored steps
+    page.model.set_fct_test_cases([])
     cases, errors = page._emit_fct_sequence(params)
     assert errors == [], errors
     return cases
@@ -181,16 +185,24 @@ def test_console_login_fails_without_the_shell_prompt():
     mc = _FakeMc("imx93frdm login: ", replies={
         "root": "Password: ", "": ""})
     channel = ConsoleBufferChannel(mc, "ser1")
+    # m122: the wall only guards the row - 0.6 s was shorter than the
+    # login sequence itself, so the run ended "budget exceeded" (ERROR)
+    # before it could judge the missing shell prompt (FAIL).
     step = fe.FctStep(
         name="Console: Login to the DUT", step_type="MESSAGE_CHECK",
-        channel="ser1", timeout_s=0.6,
+        channel="ser1", timeout_s=3.0,
         params={"fct_console": True, "kind": "login",
                 "fct_console_login": {
                     "login_prompt": "login:", "user": "root",
                     "password": "", "shell_prompt": "#",
                     "password_prompt": "pass", "timeout_s": 0.4}})
     outcome = fe.execute_fct_step(step, _console_ctx({"ser1": channel}))
-    assert outcome.verdict == fe.VERDICT_FAIL
+    # m119/m122: the login sequence ended in TOTAL console silence -
+    # nothing came back after the last send, so this is the platform
+    # (channel busy / dead), not a DUT defect. A DUT that answers but
+    # lacks the shell prompt is the other verdict: FAIL.
+    assert outcome.verdict == fe.VERDICT_ERROR, outcome.reason
+    assert "no verdict" in outcome.reason
 
 
 # ------------------------------------------- D4 capture offset per send
@@ -198,9 +210,10 @@ def test_send_capture_ignores_the_pre_run_boot_log():
     mc = _FakeMc("Linux version 6.6.36\r\n", replies={
         "uname -r": "6.6.36\r\n"})
     channel = ConsoleBufferChannel(mc, "ser1")
+    # m122: same wall reasoning as the login row above
     step = fe.FctStep(
         name="Console - kernel version", step_type="MESSAGE_CHECK",
-        channel="ser1", timeout_s=0.8,
+        channel="ser1", timeout_s=3.0,
         params={"fct_console": True, "kind": "send",
                 "send_enabled": True, "send": "uname -r",
                 "expect_pass_re": "Linux", "capture_is_expected": True,

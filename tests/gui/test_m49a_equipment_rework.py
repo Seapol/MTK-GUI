@@ -139,11 +139,14 @@ def test_left_entries_has_no_dut_group():
 
 
 def test_optional_entry_renders_disabled_not_developed(page):
-    for key in ("rf_test_set", "jlink"):
-        btn = page.entry_buttons[key]["optional"]
-        assert btn.text() == "Not developed"
-        assert btn.isEnabled() is False
-        assert btn.cursor().shape() == Qt.CursorShape.ForbiddenCursor
+    """m122: the badge is short ("N/A") so it fit the 92 px column; the
+    long caption is the tooltip. Still greyed and non-clickable."""
+    for key in ("rf_test_set", "bscan"):
+        badge = page.entry_buttons[key]["optional"]
+        assert badge.text() == "N/A"
+        assert "Not developed" in badge.toolTip()
+        assert badge.isEnabled() is False
+        assert badge.cursor().shape() == Qt.CursorShape.ForbiddenCursor
 
 
 def test_left_column_collapses_and_expands(page):

@@ -44,11 +44,13 @@ DESIGN_PARAMS = {
     "bom_file": "board.csv",
 }
 
+# m122: m118 refuses a save whose console rows carry no positive judge,
+# so every fixture row here names the reply it expects.
 RETIRED_FCT = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"port": "/dev/cu.test", "test_commands": [
         {"name": "Flash FAT Firmware", "channel": "ser1", "send": "flash",
-         "timeout": 5}]},
+         "timeout": 5, "expect_pass": "Flashing"}]},
 }}, sort_keys=False)
 
 #: a minimal VALID FCT-only configuration (one console send row)
@@ -56,7 +58,7 @@ FCT_OK = yaml.safe_dump({"fct_test_config": {
     "dut_type": "linux",
     "console": {"port": "/dev/cu.test", "test_commands": [
         {"name": "Ping", "channel": "ser1", "send": "echo ok",
-         "timeout": 5}]},
+         "timeout": 5, "expect_pass": "ok"}]},
 }}, sort_keys=False)
 
 

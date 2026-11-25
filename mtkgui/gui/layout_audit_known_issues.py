@@ -39,15 +39,11 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "overflow_x|QScrollArea|content sizeHint=321px > viewport=318px "
         "(horizontal scrollbar)",
         # M100: the optional placeholder entries ("RF Test Set (WiFi/BT)",
-        # "J-Link for Boundary Scan Analyzer") widen the left column
+        # "Boundary Scan Analyzer") widen the left column
         # content past the default share; the list scrolls horizontally
         # (design decision, same as the M65 labels above).
         "overflow_x|QScrollArea|content sizeHint=422px > viewport=329px "
         "(horizontal scrollbar)",
-        # M100: the "Not developed" placeholder button is the same 92px
-        # fixed width as "Config", so its longer caption clips (design
-        # decision - greyed, non-clickable placeholder).
-        "clipped|QPushButton|width=92px < minimumSizeHint=133px",
     ],
     # ExportPage -------------------------------------------------------------
     "ExportPage": [

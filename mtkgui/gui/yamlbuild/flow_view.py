@@ -87,7 +87,7 @@ STEP_GUIDE = {
     "design_input": "This is the entry point. Import SPF (auto-parses Core ID + product name), NET (read-only), BoM (optional), or switch to the Excel route; all five product-info fields are required, and select the FCT test types to enable.",
     "parse_ict":    "Parse the netlist into testable nets: the left table holds recognized categories (power / clock / ground / other), the right table holds unclassified nets; move nets between tables to adjust.",
     "firmware":     "Configure FAT / OOBE flashing: CLI (command + pass/fail keywords, auto-verdict) or third-party GUI (tool path, runtime dialog for manual Go/Stop).",
-    "equipment":    "Assign instrument channels: R-GND / voltage → DAQ, clock → counter / totalizer, DUT → console; then configure production peripherals (Wi-Fi, BT, Router, Jlink, display, etc.).",
+    "equipment":    "Assign instrument channels: R-GND / voltage → DAQ, clock → counter / totalizer, DUT → console; then configure production peripherals (Wi-Fi, BT, Router, boundary-scan analyzer, display, etc.).",
     "build_ict":    "Author the ICT test sequence: add / edit / delete / move steps, and set limits for numeric tests — R-GND (Ω), voltage (V), clock (Hz); PASS when the measured value is within range.",
     "build_fct":    "Author the FCT test sequence: message tests (console Wait → Send → Capture, verdict Pass/Fail), firmware flashing, and RF (Wi-Fi / BT) — mostly third-party CLI or manual dialog confirm.",
     "apply_save":   "Final step: preview the generated YAML (read-only), confirm validation passes, then Apply & Save to produce the Draft / Final files.",

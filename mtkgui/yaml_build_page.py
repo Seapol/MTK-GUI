@@ -405,7 +405,12 @@ class YamlBuildPage(QWidget):
         # 45 rows while the config derives 38.  ``get_fct_test_cases``
         # already hands back a deep copy (order and names preserved).
         stored = self.model.get_fct_test_cases()
-        if stored:
+        # A one-row list is the block-07 placeholder, not a project
+        # list: m122 - a bare page (no project loaded) stores exactly
+        # that placeholder when its params are set, and letting it win
+        # replaced every derived row with "A_Fct". A real stored plan
+        # has at least two rows.
+        if stored and len(stored) > 1:
             if len(stored) != len(cases):
                 self._tlog(
                     "WARNING",

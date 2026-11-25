@@ -132,7 +132,9 @@ def test_report_menu_labels_and_folders(qapp, report_home):
     labels = [a.text() for a in w.report_menu.actions()]
     # M96: 'DAQ CSV Data' (duplicate of DUT Report) and the rename dialog
     # are gone; the folder configuration now lives in Settings.
-    assert labels[:3] == ["DUT Report", "Event Log", "Statistics"]
+    # m104 renamed the second entry to "Event Log Folder…" (it opens a
+    # folder, not a document, and the ellipsis says it opens a dialog)
+    assert labels[:3] == ["DUT Report", "Event Log Folder…", "Statistics"]
     assert "DAQ CSV Data" not in labels
     assert not any(text.startswith("Report Folder") for text in labels)
     assert labels[-1].startswith("SharePoint Upload")

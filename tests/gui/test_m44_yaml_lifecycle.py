@@ -67,8 +67,15 @@ def _wait_load_done(window, qapp):
 
 
 def _configured(window):
+    """Point block 07 at the fixture config.
+
+    m118 lets a stored project FCT list win over the config-derived
+    rebuild, and a fresh model holds a one-row placeholder - clearing it
+    keeps these lifecycle tests on the config path they are about.
+    """
     window.yaml_build_page.model.set_params(
         "fct_build", {"fct_test_config_yaml": FCT_TEXT})
+    window.yaml_build_page.model.set_fct_test_cases([])
 
 
 def test_start_state_has_no_yaml(window):
@@ -139,6 +146,7 @@ def test_apply_save_twice_does_not_stack(window, tmp_path, qapp):
 
 def test_no_auto_injected_steps_in_applied_cases(window):
     """Iron rule: the PSU/fixture setup node never adds run-time rows."""
+    _configured(window)          # m118: the stored list must not win here
     cases, errors = window.yaml_build_page._emit_fct_sequence(
         {"fct_test_config_yaml": FCT_TEXT})
     assert errors == []

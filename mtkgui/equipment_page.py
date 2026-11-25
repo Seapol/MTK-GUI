@@ -215,7 +215,7 @@ LEFT_ENTRIES = (
          ("control_board", None)),
     )),
     ("Debugger", (
-        ("jlink", "J-Link for Boundary Scan Analyzer", "optional", None),
+        ("bscan", "Boundary Scan Analyzer", "optional", None),
     )),
     ("Peripherals", (
         ("host_pc", "Host PC", "group", None),
@@ -3061,13 +3061,25 @@ class EquipmentPage(QWidget):
         row.addStretch(1)
         buttons = {}
         if kind == "optional":
-            # M100: placeholder entry - greyed, non-clickable, does nothing
-            btn = QPushButton("Not developed")
-            btn.setMinimumWidth(92)
-            btn.setEnabled(False)
-            btn.setCursor(Qt.CursorShape.ForbiddenCursor)
-            row.addWidget(btn)
-            buttons["optional"] = btn
+            # M100: placeholder entry - greyed, non-clickable, does nothing.
+            # m122: a 92 px button clipped the caption ("Not developed"
+            # needs ~132 px with the station font) and the layout audit
+            # rightly called it a high-severity clip. It is a state badge,
+            # not a control, so it is a label: no width to fight over.
+            # The caption is short on purpose: "Not developed" needs more
+            # than the 92 px this column allows, and the long form lives in
+            # the tooltip. A short badge keeps the left panel narrow enough
+            # to stay scrollbar-free at the default share.
+            badge = QLabel("N/A")
+            badge.setToolTip("Not developed - not implemented for this "
+                             "station yet")
+            badge.setObjectName("placeholderBadge")
+            badge.setAlignment(Qt.AlignmentFlag.AlignRight
+                               | Qt.AlignmentFlag.AlignVCenter)
+            badge.setEnabled(False)
+            badge.setCursor(Qt.CursorShape.ForbiddenCursor)
+            row.addWidget(badge)
+            buttons["optional"] = badge
             self.entry_buttons[key] = buttons
             return row
         btn_cfg = QPushButton("Config")
