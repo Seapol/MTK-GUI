@@ -523,12 +523,22 @@ class YamlBuildWizard(QWidget):
         # taller than the monitor.  M127: the panel's own minimum width
         # (QSS padding included) drives the dialog width, otherwise the
         # two-column node-01 layout is clipped on the right.
+        # M128: measure AFTER activating the layout.  On Windows the
+        # panel reported a 705 px / 562 px hint before layout ran, which
+        # clipped node 01's right column; the content floor keeps the
+        # two-column blocks readable on every platform.
+        panel.ensurePolished()
+        dlg.layout().activate()
+        panel.adjustSize()
+        dlg.adjustSize()
         avail = self.screen().availableGeometry()
         content_w = max(panel.minimumSizeHint().width(),
                         panel.minimumSize().width(), panel.sizeHint().width())
+        content_h = max(panel.minimumSizeHint().height(),
+                        panel.sizeHint().height())
         hint = dlg.sizeHint()
-        width = max(hint.width(), content_w + 48)
-        height = max(hint.height() + 44, 560)
+        width = max(hint.width(), content_w + 48, 760)
+        height = max(hint.height() + 44, content_h + 96, 560)
         dlg.resize(min(width, int(avail.width() * 0.9)),
                    min(height, int(avail.height() * 0.9)))
         accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit
