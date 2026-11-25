@@ -58,7 +58,7 @@ class ParseNetsV2Panel(QWidget):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.setMinimumWidth(900)
+        self.setMinimumWidth(1160)
 
         # ------------------------------------------ move controls
         move_row = QHBoxLayout()
@@ -126,6 +126,7 @@ class ParseNetsV2Panel(QWidget):
         table.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Expanding)
         table.setMinimumHeight(280)
+        table.setMinimumWidth(560)
         return table
 
     # ----------------------------------------------------------- loading
