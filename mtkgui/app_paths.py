@@ -43,7 +43,9 @@ SETTINGS_NAME = "settings.json"
 #: the ONE settings schema; unknown keys in the file are ignored
 SETTINGS_DEFAULTS = {
     "theme": "Light",
-    "performance_timing": False,
+    # M125: development default is ON - the timing log must already be
+    # running the first time a freeze happens
+    "performance_timing": True,
     "slow_span_threshold_s": 0.35,
     "event_log_level": "detailed",
 }

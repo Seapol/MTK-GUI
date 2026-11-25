@@ -54,8 +54,11 @@ the rightmost menu).
   `Virtual Fault Injection...` (Virtual mode only),
   `Report Folders…`, and the `Event Log` submenu (Simplified /
   Detailed).
-- **Tools**: `Performance Timing Log` and `FCT Watchdog…`. Instruments are opened automatically when you
-  press Run; connect them individually on the Instruments panel.
+- **Tools**: `Record performance timing (this session)` (on by default
+  during development), `Show Performance Timing Log…` (live timing view,
+  use it when the GUI freezes) and `FCT Watchdog…`. Instruments are
+  opened automatically when you press Run; connect them individually on
+  the Instruments panel.
 - **Run**: Visual Studio style shortcuts - Run (F5),
   Run Without Debug (Ctrl+F5), Stop (Shift+F5),
   Restart (Ctrl+Shift+F5), Step (F10), Step Into (F11),

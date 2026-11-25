@@ -65,6 +65,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -73,9 +74,12 @@ from . import app_paths
 
 #: settings.json keys (v2/C3 - QSettings retired)
 SLOW_THRESHOLD_KEY = "slow_span_threshold_s"
+#: M125: how late the 100 ms UI heartbeat may be before it is a freeze
+STALL_THRESHOLD_KEY = "stall_threshold_s"
 ENABLED_KEY = "performance_timing"
 
 _SLOW_DEFAULT = 0.35
+_STALL_DEFAULT = 0.40
 _SUMMARY_TOP_DEFAULT = 10
 #: cheap bound for the in-memory span list (summary keeps only the top)
 _MAX_SPANS = 512
@@ -113,10 +117,17 @@ def _as_float(value, default):
 
 
 def saved_enabled() -> bool:
-    """The SAVED Tools-menu state (``performance_timing``; default off)."""
+    """The SAVED Tools-menu state (``performance_timing``).
+
+    M125: the default is ON - while the GUI is still under development
+    the timing log has to be there the first time a freeze happens, not
+    after the operator finds the switch.  ``MTK_TIMING=0`` still kills
+    it for a production station, and the settings.json value wins once
+    somebody has toggled it.
+    """
     saved = _as_bool(_setting_value(ENABLED_KEY, None))
     if saved is None:
-        return False
+        return True
     return saved
 
 
@@ -134,21 +145,32 @@ def slow_threshold() -> float:
                      _SLOW_DEFAULT)
 
 
+def stall_threshold() -> float:
+    """The [STALL] threshold in seconds (``stall_threshold_s``).
+
+    A GUI that misses its 100 ms heartbeat by more than this is frozen
+    from the operator's point of view; the watchdog then writes a STALL
+    line naming the operation that was running.
+    """
+    return _as_float(_setting_value(STALL_THRESHOLD_KEY, _STALL_DEFAULT),
+                     _STALL_DEFAULT)
+
+
 def _summary_top() -> int:
     return _SUMMARY_TOP_DEFAULT
 
 
 def _startup_enabled() -> bool:
-    """Session decision, read ONCE at import (never toggles at runtime)."""
+    """Session decision read at import; the menu can still flip it."""
     if os.environ.get("MTK_TIMING") == "0":
         return False                            # hard kill switch
-    saved = _as_bool(_setting_value(ENABLED_KEY, None))
-    if saved is None:
-        return False                            # first run: factory default
-    return saved
+    return saved_enabled()
 
 
 _ENABLED = _startup_enabled()
+#: the value the session started with (the summary only covers a session
+#: that really logged from the start - a runtime enable starts mid-file)
+_STARTED_ENABLED = _ENABLED
 
 
 def log_file_name() -> str:
@@ -157,7 +179,20 @@ def log_file_name() -> str:
 
 
 _LOG: Path | None = None
-if _ENABLED:
+_LOG_RESOLVED = False
+
+
+def _ensure_log() -> Path | None:
+    """Resolve (once) and return the log file of THIS launch.
+
+    M125: the file is created lazily, on the first line, so a session
+    that starts with logging OFF can still be switched on at runtime
+    without inventing a second log or losing the early lines.
+    """
+    global _LOG, _LOG_RESOLVED
+    if _LOG_RESOLVED:
+        return _LOG
+    _LOG_RESOLVED = True
     try:
         name = log_file_name()
         if _FROZEN:
@@ -167,6 +202,19 @@ if _ENABLED:
             _LOG.parent.mkdir(parents=True, exist_ok=True)
     except Exception:  # pragma: no cover - probe must never break startup
         _LOG = None
+    return _LOG
+
+
+def log_file_path() -> Path | None:
+    """The file this session writes to (None when it cannot be created)."""
+    return _ensure_log()
+
+
+#: M125: the last lines, kept in memory so the in-app viewer works even
+#: when the file cannot be written (a locked-down factory station) and
+#: so "Show performance timing log" needs no file re-read on every tick.
+_RECENT: deque = deque(maxlen=3000)
+_APPENDED = 0
 
 _LOCK = threading.Lock()
 _LAST = _T0
@@ -229,22 +277,45 @@ def _switch_line(text: str) -> str:
 
 
 def _append(line: str) -> None:
-    global _HEADER_WRITTEN
-    if _LOG is None:
+    global _HEADER_WRITTEN, _APPENDED
+    _RECENT.append(line)
+    _APPENDED += 1
+    log = _ensure_log()
+    if log is None:
         return
     try:
-        with open(_LOG, "a", encoding="utf-8") as fh:
+        with open(log, "a", encoding="utf-8") as fh:
             if not _HEADER_WRITTEN:
                 try:
                     fh.write(_session_header())
                     fh.write(_switch_line(
-                        "timing log enabled (startup, settings.json)"))
+                        "timing log enabled (startup, settings.json)"
+                        if _STARTED_ENABLED
+                        else "timing log enabled at runtime (Tools menu)"))
                 except OSError:
                     pass
                 _HEADER_WRITTEN = True
             fh.write(line)
     except OSError:
         pass
+
+
+def recent_lines(limit: int = 3000) -> list[str]:
+    """The last ``limit`` log lines held in memory (newest last)."""
+    if limit <= 0:
+        return []
+    lines = list(_RECENT)
+    return lines[-int(limit):]
+
+
+def recent_count() -> int:
+    """Monotonic counter of appended lines (the viewer polls this)."""
+    return _APPENDED
+
+
+def is_started_enabled() -> bool:
+    """True when this session logged from its very first line."""
+    return _STARTED_ENABLED
 
 
 def _session_header() -> str:
@@ -293,6 +364,146 @@ def _record_span(delta: float, cat: str, label: str) -> None:
         del _SPANS[_MAX_SPANS:]
 
 
+# ------------------------------------------ M125: freeze / stall capture
+def current_phase() -> str:
+    """The operation the GUI thread is inside right now ("" when idle).
+
+    A STALL line names it, so a freeze reads "UI frozen - while opening
+    node 02: build dialog" instead of a bare duration.
+    """
+    stack = getattr(_LOCAL, "stack", None) or []
+    if not stack:
+        return str(getattr(_LOCAL, "phase", "") or "")
+    return stack[-1][0]
+
+
+def log_stall(seconds: float, phase: str = "") -> None:
+    """Write one STALL line (M125): the GUI visibly froze this long."""
+    if not _ENABLED:
+        return
+    global _LAST
+    now = time.perf_counter()
+    where = phase or current_phase() or "no active operation"
+    with _LOCK:
+        _LAST = now
+        _append(_fmt(now - _T0, float(seconds), "stall",
+                     f"[STALL {float(seconds):.3f}s] UI frozen - "
+                     f"while {where}"))
+        _record_span(float(seconds), "stall", f"UI frozen while {where}")
+
+
+#: heartbeat interval the watchdog expects (ms) - 100 ms is ~6 frames at
+#: 60 Hz, i.e. a missed beat already means the operator saw a freeze
+STALL_HEARTBEAT_MS = 100
+
+_STALL_TIMER = None
+_STALL_LAST_TICK = 0.0
+_STALL_INSIDE = False
+#: phase seen at the last healthy beat - the STALL line names it
+_STALL_LAST_PHASE = ""
+#: (timestamp, label) of the last begin() - a span opened after the
+#: last healthy beat is the one that blocked the GUI thread
+_STALL_LAST_BEGIN = (0.0, "")
+
+
+def install_stall_watchdog(interval_ms: int = STALL_HEARTBEAT_MS):
+    """Start the UI heartbeat inside the GUI thread (idempotent).
+
+    The timer fires every ``interval_ms``; when the event loop was busy
+    longer than :func:`stall_threshold` the lateness IS the freeze
+    duration, and one STALL line is written for that episode (a long
+    freeze must not spam a line per tick).  Requires a QApplication /
+    Qt event loop to be running.
+    """
+    global _STALL_TIMER, _STALL_LAST_TICK, _STALL_INSIDE, _STALL_LAST_PHASE
+    if not _ENABLED or _STALL_TIMER is not None:
+        return _STALL_TIMER
+    if os.environ.get("PYTEST_CURRENT_TEST") and \
+            os.environ.get("MTK_TIMING_TESTS") != "1":
+        # the offscreen test run shows many windows in one process - its
+        # own long operations are not operator freezes and would bury
+        # the real station log in [STALL] noise
+        return None
+    try:
+        from PySide6.QtCore import QTimer
+    except Exception:                           # pragma: no cover
+        return None
+    timer = QTimer()
+    timer.setInterval(int(interval_ms))
+
+    def _tick() -> None:                        # pragma: no cover - Qt
+        global _STALL_LAST_TICK, _STALL_INSIDE, _STALL_LAST_PHASE
+        now = time.perf_counter()
+        beat_at = _STALL_LAST_TICK
+        late = now - beat_at - interval_ms / 1000.0
+        _STALL_LAST_TICK = now
+        if late > stall_threshold() and not _STALL_INSIDE:
+            _STALL_INSIDE = True
+            # reading the stack now reports whatever the blocked call
+            # already unwound to; the freeze is the span that was open
+            # at the last healthy beat, or one opened inside the block
+            began_at, began_label = _STALL_LAST_BEGIN
+            if began_label and began_at > beat_at:
+                phase = f"{began_label} (started inside the freeze)"
+            else:
+                phase = _STALL_LAST_PHASE
+            log_stall(late, phase)
+        elif late <= 0:
+            _STALL_INSIDE = False
+        # only a healthy beat carries the live phase
+        _STALL_LAST_PHASE = current_phase()
+
+    timer.timeout.connect(_tick)
+    _STALL_LAST_TICK = time.perf_counter()
+    _STALL_INSIDE = False
+    _STALL_LAST_PHASE = ""
+    timer.start()
+    _STALL_TIMER = timer
+    return timer
+
+
+def stop_stall_watchdog() -> None:
+    """Stop the heartbeat (used when logging is switched off)."""
+    global _STALL_TIMER
+    timer = _STALL_TIMER
+    _STALL_TIMER = None
+    if timer is None:
+        return
+    try:
+        timer.stop()
+        timer.deleteLater()
+    except Exception:                           # pragma: no cover
+        pass
+
+
+def set_runtime_enabled(value: bool) -> bool:
+    """Switch logging on / off WITHOUT a restart (M125).
+
+    The log file is created on the first line, the exception hooks and
+    the stall watchdog follow the switch, and both transitions are
+    written into the log itself so the file explains its own gaps.
+    Returns the resulting state.
+    """
+    global _ENABLED
+    value = bool(value)
+    if value == _ENABLED:
+        return _ENABLED
+    if value:
+        _ENABLED = True
+        _ensure_log()
+        try:
+            install_exception_hooks()
+        except Exception:                       # pragma: no cover
+            pass
+        _append(_switch_line("timing log ENABLED at runtime (Tools menu)"))
+        install_stall_watchdog()
+    else:
+        _append(_switch_line("timing log DISABLED at runtime (Tools menu)"))
+        _ENABLED = False
+        stop_stall_watchdog()
+    return _ENABLED
+
+
 # ------------------------------------------------------------- public
 def mark(label: str, category: str | None = None,
          no_slow: bool = False) -> None:
@@ -323,8 +534,9 @@ def begin(label: str, category: str | None = None,
     """
     if not _ENABLED:                            # M51 §3: hard no-op
         return
-    global _LAST
+    global _LAST, _STALL_LAST_BEGIN
     now = time.perf_counter()
+    _STALL_LAST_BEGIN = (now, label)
     cat = _category_of(label, category)
     stack = _stack()
     with _LOCK:

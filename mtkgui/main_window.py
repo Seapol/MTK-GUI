@@ -82,9 +82,12 @@ from .qt_guard import qt_safe
 from .startup_timing import (
     begin as _startup_begin,
     end as _startup_end,
+    install_stall_watchdog as _install_stall_watchdog,
+    is_enabled as perf_timing_enabled,
     mark as _startup_mark,
     saved_enabled as perf_timing_saved_enabled,
     save_enabled as perf_timing_save_enabled,
+    set_runtime_enabled as perf_timing_set_runtime,
     write_session_summary as _perf_timing_summary,
 )
 from .test_workflow_page import TestWorkFlowPage
@@ -638,6 +641,9 @@ class MainWindow(QMainWindow):
         switches change fonts, so the floor must follow the current
         metrics, not a construction-time snapshot."""
         super().showEvent(event)
+        # M125: the UI heartbeat starts with the first real event loop -
+        # it is the only way to notice "the window stopped answering"
+        _install_stall_watchdog()
         QTimer.singleShot(0, self, qt_safe(self._lock_vertical_minimums))
         # M14 F2: build the secondary tabs exactly once, after the
         # window is actually on screen (QTimer.singleShot(0) runs on
@@ -1264,15 +1270,21 @@ class MainWindow(QMainWindow):
         # M51 §3: full-lifecycle performance log switch.  The checkbox
         # reflects the SAVED setting (next start), never the running
         # session - toggling must not open / close the log mid-session.
-        self.act_perf_timing = tools_menu.addAction("Performance Timing Log")
+        self.act_perf_timing = tools_menu.addAction(
+            "Record performance timing (this session)")
         self.act_perf_timing.setCheckable(True)
-        self.act_perf_timing.setChecked(bool(perf_timing_saved_enabled()))
+        self.act_perf_timing.setChecked(bool(perf_timing_enabled()))
         self.act_perf_timing.setToolTip(
-            "Write the full-lifecycle performance timing log "
-            "(_performance_timing_<timestamp>.log beside the exe for a "
-            "package build, under logs/ for a development run). Changes take "
-            "effect on the next GUI restart.")
+            "M125: on by default while the GUI is being developed. "
+            "Toggling applies IMMEDIATELY - the log file is created on "
+            "the first line and a freeze is logged as a [STALL] line.")
         self.act_perf_timing.toggled.connect(self._set_perf_timing_enabled)
+        self.act_show_perf_log = tools_menu.addAction(
+            "Show Performance Timing Log…")
+        self.act_show_perf_log.setToolTip(
+            "Open the live timing window: every node / page action with "
+            "its duration, plus [STALL] lines naming the freeze")
+        self.act_show_perf_log.triggered.connect(self._show_perf_timing_log)
         tools_menu.addSeparator()
         # M78-3: one application-level stall watchdog value (no YAML field)
         self.act_fct_watchdog = tools_menu.addAction("FCT Watchdog…")
@@ -1346,17 +1358,28 @@ class MainWindow(QMainWindow):
         self.help_menu.addAction("About", self._open_about)
 
     def _set_perf_timing_enabled(self, checked: bool) -> None:
-        """M51 §3: persist the Tools switch; it applies on the NEXT start.
+        """M125: switch the probe for THIS session and persist the choice.
 
-        The running session keeps the logging state it started with -
-        no file is opened / closed here.  The operator is always told
-        that a restart is required (owner requirement).
+        A restart is no longer needed: the log file is created on the
+        first line, and the stall watchdog starts / stops with the
+        switch.  The Event Log says which way it went - no modal dialog
+        on a menu toggle during development.
         """
+        enabled = perf_timing_set_runtime(bool(checked))
         perf_timing_save_enabled(bool(checked))
-        QMessageBox.information(
-            self, "Performance Timing Log",
-            "Performance Timing Log change will take effect on the next "
-            "GUI restart.")
+        self._append_event_log(
+            f"[Tools] performance timing log: "
+            f"{'ON' if enabled else 'OFF'} (this session, saved for next start)")
+
+    def _show_perf_timing_log(self) -> None:
+        """Tools > Show Performance Timing Log - the live window (M125)."""
+        from .gui.perf_log_view import show_log
+        dlg = show_log(self)
+        self._perf_log_dialog = dlg
+        try:
+            dlg.setMinimumWidth(min(900, self.width()))
+        except Exception:                                   # pragma: no cover
+            pass
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self):

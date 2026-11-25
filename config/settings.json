@@ -1,6 +1,6 @@
 {
   "theme": "Light",
-  "performance_timing": false,
+  "performance_timing": true,
   "slow_span_threshold_s": 0.35,
   "event_log_level": "detailed"
 }

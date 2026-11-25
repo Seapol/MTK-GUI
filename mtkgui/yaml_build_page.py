@@ -1140,13 +1140,14 @@ class YamlBuildPage(QWidget):
             equipment_provider=self.equipment_provider,
             save_as_cb=lambda values: self._save_as_new_yaml(
                 module_key, values))
+        # M124/M125: the dialog is built before this call returns - log
+        # the time ALWAYS (not just when the operator closed it without
+        # saving), so a slow node has a number in the Event Log and in
+        # the timing file
+        build_ms = getattr(dialog, "build_ms", 0)
+        self.task_log.emit(
+            "info", f"node {module_key}: dialog ready in {build_ms} ms")
         if params is None:
-            # M124: the dialog is built before this call returns - log
-            # how long it took so a slow node can be named, not guessed
-            self.task_log.emit(
-                "info",
-                f"node {module_key}: dialog ready in "
-                f"{getattr(dialog, 'build_ms', 0)} ms")
             return
         self.model.set_params(module_key, params)
         # configured (OK) -> star mark (user direction); the full
@@ -1273,7 +1274,14 @@ class YamlBuildPage(QWidget):
     def _after_model_change(self) -> None:
         """Single broadcast point after every model mutation."""
         self._persist()
-        self.refresh_all()
+        # M125: the page-wide refresh is the other heavy step on a
+        # station laptop - name it so a STALL line can point at it
+        begin("yamlbuild: refresh page after node apply",
+              category="yamlbuild")
+        try:
+            self.refresh_all()
+        finally:
+            end("yamlbuild: refresh page after node apply")
 
     def _set_mark(self, module_key: str, mark: str) -> None:
         """Set one module's card mark (star = edited / check =

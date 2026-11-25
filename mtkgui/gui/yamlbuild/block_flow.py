@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from mtkgui.gui.yamlbuild.blocks import BlockConfigDialog
 from mtkgui.gui.yamlbuild.model import available_ops
 from mtkgui.gui.yamlbuild.schema import module_title
+from mtkgui.startup_timing import begin as _t_begin, end as _t_end
 from mtkgui.gui.yamlbuild.stages import (
     DISPLAY_CARD_MODULES,
     NAV_CARD_KEYS,
@@ -467,6 +468,10 @@ class BlockFlowWidget(QWidget):
         from PySide6.QtWidgets import QApplication
         import time
         started = time.perf_counter()
+        # M125: the timing log names this node while it builds, so a
+        # [STALL] line reads "while yamlbuild: node 02 - build dialog"
+        build_span = f"yamlbuild: node {module_key} - build dialog"
+        _t_begin(build_span, category="yamlbuild")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             dialog = BlockConfigDialog(
@@ -482,12 +487,22 @@ class BlockFlowWidget(QWidget):
                 console_config_cb=console_config_cb)
         finally:
             QApplication.restoreOverrideCursor()
+            _t_end(build_span)
         dialog.build_ms = int((time.perf_counter() - started) * 1000)
         if log_sink is not None:
             dialog.task_log.connect(log_sink)
         if progress_sink is not None:
             dialog.task_progress.connect(progress_sink)
-        if dialog.exec() == BlockConfigDialog.DialogCode.Accepted:
+        # M125: the modal session is OPERATOR time - begin(wait=True)
+        # keeps it out of the [SLOW] judgement while still logging how
+        # long the window was on screen
+        wait_span = f"yamlbuild: node {module_key} - operator"
+        _t_begin(wait_span, category="yamlbuild", wait=True)
+        result = dialog.exec()
+        _t_end(wait_span, note="applied"
+               if result == BlockConfigDialog.DialogCode.Accepted
+               else "closed")
+        if result == BlockConfigDialog.DialogCode.Accepted:
             return dialog.values(), dialog
         return None, None
 

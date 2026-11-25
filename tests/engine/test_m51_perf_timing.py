@@ -155,10 +155,17 @@ def test_exception_hook_silent_when_off(probe):
 
 
 # --------------------------------------------------------- 3 switch
-def test_saved_enabled_defaults_to_factory_off(monkeypatch):
-    """v2/C3: no saved value -> the factory default is OFF."""
+def test_saved_enabled_defaults_to_development_on(monkeypatch):
+    """M125: no saved value -> development default is ON.
+
+    ``MTK_TIMING=0`` still forces the probe off for a station run.
+    """
     monkeypatch.delenv("MTK_TIMING", raising=False)
-    assert st.saved_enabled() is False
+    assert st.saved_enabled() is True
+    # the hard kill switch is read at session start, not from settings
+    monkeypatch.setenv("MTK_TIMING", "0")
+    assert st._startup_enabled() is False
+    monkeypatch.delenv("MTK_TIMING", raising=False)
     st.save_enabled(True)
     assert st.saved_enabled() is True
     # the value is in settings.json, not in the environment

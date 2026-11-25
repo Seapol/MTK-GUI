@@ -101,10 +101,27 @@ Configuration functions - mostly supervisor territory.
 
 ## Tools Menu
 
-- **Performance Timing Log** (checkable) - write the full-lifecycle
-  performance timing log (`_performance_timing_<timestamp>.log` beside
-  the exe for a package build, under `logs/` for a development run). The
-  change takes effect on the next GUI restart.
+- **Record performance timing (this session)** (checkable) - write the
+  full-lifecycle performance timing log (`_performance_timing_<timestamp>.log`
+  beside the exe for a package build, under `logs/` for a development
+  run). **On by default while the GUI is under development**, and the
+  toggle applies **immediately**: the file is created on the first
+  line, so you can switch recording on after the window already slowed
+  down. `MTK_TIMING=0` in the environment still forces it off for a
+  production station.
+- **Show Performance Timing Log…** - open the live window on the same
+  lines, without leaving the GUI: the header shows whether recording is
+  on, the heartbeat threshold and the log path (`Open log file` /
+  `Open log folder` are one click away), `Only stalls / slow /
+  exceptions` narrows the view, `Recording (applies now)` is the same
+  switch as the Tools item, and the view follows the newest line while
+  it is scrolled to the bottom. Use it when the GUI **stops
+  answering**:
+  a freeze of more than `stall_threshold_s` (default 0.40 s) writes a
+  `[STALL 1.4s] UI frozen - while yamlbuild: node 02 - build dialog`
+  line naming the operation that blocked the window, which is exactly
+  the evidence needed to reproduce it. `[SLOW]` marks a single
+  operation over 0.35 s; `[EXCEPTION]` marks a crash.
 - **FCT Watchdog…** - one application-level stall watchdog value
   applied to the next run (`0` = off; every FCT step then waits its
   own Timeout).
