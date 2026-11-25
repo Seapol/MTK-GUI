@@ -26,6 +26,7 @@ build stays auditable.  Consumers:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -162,6 +163,46 @@ def _from_git(runner) -> VersionInfo | None:
         source="git")
 
 
+def parse_marker(text: str) -> VersionInfo | None:
+    """Turn the content of ``_build_version.txt`` into a VersionInfo.
+
+    The packaging step writes a small JSON payload so the frozen build
+    can carry the same build facts a dev checkout gets from git::
+
+        {"version": "v1.0.0.0", "branch": "develop",
+         "commit": "13908ca", "dirty": false}
+
+    Older/plain markers (a bare version string on one line) keep working -
+    they resolve to the version alone, exactly as before.
+
+    Args:
+        text: Raw file content.
+
+    Returns:
+        :class:`VersionInfo` with ``source="file"``, or ``None`` when the
+        text is empty.
+    """
+    from mtkgui import __version__
+
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("{"):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            return VersionInfo(
+                tag=str(data.get("version") or __version__),
+                branch=str(data.get("branch") or ""),
+                commit=str(data.get("commit") or ""),
+                dirty=bool(data.get("dirty")),
+                source="file")
+    return VersionInfo(tag=raw, branch="", commit="", dirty=False,
+                       source="file")
+
+
 def resolve(runner=None) -> VersionInfo:
     """Resolve the build version (uncached; see :func:`get_version_info`).
 
@@ -186,11 +227,9 @@ def resolve(runner=None) -> VersionInfo:
     marker = root / BUILD_VERSION_FILE
     try:
         if marker.is_file():
-            file_version = marker.read_text(
-                encoding="utf-8").strip()
-            if file_version:
-                return VersionInfo(tag=file_version, branch="", commit="",
-                                   dirty=False, source="file")
+            info = parse_marker(marker.read_text(encoding="utf-8"))
+            if info is not None:
+                return info
     except OSError:
         pass
     # 3. live git metadata (dev checkouts only; a frozen build has no

@@ -33,7 +33,9 @@ resolve_tenant_base() (mtkgui/gui/shell.py) picks the workspace as:
 MTKGUI_TENANT_BASE env -> the station work dir.
 """
 
+import importlib.util
 import os
+import pathlib
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -138,3 +140,15 @@ coll = COLLECT(
     upx_exclude=[],
     name='MTK_GUI',
 )
+
+# ---------------------------------------------------------------------------
+# Build stamp (user direction 2026-11-25): a frozen bundle has no git
+# checkout, so bake the build facts beside the exe and the Event Log line
+# reads "Build: v1.0.0.0 (develop @ 13908ca) (source: file)" instead of
+# the bare "source: static".
+# ---------------------------------------------------------------------------
+_stamp_spec = importlib.util.spec_from_file_location(
+    "build_stamp", os.path.join(os.getcwd(), "scripts", "build_stamp.py"))
+_stamp = importlib.util.module_from_spec(_stamp_spec)
+_stamp_spec.loader.exec_module(_stamp)
+_stamp.write_stamp(pathlib.Path("dist") / "MTK_GUI")

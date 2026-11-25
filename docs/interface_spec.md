@@ -1315,7 +1315,11 @@ build version is resolved ONCE (cached) from, in order:
    packaging step may set it or write a `_build_version.txt` next to
    the executable — packaging auto-alignment without touching the
    PyInstaller spec),
-2. `_build_version.txt` beside the app root (frozen builds),
+2. `_build_version.txt` beside the app root (frozen builds) — a small
+   JSON payload written at package time
+   (`{"version": "v1.0.0.0", "branch": "develop", "commit": "13908ca",
+   "dirty": false}`) so a frozen bundle names the commit it was built
+   from; a bare one-line version string still works (legacy markers)
 3. live git metadata of the working tree: nearest tag
    (`git describe --tags --abbrev=0`), branch
    (`git rev-parse --abbrev-ref HEAD`), short commit

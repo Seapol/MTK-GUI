@@ -37,11 +37,18 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-`develop` head when this guide was built: **`13908ca` - 2026-11-25**.
+Test-logic head: **`d0cb067` (m122) - 2026-11-25**. The commits after it
+change documentation and packaging only: the User Guide rebuild and the
+build stamp, so a bundle built from them runs the same test logic as
+`d0cb067`.
 
-- `13908ca` / `7b0c25c` - the User Guide rebuilt against the live five-node
-  Yaml Build page and the current rack (Equipment rails-capture block,
-  Version History current, fresh screenshots at 2400x950)
+- packaged builds now name their commit: the Windows spec writes
+  `_build_version.txt` (branch / short commit / dirty) beside the exe, so
+  the Event Log reads `Build: v1.0.0.0 (develop @ <commit>) (source: file)`
+  instead of the bare `source: static`
+- `7b0c25c` -> `d2395fe` (docs) - the User Guide rebuilt against the live
+  five-node Yaml Build page and the current rack: Equipment rails-capture
+  block, current Version History, fresh screenshots at 2400x950
 - `d0cb067` (m122) - suite-green follow-ups: clear stale rows on load,
   status colours no longer pinned by a previous run, tests kept off modals
 - `737bb3d` - User Guide reaches the station: Windows build, SharePoint

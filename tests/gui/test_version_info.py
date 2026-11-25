@@ -229,3 +229,51 @@ def test_get_version_info_caches_until_forced(monkeypatch):
     assert calls["n"] == n1                 # no extra resolution
     vi.get_version_info(force=True)
     assert calls["n"] == n1 + 1
+
+
+# ---------------------------------------------------------------------------
+# build stamp payload (user direction 2026-11-25): a packaged bundle carries
+# branch / commit / dirty beside the exe, so the Event Log names the commit
+# instead of falling back to the bare version ("source: static")
+# ---------------------------------------------------------------------------
+
+
+def test_marker_json_carries_commit_and_dirty(tmp_path, monkeypatch):
+    """A JSON marker resolves to branch/commit/dirty, not just the version."""
+    from mtkgui import version_info as vi
+    exe = tmp_path / "MTK_GUI.exe"
+    exe.write_bytes(b"")
+    (tmp_path / vi.BUILD_VERSION_FILE).write_text(
+        '{"version": "v1.0.0.0", "branch": "develop",'
+        ' "commit": "13908ca", "dirty": false}', encoding="utf-8")
+    monkeypatch.setattr(vi.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(vi.sys, "executable", str(exe))
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.source == "file"
+    assert info.commit == "13908ca"
+    assert info.display() == "v1.0.0.0 (develop @ 13908ca)"
+
+
+def test_marker_json_dirty_flag_renders(tmp_path, monkeypatch):
+    """A dirty package keeps the [dirty] badge in the version line."""
+    from mtkgui import version_info as vi
+    exe = tmp_path / "MTK_GUI.exe"
+    exe.write_bytes(b"")
+    (tmp_path / vi.BUILD_VERSION_FILE).write_text(
+        '{"version": "v1.0.0.0", "branch": "develop",'
+        ' "commit": "13908ca", "dirty": true}', encoding="utf-8")
+    monkeypatch.setattr(vi.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(vi.sys, "executable", str(exe))
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.display() == "v1.0.0.0 (develop @ 13908ca) [dirty]"
+
+
+def test_marker_plain_text_keeps_working(tmp_path, monkeypatch):
+    """Old one-line markers (no JSON) still resolve to the version alone."""
+    from mtkgui import version_info as vi
+    monkeypatch.setattr(vi, "APP_ROOT", tmp_path)
+    (tmp_path / vi.BUILD_VERSION_FILE).write_text("v4.2.0\n",
+                                                  encoding="utf-8")
+    info = vi.resolve(runner=fake_runner(git_replies()))
+    assert info.source == "file"
+    assert info.display() == "v4.2.0"

@@ -240,7 +240,7 @@ route A with no hand editing:
 examples\ict_96624\A-96624_ICT_Demo_v1.0.1.yaml
 ```
 
-`File → Load Project` and open it, then look at three pages in this order: the
+`File → Load Yaml…` and open it, then look at three pages in this order: the
 Yaml Build model (above, `rows: power=82 power_rails=12/82 clock=20 gpio=24`),
 the Test Work Flow table (34 rows: 27 numeric tests plus 7 standard
 operations, 12 rails armed for the capture) and the rails chart after a

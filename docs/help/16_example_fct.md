@@ -31,8 +31,7 @@ production products.
 
 ## Step 1 - Load the project YAML
 
-Open **File → Load Project** (the same entry as **Load current yaml** on the
-Yaml Build page) and pick the plan:
+Open **File → Load Yaml…** in the File menu and pick the plan:
 
 ```text
 examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml

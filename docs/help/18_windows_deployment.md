@@ -40,6 +40,16 @@ pip install -r requirements.txt
 pyinstaller --noconfirm MTK_GUI_windows.spec
 ```
 
+The spec stamps the build: right after `COLLECT` it writes
+`dist\MTK_GUI\_build_version.txt` holding the branch, the short commit and
+the dirty flag, so the packaged exe can name the commit it was built from
+(a frozen bundle has no git checkout beside it). If you rebuild by hand
+without the spec, restamp the folder:
+
+```powershell
+python scripts\build_stamp.py dist\MTK_GUI
+```
+
 Every new terminal needs `.venv\Scripts\activate` again; the prompt then
 shows `(.venv)`. The spec file is already correct - do not set `upx=True`
 (Defender unpacks and scans compressed DLLs on every launch) and never move
@@ -59,11 +69,19 @@ git log --oneline -1
 `__version__` must equal the release tag you checked out. If it does not, you
 built the wrong ref.
 
+```powershell
+Get-Content dist\MTK_GUI\_build_version.txt     # {"version": "...", "branch": "develop", "commit": "...", ...}
+```
+
+The Event Log on first launch must print
+`Build: v1.0.0.0 (develop @ <commit>) (source: file)` - if it says
+`(source: static)`, the stamp is missing beside the exe.
+
 Then launch it once:
 
 1. Double-click `dist\MTK_GUI\MTK_GUI.exe` - no console window appears.
 2. Log in as **Supervisor**, mode **Virtual**.
-3. `File → Load Project` → `examples\ict_96624\A-96624_ICT_Demo_v1.0.1.yaml`.
+3. `File → Load Yaml…` → `examples\ict_96624\A-96624_ICT_Demo_v1.0.1.yaml`.
 4. **Test Work Flow → Run**. Expect `Overall Result: PASS` with 31 enabled
    ICT steps and three rows disabled with a reason.
 5. Close through the application's own close path; the event log ends with

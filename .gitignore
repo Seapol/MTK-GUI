@@ -99,3 +99,6 @@ work/
 
 # runtime project data, never in git
 projects/
+
+# packaging: build stamp written beside the exe
+_build_version.txt
