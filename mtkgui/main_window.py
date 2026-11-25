@@ -1196,6 +1196,11 @@ class MainWindow(QMainWindow):
         self.act_switch = file_menu.addAction(
             "Switch Account…", self.switch_account)
         file_menu.addSeparator()
+        self.act_restart = file_menu.addAction(
+            "Restart GUI", self._restart_gui)
+        self.act_restart.setToolTip(
+            "Close this window cleanly and start a new GUI process "
+            "(same account, same command line)")
         self.act_exit = file_menu.addAction("Exit", self.close)
 
         view_menu = self.menuBar().addMenu("View")
@@ -1298,6 +1303,8 @@ class MainWindow(QMainWindow):
         self._tools_gateway = None
         # one-shot paint-time vertical floor lock (see paintEvent)
         self._vmin_locked = False
+        # File > Restart GUI: close normally, then start a fresh process
+        self._restart_requested = False
 
         # ------------------- item 15: VS style Run menu -------------
         # All run / debug control entries moved here from the workflow
@@ -1380,6 +1387,55 @@ class MainWindow(QMainWindow):
             dlg.setMinimumWidth(min(900, self.width()))
         except Exception:                                   # pragma: no cover
             pass
+
+    # ---------------------------------------------- File > Restart GUI
+    def _restart_gui(self) -> None:
+        """Close this process and start a clean one (M125b).
+
+        The restart goes through the SAME guards as Exit: a run in
+        progress blocks it, and unsaved configuration asks first.  The
+        new process inherits the account and the command line, so a
+        Supervisor restart stays a Supervisor restart.
+        """
+        if self._run_active:
+            QMessageBox.information(
+                self, "Restart GUI",
+                "Stop the run before exiting or restarting - the "
+                "fixture is still driving the DUT.")
+            return
+        self._restart_requested = True
+        self._append_event_log("[File] restart GUI requested")
+        self.close()
+        if self._restart_requested:
+            # the close was refused (unsaved config, active run) - drop
+            # the request so a later plain Exit does not restart the GUI
+            self._restart_requested = False
+
+    def _spawn_new_instance(self) -> None:
+        """Start the same program again, detached from this process."""
+        import sys
+
+        from PySide6.QtCore import QProcess
+
+        try:
+            if getattr(sys, "frozen", False):
+                program = sys.executable
+                args = [str(a) for a in sys.argv[1:]]
+            else:
+                program = sys.executable
+                args = [str(a) for a in sys.argv]
+            # the new process starts in the program directory (repo root
+            # in development, the exe folder when frozen) - never in the
+            # interpreter's bin directory
+            ok = QProcess.startDetached(
+                program, args, str(app_paths.program_dir()))
+            self._append_event_log(
+                f"[File] new GUI process started "
+                f"({'ok' if ok else 'FAILED'}) - this one exits now")
+        except Exception as exc:                    # pragma: no cover
+            QMessageBox.critical(
+                self, "Restart GUI",
+                f"Could not start a new GUI process:\n{exc}")
 
     # ------------------------------------------------- V4.0 Help/Report
     def _open_help(self):
@@ -3280,8 +3336,8 @@ class MainWindow(QMainWindow):
         if self._run_active:
             QMessageBox.information(
                 self, "Run Active",
-                "Stop the run before exiting - the fixture is still "
-                "driving the DUT.")
+                "Stop the run before exiting or restarting - the "
+                "fixture is still driving the DUT.")
             event.ignore()
             return
         # M103 (contract §8 item 3): one unsaved-changes confirmation.
@@ -3290,9 +3346,9 @@ class MainWindow(QMainWindow):
         if self.isVisible() and getattr(
                 self.yaml_build_page.model, "changed", False):
             answer = QMessageBox.question(
-                self, "Exit",
+                self, "Restart GUI" if self._restart_requested else "Exit",
                 "The current configuration is not saved. Discard it and "
-                "exit?")
+                + ("restart?" if self._restart_requested else "exit?"))
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
@@ -3315,6 +3371,12 @@ class MainWindow(QMainWindow):
         # --- original close workflow (preserved verbatim) -----------
         # remember the user's window geometry for the next start
         self._remember_geometry()
+        # M125b: File > Restart GUI - start the replacement as soon as
+        # the shutdown work is done, so the desktop never sits with no
+        # window; this process then exits normally (never killed)
+        if self._restart_requested:
+            self._restart_requested = False
+            self._spawn_new_instance()
         # disconnect every serial / SSH console channel
         self.workflow_page.multi_console.close_all_channels()
         if self._event_log_file is not None:

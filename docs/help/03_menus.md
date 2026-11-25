@@ -42,6 +42,14 @@ Project file and account handling.
 - **Switch Account…** - opens the login dialog again for an account
   change; switching to Supervisor requires the password
   re-authentication. *Dialog: login window.*
+- **Restart GUI** - closes this window with the normal ordered
+  cleanup and immediately starts a fresh process with the same
+  account and command line. It runs through the SAME guards as Exit:
+  a run in progress refuses the restart (the fixture is still
+  driving the DUT), and an unsaved configuration asks
+  `Discard it and restart?` first. The replacement is launched before
+  this process exits, so the desktop never sits with no window, and
+  the old process always exits normally - never killed.
 - **Exit** - closes the application (ordered resource cleanup).
 
 ## View Menu

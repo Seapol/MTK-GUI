@@ -45,7 +45,8 @@ the rightmost menu).
 - **File**: `Load Yaml…` (Ctrl+O), `Save Yaml (current file)` (Ctrl+S),
   `Save Yaml As… (current file)` (Ctrl+Shift+S), `Close Yaml`, the
   `Excel` submenu (export config workbook, import traditional ICT plan,
-  import / export the MTK ICT Sheet), `Switch Account…`, `Exit`.
+  import / export the MTK ICT Sheet), `Switch Account…`,
+  `Restart GUI`, `Exit`.
 - **View**: `Console Background Color…`, `Reset Background (Black)`,
   and the `GUI Theme` submenu (Light / Dark / Ocean / Forest /
   High Contrast, application-wide).

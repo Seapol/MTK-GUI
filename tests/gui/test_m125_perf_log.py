@@ -122,3 +122,56 @@ def test_viewer_shows_lines_and_filters(qapp, monkeypatch):
         assert isinstance(dlg, PerfLogDialog)
     finally:
         dlg.close()
+
+
+# ------------------------------------------------- File > Restart GUI
+def test_restart_gui_action_lives_in_the_file_menu(qapp):
+    from mtkgui.main_window import MainWindow
+    MainWindow.__test__ = False
+    window = MainWindow(role="Supervisor", mode="Real", fixture="ATE")
+    try:
+        assert window.act_restart.text() == "Restart GUI"
+        assert window.act_restart in window._file_menu.actions()
+        # the entry sits right before Exit
+        actions = window._file_menu.actions()
+        assert actions.index(window.act_restart) < actions.index(window.act_exit)
+    finally:
+        window.close()
+        window.deleteLater()
+
+
+def test_restart_gui_is_refused_while_a_run_is_active(qapp, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from mtkgui.main_window import MainWindow
+    MainWindow.__test__ = False
+    shown: list = []
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda *a, **k: shown.append(a)))
+    window = MainWindow(role="Supervisor", mode="Real", fixture="ATE")
+    calls: list = []
+    monkeypatch.setattr(window, "_spawn_new_instance",
+                        lambda: calls.append("spawn"))
+    try:
+        window._run_active = True
+        window.act_restart.trigger()
+        assert shown and "restarting" in shown[-1][2]
+        assert not window._restart_requested
+        assert calls == [], "nothing may be started while the rack drives"
+    finally:
+        window._run_active = False
+        window.close()
+        window.deleteLater()
+
+
+def test_restart_gui_closes_cleanly_then_spawns(qapp, monkeypatch):
+    from mtkgui.main_window import MainWindow
+    MainWindow.__test__ = False
+    window = MainWindow(role="Supervisor", mode="Real", fixture="ATE")
+    spawned: list = []
+    monkeypatch.setattr(window, "_spawn_new_instance",
+                        lambda: spawned.append("spawn"))
+    window.act_restart.trigger()
+    assert spawned == ["spawn"], "the replacement starts during close"
+    assert window._restart_requested is False
+    window.deleteLater()
