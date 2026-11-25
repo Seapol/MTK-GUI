@@ -11,7 +11,7 @@ Bundled data:
 * config/settings.json             -> _internal/config   (factory seed)
 * config/rules/base.v2.json        -> _internal/config   (factory seed)
 * resources (logo / version.json)  -> _internal/resources
-* docs/help (16 guide chapters, images, version history)
+* docs/help (guide chapters, images, version history)
                                    -> _internal/docs/help
 * assets (templates / drivers / precheck / resources)
                                    -> _internal/assets     (master copy)

@@ -63,6 +63,10 @@ CHAPTERS = [
     ("example_fct", "16. Example Build of FCT Test Case",
      "16_example_fct.md"),
     ("tips", "17. Tips & Troubleshooting", "17_tips_and_troubleshooting.md"),
+    ("windows_deployment", "18. Windows Build & Deployment",
+     "18_windows_deployment.md"),
+    ("sharepoint_bitbucket", "19. SharePoint & Bitbucket",
+     "19_sharepoint_and_bitbucket.md"),
 ]
 
 #: menu key -> section file (kept for direct lookups by key)

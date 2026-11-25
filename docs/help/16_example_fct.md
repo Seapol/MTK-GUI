@@ -316,3 +316,49 @@ it never falls back to the serial console.
 - Serial console steps need the correct COM port for the host - the
   demo YAML was authored on macOS (`/dev/cu.usbmodem...`); on Windows
   set the COM port of your board.
+
+## The plan that passed on the bench: FRDM-IMX93
+
+```text
+examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml
+```
+
+45 rows, three of them disabled, and this is the file that produced
+`Overall Flow: ICT -> FCT all PASS` on the real bench on 2026-11-24: 34 PASS,
+11 Ignore, 0 FAIL, 0 ERROR, 4:52 per unit including the two human gates.
+
+![The FCT plan loaded in Test Work Flow](images/32_example_fct_plan.png)
+
+Load it and read the first twenty rows as a checklist of what a production FCT
+stage actually does: power on, enter download mode, burn the FAT image, boot
+wait, shell, kernel check, deploy assets, load RF drivers, then the FAT
+functional block, then the RF and firmware rows, then power off.
+
+### The three disabled rows, and how to re-open them
+
+- `Wi-Fi iPerf Throughput (iperf3)` - the lab AP isolates clients, so the DUT
+  never reaches the host iperf3 server although ARP resolves both ways.
+  Re-enable once host and DUT share a non-isolating segment, then confirm
+  `0% packet loss` appears in the row's capture.
+- `BT L2CAP ping` - there is no paired peer; the DUT answers
+  `BT_L2CAP_UNCONFIGURED`. Pair a peer, re-enable, and expect
+  `BT_L2CAP_OK`.
+- `Pull FAT log` - the serial pull protocol is structurally broken on this
+  firmware, so the run falls back to the console transcript. Re-enable only
+  after the pull command returns a complete file.
+
+Each row carries the date and the reason above it in the YAML. That is the
+house rule: a closed item stays readable so the next engineer can re-open it
+after one look.
+
+### What the bench run changed in the tool
+
+Two defects surfaced only on hardware, and both are fixed:
+
+- a Bluetooth RSSI row declared a 15 s budget while declaring three 35 s
+  sub-timeouts; it now retries the scan twice and declares 35 s everywhere;
+- `run_step` now warns `WARNING budget ... <= declared sub-timeout ...`
+  before the row starts instead of failing 15 s into it.
+
+Use that pattern: a row whose declared budget cannot hold its sub-timeouts is
+a plan bug, not a DUT failure.

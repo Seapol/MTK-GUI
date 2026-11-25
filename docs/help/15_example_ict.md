@@ -226,3 +226,55 @@ points, categories and limits.
   the `R-GND` floor, the voltage nominal and the voltage pass window.
 - Unallocated nets are auto Do-Not-Test: keep the DIO pool and the
   U2355A AI channels in mind when the plan grows.
+
+## Load the reference plan instead of rebuilding: 96624
+
+The repository ships one finished ICT plan built entirely by Route A, so you
+can see the end state before you build your own:
+
+```text
+examples\ict_96624\A-96624_ICT_Demo_v1.0.1.yaml
+```
+
+It is board CORE 96624, part A-96624, built from a 2 231-net netlist with no
+hand editing. `File → Load Project` and open it, then look at three pages in
+this order.
+
+**Yaml Build** - the model the plan was built from. The status line under the
+tables reads `rows: power=82 power_rails=12/82 clock=20 gpio=24`.
+
+![Yaml Build with the 96624 model](images/04_yaml_build.png)
+
+**Test Work Flow** - 34 rows: 27 numeric tests plus 7 standard operations, and
+12 rails armed for the DAQ capture.
+
+![The 96624 plan after a Virtual run](images/02_test_workflow.png)
+
+**The rails chart** - press **Run** in Virtual mode and the 12 rails draw
+themselves; the CSV and its AI review text land in `logs\`.
+
+![Power rails waveform](images/11_power_rails.png)
+
+### Why three rows are disabled
+
+`Power Voltage - VBAT_SENSE`, `Power Voltage - VCC_OSC_AUXCLKIN` and
+`Power Voltage - VDD2_LP5X` have no limit: neither the SPF nor any engineer
+sheet gave one. A limit-less row measures but reports **TBD**, and TBD fails
+the ICT stage, so the builder disables them and writes the reason into the
+row's `comment`. The row stays visible, the reason stays readable, and the run
+is not blocked by an item nobody can judge.
+
+To bring one back: author the window in **Yaml Build → Power Nets** (Nominal,
+Lower, Upper), tick **EN**, save the plan. The same three rails also carry
+`nominal_v: 0.0`, which is why they draw flat in the chart - authoring a
+nominal fixes both at once.
+
+### Reading the plan against your own
+
+- 82 power nets, 12 of them armed as rails. The gap is the point: not every
+  rail needs a waveform, only the ones whose power-up order matters.
+- 20 clock nets, all at 32.768 kHz ±50 ppm in this demo. That is a template
+  value from the build step, not a measurement of each net - check every clock
+  row against the schematic before production.
+- 24 control IO nets for the fixture DIO, 4 GND nets, and 1 432 filtered
+  (mostly differential pairs and exclude-regex matches).

@@ -245,3 +245,6 @@ be performed manually by the user.
   full flow without hardware and configuring random faults.
 - **Chapter 12 - Shortcuts & Tips**: the Visual Studio style run and
   debug shortcuts, themes, and window / pane sizing behavior.
+- **Windows Build & Deployment** and **SharePoint & Bitbucket** (chapters 18
+  and 19 in the in-app guide): packaging the exe, rolling it onto a station,
+  and publishing reports and code outward.

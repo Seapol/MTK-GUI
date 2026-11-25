@@ -153,6 +153,80 @@ def _find(page, keyword: str):
     return page
 
 
+EXAMPLE_ICT = ROOT / "examples" / "ict_96624" / "A-96624_ICT_Demo_v1.0.1.yaml"
+EXAMPLE_FCT = (ROOT / "examples" / "fct_frdm_imx93"
+               / "FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml")
+
+
+def _load_plan(app, window, path: Path):
+    """Load one example plan through the SAME loader the GUI uses, then
+    run it in Virtual mode so the shots show a filled plan instead of an
+    empty page."""
+    from mtkgui import project_config
+
+    cfg = project_config.load_config(path)
+    project_config.apply_config(cfg, window.workflow_page,
+                                window.equipment_page,
+                                window.yaml_build_page.model)
+    window.workflow_page.set_mode("Virtual")
+    # the tables read the model, and the model only repaints after an
+    # explicit refresh (same call the GUI makes on 'Load current yaml')
+    window.yaml_build_page.refresh_all()
+    for _ in range(5):
+        app.processEvents()
+    return cfg
+
+
+def _capture_examples(app, window) -> list[tuple[str, str]]:
+    """Reference-plan screenshots: a loaded ICT plan, its rails waveform
+    after a Virtual run, the Parse Nets block, and the FCT plan."""
+    failures: list[tuple[str, str]] = []
+    save = __import__("PySide6.QtGui", fromlist=["QImage"])
+
+    def shot(name, widget, full_page=False):
+        try:
+            if full_page:
+                _activate(app, window, widget)
+                widget.resize(1560, 900)
+                for _ in range(3):
+                    app.processEvents()
+                pix = widget.grab()
+            else:
+                pix = widget.grab()
+            path = OUT / f"{name}.png"
+            if not pix.save(str(path), "PNG"):
+                failures.append((name, "save failed"))
+            else:
+                print(f"captured {path.name} "
+                      f"({pix.width()}x{pix.height()})")
+        except Exception as exc:                 # noqa: BLE001
+            failures.append((name, repr(exc)))
+        return save
+
+    # pass 1 - FCT FRDM-IMX93 (first, so the shot shows Pending rows and
+    # no measurements inherited from the other plan)
+    _load_plan(app, window, EXAMPLE_FCT)
+    shot("32_example_fct_plan", window.workflow_page)
+
+    # pass 2 - ICT 96624, run so the rails chart has a waveform
+    _load_plan(app, window, EXAMPLE_ICT)
+    window.workflow_page.run_demo()
+    for _ in range(10):
+        app.processEvents()
+    # the run leaves the ICT table scrolled to the last row; the guide
+    # shows the first rows (impedance -> power), so scroll back to top
+    try:
+        window.workflow_page.ict.scrollToTop()
+        app.processEvents()
+    except Exception:                        # noqa: BLE001 - cosmetic
+        pass
+    shot("02_test_workflow", window.workflow_page)
+    shot("11_power_rails", _find(window.workflow_page, "Rail"))
+    shot("04_yaml_build", window.yaml_build_page, full_page=True)
+    shot("05_channel_allocation", window.yaml_build_page.channel_alloc)
+    return failures
+
+
 def main() -> int:
     from PySide6.QtWidgets import QApplication
     from mtkgui.main_window import MainWindow
@@ -207,6 +281,9 @@ def main() -> int:
         _DIALOGS.pop().close()
     tabs.setCurrentIndex(saved)
     app.processEvents()
+
+    if "--examples" in sys.argv:
+        failures += _capture_examples(app, window)
 
     for name, why in failures:
         print(f"FAILED {name}: {why}", file=sys.stderr)
