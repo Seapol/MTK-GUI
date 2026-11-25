@@ -13,7 +13,7 @@ flash nothing.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -40,6 +40,11 @@ from mtkgui.gui.yamlbuild.firmware_config import (
 
 #: fixed caption for the both-disabled footer (§4.1)
 NO_SLOT_FOOTER = "no firmware slot enabled — FCT will run without flashing"
+
+
+#: M130: explicit grey so a read-only node / unchecked slot never looks editable
+_GREY_STYLE = ("QLineEdit, QComboBox, QLabel, QCheckBox, QRadioButton, "
+               "QGroupBox, QPushButton { color: #9aa0a6; }")
 
 
 class _Slot(QWidget):
@@ -148,6 +153,9 @@ class _Slot(QWidget):
         gui = enabled and self.radio_gui.isChecked()
         self._cli.setEnabled(cli)
         self._gui.setEnabled(gui)
+        # the disabled branch (and an unchecked slot) must read as grey
+        self._cli.setStyleSheet("" if cli else _GREY_STYLE)
+        self._gui.setStyleSheet("" if gui else _GREY_STYLE)
 
     def set_values(self, slot: dict) -> None:
         slot = slot or {}
@@ -225,6 +233,12 @@ class FirmwareConfigPanel(QWidget):
         lay.addWidget(self.lbl_footer)
         lay.addStretch(1)
         self._refresh_footer()
+
+    def changeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        """Grey the whole panel while the node is read-only (M130)."""
+        if event.type() == QEvent.Type.EnabledChange:
+            self.setStyleSheet("" if self.isEnabled() else _GREY_STYLE)
+        super().changeEvent(event)
 
     def _on_slot_changed(self) -> None:
         self._refresh_footer()
