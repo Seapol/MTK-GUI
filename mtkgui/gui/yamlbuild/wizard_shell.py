@@ -535,6 +535,7 @@ class YamlBuildWizard(QWidget):
         content_w = max(panel.minimumSizeHint().width(),
                         panel.minimumSize().width(), panel.sizeHint().width())
         content_h = max(panel.minimumSizeHint().height(),
+                        panel.minimumSize().height(),
                         panel.sizeHint().height())
         hint = dlg.sizeHint()
         width = max(hint.width(), content_w + 48, 760)
