@@ -539,7 +539,9 @@ class YamlBuildWizard(QWidget):
                         panel.sizeHint().height())
         hint = dlg.sizeHint()
         width = max(hint.width(), content_w + 48, 760)
-        height = max(hint.height() + 44, content_h + 96, 560)
+        # M131: the header block + action rows + button box occupy ~120 px
+        # (the old 96 px allowance left node 04's last card row clipped)
+        height = max(hint.height() + 44, content_h + 120, 560)
         dlg.resize(min(width, int(avail.width() * 0.9)),
                    min(height, int(avail.height() * 0.9)))
         accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit
