@@ -94,6 +94,16 @@ def build_stylesheet(spec: StyleSpec = StyleSpec()) -> str:
         border-radius: 4px;
         padding: 3px 6px;
     }}
+    /* M130: a locked node or an unchecked slot must read as fully grey -
+       the platform palette alone kept the text black on Windows. */
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+    QTextEdit:disabled, QPlainTextEdit:disabled {{
+        background: {spec.BG_PANEL};
+        border: 1px solid {spec.BORDER};
+        color: {spec.TEXT_DIM};
+    }}
+    QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled,
+    QGroupBox:disabled {{ color: {spec.TEXT_DIM}; }}
     QStatusBar {{ background: {spec.BG_NAV}; }}
     QLabel#StatusBarChip {{ background: transparent; color: {spec.TEXT_DIM}; }}
     """
