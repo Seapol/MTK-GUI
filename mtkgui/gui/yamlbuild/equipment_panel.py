@@ -154,13 +154,13 @@ class EquipmentConfigPanel(QWidget):
         root.setSpacing(10)
 
         self.lbl_intro = QLabel(
-            "Click a module to configure it. Instruments must pass the "
-            "availability check before the other tiles unlock.")
+            "Click a card to configure that module.")
         self.lbl_intro.setObjectName("muted")
         self.lbl_intro.setWordWrap(True)
         root.addWidget(self.lbl_intro)
 
-        self.setMinimumWidth(980)  # two comfortable card columns
+        self.setMinimumWidth(980)   # two comfortable card columns
+        self.setMinimumHeight(520)  # four card rows, no inner scrollbar
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
