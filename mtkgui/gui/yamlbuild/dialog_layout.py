@@ -7,13 +7,16 @@ width, the scroll area then grows a horizontal scrollbar and the
 sentence is clipped.  Every editor touched by this milestone routes its
 width / hints / scroll behaviour through this module:
 
-    apply_fixed_width(dlg, width)   - width locked, horizontal resize off
+    apply_fixed_width(dlg, width)   - width FLOOR, window stays resizable
     hint(text, parent_width)        - wrapped, muted helper sentence
-    disable_horizontal_scroll(area) - no phantom horizontal scrollbar
+    disable_horizontal_scroll(area) - horizontal bar on demand, never clipped
+    cap_editor_width(editor, kind)  - a form field stops at a readable width
+    path_label(label, prefix, path) - base name on screen, full path on hover
     finish(dlg)                     - height follows content
 
-Width tiers: simple value editors 420, editors with paths / notes 560,
-table / host-command editors 760 pixels.
+Width tiers (M124: a floor, not a lock): simple value editors 420,
+editors with paths / notes 560, table / host-command editors 760
+pixels.
 """
 from __future__ import annotations
 
@@ -113,7 +116,7 @@ def path_label(label, prefix: str, path: str, width: int = 0) -> None:
 
 
 def finish(dlg) -> None:
-    """Height follows the content while the locked width stays fixed."""
+    """Height follows the content; the width stays at its floor or wider."""
     if dlg is None:
         return
     dlg.setSizePolicy(QSizePolicy.Policy.Preferred,
