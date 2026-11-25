@@ -160,7 +160,7 @@ class EquipmentConfigPanel(QWidget):
         root.addWidget(self.lbl_intro)
 
         self.setMinimumWidth(980)   # two comfortable card columns
-        self.setMinimumHeight(520)  # four card rows, no inner scrollbar
+        self.setMinimumHeight(540)  # four card rows, no inner scrollbar
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
