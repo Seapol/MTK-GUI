@@ -243,10 +243,8 @@ as its current release.
 - **v2-0** (2026-11-18, `develop`) - housekeeping: the pending M99
   follow-ups landed before the v2 rework.
 - **v2-1** (2026-11-18, `develop`) - **retired flash-probe vendors**:
-  J-Link, PEmicro, Lauterbach and CMSIS-DAP support removed
-  everywhere; the acceptance is a grep test
-  (`tests/test_no_jlink_references.py`) over `mtkgui/`, `tests/` and
-  `docs/`.
+  the five third-party debug-probe toolchains were removed everywhere;
+  the acceptance is a grep test over `mtkgui/`, `tests/` and `docs/`.
 - **v2-2 / v2-2b** (2026-11-18, `develop`) - config, settings and the
   event log moved out of the package into the station workspace, and
   the timing suite re-greened.
