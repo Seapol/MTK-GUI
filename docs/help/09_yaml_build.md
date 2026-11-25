@@ -65,6 +65,14 @@ instead of dropping the extra nets quietly.
   to be configured, green = locked and complete. The bottom-right badge
   reads `Empty`, `Edited` or `Completed` / `Unused` to match. Lock states
   travel with the project - reopening a YAML restores the padlocks.
+- **Node 04 is a launcher, not a tab strip** (M131): the seven modules -
+  `Instruments`, `Power On/Off DUT`, `R-GND & Voltage`, `Clock`,
+  `Power Rails`, `Fixture (ATE)` and `Peripherals` - are large cards; each
+  opens its own dialog with its own layout. `Instruments` is the wide
+  banner card and gates the other six: they stay grey with a `LOCKED` badge
+  until `Check availability` has run. Every card carries a live badge
+  (`CHECKED` / `NOT CHECKED`, net and clock counts, the PSU setting) so the
+  node can be read without opening anything.
 - **Every node dialog is resizable** (M124): minimize / maximize and
   free resize are enabled, the width you see is a *minimum*, long
   content scrolls both ways instead of being clipped, and form fields

@@ -13,15 +13,18 @@ from mtkgui.gui.yamlbuild.equipment_panel import (  # noqa: E402
 from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard  # noqa: E402
 
 
-def test_instruments_gate_other_tabs():
+def test_instruments_gate_other_tiles():
     panel = EquipmentConfigPanel()
     try:
-        # tabs 2-7 are disabled until the instrument check runs
-        for index in range(1, panel.tabs.count()):
-            assert panel.tabs.isTabEnabled(index) is False
+        # M131: every tile but Instruments is locked until the check runs
+        assert panel.tiles["instruments"].isEnabled() is True
+        for key, tile in panel.tiles.items():
+            if key == "instruments":
+                continue
+            assert tile.isEnabled() is False
         panel.btn_check.click()
-        for index in range(1, panel.tabs.count()):
-            assert panel.tabs.isTabEnabled(index) is True
+        for key, tile in panel.tiles.items():
+            assert tile.isEnabled() is True
     finally:
         panel.deleteLater()
 

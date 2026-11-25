@@ -104,6 +104,72 @@ def build_stylesheet(spec: StyleSpec = StyleSpec()) -> str:
     }}
     QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled,
     QGroupBox:disabled {{ color: {spec.TEXT_DIM}; }}
+    QTableWidget, QTableView {{
+        background: {spec.BG_DARK};
+        alternate-background-color: {spec.BG_PANEL};
+        gridline-color: {spec.BORDER};
+        border: 1px solid {spec.BORDER};
+        selection-background-color: {spec.ACCENT};
+        selection-color: #ffffff;
+    }}
+    QHeaderView::section {{
+        background: {spec.BG_NAV};
+        color: {spec.TEXT_MAIN};
+        border: none;
+        border-right: 1px solid {spec.BORDER};
+        border-bottom: 1px solid {spec.BORDER};
+        padding: 4px 6px;
+    }}
     QStatusBar {{ background: {spec.BG_NAV}; }}
     QLabel#StatusBarChip {{ background: transparent; color: {spec.TEXT_DIM}; }}
+    /* M131: node 04 module launcher + standalone module dialogs */
+    QPushButton#moduleTile {{
+        background: {spec.BG_PANEL};
+        border: 1px solid {spec.BORDER};
+        border-radius: 8px;
+        text-align: left;
+        padding: 0px;
+    }}
+    QPushButton#moduleTile:hover {{ border: 1px solid {spec.ACCENT}; }}
+    QPushButton#moduleTile:pressed {{ background: {spec.BG_NAV}; }}
+    QPushButton#moduleTile:disabled {{
+        background: #1a1d23;
+        border: 1px solid #2b313b;
+    }}
+    #tileTitle {{
+        background: transparent;
+        color: {spec.TEXT_MAIN};
+        font-size: 15px;
+        font-weight: bold;
+    }}
+    #tileSub {{ background: transparent; color: {spec.TEXT_DIM}; }}
+    #tileBadge {{ background: transparent; font-weight: bold; }}
+    #tileBadge[tone="ok"] {{ color: {spec.OK}; }}
+    #tileBadge[tone="warn"] {{ color: {spec.WARN}; }}
+    #tileBadge[tone="muted"] {{ color: {spec.TEXT_DIM}; }}
+    #dialogTitle {{
+        background: transparent;
+        color: {spec.TEXT_MAIN};
+        font-size: 17px;
+        font-weight: bold;
+    }}
+    #dialogRule {{ color: {spec.BORDER}; }}
+    #infoCard {{
+        background: {spec.BG_PANEL};
+        border: 1px solid {spec.BORDER};
+        border-radius: 6px;
+    }}
+    QPushButton#primary {{
+        background: {spec.ACCENT};
+        border: 1px solid {spec.ACCENT};
+        border-radius: 6px;
+        color: #ffffff;
+        font-weight: bold;
+    }}
+    QPushButton#primary:hover {{ background: {spec.ACCENT_HOVER}; }}
+    QPushButton#primary:disabled {{
+        background: {spec.BG_PANEL};
+        border: 1px solid {spec.BORDER};
+        color: {spec.TEXT_DIM};
+    }}
     """
