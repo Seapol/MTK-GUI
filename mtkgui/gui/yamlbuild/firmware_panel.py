@@ -33,7 +33,6 @@ from mtkgui.gui.yamlbuild.command_snippet_helper import (
 )
 from mtkgui.gui.yamlbuild.firmware_config import (
     FIRMWARE_SLOTS,
-    LOGICS,
     METHODS,
     TERMINALS,
     default_firmware,
@@ -50,6 +49,7 @@ class _Slot(QWidget):
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._working_dir = ""
         box = QGroupBox(title)
         lay = QVBoxLayout(box)
 
@@ -93,50 +93,28 @@ class _Slot(QWidget):
         self.chk_show = QCheckBox("Show terminal window during run")
         self.chk_show.setChecked(True)
         form.addRow("", self.chk_show)
-        self.edit_working_dir = QLineEdit()
-        self.edit_working_dir.setPlaceholderText(r"C:\FW\imx93\fat")
-        form.addRow("Working directory:", self.edit_working_dir)
+        # M130: the working directory duplicated the GUI tool path, so the
+        # row is gone; a value loaded from an older YAML is kept as-is and
+        # written back untouched (no silent data loss).
         self.edit_command = QLineEdit()
         self.edit_command.setPlaceholderText(
             "fat_flash.bat --port COM4 --image fat_1.2.3.bin")
         form.addRow("Command:", with_snippets(self.edit_command,
                                               PAGE_WINDOWS))
-        self._pass_keywords = [QLineEdit() for _ in range(3)]
-        self.combo_pass_logic = self._logic_combo()
-        form.addRow("Pass keywords:", self._keyword_row(self._pass_keywords,
-                                                        self.combo_pass_logic))
-        self._fail_keywords = [QLineEdit() for _ in range(3)]
-        self.combo_fail_logic = self._logic_combo()
-        form.addRow("Fail keywords:", self._keyword_row(self._fail_keywords,
-                                                        self.combo_fail_logic))
-        for edit in self._pass_keywords + self._fail_keywords:
+        # M130: one keyword per verdict - three slots plus an and/or
+        # combinator was more machinery than a flash message needs.
+        self.edit_pass_keyword = QLineEdit()
+        self.edit_pass_keyword.setPlaceholderText("Pass keyword (optional)")
+        form.addRow("Pass keyword:", self.edit_pass_keyword)
+        self.edit_fail_keyword = QLineEdit()
+        self.edit_fail_keyword.setPlaceholderText("Fail keyword (optional)")
+        form.addRow("Fail keyword:", self.edit_fail_keyword)
+        for edit in (self.edit_pass_keyword, self.edit_fail_keyword):
             edit.textChanged.connect(self._on_changed)
-        self.combo_pass_logic.currentTextChanged.connect(self._on_changed)
-        self.combo_fail_logic.currentTextChanged.connect(self._on_changed)
         self.combo_terminal.currentTextChanged.connect(self._on_changed)
         self.chk_admin.toggled.connect(self._on_changed)
         self.chk_show.toggled.connect(self._on_changed)
-        self.edit_working_dir.textChanged.connect(self._on_changed)
         self.edit_command.textChanged.connect(self._on_changed)
-        return widget
-
-    @staticmethod
-    def _logic_combo() -> QComboBox:
-        combo = QComboBox()
-        combo.setInsertPolicy(QComboBox.NoInsert)
-        combo.addItems(list(LOGICS))
-        return combo
-
-    @staticmethod
-    def _keyword_row(edits: list[QLineEdit],
-                     logic: QComboBox) -> QWidget:
-        widget = QWidget()
-        lay = QHBoxLayout(widget)
-        lay.setContentsMargins(0, 0, 0, 0)
-        for index, edit in enumerate(edits):
-            edit.setPlaceholderText(f"keyword #{index + 1} (optional)")
-            lay.addWidget(edit)
-        lay.addWidget(logic)
         return widget
 
     def _build_gui(self) -> QWidget:
@@ -183,16 +161,14 @@ class _Slot(QWidget):
             if str(cli.get("terminal") or "cmd") in TERMINALS else "cmd")
         self.chk_admin.setChecked(bool(cli.get("run_as_admin", False)))
         self.chk_show.setChecked(bool(cli.get("show_window", True)))
-        self.edit_working_dir.setText(str(cli.get("working_dir") or ""))
+        self._working_dir = str(cli.get("working_dir") or "")
         self.edit_command.setText(str(cli.get("command") or ""))
-        for i, keyword in enumerate((cli.get("pass_keywords") or [])[:3]):
-            self._pass_keywords[i].setText(str(keyword))
-        self.combo_pass_logic.setCurrentText(
-            str(cli.get("pass_logic") or "and"))
-        for i, keyword in enumerate((cli.get("fail_keywords") or [])[:3]):
-            self._fail_keywords[i].setText(str(keyword))
-        self.combo_fail_logic.setCurrentText(
-            str(cli.get("fail_logic") or "and"))
+        pass_keywords = list(cli.get("pass_keywords") or [])
+        self.edit_pass_keyword.setText(
+            str(pass_keywords[0]) if pass_keywords else "")
+        fail_keywords = list(cli.get("fail_keywords") or [])
+        self.edit_fail_keyword.setText(
+            str(fail_keywords[0]) if fail_keywords else "")
         gui = slot.get("gui") or {}
         self.edit_tool_path.setText(str(gui.get("tool_path") or ""))
         self.edit_arguments.setText(str(gui.get("arguments") or ""))
@@ -208,12 +184,12 @@ class _Slot(QWidget):
                 "terminal": self.combo_terminal.currentText(),
                 "run_as_admin": self.chk_admin.isChecked(),
                 "show_window": self.chk_show.isChecked(),
-                "working_dir": self.edit_working_dir.text().strip(),
+                "working_dir": self._working_dir,
                 "command": self.edit_command.text().strip(),
-                "pass_keywords": _non_empty(self._pass_keywords),
-                "pass_logic": self.combo_pass_logic.currentText(),
-                "fail_keywords": _non_empty(self._fail_keywords),
-                "fail_logic": self.combo_fail_logic.currentText(),
+                "pass_keywords": _single(self.edit_pass_keyword),
+                "pass_logic": "and",
+                "fail_keywords": _single(self.edit_fail_keyword),
+                "fail_logic": "and",
             },
             "gui": {
                 "tool_path": self.edit_tool_path.text().strip(),
@@ -223,8 +199,9 @@ class _Slot(QWidget):
         }
 
 
-def _non_empty(edits: list[QLineEdit]) -> list[str]:
-    return [e.text().strip() for e in edits if e.text().strip()]
+def _single(edit: QLineEdit) -> list[str]:
+    text = edit.text().strip()
+    return [text] if text else []
 
 
 class FirmwareConfigPanel(QWidget):
