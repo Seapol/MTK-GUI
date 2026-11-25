@@ -373,6 +373,17 @@ class HeadlessEnv:
             # deterministic (P0 acceptance: zero flaky runs); fault
             # injection ratios are still set via set_fault_ratios()
             self.rack = VirtualRack(seed=42)
+            # M83/C9: the N5747A setpoints come from equipment.psu.params,
+            # exactly as on the real gateway - a demo config without them
+            # reports Error on the Power On row instead of a fake 12 V.
+            psu_params = ((cfg.get("equipment") or {}).get("psu") or {}).get(
+                "params") or {}
+            try:
+                self.rack.psu_setpoints = {
+                    "voltage": float(psu_params.get("Voltage set (V)")),
+                    "current": float(psu_params.get("Current limit (A)"))}
+            except (TypeError, ValueError):
+                self.rack.psu_setpoints = None
             # FCT Wi-Fi/BT always run the real RF adapter path (never
             # virtualised) - the headless demo has no real access
             # points, so the demo ENVIRONMENT is simulated with a

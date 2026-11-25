@@ -665,6 +665,11 @@ class VirtualRack:
         self.fixture = VirtualFixture(self.rng)
         self.daqm = VirtualDAQ973A(self.rng)
         self.daq = VirtualU2355A(self.rng)
+        # N5747A setpoints as declared on the Equipment page
+        # (equipment.psu.params).  The page and the headless demo fill
+        # this in before a run; a power op without it is an Error, never
+        # a silent default.
+        self.psu_setpoints = None
 
     # -- configuration / lifecycle ---------------------------------------
     def set_fault_ratios(self, fail_pct, err_pct):
@@ -714,10 +719,29 @@ class VirtualRack:
         if t == "power":
             # the E-Stop loop is hard-wired to the PSU J1 inhibit
             self.psu.inhibited = self.fixture.estop_triggered
-            if "voltage" in p:
+            # M83/C9: a power row carries its STATE, the setpoints come
+            # from equipment.psu.params - exactly as the real gateway.
+            state = str(p.get("state") or "").strip().lower()
+            if state not in ("on", "off"):
+                low = str(name or "").lower()
+                if "power on" in low:
+                    state = "on"
+                elif "power off" in low:
+                    state = "off"
+            if state == "on":
+                volt = p.get("voltage")
+                curr = p.get("current")
+                if volt is None or curr is None:
+                    declared = self.psu_setpoints or {}
+                    volt = declared.get("voltage")
+                    curr = declared.get("current")
+                if volt is None or curr is None:
+                    return Measurement(
+                        "Error", "—",
+                        ["PSU: no setpoints - equipment.psu.params has no "
+                         "numeric 'Voltage set (V)' / 'Current limit (A)'"])
                 ok, lines = self.psu.set_output(
-                    True, float(p.get("voltage", 5.0)),
-                    float(p.get("current", 1.0)))
+                    True, float(volt), float(curr))
             else:
                 ok, lines = self.psu.set_output(False)
             if fault == "Error" and ok:

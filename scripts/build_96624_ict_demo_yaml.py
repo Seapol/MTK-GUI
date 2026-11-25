@@ -280,6 +280,36 @@ def make_window():
     return MainWindow(role=ROLE_SUPERVISOR, mode="Virtual")
 
 
+def mark_limitless_rows(page) -> list[str]:
+    """Rows Route A could not source a limit for stay in the plan but are
+    disabled with a reason comment: a limit-less row reports TBD, which
+    fails the ICT stage, and an unmeasurable item must never gate a run
+    (production rule: coverage first, but every disabled row traceable).
+    Returns the disabled row names."""
+    comments = list(getattr(page, "ict_comments", None) or [])
+    steps = list(getattr(page, "ict_steps", None) or [])
+    if len(comments) < len(steps):
+        comments += [""] * (len(steps) - len(comments))
+    disabled = []
+    for i, step in enumerate(steps):
+        if step[0] != "test":
+            continue
+        if str(step[2]).strip() == "Ω":
+            # an impedance row is a short test: its limit is the 1.5 ohm
+            # floor, so a blank window is not a missing limit
+            continue
+        lo = str(step[4]).strip()
+        hi = str(step[5]).strip()
+        if lo in ("", "—", "TBD", "None") or hi in ("", "—", "TBD", "None"):
+            page.ict_enables[i] = False
+            comments[i] = ("No limit sourced for this net (the SPF and the "
+                           "engineer sheet gave none) - disabled until a "
+                           "limit is authored")
+            disabled.append(step[1])
+    page.ict_comments = comments
+    return disabled
+
+
 def apply_to_window(window, model) -> None:
     """Push the headless-built model into the real pages (the same
     state the GUI holds after the user walks through the blocks, using
@@ -315,6 +345,10 @@ def apply_to_window(window, model) -> None:
     window._fill_ict_sequence(standard_ict_sequence(
         build_sequence(page_model),
         daq_ai_rail_count(page_model.channel_allocation)))
+    disabled = mark_limitless_rows(page)
+    if disabled:
+        print(f"[OK] disabled {len(disabled)} limit-less row(s): "
+              + ", ".join(disabled))
     # ICT-only: no FCT cases + disable the Overall Flow FCT stage
     page.load_fct_cases([])
     page._overall_en[1] = False
@@ -326,7 +360,7 @@ def run_virtual_demo(window) -> str:
     Overall Result plus a per-step FAIL summary."""
     page = window.workflow_page
     runner = page._runner
-    runner.run_demo()
+    page.run_demo()          # page API: hands the PSU setpoints to the rack
     verdict = runner.verdict() or "—"
     failures = []
     for kind, rows, steps in (("ict", page.ict_enables, page.ict_steps),):

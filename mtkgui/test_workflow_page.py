@@ -2857,6 +2857,10 @@ class TestWorkFlowPage(QWidget):
     def run_demo(self):
         """Synchronous full pass (used by smoke test); honors the
         Overall Flow EN checkboxes (engine, TestRunner.run_demo)."""
+        if bool(getattr(self, "virtual_mode", False)):
+            # same setpoint hand-off as the interactive Run path: a
+            # Power On row must energise what equipment.psu.params says
+            self._apply_virtual_psu_setpoints()
         self._runner.run_demo()
 
     # ------------------------------------------------------------ run control
@@ -3134,6 +3138,7 @@ class TestWorkFlowPage(QWidget):
         never a silent per-row Error at step k.  Virtual mode keeps its
         simulated rack (no real gateway is opened)."""
         if bool(getattr(self, "virtual_mode", False)):
+            self._apply_virtual_psu_setpoints()
             return True
         if getattr(self, "gateway", None) is not None:
             self._log("[Run] instruments: reusing the open session")
@@ -3179,6 +3184,26 @@ class TestWorkFlowPage(QWidget):
         self._log(f"[Run] instruments: opened {len(opened)} instrument(s)")
         self.instruments_connected.emit(dict(opened))
         return True
+
+    def _apply_virtual_psu_setpoints(self) -> None:
+        """Virtual mode: hand the N5747A setpoints declared in
+        ``equipment.psu.params`` to the simulated rack, so a Power On row
+        energises the same 12 V / 3 A the real rack would.  Missing
+        values stay missing - the power op then reports Error instead of
+        inventing a default."""
+        rack = getattr(self, "rack", None)
+        if rack is None:
+            return
+        params = ((self._rack_configs().get("psu") or {}).get("params")
+                  or {})
+        volt = params.get("Voltage set (V)")
+        curr = params.get("Current limit (A)")
+        try:
+            rack.psu_setpoints = (
+                {"voltage": float(volt), "current": float(curr)}
+                if volt is not None and curr is not None else None)
+        except (TypeError, ValueError):
+            rack.psu_setpoints = None
 
     def _release_rack(self) -> None:
         """Close the Run-owned instrument session (Stop / app exit)."""
