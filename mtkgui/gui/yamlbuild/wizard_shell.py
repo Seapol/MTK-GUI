@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -546,7 +547,17 @@ class YamlBuildWizard(QWidget):
         width = max(hint.width(), content_w + 48, 760)
         # M131: the header block + action rows + button box occupy ~120 px
         # (the old 96 px allowance left node 04's last card row clipped)
-        height = max(hint.height() + 44, content_h + 120, 560)
+        # M137: the chrome around the content (title row, guide block,
+        # padlock/Save/Next row, button box) measures ~140 px; +120 left the
+        # scroll area 19 px short on the 1366-wide test screen, which put a
+        # vertical scrollbar on a dialog that should not need one.
+        # M137: the chrome around the content (title row, guide block, hint
+        # line, padlock/Save/Next row, button box) measures 190-198 px once
+        # the labels have wrapped for this width - the old +120 allowance left
+        # the scroll area short and the dialog answered with a vertical
+        # scrollbar.  200 px keeps every node scroll-free down to the point
+        # where its own panel really is taller than the screen.
+        height = max(hint.height() + 44, content_h + 200, 560)
         dlg.resize(min(width, int(avail.width() * 0.9)),
                    min(height, int(avail.height() * 0.9)))
         accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit

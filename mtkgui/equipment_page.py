@@ -2893,7 +2893,8 @@ class EquipmentPage(QWidget):
         self.splitter.setStretchFactor(1, 1)
         # M80-1: default at the computed width (longest surviving label +
         # Config button + row/scrollbar margins, clamped 320..480)
-        self.computed_left_width = self._left_column_width()
+        self.computed_left_width = max(self._left_column_width(),
+                                       self.left_list.minimumWidth() + 8)
         # the computed width is the DEFAULT; a drag may still narrow the
         # column down to the floor (labels keep their full-text tooltip)
         self.left_list.setMinimumWidth(LEFT_COLUMN_MIN_PX // 2)
@@ -2983,6 +2984,11 @@ class EquipmentPage(QWidget):
             body_lay.addWidget(group_box)
         body_lay.addStretch(1)
         self.left_list.setWidget(body)
+        # M137: the horizontal bar is switched off, so a column narrower than
+        # the body silently clipped the Config buttons on the right.  Reserve
+        # exactly the body's own minimum width.
+        self.left_list.setMinimumWidth(
+            max(240, body.minimumSizeHint().width() + 6))
         outer.addWidget(self.left_list, 1)
         self._sync_group_toggles()
         return panel

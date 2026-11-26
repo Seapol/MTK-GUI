@@ -10,9 +10,11 @@ Route B impedance/voltage consistency gate fails.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -58,7 +60,7 @@ class ParseNetsV2Panel(QWidget):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.setMinimumWidth(1160)
+        self.setMinimumWidth(1168)
 
         # ------------------------------------------ move controls
         move_row = QHBoxLayout()
@@ -79,31 +81,35 @@ class ParseNetsV2Panel(QWidget):
         # M129: Parsed Nets and Other Nets used to be stacked, which left
         # two huge empty tables in the dialog.  They now share one row so
         # the four-class split reads left (used) to right (unused).
-        columns = QHBoxLayout()
-        columns.setSpacing(10)
+        # M137: a grid, not two VBox columns.  The Route B note under the
+        # right table used to shorten that table by one text line, so the
+        # two tables did not end on the same baseline; on a shared grid row
+        # both tables take the same height and the note sits underneath.
+        columns = QGridLayout()
+        columns.setContentsMargins(0, 0, 0, 0)
+        columns.setHorizontalSpacing(10)
+        columns.setVerticalSpacing(4)
 
-        left_col = QVBoxLayout()
-        left_col.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel("Parsed Nets:")
         lbl.setObjectName("strong")
-        left_col.addWidget(lbl)
-        self.table = self._make_table()
-        left_col.addWidget(self.table, 1)
-
-        right_col = QVBoxLayout()
-        right_col.setContentsMargins(0, 0, 0, 0)
+        columns.addWidget(lbl, 0, 0)
         lbl_other = QLabel("Other Nets:")
         lbl_other.setObjectName("strong")
-        right_col.addWidget(lbl_other)
+        columns.addWidget(lbl_other, 0, 1)
+
+        self.table = self._make_table()
         self.table_other = self._make_table()
-        right_col.addWidget(self.table_other, 1)
+        columns.addWidget(self.table, 1, 0)
+        columns.addWidget(self.table_other, 1, 1)
+
         self.lbl_other_note = QLabel("")
         self.lbl_other_note.setObjectName("muted")
         self.lbl_other_note.setWordWrap(True)
-        right_col.addWidget(self.lbl_other_note)
+        columns.addWidget(self.lbl_other_note, 2, 1)
 
-        columns.addLayout(left_col, 1)
-        columns.addLayout(right_col, 1)
+        columns.setColumnStretch(0, 1)
+        columns.setColumnStretch(1, 1)
+        columns.setRowStretch(1, 1)
         lay.addLayout(columns, 1)
 
         # ------------------------------------------ import summary
@@ -114,19 +120,69 @@ class ParseNetsV2Panel(QWidget):
         self._render()
 
     # ------------------------------------------------------------- table
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        self._fit_columns()
+
+    def _fit_columns(self) -> None:
+        """Share the table width: every header stays readable, the net name
+        takes the slack, and no column ever spills into a horizontal bar."""
+        for table in (self.table, self.table_other):
+            viewport = table.viewport().width()
+            if viewport <= 0:
+                continue
+            metrics = QFontMetrics(table.horizontalHeader().font())
+            minimums = [metrics.horizontalAdvance(col) + 14
+                        for col in V2_COLUMNS]
+            total = sum(minimums)
+            if total >= viewport:
+                scale = viewport / total
+                widths = [max(24, int(w * scale)) for w in minimums]
+                widths[0] += viewport - sum(widths)
+            else:
+                slack = viewport - total
+                widths = list(minimums)
+                widths[0] += int(slack * 0.72)
+                rest = slack - int(slack * 0.62)
+                for index in range(1, len(widths)):
+                    widths[index] += rest // (len(widths) - 1)
+            # the last column absorbs the rounding so the table ends flush
+            widths[-1] += viewport - sum(widths)
+            for column, width in enumerate(widths):
+                table.setColumnWidth(column, max(24, width))
+
     def _make_table(self) -> QTableWidget:
         table = QTableWidget(0, len(V2_COLUMNS))
         table.setHorizontalHeaderLabels(list(V2_COLUMNS))
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Interactive)
-        table.horizontalHeader().setStretchLastSection(True)
-        for column, width in enumerate((150, 95, 105, 100, 95, 105, 85)):
-            table.setColumnWidth(column, width)
+        # M137: fixed pixel widths summed to 735 px while the side-by-side
+        # layout gives each table ~575 px inside the dialog, so both tables
+        # carried a horizontal scrollbar on a default window.  The columns
+        # now share the table width; long names elide with a tooltip.
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Expanding)
-        table.setMinimumHeight(280)
-        table.setMinimumWidth(560)
+        table.setMinimumHeight(420)
+        table.setMinimumWidth(360)
+        table.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        # M137: seven columns per table, two tables per window - the global
+        # header padding (6/10) made the headers alone need 653 px per table,
+        # which no default dialog can give twice.  Compact the cell/header
+        # metrics here (the rest of the application keeps the roomier style)
+        # so both tables fit the default window without a horizontal bar.
+        table.setStyleSheet(
+            "QHeaderView::section { padding: 4px 6px; font-size: 10px; }"
+            "QTableWidget::item { padding: 2px 4px; font-size: 11px; }")
+        header_font = QFont(table.font())
+        base = header_font.pointSizeF()
+        header_font.setPointSizeF(max(8.0, (base if base > 0 else 10.0) - 1.5))
+        header_font.setBold(True)
+        table.horizontalHeader().setFont(header_font)
+        table.verticalHeader().setVisible(False)
         return table
 
     # ----------------------------------------------------------- loading
@@ -211,6 +267,7 @@ class ParseNetsV2Panel(QWidget):
             self.lbl_summary.setText(self._state.summary())
         else:
             self.lbl_summary.setText("no parse yet")
+        self._fit_columns()
 
     def _fill_table(self, table: QTableWidget, rows) -> None:
         # drop previous cell widgets first (ghost-combo guard)
@@ -233,6 +290,9 @@ class ParseNetsV2Panel(QWidget):
                     continue
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                # M137: the columns share the table width, so a long net name
+                # is elided - the tooltip carries the full text.
+                item.setToolTip(value)
                 table.setItem(row_index, col, item)
 
     def _category_cell(self, table, row_index, row, current: str) -> None:
@@ -240,7 +300,11 @@ class ParseNetsV2Panel(QWidget):
         combo = QComboBox()
         combo.setInsertPolicy(QComboBox.NoInsert)
         combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToContents)
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        combo.setMinimumContentsLength(9)
+        combo.setStyleSheet(
+            "QComboBox { padding: 0px 2px; font-size: 11px; }"
+            "QComboBox::drop-down { width: 14px; }")
         combo.addItems(list(V2_CATEGORIES))
         combo.setCurrentText(current)
         combo.currentTextChanged.connect(

@@ -37,11 +37,18 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`f68b1b5` (M136) - 2026-11-26**. Everything up to it is on
+GUI head: **M137 - pending hash**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M137` - the node 02 window fits a default window without scrollbars:
+  the two net tables share one grid row (identical height, note under the
+  right table), columns share the table width instead of fixed 735 px, the
+  headers/cells use a compact table font, and the dialog chrome allowance
+  grew from 120 to 200 px.  The Equipment left column also reserves the
+  body's own minimum width so the Config buttons are no longer clipped
+  behind the (deliberately off) horizontal bar.
 - `M136` - the Equipment left list nests `Debugger -> Boundary Scan
   Analyzer` under `Instruments`; both optional instruments stay greyed
   (`N/A`, not developed) and the analyzer is kept out of the test-module
