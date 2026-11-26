@@ -37,11 +37,19 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`ec55989` (M142) - 2026-11-26**. Everything up to it is on
+GUI head: **`78efdaf` (M143) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M143` - node 02 keeps its values readable with real data: the
+  Category cell is a combo box, yet the column was sized from the header
+  text alone and clipped every value to "Po" / "Ot" once a netlist filled
+  the table; the column now reserves the widest category plus the arrow,
+  and the combo sizes itself to its longest entry instead of a fixed nine
+  characters (that hint was eating the net name column).  The deferred
+  column fit also moved onto a panel-owned timer so a panel closed before
+  the event ran can no longer fire into a deleted widget.
 - `M142` - node 02 fits its tables on the first show: an empty netlist
   never resized the two tables, so they kept Qt's ~100 px default columns
   and each carried a horizontal bar plus a clipped last column - even
