@@ -155,15 +155,17 @@ class ParseNetsV2Panel(QWidget):
             # sense" is twice the width of "power" and used to elide.  The
             # widest text per column is measured once per render.
             cell_metrics = QFontMetrics(table.font())
+            # +18: the cell's padding and the grid line are painted by the
+            # delegate - visualItemRect does not report them - and the
+            # Segoe UI glyphs on the bench run a few pixels wider than
+            # Helvetica does here, where +12 was already enough.
+            decor = 18
             for index in range(len(V2_COLUMNS)):
                 if index == 1:
                     continue
-                # +12: the cell spends 4 px padding either side and the
-                # grid line, so a "+8" column still elided one character on
-                # the bench ("clock_sin...").
                 needs[index] = max(needs[index],
                                    self._widest_text(table, index,
-                                                     cell_metrics) + 12)
+                                                     cell_metrics) + decor)
             # M143: the Category cell is a combo box, not a label - a column
             # sized from the header alone clipped every value to "Po" / "Ot"
             # once a real netlist filled the table.  The widest category plus
