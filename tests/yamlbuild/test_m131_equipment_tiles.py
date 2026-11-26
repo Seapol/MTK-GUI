@@ -12,8 +12,8 @@ from mtkgui.gui.yamlbuild.equipment_panel import (  # noqa: E402
     MODULES, EquipmentConfigPanel, ModuleTile)
 
 
-def _panel() -> EquipmentConfigPanel:
-    panel = EquipmentConfigPanel()
+def _panel(provider=None) -> EquipmentConfigPanel:
+    panel = EquipmentConfigPanel(equipment_provider=provider)
     panel.resize(1000, 520)
     panel.show()
     return panel
@@ -109,14 +109,16 @@ def test_dialogs_are_resizable_with_a_floor():
 
 
 def test_badges_track_the_config():
-    panel = _panel()
+    # M158b: fixture / peripherals are read-only station mirrors - the
+    # badge follows the Equipment node, not a page checkbox
+    panel = _panel(lambda: {"equipment": {
+        "peripherals": {"wifi": {"declared": True}}}})
     try:
         assert panel.tiles["instruments"].badge.text() == "NOT CHECKED"
         panel.btn_check.click()
         assert panel.tiles["instruments"].badge.text() == "CHECKED"
         panel.set_power_nets([{"name": "VDD_ARM", "test_point": "TP1"}])
         assert panel.tiles["rgnd"].badge.text() == "1 NETS"
-        panel.periph_boxes["wifi"].setChecked(True)
         assert panel.tiles["periph"].badge.text() == "1 ON"
     finally:
         panel.deleteLater()

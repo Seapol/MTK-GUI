@@ -160,6 +160,22 @@ class YamlBuildWizard(QWidget):
     cancelled = Signal()
     #: the FCT launcher step asked to open its external builder
     build_fct_requested = Signal()
+    #: M158b: node 04's fixture / peripheral mirrors ask for the
+    #: Equipment tab (re-emitted from the equipment panel)
+    equipment_page_requested = Signal()
+
+    @property
+    def equipment_provider(self):
+        """Callable returning the current project Equipment node."""
+        return self._equipment_provider
+
+    @equipment_provider.setter
+    def equipment_provider(self, provider) -> None:
+        """Late-bind the provider into the already-built node 04 panel."""
+        self._equipment_provider = provider
+        panel = getattr(self, "_panels", {}).get("equipment")
+        if panel is not None:
+            panel.equipment_provider = provider
 
     def __init__(self, model: YamlBuildModel | None = None,
                  parent: QWidget | None = None) -> None:
@@ -280,6 +296,8 @@ class YamlBuildWizard(QWidget):
                 EquipmentConfigPanel
             panel = EquipmentConfigPanel(
                 equipment_provider=self.equipment_provider)
+            panel.equipment_page_requested.connect(
+                self.equipment_page_requested)
             # v2-10: node 04 reaches the model - load the persisted
             # equipment config, then write back on every change.
             panel.set_values(self.model.get_equipment_config())

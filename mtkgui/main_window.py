@@ -1091,6 +1091,11 @@ class MainWindow(QMainWindow):
         # export, the ICT / FCT dialogs and every provider wired above.
         from .gui.yamlbuild.wizard_shell import YamlBuildWizard
         self._yaml_wizard = YamlBuildWizard(model=yb.model)
+        # M158b: node 04 mirrors the live Equipment node and its
+        # "Open Equipment page" button switches tabs
+        self._yaml_wizard.equipment_provider = yb.equipment_provider
+        self._yaml_wizard.equipment_page_requested.connect(
+            self._goto_equipment)
         yb.setParent(None)
         yb.hide()
 
@@ -2392,6 +2397,14 @@ class MainWindow(QMainWindow):
         table.setFocus()
         table.setCurrentCell(0, 1)
         table.scrollToTop()
+
+    def _goto_equipment(self):
+        """M158b: node 04 "Open Equipment page" -> the Equipment tab.
+
+        Navigation only: the station settings are edited there, never in
+        the node-04 mirror pages."""
+        _startup_mark("page switch -> Equipment", category="page")
+        self.tabs.setCurrentWidget(self._equipment_page)
 
     def _goto_console(self):
         """M81/C4: switch to the Test Work Flow page and focus the DUT

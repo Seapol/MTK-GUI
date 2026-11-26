@@ -74,6 +74,17 @@ MODULES: tuple[tuple[str, str, str, int, int], ...] = (
 _TILE_QSS = "QPushButton#moduleTile {{ min-height: {h}px; }}"
 _TILE_DIM_QSS = (" #tileTitle, #tileSub, #tileBadge {{ color: #6b7280; }}")
 
+#: M158b: the four station peripherals node 04 mirrors (exact labels).
+PERIPHERAL_LABELS = (
+    ("wifi", "Wi-Fi (Host PC Wi-Fi adapter)"),
+    ("bt", "Bluetooth (Host PC Bluetooth adapter)"),
+    ("router", "Router (bench router)"),
+    ("dut_console", "DUT serial console (USB on Host PC)"),
+)
+#: short forms for the tile badge line
+_PERIPHERAL_SHORT = {"wifi": "Wi-Fi", "bt": "Bluetooth",
+                     "router": "Router", "dut_console": "Console"}
+
 
 class ModuleTile(QPushButton):
     """A large clickable card: bold title, badge, muted two-line status."""
@@ -143,6 +154,8 @@ class EquipmentConfigPanel(QWidget):
     """Node 04: tile launcher, Instruments gates the rest."""
 
     content_changed = Signal()
+    #: M158b: the fixture / peripheral pages ask for the Equipment tab.
+    equipment_page_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None,
                  equipment_provider=None) -> None:
@@ -266,16 +279,15 @@ class EquipmentConfigPanel(QWidget):
             f"· arm lead {cfg.rails.arm_lead_ms} ms",
             "muted")
 
+        station = self._station()
         fixture = ("ATE" if cfg.fixture.type == FIXTURE_TYPE_ATE else "manual")
-        sig_on = sum(1 for s in cfg.fixture.signals.values() if s.enabled)
-        ports = f"{cfg.fixture.port1 or '-'} / {cfg.fixture.port2 or '-'}"
+        sig_on = sum(1 for on in station["signals"].values() if on)
+        ports = f"{station['port1'] or '-'} / {station['port2'] or '-'}"
         self.tiles["fixture"].set_status(
             fixture, f"ports {ports} · {sig_on} control signals on", "muted")
 
-        per = cfg.peripherals
-        names = [label for label, flag in (
-            ("Wi-Fi", per.wifi), ("Bluetooth", per.bt),
-            ("Router", per.router), ("Console", per.dut_console)) if flag]
+        names = [_PERIPHERAL_SHORT[key] for key, _label in PERIPHERAL_LABELS
+                 if station["peripherals"].get(key)]
         self.tiles["periph"].set_status(
             f"{len(names)} ON",
             " · ".join(names) if names else "no bench peripheral selected",
@@ -292,6 +304,7 @@ class EquipmentConfigPanel(QWidget):
         lbl_status = getattr(self, "lbl_psu_status", None)
         if lbl_status is not None:
             lbl_status.setText(self._check_status or "Not checked yet")
+        self._refresh_mirrors()
 
 
     # ------------------------------------------------------------- dialogs
@@ -439,6 +452,61 @@ class EquipmentConfigPanel(QWidget):
         if isinstance(data, dict) and "equipment" in data:
             data = data.get("equipment") or {}
         return data if isinstance(data, dict) else {}
+
+    def _station(self) -> dict:
+        """M158b: the station mirror for fixture / peripherals.
+
+        Reads ``port1`` / ``port2`` / the eight fixture signals / the
+        four peripheral flags from the Equipment node and falls back to
+        the plan config for anything the station node does not carry
+        (standalone panel, older station files).
+        """
+        node = self._equipment_node()
+        fixture = node.get("fixture") if isinstance(
+            node.get("fixture"), dict) else {}
+        periph = node.get("peripherals") if isinstance(
+            node.get("peripherals"), dict) else {}
+        signals_node = (fixture.get("signals")
+                        if isinstance(fixture.get("signals"), dict) else {})
+        port1 = str(fixture.get("port1")
+                    or self._config.fixture.port1 or "")
+        port2 = str(fixture.get("port2")
+                    or self._config.fixture.port2 or "")
+
+        def _flag(entry, default: bool) -> bool:
+            if isinstance(entry, dict):
+                return bool(entry.get("enabled", entry.get("declared",
+                                                           default)))
+            if isinstance(entry, bool):
+                return entry
+            if isinstance(entry, str):
+                return entry.strip().lower() in (
+                    "on", "true", "yes", "connected", "available")
+            return default
+
+        signals = {
+            sig.key: _flag(signals_node.get(sig.key),
+                           self._config.fixture.signals[sig.key].enabled)
+            for sig in FIXTURE_SIGNALS}
+        peripherals = {
+            key: _flag(periph.get(key),
+                       bool(getattr(self._config.peripherals, key, False)))
+            for key, _label in PERIPHERAL_LABELS}
+        return {"port1": port1, "port2": port2,
+                "signals": signals, "peripherals": peripherals}
+
+    def _refresh_mirrors(self) -> None:
+        """Paint the read-only fixture / peripheral station mirrors."""
+        station = self._station()
+        if hasattr(self, "port1"):
+            self.port1.setText(station["port1"] or "—")
+            self.port2.setText(station["port2"] or "—")
+            for sig in FIXTURE_SIGNALS:
+                self.signal_states[sig.key].setText(
+                    "on" if station["signals"].get(sig.key) else "off")
+            for key, _label in PERIPHERAL_LABELS:
+                self.periph_states[key].setText(
+                    "on" if station["peripherals"].get(key) else "off")
 
     def _probe_status(self) -> str:
         """One read-only line from the availability check (never raises).
@@ -742,19 +810,18 @@ class EquipmentConfigPanel(QWidget):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(12)
+        lay.addWidget(hint(
+            "Station-level settings — configured on the Equipment page.",
+            660))
 
         ports = QGroupBox("Probe ports", page)
         port_form = QFormLayout(ports)
         port_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         port_form.setHorizontalSpacing(14)
         port_form.setVerticalSpacing(8)
-        self.port1 = QLineEdit(self._config.fixture.port1, ports)
-        self.port1.setMaximumWidth(220)
-        self.port1.textChanged.connect(self._on_ports)
+        self.port1 = QLabel("", ports)
         port_form.addRow("Port 1", self.port1)
-        self.port2 = QLineEdit(self._config.fixture.port2, ports)
-        self.port2.setMaximumWidth(220)
-        self.port2.textChanged.connect(self._on_ports)
+        self.port2 = QLabel("", ports)
         port_form.addRow("Port 2", self.port2)
         lay.addWidget(ports)
 
@@ -762,27 +829,23 @@ class EquipmentConfigPanel(QWidget):
         sig_grid = QGridLayout(signals)
         sig_grid.setHorizontalSpacing(24)
         sig_grid.setVerticalSpacing(8)
-        self.signal_boxes: dict[str, QCheckBox] = {}
+        self.signal_labels: dict[str, QLabel] = {}
+        self.signal_states: dict[str, QLabel] = {}
         for index, sig in enumerate(FIXTURE_SIGNALS):
-            box = QCheckBox(sig.label, signals)
-            box.setChecked(sig.enabled)
-            box.toggled.connect(
-                lambda _=False, k=sig.key: self._on_signal(k))
-            self.signal_boxes[sig.key] = box
-            sig_grid.addWidget(box, index // 2, index % 2)
+            name = QLabel(sig.label, signals)
+            state = QLabel("off", signals)
+            state.setProperty("tone", "muted")
+            self.signal_labels[sig.key] = name
+            self.signal_states[sig.key] = state
+            sig_grid.addWidget(name, index // 2, (index % 2) * 2)
+            sig_grid.addWidget(state, index // 2, (index % 2) * 2 + 1)
         lay.addWidget(signals)
+
+        btn = QPushButton("Open Equipment page", page)
+        btn.clicked.connect(lambda: self.equipment_page_requested.emit())
+        lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addStretch(1)
         return page
-
-    def _on_ports(self) -> None:
-        self._config.fixture.port1 = self.port1.text()
-        self._config.fixture.port2 = self.port2.text()
-        self._changed()
-
-    def _on_signal(self, key: str) -> None:
-        self._config.fixture.signals[key].enabled = (
-            self.signal_boxes[key].isChecked())
-        self._changed()
 
     # ------------------------------------------------------------- page 7
     def _build_peripherals_page(self) -> QWidget:
@@ -790,36 +853,31 @@ class EquipmentConfigPanel(QWidget):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(12)
+        lay.addWidget(hint(
+            "Station-level settings — configured on the Equipment page.",
+            660))
 
         found = QGroupBox("Benched peripherals", page)
         grid = QGridLayout(found)
         grid.setHorizontalSpacing(24)
         grid.setVerticalSpacing(8)
-        self.periph_boxes: dict[str, QCheckBox] = {}
-        for index, (key, label) in enumerate((("wifi", "Wi-Fi"),
-                                             ("bt", "Bluetooth"),
-                                             ("router", "Router"),
-                                             ("dut_console", "DUT console"))):
-            box = QCheckBox(label, found)
-            box.setChecked(bool(getattr(self._config.peripherals, key, False)))
-            box.toggled.connect(
-                lambda _=False, k=key: self._on_peripheral(k))
-            self.periph_boxes[key] = box
-            grid.addWidget(box, index // 2, index % 2)
+        self.periph_labels: dict[str, QLabel] = {}
+        self.periph_states: dict[str, QLabel] = {}
+        for index, (key, label) in enumerate(PERIPHERAL_LABELS):
+            name = QLabel(label, found)
+            state = QLabel("off", found)
+            state.setProperty("tone", "muted")
+            self.periph_labels[key] = name
+            self.periph_states[key] = state
+            grid.addWidget(name, index // 2, (index % 2) * 2)
+            grid.addWidget(state, index // 2, (index % 2) * 2 + 1)
         lay.addWidget(found)
 
-        lay.addWidget(hint(
-            "plug-and-play - no configuration required, always allowed in "
-            "05/06: T1 media converter, display, microphone, headset, SD "
-            "card, USB stick, RJ45 network cable, SFP module, and the like",
-            660))
+        btn = QPushButton("Open Equipment page", page)
+        btn.clicked.connect(lambda: self.equipment_page_requested.emit())
+        lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addStretch(1)
         return page
-
-    def _on_peripheral(self, key: str) -> None:
-        setattr(self._config.peripherals, key,
-                self.periph_boxes[key].isChecked())
-        self._changed()
 
     # ------------------------------------------------------------- load
     def set_power_nets(self, nets: list[dict]) -> None:
@@ -895,16 +953,6 @@ class EquipmentConfigPanel(QWidget):
         self.psu_current.setValue(config.psu_current_limit)
         self.prompt_on.setText(config.prompt_on)
         self.prompt_off.setText(config.prompt_off)
-        self.port1.setText(config.fixture.port1)
-        self.port2.setText(config.fixture.port2)
-        for sig in FIXTURE_SIGNALS:
-            self.signal_boxes[sig.key].setChecked(
-                config.fixture.signals[sig.key].enabled)
-        self.periph_boxes["wifi"].setChecked(config.peripherals.wifi)
-        self.periph_boxes["bt"].setChecked(config.peripherals.bt)
-        self.periph_boxes["router"].setChecked(config.peripherals.router)
-        self.periph_boxes["dut_console"].setChecked(
-            config.peripherals.dut_console)
         self.lbl_capacity.setText(capacity_line(config.instruments))
         self._refresh_rgnd_table()
         self._refresh_clock_table()
