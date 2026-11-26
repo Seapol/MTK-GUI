@@ -158,9 +158,12 @@ class ParseNetsV2Panel(QWidget):
             for index in range(len(V2_COLUMNS)):
                 if index == 1:
                     continue
+                # +12: the cell spends 4 px padding either side and the
+                # grid line, so a "+8" column still elided one character on
+                # the bench ("clock_sin...").
                 needs[index] = max(needs[index],
                                    self._widest_text(table, index,
-                                                     cell_metrics) + 8)
+                                                     cell_metrics) + 12)
             # M143: the Category cell is a combo box, not a label - a column
             # sized from the header alone clipped every value to "Po" / "Ot"
             # once a real netlist filled the table.  The widest category plus
