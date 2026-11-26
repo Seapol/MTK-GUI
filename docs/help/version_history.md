@@ -37,7 +37,7 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`cb2573e` (M135) - 2026-11-26**. Everything up to it is on
+GUI head: **`f68b1b5` (M136) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
