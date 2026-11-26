@@ -37,11 +37,20 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`3e8b6ae` (M155) - 2026-11-26**. Everything up to it is on
+GUI head: **`4974c85` (M156) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M156` - a node window can walk backwards, and every node explains itself.
+  `← Back: <previous>` (objectName `nodeBackButton`) is the leftmost footer
+  action, closes the window without writing a draft and re-opens the previous
+  reachable node, skipping the Route C gap exactly like `Next` skips it
+  forwards.  A `?` button (objectName `nodeHelpButton`, 44 px, drawn glyph)
+  opens `docs/help/steps/<NN>_<node>.md` - one page per node with what the
+  step produces, the prerequisite, numbered steps, the lock check and the real
+  refusal messages - rendered by `help_content.open_step_help` and kept out of
+  the User Guide chapter order on purpose.
 - `M155` - node 02 parses with visible feedback.  The toolbar button is now
   `Parse nets` (objectName `parseNetsButton`), because "Re-parse" implied the
   first run had happened somewhere else; a Route A parse drives a determinate

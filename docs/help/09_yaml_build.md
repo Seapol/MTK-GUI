@@ -32,6 +32,10 @@ quietly.
 
 ## How the nodes behave
 
+- **Every node window carries two helpers.** `← Back: <previous>` closes this
+  node and re-opens the one before it without writing anything, and the `?`
+  button opens that node's own step-by-step page (the same page the `?` in
+  every node opens, one per node, outside the User Guide chapter order).
 - **Left-click a node** to open its dialog. Each dialog validates its own
   fields: invalid input keeps the dialog open with the reason, and a node
   is never half-saved.
