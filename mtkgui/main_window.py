@@ -1104,6 +1104,8 @@ class MainWindow(QMainWindow):
         # M158b: node 04 mirrors the live Equipment node and its
         # "Open Equipment page" button switches tabs
         self._yaml_wizard.equipment_provider = yb.equipment_provider
+        # M159: node 06 imports the steps captured in the console
+        self._yaml_wizard.capture_buffer = self.capture_buffer
         self._yaml_wizard.equipment_page_requested.connect(
             self._goto_equipment)
         yb.setParent(None)

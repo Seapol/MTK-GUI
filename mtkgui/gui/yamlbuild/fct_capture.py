@@ -41,11 +41,23 @@ class CaptureBuffer:
     def __init__(self) -> None:
         self._steps: list = []
         self._annotations: list = []
+        self._listeners: list = []
+
+    def subscribe(self, callback) -> None:
+        """Register a no-argument callback fired whenever the buffer
+        changes (used by node 06 to refresh its Import button)."""
+        if callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def _notify(self) -> None:
+        for callback in list(self._listeners):
+            callback()
 
     def add_step(self, step, annotations=None) -> None:
         """Append one draft step plus the annotations that produced it."""
         self._steps.append(step)
         self._annotations.append(list(annotations or []))
+        self._notify()
 
     def steps(self) -> list:
         """The pending steps, in capture order (shallow copy)."""
@@ -59,6 +71,7 @@ class CaptureBuffer:
         """Drop every pending step (node 06 import did consume them)."""
         self._steps.clear()
         self._annotations.clear()
+        self._notify()
 
     def is_empty(self) -> bool:
         """True while no step has been captured."""

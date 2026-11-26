@@ -85,6 +85,9 @@ class BuildFctSequencePanel(QWidget):
         self._sequence = FctSequence(name="FCT Sequence")
         self._selected_index = -1
         self._loading = False
+        # M159: console-authored steps land here from the shared buffer
+        self._capture_buffer = None
+        self._dut_type = "linux"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -99,6 +102,12 @@ class BuildFctSequencePanel(QWidget):
         btn_row = QHBoxLayout()
         self.btn_add = QPushButton("Add Step")
         self.btn_add.setMenu(self._build_add_menu())
+        # M159: pull the steps drafted from console annotations
+        self.btn_import = QPushButton("Import from Console capture")
+        self.btn_import.setToolTip(
+            "Append the steps captured in the Test Work Flow console")
+        self.btn_import.setEnabled(False)
+        self.btn_import.clicked.connect(self._import_capture)
         self.btn_delete = QPushButton("Delete")
         self.btn_move_up = QPushButton("Move up")
         self.btn_move_down = QPushButton("Move down")
@@ -108,6 +117,7 @@ class BuildFctSequencePanel(QWidget):
         self.btn_move_down.clicked.connect(lambda: self._move(+1))
         self.btn_advanced.clicked.connect(self.advanced_requested.emit)
         btn_row.addWidget(self.btn_add)
+        btn_row.addWidget(self.btn_import)
         btn_row.addWidget(self.btn_delete)
         btn_row.addWidget(self.btn_move_up)
         btn_row.addWidget(self.btn_move_down)
@@ -145,6 +155,11 @@ class BuildFctSequencePanel(QWidget):
         split.setStretchFactor(1, 55)
         split.setSizes([450, 550])
         root.addWidget(split, 1)
+
+        # M159: one-line authoring hint (never a block)
+        self.lbl_recommend = QLabel()
+        root.addWidget(self.lbl_recommend)
+        self.set_dut_type("linux")
 
         self._render()
 
@@ -230,6 +245,50 @@ class BuildFctSequencePanel(QWidget):
     def sequence(self) -> FctSequence:
         """The edited sequence (a deep copy)."""
         return copy.deepcopy(self._sequence)
+
+    # --------------------------------------------------- console capture
+    def set_capture_buffer(self, buffer) -> None:
+        """Bind the application CaptureBuffer (main window owns it)."""
+        self._capture_buffer = buffer
+        if buffer is not None:
+            buffer.subscribe(self._refresh_import_button)
+        self._refresh_import_button()
+
+    def set_dut_type(self, dut_type: str) -> None:
+        """One-line authoring hint for the DUT kind (never a block)."""
+        self._dut_type = str(dut_type or "linux")
+        if self._dut_type == "bare_metal":
+            self.lbl_recommend.setText(
+                "Recommended: Annotate (listen only)")
+        else:
+            self.lbl_recommend.setText(
+                "Recommended: Record (auto-split on TX)")
+
+    def _refresh_import_button(self) -> None:
+        self.btn_import.setEnabled(self._capture_buffer is not None
+                                   and not self._capture_buffer.is_empty())
+
+    def _import_capture(self) -> None:
+        """Append every captured step, then clear the buffer."""
+        if self._capture_buffer is None:
+            return
+        captured = self._capture_buffer.steps()
+        if not captured:
+            return
+        sequence = self.sequence()
+        names = {step.name for step in sequence.steps}
+        for step in captured:
+            if step.name in names:
+                base, index = step.name, 2
+                while f"{base} ({index})" in names:
+                    index += 1
+                step.name = f"{base} ({index})"
+            names.add(step.name)
+            sequence.steps.append(step)
+        self._capture_buffer.clear()
+        self.set_sequence(sequence)
+        self.content_changed.emit()
+        self.table.setCurrentCell(len(sequence.steps) - 1, 0)
 
     # ------------------------------------------------------------- gate
     def validate(self) -> tuple[bool, str]:

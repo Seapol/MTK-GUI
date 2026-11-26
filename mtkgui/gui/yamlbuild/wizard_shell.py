@@ -179,6 +179,19 @@ class YamlBuildWizard(QWidget):
         if panel is not None:
             panel.equipment_provider = provider
 
+    @property
+    def capture_buffer(self):
+        """M159: the application CaptureBuffer wired by the main window."""
+        return getattr(self, "_capture_buffer", None)
+
+    @capture_buffer.setter
+    def capture_buffer(self, buffer) -> None:
+        """Late-bind the buffer into the already-built node 06 panel."""
+        self._capture_buffer = buffer
+        panel = getattr(self, "_panels", {}).get("build_fct")
+        if panel is not None:
+            panel.set_capture_buffer(buffer)
+
     def __init__(self, model: YamlBuildModel | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -201,6 +214,8 @@ class YamlBuildWizard(QWidget):
         #: (``equipment:`` dict); wired by the main window.  None = the
         #: node-04 panel runs standalone (tests / layout audit).
         self.equipment_provider = None
+        #: M159: console capture buffer (None until the main window wires it)
+        self._capture_buffer = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -330,6 +345,9 @@ class YamlBuildWizard(QWidget):
             from mtkgui.gui.yamlbuild.fct_sequence_v2_panel import (
                 BuildFctSequencePanel)
             panel = BuildFctSequencePanel()
+            # M159: Import from Console capture + the dut_type hint
+            panel.set_capture_buffer(self.capture_buffer)
+            panel.set_dut_type(self._fct_dut_type())
             # v2-13 D: node 06 seeds from the model's FCT cases and writes
             # back on every change.
             cases = self.model.get_fct_test_cases()
@@ -352,6 +370,25 @@ class YamlBuildWizard(QWidget):
             return panel
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
+
+    def _fct_dut_type(self) -> str:
+        """The project's FCT DUT kind (node 06 recommendation source).
+
+        Read from the model's ``fct_build`` parameters (the v1
+        ``fct_steps_yaml`` document carried through the shared model);
+        a missing / malformed document means the ``linux`` default.
+        """
+        params = self.model.get_params("fct_build") or {}
+        text = str(params.get("fct_steps_yaml") or "")
+        if not text.strip():
+            return "linux"
+        try:
+            import yaml
+            node = yaml.safe_load(text) or {}
+            fct = (node.get("fct") or {}) if isinstance(node, dict) else {}
+            return str(fct.get("dut_type") or "linux")
+        except Exception:                     # noqa: BLE001 - legacy YAML
+            return "linux"
 
     def _product_line(self) -> str:
         """One line naming the project a node window edits (M140)."""
