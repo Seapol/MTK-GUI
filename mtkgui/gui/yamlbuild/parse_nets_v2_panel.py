@@ -151,6 +151,16 @@ class ParseNetsV2Panel(QWidget):
                 continue
             metrics = QFontMetrics(table.horizontalHeader().font())
             needs = [metrics.horizontalAdvance(col) + 14 for col in V2_COLUMNS]
+            # M148: a label column is also sized by what it holds - "clock
+            # sense" is twice the width of "power" and used to elide.  The
+            # widest text per column is measured once per render.
+            cell_metrics = QFontMetrics(table.font())
+            for index in range(len(V2_COLUMNS)):
+                if index == 1:
+                    continue
+                needs[index] = max(needs[index],
+                                   self._widest_text(table, index,
+                                                     cell_metrics) + 8)
             # M143: the Category cell is a combo box, not a label - a column
             # sized from the header alone clipped every value to "Po" / "Ot"
             # once a real netlist filled the table.  The widest category plus
@@ -160,24 +170,38 @@ class ParseNetsV2Panel(QWidget):
             widest_category = max(metrics.horizontalAdvance(category)
                                   for category in V2_CATEGORIES)
             needs[1] = max(needs[1], widest_category + 50)
-            others = [index for index in range(len(V2_COLUMNS)) if index != 1]
-            rest_need = sum(needs[index] for index in others)
-            left = viewport - needs[1]
-            if left <= rest_need:
-                scale = left / rest_need
-                widths = {index: max(24, int(needs[index] * scale))
-                          for index in others}
+            # M148b: the short label columns keep their measured width and
+            # the net name absorbs what is left - it elides with a tooltip,
+            # the labels have no such fallback.  Only when the net name would
+            # fall under 90 px do the labels give space back.
+            labels = [index for index in range(2, len(V2_COLUMNS))]
+            labels_need = sum(needs[index] for index in labels)
+            room = viewport - needs[1]
+            net = room - labels_need
+            if net >= 90:
+                widths = {index: needs[index] for index in labels}
             else:
-                widths = {index: needs[index] for index in others}
-                slack = left - rest_need
-                widths[0] += int(slack * 0.72)
-                extra = slack - int(slack * 0.72)
-                for index in others[1:]:
-                    widths[index] += extra // (len(others) - 1)
+                scale = (room - 90) / labels_need if labels_need else 0
+                widths = {index: max(40, int(needs[index] * scale))
+                          for index in labels}
+            widths[0] = room - sum(widths.values())
             # the Category column absorbs the rounding so the table ends flush
             widths[1] = viewport - sum(widths.values())
             for column, width in widths.items():
                 table.setColumnWidth(column, max(24, width))
+
+    def _widest_text(self, table: QTableWidget, column: int,
+                     metrics: QFontMetrics) -> int:
+        """Widest rendered text in one column, cached until the next render."""
+        if column in self._text_widths:
+            return self._text_widths[column]
+        widest = 0
+        for row in range(table.rowCount()):
+            item = table.item(row, column)
+            if item is not None and item.text():
+                widest = max(widest, metrics.horizontalAdvance(item.text()))
+        self._text_widths[column] = widest
+        return widest
 
     def _make_table(self) -> QTableWidget:
         table = QTableWidget(0, len(V2_COLUMNS))
@@ -284,6 +308,7 @@ class ParseNetsV2Panel(QWidget):
                 if self._effective(r) == CATEGORY_OTHER]
 
     def _render(self) -> None:
+        self._text_widths: dict[int, int] = {}
         left, right = self._left_rows(), self._right_rows()
         self._fill_table(self.table, left)
         self._fill_table(self.table_other, right)

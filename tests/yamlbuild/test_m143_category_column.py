@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtGui import QFontMetrics  # noqa: E402
 from PySide6.QtWidgets import QApplication, QComboBox  # noqa: E402
 
 from mtkgui.gui.yamlbuild.parse_nets_v2 import (  # noqa: E402
@@ -34,7 +35,7 @@ def qapp():
 def _state() -> V2ParseState:
     rows = [
         V2NetRow(name="VDD_1V8", category="Power", sub_type="1V8"),
-        V2NetRow(name="CLK_24M", category="SE Clock", sub_type="24MHz"),
+        V2NetRow(name="CLK_24M", category="SE Clock", sub_type="clock_single"),
         V2NetRow(name="GND", category="GND", sub_type="ground"),
         V2NetRow(name="GPIO0", category="Other", sub_type="signal"),
     ]
@@ -89,5 +90,25 @@ def test_columns_end_flush_with_no_horizontal_bar(qapp):
             assert header <= viewport, (
                 f"header needs {header} px inside a {viewport} px viewport")
             assert not table.horizontalScrollBar().isVisible()
+    finally:
+        panel.deleteLater()
+
+
+def test_sub_type_column_fits_its_longest_value(qapp):
+    """A label column sizes to its widest value, not to its header."""
+    panel = _panel(qapp)
+    try:
+        metrics = QFontMetrics(panel.table.font())
+        longest = "clock_single"
+        needed = metrics.horizontalAdvance(longest)
+        for table in (panel.table, panel.table_other):
+            values = [table.item(row, 2).text()
+                      for row in range(table.rowCount())
+                      if table.item(row, 2) is not None]
+            if longest not in values:
+                continue
+            assert table.columnWidth(2) >= needed, (
+                f"Sub-type column {table.columnWidth(2)} px cannot show "
+                f"'{longest}' ({needed} px)")
     finally:
         panel.deleteLater()
