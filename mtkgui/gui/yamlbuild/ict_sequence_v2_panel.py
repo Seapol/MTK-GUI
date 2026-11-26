@@ -33,7 +33,8 @@ from PySide6.QtWidgets import (
 
 from mtkgui.gui.yamlbuild.ict_sequence_v2 import (
     BLOCK_LABELS, KIND_CLOCK_HZ, KIND_DELAY, KIND_OP, KIND_POWER_VOLTAGE,
-    KIND_RGND, OP_DAQ_AI_END, OP_DAQ_AI_START, block_of, generate_sequence,
+    KIND_RGND, OP_DAQ_AI_END, OP_DAQ_AI_START, OP_INSTRUMENTS, OP_POWER,
+    OP_RESET, POWER_OFF, block_of, generate_sequence,
     to_engine_cases, validate_sequence, IctStep)
 
 COLUMNS = ("#", "Step", "Type", "Net / TP", "Limits", "Instrument",
@@ -189,6 +190,19 @@ class BuildIctSequencePanel(QWidget):
         self.lbl_summary = QLabel("Steps: 0")
         head.addWidget(self.lbl_summary)
         head.addStretch(1)
+        # M158d: the generated sequence is a starting point - the operator
+        # can add / delete rows without rebuilding the whole plan
+        self.btn_add = QPushButton("Add test")
+        self.btn_add.setToolTip(
+            "Insert an R-GND measurement row before Power Off DUT")
+        self.btn_add.clicked.connect(self._on_add_test)
+        self.btn_delete = QPushButton("Delete step")
+        self.btn_delete.setToolTip(
+            "Delete the selected test row (the fixed frame operations "
+            "stay)")
+        self.btn_delete.clicked.connect(self._on_delete_selected)
+        head.addWidget(self.btn_add)
+        head.addWidget(self.btn_delete)
         self.btn_move_up = QPushButton("Move Up")
         self.btn_move_down = QPushButton("Move Down")
         self.btn_move_up.clicked.connect(lambda: self._move(-1))
@@ -401,6 +415,49 @@ class BuildIctSequencePanel(QWidget):
         if _edit_ict_row(self, step):
             self._render()
             self.content_changed.emit()
+
+    # --------------------------------------------------------- add / delete
+    def _on_add_test(self) -> None:
+        """M158d: insert one measurement row inside the measurement area.
+
+        The row lands before the first Power Off row, so it can never
+        precede Init Instruments or follow Reset Instruments.
+        """
+        step = IctStep(name="R-GND - New net", kind=KIND_RGND, net="")
+        index = len(self._steps)
+        for i, existing in enumerate(self._steps):
+            if (existing.kind == KIND_OP
+                    and existing.op_type == OP_POWER
+                    and existing.power_state == POWER_OFF):
+                index = i
+                break
+        self._steps.insert(index, step)
+        self._render()
+        self._select_step(step)
+        if _edit_ict_row(self, step):
+            self._render()
+        self.content_changed.emit()
+
+    def _on_delete_selected(self) -> None:
+        """M158d: delete the selected test row; fixed frame ops stay."""
+        step = self._step_at_row(self.table.currentRow())
+        if step is None:
+            return                     # block separator: nothing to delete
+        if step.kind == KIND_OP and step.op_type in (
+                OP_INSTRUMENTS, OP_RESET, OP_POWER):
+            return                     # frame rows are not deletable
+        try:
+            self._steps.remove(step)
+        except ValueError:
+            return
+        self._render()
+        self.content_changed.emit()
+
+    def _select_step(self, step: IctStep) -> None:
+        for row in range(self.table.rowCount()):
+            if self._step_at_row(row) is step:
+                self.table.setCurrentCell(row, 0)
+                return
 
     # ------------------------------------------------------------- reorder
     def _move(self, delta: int) -> None:
