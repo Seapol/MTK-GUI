@@ -116,6 +116,9 @@ that safe:
   equipment config, the marks and the locks. Every node window is rebuilt
   from the empty model, so node 02 cannot show the previous project's nets
   and node 05 cannot keep its steps.
+- **The draft on disk is forgotten too.** The nodes keep a restart-safe
+  draft in `config/yamlbuild_state.json`; Close Yaml removes this project's
+  entry (M141), so a relaunch cannot reload the project you closed.
 - **Loading a YAML replaces the state, it never merges.** A file that
   carries no netlist (an FCT-only project, for example) therefore starts
   with an empty netlist instead of inheriting the last ICT project's.

@@ -37,11 +37,16 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`55b6d0a` (M140) - 2026-11-26**. Everything up to it is on
+GUI head: **`242f4d2` (M141) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M141` - Close Yaml also forgets the project's draft: the nodes keep a
+  restart-safe draft (`config/yamlbuild_state.json`) and the reset used to
+  leave it on disk, so the next launch reloaded the project that had just
+  been closed.  `store.forget_project_state()` drops exactly that entry;
+  the Yaml Build tests now pin their draft store to a temporary directory.
 - `M140` - project isolation: Close Yaml (and loading another file) drops
   every project fact - parsed nets, channel allocation, ICT / FCT
   sequences, firmware and equipment config, marks, locks - because the
