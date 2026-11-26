@@ -85,7 +85,9 @@ def test_node_window_offers_save_draft_and_next(qapp):
         assert "Save Draft" in texts
         # Next names its target node (same wording the operator knows)
         assert any(t.startswith("Next: 02") for t in texts), texts
-        assert texts[-2:] == ["Apply_Save yaml", "Exit"]
+        # M135: node 07 alone carries the YAML write - 01-06 close on Exit
+        assert texts[-1] == "Exit", texts
+        assert "Apply_Save yaml" not in texts, texts
         assert dialog.parent() is wizard
     finally:
         wizard.deleteLater()
@@ -98,6 +100,7 @@ def test_last_node_has_no_next(qapp):
         texts = [b.text() for b in _dialog_buttons(dialog)]
         assert "Save Draft" in texts
         assert not any(t.startswith("Next:") for t in texts), texts
+        assert texts[-2:] == ["Apply_Save yaml", "Exit"], texts
         assert wizard._next_node_key("apply_save") is None
     finally:
         wizard.deleteLater()

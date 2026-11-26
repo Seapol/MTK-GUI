@@ -484,12 +484,12 @@ class YamlBuildWizard(QWidget):
             """Paint the window from the CURRENT lock / editability state."""
             locked_now = self.model.is_locked(key)
             if locked_now:
-                btn_lock.setText("🔒 Locked")
+                btn_lock.setText("🔓 Unlock")
                 btn_lock.setToolTip(
                     "This module is locked (complete + validated). Click "
                     "to unlock it - every later module unlocks with it.")
             else:
-                btn_lock.setText("🔓 Unlock")
+                btn_lock.setText("🔒 Lock")
                 btn_lock.setToolTip(
                     "Click to check this module (validation, foreground "
                     "progress) and lock it as completed.")
@@ -508,10 +508,15 @@ class YamlBuildWizard(QWidget):
         btn_lock.clicked.connect(
             lambda: self._toggle_lock(key, panel, sync_actions, status))
         sync_actions()
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        ok = btns.button(QDialogButtonBox.Ok)
-        ok.setText("Apply_Save yaml")
-        ok.setToolTip("Close the node; values stay in the configuration")
+        # M135: ``Apply_Save yaml`` belongs to node 07 only - every other
+        # node closes with ``Exit`` (values are already in the model).
+        style = (QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+                 if key == "apply_save" else QDialogButtonBox.Cancel)
+        btns = QDialogButtonBox(style)
+        if key == "apply_save":
+            ok = btns.button(QDialogButtonBox.Ok)
+            ok.setText("Apply_Save yaml")
+            ok.setToolTip("Close the node; values stay in the configuration")
         cancel = btns.button(QDialogButtonBox.Cancel)
         cancel.setText("Exit")
         cancel.setToolTip("Close the node without changing the configuration")
@@ -545,11 +550,10 @@ class YamlBuildWizard(QWidget):
         dlg.resize(min(width, int(avail.width() * 0.9)),
                    min(height, int(avail.height() * 0.9)))
         accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit
-        if accepted:
-            # M127: the dialog's own [Apply_Save yaml] now really applies -
-            # the panel's live values reach the model before the window
-            # closes (``Exit`` leaves the configuration untouched).
-            self._collect_panel_values(key)
+        # M135: nodes 01-06 close with ``Exit`` only, so the live panel
+        # values must reach the model on every close (node 07 keeps its
+        # ``Apply_Save yaml``, which writes the YAML file on top).
+        self._collect_panel_values(key)
         scroll.takeWidget()
         self._panel_host_lay.addWidget(panel)   # re-parent back after close
         self._refresh()

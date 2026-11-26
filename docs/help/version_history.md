@@ -37,17 +37,21 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`0092b0a` (M133) - 2026-11-26**. Everything up to it is on
+GUI head: **`1df5caf` (M135) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head.
 
+- `1df5caf` (M135) - the node padlock now names the action: `Lock` while
+  the module is open (click = validate + lock), `Unlock` once it is
+  locked. `Apply_Save yaml` is removed from nodes 01-06 - they close with
+  `Exit` and keep writing what you type into the model; the YAML file is
+  written on node 07 only.
+- `cf50079` (M134) - Route B is labelled `ICT Excel Spreadsheet
+  (Traditional)`.
 - `0092b0a` (M133) - User Guide rebuilt for the seven-node wizard:
   node 01-07 descriptions, node 02's two-table parse view, node 03-04-07
   pages, the three-page tab list, and every Yaml Build / Console
   screenshot re-shot from the current code.
-- Route B is now labelled `ICT Excel Spreadsheet (Traditional)`, so the
-  traditional per-net workbook cannot be mistaken for the MTK ICT sheet
-  route next to it.
 - `d1c0248` (M132) - Console drops the `Quick:` row: the dropdown plus
   `Save Cmd` / `Clear Cmd` and the `quick_commands.py` store are gone;
   `Font...` moves to the right end of the Send row, Tab completion keeps

@@ -41,13 +41,14 @@ quietly.
   YAML it generates.
 - **A star** on the node means it has been applied and validated at least
   once in this project. Stars persist with the project.
-- **Every node dialog has a padlock** (M128) on its right-hand action row,
-  showing the current state: `Unlock` while the module is open,
-  `Locked` once it has been checked. Clicking it runs the full validation
-  behind a foreground progress bar, so a long check never freezes the
-  window; a failed check lists the findings in a message box and leaves
-  the node unlocked. Locking means *this module's input is finished and
-  still valid* - only then does `Next` become available.
+- **Every node dialog has a padlock** (M128, wording fixed in M135) on its
+  right-hand action row, and it always names the action, not the state:
+  `Lock` while the module is open, `Unlock` once it has been checked.
+  Clicking `Lock` runs the full validation behind a foreground progress
+  bar, so a long check never freezes the window; a failed check lists the
+  findings in a message box and leaves the node unlocked and editable.
+  Locking means *this module's input is finished and still valid* - only
+  then does `Next` become available.
 - **Gating follows the padlocks, not the clock**: node 01 unlocks both
   02 and 03; either branch (02 parse or 03 firmware) unlocks 04
   Equipment Config; 04 unlocks 05 and 06 together; 05 or 06 unlocks 07.
@@ -57,6 +58,10 @@ quietly.
 - **Unlocking cascades forward**: releasing a node also releases every
   later node, so a changed upstream fact always re-opens the modules it
   feeds.
+- **`Apply_Save yaml` exists on node 07 only** (M135): nodes 01-06 write
+  what you type straight into the model and close with `Exit`, so there is
+  no per-node write button to press - the YAML file is written once, on
+  node 07.
 - **`Next` and `Save Draft` live inside the dialog** (M124 / M127). Node 01
   hands over to 02, 02 and 03 both hand over to 04, and 04 to 05. Node 07
   is the end of the chain and shows no `Next`; `Save Draft` is on every
