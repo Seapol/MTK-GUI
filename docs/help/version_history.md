@@ -37,10 +37,17 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`d1c0248` (M132) - 2026-11-26**. Everything up to it is on
+GUI head: **`0092b0a` (M133) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head.
 
+- `0092b0a` (M133) - User Guide rebuilt for the seven-node wizard:
+  node 01-07 descriptions, node 02's two-table parse view, node 03-04-07
+  pages, the three-page tab list, and every Yaml Build / Console
+  screenshot re-shot from the current code.
+- Route B is now labelled `ICT Excel Spreadsheet (Traditional)`, so the
+  traditional per-net workbook cannot be mistaken for the MTK ICT sheet
+  route next to it.
 - `d1c0248` (M132) - Console drops the `Quick:` row: the dropdown plus
   `Save Cmd` / `Clear Cmd` and the `quick_commands.py` store are gone;
   `Font...` moves to the right end of the Send row, Tab completion keeps

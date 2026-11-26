@@ -49,7 +49,7 @@ The panel has three parts:
   `FSW Revision` / `700 HW Revision` on the second (both a `Rev A` ... `Rev
   H` dropdown), `Batch #` on the third.
 - **Design Files for ICT** - the route selector **Route A** (`SPF + NET +
-  BoM`), **Route B** (`ICT Excel Spreadsheet`) or **Route C** (`MTK ICT
+  BoM`), **Route B** (`ICT Excel Spreadsheet (Traditional)`) or **Route C** (`MTK ICT
   Excel Sheet`), stacked top to bottom; route A is the default and the one
   this chapter uses, the other two stay greyed out.
 - **Pre-Configure for FCT**, next to it - the DUT board software and the

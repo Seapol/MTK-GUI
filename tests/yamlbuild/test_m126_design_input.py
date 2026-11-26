@@ -116,7 +116,8 @@ def test_ict_and_fct_blocks_share_one_row(panel):
 
 def test_route_labels_spell_out_route(panel):
     assert panel.radio_files.text() == "Route A - SPF + NET + BoM"
-    assert panel.radio_excel.text() == "Route B - ICT Excel Spreadsheet"
+    assert panel.radio_excel.text() == (
+        "Route B - ICT Excel Spreadsheet (Traditional)")
     assert panel.radio_mtk.text() == "Route C - MTK ICT Excel Sheet"
 
 

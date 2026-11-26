@@ -127,7 +127,7 @@ bottom:
 | Route | Input | What it does |
 |---|---|---|
 | **Route A** `SPF + NET + BoM` | Allegro Smart PDF + netlist (+ BOM) | the normal path: node 02 classifies the nets |
-| **Route B** `ICT Excel Spreadsheet` | a traditional ICT Excel | imports a prepared per-net test list |
+| **Route B** `ICT Excel Spreadsheet (Traditional)` | a traditional ICT Excel | imports a prepared per-net test list |
 | **Route C** `MTK ICT Excel Sheet` | the four-sheet workbook written by this tool | round trip for stations that review plans in Excel |
 
 Only one route is live at a time: the two you did not pick - radio label

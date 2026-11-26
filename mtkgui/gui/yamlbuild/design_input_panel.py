@@ -399,7 +399,8 @@ class DesignInputPanel(QWidget):
 
         self._route_group = QButtonGroup(box)
         self.radio_files = QRadioButton("Route A - SPF + NET + BoM")
-        self.radio_excel = QRadioButton("Route B - ICT Excel Spreadsheet")
+        self.radio_excel = QRadioButton(
+            "Route B - ICT Excel Spreadsheet (Traditional)")
         self.radio_mtk = QRadioButton("Route C - MTK ICT Excel Sheet")
         self.radio_files.setChecked(True)
         for radio in (self.radio_files, self.radio_excel, self.radio_mtk):
