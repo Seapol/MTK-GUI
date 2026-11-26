@@ -57,7 +57,7 @@ def test_padlock_reads_lock_while_open(qapp):
         padlock = _padlock(dialog)
         assert padlock.property("locked") is False
         assert padlock.text() == ""
-        assert padlock.toolTip().startswith("Click the closed padlock")
+        assert padlock.toolTip().startswith("Click to check this module")
     finally:
         wizard.deleteLater()
 

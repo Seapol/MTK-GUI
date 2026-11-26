@@ -67,9 +67,9 @@ def lock_icon(locked: bool, color: str = "#ffffff", size: int = 20) -> QIcon:
         # a solid body reads at 20 px where a hollow one turns into mush
         body_w, body_h = s * 0.54, s * 0.36
         body_x, body_y = (s - body_w) / 2, s * 0.52
-        shackle_w = s * 0.34
+        shackle_w = s * 0.38
         shackle_x = (s - shackle_w) / 2
-        shackle_top = s * 0.12
+        shackle_top = s * 0.10
 
         if not locked:
             # an open padlock is the same shackle swung up around its left
@@ -592,19 +592,19 @@ class YamlBuildWizard(QWidget):
             # open one unlocks, and the property carries the same state for
             # tests and QSS.
             btn_lock.setProperty("locked", bool(locked_now))
+            # the glyph shows the state, not the next click: a closed padlock
+            # means the module is locked, an open one that it is not
             btn_lock.setIcon(lock_icon(locked_now))
             if locked_now:
-                btn_lock.setAccessibleName("Unlock this module")
+                btn_lock.setAccessibleName("Module locked - click to unlock")
                 btn_lock.setToolTip(
                     "This module is locked (complete + validated). Click "
-                    "the open padlock to unlock it - every later module "
-                    "unlocks with it.")
+                    "to unlock it - every later module unlocks with it.")
             else:
-                btn_lock.setAccessibleName("Lock this module")
+                btn_lock.setAccessibleName("Module unlocked - click to lock")
                 btn_lock.setToolTip(
-                    "Click the closed padlock to check this module "
-                    "(validation, foreground progress) and lock it as "
-                    "completed.")
+                    "Click to check this module (validation, foreground "
+                    "progress) and lock it as completed.")
             btn_lock.setEnabled(editable)
             can_edit = editable and not locked_now
             panel.setEnabled(can_edit)

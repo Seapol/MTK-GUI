@@ -43,9 +43,9 @@ logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
 - `M154` - the footer padlock of every node dialog is an icon, not a label:
-  a 44 px square shows a drawn padlock only - closed while the module is
-  still open, shackle swung up once it is locked - and clicking it flips
-  both the node state and the drawing.  The glyph is painted from vectors at
+  a 44 px square shows a drawn padlock only - closed once the module is
+  locked, shackle swung open while it is not - and clicking it flips both
+  the node state and the drawing.  The glyph is painted from vectors at
   1x and 2x because a typed emoji renders differently on every platform (and
   not at all offscreen), and the two states share one set of coordinates so
   they cannot drift apart.  The state also lands on a `locked` property for

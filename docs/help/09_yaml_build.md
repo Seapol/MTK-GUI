@@ -42,9 +42,9 @@ quietly.
 - **A star** on the node means it has been applied and validated at least
   once in this project. Stars persist with the project.
 - **Every node dialog has a padlock button** (M128; icon-only since M154)
-  on its right-hand action row.  It shows the shape of the action rather
-  than a word - a closed padlock locks the module, an open one releases it,
-  and the tooltip spells the action out.  Clicking the closed padlock runs
+  on its right-hand action row.  The glyph is the state, not a word: a
+  closed padlock means the module is locked, an open one means it is still
+  open, and clicking it flips both the state and the drawing.  Locking runs
   the full validation behind a foreground progress
   bar, so a long check never freezes the window; a failed check lists the
   findings in a message box and leaves the node unlocked and editable.
