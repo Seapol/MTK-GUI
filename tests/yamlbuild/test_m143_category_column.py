@@ -12,8 +12,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtGui import QFontMetrics  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QComboBox  # noqa: E402
 
 from mtkgui.gui.yamlbuild.parse_nets_v2 import (  # noqa: E402
     V2_CATEGORIES,
@@ -55,17 +54,19 @@ def _panel(qapp) -> ParseNetsV2Panel:
     return panel
 
 
-def test_category_column_fits_the_longest_value(qapp):
+def test_category_column_fits_the_combo(qapp):
     panel = _panel(qapp)
     try:
-        metrics = QFontMetrics(panel.table.horizontalHeader().font())
-        needed = max(metrics.horizontalAdvance(category)
-                     for category in V2_CATEGORIES)
         for table in (panel.table, panel.table_other):
             width = table.columnWidth(1)
-            assert width >= needed + 20, (
-                f"Category column {width} px cannot show '{max(
-                    V2_CATEGORIES, key=len)}' plus the drop-down arrow")
+            combos = table.findChildren(QComboBox)
+            needed = max((combo.sizeHint().width() for combo in combos),
+                         default=0)
+            assert needed, "the Category column must host a combo box"
+            assert width >= needed, (
+                f"Category column {width} px is narrower than the combo's "
+                f"{needed} px hint, so '{max(V2_CATEGORIES, key=len)}' "
+                "would be clipped")
     finally:
         panel.deleteLater()
 
