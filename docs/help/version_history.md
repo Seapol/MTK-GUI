@@ -37,11 +37,16 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`242f4d2` (M141) - 2026-11-26**. Everything up to it is on
+GUI head: **`ec55989` (M142) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M142` - node 02 fits its tables on the first show: an empty netlist
+  never resized the two tables, so they kept Qt's ~100 px default columns
+  and each carried a horizontal bar plus a clipped last column - even
+  though the dialog was wide enough.  The columns are now fitted when the
+  panel is shown, when the viewport width is actually known.
 - `M141` - Close Yaml also forgets the project's draft: the nodes keep a
   restart-safe draft (`config/yamlbuild_state.json`) and the reset used to
   leave it on disk, so the next launch reloaded the project that had just
