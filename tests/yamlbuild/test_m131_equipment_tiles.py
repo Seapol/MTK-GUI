@@ -98,10 +98,15 @@ def test_dialogs_are_resizable_with_a_floor():
     panel = _panel()
     try:
         panel.btn_check.click()
-        for key, _title, _blurb, width, height in MODULES:
+        for key, _title, _blurb, width, _height in MODULES:
+            page = panel.page(key)
+            content_h = max(page.minimumSizeHint().height(),
+                            page.minimumSize().height(),
+                            page.sizeHint().height())
             dlg = panel.open_module(key)
             assert dlg.size().width() >= min(width, 680)
-            assert dlg.size().height() >= min(height, 480)
+            # M158c: the height follows the page content, not a fixed floor
+            assert dlg.size().height() >= min(content_h + 110, 480) - 2
             assert dlg.minimumWidth() <= dlg.width()
             dlg.close()
     finally:

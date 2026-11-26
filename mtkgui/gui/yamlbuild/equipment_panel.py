@@ -326,7 +326,7 @@ class EquipmentConfigPanel(QWidget):
 
     def _make_dialog(self, key: str) -> QDialog:
         spec = next(m for m in MODULES if m[0] == key)
-        _key, title, blurb, width, height = spec
+        _key, title, blurb, width, _height = spec
         dlg = QDialog(self)
         dlg.setObjectName("moduleDialog")
         dlg.setWindowTitle(f"04 · Equipment Config · {title}")
@@ -357,8 +357,13 @@ class EquipmentConfigPanel(QWidget):
         foot.addWidget(btn_close)
         lay.addLayout(foot)
 
-        dlg.resize(width, height)
-        dlg.setMinimumSize(min(width, 680), min(height, 480))
+        # M158c: the height follows the page content (+130 px chrome)
+        # instead of the MODULES hint, which left ~400 px of dead space.
+        content_h = max(self.page(key).minimumSizeHint().height(),
+                        self.page(key).minimumSize().height(),
+                        self.page(key).sizeHint().height())
+        dlg.resize(width, content_h + 130)
+        dlg.setMinimumSize(min(width, 680), min(content_h + 110, 480))
         return dlg
 
     # ------------------------------------------------------------- page 1
@@ -638,7 +643,6 @@ class EquipmentConfigPanel(QWidget):
         lay.addWidget(hint(
             "rails are derived by the DUT (LDO / DCDC / PMIC), not set here",
             660))
-        lay.addStretch(1)
         return page
 
     def _on_source(self) -> None:
@@ -844,7 +848,6 @@ class EquipmentConfigPanel(QWidget):
         btn = QPushButton("Open Equipment page", page)
         btn.clicked.connect(lambda: self.equipment_page_requested.emit())
         lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
-        lay.addStretch(1)
         return page
 
     # ------------------------------------------------------------- page 7
@@ -876,7 +879,6 @@ class EquipmentConfigPanel(QWidget):
         btn = QPushButton("Open Equipment page", page)
         btn.clicked.connect(lambda: self.equipment_page_requested.emit())
         lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
-        lay.addStretch(1)
         return page
 
     # ------------------------------------------------------------- load

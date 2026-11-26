@@ -369,8 +369,11 @@ class DialogCenterer(QObject):
             if screen is not None:
                 avail = screen.availableGeometry()
                 # QMessageBox sizes itself to its content by design:
-                # only center it, do not force-enlarge
-                if not isinstance(obj, QMessageBox):
+                # only center it, do not force-enlarge.  M158c: the node
+                # 04 module dialogs size to their own page content, so the
+                # 1.5x enlargement only added dead space below the form.
+                if (not isinstance(obj, QMessageBox)
+                        and obj.objectName() != "moduleDialog"):
                     if obj.property("_dlg_enlarged") is None:
                         obj.setProperty("_dlg_enlarged", True)
                         hint = obj.sizeHint()
