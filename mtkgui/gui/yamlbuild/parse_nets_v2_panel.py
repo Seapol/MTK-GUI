@@ -172,9 +172,16 @@ class ParseNetsV2Panel(QWidget):
             # the drop-down arrow is the real requirement, and it is settled
             # before the other columns get their share, otherwise the shared
             # width scales it back down.
-            widest_category = max(metrics.horizontalAdvance(category)
-                                  for category in V2_CATEGORIES)
-            needs[1] = max(needs[1], widest_category + 50)
+            # The combo is a cell widget inside the view, so its own
+            # sizeHint is measured before it is shown and comes back far too
+            # small; the widest label plus room for the arrow, the padding
+            # and the focus frame is what actually holds "SE Clock".
+            needs[1] = max(
+                needs[1],
+                max(cell_metrics.horizontalAdvance(category)
+                    for category in V2_CATEGORIES) + 56,
+                max(metrics.horizontalAdvance(category)
+                    for category in V2_CATEGORIES) + 50)
             # M148b: the short label columns keep their measured width and
             # the net name absorbs what is left - it elides with a tooltip,
             # the labels have no such fallback.  Only when the net name would

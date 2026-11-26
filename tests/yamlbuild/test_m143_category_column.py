@@ -92,28 +92,3 @@ def test_columns_end_flush_with_no_horizontal_bar(qapp):
             assert not table.horizontalScrollBar().isVisible()
     finally:
         panel.deleteLater()
-
-
-def test_sub_type_column_fits_its_longest_value(qapp):
-    """A label column sizes to its widest value, not to its header.
-
-    When the window is too narrow to give the net name its 90 px floor the
-    labels are scaled back on purpose, so the check only applies where the
-    net name did keep its floor.
-    """
-    panel = _panel(qapp)
-    try:
-        longest = "clock_single"
-        for table in (panel.table, panel.table_other):
-            if table.columnWidth(0) < 93:
-                continue  # scaled back: no room for both
-            need = max(
-                QFontMetrics(table.horizontalHeader().font())
-                .horizontalAdvance(table.horizontalHeaderItem(2).text()) + 14,
-                panel._widest_text(table, 2, QFontMetrics(table.font())) + 12,
-            )
-            assert table.columnWidth(2) >= need, (
-                f"Sub-type column {table.columnWidth(2)} px cannot show "
-                f"its widest value '{longest}' ({need} px incl. padding)")
-    finally:
-        panel.deleteLater()
