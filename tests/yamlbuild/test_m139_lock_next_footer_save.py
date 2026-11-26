@@ -103,7 +103,8 @@ def test_next_locks_the_node_it_leaves(qapp, monkeypatch):
         wizard.deleteLater()
 
 
-def test_footer_apply_writes_before_closing(qapp, monkeypatch):
+def test_footer_exit_does_not_write(qapp, monkeypatch):
+    # M158e: the footer is Exit only - the panel owns the single apply
     wizard = _wizard(qapp)
     try:
         dialog = _open_dialog(wizard, "apply_save")
@@ -115,24 +116,30 @@ def test_footer_apply_writes_before_closing(qapp, monkeypatch):
             return True, "Saved: /tmp/x.yaml"
 
         monkeypatch.setattr(panel, "apply_now", fake_apply)
-        _button(dialog, "Apply_Save yaml").click()
-        assert calls == [True], "footer must run the write"
-        assert dialog.result() == QDialog.DialogCode.Accepted, "and then close"
+        _button(dialog, "Exit").click()
+        assert calls == [], "Exit must not write the YAML"
+        assert dialog.result() != QDialog.DialogCode.Accepted
     finally:
         wizard.deleteLater()
 
 
-def test_footer_apply_keeps_the_window_on_failure(qapp, monkeypatch):
+def test_panel_apply_button_writes(qapp, monkeypatch):
+    # M158e: node 07's panel button is the ONLY apply action
     wizard = _wizard(qapp)
     try:
         dialog = _open_dialog(wizard, "apply_save")
         panel = wizard._panels["apply_save"]
-        monkeypatch.setattr(panel, "apply_now",
-                            lambda: (False, "Validation: 3 issue(s)"))
-        monkeypatch.setattr(QMessageBox, "warning",
-                            lambda *a, **k: None)
-        _button(dialog, "Apply_Save yaml").click()
-        assert dialog.result() != QDialog.DialogCode.Accepted
+        calls = []
+
+        def fake_apply():
+            calls.append(True)
+            return True, "Saved: /tmp/x.yaml"
+
+        monkeypatch.setattr(panel, "apply_now", fake_apply)
+        panel.setEnabled(True)               # the wizard disables it until locked
+        panel.btn_apply.setEnabled(True)
+        panel.btn_apply.click()
+        assert calls == [True], "the panel must run the write"
     finally:
         wizard.deleteLater()
 

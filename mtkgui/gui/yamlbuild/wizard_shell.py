@@ -745,23 +745,13 @@ class YamlBuildWizard(QWidget):
         btn_lock.clicked.connect(
             lambda: self._toggle_lock(key, panel, sync_actions, status))
         sync_actions()
-        # M135: ``Apply_Save yaml`` belongs to node 07 only - every other
-        # node closes with ``Exit`` (values are already in the model).
-        style = (QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-                 if key == "apply_save" else QDialogButtonBox.Cancel)
-        btns = QDialogButtonBox(style)
-        if key == "apply_save":
-            ok = btns.button(QDialogButtonBox.Ok)
-            ok.setText("Apply_Save yaml")
-            ok.setToolTip("Close the node; values stay in the configuration")
+        # M158e: every node closes with ``Exit`` only.  Node 07's single
+        # apply action is the panel's own ``Apply & Save Yaml`` button;
+        # the old footer copy is gone.
+        btns = QDialogButtonBox(QDialogButtonBox.Cancel)
         cancel = btns.button(QDialogButtonBox.Cancel)
         cancel.setText("Exit")
         cancel.setToolTip("Close the node without changing the configuration")
-        if key == "apply_save":
-            ok.setToolTip("Validate and write the YAML files, then close")
-            btns.accepted.connect(lambda: self._footer_apply(panel, dlg, status))
-        else:
-            btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         lay.addWidget(btns)
         # keep the whole dialog inside the screen - the action row and the
@@ -972,21 +962,6 @@ class YamlBuildWizard(QWidget):
         dlg.accept()
         QTimer.singleShot(0, lambda target=next_key:
                           self._open_step_dialog(target))
-
-    def _footer_apply(self, panel, dlg: QDialog, status: QLabel) -> None:
-        """Node 07 footer ``Apply_Save yaml``: validate + write, then close."""
-        saver = getattr(panel, "apply_now", None)
-        if not callable(saver):
-            dlg.accept()
-            return
-        ok, message = saver()
-        if ok:
-            # a written YAML is a completed node - same contract as 01-06
-            self.model.set_locked("apply_save", True)
-            dlg.accept()
-            return
-        status.setText("Not saved - fix the findings first")
-        QMessageBox.warning(dlg, "Apply & Save Yaml", message)
 
     # ---------------------------------------------------------- locks
     def _toggle_lock(self, key: str, panel: QWidget, sync, status: QLabel) -> None:

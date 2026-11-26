@@ -87,11 +87,16 @@ def test_nodes_01_to_06_have_no_apply_save(qapp):
         wizard.deleteLater()
 
 
-def test_node_07_keeps_apply_save(qapp):
+def test_node_07_has_no_footer_apply_save(qapp):
+    # M158e: the panel's ``Apply & Save Yaml`` is the single apply action
     wizard = YamlBuildWizard(model=YamlBuildModel())
     try:
         dialog = _open(wizard, "apply_save")
-        assert "Apply_Save yaml" in _button_texts(dialog)
-        assert "Exit" in _button_texts(dialog)
+        texts = _button_texts(dialog)
+        assert "Apply_Save yaml" not in texts
+        assert "Exit" in texts
+        # the panel's own button is the single apply action (M158e)
+        assert (wizard._panels["apply_save"].btn_apply.text()
+                == "Apply & Save Yaml")
     finally:
         wizard.deleteLater()

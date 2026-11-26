@@ -100,7 +100,8 @@ def test_last_node_has_no_next(qapp):
         texts = [b.text() for b in _dialog_buttons(dialog)]
         assert "Save Draft" in texts
         assert not any(t.startswith("Next:") for t in texts), texts
-        assert texts[-2:] == ["Apply_Save yaml", "Exit"], texts
+        assert texts[-1] == "Exit", texts
+        assert "Apply_Save yaml" not in texts, texts
         assert wizard._next_node_key("apply_save") is None
     finally:
         wizard.deleteLater()
