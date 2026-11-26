@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..ansi import AnsiDecoder
-from ..gui.yamlbuild.fct_build import STEP_MESSAGE_CHECK, FctStep
+from ..gui.yamlbuild.fct_authoring import annotations_to_step
 from ..gui.yamlbuild.fct_capture import (
     ANNOTATION_COMMAND,
     ANNOTATION_EXPECT_FAIL,
@@ -531,26 +531,10 @@ class ConsoleWidget(QGroupBox):
         """
         if self._capture_buffer is None or not self._annotations:
             return None
-        command = "\n".join(a.text for a in self._annotations
-                            if a.kind == ANNOTATION_COMMAND)
-        pass_words = [a.text for a in self._annotations
-                      if a.kind == ANNOTATION_EXPECT_PASS]
-        fail_words = [a.text for a in self._annotations
-                      if a.kind == ANNOTATION_EXPECT_FAIL]
         index = len(self._capture_buffer.steps()) + 1
-        step = FctStep(
-            name=f"Console {self.role_key} capture {index}",
-            step_type=STEP_MESSAGE_CHECK,
-            channel=self.role_key,
-            command=command,
-            expect_pass=pass_words,
-            expect_fail=fail_words,
-            timeout_s=30.0,
-            params={"fct_console": True, "kind": "send",
-                    "send_enabled": bool(command), "send": command,
-                    "capture_enabled": bool(pass_words or fail_words),
-                    "capture_timeout": 30.0, "wait_enabled": False},
-        )
+        step = annotations_to_step(
+            self._annotations, self.role_key,
+            name=f"Console {self.role_key} capture {index}")
         self._capture_buffer.add_step(step, self._annotations)
         self._annotations = []
         return step
