@@ -143,37 +143,40 @@ class ParseNetsV2Panel(QWidget):
         self._fit_timer.start(0)
 
     def _fit_columns(self) -> None:
-        """Share the table width: every header stays readable, the net name
-        takes the slack, and no column ever spills into a horizontal bar."""
+        """Share the table width: the Category combo keeps what it needs, the
+        net name takes the slack, and no column ever spills into a bar."""
         for table in (self.table, self.table_other):
             viewport = table.viewport().width()
             if viewport <= 0:
                 continue
             metrics = QFontMetrics(table.horizontalHeader().font())
-            minimums = [metrics.horizontalAdvance(col) + 14
-                        for col in V2_COLUMNS]
+            needs = [metrics.horizontalAdvance(col) + 14 for col in V2_COLUMNS]
             # M143: the Category cell is a combo box, not a label - a column
             # sized from the header alone clipped every value to "Po" / "Ot"
-            # once a real netlist filled the table.  Reserve the widest
-            # category plus the drop-down arrow.
+            # once a real netlist filled the table.  The widest category plus
+            # the drop-down arrow is the real requirement, and it is settled
+            # before the other columns get their share, otherwise the shared
+            # width scales it back down.
             widest_category = max(metrics.horizontalAdvance(category)
                                   for category in V2_CATEGORIES)
-            minimums[1] = max(minimums[1], widest_category + 34)
-            total = sum(minimums)
-            if total >= viewport:
-                scale = viewport / total
-                widths = [max(24, int(w * scale)) for w in minimums]
-                widths[0] += viewport - sum(widths)
+            needs[1] = max(needs[1], widest_category + 18)
+            others = [index for index in range(len(V2_COLUMNS)) if index != 1]
+            rest_need = sum(needs[index] for index in others)
+            left = viewport - needs[1]
+            if left <= rest_need:
+                scale = left / rest_need
+                widths = {index: max(24, int(needs[index] * scale))
+                          for index in others}
             else:
-                slack = viewport - total
-                widths = list(minimums)
+                widths = {index: needs[index] for index in others}
+                slack = left - rest_need
                 widths[0] += int(slack * 0.72)
-                rest = slack - int(slack * 0.62)
-                for index in range(1, len(widths)):
-                    widths[index] += rest // (len(widths) - 1)
-            # the last column absorbs the rounding so the table ends flush
-            widths[-1] += viewport - sum(widths)
-            for column, width in enumerate(widths):
+                extra = slack - int(slack * 0.72)
+                for index in others[1:]:
+                    widths[index] += extra // (len(others) - 1)
+            # the Category column absorbs the rounding so the table ends flush
+            widths[1] = viewport - sum(widths.values())
+            for column, width in widths.items():
                 table.setColumnWidth(column, max(24, width))
 
     def _make_table(self) -> QTableWidget:
