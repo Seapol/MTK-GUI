@@ -403,6 +403,30 @@ class YamlBuildModel:
             self._enabled[key] = True
         # M128: Close Yaml unlocks every module
         self.locks = {}
+        # M140: the factory baseline also drops every piece of DATA a
+        # project owns.  Close Yaml / loading another project used to
+        # keep the previous nets, allocation, sequences, firmware and
+        # equipment config, so a new project inherited them.
+        self._plan_version = "1.0.0"
+        self.marks = {}
+        self.imported = {"net": {"file": "", "raw": ""},
+                         "testable_nets": {}}
+        self.channel_allocation = {}
+        self.power_rails_up_sequence = {}
+        self.net_classification_rules = {}
+        self.se_clock_allocation = []
+        self.gpio_allocation = []
+        self.path_risk = {}
+        self.ict_test_plan = {}
+        self.ict_test_cases = []
+        self.fct_test_cases = []
+        self.parsed_nets = {}
+        self.command_snippets = []
+        self.firmware_config = default_firmware()
+        self.equipment_config = EquipmentConfig()
+        self._equipment_doc = {}
+        self.testplan_sync_report = []
+        self.changed = True
 
     def get_params(self, module_key: str) -> dict:
         """Return a copy of one module's parameters.
@@ -930,10 +954,15 @@ class YamlBuildModel:
         """
         if not isinstance(state, dict):
             return
+        # M124 / M140: a load REPLACES the project - never merge into
+        # whatever was open before.  An empty state is simply the factory
+        # baseline.  Every piece of project data starts from its default
+        # and is then overwritten by what the file actually carries, so a
+        # key the file omits can never inherit the previous project's
+        # value (the FCT-only project kept the ICT project's nets before).
+        self.reset_to_factory()
         if not state:
-            # M124: an empty state means the factory baseline - do not
-            # let the previous project's module parameters survive.
-            self.reset_to_factory()
+            return
         version = str(state.get("plan_version", "")).strip()
         if re.match(r"^\d+\.\d+\.\d+$", version):
             self._plan_version = version

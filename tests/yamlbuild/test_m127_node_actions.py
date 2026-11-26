@@ -83,8 +83,8 @@ def test_node_window_offers_save_draft_and_next(qapp):
         dialog = _open_dialog(wizard, "design_input")
         texts = [b.text() for b in _dialog_buttons(dialog)]
         assert "Save Draft" in texts
-        # Next names its target node (same wording the operator knows)
-        assert any(t.startswith("Next: 02") for t in texts), texts
+        # M139: Next merges the lock step, and says so in its label
+        assert any(t.startswith("Lock & Next: 02") for t in texts), texts
         # M135: node 07 alone carries the YAML write - 01-06 close on Exit
         assert texts[-1] == "Exit", texts
         assert "Apply_Save yaml" not in texts, texts

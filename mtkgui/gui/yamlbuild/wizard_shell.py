@@ -235,6 +235,20 @@ class YamlBuildWizard(QWidget):
         label = QLabel(sv.PLACEHOLDER_TEXT)
         return label
 
+    def _product_line(self) -> str:
+        """One line naming the project a node window edits (M140)."""
+        if not self.model.is_locked("design_input"):
+            return ""
+        design = self._design_values()
+        parts = [
+            f"Project {str(design.get('part_number') or '-')}",
+            f"Core {str(design.get('product_id') or '-')}",
+            f"SW {str(design.get('sw_version') or '-')}",
+            f"HW {str(design.get('hw_version') or '-')}",
+            f"Batch {str(design.get('batch') or '-')}",
+        ]
+        return " · ".join(parts)
+
     def _seed_build_ict(self, panel) -> None:
         """Seed node 05 from the latest node 04 equipment facts."""
         eq = self.model.get_equipment_config()
@@ -331,7 +345,7 @@ class YamlBuildWizard(QWidget):
         try:
             net_text = read_text_any_encoding(str(path))
             result = parse_testable_nets(net_text)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             panel.lbl_summary.setText(f"Parse failed: {exc}")
             return
         panel.load_route_a(result)
@@ -404,6 +418,11 @@ class YamlBuildWizard(QWidget):
         panel = self._panels.get(key)
         if panel is None:
             return
+        # M139: an Unlock that changes nothing must not cost the
+        # downstream locks - snapshot both the params and the lock set.
+        before_locks = tuple(self.model.locked_keys())
+        before_nets = repr(self.model.get_parsed_nets())
+        before_values = self._panel_values(key)
         # clicking a node selects it (the flow view + goto rely on current)
         self.current = key
         self.visited.add(key)
@@ -418,9 +437,26 @@ class YamlBuildWizard(QWidget):
         dlg.setWindowTitle(sv.step_label(key))
         lay = QVBoxLayout(dlg)
         if editable:
+            product = self._product_line()
+            if product and key != "design_input":
+                # M140: every later node names the project it edits, so a
+                # dialog can never be mistaken for the previous project.
+                info = QLabel(product)
+                info.setObjectName("muted")
+                info.setWordWrap(True)
+                lay.addWidget(info)
             guide = QLabel(f"What this step does\n{flow_view.STEP_GUIDE[key]}")
             guide.setWordWrap(True)
             lay.addWidget(guide)
+            if key == "design_input":
+                unlock_note = QLabel(
+                    "Unlocking node 01 keeps the SAME project file: edit "
+                    "the definition, re-lock it, adjust limits / test "
+                    "items in 02-06, then node 07 decides whether to "
+                    "overwrite the YAML or save as a new file.")
+                unlock_note.setWordWrap(True)
+                unlock_note.setProperty("tone", "info")
+                lay.addWidget(unlock_note)
             if flow_view.STEP_NEXT.get(key):
                 nxt = QLabel(flow_view.STEP_NEXT[key])
                 nxt.setProperty("tone", "info")
@@ -464,16 +500,19 @@ class YamlBuildWizard(QWidget):
         btn_draft = QPushButton("Save Draft")
         btn_draft.setToolTip(
             "Write the current node values into the project draft YAML "
-            "(no validation, no file is deleted)")
+            "(no validation, no file is deleted). Closing this window "
+            "keeps the values in the configuration either way.")
         btn_draft.clicked.connect(lambda: self._save_node_draft(key, status))
         next_step = self._next_node_key(key)
         btn_next = None
         if next_step:
-            btn_next = QPushButton(f"Next: {sv.step_label(next_step)} →")
+            btn_next = QPushButton(f"Lock & Next: {sv.step_label(next_step)} →")
             btn_next.setToolTip(
-                f"Lock this module, then open {sv.step_label(next_step)}")
+                f"Check this module, lock it, then open "
+                f"{sv.step_label(next_step)}")
             btn_next.clicked.connect(
-                lambda: self._advance_node(key, next_step, dlg))
+                lambda: self._advance_node(key, next_step, dlg, panel,
+                                           sync_actions, status))
         actions.addWidget(btn_lock)
         actions.addWidget(btn_draft)
         actions.addWidget(status, 1)
@@ -499,12 +538,14 @@ class YamlBuildWizard(QWidget):
             panel.setEnabled(can_edit)
             btn_draft.setEnabled(can_edit)
             if btn_next is not None:
-                btn_next.setEnabled(editable and locked_now)
+                btn_next.setEnabled(editable)
+                btn_next.setText(
+                    f"Next: {sv.step_label(next_step)} →" if locked_now
+                    else f"Lock & Next: {sv.step_label(next_step)} →")
                 btn_next.setToolTip(
-                    f"Open {sv.step_label(next_step)}"
-                    if locked_now else
-                    "Lock this module first - Next unlocks once the "
-                    "module is completed.")
+                    f"Open {sv.step_label(next_step)}" if locked_now
+                    else ("Check this module, lock it, then open "
+                          f"{sv.step_label(next_step)}"))
 
         btn_lock.clicked.connect(
             lambda: self._toggle_lock(key, panel, sync_actions, status))
@@ -521,7 +562,11 @@ class YamlBuildWizard(QWidget):
         cancel = btns.button(QDialogButtonBox.Cancel)
         cancel.setText("Exit")
         cancel.setToolTip("Close the node without changing the configuration")
-        btns.accepted.connect(dlg.accept)
+        if key == "apply_save":
+            ok.setToolTip("Validate and write the YAML files, then close")
+            btns.accepted.connect(lambda: self._footer_apply(panel, dlg, status))
+        else:
+            btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         lay.addWidget(btns)
         # keep the whole dialog inside the screen - the action row and the
@@ -565,6 +610,13 @@ class YamlBuildWizard(QWidget):
         # values must reach the model on every close (node 07 keeps its
         # ``Apply_Save yaml``, which writes the YAML file on top).
         self._collect_panel_values(key)
+        nets_unchanged = repr(self.model.get_parsed_nets()) == before_nets
+        if (key in before_locks and not self.model.is_locked(key)
+                and self._panel_values(key) == before_values
+                and nets_unchanged):
+            # read-only inspection: restore every lock the Unlock released
+            for target in before_locks:
+                self.model.set_locked(target, True)
         scroll.takeWidget()
         self._panel_host_lay.addWidget(panel)   # re-parent back after close
         self._refresh()
@@ -618,6 +670,13 @@ class YamlBuildWizard(QWidget):
             nxt = sv.next_key(nxt, ict_on, fct_on)
         return nxt
 
+    def _panel_values(self, key: str) -> dict:
+        """Snapshot of what the node panel currently shows (M139)."""
+        panel = self._panels.get(key)
+        getter = getattr(panel, "values", None)
+        payload = getter() if callable(getter) else None
+        return dict(payload) if isinstance(payload, dict) else {}
+
     def _collect_panel_values(self, key: str) -> None:
         """Push the node panel's live values into the model (M127).
 
@@ -661,14 +720,42 @@ class YamlBuildWizard(QWidget):
         if status is not None:
             status.setText(f"Draft saved: {path}")
 
-    def _advance_node(self, key: str, next_key: str, dlg: QDialog) -> None:
-        """``Next`` inside a node window: save, close, open next."""
+    def _advance_node(self, key: str, next_key: str, dlg: QDialog, panel,
+                      sync, status: QLabel) -> None:
+        """``Lock & Next``: check + lock this node, then open the next.
+
+        M139: the padlock and Next used to be two different clicks for
+        one intent ("this node is done, move on").  Next now performs the
+        check itself when the node is still unlocked.
+        """
         if not self.model.is_locked(key):
-            return                     # Next stays closed until locked
+            ok, message = self._check_and_lock(key, panel)
+            if not ok:
+                status.setText("Not locked - fix the findings first")
+                QMessageBox.warning(dlg, "Module check", message)
+                sync()
+                return
+            status.setText(f"{sv.step_label(key)} locked - Completed")
+            sync()
         self._save_node_draft(key)
         dlg.accept()
         QTimer.singleShot(0, lambda target=next_key:
                           self._open_step_dialog(target))
+
+    def _footer_apply(self, panel, dlg: QDialog, status: QLabel) -> None:
+        """Node 07 footer ``Apply_Save yaml``: validate + write, then close."""
+        saver = getattr(panel, "apply_now", None)
+        if not callable(saver):
+            dlg.accept()
+            return
+        ok, message = saver()
+        if ok:
+            # a written YAML is a completed node - same contract as 01-06
+            self.model.set_locked("apply_save", True)
+            dlg.accept()
+            return
+        status.setText("Not saved - fix the findings first")
+        QMessageBox.warning(dlg, "Apply & Save Yaml", message)
 
     # ---------------------------------------------------------- locks
     def _toggle_lock(self, key: str, panel: QWidget, sync, status: QLabel) -> None:
@@ -709,6 +796,9 @@ class YamlBuildWizard(QWidget):
                     ok, message = validator()
                 else:
                     ok, message = True, ""
+                if ok and key == "design_input":
+                    stage(60, "Parsing the netlist…")
+                    self._auto_parse_after_lock()
                 if ok:
                     stage(75, "Saving the draft…")
                     try:
@@ -723,6 +813,32 @@ class YamlBuildWizard(QWidget):
         if ok:
             self._sync_visuals()
         return ok, message
+
+    def _auto_parse_after_lock(self) -> None:
+        """M139: node 01 owns the import, so it also owns the parse.
+
+        Route A used to parse only when node 02 was opened and Parse was
+        clicked, while Route C parsed on import - one action, two places.
+        Locking 01 now runs the Route A parse; node 02 is pure review and
+        keeps a ``Re-parse`` for a netlist edited outside the tool.
+        """
+        parse = self._panels.get("parse_ict")
+        if parse is None or self.model.is_locked("parse_ict"):
+            return
+        design = self.model.get_params("design_input") or {}
+        if str(design.get("ict_route") or "files") != "files":
+            return
+        if not str(design.get("net_file") or "").strip():
+            return
+        try:
+            self._parse_route_a(parse)
+        except Exception:      # noqa: BLE001 - a parse must never block a lock
+            pass
+        panel_state = getattr(parse, "state", None)
+        state = panel_state() if callable(panel_state) else None
+        rows = getattr(state, "rows", None) or []
+        if rows:
+            parse.note_parsed_on_lock()
 
     def _unlock_from(self, key: str) -> None:
         """Unlock *key* AND every module after it (M128 rule 4)."""
@@ -771,6 +887,27 @@ class YamlBuildWizard(QWidget):
                 edited=(self.model.module_has_content(key)
                         or self._panel_has_content(key)))
 
+    def rebuild_panels(self) -> None:
+        """Throw away every live panel and build fresh ones (M140).
+
+        The widget cache outlived the model reset: after Close Yaml (or a
+        project switch) nodes 02/05/06 still showed the previous
+        project's nets and sequences because only their ``values`` were
+        reloaded.  Rebuilding from the (already reset) model is the
+        only reliable way to prove no data leaks across projects.
+        """
+        for panel in list(self._panels.values()):
+            self._panel_host_lay.removeWidget(panel)
+            panel.blockSignals(True)
+            panel.setParent(None)
+            panel.deleteLater()
+        self._panels.clear()
+        self._design_panel = None
+        for step in sv.YAML_STEPS:
+            panel = self._make_panel(step.key)
+            self._panels[step.key] = panel
+            self._panel_host_lay.addWidget(panel)
+
     def refresh_from_model(self) -> None:
         """Reload every node from the model (Close Yaml / Load Yaml).
 
@@ -778,6 +915,7 @@ class YamlBuildWizard(QWidget):
         project clears the previous values, fills the nodes from the
         file and restores the file's lock state.
         """
+        self.rebuild_panels()
         design = self.model.get_params("design_input") or {}
         design_panel = self._panels.get("design_input")
         setter = getattr(design_panel, "set_values", None)

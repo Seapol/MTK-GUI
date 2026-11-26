@@ -64,7 +64,10 @@ class ParseNetsV2Panel(QWidget):
 
         # ------------------------------------------ move controls
         move_row = QHBoxLayout()
-        self.btn_parse = QPushButton("Parse Nets…")
+        self.btn_parse = QPushButton("Re-parse nets…")
+        self.btn_parse.setToolTip(
+            "Nets are parsed automatically when node 01 locks. Use this "
+            "only after the NET file was edited outside the tool.")
         self.btn_parse.clicked.connect(self.parse_requested.emit)
         self.btn_up = QPushButton("Move Up")
         self.btn_down = QPushButton("Move Down")
@@ -218,6 +221,12 @@ class ParseNetsV2Panel(QWidget):
         self._overrides = {}
         self._render()
         return True, ""
+
+    def note_parsed_on_lock(self) -> None:
+        """Flag the auto-parse from node 01 without touching the table."""
+        text = self.lbl_summary.text()
+        if "parsed on node 01 lock" not in text:
+            self.lbl_summary.setText(text + " · parsed on node 01 lock")
 
     def set_state(self, state: V2ParseState) -> None:
         self._state = state

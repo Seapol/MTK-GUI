@@ -204,19 +204,30 @@ class ApplySavePanel(QWidget):
         return self.preview.toPlainText()
 
     # -------------------------------------------------------------- saving
-    def _on_apply(self) -> None:
+    def apply_now(self) -> tuple[bool, str]:
+        """Validate and write the YAML files.  One implementation for the
+        in-panel button and the window footer (M139: the footer used to
+        only close the dialog, so it looked like a save that never wrote).
+        """
         if self._model is None:
-            return
+            return False, "no model bound"
+        errors = self.validation_errors()
+        if errors:
+            return False, "\n".join(errors)
         try:
             path, archive = apply_and_save(self._model)
         except (ValueError, OSError) as exc:
             self.lbl_saved.setText(f"Apply failed: {exc}")
             self.lbl_saved.setStyleSheet(
                 f"color: {gui_theme_color('bad')};")
-            return
+            return False, str(exc)
         self.lbl_saved.setStyleSheet("")
         self.lbl_saved.setText(f"Saved: {path}\nArchived: {archive}")
         self.content_changed.emit()
+        return True, f"Saved: {path}"
+
+    def _on_apply(self) -> None:
+        self.apply_now()
 
     def export_sheet_dialog(self) -> None:
         """The node 07 export entry (also called from ``File ▸ Excel``).

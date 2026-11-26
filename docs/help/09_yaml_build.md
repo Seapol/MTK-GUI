@@ -47,8 +47,10 @@ quietly.
   Clicking `Lock` runs the full validation behind a foreground progress
   bar, so a long check never freezes the window; a failed check lists the
   findings in a message box and leaves the node unlocked and editable.
-  Locking means *this module's input is finished and still valid* - only
-  then does `Next` become available.
+  Locking means *this module's input is finished and still valid*.  `Next`
+  no longer waits for the padlock (M139): while the node is open it reads
+  `Lock & Next: <target>` and performs the check, the lock and the jump in
+  one click; once locked it reads `Next: <target>`.
 - **Gating follows the padlocks, not the clock**: node 01 unlocks both
   02 and 03; either branch (02 parse or 03 firmware) unlocks 04
   Equipment Config; 04 unlocks 05 and 06 together; 05 or 06 unlocks 07.
@@ -57,11 +59,15 @@ quietly.
   way.
 - **Unlocking cascades forward**: releasing a node also releases every
   later node, so a changed upstream fact always re-opens the modules it
-  feeds.
+  feeds.  The cascade only sticks when the node really changes (M139): an
+  `Unlock` you close without editing restores every lock it released.
 - **`Apply_Save yaml` exists on node 07 only** (M135): nodes 01-06 write
   what you type straight into the model and close with `Exit`, so there is
   no per-node write button to press - the YAML file is written once, on
-  node 07.
+  node 07.  Both node 07 entries write (M139): the in-panel
+  `Apply & Save Yaml` and the footer `Apply_Save yaml` run the same
+  validation and write; the footer closes only after a successful write,
+  and a failed one keeps the window open with the findings.
 - **`Next` and `Save Draft` live inside the dialog** (M124 / M127). Node 01
   hands over to 02, 02 and 03 both hand over to 04, and 04 to 05. Node 07
   is the end of the chain and shows no `Next`; `Save Draft` is on every
@@ -98,6 +104,28 @@ quietly.
   returns to the untouched state. Loading another YAML clears the old
   values first, then fills every node from that file - including the
   padlock state it carries in `yaml_build.locks`.
+
+## One project at a time (M140)
+
+The Yaml Build nodes always belong to exactly ONE project. Two rules make
+that safe:
+
+- **Close Yaml is a full reset.** It drops the module parameters *and*
+  every piece of project data the nodes hold: the parsed netlist, the
+  channel allocation, the ICT / FCT sequences, the firmware config, the
+  equipment config, the marks and the locks. Every node window is rebuilt
+  from the empty model, so node 02 cannot show the previous project's nets
+  and node 05 cannot keep its steps.
+- **Loading a YAML replaces the state, it never merges.** A file that
+  carries no netlist (an FCT-only project, for example) therefore starts
+  with an empty netlist instead of inheriting the last ICT project's.
+
+`01 Design Input` shows the currently loaded project, locked. Unlocking it
+keeps the SAME file: edit the definition, re-lock it, adjust limits or test
+items in 02-06, and node 07 then decides whether to overwrite the YAML or
+save a new file. Every node from 02 to 07 prints the project it edits on its
+first line (`Project ... · Core ... · SW ... · HW ... · Batch ...`), so a
+window can never be mistaken for another project.
 
 ## Node 01 - Design Input
 
@@ -195,8 +223,10 @@ with `skipped` counting rows the parser refused). Every number is recomputed
 from the file on each parse, so a colleague's build is comparable straight
 away.
 
-`Parse Nets…` picks the netlist (Route A), re-reads it and refills both
-tables. Two behaviours worth knowing:
+Node 02 is review only (M139): locking node 01 already parses the Route A
+netlist, so opening 02 shows the result. `Re-parse nets…` re-reads the
+netlist and refills both tables - use it only after the NET file changed
+outside the tool. Two behaviours worth knowing:
 
 - nets on DNP parts leave the `Power` bucket once a BOM is applied, because
   they are not testable on the fixture - the same netlist gives `Power 82`

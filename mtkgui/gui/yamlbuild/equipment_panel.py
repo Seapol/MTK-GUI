@@ -154,7 +154,9 @@ class EquipmentConfigPanel(QWidget):
         root.setSpacing(10)
 
         self.lbl_intro = QLabel(
-            "Click a card to configure that module.")
+            "Plan view: assign instrument channels here. Physical ports, "
+            "addresses and connection status live on the Equipment page - "
+            "click a card to configure that module.")
         self.lbl_intro.setObjectName("muted")
         self.lbl_intro.setWordWrap(True)
         root.addWidget(self.lbl_intro)
