@@ -191,6 +191,9 @@ class EquipmentConfigPanel(QWidget):
             else:
                 slot = index - 1
                 grid.addWidget(tile, 1 + slot // 2, slot % 2)
+        # M157: Instruments gates the other six - keep that visible now
+        # that a tile is a card (no accent fill), via the `gate` property.
+        self.tiles["instruments"].setProperty("gate", True)
         root.addLayout(grid)
         root.addStretch(1)
 

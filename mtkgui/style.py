@@ -204,6 +204,28 @@ QPushButton:focus { border: 1px solid @text; outline: none; }
 QPushButton:disabled { background-color: @disabled_bg; color: @disabled_text; }
 QPushButton#danger { background-color: @danger; color: @accent_text; }
 QPushButton#danger:hover { background-color: @danger_hover; }
+/* M157: a module tile is a card, not a primary button.  The template paints
+   every QPushButton with @accent, and the three labels inside a tile are
+   card colours - on the accent fill the badge landed at 3.9:1 and the muted
+   one at 4.0:1, so the top-right state could not be read. */
+QPushButton#moduleTile {
+    background-color: @card;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 8px;
+    text-align: left;
+    padding: 0px;
+}
+QPushButton#moduleTile:hover { border: 1px solid @accent; }
+QPushButton#moduleTile:pressed { background-color: @alt; }
+QPushButton#moduleTile:disabled {
+    background-color: @disabled_bg;
+    border: 1px solid @border;
+}
+QPushButton#moduleTile[gate="true"] {
+    border: 2px solid @accent;
+    font-weight: bold;
+}
 QPushButton#flat {
     background-color: @alt;
     color: @text;
