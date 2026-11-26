@@ -37,11 +37,28 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`9a82c2a` (M138) - 2026-11-26**. Everything up to it is on
+GUI head: **`55b6d0a` (M140) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M140` - project isolation: Close Yaml (and loading another file) drops
+  every project fact - parsed nets, channel allocation, ICT / FCT
+  sequences, firmware and equipment config, marks, locks - because the
+  reset used to clear only the module parameters and the state load
+  merged instead of replacing.  The wizard rebuilds all seven panels, so
+  an FCT-only project can no longer show the previous ICT project's nets
+  or steps.  Nodes 02-07 print the current project on their first line
+  (`Project / Core / SW / HW / Batch`); node 01 states that unlocking it
+  keeps the same file and that node 07 decides overwrite vs save-as.
+- `M139` - the Yaml Build flow loses its sharp edges: node 07's footer
+  `Apply_Save yaml` now validates and writes (it used to only close, so
+  it looked like a save that never happened) and locks 07 on success;
+  `Next` reads `Lock & Next: <target>` and performs check + lock + jump
+  in one click; locking node 01 parses the Route A netlist so node 02 is
+  review only (`Re-parse nets…`); an Unlock closed without editing
+  restores the locks it released; node 04 marks itself as the plan-level
+  channel assignment with connections on the Equipment page.
 - `M138` - the Equipment hardware list now fits a 900 px page without a
   vertical scrollbar: tighter group/body margins, tighter Config-button
   padding (same 26 px height), left column reserves the body width.
