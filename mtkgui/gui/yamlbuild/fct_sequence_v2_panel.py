@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -127,13 +128,23 @@ class BuildFctSequencePanel(QWidget):
                                         80, 70, 80)):
             self.table.setColumnWidth(column, width)
         self.table.currentCellChanged.connect(self._on_row_selected)
-        root.addWidget(self.table, 1)
 
-        # ------------------------------------------------------ editor
-        self._build_editor(root)
-
-        # -------------------------------------------------- keywords
-        self._build_keywords(root)
+        # M158f: master-detail split - the step table on the left, the
+        # selected-step editor and the (collapsed) keyword tables on the
+        # right.  The old single column squeezed the table to one row.
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.addWidget(self.table)
+        right = QWidget()
+        right_lay = QVBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        self._build_editor(right_lay)
+        self._build_keywords(right_lay)
+        right_lay.addStretch(1)
+        split.addWidget(right)
+        split.setStretchFactor(0, 45)
+        split.setStretchFactor(1, 55)
+        split.setSizes([450, 550])
+        root.addWidget(split, 1)
 
         self._render()
 
@@ -194,7 +205,10 @@ class BuildFctSequencePanel(QWidget):
     def _build_keywords(self, root) -> None:
         group = QGroupBox("Keyword tables (sequence-level)")
         group.setCheckable(True)
-        group.setChecked(True)
+        # M158f: sequence-level keywords are not per-row detail - they
+        # start collapsed so the selected-step editor keeps the height.
+        group.setChecked(False)
+        self.keyword_group = group
         lay = QVBoxLayout(group)
         lay.addWidget(QLabel("Positive keywords (one per line)"))
         self.edit_keyword_pass = QPlainTextEdit()
