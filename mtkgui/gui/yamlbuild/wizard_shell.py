@@ -18,6 +18,8 @@ into a hidden host so ``findChildren`` and ``self._panels`` keep working).
 
 from __future__ import annotations
 
+import copy
+
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -579,6 +581,9 @@ class YamlBuildWizard(QWidget):
         before_locks = tuple(self.model.locked_keys())
         before_nets = repr(self.model.get_parsed_nets())
         before_values = self._panel_values(key)
+        # M158g: Exit discards the dialog's edits - node 04 writes through
+        # by itself, so its config needs a snapshot of its own.
+        before_equipment = copy.deepcopy(self.model.get_equipment_config())
         # clicking a node selects it (the flow view + goto rely on current)
         self.current = key
         self.visited.add(key)
@@ -751,8 +756,17 @@ class YamlBuildWizard(QWidget):
         btns = QDialogButtonBox(QDialogButtonBox.Cancel)
         cancel = btns.button(QDialogButtonBox.Cancel)
         cancel.setText("Exit")
-        cancel.setToolTip("Close the node without changing the configuration")
-        btns.rejected.connect(dlg.reject)
+        cancel.setToolTip(
+            "Close this node, discarding any edits you just made")
+
+        def on_exit() -> None:
+            """M158g: Exit really discards - ask once when it would."""
+            if (self._node_changed(key, before_values, before_equipment)
+                    and not self._confirm_discard(dlg)):
+                return                # Cancel keeps the dialog open
+            dlg.reject()
+
+        btns.rejected.connect(on_exit)
         lay.addWidget(btns)
         # keep the whole dialog inside the screen - the action row and the
         # button box must remain visible even when the panel's sizeHint is
@@ -797,10 +811,15 @@ class YamlBuildWizard(QWidget):
         if went_back:
             self._back_dialog = None
         if not went_back:
-            # M135: nodes 01-06 close with ``Exit`` only, so the live panel
-            # values must reach the model on every close (node 07 keeps its
-            # ``Apply_Save yaml``, which writes the YAML file on top).
-            self._collect_panel_values(key)
+            if accepted:
+                # ``Lock & Next`` / the padlock close with accept: the live
+                # panel values reach the model on that close.
+                self._collect_panel_values(key)
+            else:
+                # M158g: Exit = discard - restore the snapshot instead of
+                # collecting the edits.
+                self._restore_node(key, panel, before_values,
+                                   before_equipment)
             nets_unchanged = repr(self.model.get_parsed_nets()) == before_nets
             if (key in before_locks and not self.model.is_locked(key)
                     and self._panel_values(key) == before_values
@@ -917,6 +936,42 @@ class YamlBuildWizard(QWidget):
         # their own config object (equipment) write through by themselves
         if isinstance(payload, dict):
             self.model.set_params(key, payload)
+
+    # ---------------------------------------------------- M158g discard
+    def _node_changed(self, key: str, before_values: dict,
+                      before_equipment) -> bool:
+        """True when the dialog changed anything since it was opened."""
+        if key == "equipment":
+            return self.model.get_equipment_config() != before_equipment
+        return self._panel_values(key) != before_values
+
+    def _confirm_discard(self, dlg: QDialog) -> bool:
+        """Ask once before Exit throws the dialog's edits away."""
+        box = QMessageBox(dlg)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Discard changes")
+        box.setText("Discard changes to this node?")
+        discard = box.addButton("Discard",
+                                QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        return box.clickedButton() is discard
+
+    def _restore_node(self, key: str, panel: QWidget, before_values: dict,
+                      before_equipment) -> None:
+        """M158g: put the pre-dialog snapshot back (Exit = discard)."""
+        if key == "equipment":
+            self.model.set_equipment_config(before_equipment)
+            setter = getattr(panel, "set_values", None)
+            if callable(setter):
+                setter(self.model.get_equipment_config())
+            return
+        if not before_values:
+            return
+        self.model.set_params(key, copy.deepcopy(before_values))
+        setter = getattr(panel, "set_values", None)
+        if callable(setter):
+            setter(copy.deepcopy(before_values))
 
     def _save_node_draft(self, key: str, status: QLabel | None = None) -> None:
         """``Save Draft`` inside a node window (M127).

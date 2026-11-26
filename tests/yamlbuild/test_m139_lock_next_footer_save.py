@@ -207,7 +207,10 @@ def test_unlock_without_edits_restores_the_lock_set(qapp):
         wizard.deleteLater()
 
 
-def test_unlock_with_an_edit_keeps_the_downstream_unlocked(qapp):
+def test_unlock_with_an_edit_is_discarded_on_exit(qapp):
+    # M158g: Exit discards the dialog's edits, so the Unlock changed
+    # nothing and the later locks come back (the old contract collected
+    # the values on Close).
     wizard = _locked_wizard(qapp)
     try:
         real_exec = QDialog.exec
@@ -224,7 +227,9 @@ def test_unlock_with_an_edit_keeps_the_downstream_unlocked(qapp):
             wizard._open_step_dialog("design_input")
         finally:
             QDialog.exec = real_exec
-        assert not wizard.model.is_locked("design_input")
-        assert not wizard.model.is_locked("parse_ict")
+        assert wizard.model.is_locked("design_input")
+        assert wizard.model.is_locked("parse_ict")
+        assert (wizard.model.get_params("design_input")
+                or {}).get("product_id") != "96624"
     finally:
         wizard.deleteLater()
