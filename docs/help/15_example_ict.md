@@ -87,8 +87,9 @@ changes until node 07 writes the YAML.
 
 ## Step 3 - Parse the nets (node 02)
 
-Open **02 - Parse nets for ICT** and press **Parse Nets…**: it re-reads the
-netlist recorded on node 01 and refills both tables.
+Locking node 01 already parsed the netlist, so open **02 - Parse nets for
+ICT** and the two tables are filled: `Re-parse nets…` is there for the case
+where the NET file changed outside the tool.
 
 ![Parse result on 96624, from the netlist alone](images/15_04_parse_result.png)
 
@@ -102,7 +103,7 @@ Power 82 · SE Clock 20 · GND 4 · Other 2124 · skipped 0 rows
   category and confidence. The first rows of this board are
   `1V2_RGMII_A_AVDD…`, `1V2_RGMII_A_DV…`, `1V8_FT4232_1`.
 - **Other Nets** (right table) - everything that landed in `Other`
-  (`AD2433_RST_B`, `BCSR_RST_B`, `DDR0_CS0_A`, …); each row keeps a
+  (`AD2433_RST_B`, `BCSR_RST_B`, `CODEC_CTRL_MODE`, …); each row keeps a
   category dropdown, so a net you disagree with moves buckets without a
   re-parse.
 - **`skipped 0 rows`** - nothing the parser refused; a non-zero value is
