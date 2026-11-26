@@ -2319,6 +2319,12 @@ class MainWindow(QMainWindow):
         """Factory reset shared by Close Yaml (confirmed) and the
         auto-close before loading a different project (silent)."""
         page = self.workflow_page
+        # M141: the draft store is restart-safe, so Close Yaml has to
+        # forget this project's entry - otherwise the next launch
+        # reloaded the project the operator just closed.
+        yaml_page = getattr(self, "yaml_build_page", None)
+        draft_key = (yaml_page.model.project_key()
+                     if yaml_page is not None else "")
         # product info + stop policies back to the factory defaults
         page.part_edit.setText("")
         page.core_edit.setText("")
@@ -2351,6 +2357,9 @@ class MainWindow(QMainWindow):
         # clears imported nets / allocation / rail config, keeps the
         # factory parameter defaults)
         self.yaml_build_page.model.apply_state({})
+        if draft_key:
+            from mtkgui.gui.yamlbuild.store import forget_project_state
+            forget_project_state(draft_key)
         # M103: the factory state is the clean baseline (no dirty prompt)
         self.yaml_build_page.model.changed = False
         # M128: Close Yaml unlocks and empties every node of the wizard

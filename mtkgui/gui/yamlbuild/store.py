@@ -16,6 +16,35 @@ STATE_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 STATE_FILE = STATE_DIR / "yamlbuild_state.json"
 
 
+def forget_project_state(project_key: str) -> bool:
+    """Drop one project's draft state (Close Yaml).
+
+    The draft store is restart-safe on purpose, but it must not resurrect
+    a project the operator closed: without this, Close Yaml wiped the
+    model and the next launch reloaded the old draft from disk.
+
+    Args:
+        project_key: Project identity (model.project_key()).
+
+    Returns:
+        True when the entry is gone (or was never there); False on a
+        write failure - persistence never breaks the GUI.
+    """
+    try:
+        if not STATE_FILE.is_file():
+            return True
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8")) or {}
+        projects = data.get("projects") or {}
+        if project_key in projects:
+            projects.pop(project_key, None)
+            STATE_FILE.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def load_project_state(project_key: str) -> dict | None:
     """Load one project's persisted model state.
 

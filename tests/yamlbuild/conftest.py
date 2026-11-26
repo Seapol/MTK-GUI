@@ -3,7 +3,23 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
+
+@pytest.fixture(autouse=True)
+def _draft_store_in_tmp(tmp_path, monkeypatch):
+    """Never let a test write the real ``config/yamlbuild_state.json``.
+
+    Node locking saves a draft (M139 made locking part of ``Next``), and
+    a draft left in the repository config is read back by the next
+    ``YamlBuildPage()`` - which made unrelated tests order-dependent.
+    """
+    from mtkgui.gui.yamlbuild import store
+    monkeypatch.setattr(store, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(store, "STATE_FILE",
+                        tmp_path / "yamlbuild_state.json")
+
 
 #: valid values for every required field of every module
 REQUIRED_FILL = {
