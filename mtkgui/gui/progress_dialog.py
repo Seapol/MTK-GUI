@@ -104,8 +104,8 @@ class ProgressDialog(QProgressDialog):
 
 @contextmanager
 def busy_progress(owner: QWidget | None, title: str,
-                  delay: float = SHOW_DELAY_S):
-    """Indeterminate delayed progress around a synchronous action.
+                  delay: float = SHOW_DELAY_S, maximum: int = 0):
+    """Delayed progress around a synchronous action.
 
     Yields a ``stage(value, label)`` callback for optional coarse
     stages; the finally block always hides the dialog, so a failure
@@ -113,7 +113,10 @@ def busy_progress(owner: QWidget | None, title: str,
     force-shows the dialog once the run passed the delay, so a task
     that emits no stages still gets a foreground bar (user direction:
     any operation lasting > 300 ms must show one)."""
-    dlg = ProgressDialog(owner, title, 0, 0, delay=delay)
+    # ``maximum=0`` keeps the bar indeterminate (busy animation); a
+    # positive maximum turns it into a real percentage bar that the
+    # ``stage(value, label)`` callback drives.
+    dlg = ProgressDialog(owner, title, 0, int(maximum), delay=delay)
     dlg.show_delayed()
     show_timer = QTimer(dlg)
     show_timer.setSingleShot(True)

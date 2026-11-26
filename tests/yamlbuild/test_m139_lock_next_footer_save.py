@@ -8,7 +8,7 @@ fixes:
    the window before);
 2. ``Next`` checks + locks the node itself (no padlock-then-Next dance);
 3. node 01 parses the Route A netlist when it locks, so node 02 is review
-   only and keeps ``Re-parse nets…`` for an externally edited file.
+   only and keeps ``Parse nets`` for an externally edited file.
 """
 
 from __future__ import annotations
@@ -144,7 +144,10 @@ def test_locking_design_input_parses_route_a(qapp, monkeypatch):
         wizard._collect_panel_values("design_input")
         parse = wizard._panels["parse_ict"]
         called: list[object] = []
-        monkeypatch.setattr(wizard, "_parse_route_a", called.append)
+        # M155: the auto parse passes notify=False (a lock never pops a
+        # window), so the spy must accept the keyword
+        monkeypatch.setattr(wizard, "_parse_route_a",
+                            lambda panel, notify=True: called.append(panel))
         wizard._auto_parse_after_lock()
         assert called == [parse], "node 01 lock owns the parse"
     finally:
@@ -158,7 +161,8 @@ def test_auto_parse_skips_other_routes(qapp, monkeypatch):
             {**VALID_DESIGN, "ict_route": "excel"})
         wizard._collect_panel_values("design_input")
         called: list[object] = []
-        monkeypatch.setattr(wizard, "_parse_route_a", called.append)
+        monkeypatch.setattr(wizard, "_parse_route_a",
+                            lambda panel, notify=True: called.append(panel))
         wizard._auto_parse_after_lock()
         assert called == [], "Excel / MTK sheet routes keep their own parse"
     finally:

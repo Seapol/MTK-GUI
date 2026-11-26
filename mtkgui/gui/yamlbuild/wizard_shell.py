@@ -381,34 +381,74 @@ class YamlBuildWizard(QWidget):
         self._refresh()
 
     # ------------------------------------------------------------ parse
-    def _parse_route_a(self, panel) -> None:
+    def _route_a_net_file(self) -> str:
+        """The NET path node 01 shows right now.
+
+        The live panel wins over the model: an operator who typed a path
+        on 01 and has not saved it yet still expects Parse nets to read
+        THAT file.  The model is only the fallback (M155 - the old lookup
+        read the model alone, so a freshly typed path parsed nothing and
+        the button looked dead).
+        """
+        live = self._design_values()
+        net = str(live.get("net_file") or "").strip()
+        if net:
+            return net
+        saved = self.model.get_params("design_input") or {}
+        return str(saved.get("net_file") or "").strip()
+
+    def _route_a_ready(self) -> bool:
+        design = self._design_values()
+        return (str(design.get("ict_route") or "files") == "files"
+                and bool(self._route_a_net_file()))
+
+    def _parse_route_a(self, panel, notify: bool = True) -> None:
         """Run a Route A parse from the raw NET text recorded on node 01.
 
         ``net_file`` is a project-relative path (the same convention as
         ``spf_file`` / ``bom_file``); resolve it against the working
-        directory, read the text, and hand the collapse to the panel.  A
-        netlist that yields no nets raises ``ValueError`` and is reported
-        on the panel's summary label - never propagated.
+        directory, read the text, and hand the collapse to the panel.  The
+        run is synchronous, so it drives a foreground percentage bar with
+        the stages the parser reports (M155: a parse takes long enough to
+        need one, and a silent failure read as a dead button).  ``notify``
+        adds the modal warning for the operator-driven click; the auto
+        parse after locking 01 passes ``False`` so a lock never pops a
+        window.
         """
-        design = self.model.get_params("design_input") or {}
-        net_file = str(design.get("net_file") or "").strip()
-        if not net_file:
-            return
         from pathlib import Path
 
+        from mtkgui.gui.progress_dialog import busy_progress
         from mtkgui.ict.netparse import read_text_any_encoding
         from mtkgui.ict.netparse.parser import parse_testable_nets
 
+        net_file = self._route_a_net_file()
+        if not net_file:
+            message = ("No NET file is recorded in 01 Design Input, so "
+                       "there is nothing to parse.")
+            panel.lbl_summary.setText(f"Parse failed: {message}")
+            if notify:
+                QMessageBox.warning(panel.window(), "Parse nets", message)
+            return
         path = Path(net_file)
         if not path.is_absolute():
             path = Path.cwd() / path
         try:
-            net_text = read_text_any_encoding(str(path))
-            result = parse_testable_nets(net_text)
+            with busy_progress(panel.window(), "Parse nets",
+                               maximum=100) as stage:
+                stage(2, f"Reading {path.name}…")
+                net_text = read_text_any_encoding(str(path))
+                # the parser owns 12 % and up, so the file read owns 2-8
+                result = parse_testable_nets(net_text, progress=stage)
+                stage(98, "Filling the two tables…")
+                panel.load_route_a(result)
+                stage(100, "Done")
         except (ValueError, OSError) as exc:
             panel.lbl_summary.setText(f"Parse failed: {exc}")
+            if notify:
+                QMessageBox.warning(
+                    panel.window(), "Parse nets",
+                    f"{exc}\n\nFile: {path}")
             return
-        panel.load_route_a(result)
         # a Route A parse is not a signal-emitter (like a Route B load):
         # persist it immediately rather than waiting for a category edit
         self.model.set_parsed_nets(_parsed_nets_dict(panel.state()))
@@ -892,18 +932,15 @@ class YamlBuildWizard(QWidget):
         Route A used to parse only when node 02 was opened and Parse was
         clicked, while Route C parsed on import - one action, two places.
         Locking 01 now runs the Route A parse; node 02 is pure review and
-        keeps a ``Re-parse`` for a netlist edited outside the tool.
+        keeps ``Parse nets`` for a netlist edited outside the tool.
         """
         parse = self._panels.get("parse_ict")
         if parse is None or self.model.is_locked("parse_ict"):
             return
-        design = self.model.get_params("design_input") or {}
-        if str(design.get("ict_route") or "files") != "files":
-            return
-        if not str(design.get("net_file") or "").strip():
+        if not self._route_a_ready():
             return
         try:
-            self._parse_route_a(parse)
+            self._parse_route_a(parse, notify=False)
         except Exception:      # noqa: BLE001 - a parse must never block a lock
             pass
         panel_state = getattr(parse, "state", None)

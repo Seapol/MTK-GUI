@@ -72,7 +72,8 @@ def demote_rail_topology(result: ParseNetsResult) -> None:
 
 def parse_testable_nets(net_text: str, rules: dict | None = None,
                         library: dict[str, str] | None = None,
-                        external: dict | None = None) \
+                        external: dict | None = None,
+                        progress=None) \
         -> ParseNetsResult:
     """Formally parse the raw netlist text and extract the testable
     nets (headless core - unit-testable without Qt).
@@ -89,6 +90,9 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
         external: Optional M3 external learnable rule layer
                   (:mod:`.rule_layers` merged JSON).  ``None`` keeps
                   the M2 behaviour unchanged (backward compatible).
+        progress: Optional ``progress(percent, label)`` callback used by
+                  the GUI's foreground progress bar.  ``None`` keeps the
+                  headless behaviour unchanged.
 
     Returns:
         :class:`ParseNetsResult` with the three categories.
@@ -102,7 +106,13 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
     from .rule_layers import (apply_reweight, classify_external_hits,
                               layer_context, route_external)
 
+    def stage(percent: int, label: str) -> None:
+        if progress is not None:
+            progress(int(percent), str(label))
+
+    stage(12, "Reading the netlist…")
     netlist = parse_netlist_auto(net_text)
+    stage(28, f"Found {len(netlist.nets)} nets in the file")
     if not netlist.nets:
         raise ValueError(
             "no nets found - the file has no recognizable netlist "
@@ -110,12 +120,20 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
     ext_log: list[dict] = []
     with (layer_context(external, ext_log) if external
           else nullcontext()):
+        stage(40, f"Classifying {len(netlist.nets)} nets…")
         collection = classify_nets(netlist, library)
         result = ParseNetsResult(total=len(collection.nets))
         result.format = detect_netlist_format(net_text)
         hits = classify_external_hits(collection, external) \
             if external else {}
-        for rec in collection.nets:
+        total = max(1, len(collection.nets))
+        stage(58, "Applying the classification rules…")
+        for index, rec in enumerate(collection.nets):
+            # 58 -> 88 % over the second pass; the GUI bar stays honest
+            # without the parser knowing anything about Qt
+            if index and index % max(1, total // 20) == 0:
+                stage(58 + int(30 * index / total),
+                      f"Applying the rules ({index}/{total})…")
             # M3 external layer: owner-confirmed rules beat the base
             # tables INCLUDING the Exclude regex (entries first, then
             # token adds; every hit is auditable via applied_rules)
@@ -215,8 +233,10 @@ def parse_testable_nets(net_text: str, rules: dict | None = None,
             result.bridge_report = merge_power_bridges(result, library)
             # M2 B1.5: cross-class conflict resolution (library mode)
             resolve_conflicts(result, library)
+        stage(90, "Assessing the control-IO isolation…")
         # M7 W6: DIO-write isolation assessment for control-IO nets
         annotate_control_io(result, library, external)
+        stage(97, "Collating the tables…")
     if external:
         result.applied_rules.extend(ext_log)
     return result

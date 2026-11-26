@@ -86,7 +86,7 @@ STEP_HINTS = {
 #: first block of an editable dialog, under the "What this step does" heading
 STEP_GUIDE = {
     "design_input": "This is the entry point. Import SPF (auto-parses Core ID + product name), NET (read-only), BoM (optional), or switch to the Excel route; all five product-info fields are required, and select the FCT test types to enable. Locking this node also parses the Route A netlist.",
-    "parse_ict":    "Review the netlist parsed when node 01 was locked: the left table holds recognized categories (power / clock / ground / other), the right table holds unclassified nets; move nets between tables to adjust, and Re-parse only if the NET file changed outside the tool.",
+    "parse_ict":    "Review the netlist parsed when node 01 was locked: the left table holds recognized categories (power / clock / ground / other), the right table holds unclassified nets; move nets between tables to adjust, and press Parse nets again only if the NET file changed outside the tool.",
     "firmware":     "Configure FAT / OOBE flashing: CLI (command + pass/fail keywords, auto-verdict) or third-party GUI (tool path, runtime dialog for manual Go/Stop).",
     "equipment":    "Assign instrument channels: R-GND / voltage → DAQ, clock → counter / totalizer, DUT → console; then configure production peripherals (Wi-Fi, BT, Router, display, etc.).",
     "build_ict":    "Author the ICT test sequence: add / edit / delete / move steps, and set limits for numeric tests — R-GND (Ω), voltage (V), clock (Hz); PASS when the measured value is within range.",
