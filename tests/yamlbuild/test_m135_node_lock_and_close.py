@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """M135: the padlock names the action, and only node 07 writes the YAML.
 
-* unlocked node  -> button reads ``Lock`` (click = validate + lock)
-* locked node    -> button reads ``Unlock`` (click = release, cascade)
+* unlocked node  -> closed padlock (click = validate + lock)
+* locked node    -> open padlock (click = release, cascade)
 * nodes 01-06 close with ``Exit`` only; ``Apply_Save yaml`` sits on 07
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
-from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard
+from mtkgui.gui.yamlbuild.wizard_shell import LOCK_BUTTON_NAME, YamlBuildWizard
 
 
 @pytest.fixture(scope="module")
@@ -40,8 +40,7 @@ def _open(wizard, key):
 
 def _padlock(dialog) -> QPushButton:
     for button in dialog.findChildren(QPushButton):
-        text = button.text()
-        if text.endswith(" Lock") or text.endswith(" Unlock"):
+        if button.objectName() == LOCK_BUTTON_NAME:
             return button
     raise AssertionError("no padlock button in the node window")
 
@@ -55,7 +54,10 @@ def test_padlock_reads_lock_while_open(qapp):
     try:
         dialog = _open(wizard, "design_input")
         assert not wizard.model.is_locked("design_input")
-        assert _padlock(dialog).text() == "🔒 Lock"
+        padlock = _padlock(dialog)
+        assert padlock.property("locked") is False
+        assert padlock.text() == ""
+        assert padlock.toolTip().startswith("Click the closed padlock")
     finally:
         wizard.deleteLater()
 
@@ -66,7 +68,10 @@ def test_padlock_reads_unlock_while_locked(qapp):
     wizard = YamlBuildWizard(model=model)
     try:
         dialog = _open(wizard, "design_input")
-        assert _padlock(dialog).text() == "🔓 Unlock"
+        padlock = _padlock(dialog)
+        assert padlock.property("locked") is True
+        assert padlock.text() == ""
+        assert padlock.toolTip().startswith("This module is locked")
     finally:
         wizard.deleteLater()
 

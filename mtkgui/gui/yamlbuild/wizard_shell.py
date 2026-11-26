@@ -18,7 +18,8 @@ into a hidden host so ``findChildren`` and ``self._panels`` keep working).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,6 +38,65 @@ from mtkgui.gui.yamlbuild import model as model_module
 from mtkgui.gui.yamlbuild.model import YamlBuildModel
 from mtkgui.gui.yamlbuild import steps_v2 as sv
 from mtkgui.gui.yamlbuild import flow_view
+
+#: object name of the footer padlock (M154) - the button carries no text any
+#: more, so tests and QSS address it by name.
+LOCK_BUTTON_NAME = "nodeLockButton"
+
+
+def lock_icon(locked: bool, color: str = "#ffffff", size: int = 20) -> QIcon:
+    """A padlock drawn from vectors: closed when locked, shackle tilted open
+    when not.  Drawn rather than typed - an emoji renders differently on
+    every platform (or not at all on an offscreen bench) and cannot show
+    which of the two states the node is in."""
+    icon = QIcon()
+    for scale in (1, 2):
+        pixels = QPixmap(size * scale, size * scale)
+        pixels.fill(Qt.GlobalColor.transparent)
+        pixels.setDevicePixelRatio(scale)
+        painter = QPainter(pixels)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = size * scale
+        pen = QPen(QColor(color))
+        pen.setWidthF(max(1.0, s / 9.0))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # a solid body reads at 20 px where a hollow one turns into mush
+        body_w, body_h = s * 0.54, s * 0.36
+        body_x, body_y = (s - body_w) / 2, s * 0.52
+        shackle_w = s * 0.34
+        shackle_x = (s - shackle_w) / 2
+        shackle_top = s * 0.12
+
+        if not locked:
+            # an open padlock is the same shackle swung up around its left
+            # foot, so one set of coordinates serves both states; the lift
+            # keeps the swung leg off the body outline
+            painter.save()
+            painter.translate(0, -s * 0.04)
+            painter.translate(shackle_x, body_y)
+            painter.rotate(-30.0)
+            painter.translate(-shackle_x, -body_y)
+        painter.drawArc(QRectF(shackle_x, shackle_top, shackle_w, shackle_w),
+                        0, 180 * 16)
+        painter.drawLine(QPointF(shackle_x, shackle_top + shackle_w / 2),
+                         QPointF(shackle_x, body_y + s * 0.06))
+        right_leg_end = body_y - s * 0.02 if not locked else body_y + s * 0.06
+        painter.drawLine(QPointF(shackle_x + shackle_w,
+                                 shackle_top + shackle_w / 2),
+                         QPointF(shackle_x + shackle_w, right_leg_end))
+        if not locked:
+            painter.restore()
+
+        painter.setBrush(QColor(color))
+        painter.drawRoundedRect(QRectF(body_x, body_y, body_w, body_h),
+                                s * 0.09, s * 0.09)
+        painter.end()
+        icon.addPixmap(pixels)
+    return icon
 
 
 def _parsed_nets_dict(state) -> dict:
@@ -495,6 +555,11 @@ class YamlBuildWizard(QWidget):
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         btn_lock = QPushButton()
+        btn_lock.setObjectName(LOCK_BUTTON_NAME)
+        btn_lock.setAccessibleName("Lock this module")
+        btn_lock.setIconSize(QSize(20, 20))
+        btn_lock.setMinimumWidth(44)
+        btn_lock.setMaximumWidth(44)
         status = QLabel("")
         status.setProperty("tone", "info")
         btn_draft = QPushButton("Save Draft")
@@ -523,16 +588,23 @@ class YamlBuildWizard(QWidget):
         def sync_actions() -> None:
             """Paint the window from the CURRENT lock / editability state."""
             locked_now = self.model.is_locked(key)
+            # M154: the padlock IS the button - a closed padlock locks, an
+            # open one unlocks, and the property carries the same state for
+            # tests and QSS.
+            btn_lock.setProperty("locked", bool(locked_now))
+            btn_lock.setIcon(lock_icon(locked_now))
             if locked_now:
-                btn_lock.setText("🔓 Unlock")
+                btn_lock.setAccessibleName("Unlock this module")
                 btn_lock.setToolTip(
                     "This module is locked (complete + validated). Click "
-                    "to unlock it - every later module unlocks with it.")
+                    "the open padlock to unlock it - every later module "
+                    "unlocks with it.")
             else:
-                btn_lock.setText("🔒 Lock")
+                btn_lock.setAccessibleName("Lock this module")
                 btn_lock.setToolTip(
-                    "Click to check this module (validation, foreground "
-                    "progress) and lock it as completed.")
+                    "Click the closed padlock to check this module "
+                    "(validation, foreground progress) and lock it as "
+                    "completed.")
             btn_lock.setEnabled(editable)
             can_edit = editable and not locked_now
             panel.setEnabled(can_edit)

@@ -20,7 +20,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import (QApplication, QDialog, QLabel,  # noqa: E402
                                QMessageBox, QPushButton)
 
-from mtkgui.gui.yamlbuild.wizard_shell import YamlBuildWizard  # noqa: E402
+from mtkgui.gui.yamlbuild.wizard_shell import LOCK_BUTTON_NAME, YamlBuildWizard  # noqa: E402
 
 VALID_DESIGN = {
     "part_number": "MTK12345", "product_id": "96317",
@@ -59,6 +59,13 @@ def _open_dialog(wizard: YamlBuildWizard, key: str, accepted: int = 0):
     finally:
         QDialog.exec = real_exec
     return captured["dlg"]
+
+
+def _lock_button(dialog) -> QPushButton:
+    for button in dialog.findChildren(QPushButton):
+        if button.objectName() == LOCK_BUTTON_NAME:
+            return button
+    raise AssertionError("no padlock button in the node window")
 
 
 def _button(dialog, text: str) -> QPushButton:
@@ -174,7 +181,7 @@ def test_unlock_without_edits_restores_the_lock_set(qapp):
 
         def fake_exec(dialog):
             captured["dlg"] = dialog
-            _button(dialog, "🔓 Unlock").click()
+            _lock_button(dialog).click()
             return 0
 
         QDialog.exec = fake_exec
@@ -195,7 +202,7 @@ def test_unlock_with_an_edit_keeps_the_downstream_unlocked(qapp):
         real_exec = QDialog.exec
 
         def fake_exec(dialog):
-            _button(dialog, "🔓 Unlock").click()
+            _lock_button(dialog).click()
             dialog_panel = wizard._panels["design_input"]
             dialog_panel.set_values({**VALID_DESIGN,
                                      "product_id": "96624"})

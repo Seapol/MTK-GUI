@@ -41,10 +41,11 @@ quietly.
   YAML it generates.
 - **A star** on the node means it has been applied and validated at least
   once in this project. Stars persist with the project.
-- **Every node dialog has a padlock** (M128, wording fixed in M135) on its
-  right-hand action row, and it always names the action, not the state:
-  `Lock` while the module is open, `Unlock` once it has been checked.
-  Clicking `Lock` runs the full validation behind a foreground progress
+- **Every node dialog has a padlock button** (M128; icon-only since M154)
+  on its right-hand action row.  It shows the shape of the action rather
+  than a word - a closed padlock locks the module, an open one releases it,
+  and the tooltip spells the action out.  Clicking the closed padlock runs
+  the full validation behind a foreground progress
   bar, so a long check never freezes the window; a failed check lists the
   findings in a message box and leaves the node unlocked and editable.
   Locking means *this module's input is finished and still valid*.  `Next`
