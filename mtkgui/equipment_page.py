@@ -210,10 +210,9 @@ LEFT_ENTRIES = (
         ("psu", "N5747A", "instrument", ("psu", None)),
         ("rf_test_set", "RF Test Set (WiFi/BT)", "optional", None),
         # M136: a debugger is an instrument, not a sixth rack band -
-        # nested here, and the analyzer stays a grey placeholder until
-        # its driver lands.
+        # nested here.  M153: the analyzer row is gone until its driver
+        # exists (a permanent grey "N/A" only invited the question).
         ("debugger", "Debugger", "group", None),
-        ("bscan", "Boundary Scan Analyzer", "optional", None),
     )),
     ("Fixture", (
         ("control_board", "ATE Fixture Control Board", "form",
@@ -3058,7 +3057,7 @@ class EquipmentPage(QWidget):
             return row
 
         row = QHBoxLayout()
-        row.setContentsMargins(28 if key == "bscan" else 0, 0, 0, 0)
+        row.setContentsMargins(0, 0, 0, 0)
         name = QLabel(label)
         # M80-1: never elide; the tooltip carries the full text when the
         # operator drags the splitter narrower than the label

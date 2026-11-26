@@ -38,10 +38,10 @@ KNOWN_ISSUES: dict[str, list[str]] = {
         "(horizontal scrollbar)",
         "overflow_x|QScrollArea|content sizeHint=321px > viewport=318px "
         "(horizontal scrollbar)",
-        # M100: the optional placeholder entries ("RF Test Set (WiFi/BT)",
-        # "Boundary Scan Analyzer") widen the left column
-        # content past the default share; the list scrolls horizontally
-        # (design decision, same as the M65 labels above).
+        # M100: the optional placeholder entry ("RF Test Set (WiFi/BT)")
+        # widens the left column content past the default share; the list
+        # scrolls horizontally (design decision, same as the M65 labels
+        # above).
         "overflow_x|QScrollArea|content sizeHint=422px > viewport=329px "
         "(horizontal scrollbar)",
     ],

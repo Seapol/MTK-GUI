@@ -104,7 +104,7 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 # ---------------------------------------------------------------------------
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
-        ("Instruments", 6), ("Fixture", 1), ("Peripherals", 9)]
+        ("Instruments", 5), ("Fixture", 1), ("Peripherals", 9)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
@@ -140,7 +140,7 @@ def test_left_entries_has_no_dut_group():
 def test_optional_entry_renders_disabled_not_developed(page):
     """m122: the badge is short ("N/A") so it fit the 92 px column; the
     long caption is the tooltip. Still greyed and non-clickable."""
-    for key in ("rf_test_set", "bscan"):
+    for key in ("rf_test_set",):
         badge = page.entry_buttons[key]["optional"]
         assert badge.text() == "N/A"
         assert "Not developed" in badge.toolTip()
