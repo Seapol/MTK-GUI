@@ -393,6 +393,10 @@ class ParseNetsV2Panel(QWidget):
     def validate(self) -> tuple[bool, str]:
         """The Route B consistency gate: ``(False, reason)`` blocks
         ``[Next >]`` until the workbook is fixed and re-imported."""
+        # M158a: an empty Route A parse is not a finished node - the
+        # padlock must not report "Completed" on an empty table.
+        if self._state.route == ROUTE_A and not self._state.rows:
+            return False, "Parse found no nets — press Parse nets first"
         if self._state.gate_ok:
             return True, ""
         return False, self._state.gate_error

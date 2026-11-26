@@ -179,6 +179,10 @@ class YamlBuildWizard(QWidget):
         # must skip the model write.  Keyed by the dialog so a node
         # opened from Back still saves its own close normally.
         self._back_dialog: QDialog | None = None
+        #: M158a: callable returning the current project Equipment node
+        #: (``equipment:`` dict); wired by the main window.  None = the
+        #: node-04 panel runs standalone (tests / layout audit).
+        self.equipment_provider = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -274,7 +278,8 @@ class YamlBuildWizard(QWidget):
         if key == "equipment":
             from mtkgui.gui.yamlbuild.equipment_panel import \
                 EquipmentConfigPanel
-            panel = EquipmentConfigPanel()
+            panel = EquipmentConfigPanel(
+                equipment_provider=self.equipment_provider)
             # v2-10: node 04 reaches the model - load the persisted
             # equipment config, then write back on every change.
             panel.set_values(self.model.get_equipment_config())

@@ -144,10 +144,16 @@ class EquipmentConfigPanel(QWidget):
 
     content_changed = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None,
+                 equipment_provider=None) -> None:
         super().__init__(parent)
         self._config = EquipmentConfig()
         self._dialogs: dict[str, QDialog] = {}
+        #: M158a: callable returning the Equipment-page node (None = the
+        #: panel runs standalone and falls back to its own config).
+        self.equipment_provider = equipment_provider
+        #: M158a: the last Check availability result (read-only text).
+        self._check_status: str = ""
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -227,7 +233,8 @@ class EquipmentConfigPanel(QWidget):
         on = sum(1 for v in cfg.instruments.values() if v)
         if cfg.check_run:
             self.tiles["instruments"].set_status(
-                "CHECKED", f"{on} instruments enabled · {capacity_line(cfg.instruments)}",
+                "CHECKED",
+                f"{on} instruments enabled · {self._check_status}",
                 "ok")
         else:
             self.tiles["instruments"].set_status(
@@ -282,6 +289,9 @@ class EquipmentConfigPanel(QWidget):
                 self.tiles[key].set_status(
                     "LOCKED", "Run the availability check in Instruments first",
                     "muted")
+        lbl_status = getattr(self, "lbl_psu_status", None)
+        if lbl_status is not None:
+            lbl_status.setText(self._check_status or "Not checked yet")
 
 
     # ------------------------------------------------------------- dialogs
@@ -414,7 +424,56 @@ class EquipmentConfigPanel(QWidget):
 
     def _on_check(self) -> None:
         self._config.check_run = True
+        self._check_status = self._probe_status()
         self._changed()
+
+    def _equipment_node(self) -> dict:
+        """The current Equipment-page node (empty when not wired)."""
+        provider = self.equipment_provider
+        if not callable(provider):
+            return {}
+        try:
+            data = provider() or {}
+        except Exception:                     # noqa: BLE001 - never crash
+            return {}
+        if isinstance(data, dict) and "equipment" in data:
+            data = data.get("equipment") or {}
+        return data if isinstance(data, dict) else {}
+
+    def _probe_status(self) -> str:
+        """One read-only line from the availability check (never raises).
+
+        Reads each enabled instrument's ``Status`` field from the
+        Equipment page and keeps the tile / Status row truthful; without
+        a provider (or on any error) it reports the local capacity plus
+        ``not probed``.
+        """
+        try:
+            node = self._equipment_node()
+            if not node:
+                return capacity_line(self._config.instruments) + \
+                    " · not probed"
+            enabled = [key for key, on in self._config.instruments.items()
+                       if on]
+            parts: list = []
+            for key in enabled:
+                entry = node.get(key) or {}
+                fields = dict(entry.get("fields") or {}) \
+                    if isinstance(entry, dict) else {}
+                status = str(fields.get("Status") or "").strip()
+                if status:
+                    parts.append(
+                        f"{INSTRUMENT_LABEL.get(key, key)} {status}")
+            line = (f"{len(enabled)} of {len(self._config.instruments)} "
+                    "instruments enabled")
+            if parts:
+                line += " · " + " · ".join(parts)
+            else:
+                line += " · no status reported"
+            return line
+        except Exception:                     # noqa: BLE001 - never crash
+            return capacity_line(self._config.instruments) + \
+                " · not probed"
 
     # ------------------------------------------------------------- page 2
     def _build_power_page(self) -> QWidget:
@@ -426,11 +485,18 @@ class EquipmentConfigPanel(QWidget):
         src = QGroupBox("Main input source", page)
         src_lay = QVBoxLayout(src)
         src_lay.setSpacing(6)
-        self.src_psu = QRadioButton("PSU N5747A (ICT power)", src)
-        self.src_adapter = QRadioButton("DUT power adapter", src)
+        self.src_psu = QRadioButton("PSU N5747A", src)
+        self.src_adapter = QRadioButton("External DC power adaptor", src)
         self.src_psu.toggled.connect(self._on_source)
         src_lay.addWidget(self.src_psu)
         src_lay.addWidget(self.src_adapter)
+        # M158a: what the adapter route really means for the operator
+        self.src_note = QLabel(
+            "Power input is controlled by the external supply — plug the DUT in and "
+            "out by hand, so the PSU settings below do not apply.", src)
+        self.src_note.setWordWrap(True)
+        self.src_note.setProperty("tone", "muted")
+        src_lay.addWidget(self.src_note)
         group = QButtonGroup(self)
         group.addButton(self.src_psu)
         group.addButton(self.src_adapter)
@@ -444,7 +510,7 @@ class EquipmentConfigPanel(QWidget):
             del blocker
         lay.addWidget(src)
 
-        psu = QGroupBox("PSU limits", page)
+        psu = QGroupBox("PSU settings", page)
         psu_form = QFormLayout(psu)
         psu_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         psu_form.setHorizontalSpacing(14)
@@ -463,7 +529,17 @@ class EquipmentConfigPanel(QWidget):
         self.psu_current.setValue(self._config.psu_current_limit)
         self.psu_current.valueChanged.connect(self._on_psu)
         psu_form.addRow("Current limit", self.psu_current)
+        # M158a: read-only outcome of Check availability
+        self.lbl_psu_status = QLabel("", psu)
+        self.lbl_psu_status.setWordWrap(True)
+        self.lbl_psu_status.setProperty("tone", "muted")
+        psu_form.addRow("Status", self.lbl_psu_status)
         lay.addWidget(psu)
+        self.psu_group = psu
+        self.lbl_psu_status.setText(self._check_status or "Not checked yet")
+        self.psu_group.setEnabled(self._config.source == SOURCE_PSU)
+        self._psu_restyle()
+        self.src_note.setVisible(self._config.source == SOURCE_ADAPTER)
 
         relay = QGroupBox("Fixture relay", page)
         relay_lay = QVBoxLayout(relay)
@@ -503,7 +579,24 @@ class EquipmentConfigPanel(QWidget):
         if self._config.source == SOURCE_ADAPTER:
             self._inst_boxes["n5747a"].setChecked(False)
             self._config.instruments["n5747a"] = False
+        self.src_note.setVisible(self._config.source == SOURCE_ADAPTER)
+        self.psu_group.setEnabled(self._config.source == SOURCE_PSU)
+        self._psu_restyle()
         self._changed()
+
+    def _psu_restyle(self) -> None:
+        """Grey the PSU block explicitly when the adapter owns the power.
+
+        Child labels do not inherit the disabled palette (M131 rule), so
+        the note / status labels need the colour spelled out; the global
+        sheet already greys the spin boxes.
+        """
+        if self.psu_group.isEnabled():
+            self.psu_group.setStyleSheet("")
+            return
+        self.psu_group.setStyleSheet(
+            "QLabel { color: #6b7280; } "
+            "QDoubleSpinBox { color: #6b7280; }")
 
     def _on_relay(self) -> None:
         self._config.fixture.signals["relay"].used = (
@@ -794,6 +887,9 @@ class EquipmentConfigPanel(QWidget):
             box.setChecked(config.instruments.get(key, True))
         self.src_psu.setChecked(config.source == SOURCE_PSU)
         self.src_adapter.setChecked(config.source == SOURCE_ADAPTER)
+        self.src_note.setVisible(config.source == SOURCE_ADAPTER)
+        self.psu_group.setEnabled(config.source == SOURCE_PSU)
+        self._psu_restyle()
         self.relay_box.setChecked(config.fixture.signals["relay"].enabled)
         self.psu_voltage.setValue(config.psu_voltage)
         self.psu_current.setValue(config.psu_current_limit)
