@@ -37,11 +37,23 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`12e8a72` (M152) - 2026-11-26**. Everything up to it is on
+GUI head: **`163cac6` (M154) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M154` - the footer padlock of every node dialog is an icon, not a label:
+  a 44 px square shows a drawn padlock only - closed while the module is
+  still open, shackle swung up once it is locked - and clicking it flips
+  both the node state and the drawing.  The glyph is painted from vectors at
+  1x and 2x because a typed emoji renders differently on every platform (and
+  not at all offscreen), and the two states share one set of coordinates so
+  they cannot drift apart.  The state also lands on a `locked` property for
+  tests and QSS, and the tooltip and accessible name spell the action out.
+- `M153` - the Equipment page no longer lists `Boundary Scan Analyzer`: no
+  driver implements it, so the grey `N/A` row only promised something that
+  does not exist.  `Debugger` stays.  The row, its line in the Equipment
+  chapter and its entry in the page test were removed together.
 - `M152` - the Category cell holds "SE Clock" again: the combo's own
   sizeHint is measured before the cell widget is shown and comes back far
   too small, so the column is sized from the widest label measured with the
