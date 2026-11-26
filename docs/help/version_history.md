@@ -37,11 +37,42 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`78efdaf` (M143) - 2026-11-26**. Everything up to it is on
+GUI head: **`12e8a72` (M152) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M152` - the Category cell holds "SE Clock" again: the combo's own
+  sizeHint is measured before the cell widget is shown and comes back far
+  too small, so the column is sized from the widest label measured with the
+  cell font plus room for the arrow, the padding and the focus frame.  The
+  sub-type pixel assertion went with it - the shared pytest session sizes
+  that panel differently from the app, so the number it produced was neither
+  a pass nor a failure of the real layout.
+- `M151` - the label allowance is 18 px, the value that carries both
+  platforms: the delegate's padding is not in `visualItemRect`, and Segoe UI
+  runs a few pixels wider than Helvetica, so neither a fixed 12 px nor a
+  measured decor held on both.
+- `M150` - the 11 px / 10 px table and header sizes moved from the
+  stylesheet onto the widget fonts.  A `font-size` in the QSS overrides the
+  widget font when Qt paints but not what `QFontMetrics` measures, so
+  columns were sized for one font and drawn in another - one character short
+  on a 125 % display.
+- `M149` - the label allowance grew from 8 px to 12 px: a cell spends its
+  padding either side plus the grid line, and 8 px left "clock_single" at
+  "clock_sin...".
+- `M148` - the short label columns are sized by their widest value instead
+  of their header, which is why "clock_single" elided; the net name keeps
+  the remaining width and elides with a tooltip, and only gives space back
+  when it would drop under 90 px.
+- `M147` - the Category column reserves the widest category plus the margin
+  the combo actually needs, which is not what the header font suggests.
+- `M146` - the Category column is settled before the other six share what is
+  left; sharing first scaled it back down to 66 px and clipped every combo.
+- `M145` / `M144` - two attempts at a font-derived assertion for the label
+  column are recorded here because they were wrong: the pytest session and
+  the bench disagree on what the same string measures, so the number could
+  not be derived from a font at all.
 - `M143` - node 02 keeps its values readable with real data: the
   Category cell is a combo box, yet the column was sized from the header
   text alone and clipped every value to "Po" / "Ot" once a netlist filled
