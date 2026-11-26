@@ -6,7 +6,7 @@ split). It provides multi-channel serial / SSH terminals, a Linux
 command helper and pop-out console windows. FCT message tests read
 the channel read buffers to judge the DUT output.
 
-![Console panel](images/12_console.png)
+![Pop-out console window: log, Linux command helper, Send row](images/12_console.png)
 
 ## Channels
 

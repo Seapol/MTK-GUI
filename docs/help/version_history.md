@@ -37,32 +37,41 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-Test-logic head: **`d0cb067` (m122) - 2026-11-25**. The commits after it
-change documentation and packaging only: the User Guide rebuild and the
-build stamp, so a bundle built from them runs the same test logic as
-`d0cb067`.
+GUI head: **`d1c0248` (M132) - 2026-11-26**. Everything up to it is on
+`origin/develop`; a bundle built from this commit runs the same test
+logic as the head.
 
-- packaged builds now name their commit: the Windows spec writes
-  `_build_version.txt` (branch / short commit / dirty) beside the exe, so
-  the Event Log reads `Build: v1.0.0.0 (develop @ <commit>) (source: file)`
-  instead of the bare `source: static`
-- `7b0c25c` -> `d2395fe` (docs) - the User Guide rebuilt against the live
-  five-node Yaml Build page and the current rack: Equipment rails-capture
-  block, current Version History, fresh screenshots at 2400x950
-- `d0cb067` (m122) - suite-green follow-ups: clear stale rows on load,
-  status colours no longer pinned by a previous run, tests kept off modals
-- `737bb3d` - User Guide reaches the station: Windows build, SharePoint
-  upload, Bitbucket mirror
-- `420d544` (m122) - GUI: stale-row clearing, status colour fix
-- `d99a7ef` - the 96624 ICT and FRDM-IMX93 FCT plans ship as loadable
-  examples under `examples/`
-- `d31a9ba` (m121) - virtual PSU honours the power-op state and the
-  equipment setpoints, so a virtual rails capture matches a real one
-- `c634996` (m120) - BT RSSI scan retry plus a budget-vs-subtimeout advisory
-- `82eb613` (m119b) - `--no-omit` removed, iperf server restart and health
-  check
-- `d72fb87` (m119) - console verdict truth: CR-safe judge, echo strip,
-  iperf JSON, idle gate
+- `d1c0248` (M132) - Console drops the `Quick:` row: the dropdown plus
+  `Save Cmd` / `Clear Cmd` and the `quick_commands.py` store are gone;
+  `Font...` moves to the right end of the Send row, Tab completion keeps
+  the sent history plus the AT catalog
+- `c416481` -> `4b696fb` (M131) - node 04 Equipment Config becomes a
+  seven-card launcher with one dialog per module; `Instruments` gates
+  the other six (`LOCKED`); node dialogs size themselves from the
+  panel's minimum height plus a 120px chrome reserve, so the four card
+  rows fit without a scrollbar
+- `1efcda8` (M130c) - read-only node and unchecked firmware slot force
+  grey text on every child widget, not just the controls
+- `2719f07` / `6a6ecf4` (M130) - node 03 keeps a single Pass keyword,
+  the duplicate working-directory row is gone, disabled inputs are grey
+  through the theme
+- `1d89a66` / `e681264` (M129) - node 02 lays `Parsed Nets` and `Other
+  Nets` side by side, 560px each
+- `d02ee3a` (M128) - node dialogs are sized after layout activation, so
+  node 01 is never clipped
+- `b8c9c45` (M127/M128) - node dialogs own `Save Draft` / `Next`,
+  padlocks, colour-coded cards and `Empty` / `Edited` / `Completed` badges
+- `087d590` - design input two-column meta, revision dropdowns,
+  side-by-side blocks
+- `f58dd8b` - `File -> Restart GUI` restarts through the normal exit path
+- `e01b6d5` - performance timing log on by default, runtime switch,
+  stall watchdog and the live viewer
+- `e165fd2` / `caaea2c` (M124) - node dialogs resizable and scrollable,
+  capped inputs, `Next` inside the dialogs
+- `d5f5fd0` (M123) - SharePoint REST calls follow the web that owns the
+  folder
+- `3ef9e3b` -> `d2395fe` (docs) - packaged builds name their commit and
+  the User Guide is rebuilt against the live page
 
 The complete commit-by-commit list follows below; release entries stay
 above it, because `develop` commits do not bump the version.

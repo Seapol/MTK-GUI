@@ -1,29 +1,34 @@
 # Yaml Build Page
 
-The **Yaml Build** tab is where a test project is authored. It has one
-layout, top to bottom:
+The **Yaml Build** tab is where a test project is authored. It renders
+one horizontal flow of seven nodes; clicking a node opens its panel in
+its own dialog:
 
 ```text
-Plan version: [ field ]                       <- header
-01 Design Input -> 02 Parse nets for ICT -> 03 Channel Allocation
--> 04 Build ICT Test Work Flow Sequence -> 05 Build FCT Test Work Flow Sequence
-[ Power Nets | Clock Nets | Control IO Nets ]  <- embedded tables
-rows: power=.. power_rails=../.. clock=.. gpio=.. - validation: ..
+01 Design Input -> (02 Parse nets for ICT  ||  03 Firmware Config)
+-> 04 Equipment Config
+-> (05 Build ICT Test Sequence  ||  06 Build FCT Test Sequence)
+-> 07 Apply & Save Yaml
 ```
 
-Five nodes on a single row, each connected to the next; the Channel
-Allocation tables sit directly below them; the status line under the tables
-reports the four counts and the validation state. There is no YAML preview
-pane any more - the YAML is written by `Apply_Save yaml` inside each node
-dialog and by the File menu.
+The bar is linear because a bar can only run left to right: the two
+parallel pairs (02/03 and 05/06) are drawn in sequence. Gating follows
+that diagram - both members of a pair must be locked before the next
+node opens. Nodes the project's ICT / FCT selection switches off stay
+grey and open read-only, so what they hold can still be audited.
 
-![Yaml Build page with the shipped 96624 demo plan loaded](images/04_yaml_build.png)
+The page carries the flowchart only. There is no YAML preview pane, no
+in-page footer and no export strip: the YAML is written by
+`Apply & Save Yaml` on node 07 and by the File menu.
 
-The shot above is the shipped `examples/ict_96624` demo plan, so it also shows
-what a capacity-limited plan looks like: 82 power nets against the 80-point
-front end and 692 parsed Control-IO candidates against the 24 DIO lines. The
-footer says so (`+668 over capacity`, `validation: NOK (incomplete rows)`)
-instead of dropping the extra nets quietly.
+![The seven-node Yaml Build flow](images/04_yaml_build.png)
+
+A loaded project also shows what a capacity-limited plan looks like on
+stage 07: the shipped `examples/ict_96624` plan has 82 power nets against
+the 80-point front end and 692 parsed Control-IO candidates against the
+24 DIO lines, and node 07 reports it (`+668 over capacity`,
+`validation: NOK (incomplete rows)`) instead of dropping the extra nets
+quietly.
 
 ## How the nodes behave
 
@@ -43,20 +48,20 @@ instead of dropping the extra nets quietly.
   window; a failed check lists the findings in a message box and leaves
   the node unlocked. Locking means *this module's input is finished and
   still valid* - only then does `Next` become available.
-- **Gating follows the padlocks, not the clock**: node 02 opens once node
-  01 is locked; 03 and 04 open once the parse is locked; 05 needs 02 and
-  04 locked, 06 needs its ICT counterpart, and 07 needs both build nodes.
+- **Gating follows the padlocks, not the clock**: node 01 unlocks both
+  02 and 03; either branch (02 parse or 03 firmware) unlocks 04
+  Equipment Config; 04 unlocks 05 and 06 together; 05 or 06 unlocks 07.
   An FCT-only project is still legal - the ICT nodes grey out instead of
-  blocking the chain.
+  blocking the chain, and an ICT-only project greys 03 and 06 the same
+  way.
 - **Unlocking cascades forward**: releasing a node also releases every
   later node, so a changed upstream fact always re-opens the modules it
   feeds.
 - **`Next` and `Save Draft` live inside the dialog** (M124 / M127). Node 01
-  hands over to 02, node 02 to 04 (the Channel Allocation card runs
-  automatically on the way and says so in the Event Log), node 04 to 05.
-  Node 07 is the end of the chain and shows no `Next`; `Save Draft` is on
-  every node window and writes the current (possibly incomplete) values
-  to the draft YAML without validating them.
+  hands over to 02, 02 and 03 both hand over to 04, and 04 to 05. Node 07
+  is the end of the chain and shows no `Next`; `Save Draft` is on every
+  node window and writes the current (possibly incomplete) values to the
+  draft YAML without validating them.
 - **The page carries the flowchart only** (M127): the old `Cancel` /
   `Save Draft` / `Next` footer and the top `Export to Excel` strip are
   gone. The workbook export stays in `File -> Export Config Workbook...`.
@@ -65,7 +70,7 @@ instead of dropping the extra nets quietly.
   to be configured, green = locked and complete. The bottom-right badge
   reads `Empty`, `Edited` or `Completed` / `Unused` to match. Lock states
   travel with the project - reopening a YAML restores the padlocks.
-- **Node 04 is a launcher, not a tab strip** (M131): the seven modules -
+- **Node 04 Equipment Config is a launcher, not a tab strip** (M131): the seven modules -
   `Instruments`, `Power On/Off DUT`, `R-GND & Voltage`, `Clock`,
   `Power Rails`, `Fixture (ATE)` and `Peripherals` - are large cards; each
   opens its own dialog with its own layout. `Instruments` is the wide
@@ -153,66 +158,104 @@ The board software picks the default tick set: `linux` ticks everything,
 ticks `Message dialogs` only. A project YAML that already stores a list -
 including an empty one - wins over those defaults.
 
-Press **Apply_Save yaml** to apply and write the project YAML.
-
-Press **Apply_Save yaml** to apply and write the project YAML.
+Every edit is written to the model as you type it; node 07 writes the
+project YAML.
 
 ## Node 02 - Parse nets for ICT
 
 ![Parse Nets for ICT](images/07_yaml_parse_nets.png)
 
-`Parse Nets for ICT` classifies every net into three views:
+The panel shows the parsed netlist as **two tables side by side** (M129):
 
-- **Parsed Nets** - net, test point, category (`Power` / `Clock` /
-  `Control IO` / `GND` / `Other`), confidence, input-rail flag, sub-class.
-  A dropdown lets you move a net to another category.
-- **Filtered Nets** - nets removed by the rule set or by DNP, with the
-  reason and a category dropdown so a net can be brought back.
-- **GND integrity** - one line under the tables; more than one reference
-  ground raises a warning instead of being silently accepted.
+- **Parsed Nets** (left) - every net the classifier recognised as a test
+  category: `Power`, `SE Clock` or `GND`.
+- **Other Nets** (right) - everything parked in `Other`, i.e. not testable
+  as it stands.
 
-`Parsed Nets` and `Other Nets` are laid out **side by side** (M129): the
-nets that feed the ICT sequence sit on the left, the ones the rule set
-parked in `Other` on the right, so the classification reads left to right
-instead of two stacked tables with empty space between them. Each table
-keeps its own horizontal scrollbar for the wide column set.
+Both tables share the same columns - `Net Name`, `Category`, `Sub-type`,
+`Test Point`, `Nominal`, `Limits`, `Confidence` - and each row carries a
+category dropdown, so a net can be moved to another bucket without
+re-parsing. `Move Up` / `Move Down` keep the rows in the order you want
+them consumed.
 
-`Edit Net Classification Rules` opens the regex rule set (power tree
-patterns, clock patterns, exclude patterns, DNP handling). Two behaviours
-worth knowing:
-
-- the counters above the tables are `classified + filtered` for this file,
-  so the number is reproducible;
-- importing a BOM changes the power count, because nets on DNP parts drop
-  out. On the 96624 reference board that is `power=82` from the netlist
-  alone against `power=49` with the BOM.
-
-The result is written into the model only when the dialog is applied.
-
-## Node 03 - Channel Allocation
-
-The node is a navigation card with an `Auto assign` button: clicking it runs
-the automatic allocation and fills the embedded tables below; no dialog
-opens. Three tabs follow the resource pools:
-
-- **Power Nets** - test point, `R-GND Min limit (ohm)`, `Nominal (V)`,
-  `Lower limit (V)`, `Upper limit (V)`; the voltage columns become the
-  voltage rows of node 04, the resistance column becomes the `R-GND` rows.
-- **Clock Nets** - test point, expected frequency, window.
-- **Control IO Nets** - the 24 DIO lines, drive / read / toggle.
-
-Rows are editable in place (dropdown-only where a fixed choice applies). The
-status line under the tables counts them:
+The summary line under the tables is the audit trail for this file; on
+the 96624 reference board it reads:
 
 ```text
-rows: power=82 power_rails=12/82 clock=20 gpio=24 - validation: OK
+Power 82 · SE Clock 20 · GND 4 · Other 2124 · skipped 0 rows
 ```
 
-`power_rails=12/82` means 12 of the 82 power nets are armed for the rails
-capture. Anything that does not fit a pool is reported as over capacity and
-becomes Do-Not-Test when the sequence is built - visible, never silent.
+Those five numbers add up to the netlist (2 230 here: `82 + 20 + 4 + 2124`,
+with `skipped` counting rows the parser refused). Every number is recomputed
+from the file on each parse, so a colleague's build is comparable straight
+away.
 
-## Node 04 - Build ICT Test Work Flow Sequence
+`Parse Nets…` picks the netlist (Route A), re-reads it and refills both
+tables. Two behaviours worth knowing:
+
+- nets on DNP parts leave the `Power` bucket once a BOM is applied, because
+  they are not testable on the fixture - the same netlist gives `Power 82`
+  on its own and a lower power count with the BOM;
+- the parse result is written into the model as it is produced, so node 05
+  seeds from the latest parse the moment it opens.
+
+## Node 03 - Firmware Config
+
+Node 03 configures **how** the FAT and OOBE images are flashed. It
+configures only: there is no execution state, no output tail, no Abort
+and no timeout here - flashing happens later, inside the FCT run.
+
+Two slots, FAT on top and OOBE below. Each slot has its own `Enable`
+checkbox and picks one method:
+
+| Method | Fields | Verdict |
+|---|---|---|
+| `CLI command` | `Terminal`, `Command`, `Pass keyword` | the run parses the terminal output: the pass keyword found = PASS, the fail keyword found or nothing = FAIL |
+| `3rd-party GUI tool` | `Tool path`, `Arguments`, `Prompt` | the tool window opens; the operator answers the Go / Stop prompt, and that answer is the verdict |
+
+- **The pass keyword is the only judge that counts** (M130): the slot
+  used to ask for the same text twice, so a typo in one box made the row
+  unpassable. There is one `Pass keyword` field now, and one `Fail
+  keyword` that is optional.
+- **An unchecked slot greys every field of that slot** (M130c) - text
+  boxes, dropdowns, radios and the hint lines - so a half-configured slot
+  never looks editable. Both slots unchecked is legal; the footer then
+  says `no firmware slot enabled - FCT will run without flashing`.
+- A disabled slot collapses to `{enabled: false}` in the YAML, so the
+  engine skips it instead of flashing defaults.
+
+The FCT run's two flashing rows (`STEP_FLASH`, see node 06) read this
+configuration; changing a terminal or a path here changes the run.
+
+## Node 04 - Equipment Config
+
+Node 04 is the rack map: seven modules, each a large card, each opening
+its own dialog with a layout built for that module (M131) - no shared
+seven-tab strip any more.
+
+| Card | What it configures |
+|---|---|
+| `Instruments` (wide banner) | the DAQ973A mainframe, its DAQM908A / DAQM907A modules and the other rack instruments; the `Check availability` button |
+| `Power On/Off DUT` | main input source, PSU limits, fixture relay, operator prompts |
+| `R-GND & Voltage` | the 80-point two-wire resistance and voltage rows |
+| `Clock` | the three clock rows and their windows |
+| `Power Rails` | the 12 rails, their order and setpoints |
+| `Fixture (ATE)` | probe ports and the control signals |
+| `Peripherals` | Wi-Fi / BT / router / debug probe / display and the rest of the production peripherals |
+
+- **`Instruments` gates the other six**: until `Check availability` has
+  run, the six stay grey with a `LOCKED` badge and refuse to open.
+- **Every card carries a live badge** - `CHECKED` / `NOT CHECKED`, `3
+  NETS`, `2 CLOCKS`, the PSU setting, `RECORD-ONLY` - so the node can be
+  read without opening anything.
+- **Each module dialog is its own layout**: two grouped sections plus a
+  capacity card for `Instruments`, four grouped sections for
+  `Power On/Off DUT`, a full-width table for `R-GND & Voltage`, `Clock`
+  and `Power Rails`, a two-column form for `Fixture (ATE)` and a 2x2
+  check grid for `Peripherals`. The dialogs are resizable and remember
+  their instance, so reopening a module returns to the same window.
+
+## Node 05 - Build ICT Test Sequence
 
 This node opens the ICT step editor - one row per test or operation, in the
 canonical order the engine runs them:
@@ -225,14 +268,14 @@ Power On DUT -> rails capture (Start) -> voltage rows -> clock rows
 Rails capture brackets the measurement block, so the waveform belongs to one
 run. Each row carries its test point, limits, timeout and channel; double
 click a row to edit it. The dialog re-seeds itself from an existing sequence,
-so loading a saved plan and re-opening node 04 shows the stored rows instead
+so loading a saved plan and re-opening node 05 shows the stored rows instead
 of an empty table.
 
 The Test Work Flow table is a read-only result view of this sequence:
 double clicking an ICT row opens the same editor, so there is exactly one
 place to change a step.
 
-## Node 05 - Build FCT Test Work Flow Sequence
+## Node 06 - Build FCT Test Sequence
 
 Same editor shape, FCT content: `Init Instruments`, `Fixture Clamp Down`,
 `Power On/Off DUT`, `Delay`, console rows (`Console_serial` / `_ssh` /
@@ -246,10 +289,23 @@ Every console row must name what it expects (`Expected must be found`,
 `Unexpected must not be found`); a row without a judge cannot pass, and the
 save is blocked with that reason.
 
+
+## Node 07 - Apply & Save Yaml
+
+The end of the chain. It shows the generated YAML read-only and the
+validation state, then offers exactly two buttons in a fixed order:
+
+- **`Apply & Save Yaml`** - validate, write the project YAML in place.
+- **`Save as new yaml`** - write a new file instead of overwriting.
+
+Node 07 shows no `Next`. If validation fails, the findings are listed and
+nothing is written. A run in progress puts the panel read-only with a
+notice, so configuration cannot change under a running test.
+
 ## Saving, validating, exporting
 
-- **`Apply_Save yaml`** in every node dialog: validate, apply to the model,
-  write the project YAML in place.
+- **`Apply & Save Yaml`** on node 07: validate, apply to the model, write
+  the project YAML in place (see node 07 above).
 - **`Save Draft`** in every node dialog (M127): snapshot the current node
   values - no validation, no file is deleted - and the window reports the
   draft path. An unfinished node can be parked this way and finished later.

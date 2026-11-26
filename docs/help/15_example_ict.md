@@ -6,18 +6,17 @@ A-96624**. Every number below was read off the screens in this chapter on
 2026-11-25 - if your build shows a different count, the difference is in your
 input files, not in the procedure.
 
-The Yaml Build page has five nodes in one row:
+The Yaml Build page has seven nodes in one flow band:
 
 ```text
-01 Design Input -> 02 Parse nets for ICT -> 03 Channel Allocation
--> 04 Build ICT Test Work Flow Sequence -> 05 Build FCT
+01 Design Input -> (02 Parse nets for ICT || 03 Firmware Config)
+-> 04 Equipment Config -> (05 Build ICT || 06 Build FCT) -> 07 Apply & Save Yaml
 ```
 
-Nodes 01-03 are the authoring steps; node 04 opens the ICT step editor (the
-rails capture, voltage, clock and GPIO rows all live inside that one
-sequence), and node 05 does the same for FCT. The three tables under the
-nodes are the channel allocation, and the status line under them carries the
-counts.
+The gates are what make this chapter's order mandatory: 01 unlocks 02 and
+03, either of them unlocks 04, 04 unlocks 05 and 06, and either of those
+unlocks 07. Nodes 02 and 05 are the ones this walkthrough edits; 03, 04 and
+06 are covered in chapters 9 and 16.
 
 ## Prerequisites
 
@@ -38,9 +37,9 @@ end of the chapter.
 
 ## Step 1 - Open Yaml Build and node 01
 
-Select the **Yaml Build** tab. The flowchart shows the seven nodes with the
-project path band at the top and the channel-allocation tables below. Open
-**01 - Design Input** by clicking the node.
+Select the **Yaml Build** tab. The flow band shows the seven nodes and the
+project path band at the top; greyed nodes are locked until their upstream
+gate is done. Open **01 - Design Input** by clicking the tile.
 
 ![Node 01 before any file is imported](images/15_01_design_input.png)
 
@@ -81,51 +80,48 @@ Tick **Enable** when the panel is complete. Leaving it unticked is legal - the
 plan simply does not claim design input yet - but the later nodes then build
 from an empty model.
 
-Then press **Apply_Save yaml**. This applies the panel to the model and writes
-the project YAML in place; the node gets its star and node 02 unlocks.
+The panel writes what you type straight into the model (that is why the
+badge on node 01 turns `Edited`), so there is no per-node apply button any
+more: press **Next** in the footer to go back to the flow. Nothing on disk
+changes until node 07 writes the YAML.
 
 ## Step 3 - Parse the nets (node 02)
 
-Open **02 - Parse nets for ICT** and press **Parse Nets for ICT**. The heavy
-part runs in a worker thread; the progress dialog shows
-`reading netlist -> classifying -> ranking` and never closes itself early.
+Open **02 - Parse nets for ICT** and press **Parse Nets…**: it re-reads the
+netlist recorded on node 01 and refills both tables.
 
-![Parse result on 96624, with the BOM applied](images/15_04_parse_result.png)
+![Parse result on 96624, from the netlist alone](images/15_04_parse_result.png)
 
-Read the line above the table left-to-right:
+Read the summary line under the two tables:
 
 ```text
-2230 nets parsed: power=49 clock=20 control_io=24 others=701 gnd=4 filtered=1432
-BOM: 3545 records, 437 DNP, 0 conflicts, 0 warnings
+Power 82 · SE Clock 20 · GND 4 · Other 2124 · skipped 0 rows
 ```
 
-- **Parsed Nets** - every testable net with its test point, the assigned
-  category, a confidence (`high` / `medium` / `low`), the input-rail flag and
-  the sub-class. The first rows of this board are `VDD_12V (TP114.1)`,
-  `VDD_12V_CONN (J64.2)`, `VBAT_SENSE (R424.2)`.
-- **Filtered Nets** - what the exclude regex took out, with the reason
-  (`excluded by Exclude Parse Nets regex`), and a dropdown so you can move a
-  net back into the test set.
-- **GND integrity** - one line under the tables. Here it reports four
-  reference grounds (`GND`, `GND_EARTH`, `GND_SH_P5`, `GND_SH_P7`) as a
-  warning, which is the tool telling you to check the star-ground topology on
-  the fixture rather than trusting the plane.
+- **Parsed Nets** (left table) - the testable nets with their test point,
+  category and confidence. The first rows of this board are
+  `1V2_RGMII_A_AVDD…`, `1V2_RGMII_A_DV…`, `1V8_FT4232_1`.
+- **Other Nets** (right table) - everything that landed in `Other`
+  (`AD2433_RST_B`, `BCSR_RST_B`, `DDR0_CS0_A`, …); each row keeps a
+  category dropdown, so a net you disagree with moves buckets without a
+  re-parse.
+- **`skipped 0 rows`** - nothing the parser refused; a non-zero value is
+  the tool telling you about a malformed line rather than about the board.
 
 Numbers worth knowing before you compare with a colleague's build:
 
-- **How the counter adds up.** `2 230` is every classified row plus every
-  filtered row of this netlist (`82 + 20 + 24 + 668 + 4 + 1 432`); nothing is
-  lost between the tables and the number.
-- **The BOM changes the power count.** With the BOM loaded, `power=49`: nets
-  whose parts are marked DNP (437 of them here) are not testable and drop
-  out. The same netlist parsed without a BOM gives `power=82 gpio=692`. The
-  shipped reference plan was built from the netlist alone, which is why its
-  model reads `power=82`. Decide once per product whether DNP parts count,
-  and keep that decision in the plan.
-- **`control_io=24`** is the allocated DIO count, not a classification
-  bucket: the pool has 24 lines, so at most 24 control-IO nets can be driven.
+- **How the counter adds up.** `2 230` is every row of this netlist
+  (`82 + 20 + 4 + 2124`); nothing is lost between the two tables and the
+  number.
+- **The BOM changes the power count.** With the BOM loaded the `Power`
+  bucket drops to `49`: nets whose parts are marked DNP (437 of them here)
+  are not testable and leave the bucket. The shipped reference plan was
+  built from the netlist alone, which is why its model reads `Power 82`.
+  Decide once per product whether DNP parts count, and keep that decision
+  in the plan.
 
-Press **OK** (Apply_Save yaml) to write the classification into the model.
+Press **Next** when the tables look right - the classification is already in
+the model, so node 04 and then node 05 open against it.
 
 ## Step 4 - Check the instruments on the Equipment page
 
@@ -145,9 +141,9 @@ mode the check is simulated and returns the configured identity. A wrong
 connection string here is the most common reason a real run fails at row 1
 with `no instrument at address`.
 
-## Step 5 - Build the ICT sequence (node 04)
+## Step 5 - Build the ICT sequence (node 05)
 
-Open **04 - Build ICT Test Work Flow Sequence**. The editor lists one row per
+Open **05 - Build ICT Test Sequence**. The editor lists one row per
 test or operation in the order the engine runs them:
 
 ```text
@@ -174,30 +170,25 @@ demo plan carries are a 200 Hz sample rate, a -0.5 s pre-trigger, a 6.0 s
 post-trigger window and `stop` as the anomaly policy. They are data in the
 YAML, not hidden defaults.
 
-## Step 6 - Read the model back on the page
+## Step 6 - Read the channel allocation back (still node 05)
 
-The three tables under the flowchart are the model the plan was built from.
-The status line reports the four counts at a glance:
+The allocation tables sit inside the node 05 dialog, above the test rows, and
+their status line reports the four counts at a glance:
 
 ```text
 rows: power=82 power_rails=12/82 clock=20 gpio=24
 ```
 
-![Yaml Build with the 96624 model](images/04_yaml_build.png)
+They show what landed where - `R-GND` and voltage on the DAQM908A channels,
+the 12 armed rails on `U2355A AI01..AI12`, clocks split between the DAQM907A
+totalizer and the U2355A counters. Any net that did not fit a pool is listed
+as over capacity and is auto Do-Not-Test when the sequence is built - it
+stays visible in the model so the gap is auditable.
 
-Channel allocation shows what landed where - `R-GND` and voltage on the
-DAQM908A channels, the 12 armed rails on `U2355A AI01..AI12`, clocks split
-between the DAQM907A totalizer and the U2355A counters:
+## Step 7 - Save the YAML (node 07)
 
-![Channel allocation auto-assigned](images/05_channel_allocation.png)
-
-Any net that did not fit a pool is listed as over capacity and is auto
-Do-Not-Test when the sequence is built - it stays visible in the model so the
-gap is auditable.
-
-## Step 7 - Save the YAML
-
-`Apply_Save yaml` on any node writes the project YAML in place. For a named
+**07 - Apply & Save Yaml** is the only write path: it previews the generated
+YAML read-only, then `Apply & Save Yaml` writes it in place. For a named
 copy use **File → Save as Yaml...**; the proposed name comes from the product
 metadata:
 

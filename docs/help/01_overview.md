@@ -16,7 +16,7 @@ tool covering the complete production flow:
 - **Flash OOBE**: out-of-box-experience firmware, same dual path.
 
 The Test Work Flow page renders the whole flow as one table; the
-Yaml Build page (five nodes: 01 design input to 05 FCT) authors
+Yaml Build page (seven nodes: 01 design input to 07 apply & save) authors
 the project.
 
 ## Main Window Layout
@@ -99,25 +99,22 @@ above the tabs on every page:
 
 ### Tabs (Workspace)
 
-Four pages cover the complete workflow:
+Three pages cover the complete workflow:
 
 - **Test Work Flow** - the run page. Upper row: the ICT Test Cases
   table and the Power Rails capture pane; lower row: the FCT Test
   Cases table beside the multi serial/SSH console.
 - **Equipment** - the rack-ATE instrument editor: add, configure,
   connect, disconnect and test the instruments of the station.
-- **Yaml Build** - the project authoring page: a fixed block-flow
-  diagram (click a block to configure, right-click to enable or
-  disable) next to a live YAML preview that is two-way synced with
-  the diagram.
-- **Channel Allocation** - dedicated Power / Clock / Control IO tables;
-  the data source is the Parse Nets result of the Yaml Build model.
+- **Yaml Build** - the project authoring page: a seven-node flow band
+  (01 design input to 07 apply & save) where each tile opens its own
+  dialog, plus the read-only YAML preview and the two save buttons on
+  node 07. There is no separate Channel Allocation tab any more - the
+  Power / Clock / Control IO tables live inside node 05.
 
 ![Equipment page](images/03_equipment.png)
 
 ![Yaml Build page](images/04_yaml_build.png)
-
-![Channel Allocation page](images/05_channel_allocation.png)
 
 ### Event Log
 
@@ -235,29 +232,40 @@ be performed manually by the user.
 - **Chapter 2 - Getting Started**: installation, the login dialog,
   a suggested first-run sequence, Event Log basics, themes and
   window geometry memory.
-- **Chapter 3 - Page Guide**: the four tabs (Test Work Flow,
-  Equipment, Yaml Build, Channel Allocation) field by field.
-- **Chapter 4 - Instruments & Connections**: the Equipment page,
-  instrument configuration and connection management.
-- **Chapter 5 - Test Items**: ICT and FCT test cases, step editing
-  and how verdicts are produced.
-- **Chapter 6 - Reports & Logs**: DUT / batch reports, statistics
-  and the auto-saved session log files.
-- **Chapter 7 - FAQ / Troubleshooting**: common problems and their
+- **Chapter 3 - Menus Reference**: every menu, shortcut and dialog
+  entry, in the fixed `File / View / Settings / Tools / Run / Report /
+  Help` order.
+- **Chapter 4 - Test Work Flow**: the ICT and FCT tables, Run Control,
+  the rails capture pane and the overall flow.
+- **Chapter 5 - Equipment Page**: the rack editor - add, configure,
+  connect and test the instruments of the station.
+- **Chapter 6 - Instruments**: the instrument reference - roles,
+  channels, connection strings and test-connection behavior.
+- **Chapter 7 - Station Equipment**: station peripherals (Wi-Fi, BT,
+  router, J-Link, media converter, display, audio, SD card, USB stick)
+  and how they are declared and reached.
+- **Chapter 8 - Hardware BoM**: the fixture / probe-board BoM, the star
+  ground topology and the rack wiring the plan assumes.
+- **Chapter 9 - Yaml Build Page**: the seven-node flow (Design Input,
+  Parse nets for ICT, Firmware Config, Equipment Config, Build ICT,
+  Build FCT, Apply & Save), the gate order, the per-node dialogs and the
+  read-only YAML preview.
+- **Chapter 10 - Console**: the serial / SSH console panel, the pop-out
+  window, the Linux command helper, Tab completion and the send row.
+- **Chapter 11 - Reports & Logs**: DUT / batch reports, statistics and
+  the auto-saved session log files.
+- **Chapter 12 - Audit & Security**: roles, operator permissions,
+  credentials, the audit trail and the OS keyring.
+- **Chapter 13 - Case Editor & Configuration**: test-case editing,
+  YAML schema limits and the project configuration files.
+- **Chapter 14 - FAQ / Troubleshooting**: common problems and their
   solutions.
-- **Chapter 8 - Security & Roles**: accounts, operator permissions,
-  credentials and the OS keyring.
-- **Chapter 9 - Yaml Build**: the fixed block-flow sequence
-  (Design Input, Parse nets for ICT, Channel Allocation, the ICT
-  workflow builder, the FCT sequence) with the Channel Allocation
-  tables embedded on the same page, and the live YAML preview.
-- **Chapter 10 - Channel Allocation**: Power / Clock / Control IO
-  channel mapping tables (embedded in the Yaml Build page) and applying
-  them back to the project YAML.
-- **Chapter 11 - Virtual Mode & Fault Injection**: rehearsing the
-  full flow without hardware and configuring random faults.
-- **Chapter 12 - Shortcuts & Tips**: the Visual Studio style run and
-  debug shortcuts, themes, and window / pane sizing behavior.
-- **Windows Build & Deployment** and **SharePoint & Bitbucket** (chapters 18
-  and 19 in the in-app guide): packaging the exe, rolling it onto a station,
-  and publishing reports and code outward.
+- **Chapter 15 - Example Build of ICT Test Case** and **Chapter 16 -
+  Example Build of FCT Test Case**: two end-to-end walkthroughs on real
+  boards.
+- **Chapter 17 - Tips & Troubleshooting**: practical shortcuts, themes,
+  window / pane sizing and deeper diagnosis.
+- **Chapter 18 - Windows Build, Deployment and Station Rollout** and
+  **Chapter 19 - Publishing Results: SharePoint Upload and the
+  Bitbucket Mirror**: packaging the exe, rolling it onto a station, and
+  publishing reports and code outward.

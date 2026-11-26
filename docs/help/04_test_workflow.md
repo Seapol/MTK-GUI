@@ -316,9 +316,9 @@ generic `test` row type.
   YAML and the waveform Properties dialog; the row needs no
   Min / Max. The `Net` cell is READ-ONLY and shows
   `N Power rails assigned on DAQ channels` - the rail set comes
-  from the U2355A AI channels assigned in Channel Allocation (the
-  page rail set syncs from it automatically; a manual rail edit in
-  the Properties dialog still wins). It is never a single free net
+  from the U2355A AI channels assigned in the node 05 allocation
+  tables (the rail set syncs from them automatically; a manual rail
+  edit in the Properties dialog still wins). It is never a single free net
   - binding it to one net reports `no rails defined` at run time.
 - **Use when** - ramp shape, overshoot, sequencing and startup
   ripple matter, not just the final DC value.
@@ -579,7 +579,7 @@ Fields, in order:
   and `Power Voltage`, Clock nets for `Clock Hz`, Control IO nets for the
   generic `test`. A legacy name outside the category stays
   selectable (prepended to the list). For `DAQ AI` the field is
-  READ-ONLY and shows the rail count from Channel Allocation
+  READ-ONLY and shows the rail count from the node 05 allocation
   (`N Power rails assigned on DAQ channels`) - no net can be picked.
 - `Enable`, `Wait` (0-99999 ms, pause before the step) and `Timeout`
   (0-999999 ms, maximum step time).
