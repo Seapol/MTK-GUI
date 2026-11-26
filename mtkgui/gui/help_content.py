@@ -72,6 +72,19 @@ CHAPTERS = [
 #: menu key -> section file (kept for direct lookups by key)
 HELP_TOPICS = {key: filename for key, _label, filename in CHAPTERS}
 
+#: M156: Yaml Build node key -> step page.  NOT part of CHAPTERS: the step
+#: pages are opened from the ``?`` button inside a node window, and must not
+#: appear in the User Guide sidebar or its chapter pager.
+STEP_TOPICS = {
+    "design_input": "steps/01_design_input.md",
+    "parse_ict":    "steps/02_parse_nets.md",
+    "firmware":     "steps/03_firmware_config.md",
+    "equipment":    "steps/04_equipment_config.md",
+    "build_ict":    "steps/05_build_ict_sequence.md",
+    "build_fct":    "steps/06_build_fct_sequence.md",
+    "apply_save":   "steps/07_apply_save.md",
+}
+
 
 def _inline(text: str) -> str:
     """Links + bold + inline code within one line."""
@@ -322,6 +335,67 @@ def open_topic(key: str) -> bool:
         topic_temp_path(k).write_text(topic_page_html(k), encoding="utf-8")
     path = topic_temp_path(key)
     path.write_text(page, encoding="utf-8")
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+    return True
+
+
+def step_temp_path(key: str) -> Path:
+    """Stable temp file of one rendered step page (same directory as the
+    chapter pages, so the pager links resolve)."""
+    import tempfile
+    out_dir = Path(tempfile.gettempdir()) / "mtk_gui_help"
+    out_dir.mkdir(exist_ok=True)
+    filename = STEP_TOPICS.get(key, "unknown.md")
+    return out_dir / (Path(filename).stem + ".html")
+
+
+def step_page_html(key: str) -> str:
+    """One step page: header naming the step, the body, and a pager that
+    walks the steps (01 .. 07) - plus one link to chapter 9 for the whole
+    flow."""
+    from .yamlbuild import steps_v2 as sv
+    if key not in STEP_TOPICS:
+        return f"<html><body><p>Unknown step {key!r}.</p></body></html>"
+    label = sv.step_label(key)
+    filename = STEP_TOPICS[key]
+    path = HELP_ROOT / filename
+    if path.is_file():
+        body = markdown_to_html(path.read_text(encoding="utf-8"))
+    else:
+        body = (f"<p>Help content file <code>{filename}</code> is not "
+                "available in this installation.</p>")
+    links: list = []
+    index = sv.STEP_KEYS.index(key)
+    if index > 0:
+        before = sv.STEP_KEYS[index - 1]
+        links.append(f'<a href="{step_temp_path(before).as_uri()}">'
+                     f"&larr; {sv.step_label(before)}</a>")
+    links.append(f'<a href="{topic_temp_path("yaml_build").as_uri()}">'
+                 "9. Yaml Build Page</a>")
+    if index < len(sv.STEP_KEYS) - 1:
+        after = sv.STEP_KEYS[index + 1]
+        links.append(f'<a href="{step_temp_path(after).as_uri()}">'
+                     f"{sv.step_label(after)} &rarr;</a>")
+    return (f"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            f"<title>MTK GUI User Guide - Step {label}</title>"
+            f"<style>{_PAGE_CSS}</style></head><body>"
+            f"<header><h1>MTK GUI User Guide &mdash; Step {label}</h1>"
+            f"</header><main>{body}"
+            f"<nav class='pager'>{''.join(links)}</nav></main>"
+            f"</body></html>")
+
+
+def open_step_help(key: str) -> bool:
+    """Render the step page to a temp file and open it in the browser.
+    False when the key has no page (never a dead link)."""
+    if key not in STEP_TOPICS:
+        return False
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    for other in STEP_TOPICS:
+        step_temp_path(other).write_text(step_page_html(other),
+                                         encoding="utf-8")
+    path = step_temp_path(key)
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
     return True
 

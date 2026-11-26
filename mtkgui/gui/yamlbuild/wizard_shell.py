@@ -43,6 +43,10 @@ from mtkgui.gui.yamlbuild import flow_view
 #: more, so tests and QSS address it by name.
 LOCK_BUTTON_NAME = "nodeLockButton"
 
+#: M156: footer helpers - one node backwards, and this node's own step page.
+BACK_BUTTON_NAME = "nodeBackButton"
+HELP_BUTTON_NAME = "nodeHelpButton"
+
 
 def lock_icon(locked: bool, color: str = "#ffffff", size: int = 20) -> QIcon:
     """A padlock drawn from vectors: closed when locked, shackle tilted open
@@ -99,6 +103,31 @@ def lock_icon(locked: bool, color: str = "#ffffff", size: int = 20) -> QIcon:
     return icon
 
 
+def help_icon(color: str = "#ffffff", size: int = 20) -> QIcon:
+    """A question mark drawn with the widget font, 1x and 2x.
+
+    Drawn for the same reason as the padlock: the footer buttons are icon
+    only, and a typed glyph would have to be an emoji to look right on
+    every platform.  '?' is plain Latin, so the font paints it everywhere.
+    """
+    icon = QIcon()
+    for scale in (1, 2):
+        pixels = QPixmap(size * scale, size * scale)
+        pixels.fill(Qt.GlobalColor.transparent)
+        pixels.setDevicePixelRatio(scale)
+        painter = QPainter(pixels)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        font = QApplication.font()
+        font.setPixelSize(max(8, int(size * scale * 0.86)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(color))
+        painter.drawText(pixels.rect(), Qt.AlignmentFlag.AlignCenter, "?")
+        painter.end()
+        icon.addPixmap(pixels)
+    return icon
+
+
 def _parsed_nets_dict(state) -> dict:
     """The model's ``parsed_nets`` shape, derived from a ``V2ParseState``.
 
@@ -146,6 +175,10 @@ class YamlBuildWizard(QWidget):
         # M103: a live test run makes every node read-only (set by the
         # MainWindow's single _apply_yaml_guards()).
         self._run_active: bool = False
+        # M156: the dialog that was closed by ``_back_node`` - its tail
+        # must skip the model write.  Keyed by the dialog so a node
+        # opened from Back still saves its own close normally.
+        self._back_dialog: QDialog | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -609,6 +642,30 @@ class YamlBuildWizard(QWidget):
             "keeps the values in the configuration either way.")
         btn_draft.clicked.connect(lambda: self._save_node_draft(key, status))
         next_step = self._next_node_key(key)
+        # M156: one page backwards, leftmost - only when there IS one
+        prev_step = self._prev_node_key(key)
+        btn_back = None
+        if prev_step is not None:
+            btn_back = QPushButton(f"← Back: {sv.step_label(prev_step)}")
+            btn_back.setObjectName(BACK_BUTTON_NAME)
+            btn_back.setToolTip(
+                f"Go back to {sv.step_label(prev_step)} - nothing is written, "
+                "your values stay in this configuration.")
+            btn_back.clicked.connect(
+                lambda: self._back_node(key, prev_step, dlg))
+        # M156: this node's own step-by-step page, right of the padlock
+        btn_help = QPushButton()
+        btn_help.setObjectName(HELP_BUTTON_NAME)
+        btn_help.setAccessibleName(
+            f"Open the step-by-step guide for {sv.step_label(key)}")
+        btn_help.setToolTip(
+            f"Open the step-by-step guide for {sv.step_label(key)} "
+            "(opens in your browser)")
+        btn_help.setIconSize(QSize(20, 20))
+        btn_help.setMinimumWidth(44)
+        btn_help.setMaximumWidth(44)
+        btn_help.setIcon(help_icon())
+        btn_help.clicked.connect(lambda: self._open_node_help(key))
         btn_next = None
         if next_step:
             btn_next = QPushButton(f"Lock & Next: {sv.step_label(next_step)} →")
@@ -618,7 +675,10 @@ class YamlBuildWizard(QWidget):
             btn_next.clicked.connect(
                 lambda: self._advance_node(key, next_step, dlg, panel,
                                            sync_actions, status))
+        if btn_back is not None:
+            actions.addWidget(btn_back)
         actions.addWidget(btn_lock)
+        actions.addWidget(btn_help)
         actions.addWidget(btn_draft)
         actions.addWidget(status, 1)
         if btn_next is not None:
@@ -718,17 +778,23 @@ class YamlBuildWizard(QWidget):
         dlg.resize(min(width, int(avail.width() * 0.9)),
                    min(height, int(avail.height() * 0.9)))
         accepted = bool(dlg.exec())        # 1 = Apply_Save yaml, 0 = Exit
-        # M135: nodes 01-06 close with ``Exit`` only, so the live panel
-        # values must reach the model on every close (node 07 keeps its
-        # ``Apply_Save yaml``, which writes the YAML file on top).
-        self._collect_panel_values(key)
-        nets_unchanged = repr(self.model.get_parsed_nets()) == before_nets
-        if (key in before_locks and not self.model.is_locked(key)
-                and self._panel_values(key) == before_values
-                and nets_unchanged):
-            # read-only inspection: restore every lock the Unlock released
-            for target in before_locks:
-                self.model.set_locked(target, True)
+        # M156: Back closes the window to open the previous node - it
+        # writes NOTHING (no panel collect, no lock restore).
+        went_back = self._back_dialog is dlg
+        if went_back:
+            self._back_dialog = None
+        if not went_back:
+            # M135: nodes 01-06 close with ``Exit`` only, so the live panel
+            # values must reach the model on every close (node 07 keeps its
+            # ``Apply_Save yaml``, which writes the YAML file on top).
+            self._collect_panel_values(key)
+            nets_unchanged = repr(self.model.get_parsed_nets()) == before_nets
+            if (key in before_locks and not self.model.is_locked(key)
+                    and self._panel_values(key) == before_values
+                    and nets_unchanged):
+                # read-only inspection: restore every lock the Unlock released
+                for target in before_locks:
+                    self.model.set_locked(target, True)
         scroll.takeWidget()
         self._panel_host_lay.addWidget(panel)   # re-parent back after close
         self._refresh()
@@ -781,6 +847,36 @@ class YamlBuildWizard(QWidget):
         while nxt and self._is_skipped(nxt):
             nxt = sv.next_key(nxt, ict_on, fct_on)
         return nxt
+
+    def _prev_node_key(self, key: str) -> str | None:
+        """The predecessor node to offer on *key*'s window (M156).
+
+        The backward twin of :meth:`_next_node_key`: the auto-skipped
+        Route C node 02 is stepped over so ``Back`` never lands on a node
+        that is entered read-only.
+        """
+        ict_on, fct_on = self.ict_on(), self.fct_on()
+        prv = sv.prev_key(key, ict_on, fct_on)
+        while prv and self._is_skipped(prv):
+            prv = sv.prev_key(prv, ict_on, fct_on)
+        return prv
+
+    def _back_node(self, key: str, prev_key: str, dlg: QDialog) -> None:
+        """Close *dlg* and open the previous node - nothing is written.
+
+        No draft, no validation, no panel collect: going back must never
+        be blocked by a half-built node, and the panel keeps its values
+        while the wizard lives.
+        """
+        self._back_dialog = dlg
+        dlg.accept()
+        QTimer.singleShot(
+            0, lambda target=prev_key: self._open_step_dialog(target))
+
+    def _open_node_help(self, key: str) -> None:
+        """Open the step-by-step page of THIS node (M156)."""
+        from mtkgui.gui.help_content import open_step_help
+        open_step_help(key)
 
     def _panel_values(self, key: str) -> dict:
         """Snapshot of what the node panel currently shows (M139)."""
