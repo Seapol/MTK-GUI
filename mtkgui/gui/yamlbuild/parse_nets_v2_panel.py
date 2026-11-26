@@ -9,7 +9,7 @@ Route B impedance/voltage consistency gate fails.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -126,6 +126,14 @@ class ParseNetsV2Panel(QWidget):
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
         self._fit_columns()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().showEvent(event)
+        # M142: an empty netlist never resized the tables, so their columns
+        # kept Qt's 100 px default and both tables carried a horizontal
+        # bar inside a dialog that actually fits.  Fit once the panel is
+        # shown (the viewport width is only known then).
+        QTimer.singleShot(0, self._fit_columns)
 
     def _fit_columns(self) -> None:
         """Share the table width: every header stays readable, the net name
