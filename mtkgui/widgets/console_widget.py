@@ -25,11 +25,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..ansi import AnsiDecoder
-from ..gui.yamlbuild.fct_authoring import annotations_to_step
+from ..gui.yamlbuild.fct_authoring import (
+    annotations_to_steps,
+    detect_yesno_points,
+)
 from ..gui.yamlbuild.fct_capture import (
     ANNOTATION_COMMAND,
     ANNOTATION_EXPECT_FAIL,
     ANNOTATION_EXPECT_PASS,
+    ANNOTATION_INTERACTION,
     ANNOTATION_KINDS,
     CaptureAnnotation,
 )
@@ -47,9 +51,11 @@ WARN_COLOR = "#ffb454"
 PASS_HIGHLIGHT = QColor(46, 125, 50, 90)
 FAIL_HIGHLIGHT = QColor(198, 40, 40, 90)
 COMMAND_HIGHLIGHT = QColor(25, 118, 210, 70)
+INTERACTION_HIGHLIGHT = QColor(123, 31, 162, 90)
 _ANNOTATION_HIGHLIGHTS = {ANNOTATION_EXPECT_PASS: PASS_HIGHLIGHT,
                           ANNOTATION_EXPECT_FAIL: FAIL_HIGHLIGHT,
-                          ANNOTATION_COMMAND: COMMAND_HIGHLIGHT}
+                          ANNOTATION_COMMAND: COMMAND_HIGHLIGHT,
+                          ANNOTATION_INTERACTION: INTERACTION_HIGHLIGHT}
 
 
 def _blend(color_a, color_b, ratio):
@@ -398,6 +404,7 @@ class ConsoleWidget(QGroupBox):
                     self._rx_line_empty = False
                 i += 1
         self._tag_blocks(first_block, "rx")
+        self._auto_detect_interactions(first_block, data)
         self._scroll()
 
     def _text_allowed(self, text: str) -> bool:
@@ -454,21 +461,24 @@ class ConsoleWidget(QGroupBox):
             self._block_kinds[number] = kind
 
     def _selection(self):
-        """``(text, source)`` of the current selection; source is one of
-        ``tx`` / ``rx`` / ``sys`` / ``""`` (unknown or no selection)."""
+        """``(text, source, position)`` of the current selection.
+
+        Source is one of ``tx`` / ``rx`` / ``sys`` / ``""`` (unknown or no
+        selection); position is the selection start in the document."""
         cursor = self.view.textCursor()
         if not cursor.hasSelection():
-            return "", ""
+            return "", "", -1
         text = cursor.selectedText().replace("\u2029", "\n").strip()
         if not text:
-            return "", ""
+            return "", "", -1
         block = self.view.document().findBlock(cursor.selectionStart())
-        return text, self._block_kinds.get(block.blockNumber(), "")
+        return (text, self._block_kinds.get(block.blockNumber(), ""),
+                cursor.selectionStart())
 
     def selection_kind(self):
         """``command`` for a TX selection, ``rx`` for RX, ``""`` otherwise
         (SYS lines and empty selections are not annotatable)."""
-        _text, source = self._selection()
+        _text, source, _position = self._selection()
         if source == "tx":
             return ANNOTATION_COMMAND
         if source == "rx":
@@ -479,32 +489,59 @@ class ConsoleWidget(QGroupBox):
         """Tag the current selection and paint its highlight.
 
         TX selections accept ``command`` only; RX selections accept
-        ``expect_pass`` / ``expect_fail``.  Returns True when applied.
+        ``expect_pass`` / ``expect_fail`` / ``interaction``.  Returns
+        True when applied.
         """
         if not self.btn_annotate.isChecked() or kind not in ANNOTATION_KINDS:
             return False
-        text, source = self._selection()
+        text, source, position = self._selection()
         if not text or source not in ("tx", "rx"):
             return False
         if source == "tx" and kind != ANNOTATION_COMMAND:
             return False
         if source == "rx" and kind not in (ANNOTATION_EXPECT_PASS,
-                                           ANNOTATION_EXPECT_FAIL):
+                                           ANNOTATION_EXPECT_FAIL,
+                                           ANNOTATION_INTERACTION):
             return False
         cursor = self.view.textCursor()
         fmt = QTextCharFormat()
         fmt.setBackground(_ANNOTATION_HIGHLIGHTS[kind])
         cursor.mergeCharFormat(fmt)
         self.view.setTextCursor(cursor)
-        self._annotations.append(CaptureAnnotation(text, kind, self.role_key))
+        self._annotations.append(CaptureAnnotation(
+            text, kind, self.role_key, position=position))
         return True
+
+    def _auto_detect_interactions(self, first_block, data):
+        """Tag a Yes / No prompt appended by the last RX chunk.
+
+        Only active in annotate mode; the rendered RX text is never
+        modified (the prompt just gains an annotation).
+        """
+        if not self.btn_annotate.isChecked():
+            return
+        raw = (data.decode("utf-8", "ignore")
+               if isinstance(data, (bytes, bytearray)) else str(data))
+        prompts = detect_yesno_points(raw)
+        if not prompts:
+            return
+        document = self.view.document()
+        start = document.findBlock(first_block).position()
+        for prompt in prompts:
+            found = document.find(prompt, start)
+            if found.isNull():
+                break
+            self._annotations.append(CaptureAnnotation(
+                prompt, ANNOTATION_INTERACTION, self.role_key,
+                position=found.selectionStart()))
+            start = found.selectionEnd()
 
     def _on_view_context_menu(self, pos):
         if not self.btn_annotate.isChecked():
             menu = self.view.createStandardContextMenu()
             menu.exec(self.view.mapToGlobal(pos))
             return
-        _text, source = self._selection()
+        _text, source, _position = self._selection()
         menu = QMenu(self.view)
         if source == "tx":
             menu.addAction(
@@ -517,6 +554,9 @@ class ConsoleWidget(QGroupBox):
             menu.addAction(
                 "Mark as Expected FAIL",
                 lambda: self.annotate_selection(ANNOTATION_EXPECT_FAIL))
+            menu.addAction(
+                "Mark as Yes/No interaction",
+                lambda: self.annotate_selection(ANNOTATION_INTERACTION))
         if menu.isEmpty():
             action = menu.addAction("Select TX / RX text to annotate")
             action.setEnabled(False)
@@ -531,13 +571,16 @@ class ConsoleWidget(QGroupBox):
         """
         if self._capture_buffer is None or not self._annotations:
             return None
-        index = len(self._capture_buffer.steps()) + 1
-        step = annotations_to_step(
+        steps = annotations_to_steps(
             self._annotations, self.role_key,
-            name=f"Console {self.role_key} capture {index}")
-        self._capture_buffer.add_step(step, self._annotations)
+            name_prefix=f"Console {self.role_key} capture")
+        if not steps:
+            return None
+        for index, step in enumerate(steps):
+            self._capture_buffer.add_step(
+                step, self._annotations if index == 0 else [])
         self._annotations = []
-        return step
+        return steps[-1]
 
     # ------------------------------------------------------------ actions
     def clear_all(self):

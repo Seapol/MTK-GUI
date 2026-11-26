@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: annotation kinds: one TX command, one positive / negative keyword
+#: annotation kinds: one TX command, one positive / negative keyword,
+#: or a MessageYesNoToconsole interaction point (segment boundary)
 ANNOTATION_COMMAND = "command"
 ANNOTATION_EXPECT_PASS = "expect_pass"
 ANNOTATION_EXPECT_FAIL = "expect_fail"
+ANNOTATION_INTERACTION = "interaction"
 ANNOTATION_KINDS = (ANNOTATION_COMMAND, ANNOTATION_EXPECT_PASS,
-                    ANNOTATION_EXPECT_FAIL)
+                    ANNOTATION_EXPECT_FAIL, ANNOTATION_INTERACTION)
 
 
 @dataclass
@@ -33,6 +35,9 @@ class CaptureAnnotation:
     text: str
     kind: str
     channel: str = ""
+    #: document position of the selection (-1 = unknown); the generator
+    #: sorts by it so auto-detected interaction points stay in log order
+    position: int = -1
 
 
 class CaptureBuffer:

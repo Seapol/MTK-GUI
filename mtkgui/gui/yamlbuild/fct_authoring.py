@@ -14,9 +14,12 @@ red line as :mod:`fct_build`).
 """
 from __future__ import annotations
 
+import re
+
 from .fct_build import (
     DEFAULT_KEYWORD_FAIL,
     DEFAULT_KEYWORD_PASS,
+    STEP_GUI_CONFIRM,
     STEP_MESSAGE_CHECK,
     FctStep,
 )
@@ -24,7 +27,12 @@ from .fct_capture import (
     ANNOTATION_COMMAND,
     ANNOTATION_EXPECT_FAIL,
     ANNOTATION_EXPECT_PASS,
+    ANNOTATION_INTERACTION,
 )
+
+#: a DUT prompt that asks the operator / the tool for a Yes / No answer;
+#: matching it (auto-detection) turns the prompt into a segment boundary
+_YESNO_RE = re.compile(r"\[[Yy]/[Nn]\]|\([Yy]/[Nn]\)|\b[Yy]es\s*/\s*[Nn]o\b")
 
 #: multiselect modes: one step waiting for every word, or one per word
 MULTISELECT_SAME_WAIT = "same_wait"
@@ -34,6 +42,32 @@ MULTISELECT_MODES = (MULTISELECT_SAME_WAIT, MULTISELECT_SEQUENTIAL)
 #: routing targets of a selected word
 TARGET_STEP = "step"
 TARGET_SEQUENCE = "sequence"
+
+
+def detect_yesno_points(text: str) -> list:
+    """The Yes / No prompts found in one console chunk, in order."""
+    return [match.group(0) for match in _YESNO_RE.finditer(str(text or ""))]
+
+
+def gui_confirm_step(message: str) -> FctStep:
+    """The MessageYesNoToconsole step emitted at an interaction point.
+
+    Reuses the existing GUI_CONFIRM + console-dialog mapping
+    (``style=yesno`` -> ``MessageYesNotoConsole`` on publish).
+    """
+    message = str(message or "").strip() or "Confirm the DUT prompt"
+    return FctStep(
+        name=f"Confirm: {message}",
+        step_type=STEP_GUI_CONFIRM,
+        channel="",
+        timeout_s=0.0,
+        params={"style": "yesno", "console_dialog": True,
+                "message": message,
+                "message_kind": "MessageYesNotoConsole",
+                "wait_pattern": "", "wait_timeout": 0.0,
+                "message_timeout_s": 4.0, "send_yes": "y",
+                "send_no": "n"},
+    )
 
 
 def _clean_words(annotations, kind):
@@ -69,6 +103,46 @@ def annotations_to_step(annotations, channel: str, timeout_s: float = 30.0,
                 "capture_enabled": bool(pass_words or fail_words),
                 "capture_timeout": float(timeout_s), "wait_enabled": False},
     )
+
+
+def annotations_to_steps(annotations, channel: str, timeout_s: float = 30.0,
+                         name_prefix: str = "") -> list:
+    """Draft the whole annotation flow, honoring interaction boundaries.
+
+    A ``MessageYesNoToconsole`` interaction annotation ends the current
+    listen segment, emits a GUI_CONFIRM step, and the RX that follows
+    starts a NEW listen segment (surrounding RX is never swallowed).
+    Without an interaction this returns the same single step as
+    :func:`annotations_to_step`.
+    """
+    ordered = sorted(
+        annotations or [],
+        key=lambda a: getattr(a, "position", -1)
+        if getattr(a, "position", -1) >= 0 else 1 << 30)
+    segments: list = []
+    current: list = []
+    for annotation in ordered:
+        if getattr(annotation, "kind", "") == ANNOTATION_INTERACTION:
+            if current:
+                segments.append(("listen", current))
+                current = []
+            segments.append(("confirm", annotation))
+        else:
+            current.append(annotation)
+    if current:
+        segments.append(("listen", current))
+    steps: list = []
+    prefix = name_prefix or f"Console {channel} capture"
+    listen_index = 0
+    for kind, payload in segments:
+        if kind == "confirm":
+            steps.append(gui_confirm_step(payload.text))
+            continue
+        listen_index += 1
+        steps.append(annotations_to_step(
+            payload, channel, timeout_s,
+            name=f"{prefix} {listen_index}"))
+    return steps
 
 
 def split_by_tx(annotations) -> list:
