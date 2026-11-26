@@ -122,6 +122,13 @@ class ParseNetsV2Panel(QWidget):
 
         self._render()
 
+        # M142: one deferred column fit per show.  The timer is owned by the
+        # panel so a panel closed before the event runs never fires into a
+        # deleted widget.
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(self._fit_columns)
+
     # ------------------------------------------------------------- table
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
@@ -133,7 +140,7 @@ class ParseNetsV2Panel(QWidget):
         # kept Qt's 100 px default and both tables carried a horizontal
         # bar inside a dialog that actually fits.  Fit once the panel is
         # shown (the viewport width is only known then).
-        QTimer.singleShot(0, self._fit_columns)
+        self._fit_timer.start(0)
 
     def _fit_columns(self) -> None:
         """Share the table width: every header stays readable, the net name
@@ -145,6 +152,13 @@ class ParseNetsV2Panel(QWidget):
             metrics = QFontMetrics(table.horizontalHeader().font())
             minimums = [metrics.horizontalAdvance(col) + 14
                         for col in V2_COLUMNS]
+            # M143: the Category cell is a combo box, not a label - a column
+            # sized from the header alone clipped every value to "Po" / "Ot"
+            # once a real netlist filled the table.  Reserve the widest
+            # category plus the drop-down arrow.
+            widest_category = max(metrics.horizontalAdvance(category)
+                                  for category in V2_CATEGORIES)
+            minimums[1] = max(minimums[1], widest_category + 34)
             total = sum(minimums)
             if total >= viewport:
                 scale = viewport / total
@@ -316,9 +330,12 @@ class ParseNetsV2Panel(QWidget):
         """Route A only: an editable Category combo that moves the row."""
         combo = QComboBox()
         combo.setInsertPolicy(QComboBox.NoInsert)
+        # M143: the combo sizes itself to its longest entry ("SE Clock"),
+        # not to a fixed 9-character content length - the column is now
+        # fitted from the table width, so a wider hint only ate the net
+        # name column.
         combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        combo.setMinimumContentsLength(9)
+            QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.setStyleSheet(
             "QComboBox { padding: 0px 2px; font-size: 11px; }"
             "QComboBox::drop-down { width: 14px; }")
