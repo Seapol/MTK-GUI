@@ -159,7 +159,7 @@ class ParseNetsV2Panel(QWidget):
             # width scales it back down.
             widest_category = max(metrics.horizontalAdvance(category)
                                   for category in V2_CATEGORIES)
-            needs[1] = max(needs[1], widest_category + 18)
+            needs[1] = max(needs[1], widest_category + 50)
             others = [index for index in range(len(V2_COLUMNS)) if index != 1]
             rest_need = sum(needs[index] for index in others)
             left = viewport - needs[1]
