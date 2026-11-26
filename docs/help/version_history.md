@@ -37,7 +37,7 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **M138 - pending hash**. Everything up to it is on
+GUI head: **`9a82c2a` (M138) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
