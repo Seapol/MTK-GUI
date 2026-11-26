@@ -228,7 +228,7 @@ from the file on each parse, so a colleague's build is comparable straight
 away.
 
 Node 02 is review only (M139): locking node 01 already parses the Route A
-netlist, so opening 02 shows the result. `Re-parse nets…` re-reads the
+netlist, so opening 02 shows the result. `Parse nets` re-reads the
 netlist and refills both tables - use it only after the NET file changed
 outside the tool. Two behaviours worth knowing:
 

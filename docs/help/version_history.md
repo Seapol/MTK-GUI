@@ -37,11 +37,22 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`c9fb35c` (M154) - 2026-11-26**. Everything up to it is on
+GUI head: **`3e8b6ae` (M155) - 2026-11-26**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M155` - node 02 parses with visible feedback.  The toolbar button is now
+  `Parse nets` (objectName `parseNetsButton`), because "Re-parse" implied the
+  first run had happened somewhere else; a Route A parse drives a determinate
+  0-100 % foreground bar with the parser's stages, reads the live path typed on
+  node 01 (the old code read only the saved model, so a fresh path parsed
+  nothing and the button looked dead), and a missing file or an unparseable
+  netlist now names itself in a modal warning plus a red summary line instead
+  of a silent grey note.  Move Up / Move Down are two drawn arrow icons in the
+  gutter between the tables (objectName `moveRowUp` / `moveRowDown`), and the
+  two tables split the freed width with `Net Name` holding its whole header
+  rather than being squeezed to "let Nam".
 - `M154` - the footer padlock of every node dialog is an icon, not a label:
   a 44 px square shows a drawn padlock only - closed once the module is
   locked, shackle swung open while it is not - and clicking it flips both

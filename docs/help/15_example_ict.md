@@ -88,7 +88,7 @@ changes until node 07 writes the YAML.
 ## Step 3 - Parse the nets (node 02)
 
 Locking node 01 already parsed the netlist, so open **02 - Parse nets for
-ICT** and the two tables are filled: `Re-parse nets…` is there for the case
+ICT** and the two tables are filled: `Parse nets` is there for the case
 where the NET file changed outside the tool.
 
 ![Parse result on 96624, from the netlist alone](images/15_04_parse_result.png)
