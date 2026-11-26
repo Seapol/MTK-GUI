@@ -37,11 +37,14 @@ Entry format:
 
 ## Latest activity (2026-11)
 
-GUI head: **`3656425` (M137) - 2026-11-26**. Everything up to it is on
+GUI head: **M138 - pending hash**. Everything up to it is on
 `origin/develop`; a bundle built from this commit runs the same test
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M138` - the Equipment hardware list now fits a 900 px page without a
+  vertical scrollbar: tighter group/body margins, tighter Config-button
+  padding (same 26 px height), left column reserves the body width.
 - `M137` - the node 02 window fits a default window without scrollbars:
   the two net tables share one grid row (identical height, note under the
   right table), columns share the table width instead of fixed 735 px, the

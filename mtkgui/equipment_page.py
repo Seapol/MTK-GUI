@@ -2966,17 +2966,21 @@ class EquipmentPage(QWidget):
         # never horizontally scrolled (the full text lives in a tooltip).
         self.left_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # M137: the list is 16 rows tall; the global 26 px / 7 px-padding
+        # button metric pushed it past a 900 px page and brought back a
+        # vertical scrollbar.  Tighter padding here, same 26 px height.
         self.left_list.setStyleSheet(
-            "QScrollArea {background:#ffffff; border:1px solid #d4d9e0;}")
+            "QScrollArea {background:#ffffff; border:1px solid #d4d9e0;}"
+            "QPushButton {padding: 4px 12px;}")
         body = QWidget()
         body_lay = QVBoxLayout(body)
-        body_lay.setContentsMargins(6, 6, 6, 6)
-        body_lay.setSpacing(6)
+        body_lay.setContentsMargins(4, 4, 4, 4)
+        body_lay.setSpacing(4)
         for group_title, entries in LEFT_ENTRIES:
             group_box = QGroupBox(group_title)
             gl = QVBoxLayout(group_box)
-            gl.setContentsMargins(6, 6, 6, 6)
-            gl.setSpacing(4)
+            gl.setContentsMargins(4, 4, 4, 4)
+            gl.setSpacing(2)
             if group_title == "Instruments":
                 gl.addLayout(self._instrument_title_row())
             for entry in entries:
