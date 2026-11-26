@@ -78,6 +78,7 @@ from .permissions import (
     load_permissions,
     save_permissions,
 )
+from .gui.yamlbuild.fct_capture import CaptureBuffer
 from .qt_guard import qt_safe
 from .startup_timing import (
     begin as _startup_begin,
@@ -686,6 +687,12 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
 
         self.workflow_page = TestWorkFlowPage()
+        # M159: ONE application-level capture buffer for console-authored
+        # FCT steps (shared by every console and node 06; never written
+        # to the project YAML until node 07 applies the sequence)
+        self.capture_buffer = CaptureBuffer()
+        self.workflow_page.multi_console.set_capture_buffer(
+            self.capture_buffer)
         # M78-3: the Tools > FCT Watchdog value (persisted app setting)
         self.workflow_page.fct_watchdog_s = load_fct_watchdog_s()
         # M83/C14: the Run press opens the instrument rack itself

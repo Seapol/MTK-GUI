@@ -867,6 +867,9 @@ class MultiConsoleWidget(QGroupBox):
         super().__init__("Console", parent)
         self.bg_color = DEFAULT_BACKGROUND
         self.theme = THEMES[theme_for(self.bg_color)]
+        # M159: application CaptureBuffer (set by the main window; each
+        # console receives the same instance so Generate step lands here)
+        self.capture_buffer = None
 
         # key -> {"kind", "label", "accent", "console", "console_window",
         #         "row", "params", "worker", "stats", "read_buffer"}
@@ -922,6 +925,12 @@ class MultiConsoleWidget(QGroupBox):
         """Virtual mode: Open simulates the connection (no real HW)."""
         self.virtual_mode = bool(enabled)
 
+    def set_capture_buffer(self, buffer):
+        """Share one application CaptureBuffer with every console."""
+        self.capture_buffer = buffer
+        for channel in self.channels.values():
+            channel["console"].set_capture_buffer(buffer)
+
     # ---------------------------------------------------------- channels
     def _next_serial_number(self):
         for n in range(1, MAX_SERIAL + 1):
@@ -974,6 +983,7 @@ class MultiConsoleWidget(QGroupBox):
 
     def _create_channel(self, key, kind, label, accent, params):
         console = ConsoleWidget(key, f"{label} Console", f"{key}_log")
+        console.set_capture_buffer(self.capture_buffer)
         console.set_accent(accent)
         console.set_background(self.bg_color)
         console.doubleClicked.connect(

@@ -10,7 +10,7 @@ path with a single color.
 import datetime
 import re
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -18,12 +18,21 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLineEdit,
+    QMenu,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
 )
 
 from ..ansi import AnsiDecoder
+from ..gui.yamlbuild.fct_build import STEP_MESSAGE_CHECK, FctStep
+from ..gui.yamlbuild.fct_capture import (
+    ANNOTATION_COMMAND,
+    ANNOTATION_EXPECT_FAIL,
+    ANNOTATION_EXPECT_PASS,
+    ANNOTATION_KINDS,
+    CaptureAnnotation,
+)
 from ..theme import DEFAULT_BACKGROUND, THEMES
 
 # keyword highlight rules (P3-B2 log enhancement): case-insensitive,
@@ -32,6 +41,15 @@ _ERROR_RE = re.compile(r"\berror\b", re.IGNORECASE)
 _WARN_RE = re.compile(r"\bwarn(?:ing)?\b", re.IGNORECASE)
 ERROR_COLOR = "#ff5555"
 WARN_COLOR = "#ffb454"
+
+# M159: annotation highlights.  Pass / fail stay visible on the RX text;
+# a TX selection marked as the command gets a blue tint.
+PASS_HIGHLIGHT = QColor(46, 125, 50, 90)
+FAIL_HIGHLIGHT = QColor(198, 40, 40, 90)
+COMMAND_HIGHLIGHT = QColor(25, 118, 210, 70)
+_ANNOTATION_HIGHLIGHTS = {ANNOTATION_EXPECT_PASS: PASS_HIGHLIGHT,
+                          ANNOTATION_EXPECT_FAIL: FAIL_HIGHLIGHT,
+                          ANNOTATION_COMMAND: COMMAND_HIGHLIGHT}
 
 
 def _blend(color_a, color_b, ratio):
@@ -83,6 +101,12 @@ class ConsoleWidget(QGroupBox):
         self._rx_line_empty = True
         self._rx_want_timestamp = False
         self._rx_pending_cr = False     # lone CR seen, overwrite pending
+        # M159: annotate mode - per-channel annotations plus the
+        # block provenance (tx / rx / sys) needed to classify a
+        # selection.  Only "Generate step" writes the shared buffer.
+        self._annotations = []
+        self._block_kinds = {}
+        self._capture_buffer = None
 
         layout = QVBoxLayout(self)
         bar = QHBoxLayout()
@@ -110,11 +134,31 @@ class ConsoleWidget(QGroupBox):
         btn_save.setObjectName("flat")
         btn_save.clicked.connect(self.save_log)
 
+        # M159: annotate the log to author FCT steps.  While checked, a
+        # right-click on a selection tags it (TX -> command, RX ->
+        # expected pass / fail); Generate step drafts one FctStep.
+        self.btn_annotate = QPushButton("Annotate")
+        self.btn_annotate.setObjectName("flat")
+        self.btn_annotate.setCheckable(True)
+        self.btn_annotate.setToolTip(
+            "Annotate the log: right-click a TX selection to mark it as "
+            "the command, or an RX selection as expected PASS / FAIL")
+        self.btn_annotate.toggled.connect(self._on_annotate_toggled)
+        self.btn_generate = QPushButton("Generate step")
+        self.btn_generate.setObjectName("flat")
+        self.btn_generate.setToolTip(
+            "Turn this console's annotations into one draft FCT step")
+        self.btn_generate.setVisible(False)
+        self.btn_generate.setEnabled(False)
+        self.btn_generate.clicked.connect(self._generate_step)
+
         bar.addWidget(self.check_timestamp)
         bar.addWidget(self.check_hex)
         bar.addWidget(self.check_autoscroll)
         bar.addWidget(self.edit_filter)
         bar.addStretch(1)
+        bar.addWidget(self.btn_annotate)
+        bar.addWidget(self.btn_generate)
         bar.addWidget(btn_clear)
         bar.addWidget(btn_save)
         layout.addLayout(bar)
@@ -123,6 +167,9 @@ class ConsoleWidget(QGroupBox):
         self.view.setObjectName("console")
         self.view.setReadOnly(True)
         self.view.setMinimumHeight(50)
+        self.view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(
+            self._on_view_context_menu)
         self.view.double_clicked.connect(self.doubleClicked)
         layout.addWidget(self.view, 1)
 
@@ -282,10 +329,12 @@ class ConsoleWidget(QGroupBox):
         color = color or self.palette["base"]
         if not self._text_allowed(text):
             return
+        first_block = self.view.document().blockCount() - 1
         cursor = self._end_cursor()
         self._start_new_line(cursor)
         self._insert_prefix(cursor, tag)
         self._insert_plain(cursor, text, color, highlight=True)
+        self._tag_blocks(first_block, "sys" if tag == "SYS" else "tx")
         self._scroll()
         # the TX/SYS line now owns the block; the next streamed RX byte
         # starts on a fresh line rather than being glued to it
@@ -306,6 +355,7 @@ class ConsoleWidget(QGroupBox):
         (uncolored) text."""
         if not self._text_allowed(data):
             return
+        first_block = self.view.document().blockCount() - 1
         cursor = self._end_cursor()
         base_fg = self.palette["rx"]
         for text, attrs in self.decoder.feed(data):
@@ -347,6 +397,7 @@ class ConsoleWidget(QGroupBox):
                     cursor.insertText(tok, fmt)
                     self._rx_line_empty = False
                 i += 1
+        self._tag_blocks(first_block, "rx")
         self._scroll()
 
     def _text_allowed(self, text: str) -> bool:
@@ -379,6 +430,131 @@ class ConsoleWidget(QGroupBox):
             bar = self.view.verticalScrollBar()
             bar.setValue(bar.maximum())
 
+    # ------------------------------------------------------------ annotate
+    def set_capture_buffer(self, buffer):
+        """Bind the application-level CaptureBuffer (one main-window
+        instance shared by every console and node 06)."""
+        self._capture_buffer = buffer
+        self.btn_generate.setEnabled(bool(self.btn_annotate.isChecked())
+                                     and buffer is not None)
+
+    def annotations(self):
+        """This console's annotations, in selection order (copy)."""
+        return list(self._annotations)
+
+    def _on_annotate_toggled(self, checked):
+        self.btn_generate.setVisible(bool(checked))
+        self.btn_generate.setEnabled(bool(checked)
+                                     and self._capture_buffer is not None)
+
+    def _tag_blocks(self, first_block, kind):
+        """Record the provenance of every block an append touched."""
+        for number in range(max(first_block, 0),
+                            self.view.document().blockCount()):
+            self._block_kinds[number] = kind
+
+    def _selection(self):
+        """``(text, source)`` of the current selection; source is one of
+        ``tx`` / ``rx`` / ``sys`` / ``""`` (unknown or no selection)."""
+        cursor = self.view.textCursor()
+        if not cursor.hasSelection():
+            return "", ""
+        text = cursor.selectedText().replace("\u2029", "\n").strip()
+        if not text:
+            return "", ""
+        block = self.view.document().findBlock(cursor.selectionStart())
+        return text, self._block_kinds.get(block.blockNumber(), "")
+
+    def selection_kind(self):
+        """``command`` for a TX selection, ``rx`` for RX, ``""`` otherwise
+        (SYS lines and empty selections are not annotatable)."""
+        _text, source = self._selection()
+        if source == "tx":
+            return ANNOTATION_COMMAND
+        if source == "rx":
+            return "rx"
+        return ""
+
+    def annotate_selection(self, kind):
+        """Tag the current selection and paint its highlight.
+
+        TX selections accept ``command`` only; RX selections accept
+        ``expect_pass`` / ``expect_fail``.  Returns True when applied.
+        """
+        if not self.btn_annotate.isChecked() or kind not in ANNOTATION_KINDS:
+            return False
+        text, source = self._selection()
+        if not text or source not in ("tx", "rx"):
+            return False
+        if source == "tx" and kind != ANNOTATION_COMMAND:
+            return False
+        if source == "rx" and kind not in (ANNOTATION_EXPECT_PASS,
+                                           ANNOTATION_EXPECT_FAIL):
+            return False
+        cursor = self.view.textCursor()
+        fmt = QTextCharFormat()
+        fmt.setBackground(_ANNOTATION_HIGHLIGHTS[kind])
+        cursor.mergeCharFormat(fmt)
+        self.view.setTextCursor(cursor)
+        self._annotations.append(CaptureAnnotation(text, kind, self.role_key))
+        return True
+
+    def _on_view_context_menu(self, pos):
+        if not self.btn_annotate.isChecked():
+            menu = self.view.createStandardContextMenu()
+            menu.exec(self.view.mapToGlobal(pos))
+            return
+        _text, source = self._selection()
+        menu = QMenu(self.view)
+        if source == "tx":
+            menu.addAction(
+                "Mark as Command",
+                lambda: self.annotate_selection(ANNOTATION_COMMAND))
+        elif source == "rx":
+            menu.addAction(
+                "Mark as Expected PASS",
+                lambda: self.annotate_selection(ANNOTATION_EXPECT_PASS))
+            menu.addAction(
+                "Mark as Expected FAIL",
+                lambda: self.annotate_selection(ANNOTATION_EXPECT_FAIL))
+        if menu.isEmpty():
+            action = menu.addAction("Select TX / RX text to annotate")
+            action.setEnabled(False)
+        menu.exec(self.view.mapToGlobal(pos))
+
+    def _generate_step(self, _checked=False):
+        """Draft one FctStep from this console's annotations.
+
+        The step is appended to the application CaptureBuffer and the
+        console annotations are consumed.  Nothing touches the project
+        YAML (only node 07 applies the sequence).
+        """
+        if self._capture_buffer is None or not self._annotations:
+            return None
+        command = "\n".join(a.text for a in self._annotations
+                            if a.kind == ANNOTATION_COMMAND)
+        pass_words = [a.text for a in self._annotations
+                      if a.kind == ANNOTATION_EXPECT_PASS]
+        fail_words = [a.text for a in self._annotations
+                      if a.kind == ANNOTATION_EXPECT_FAIL]
+        index = len(self._capture_buffer.steps()) + 1
+        step = FctStep(
+            name=f"Console {self.role_key} capture {index}",
+            step_type=STEP_MESSAGE_CHECK,
+            channel=self.role_key,
+            command=command,
+            expect_pass=pass_words,
+            expect_fail=fail_words,
+            timeout_s=30.0,
+            params={"fct_console": True, "kind": "send",
+                    "send_enabled": bool(command), "send": command,
+                    "capture_enabled": bool(pass_words or fail_words),
+                    "capture_timeout": 30.0, "wait_enabled": False},
+        )
+        self._capture_buffer.add_step(step, self._annotations)
+        self._annotations = []
+        return step
+
     # ------------------------------------------------------------ actions
     def clear_all(self):
         self.view.clear()
@@ -387,6 +563,8 @@ class ConsoleWidget(QGroupBox):
         self._rx_line_empty = True
         self._rx_want_timestamp = False
         self._rx_pending_cr = False
+        self._annotations = []
+        self._block_kinds = {}
 
     def save_log(self):
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
