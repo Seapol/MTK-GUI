@@ -47,9 +47,32 @@ TEMPLATE_BARE_METAL = "Bare Metal DUT"
 TEMPLATE_LINUX = "Linux DUT"
 #: M66: operator-selectable complete Wifi_Scan sequence (never auto-loaded)
 TEMPLATE_WIFI_SCAN = "Wifi_Scan (Host<->DUT)"
+#: M159: slave / daughter-board probe templates.  They stay OUT of the
+#: v1 Load Template menu (TEMPLATE_LABELS) - node 06 imports them per
+#: ``board_role``; registering them here makes them ordinary loadable
+#: data for the shared loader.
+TEMPLATE_SLAVE_SENSOR = "Slave: Sensor board"
+TEMPLATE_SLAVE_POWER = "Slave: Power board"
+TEMPLATE_SLAVE_SSD = "Slave: SSD board"
+TEMPLATE_SLAVE_WIFI = "Slave: Wi-Fi board"
+TEMPLATE_SLAVE_BLE = "Slave: BLE board"
+SLAVE_TEMPLATE_LABELS = (TEMPLATE_SLAVE_SENSOR, TEMPLATE_SLAVE_POWER,
+                         TEMPLATE_SLAVE_SSD, TEMPLATE_SLAVE_WIFI,
+                         TEMPLATE_SLAVE_BLE)
+#: slave template label -> the ``FctSequence.board_role`` it probes
+SLAVE_TEMPLATE_ROLES = {TEMPLATE_SLAVE_SENSOR: "slave:sensor",
+                        TEMPLATE_SLAVE_POWER: "slave:power",
+                        TEMPLATE_SLAVE_SSD: "slave:ssd",
+                        TEMPLATE_SLAVE_WIFI: "slave:wifi",
+                        TEMPLATE_SLAVE_BLE: "slave:ble"}
 TEMPLATE_FILES = {TEMPLATE_BARE_METAL: "fct_bare_metal.yaml",
                   TEMPLATE_LINUX: "fct_linux.yaml",
-                  TEMPLATE_WIFI_SCAN: "fct_wifi_scan.yaml"}
+                  TEMPLATE_WIFI_SCAN: "fct_wifi_scan.yaml",
+                  TEMPLATE_SLAVE_SENSOR: "fct_slave_sensor.yaml",
+                  TEMPLATE_SLAVE_POWER: "fct_slave_power.yaml",
+                  TEMPLATE_SLAVE_SSD: "fct_slave_ssd.yaml",
+                  TEMPLATE_SLAVE_WIFI: "fct_slave_wifi.yaml",
+                  TEMPLATE_SLAVE_BLE: "fct_slave_ble.yaml"}
 TEMPLATE_LABELS = (TEMPLATE_BARE_METAL, TEMPLATE_LINUX, TEMPLATE_WIFI_SCAN)
 
 #: the Type labels a template step may carry (Delay / the two serial

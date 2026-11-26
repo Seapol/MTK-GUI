@@ -1,0 +1,28 @@
+# M159 reference template - slave / daughter-board probe: SSD board.
+#
+# Registered under FctSequence.board_role = "slave:ssd".  Plain data:
+# every entry becomes one ordinary editable FCT Sequence row.  Commands
+# come from mtkgui/engine/fct_test_config.py SLAVE_PROBE_COMMANDS
+# ("ssd") - never invented here.
+template:
+  name: Slave SSD Board
+  description: >
+    Short SSD-board probe over the shared console: storage messages from
+    the kernel log plus the kernel banner.  Extend with board-specific
+    enumeration checks after the bench has been verified.
+steps:
+  - type: Console_serial
+    name: SSD - storage kernel log tail
+    wait_enabled: false
+    send_enabled: true
+    send: "dmesg | tail"
+    capture_enabled: false
+    timeout: 6.0
+  - type: Console_serial
+    name: SSD - kernel banner
+    wait_enabled: false
+    send_enabled: true
+    send: "uname -a"
+    capture_enabled: true
+    capture_expected: "Linux"
+    timeout: 6.0

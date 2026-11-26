@@ -1,0 +1,28 @@
+# M159 reference template - slave / daughter-board probe: sensor board.
+#
+# Registered under FctSequence.board_role = "slave:sensor".  Plain data:
+# every entry becomes one ordinary editable FCT Sequence row.  Commands
+# come from mtkgui/engine/fct_test_config.py SLAVE_PROBE_COMMANDS
+# ("sensor") - never invented here.
+template:
+  name: Slave Sensor Board
+  description: >
+    Short sensor-board probe over the shared console: kernel banner and
+    kernel log tail.  Extend with board-specific register reads after
+    the bench has been verified.
+steps:
+  - type: Console_serial
+    name: Sensor - kernel banner
+    wait_enabled: false
+    send_enabled: true
+    send: "uname -a"
+    capture_enabled: true
+    capture_expected: "Linux"
+    timeout: 6.0
+  - type: Console_serial
+    name: Sensor - kernel log tail
+    wait_enabled: false
+    send_enabled: true
+    send: "dmesg | tail"
+    capture_enabled: false
+    timeout: 6.0

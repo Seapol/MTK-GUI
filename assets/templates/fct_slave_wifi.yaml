@@ -1,0 +1,28 @@
+# M159 reference template - slave / daughter-board probe: Wi-Fi board.
+#
+# Registered under FctSequence.board_role = "slave:wifi".  Plain data:
+# every entry becomes one ordinary editable FCT Sequence row.  Commands
+# come from mtkgui/engine/fct_test_config.py SLAVE_PROBE_COMMANDS
+# ("wifi") - never invented here.
+template:
+  name: Slave Wi-Fi Board
+  description: >
+    Short Wi-Fi-board probe over the shared console: interface info plus
+    a scan filtered to SSIDs.  Replace mlan0 / wlan0 with the board
+    interface after the bench has been verified.
+steps:
+  - type: Console_serial
+    name: Wi-Fi - interface info
+    wait_enabled: false
+    send_enabled: true
+    send: "iw dev mlan0 info"
+    capture_enabled: true
+    capture_expected: "Interface"
+    timeout: 15.0
+  - type: Console_serial
+    name: Wi-Fi - scan SSIDs
+    wait_enabled: false
+    send_enabled: true
+    send: "iw dev wlan0 scan | grep SSID"
+    capture_enabled: false
+    timeout: 15.0

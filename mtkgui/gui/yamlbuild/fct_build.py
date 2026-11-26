@@ -523,12 +523,22 @@ def normalize_fct_cases(cases: list) -> list:
     return out
 
 
+#: M159: who the sequence runs on - the main DUT (today's behaviour) or
+#: one slave / daughter board probed through a shared console.
+BOARD_ROLE_MAIN = "main"
+BOARD_ROLE_SLAVES = ("sensor", "power", "ssd", "wifi", "ble")
+BOARD_ROLES = (BOARD_ROLE_MAIN,) + tuple(f"slave:{name}"
+                                         for name in BOARD_ROLE_SLAVES)
+
+
 @dataclass
 class FctSequence:
     """One FCT sequence (spec §5.3): keyword tables + ordered steps."""
 
     name: str
     flash_mode: str = FLASH_GUI
+    #: M159: main DUT (default) or a slave / daughter board probe
+    board_role: str = BOARD_ROLE_MAIN
     keyword_pass: list = field(
         default_factory=lambda: list(DEFAULT_KEYWORD_PASS))
     keyword_fail: list = field(
@@ -549,6 +559,8 @@ class FctSequence:
             errors.append("sequence name must not be empty")
         if self.flash_mode not in FLASH_MODES:
             errors.append(f"flash_mode must be one of {FLASH_MODES}")
+        if self.board_role not in BOARD_ROLES:
+            errors.append(f"board_role must be one of {BOARD_ROLES}")
         names = {s.name for s in self.steps if s.name.strip()}
         if len(names) != len(self.steps):
             errors.append("duplicate step names in the sequence")
@@ -564,6 +576,7 @@ class FctSequence:
         """The `fct_sequence:` document body."""
         return {
             "name": self.name, "flash_mode": self.flash_mode,
+            "board_role": self.board_role,
             "keyword_pass": list(self.keyword_pass),
             "keyword_fail": list(self.keyword_fail),
             "steps": [s.to_dict() for s in self.steps],
@@ -580,6 +593,8 @@ class FctSequence:
         return cls(
             name=str((data or {}).get("name", "")),
             flash_mode=str((data or {}).get("flash_mode", FLASH_GUI)),
+            board_role=str((data or {}).get("board_role",
+                                            BOARD_ROLE_MAIN)),
             keyword_pass=[str(k) for k in
                           ((data or {}).get("keyword_pass")
                            or DEFAULT_KEYWORD_PASS)],

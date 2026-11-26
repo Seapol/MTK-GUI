@@ -1,0 +1,27 @@
+# M159 reference template - slave / daughter-board probe: power board.
+#
+# Registered under FctSequence.board_role = "slave:power".  Plain data:
+# every entry becomes one ordinary editable FCT Sequence row.  Commands
+# come from mtkgui/engine/fct_test_config.py SLAVE_PROBE_COMMANDS
+# ("power") - never invented here.
+template:
+  name: Slave Power Board
+  description: >
+    Short power-board probe over the shared console: USB device tree and
+    the PMIC kernel log tail.  Extend with board-specific regulator
+    checks after the bench has been verified.
+steps:
+  - type: Console_serial
+    name: Power - USB devices
+    wait_enabled: false
+    send_enabled: true
+    send: "lsusb"
+    capture_enabled: false
+    timeout: 6.0
+  - type: Console_serial
+    name: Power - PMIC kernel log tail
+    wait_enabled: false
+    send_enabled: true
+    send: "dmesg | tail"
+    capture_enabled: false
+    timeout: 6.0

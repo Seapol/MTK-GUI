@@ -1,0 +1,27 @@
+# M159 reference template - slave / daughter-board probe: BLE board.
+#
+# Registered under FctSequence.board_role = "slave:ble".  Plain data:
+# every entry becomes one ordinary editable FCT Sequence row.  Commands
+# come from mtkgui/engine/fct_test_config.py SLAVE_PROBE_COMMANDS
+# ("ble") - never invented here.
+template:
+  name: Slave BLE Board
+  description: >
+    Short BLE-board probe over the shared console: adapter info plus a
+    discovery scan.  Stop the scan manually when the bench is verified.
+steps:
+  - type: Console_serial
+    name: BLE - adapter info
+    wait_enabled: false
+    send_enabled: true
+    send: "hciconfig -a"
+    capture_enabled: true
+    capture_expected: "hci0"
+    timeout: 15.0
+  - type: Console_serial
+    name: BLE - discovery scan
+    wait_enabled: false
+    send_enabled: true
+    send: "bluetoothctl scan on"
+    capture_enabled: false
+    timeout: 15.0

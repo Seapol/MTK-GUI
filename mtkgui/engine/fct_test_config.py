@@ -111,6 +111,20 @@ DEFAULT_MANUAL_OFF_MSG = (
     "FCT finished. Disconnect the power adapter / USB cable, then press "
     "GO.")
 
+#: M159: slave / daughter-board probe commands.  These are the ONLY
+#: command lines the reference templates (``assets/templates/
+#: fct_slave_*.yaml``) may carry - each one is already part of the
+#: shared Linux console command set used by this engine (this module's
+#: own ``uname -a`` example, plus lsusb / dmesg | tail / iw dev ... /
+#: hciconfig -a / bluetoothctl scan on from the console helpers).
+SLAVE_PROBE_COMMANDS = {
+    "sensor": ("uname -a", "dmesg | tail"),
+    "power": ("lsusb", "dmesg | tail"),
+    "ssd": ("dmesg | tail", "uname -a"),
+    "wifi": ("iw dev mlan0 info", "iw dev wlan0 scan | grep SSID"),
+    "ble": ("hciconfig -a", "bluetoothctl scan on"),
+}
+
 #: default operator prompt for a Flash_GUI step (M33): the third-party
 #: flash GUI is launched (or reused) and the operator judges the outcome
 #: with the Go / Stop dialog.
