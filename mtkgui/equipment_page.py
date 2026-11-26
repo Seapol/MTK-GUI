@@ -209,13 +209,15 @@ LEFT_ENTRIES = (
         ("u2355a", "U2355A", "instrument", ("u2355a", None)),
         ("psu", "N5747A", "instrument", ("psu", None)),
         ("rf_test_set", "RF Test Set (WiFi/BT)", "optional", None),
+        # M136: a debugger is an instrument, not a sixth rack band -
+        # nested here, and the analyzer stays a grey placeholder until
+        # its driver lands.
+        ("debugger", "Debugger", "group", None),
+        ("bscan", "Boundary Scan Analyzer", "optional", None),
     )),
     ("Fixture", (
         ("control_board", "ATE Fixture Control Board", "form",
          ("control_board", None)),
-    )),
-    ("Debugger", (
-        ("bscan", "Boundary Scan Analyzer", "optional", None),
     )),
     ("Peripherals", (
         ("host_pc", "Host PC", "group", None),
@@ -3016,7 +3018,11 @@ class EquipmentPage(QWidget):
             self.entry_labels[key] = name
             self.entry_buttons[key] = {}
             row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
+            # M136: the Debugger subtree is nested inside Instruments and
+            # indents with it, so the group header cannot read as a
+            # fourth rack instrument.
+            row.setContentsMargins(14 if key == "debugger" else 0,
+                                   6 if key == "debugger" else 0, 0, 0)
             row.addWidget(name)
             row.addStretch(1)
             return row
@@ -3042,7 +3048,7 @@ class EquipmentPage(QWidget):
             return row
 
         row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
+        row.setContentsMargins(28 if key == "bscan" else 0, 0, 0, 0)
         name = QLabel(label)
         # M80-1: never elide; the tooltip carries the full text when the
         # operator drags the splitter narrower than the label

@@ -217,6 +217,26 @@ Modes".
 **Note:** instrument addresses come ONLY from the project YAML /
 Equipment page - never hard-coded in test steps.
 
+## Hardware Configuration List
+
+The left column of the page (`Hardware Configuration`) lists the
+station hardware in three groups - `Instruments`, `Fixture` and
+`Peripherals`:
+
+- **Instruments** - `DAQ973A Mainframe`, `U2355A` and `N5747A` each with
+  a `Config` button, then `RF Test Set (WiFi/BT)`, then the nested
+  `Debugger` entry with `Boundary Scan Analyzer` under it.
+- **Fixture** - the `ATE Fixture Control Board`.
+- **Peripherals** - `Host PC` with its consoles and networks, and the
+  `Router` with its Ethernet / Wi-Fi AP children.
+
+Both the RF test set and the debugger analyzer are **placeholders**: the
+row is greyed, the button reads `N/A`, the tooltip says not developed and
+it cannot be opened. A debugger is an instrument in this rack (it is not
+a separate rack band), so the entry is nested under `Instruments`; do not
+expect it in any test module's description until its driver is
+implemented. Everything else in the list opens its configuration window.
+
 ## Relation to Yaml Build and Tools
 
 - **Yaml Build has NO instrument configuration card any more** (the

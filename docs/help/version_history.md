@@ -42,6 +42,10 @@ GUI head: **`cb2573e` (M135) - 2026-11-26**. Everything up to it is on
 logic as the head. This log itself rides one docs-only commit after the
 code head (the commit hash cannot name its own commit).
 
+- `M136` - the Equipment left list nests `Debugger -> Boundary Scan
+  Analyzer` under `Instruments`; both optional instruments stay greyed
+  (`N/A`, not developed) and the analyzer is kept out of the test-module
+  descriptions until its driver exists.
 - `cb2573e` (M135) - the node padlock now names the action: `Lock` while
   the module is open (click = validate + lock), `Unlock` once it is
   locked. `Apply_Save yaml` is removed from nodes 01-06 - they close with

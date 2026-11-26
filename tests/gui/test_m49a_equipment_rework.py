@@ -104,8 +104,7 @@ def test_empty_operation_name_never_saves_custom_operation(qapp, monkeypatch):
 # ---------------------------------------------------------------------------
 def test_left_column_lists_only_configurable_hardware(page):
     assert [(group, len(entries)) for group, entries in LEFT_ENTRIES] == [
-        ("Instruments", 4), ("Fixture", 1), ("Debugger", 1),
-        ("Peripherals", 9)]
+        ("Instruments", 6), ("Fixture", 1), ("Peripherals", 9)]
     labels = [label for _g, entries in LEFT_ENTRIES
               for _key, label, _kind, _src in entries]
     for banned in ("display", "microphone", "speaker", " sd ", "usb",
