@@ -229,12 +229,18 @@ class ParseNetsV2Panel(QWidget):
         # which no default dialog can give twice.  Compact the cell/header
         # metrics here (the rest of the application keeps the roomier style)
         # so both tables fit the default window without a horizontal bar.
+        # The sizes live on the widgets, not in the stylesheet: a
+        # font-size in px overrides the widget font for rendering but not
+        # for QFontMetrics, so columns were sized for one font and drawn
+        # with another (one character short on a 125 % display).
         table.setStyleSheet(
-            "QHeaderView::section { padding: 4px 6px; font-size: 10px; }"
-            "QTableWidget::item { padding: 2px 4px; font-size: 11px; }")
-        header_font = QFont(table.font())
-        base = header_font.pointSizeF()
-        header_font.setPointSizeF(max(8.0, (base if base > 0 else 10.0) - 1.5))
+            "QHeaderView::section { padding: 4px 6px; }"
+            "QTableWidget::item { padding: 2px 4px; }")
+        cell_font = QFont(table.font())
+        cell_font.setPixelSize(11)
+        table.setFont(cell_font)
+        header_font = QFont(cell_font)
+        header_font.setPixelSize(10)
         header_font.setBold(True)
         table.horizontalHeader().setFont(header_font)
         table.verticalHeader().setVisible(False)
@@ -368,7 +374,7 @@ class ParseNetsV2Panel(QWidget):
         combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.setStyleSheet(
-            "QComboBox { padding: 0px 2px; font-size: 11px; }"
+            "QComboBox { padding: 0px 2px; }"
             "QComboBox::drop-down { width: 14px; }")
         combo.addItems(list(V2_CATEGORIES))
         combo.setCurrentText(current)
