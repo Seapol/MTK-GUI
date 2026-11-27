@@ -31,8 +31,9 @@ from .results import StepStatus
 #                                 "y" and continues, STOP sends "n" and
 #                                 stops the run, timeout -> FAIL;
 #     * MessageYesNotoConsole   : modal Yes / No (blocks the Console)
-#                                 - Yes/No send "y"/"n" and BOTH
-#                                 continue, timeout -> FAIL + stop.
+#                                 - Yes sends "y" and PASSes, No sends
+#                                 "n" and FAILs (the run continues),
+#                                 timeout -> FAIL.
 FCT_METHODS = [
     "MessageOK", "MessageYesNo", "MessageGoStop",
     "MessageOKtoConsole", "MessageYesNotoConsole",

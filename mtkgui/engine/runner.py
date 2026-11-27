@@ -1234,24 +1234,39 @@ class TestRunner(QObject):
             if interactive:
                 # plain operator dialog: the M83/C8 invariant - a plain
                 # Message kind NEVER writes to any console
-                _kind = {"ok": "MessageOK",
-                         "yesno": "MessageYesNo"}.get(
-                    str(step.params.get("style") or ""), "MessageGoStop")
+                # M160: ExternalGui owns its own verdict dialog -
+                # flash -> Go / Stop, test -> Yes / No; a negative
+                # answer FAILs and aborts the run immediately (no
+                # on_fail fallback).
+                _external = step.category == CATEGORY_EXTERNAL_GUI
+                if _external:
+                    _kind = ("MessageGoStop" if step.type == "flash"
+                             else "MessageYesNo")
+                else:
+                    _kind = {"ok": "MessageOK",
+                             "yesno": "MessageYesNo"}.get(
+                        str(step.params.get("style") or ""),
+                        "MessageGoStop")
                 _text = str(step.params.get("message")
                             or f"Confirm: {step.name}")
                 _tmo = float(step.params.get("message_timeout_s") or 0.0)
 
-                def _ask(_s, _k=_kind, _t=_text, _m=_tmo):
+                def _ask(_s, _k=_kind, _t=_text, _m=_tmo, _x=_external):
                     answer = env._fct_message_dialog(
                         _k, _t, timeout_s=_m)
-                    if _k == "MessageOK":
+                    if not _x and _k == "MessageOK":
                         return answer == "ok"
+                    if _x and answer not in ("go", "yes"):
+                        _stop_flag["stop"] = True
+                        env._log(f"FCT {_t}: operator "
+                                 f"{answer.upper()} -> FAIL (run stops)")
+                        return False
                     if answer == "stop":
                         _stop_flag["stop"] = True
                         env._log(f"FCT {_t}: operator STOP -> FAIL "
                                  f"(run stops)")
                         return False
-                    if answer == "go":
+                    if answer == "go" or answer == "yes":
                         return True
                     if answer == "timeout" and _k == "MessageGoStop":
                         # M83/C8: a GoStop timeout FAILs and STOPS the run
@@ -1263,23 +1278,6 @@ class TestRunner(QObject):
                     # (M83/C8: No is FAIL now, the run CONTINUES)
                     return answer == "yes"
             else:                            # run_demo: simulated GO
-                def _ask(s):
-                    env._log("human answer GO (simulated)")
-                    return True
-            ctx.human_confirm = _ask
-        elif (step.category == CATEGORY_EXTERNAL_GUI
-              and step.type == "flash"):
-            # v2-15 D: a GUI flash step takes the operator Go / Stop
-            # answer (the tool launch lives in fct_exec._flash_gui_once).
-            if interactive:
-                def _ask(s):
-                    answer = env._fct_message_dialog(
-                        "MessageGoStop", s.name)
-                    if answer == "stop":
-                        _stop_flag["stop"] = True
-                        return False
-                    return answer == "go"
-            else:
                 def _ask(s):
                     env._log("human answer GO (simulated)")
                     return True

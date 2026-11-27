@@ -1420,8 +1420,8 @@ class FCTTestConfigPanel(QWidget):
 
         - MessageOKtoConsole: OK notice - no console command, the
           Console is NOT blocked; answer timeout OFF.
-        - MessageYesNotoConsole: Yes sends y, No sends n (PASS either
-          way); answer timeout 4 s.
+        - MessageYesNotoConsole: Yes sends y -> PASS; No sends n ->
+          FAIL (run continues); answer timeout 4 s.
         - MessageGoStoptoConsole: GO sends y -> PASS, run continues;
           STOP sends n -> FAIL, run stops; answer timeout 4 s."""
         self._push_history()

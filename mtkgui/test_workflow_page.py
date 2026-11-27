@@ -2818,7 +2818,14 @@ class TestWorkFlowPage(QWidget):
             return "ok"
         clicked = box.clickedButton()
         if clicked is None:
-            return "timeout"
+            # M160: closing the window (X) is a HARD-CODED answer -
+            # ok -> OK (Pass), yesno -> No (Fail), gostop -> Stop
+            # (Fail + the runner aborts the run).
+            from mtkgui.engine.step_types import MESSAGE_CLOSE_ACTION
+            base = {"MessageOK": "ok", "MessageYesNo": "yesno",
+                    "MessageGoStop": "gostop"}.get(kind, "gostop")
+            action = MESSAGE_CLOSE_ACTION.get(base, "abort")
+            return {"pass": "ok", "fail": "no", "abort": "stop"}[action]
         if kind == "MessageYesNo":
             return "yes" if clicked.text().replace("&", "") == "Yes" \
                 else "no"

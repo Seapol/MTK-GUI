@@ -111,13 +111,22 @@ def _b3(env, marker, answer):
     return runner
 
 
+_MESSAGE_TYPES = {
+    "MessageOK": "ok", "MessageYesNo": "yesno", "MessageGoStop": "gostop",
+    "MessageOKtoConsole": "ok_console",
+    "MessageYesNotoConsole": "yesno_console",
+    "MessageGoStoptoConsole": "gostop_console",
+}
+
+
 def _dialog_marker(kind, channel="ser1", send_ok=None):
     params = {"style": "yesno", "console_dialog": True,
               "message": "Ready?", "message_kind": kind,
               "send_yes": "y", "send_no": "n", "message_timeout_s": 4.0}
     if send_ok is not None:
         params["send_ok"] = send_ok
-    return {"name": "Ready?", "step_type": "GUI_CONFIRM",
+    return {"name": "Ready?", "category": "Message",
+            "type": _MESSAGE_TYPES.get(kind, "yesno"),
             "channel": channel, "timeout_s": 5.0, "params": params}
 
 
@@ -157,7 +166,8 @@ def _doc_with_row(params: dict, kind: str = "MessageYesNo") -> dict:
             "fct_test_cases": [{
                 "name": "Ready?", "kind": kind,
                 "op_params": {"fct_step": {
-                    "name": "Ready?", "step_type": "GUI_CONFIRM",
+                    "name": "Ready?", "category": "Message",
+                    "type": "yesno_console",
                     "channel": "ser1", "timeout_s": 5.0,
                     "params": {"style": "yesno", "console_dialog": True,
                                **params}}}}],
