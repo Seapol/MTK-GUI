@@ -1044,6 +1044,7 @@ class TestRunner(QObject):
             CATEGORY_CONSOLE,
             CATEGORY_EXTERNAL_GUI,
             CATEGORY_MESSAGE,
+            CATEGORY_OPERATION,
             CATEGORY_TRANSFER,
         )
         from .fct_channels import ConsoleBufferChannel, VirtualFctChannel
@@ -1077,6 +1078,8 @@ class TestRunner(QObject):
         _human_gate = (
             (step.category in (CATEGORY_MESSAGE, CATEGORY_EXTERNAL_GUI)
              and not _p.get("op"))
+            or (step.category == CATEGORY_OPERATION
+                and not _p.get("op") and _p.get("style") is not None)
             or (step.category in (CATEGORY_CONSOLE, CATEGORY_TRANSFER)
                 and not step.channel and not _p.get("fct_console")))
         if _human_gate:
@@ -1253,7 +1256,10 @@ class TestRunner(QObject):
                 return verdict == "PASS"
             ctx.human_confirm = _ask
         elif step.category in (CATEGORY_MESSAGE, CATEGORY_EXTERNAL_GUI) \
-                or step.params.get("confirm"):
+                or step.params.get("confirm") \
+                or (step.category == CATEGORY_OPERATION
+                    and not step.params.get("op")
+                    and step.params.get("style") is not None):
             if interactive:
                 # plain operator dialog: the M83/C8 invariant - a plain
                 # Message kind NEVER writes to any console

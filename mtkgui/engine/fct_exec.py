@@ -48,6 +48,13 @@ def _route(step) -> str:
     category = str(getattr(step, "category", "") or "")
     sub_type = str(getattr(step, "type", "") or "")
     if category == CATEGORY_OPERATION:
+        params = dict(getattr(step, "params", None) or {})
+        # FCT Power On/Off on a bare-metal bench has no instrument
+        # gateway: a step that carries a dialog ``style`` (gostop / ok /
+        # yesno) and no concrete op name is an operator gate, never an
+        # instrument op.
+        if not params.get("op") and params.get("style") is not None:
+            return _ROUTE_GUI_CONFIRM
         return (_ROUTE_EXTERNAL_TOOL if sub_type == "delay"
                 else _ROUTE_OPERATION)
     if category == CATEGORY_EXTERNAL_GUI:
