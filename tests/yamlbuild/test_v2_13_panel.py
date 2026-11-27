@@ -24,9 +24,8 @@ def test_panel_renders_sequence():
         assert panel.table.rowCount() == 5
         types = [panel.table.item(r, 2).text()
                  for r in range(panel.table.rowCount())]
-        assert types == ["ExternalGui.flash", "Message.ok",
-                         "ExternalGui.flash", "Operation.power_off",
-                         "Operation.reset_instruments"]
+        assert types == ["flash", "ok", "flash", "power_off",
+                         "reset_instruments"]
     finally:
         panel.deleteLater()
 
