@@ -1341,14 +1341,18 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
                 if outcome.verdict != VERDICT_PASS:
                     return outcome
             if "send" in step.params:
-                # Respect send_enabled and NEVER emit a bare newline for
-                # send:'' rows: an empty line left in the tty input queue
-                # is consumed by the DUT script's later input() (bug
+                # Respect send_enabled.  A truly empty send ('') must NOT
+                # emit a bare newline: a stray newline left in the tty input
+                # queue is consumed by the DUT script's later input() (bug
                 # 2026-10-28: the MQS Yes/No dialog was still open while
-                # fat.py read that stray newline and ran on).
+                # fat.py read that stray newline and ran on).  A bare "\r"
+                # is the one deliberate exception - Boot wait uses it to
+                # make the login prompt re-print itself (verified on
+                # FRDM-IMX93: enter at `login:` re-echoes the banner).
                 _send_text = str(step.params.get("send") or "")
                 if step.params.get("send_enabled", True) and \
-                        _send_text.strip():
+                        (_send_text.strip() or
+                         _send_text in ("\r", "\n", "\r\n")):
                     ctx.log(f"console send: {_send_text!r}")
                     # m119/F: never type into a console that still runs
                     # a command (a hung client ate a row's whole budget)

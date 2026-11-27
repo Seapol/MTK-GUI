@@ -246,14 +246,17 @@ def push_file(channel, local_path: str, remote_path: str, *,
         # m118-fix: with `stty -echo` the shell prompt is still printed and
         # it has no trailing newline, so `wc -c` output lands glued to the
         # prompt (e.g. "root@imx93frdm:~# 3005").  A bare `line.isdigit()`
-        # rejects that line and the parser would then pick the computed
-        # marker as the size.  Extract the LAST number on each line instead.
-        sizes = []
+        # rejects that line.  The serial RX is also chunked, so the number
+        # itself may first surface as a partial ("...:~# 3") and only later
+        # as the complete value ("...:~# 3005"); the computed completion
+        # marker is yet another number.  Pick the number closest to the
+        # expected size - it is the only stable signal across all three.
+        nums = []
         for line in size_out.splitlines():
             m = re.search(r"(\d+)\s*$", line)
             if m:
-                sizes.append(int(m.group(1)))
-        got = sizes[0] if sizes else -1
+                nums.append(int(m.group(1)))
+        got = min(nums, key=lambda n: abs(n - expected)) if nums else -1
         if got == expected:
             break
         _log(f"staging size mismatch {name}: sent {expected} bytes, DUT kept "

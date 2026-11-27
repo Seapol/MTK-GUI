@@ -32,7 +32,8 @@ class _WireChannel:
 
     def __init__(self, md5: str = "", replies: dict | None = None,
                  size_replies: list | None = None,
-                 glue_size_to_prompt: bool = False) -> None:
+                 glue_size_to_prompt: bool = False,
+                 split_size: bool = False) -> None:
         self.md5 = md5
         #: command prefix -> stderr lines emitted before the marker
         self.replies = dict(replies or {})
@@ -41,6 +42,9 @@ class _WireChannel:
         #: m118: emulate `stty -echo` where the shell prompt is still
         #: printed without a newline, so `wc -c` output lands glued to it
         self.glue_size_to_prompt = glue_size_to_prompt
+        #: m118: emulate the serial RX being chunked - the size's first
+        #: digit arrives as a partial line, then the full number follows
+        self.split_size = split_size
         self.writes: list[str] = []
         self.pending: list[str] = []
         self.stale_prompts_seen = 0
@@ -82,7 +86,12 @@ class _WireChannel:
         if command.startswith("wc -c"):
             size = (self.size_replies.pop(0) if self.size_replies
                     else self.staged_size)
-            if self.glue_size_to_prompt:
+            if self.split_size:
+                s = str(size)
+                # first digit arrives as a partial line, then the full value
+                self.pending.append(f"root@done:~# {s[0]}")
+                self.pending.append(f"root@done:~# {s}")
+            elif self.glue_size_to_prompt:
                 # `stty -echo`: prompt has no newline, size output glues on
                 self.pending.append(f"root@done:~# {size}")
             else:
@@ -257,6 +266,19 @@ def test_push_file_parses_size_glued_to_prompt(tmp_path):
     source, data = _source(tmp_path)
     channel = _WireChannel(hashlib.md5(data).hexdigest(),
                            glue_size_to_prompt=True)
+    result = push_file(channel, str(source), "/fat.log")
+    assert result["md5"] == hashlib.md5(data).hexdigest()
+    assert sum(1 for w in channel.writes if w.startswith("cat > ")) == 1
+
+
+def test_push_file_parses_size_split_across_serial_chunks(tmp_path):
+    # m118: serial RX is chunked, so the `wc -c` value can first surface as
+    # a partial digit (e.g. "3") and only then as the complete number
+    # ("3005").  The parser must pick the number closest to the expected
+    # size instead of taking the first one.
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest(),
+                           glue_size_to_prompt=True, split_size=True)
     result = push_file(channel, str(source), "/fat.log")
     assert result["md5"] == hashlib.md5(data).hexdigest()
     assert sum(1 for w in channel.writes if w.startswith("cat > ")) == 1

@@ -220,6 +220,19 @@ def test_console_wait_only_row_never_writes_bytes():
     assert channels["ser1"].written == []
 
 
+def test_console_bare_cr_send_is_deliberately_allowed():
+    """A bare "\\r" is the ONE deliberate exception to the 'never emit a
+    bare newline' rule: Boot wait sends it so the login prompt re-prints
+    itself.  It must reach the channel instead of being skipped."""
+    ctx, channels = make_virtual_context({"ser1": ["login:"]})
+    step = _console_step(kind="send", send="\r", send_enabled=True,
+                         expect_pass_re="login:",
+                         capture_is_expected=True)
+    assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
+    assert channels["ser1"].written
+    assert all("\r" in w for w in channels["ser1"].written)
+
+
 def test_skip_marker():
     ctx, _ = make_virtual_context()
     step = FctStep(name="s", category="Console", type="serial", channel="ser1",

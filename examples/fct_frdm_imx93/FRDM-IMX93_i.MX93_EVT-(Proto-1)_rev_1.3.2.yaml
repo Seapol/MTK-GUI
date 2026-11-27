@@ -342,7 +342,8 @@ test_workflow:
           fct_console: true
           kind: wait
           wait_enabled: true
-          send_enabled: false
+          send_enabled: true
+          send: "\r"
           capture_enabled: false
           wait_pattern: 'imx93frdm login:'
           wait_timeout: 60.0
@@ -388,16 +389,15 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
+          expect_pass_re: 'root@imx93frdm'
           expect_fail_re: ''
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
           send: root
-          setup_only: true
   - name: Kernel check
     enable: true
     wait_ms: 100
