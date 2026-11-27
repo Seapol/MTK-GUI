@@ -14,10 +14,6 @@ from mtkgui.engine.credentials import (
     get_credential,
 )
 from mtkgui.gui.yamlbuild.fct_build import (
-    FLASH_CLI,
-    FLASH_GUI,
-    STEP_FLASH,
-    STEP_OPERATION,
     build_fct_sequence,
     to_project_fct_cases,
 )
@@ -64,7 +60,7 @@ def test_judge_case_insensitive_and_empty():
 # ------------------------------------------------------------- executors
 def test_message_check_positive_over_virtual_channel():
     ctx, channels = make_virtual_context({"ser1": ["boot", "TEST PASSED"]})
-    step = FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="m", category="Console", type="serial", channel="ser1",
                    expect_pass=["passed"], timeout_s=2)
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
@@ -73,7 +69,7 @@ def test_message_check_positive_over_virtual_channel():
 
 def test_message_check_negative_keyword_fails():
     ctx, _ = make_virtual_context({"ser1": ["ERROR: boom", "success"]})
-    step = FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="m", category="Console", type="serial", channel="ser1",
                    expect_pass=["success"], expect_fail=["error"],
                    timeout_s=2)
     assert execute_fct_step(step, ctx).verdict == VERDICT_FAIL
@@ -86,7 +82,7 @@ def test_message_check_timeout_and_retry_then_pass():
     ctx, _ = make_virtual_context()
     ch = VirtualFctChannel()
     ctx.channels["ser1"] = ch
-    step = FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="m", category="Console", type="serial", channel="ser1",
                    expect_pass=["pass"], timeout_s=0.3, retries=1)
 
     flips = {"n": 0}
@@ -105,14 +101,14 @@ def test_message_check_timeout_and_retry_then_pass():
 def test_message_check_unbound_channel_is_error():
     ctx, _ = make_virtual_context()
     ctx.human_confirm = None              # no dialog hook -> hard error
-    step = FctStep(name="m", step_type="MESSAGE_CHECK", channel="nope",
+    step = FctStep(name="m", category="Console", type="serial", channel="nope",
                    expect_pass=["x"], timeout_s=1)
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
 
 
 def test_message_check_without_keywords_fails_explicitly():
     ctx, channels = make_virtual_context({"ser1": ["hello"]})
-    step = FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="m", category="Console", type="serial", channel="ser1",
                    timeout_s=1)
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_FAIL
@@ -122,7 +118,7 @@ def test_message_check_without_keywords_fails_explicitly():
 def _console_step(**params):
     base = {"fct_console": True}
     base.update(params)
-    return FctStep(name="m", step_type="MESSAGE_CHECK", channel="ser1",
+    return FctStep(name="m", category="Console", type="serial", channel="ser1",
                    timeout_s=0.6, params=base)
 
 
@@ -226,7 +222,7 @@ def test_console_wait_only_row_never_writes_bytes():
 
 def test_skip_marker():
     ctx, _ = make_virtual_context()
-    step = FctStep(name="s", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="s", category="Console", type="serial", channel="ser1",
                    params={"skip": True})
     assert execute_fct_step(step, ctx).verdict == VERDICT_SKIP
 
@@ -234,8 +230,8 @@ def test_skip_marker():
 def test_gui_confirm_human_answers():
     # GO -> PASS
     ctx, _ = make_virtual_context(human_answers=[True])
-    step = FctStep(name="Flash FAT Firmware", step_type="GUI_CONFIRM",
-                   timeout_s=0)
+    step = FctStep(name="Flash FAT Firmware", category="Message",
+                   type="gostop", timeout_s=0)
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
     # STOP -> FAIL
     ctx, _ = make_virtual_context(human_answers=[False])
@@ -249,12 +245,13 @@ def test_gui_confirm_human_answers():
 def test_cli_run_channel_keyword_and_command_evidence():
     ctx, channels = make_virtual_context(
         {"ser1": ["blhost: success, image written"]})
-    step = FctStep(name="flash", step_type="CLI_RUN", channel="ser1",
-                   command="blhost flash-image fat.bin",
+    step = FctStep(name="flash", category="Console", type="cli",
+                   channel="ser1", command="blhost flash-image fat.bin",
                    expect_pass=["success"], timeout_s=2)
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
-    assert channels["ser1"].written == ["blhost flash-image fat.bin"]
+    assert [line.strip() for line in channels["ser1"].written] == \
+        ["blhost flash-image fat.bin"]
 
 
 def test_cli_run_host_subprocess_joint_judgement():
@@ -262,18 +259,18 @@ def test_cli_run_host_subprocess_joint_judgement():
     exit flips the verdict to FAIL even with a positive keyword."""
     import sys
     win = sys.platform == "win32"
-    step = FctStep(name="host", step_type="CLI_RUN",
+    step = FctStep(name="host", category="Console", type="cli",
                    command="echo success", expect_pass=["success"],
-                   timeout_s=10, params={"host_cli": True})
+                   timeout_s=10)
     ctx = FctContext(station_id="S", user="u")
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
 
     # print a positive keyword then exit non-zero (platform shell syntax)
     bad_cmd = ("echo success & exit 3" if win
                else "echo success; exit 3")
-    bad = FctStep(name="host", step_type="CLI_RUN",
+    bad = FctStep(name="host", category="Console", type="cli",
                   command=bad_cmd, expect_pass=["success"],
-                  timeout_s=10, params={"host_cli": True})
+                  timeout_s=10)
     out = execute_fct_step(bad, ctx)
     assert out.verdict == VERDICT_FAIL and "exit code" in out.reason
 
@@ -290,7 +287,7 @@ def test_external_tool_command_then_confirm():
     decides (params.confirm)."""
     ctx, _ = make_virtual_context(
         {"ser1": ["iperf3: 92.4 Mbits/sec"]}, human_answers=[True])
-    step = FctStep(name="wifi", step_type="EXTERNAL_TOOL",
+    step = FctStep(name="wifi", category="Transfer", type="serial_put",
                    channel="ser1", command="iperf3 -c x",
                    expect_pass=["mbits/sec"], timeout_s=2,
                    params={"tool_family": "wifi", "confirm": True})
@@ -305,7 +302,7 @@ def test_eventlog_lines_carry_identity():
     logged = []
     ctx, channels = make_virtual_context({"ser1": ["PASSED"]})
     ctx.log_sink = logged.append
-    execute_fct_step(FctStep(name="m", step_type="MESSAGE_CHECK",
+    execute_fct_step(FctStep(name="m", category="Console", type="serial",
                              channel="ser1", expect_pass=["passed"],
                              timeout_s=2), ctx)
     assert all(line.startswith("[STATION-A] [op]") for line in logged)
@@ -358,7 +355,7 @@ def test_runner_executes_fct_build_sequence_virtual(qapp):
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
     page.set_mode("Virtual")     # the flash simulation is Virtual-only
-    seq = build_fct_sequence("e2e-cli", flash_mode=FLASH_CLI,
+    seq = build_fct_sequence("e2e-cli", flash_mode="cli",
                              channel="ser1",
                              cli_command="blhost flash-image fat.bin",
                              cli_done_keyword="success")
@@ -380,7 +377,7 @@ def test_runner_gui_flash_path_virtual(qapp):
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
     page.set_mode("Virtual")     # the flash simulation is Virtual-only
-    seq = build_fct_sequence("e2e-gui", flash_mode=FLASH_GUI)
+    seq = build_fct_sequence("e2e-gui", flash_mode="gui")
     _load_fct_sequence_into(page, seq)
     page.project_path = "virtual-dummy.yaml"
     page.run_demo()
@@ -396,7 +393,7 @@ def test_runner_fct_fail_blocks_overall(qapp):
     from mtkgui.test_workflow_page import TestWorkFlowPage
     page = TestWorkFlowPage()
     page.set_mode("Virtual")     # injected virtual output needs Virtual
-    seq = build_fct_sequence("e2e-fail", flash_mode=FLASH_CLI,
+    seq = build_fct_sequence("e2e-fail", flash_mode="cli",
                              channel="ser1", cli_command="blhost x",
                              cli_done_keyword="success")
     _load_fct_sequence_into(page, seq)
@@ -411,8 +408,8 @@ def test_disabled_flash_slot_fails_fast():
     """v2-15 D: a FLASH step whose firmware slot is disabled reports a
     warning and fails fast without launching."""
     ctx = FctContext(firmware={"fat": {"enabled": False}})
-    step = FctStep(name="Flash FAT Firmware", step_type=STEP_FLASH,
-                   timeout_s=0, params={"slot": "fat"})
+    step = FctStep(name="Flash FAT Firmware", category="ExternalGui",
+                   type="flash", timeout_s=0, params={"slot": "fat"})
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_FAIL
     assert "firmware slot 'fat' is disabled" in out.reason
@@ -433,7 +430,7 @@ def test_load_fct_cases_replaces_rows_exactly(qapp):
     page.fct_timeouts = []
     page.fct_op_params = []
     cases = to_project_fct_cases(
-        build_fct_sequence("e2e-merge", flash_mode=FLASH_GUI))
+        build_fct_sequence("e2e-merge", flash_mode="gui"))
     page.load_fct_cases(cases)
     n_generated = len(page.fct_rows)
     # the operator adds standard ops by hand on the page
@@ -466,8 +463,9 @@ def test_standard_op_row_runs_instrument_op_not_dialog():
         raise AssertionError("op rows must not open a confirm dialog")
 
     ctx = FctContext(run_op=run_op, human_confirm=must_not_call)
-    step = FctStep(name="Power On DUT", step_type=STEP_OPERATION,
-                   timeout_s=0, params={"op": "Power On DUT"})
+    step = FctStep(name="Power On DUT", category="Operation",
+                   type="power_on", timeout_s=0,
+                   params={"op": "Power On DUT"})
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_PASS
     assert calls and calls[0][0] == "Power On DUT"
@@ -477,15 +475,17 @@ def test_standard_op_row_runs_instrument_op_not_dialog():
 
 def test_standard_op_error_verdict():
     ctx = FctContext(run_op=lambda n, p: "Error")
-    step = FctStep(name="Fixture Clamp Down", step_type=STEP_OPERATION,
-                   timeout_s=0, params={"op": "Fixture Clamp Down"})
+    step = FctStep(name="Fixture Clamp Down", category="Operation",
+                   type="fixture_ready", timeout_s=0,
+                   params={"op": "Fixture Clamp Down"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
 
 
 def test_standard_op_without_runner_is_error():
     ctx = FctContext()   # no run_op hook bound
-    step = FctStep(name="Power On DUT", step_type=STEP_OPERATION,
-                   timeout_s=0, params={"op": "Power On DUT"})
+    step = FctStep(name="Power On DUT", category="Operation",
+                   type="power_on", timeout_s=0,
+                   params={"op": "Power On DUT"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_ERROR
 
 
@@ -499,8 +499,9 @@ def test_operation_teardown_step_runs_op():
         return "Done"
 
     ctx = FctContext(run_op=run_op)
-    step = FctStep(name="Power Off DUT", step_type=STEP_OPERATION,
-                   timeout_s=0, params={"op": "Power Off DUT"})
+    step = FctStep(name="Power Off DUT", category="Operation",
+                   type="power_off", timeout_s=0,
+                   params={"op": "Power Off DUT"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
     assert calls == ["Power Off DUT"]
 
@@ -540,7 +541,7 @@ def test_host_lan_ip_auto_detect(monkeypatch):
 
 def _wifi_step():
     return fe.FctStep(
-        name="Wi-Fi Connect & Ping", step_type="EXTERNAL_TOOL",
+        name="Wi-Fi Connect & Ping", category="Wifi", type="ping",
         channel="", timeout_s=15.0,
         params={"tool_family": "wifi",
                 "fct_rf": {"mode": "full_stack", "any_reply": True}})
@@ -579,7 +580,7 @@ def _dut_console_wifi_step() -> FctStep:
     """W3-2: the M66 station-mode row - RSSI read on the DUT console."""
     return FctStep(
         name="Wi-Fi Scan / RSSI (DUT console)",
-        step_type="EXTERNAL_TOOL", channel="ser1", timeout_s=2.0,
+        category="Wifi", type="scan", channel="ser1", timeout_s=2.0,
         params={"tool_family": "wifi", "rssi_via": "dut_console",
                 "fct_rf": {"mode": "rssi_only", "interface": "mlan0",
                            "rssi_min": -70}})
@@ -646,7 +647,7 @@ def test_iperf_missing_server_ip_is_error(monkeypatch):
     # empty configured IP and undetectable host IP -> explicit ERROR
     monkeypatch.setattr(fe, "host_lan_ip", lambda ctx: "")
     step = fe.FctStep(
-        name="iperf", step_type="EXTERNAL_TOOL", channel="ser1",
+        name="iperf", category="Wifi", type="iperf", channel="ser1",
         timeout_s=15.0,
         params={"tool_family": "wifi",
                 "fct_wifi_iperf": {"tool": "iperf3", "server_ip": "",
@@ -680,7 +681,7 @@ class _PlainChannel:
 
 
 def _sftp_step(kind, local, remote):
-    return FctStep(name=f"sftp {kind}", step_type="MESSAGE_CHECK",
+    return FctStep(name=f"sftp {kind}", category="Console", type="serial",
                    channel="ser1",
                    params={"kind": kind, "action": kind, "local": local,
                            "remote": remote}, timeout_s=5)
@@ -770,7 +771,7 @@ def test_bind_sftp_channel_builds_ssh_channel_from_step_endpoint(monkeypatch):
             built.append((host, username, credential_ref))
     monkeypatch.setattr(fct_channels, "SshFctChannel", _FakeSsh)
 
-    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+    step = FctStep(name="Get fat", category="Console", type="serial", channel="ssh",
                    params={"kind": "sftp_get", "ssh_host": "192.168.1.20",
                            "ssh_username": "root"})
     ctx = FctContext()
@@ -779,7 +780,7 @@ def test_bind_sftp_channel_builds_ssh_channel_from_step_endpoint(monkeypatch):
     assert built == [("192.168.1.20", "root", "fct_ssh_192.168.1.20")]
 
     # no host -> not bound
-    step2 = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+    step2 = FctStep(name="Get fat", category="Console", type="serial", channel="ssh",
                     params={"kind": "sftp_get", "ssh_host": ""})
     ctx2 = FctContext()
     assert bind_sftp_channel(step2, ctx2) is False
@@ -802,7 +803,7 @@ def test_sftp_get_runs_over_an_ssh_kind_channel(tmp_path):
     chan = _SshKind()
     ctx = FctContext(channels={"ssh": chan}, station_id="S", user="u",
                      dut_report=str(tmp_path))
-    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+    step = FctStep(name="Get fat", category="Console", type="serial", channel="ssh",
                    timeout_s=5,
                    params={"kind": "sftp_get", "action": "sftp_get",
                            "local": "{{dut_report}}/fat.json",
@@ -827,7 +828,7 @@ def test_sftp_get_honours_the_row_timeout(tmp_path):
     chan = _SlowSsh()
     ctx = FctContext(channels={"ssh": chan}, station_id="S", user="u",
                      dut_report=str(tmp_path))
-    step = FctStep(name="Get fat", step_type="MESSAGE_CHECK", channel="ssh",
+    step = FctStep(name="Get fat", category="Console", type="serial", channel="ssh",
                    timeout_s=0.2,
                    params={"kind": "sftp_get", "action": "sftp_get",
                            "local": "{{dut_report}}/fat.json",
@@ -852,7 +853,7 @@ def test_one_interact_step_waits_then_sends_then_captures():
             ch.inject_output("LED1 OK")
 
     ctx.log_sink = _on_log
-    step = FctStep(name="Button 1 / LED", step_type="MESSAGE_CHECK",
+    step = FctStep(name="Button 1 / LED", category="Console", type="serial",
                    channel="ser1", timeout_s=2,
                    params={"fct_console": True, "kind": "send",
                            "wait_enabled": True,
@@ -875,7 +876,7 @@ def test_interact_step_does_not_send_when_the_wait_times_out():
     ctx, _ = make_virtual_context()
     ch = VirtualFctChannel()             # silence: prompt never arrives
     ctx.channels["ser1"] = ch
-    step = FctStep(name="Button 1 / LED", step_type="MESSAGE_CHECK",
+    step = FctStep(name="Button 1 / LED", category="Console", type="serial",
                    channel="ser1", timeout_s=0.3,
                    params={"fct_console": True, "kind": "send",
                            "wait_enabled": True,
@@ -899,7 +900,7 @@ def test_legacy_confirm_marker_never_pops_a_dialog():
         raise AssertionError("implicit dialog popped")
 
     ctx.human_confirm = _no_dialog
-    step = FctStep(name="legacy", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="legacy", category="Console", type="serial", channel="ser1",
                    timeout_s=2,
                    params={"fct_console": True, "kind": "send",
                            "confirm_enabled": True,
@@ -925,8 +926,8 @@ def test_explicit_dialog_step_pops_exactly_once():
         return True
 
     ctx.human_confirm = _answer
-    step = FctStep(name="Confirm: Earphone", step_type="GUI_CONFIRM",
-                   channel="ser1", timeout_s=0.0,
+    step = FctStep(name="Confirm: Earphone", category="Message",
+                   type="yesno_console", channel="ser1", timeout_s=0.0,
                    params={"style": "yesno", "console_dialog": True,
                            "message": "Did you hear it?",
                            "wait_pattern": "", "wait_timeout": 0.0,
@@ -962,8 +963,8 @@ class _PullChannel:
 
 def _pull_step(local: str) -> FctStep:
     return FctStep(
-        name="Transfer - pull probe output", step_type="EXTERNAL_TOOL",
-        channel="ser1",
+        name="Transfer - pull probe output", category="Transfer",
+        type="serial_pull", channel="ser1",
         params={"fct_serial_transfer": {
             "direction": "pull", "local": local,
             "remote": "/root/fct_assets/probe_out.txt"}})

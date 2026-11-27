@@ -26,8 +26,10 @@ class _Channel:
 
 
 def _step(direction: str, local: str, remote: str) -> FctStep:
-    return FctStep(name="transfer", step_type="action", params={
-        "fct_serial_transfer": {
+    return FctStep(
+        name="transfer", category="Transfer",
+        type=("serial_pull" if direction == "pull" else "serial_put"),
+        params={"fct_serial_transfer": {
             "direction": direction, "local": local, "remote": remote}})
 
 

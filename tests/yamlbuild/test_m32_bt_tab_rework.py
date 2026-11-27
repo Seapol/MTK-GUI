@@ -20,7 +20,6 @@ from mtkgui.engine import host_platform  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     BluetoothCfg,
     FctTestConfig,
-    STEP_MESSAGE_CHECK,
     build_fct_steps,
     pair_command_text,
 )
@@ -156,7 +155,7 @@ def test_bt_subtest_steps_pair_command(monkeypatch):
             pair_command="bluetoothctl pair <param:host_addr>"))
     steps = build_fct_steps(cfg, channel_key="ser1")
     pair = next(s for s in steps if "Pair" in s.name)
-    assert pair.step_type == STEP_MESSAGE_CHECK
+    assert (pair.category, pair.type) == ("Console", "serial")
     assert pair.channel == "ser1"
     assert pair.params["send"] == "bluetoothctl pair AA:BB:CC:DD:EE:FF"
 

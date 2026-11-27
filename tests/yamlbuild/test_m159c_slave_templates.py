@@ -19,9 +19,9 @@ from mtkgui.engine.fct_templates import (
     load_template_commands,
     template_path,
 )
+from mtkgui.engine.step_types import CATEGORY_CONSOLE
 from mtkgui.gui.yamlbuild.fct_build import (
     BOARD_ROLES,
-    STEP_MESSAGE_CHECK,
     FctSequence,
     FctStep,
 )
@@ -36,7 +36,7 @@ def _sequence_for(label):
         assert row.send, f"{label}: row {row.name!r} carries no command"
         steps.append(FctStep(
             name=row.name,
-            step_type=STEP_MESSAGE_CHECK,
+            category=CATEGORY_CONSOLE, type="serial",
             channel="ser1",
             command=row.send,
             expect_pass=([row.capture_expected]
@@ -71,8 +71,8 @@ def test_unknown_board_role_is_rejected():
 
 
 def test_main_role_keeps_todays_behaviour():
-    steps = [FctStep(name="Boot banner", step_type=STEP_MESSAGE_CHECK,
-                     channel="ser1")]
+    steps = [FctStep(name="Boot banner", category=CATEGORY_CONSOLE,
+                     type="serial", channel="ser1")]
     sequence = FctSequence(name="FCT Sequence", steps=steps)
     assert sequence.board_role == "main"
     assert sequence.validate() == []

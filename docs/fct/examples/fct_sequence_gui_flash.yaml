@@ -20,7 +20,8 @@ fct_sequence:
   - refused
   steps:
   - name: Flash FAT Firmware
-    step_type: FLASH
+    category: ExternalGui
+    type: flash
     channel: ''
     command: ''
     expect_pass: []
@@ -32,9 +33,23 @@ fct_sequence:
     resource: operator
     params:
       slot: fat
-      flash_mode: gui
-  - name: Wi-Fi Scan and Connect
-    step_type: EXTERNAL_TOOL
+  - name: Wi-Fi Scan
+    category: Wifi
+    type: scan
+    channel: ''
+    command: ''
+    expect_pass: []
+    expect_fail: []
+    timeout_s: 30.0
+    retries: 0
+    on_fail: abort
+    depends: []
+    resource: operator
+    params:
+      tool_family: wifi
+  - name: All Tests done.
+    category: Message
+    type: ok
     channel: ''
     command: ''
     expect_pass: []
@@ -43,26 +58,12 @@ fct_sequence:
     retries: 0
     on_fail: abort
     depends: []
-    resource: operator
-    params:
-      tool_family: wifi
-      tool: vendor_rf_tool.exe
-      note: operator launches the vendor RF GUI
-  - name: All Tests done.
-    step_type: MESSAGE_CHECK
-    channel: ''
-    command: ''
-    expect_pass:
-    - done
-    expect_fail: []
-    timeout_s: 0.0
-    retries: 0
-    on_fail: abort
-    depends: []
     resource: ''
-    params: {}
+    params:
+      message: All Tests done.
   - name: Flash OOBE Firmware
-    step_type: FLASH
+    category: ExternalGui
+    type: flash
     channel: ''
     command: ''
     expect_pass: []
@@ -74,9 +75,9 @@ fct_sequence:
     resource: operator
     params:
       slot: oobe
-      flash_mode: gui
   - name: Power Off DUT
-    step_type: GUI_CONFIRM
+    category: Operation
+    type: power_off
     channel: ''
     command: ''
     expect_pass: []
@@ -88,34 +89,9 @@ fct_sequence:
     resource: ''
     params:
       op: Power Off DUT
-  - name: Fixture Unlock
-    step_type: GUI_CONFIRM
-    channel: ''
-    command: ''
-    expect_pass: []
-    expect_fail: []
-    timeout_s: 0.0
-    retries: 0
-    on_fail: abort
-    depends: []
-    resource: ''
-    params:
-      op: Fixture Unlock
-  - name: Fixture Release
-    step_type: GUI_CONFIRM
-    channel: ''
-    command: ''
-    expect_pass: []
-    expect_fail: []
-    timeout_s: 0.0
-    retries: 0
-    on_fail: abort
-    depends: []
-    resource: ''
-    params:
-      op: Fixture Release
   - name: Reset Instruments
-    step_type: GUI_CONFIRM
+    category: Operation
+    type: reset_instruments
     channel: ''
     command: ''
     expect_pass: []

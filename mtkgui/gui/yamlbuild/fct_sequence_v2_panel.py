@@ -39,20 +39,23 @@ from mtkgui.gui.yamlbuild.command_snippet_helper import (
     PAGE_WINDOWS,
     with_snippets,
 )
+from mtkgui.engine.step_types import (
+    CATEGORY_EXTERNAL_GUI,
+    CATEGORY_ORDER,
+    STEP_CATEGORIES,
+)
 from mtkgui.gui.yamlbuild.fct_build import (
     DEFAULT_KEYWORD_FAIL,
     DEFAULT_KEYWORD_PASS,
-    FLASH_CLI,
-    FLASH_GUI,
-    FLASH_MODES,
     ON_FAIL_POLICIES,
-    STEP_EXTERNAL_TOOL,
-    STEP_FLASH,
-    STEP_MESSAGE_CHECK,
-    STEP_TYPES,
     FctSequence,
     FctStep,
 )
+
+#: all (category, type) pairs, in taxonomy order
+_TYPE_PAIRS = tuple((category, sub_type)
+                    for category in CATEGORY_ORDER
+                    for sub_type in STEP_CATEGORIES[category])
 
 #: step table columns, in order
 COLUMNS = ("#", "Name", "Type", "Channel", "Command", "Expect pass",
@@ -67,11 +70,12 @@ def _split_csv(text: str) -> list:
 
 
 def _type_label(step: FctStep) -> str:
-    """The ``Type`` cell: the step_type, plus the mode for a FLASH step."""
-    if step.step_type == STEP_FLASH:
-        mode = str((step.params or {}).get("flash_mode", "")).lower()
-        return f"{STEP_FLASH} ({mode})"
-    return step.step_type
+    """The ``Type`` cell: the step's sub-type (Category is separate)."""
+    return f"{step.category}.{step.type}"
+
+
+def _pair_label(category: str, sub_type: str) -> str:
+    return f"{category}.{sub_type}"
 
 
 class BuildFctSequencePanel(QWidget):
@@ -166,8 +170,10 @@ class BuildFctSequencePanel(QWidget):
     # ------------------------------------------------------------- UI
     def _build_add_menu(self) -> QMenu:
         menu = QMenu(self.btn_add)
-        for step_type in STEP_TYPES:
-            menu.addAction(step_type, lambda t=step_type: self._add_step(t))
+        for category, sub_type in _TYPE_PAIRS:
+            menu.addAction(
+                _pair_label(category, sub_type),
+                lambda c=category, t=sub_type: self._add_step(c, t))
         return menu
 
     def _build_editor(self, root) -> None:
@@ -176,7 +182,7 @@ class BuildFctSequencePanel(QWidget):
         self.edit_name = QLineEdit()
         self.edit_type = QComboBox()
         self.edit_type.setInsertPolicy(QComboBox.NoInsert)
-        self.edit_type.addItems(list(STEP_TYPES))
+        self.edit_type.addItems([_pair_label(c, t) for c, t in _TYPE_PAIRS])
         self.edit_channel = QLineEdit()
         self.edit_command = QLineEdit()
         self.edit_expect_pass = QLineEdit()
@@ -184,13 +190,10 @@ class BuildFctSequencePanel(QWidget):
         self.edit_on_fail = QComboBox()
         self.edit_on_fail.setInsertPolicy(QComboBox.NoInsert)
         self.edit_on_fail.addItems(list(ON_FAIL_POLICIES))
-        # FLASH-only fields
+        # ExternalGui.flash-only field
         self.edit_slot = QComboBox()
         self.edit_slot.setInsertPolicy(QComboBox.NoInsert)
         self.edit_slot.addItems(["fat", "oobe"])
-        self.edit_flash_mode = QComboBox()
-        self.edit_flash_mode.setInsertPolicy(QComboBox.NoInsert)
-        self.edit_flash_mode.addItems(list(FLASH_MODES))
 
         self._editor_form = form
         form.addRow("Name", self.edit_name)
@@ -202,18 +205,15 @@ class BuildFctSequencePanel(QWidget):
         form.addRow("Expect fail", self.edit_expect_fail)
         form.addRow("On fail", self.edit_on_fail)
         self._slot_row = form.addRow("Slot", self.edit_slot)
-        self._flash_mode_row = form.addRow("Flash mode", self.edit_flash_mode)
-        # hide the FLASH-only rows until a FLASH step is selected
+        # hide the flash-only row until an ExternalGui.flash step is
+        # selected
         form.setRowVisible(self._slot_row, False)
-        form.setRowVisible(self._flash_mode_row, False)
 
         for widget in (self.edit_name, self.edit_channel, self.edit_command,
                        self.edit_expect_pass, self.edit_expect_fail):
             widget.textChanged.connect(self._on_editor_edited)
         self.edit_type.currentTextChanged.connect(self._on_editor_edited)
         self.edit_slot.currentTextChanged.connect(self._on_editor_edited)
-        self.edit_flash_mode.currentTextChanged.connect(
-            self._on_editor_edited)
         self.edit_on_fail.currentTextChanged.connect(self._on_editor_edited)
         root.addWidget(group)
 
@@ -338,7 +338,7 @@ class BuildFctSequencePanel(QWidget):
             self.edit_expect_fail.clear()
             return
         self.edit_name.setText(step.name)
-        self.edit_type.setCurrentText(step.step_type)
+        self.edit_type.setCurrentText(_pair_label(step.category, step.type))
         self.edit_channel.setText(step.channel)
         self.edit_command.setText(step.command)
         self.edit_expect_pass.setText(", ".join(step.expect_pass))
@@ -346,20 +346,22 @@ class BuildFctSequencePanel(QWidget):
         self.edit_on_fail.setCurrentText(step.on_fail)
         self.edit_slot.setCurrentText(
             str((step.params or {}).get("slot", "fat")))
-        self.edit_flash_mode.setCurrentText(
-            str((step.params or {}).get("flash_mode", FLASH_GUI)))
         self._update_flash_visibility()
 
     def _update_flash_visibility(self) -> None:
-        """Show FLASH-only rows, and hide Command when gui mode."""
-        is_flash = self.edit_type.currentText() == STEP_FLASH
+        """Show the slot row for ExternalGui.flash only."""
+        category, sub_type = self._selected_pair()
+        is_flash = (category == CATEGORY_EXTERNAL_GUI
+                    and sub_type == "flash")
         self._editor_form.setRowVisible(self._slot_row, is_flash)
-        self._editor_form.setRowVisible(self._flash_mode_row, is_flash)
-        if is_flash:
-            gui = self.edit_flash_mode.currentText() == FLASH_GUI
-            self._editor_form.setRowVisible(self._command_row, not gui)
-        else:
-            self._editor_form.setRowVisible(self._command_row, True)
+
+    def _selected_pair(self) -> tuple:
+        """The (category, type) the Type combo currently shows."""
+        label = self.edit_type.currentText()
+        for category, sub_type in _TYPE_PAIRS:
+            if _pair_label(category, sub_type) == label:
+                return category, sub_type
+        return CATEGORY_ORDER[0], STEP_CATEGORIES[CATEGORY_ORDER[0]][0]
 
     # ------------------------------------------------------------ sync
     def _selected_step(self) -> FctStep | None:
@@ -385,15 +387,16 @@ class BuildFctSequencePanel(QWidget):
         if step is None:
             return
         step.name = self.edit_name.text().strip()
-        step.step_type = self.edit_type.currentText()
+        category, sub_type = self._selected_pair()
+        step.category = category
+        step.type = sub_type
         step.channel = self.edit_channel.text().strip()
         step.command = self.edit_command.text().strip()
         step.expect_pass = _split_csv(self.edit_expect_pass.text())
         step.expect_fail = _split_csv(self.edit_expect_fail.text())
         step.on_fail = self.edit_on_fail.currentText()
-        if step.step_type == STEP_FLASH:
+        if category == CATEGORY_EXTERNAL_GUI and sub_type == "flash":
             step.params["slot"] = self.edit_slot.currentText()
-            step.params["flash_mode"] = self.edit_flash_mode.currentText()
         self._update_flash_visibility()
         self.content_changed.emit()
         # re-render the single row so the Type cell stays in step
@@ -416,14 +419,14 @@ class BuildFctSequencePanel(QWidget):
         self.content_changed.emit()
 
     # --------------------------------------------------------- actions
-    def _add_step(self, step_type: str) -> None:
-        name = f"New {step_type}" if step_type != STEP_FLASH else \
-            "New FLASH"
+    def _add_step(self, category: str, sub_type: str) -> None:
+        name = f"New {sub_type}"
         params = {}
-        if step_type == STEP_FLASH:
-            params = {"slot": "fat", "flash_mode": FLASH_GUI}
+        if category == CATEGORY_EXTERNAL_GUI and sub_type == "flash":
+            params = {"slot": "fat"}
         self._sequence.steps.append(
-            FctStep(name=name, step_type=step_type, params=params))
+            FctStep(name=name, category=category, type=sub_type,
+                    params=params))
         self.content_changed.emit()
         self._render()
         self.table.setCurrentCell(len(self._sequence.steps) - 1, 0)

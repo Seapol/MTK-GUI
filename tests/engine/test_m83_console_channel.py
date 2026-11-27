@@ -135,7 +135,8 @@ class _Env:
 def test_m83_runner_reports_unbound_channel_without_fallback():
     env = _Env(_FakeMc(["ser1"]))
     runner = TestRunner(env)
-    marker = {"name": "Console step", "step_type": "MESSAGE_CHECK",
+    marker = {"name": "Console step", "category": "Console",
+              "type": "serial",
               "channel": "ser2", "timeout_s": 1.0,
               "params": {"fct_console": True, "kind": "send",
                          "send_enabled": True, "send": "uname -r"}}

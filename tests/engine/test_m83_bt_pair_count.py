@@ -9,12 +9,12 @@ from mtkgui.engine.yaml_validation import (
     SEVERITY_WARNING,
     validate_project_yaml,
 )
-from mtkgui.gui.yamlbuild.fct_build import STEP_EXTERNAL_TOOL, FctStep
+from mtkgui.gui.yamlbuild.fct_build import FctStep
 
 
 def _pair_step(count: int) -> FctStep:
     return FctStep(
-        name="BT pair", step_type=STEP_EXTERNAL_TOOL, channel="ser1",
+        name="BT pair", category="Bluetooth", type="pair", channel="ser1",
         timeout_s=20.0,
         params={"fct_console": True, "kind": "send",
                 "fct_bt_l2ping": {"count": count}})

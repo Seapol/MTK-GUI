@@ -14,10 +14,8 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from mtkgui.gui.yamlbuild.fct_build import (  # noqa: E402
-    STEP_MESSAGE_CHECK,
-    FctStep,
-)
+from mtkgui.engine.step_types import CATEGORY_CONSOLE  # noqa: E402
+from mtkgui.gui.yamlbuild.fct_build import FctStep  # noqa: E402
 from mtkgui.gui.yamlbuild.fct_capture import CaptureBuffer  # noqa: E402
 from mtkgui.widgets.console_widget import ConsoleWidget  # noqa: E402
 
@@ -101,7 +99,7 @@ def test_generate_step_appends_to_the_buffer_only(console):
     assert len(steps) == 1 and buffer.is_empty() is False
     step = steps[0]
     assert isinstance(step, FctStep)
-    assert step.step_type == STEP_MESSAGE_CHECK
+    assert (step.category, step.type) == (CATEGORY_CONSOLE, "serial")
     assert step.channel == "dut"
     assert step.command == "uname -a"
     assert step.expect_pass == ["login:"]

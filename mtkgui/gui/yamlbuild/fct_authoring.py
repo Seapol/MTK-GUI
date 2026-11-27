@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import re
 
+from mtkgui.engine.step_types import CATEGORY_CONSOLE, CATEGORY_MESSAGE
+
 from .fct_build import (
     DEFAULT_KEYWORD_FAIL,
     DEFAULT_KEYWORD_PASS,
-    STEP_GUI_CONFIRM,
-    STEP_MESSAGE_CHECK,
     FctStep,
 )
 from .fct_capture import (
@@ -58,7 +58,7 @@ def gui_confirm_step(message: str) -> FctStep:
     message = str(message or "").strip() or "Confirm the DUT prompt"
     return FctStep(
         name=f"Confirm: {message}",
-        step_type=STEP_GUI_CONFIRM,
+        category=CATEGORY_MESSAGE, type="yesno_console",
         channel="",
         timeout_s=0.0,
         params={"style": "yesno", "console_dialog": True,
@@ -92,7 +92,8 @@ def annotations_to_step(annotations, channel: str, timeout_s: float = 30.0,
                          else f"Console {channel} listen")
     return FctStep(
         name=step_name,
-        step_type=STEP_MESSAGE_CHECK,
+        category=CATEGORY_CONSOLE,
+        type=("ssh" if str(channel).startswith("ssh") else "serial"),
         channel=channel,
         command=command,
         expect_pass=pass_words,
@@ -181,10 +182,11 @@ def resolve_multiselect(words, mode: str = MULTISELECT_SEQUENTIAL) -> list:
         return []
     if mode == MULTISELECT_SAME_WAIT:
         return [FctStep(name=f"Expect: {', '.join(cleaned)}",
-                        step_type=STEP_MESSAGE_CHECK,
+                        category=CATEGORY_CONSOLE, type="serial",
                         expect_pass=list(cleaned))]
     return [FctStep(name=f"Expect: {word}",
-                    step_type=STEP_MESSAGE_CHECK, expect_pass=[word])
+                    category=CATEGORY_CONSOLE, type="serial",
+                    expect_pass=[word])
             for word in cleaned]
 
 

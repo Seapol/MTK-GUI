@@ -145,9 +145,9 @@ def test_build_steps_console_chain():
     assert wifi.name == "Wi-Fi Scan / RSSI (DUT console)"
     assert wifi.params["rssi_via"] == "dut_console"   # station mode
     assert bt.name == "Bluetooth RSSI"
-    assert bt.step_type == "EXTERNAL_TOOL"
+    assert (bt.category, bt.type) == ("Bluetooth", "rssi")
     assert all(s.channel == "ser1"
-               for s in steps if s.step_type == "MESSAGE_CHECK")
+               for s in steps if s.category == "Console")
 
 
 def test_build_steps_retries_carried():
@@ -387,7 +387,8 @@ def test_host_row_roundtrip_and_steps():
     steps = build_fct_steps(restored, channel_key="ser1")
     host = [s for s in steps if s.params.get("fct_host_cmd")]
     assert [s.name for s in host] == ["Start server", "Stop server"]
-    assert host[0].step_type == "EXTERNAL_TOOL" and host[0].channel == ""
+    assert (host[0].category, host[0].type) == ("Console", "cli")
+    assert host[0].channel == ""
     assert host[0].params["fct_host_cmd"]["cmd"] == "iperf3 -s -D"
     assert host[0].params["fct_host_cmd"]["cmd_windows"] == \
         "start /B iperf3 -s"
@@ -411,7 +412,7 @@ def test_fct_exec_host_cli_branch(monkeypatch):
     """fct_exec runs a host row on the HOST PC and judges by exit code
     (rc 0 = PASS, rc != 0 = FAIL); the macOS command is the default."""
     from mtkgui.engine import fct_exec
-    from mtkgui.gui.yamlbuild.fct_build import FctStep, STEP_EXTERNAL_TOOL
+    from mtkgui.gui.yamlbuild.fct_build import FctStep
 
     seen = {}
 
@@ -431,8 +432,8 @@ def test_fct_exec_host_cli_branch(monkeypatch):
                         lambda ctx: FakeRunner(0, ["server started"]))
     logs = []
     ctx = fct_exec.FctContext(log_sink=logs.append)
-    step = FctStep(name="Start iperf3 server",
-                   step_type=STEP_EXTERNAL_TOOL, timeout_s=15.0,
+    step = FctStep(name="Start iperf3 server", category="Console",
+                   type="cli", timeout_s=15.0,
                    params={"fct_host_cmd": {
                        "cmd": "iperf3 -s -D",
                        "cmd_windows": "start /B iperf3 -s"}})
@@ -1148,20 +1149,20 @@ def test_runtime_sequence_equals_configured_rows():
     a mixed sequence (console, sftp, Wi-Fi, Bluetooth, Delay, op, and
     operator messages)."""
     from mtkgui.engine.sequence import load_sequence
+    def _marker(name, category, sub_type):
+        return {"name": name,
+                "op_params": {"fct_step": {"name": name,
+                                           "category": category,
+                                           "type": sub_type}}}
+
     rows = [
-        {"name": "Kernel check", "kind": "CapturefromConsole",
-         "op_params": {"fct_step": {"name": "Kernel check"}}},
-        {"name": "Push scripts", "kind": "CapturefromConsole",
-         "op_params": {"fct_step": {"name": "Push scripts"}}},
-        {"name": "Wi-Fi Scan / RSSI", "kind": "EXTERNAL_TOOL",
-         "op_params": {"fct_step": {"name": "Wi-Fi Scan / RSSI",
-                                    "params": {"tool_family": "wifi"}}}},
-        {"name": "Bluetooth RSSI", "kind": "EXTERNAL_TOOL",
-         "op_params": {"fct_step": {"name": "Bluetooth RSSI",
-                                    "params": {"tool_family": "bluetooth"}}}},
-        {"name": "Delay — plain wait (ms)", "kind": "Delay"},
-        {"name": "Power On DUT", "kind": "op"},
-        {"name": "Swap DUT fixture", "kind": "MessageYesNo"},
+        _marker("Kernel check", "Console", "serial"),
+        _marker("Push scripts", "Transfer", "sftp_put"),
+        _marker("Wi-Fi Scan / RSSI", "Wifi", "scan"),
+        _marker("Bluetooth RSSI", "Bluetooth", "rssi"),
+        _marker("Delay — plain wait (ms)", "Operation", "delay"),
+        _marker("Power On DUT", "Operation", "power_on"),
+        _marker("Swap DUT fixture", "Message", "yesno"),
     ]
     config = {"test_workflow": {
         "overall_flow": [{"stage": "FCT", "enable": True}],
@@ -1170,7 +1171,9 @@ def test_runtime_sequence_equals_configured_rows():
     assert len(stages) == 1
     names = [s.name for s in stages[0].steps]
     assert names == [r["name"] for r in rows]
-    assert [s.kind for s in stages[0].steps] == [r["kind"] for r in rows]
+    assert [s.kind for s in stages[0].steps] == [
+        "Console_serial", "SSH SFTP: Push file to DUT", "Wifi_Scan",
+        "BT_RSSI", "op", "op", "MessageYesNo"]
 
 
 def test_ict_runtime_sequence_equals_configured_rows():
@@ -1342,10 +1345,10 @@ def test_build_steps_message_row_is_console_dialog_gui_confirm():
              dialog_style=DIALOG_YESNO, timeout=30.0),
     ]
     steps = build_fct_steps(cfg)
-    assert steps[0].step_type == "MESSAGE_CHECK"     # console neighbour
+    assert steps[0].category == "Console"            # console neighbour
     msg = steps[1]
     assert msg.name == "Swap DUT fixture"
-    assert msg.step_type == "GUI_CONFIRM"
+    assert (msg.category, msg.type) == ("Message", "yesno")
     assert msg.channel == "ser1"                     # waits the console
     assert msg.params["console_dialog"] is True
     assert msg.params["style"] == DIALOG_YESNO

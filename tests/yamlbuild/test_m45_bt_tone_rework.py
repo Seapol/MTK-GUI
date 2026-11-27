@@ -27,7 +27,6 @@ import yaml  # noqa: E402
 from mtkgui.engine.fct_test_config import (  # noqa: E402
     BluetoothCfg,
     FctTestConfig,
-    STEP_EXTERNAL_TOOL,
     STEP_TYPE_BT_TONE,
     build_fct_steps,
     console_command_for_label,
@@ -118,7 +117,7 @@ def test_tone_step_publishes_wav_and_range_without_timeout():
              if "Tone" in s.name]
     assert len(steps) == 1
     step = steps[0]
-    assert step.step_type == STEP_EXTERNAL_TOOL
+    assert (step.category, step.type) == ("Bluetooth", "tone")
     assert step.timeout_s == 0.0
     rf = step.params["fct_rf"]
     assert rf["mode"] == "a2dp_sink"

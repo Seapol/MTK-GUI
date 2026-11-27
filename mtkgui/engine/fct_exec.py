@@ -22,15 +22,51 @@ from dataclasses import dataclass, field
 from .fct_channels import SubprocessFctChannel, VirtualFctChannel
 from .fct_channels import ChannelClosed
 from ..startup_timing import begin as _span_begin, end as _span_end
-from ..gui.yamlbuild.fct_build import (
-    STEP_CLI_RUN,
-    STEP_EXTERNAL_TOOL,
-    STEP_FLASH,
-    STEP_GUI_CONFIRM,
-    STEP_MESSAGE_CHECK,
-    STEP_OPERATION,
-    FctStep,
+from ..gui.yamlbuild.fct_build import FctStep
+from .step_types import (
+    CATEGORY_CONSOLE,
+    CATEGORY_EXTERNAL_GUI,
+    CATEGORY_MESSAGE,
+    CATEGORY_OPERATION,
+    CATEGORY_TRANSFER,
+    CATEGORY_WIFI,
+    CATEGORY_BLUETOOTH,
 )
+
+#: internal executor routes (M160): derived from category + type, so the
+#: concrete execution logic below stays exactly as it was.
+_ROUTE_MESSAGE_CHECK = "message_check"
+_ROUTE_GUI_CONFIRM = "gui_confirm"
+_ROUTE_FLASH = "flash"
+_ROUTE_EXTERNAL_TOOL = "external_tool"
+_ROUTE_OPERATION = "operation"
+_ROUTE_CLI_RUN = "cli_run"
+
+
+def _route(step) -> str:
+    """The legacy execution route of one step (category + type)."""
+    category = str(getattr(step, "category", "") or "")
+    sub_type = str(getattr(step, "type", "") or "")
+    if category == CATEGORY_OPERATION:
+        return _ROUTE_OPERATION
+    if category == CATEGORY_EXTERNAL_GUI:
+        return _ROUTE_FLASH if sub_type == "flash" else _ROUTE_GUI_CONFIRM
+    if category == CATEGORY_MESSAGE:
+        return _ROUTE_GUI_CONFIRM
+    if category == CATEGORY_CONSOLE:
+        if sub_type == "cli":
+            # a CLI burn with a console channel runs over that console
+            # (the historic CLI_RUN path); without one it is the host
+            # CLI burn tool (uuu.exe ...)
+            return _ROUTE_CLI_RUN if getattr(step, "channel", "") \
+                else _ROUTE_EXTERNAL_TOOL
+        return _ROUTE_MESSAGE_CHECK
+    if category == CATEGORY_TRANSFER:
+        return (_ROUTE_MESSAGE_CHECK if sub_type in ("sftp_put", "sftp_get")
+                else _ROUTE_EXTERNAL_TOOL)
+    if category in (CATEGORY_WIFI, CATEGORY_BLUETOOTH):
+        return _ROUTE_EXTERNAL_TOOL
+    return _ROUTE_MESSAGE_CHECK
 
 VERDICT_PASS = "PASS"
 VERDICT_FAIL = "FAIL"
@@ -220,7 +256,7 @@ class FctContext:
     def channel_for(self, step: FctStep):
         """The bound channel or None (dialog-only steps)."""
         if step.resource.startswith("host") or (
-                step.step_type == STEP_CLI_RUN and not step.channel
+                _route(step) == _ROUTE_CLI_RUN and not step.channel
                 and step.params.get("host_cli")):
             key = "__host__"
         else:
@@ -477,10 +513,10 @@ def _console_wait(channel, step: FctStep, ctx: FctContext,
                    or step.timeout_s or 30.0)
     # M78-3: operator dialogs are human waits - no stall watchdog there
     dialog = bool(p.get("console_dialog")
-                  or step.step_type == STEP_GUI_CONFIRM)
+                  or _route(step) == _ROUTE_GUI_CONFIRM)
     wait_step = FctStep(
         name=f"{step.name} ({name_suffix or 'wait'})",
-        step_type=STEP_MESSAGE_CHECK,
+        category=CATEGORY_CONSOLE, type="serial",
         channel=step.channel,
         timeout_s=window,
         params={"fct_console": True, "kind": "wait",
@@ -994,7 +1030,7 @@ def _open_channel(step: FctStep, ctx: FctContext):
     """Bind the step channel; a host CLI step gets a fresh subprocess
     adapter (registered as __host__)."""
     ch = ctx.channel_for(step)
-    if ch is None and step.step_type == STEP_CLI_RUN \
+    if ch is None and _route(step) == _ROUTE_CLI_RUN \
             and step.params.get("host_cli"):
         ch = SubprocessFctChannel(timeout_s=step.timeout_s or 30.0,
                                   cwd=str(step.params.get("cwd", "")))
@@ -1007,9 +1043,9 @@ def _step_span_flags(step: FctStep) -> dict:
     params = step.params or {}
     if "fct_delay_ms" in params:
         return {"no_slow": True}
-    human = (step.step_type == STEP_GUI_CONFIRM and not params.get("op")) \
+    human = (_route(step) == _ROUTE_GUI_CONFIRM and not params.get("op")) \
         or bool(params.get("console_dialog")) \
-        or (step.step_type == STEP_MESSAGE_CHECK and not step.channel)
+        or (_route(step) == _ROUTE_MESSAGE_CHECK and not step.channel)
     return {"wait": True} if human else {}
 
 
@@ -1057,11 +1093,12 @@ def execute_fct_step(step: FctStep, ctx: FctContext) -> FctOutcome:
     if budget_s > 0 and _declared_sub > 0 and budget_s <= _declared_sub + 1.0:
         ctx.log(f"{step.name}: WARNING budget {budget_s:g}s <= declared "
                 f"sub-timeout {_declared_sub:g}s - raise the row timeout")
-    _label = f"testflow: fct step {step.step_type} {step.name}"
+    _label = (f"testflow: fct step {step.category}.{step.type} "
+              f"{step.name}")
     _span_begin(_label, category="testflow", **_step_span_flags(step))
     started = time.monotonic()
     try:
-        ctx.log(f"{step.name}: start ({step.step_type})")
+        ctx.log(f"{step.name}: start ({step.category}.{step.type})")
         attempts = int(step.retries) + 1
         outcome = FctOutcome(VERDICT_FAIL, "not executed")
         for attempt in range(1, attempts + 1):
@@ -1110,8 +1147,12 @@ def _flash_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         ctx.log(f"firmware slot '{slot}' is disabled")
         return FctOutcome(VERDICT_FAIL,
                           f"firmware slot '{slot}' is disabled")
-    method = str(fw.get("method")
-                 or step.params.get("flash_mode") or "cli")
+    # M160: ExternalGui.flash is the third-party GUI path; a legacy
+    # FLASH-shaped step without a category keeps the historic CLI
+    # fallback.
+    default_method = ("gui" if step.category == CATEGORY_EXTERNAL_GUI
+                      else (step.params.get("flash_mode") or "cli"))
+    method = str(fw.get("method") or default_method)
     if method == "gui":
         return _flash_gui_once(step, ctx, fw)
     return _flash_cli_once(step, ctx, fw, slot)
@@ -1163,10 +1204,10 @@ def _flash_gui_once(step: FctStep, ctx: FctContext,
 
 
 def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
-    """One attempt, dispatched by step_type (B4 §2 flows)."""
+    """One attempt, dispatched by the category/type route (B4 §2)."""
     pass_kw, fail_kw = ctx.effective_keywords(step)
 
-    if step.step_type == STEP_OPERATION:
+    if _route(step) == _ROUTE_OPERATION:
         # standard operation row (Power On/Off, Reset Instruments,
         # fixture clamp/lock) - drive the instrument gateway, never an
         # operator dialog.
@@ -1187,10 +1228,10 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             return FctOutcome(VERDICT_FAIL, f"{op_name}: {verdict}")
         return FctOutcome(VERDICT_ERROR, f"{op_name}: {verdict}")
 
-    if step.step_type == STEP_FLASH:
+    if _route(step) == _ROUTE_FLASH:
         return _flash_once(step, ctx)
 
-    if step.step_type == STEP_GUI_CONFIRM:
+    if _route(step) == _ROUTE_GUI_CONFIRM:
         if step.params.get("console_dialog"):
             # Console-domain operator dialog (user direction 2026-10-18):
             # WAIT the expected console message first, THEN ask
@@ -1223,7 +1264,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             VERDICT_PASS if go else VERDICT_FAIL,
             "human GO" if go else "human STOP")
 
-    if step.step_type == STEP_MESSAGE_CHECK:
+    if _route(step) == _ROUTE_MESSAGE_CHECK:
         channel = ctx.channel_for(step)
         # M78-4: the run-start clear pins every channel read offset to
         # 0, so console expectations can only see bytes produced during
@@ -1316,7 +1357,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         return _capture_loop(channel, pass_kw, fail_kw,
                              step.timeout_s or 30.0, ctx, [])
 
-    if step.step_type == STEP_CLI_RUN:
+    if _route(step) == _ROUTE_CLI_RUN:
         channel = _open_channel(step, ctx)
         if channel is None:
             return FctOutcome(VERDICT_ERROR, f"channel '{step.channel}' "
@@ -1336,7 +1377,7 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             outcome.reason = f"exit code {exit_code}"
         return outcome
 
-    if step.step_type == STEP_EXTERNAL_TOOL:
+    if _route(step) == _ROUTE_EXTERNAL_TOOL:
         # Delay row (M42/M35): a plain fixed wait that ALWAYS waits the
         # full requested time - the Timeout column is not a budget for a
         # Delay (signed-off historic rule); M78 leaves it untouched.
@@ -1390,6 +1431,24 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
             if tail:
                 detail += f" | {tail}"
             ctx.log(f"host cli: {detail}")
+            return FctOutcome(verdict, detail)
+        if step.category == CATEGORY_CONSOLE and step.type == "cli":
+            # M160: Console.cli is the CLI burn path (e.g. uuu.exe) -
+            # it runs ON THE HOST PC, exactly like a host CLI row.
+            cmd = str(step.command or "").strip()
+            if not cmd:
+                return FctOutcome(VERDICT_ERROR,
+                                  "Console.cli row: no command configured")
+            res = runner_for(ctx).run(
+                cmd, timeout_s=float(step.timeout_s or 30.0),
+                cwd=str(step.params.get("cwd") or ""))
+            verdict = VERDICT_PASS if res.exit_code == 0 else VERDICT_FAIL
+            tail = " | ".join(l.strip() for l in res.lines[-3:]
+                              if l.strip())
+            detail = f"{cmd} -> exit code {res.exit_code}"
+            if tail:
+                detail += f" | {tail}"
+            ctx.log(f"cli: {detail}")
             return FctOutcome(verdict, detail)
         if step.params.get("fct_wifi_ping") and channel is not None:
             from .fct_test_runner import ConsoleSerialShim, dut_wifi_ping
@@ -1465,8 +1524,9 @@ def _execute_once(step: FctStep, ctx: FctContext) -> FctOutcome:
         return FctOutcome(VERDICT_FAIL, "no capture keywords and no "
                           "confirm configured")
 
-    return FctOutcome(VERDICT_ERROR, f"unknown step_type "
-                      f"{step.step_type!r}")
+    return FctOutcome(VERDICT_ERROR,
+                      f"unknown category/type {step.category!r}/"
+                      f"{step.type!r}")
 
 
 def _resolve_deploy_local(ctx: FctContext, local: str) -> str:

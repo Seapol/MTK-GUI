@@ -737,7 +737,7 @@ class TestFctMessageRows:
     def _marker(style, message="Did the DUT pass?"):
         from mtkgui.gui.yamlbuild.fct_build import FctStep
         return {"fct_step": FctStep(
-            name="Operator check", step_type="GUI_CONFIRM",
+            name="Operator check", category="Message", type=style,
             timeout_s=12.0,
             params={"style": style, "message": message}).to_dict()}
 
@@ -777,7 +777,8 @@ class TestFctMessageRows:
     def test_plain_confirm_step_keeps_legacy_prompt(self, env):
         # no style/message params -> the pre-P3-B7 behaviour
         marker = {"fct_step": {
-            "name": "Flash FAT Firmware", "step_type": "GUI_CONFIRM",
+            "name": "Flash FAT Firmware", "category": "Message",
+            "type": "gostop",
             "channel": "", "command": "", "expect_pass": [],
             "expect_fail": [], "timeout_s": 5.0, "retries": 0,
             "on_fail": "", "depends": [], "resource": "", "params": {}}}

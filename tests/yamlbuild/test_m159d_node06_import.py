@@ -9,10 +9,10 @@ pytest.importorskip("PySide6")
 from mtkgui.gui.yamlbuild.fct_authoring import (  # noqa: E402
     annotations_to_step,
 )
+from mtkgui.engine.step_types import CATEGORY_CONSOLE  # noqa: E402
 from mtkgui.gui.yamlbuild.fct_build import (  # noqa: E402
     FctSequence,
     FctStep,
-    STEP_MESSAGE_CHECK,
 )
 from mtkgui.gui.yamlbuild.fct_capture import (  # noqa: E402
     ANNOTATION_EXPECT_PASS,
@@ -60,7 +60,7 @@ def test_import_appends_buffered_steps_and_clears_the_buffer(panel):
 
 def test_import_with_empty_buffer_is_a_noop(panel):
     panel.set_sequence(FctSequence(name="FCT Sequence", steps=[
-        FctStep(name="Existing", step_type=STEP_MESSAGE_CHECK,
+        FctStep(name="Existing", category=CATEGORY_CONSOLE, type="serial",
                 channel="dut")]))
     buffer = CaptureBuffer()
     panel.set_capture_buffer(buffer)

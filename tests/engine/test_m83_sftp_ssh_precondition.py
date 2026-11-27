@@ -16,7 +16,7 @@ from mtkgui.engine.yaml_validation import (
     SFTP_NEEDS_SSH_MESSAGE,
     validate_project_yaml,
 )
-from mtkgui.gui.yamlbuild.fct_build import STEP_MESSAGE_CHECK, FctStep
+from mtkgui.gui.yamlbuild.fct_build import FctStep
 
 SFTP_ROW = {"name": "SFTP - push assets",
             "kind": "SSH SFTP: Push file to DUT"}
@@ -86,7 +86,8 @@ def test_m83_sftp_capture_fields_not_persisted(qapp, monkeypatch):
 
 def test_m83_sftp_runtime_message_names_the_ssh_requirement():
     step = FctStep(
-        name="SFTP - push", step_type=STEP_MESSAGE_CHECK, channel="ssh1",
+        name="SFTP - push", category="Transfer", type="sftp_put",
+        channel="ssh1",
         timeout_s=5.0,
         params={"fct_console": True, "kind": "sftp_put",
                 "action": "sftp_put", "local": "a", "remote": "/root/a"})

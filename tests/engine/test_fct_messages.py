@@ -511,7 +511,8 @@ def test_console_row_step_carries_console_dialog_marker():
     steps = _console_row_steps(cmd, "ser1")
     assert len(steps) == 1
     s = steps[0]
-    assert s.step_type == "GUI_CONFIRM" and s.channel == "ser1"
+    assert (s.category, s.type) == ("Message", "gostop_console")
+    assert s.channel == "ser1"
     assert s.params["console_dialog"] is True
     assert s.params["wait_pattern"] == "booting"
     assert s.params["wait_timeout"] == 15.0
@@ -546,7 +547,7 @@ def test_console_dialog_empty_pattern_skips_wait():
     from mtkgui.engine.fct_exec import (
         VERDICT_FAIL, VERDICT_PASS, FctStep, execute_fct_step,
         make_virtual_context)
-    step = FctStep(name="msg", step_type="GUI_CONFIRM",
+    step = FctStep(name="msg", category="Message", type="ok_console",
                    params={"console_dialog": True, "wait_pattern": "",
                            "style": "ok"})
     ctx, _ = make_virtual_context(human_answers=[True])
@@ -560,10 +561,11 @@ def test_console_dialog_waits_console_message_then_asks():
         VERDICT_PASS, FctStep, execute_fct_step, make_virtual_context)
     ctx, _ = make_virtual_context({"ser1": ["DUT ready"]},
                                   human_answers=[True])
-    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
-                   timeout_s=2, params={"console_dialog": True,
-                                        "wait_pattern": "DUT ready",
-                                        "wait_timeout": 2, "style": "yesno"})
+    step = FctStep(name="msg", category="Message", type="yesno_console",
+                   channel="ser1", timeout_s=2,
+                   params={"console_dialog": True,
+                           "wait_pattern": "DUT ready",
+                           "wait_timeout": 2, "style": "yesno"})
     assert execute_fct_step(step, ctx).verdict == VERDICT_PASS
 
 
@@ -571,10 +573,11 @@ def test_console_dialog_pattern_timeout_fails():
     from mtkgui.engine.fct_exec import (
         VERDICT_FAIL, FctStep, execute_fct_step, make_virtual_context)
     ctx, _ = make_virtual_context({"ser1": ["noise"]}, human_answers=[True])
-    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
-                   timeout_s=0.2, params={"console_dialog": True,
-                                          "wait_pattern": "never",
-                                          "wait_timeout": 0.2})
+    step = FctStep(name="msg", category="Message", type="gostop_console",
+                   channel="ser1", timeout_s=0.2,
+                   params={"console_dialog": True,
+                           "wait_pattern": "never",
+                           "wait_timeout": 0.2})
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_FAIL and "wait for 'never'" in out.reason
 
@@ -582,7 +585,8 @@ def test_console_dialog_pattern_timeout_fails():
 def test_console_dialog_pattern_without_channel_errors():
     from mtkgui.engine.fct_exec import (
         VERDICT_ERROR, FctContext, FctStep, execute_fct_step)
-    step = FctStep(name="msg", step_type="GUI_CONFIRM", channel="ser1",
+    step = FctStep(name="msg", category="Message", type="gostop_console",
+                   channel="ser1",
                    params={"console_dialog": True, "wait_pattern": "x"})
     assert execute_fct_step(step, FctContext()).verdict == VERDICT_ERROR
 

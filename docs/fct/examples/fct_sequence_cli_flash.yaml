@@ -20,7 +20,8 @@ fct_sequence:
   - refused
   steps:
   - name: Flash FAT Firmware
-    step_type: FLASH
+    category: Console
+    type: cli
     channel: ser1
     command: blhost -p COM5 flash-image fat.bin
     expect_pass:
@@ -41,9 +42,9 @@ fct_sequence:
     resource: operator
     params:
       slot: fat
-      flash_mode: cli
   - name: Wi-Fi throughput iperf3
-    step_type: CLI_RUN
+    category: Console
+    type: serial
     channel: ser1
     command: iperf3 -c 192.168.1.1 -t 5
     expect_pass:
@@ -56,22 +57,30 @@ fct_sequence:
     on_fail: abort
     depends: []
     resource: console:ser1
-    params: {}
+    params:
+      fct_console: true
+      send: iperf3 -c 192.168.1.1 -t 5
+      send_enabled: true
+      capture_enabled: true
+      expect_pass_re: Mbits/sec
+      capture_is_expected: true
   - name: All Tests done.
-    step_type: MESSAGE_CHECK
+    category: Message
+    type: ok
     channel: ''
     command: ''
-    expect_pass:
-    - done
+    expect_pass: []
     expect_fail: []
     timeout_s: 0.0
     retries: 0
     on_fail: abort
     depends: []
     resource: ''
-    params: {}
+    params:
+      message: All Tests done.
   - name: Flash OOBE Firmware
-    step_type: FLASH
+    category: Console
+    type: cli
     channel: ser1
     command: blhost -p COM5 flash-image fat.bin
     expect_pass:
@@ -92,9 +101,9 @@ fct_sequence:
     resource: operator
     params:
       slot: oobe
-      flash_mode: cli
   - name: Power Off DUT
-    step_type: GUI_CONFIRM
+    category: Operation
+    type: power_off
     channel: ''
     command: ''
     expect_pass: []
@@ -106,34 +115,9 @@ fct_sequence:
     resource: ''
     params:
       op: Power Off DUT
-  - name: Fixture Unlock
-    step_type: GUI_CONFIRM
-    channel: ''
-    command: ''
-    expect_pass: []
-    expect_fail: []
-    timeout_s: 0.0
-    retries: 0
-    on_fail: abort
-    depends: []
-    resource: ''
-    params:
-      op: Fixture Unlock
-  - name: Fixture Release
-    step_type: GUI_CONFIRM
-    channel: ''
-    command: ''
-    expect_pass: []
-    expect_fail: []
-    timeout_s: 0.0
-    retries: 0
-    on_fail: abort
-    depends: []
-    resource: ''
-    params:
-      op: Fixture Release
   - name: Reset Instruments
-    step_type: GUI_CONFIRM
+    category: Operation
+    type: reset_instruments
     channel: ''
     command: ''
     expect_pass: []

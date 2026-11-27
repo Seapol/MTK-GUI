@@ -71,11 +71,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..gui.yamlbuild.fct_build import (
-    STEP_EXTERNAL_TOOL,
-    STEP_GUI_CONFIRM,
-    STEP_MESSAGE_CHECK,
-    FctStep,
+from ..gui.yamlbuild.fct_build import FctStep
+from .step_types import (
+    CATEGORY_BLUETOOTH,
+    CATEGORY_CONSOLE,
+    CATEGORY_EXTERNAL_GUI,
+    CATEGORY_MESSAGE,
+    CATEGORY_OPERATION,
+    CATEGORY_TRANSFER,
+    CATEGORY_WIFI,
 )
 
 #: Tera Term baudrate table (M41).  The Console Baudrate combo is
@@ -642,8 +646,6 @@ def cases_to_console_commands(cases: list) -> list:
                 "host_cmd_windows": str(host.get("cmd_windows", "")),
                 "cwd": str(host.get("cwd", "") or "")})
             continue
-        if str(marker.get("step_type", "")) != "MESSAGE_CHECK":
-            continue                    # ops / other non-console rows
         if params.get("action") in (KIND_SFTP_PUT, KIND_SFTP_GET):
             flush_wait()
             commands.append({
@@ -656,6 +658,12 @@ def cases_to_console_commands(cases: list) -> list:
                 "send_timeout": float(marker.get("timeout_s", 20.0) or 20.0),
                 "local": str(params.get("local", "")),
                 "remote": str(params.get("remote", ""))})
+            continue
+        # M160: console Wait / Send / Capture rows are Console.serial /
+        # Console.ssh; every other category is not a console command.
+        if str(marker.get("category") or "") != CATEGORY_CONSOLE:
+            continue
+        if str(marker.get("type") or "") not in ("serial", "ssh"):
             continue
         # console Wait / Send / Capture row
         name = str(marker.get("name", ""))
@@ -1886,7 +1894,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind == KIND_HOST:
         steps.append(FctStep(
             name=cmd.name or "Host CLI",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_CONSOLE, type="cli", channel="",
             timeout_s=float(cmd.timeout or 30.0),
             retries=int(cmd.retries),
             params={"fct_host_cmd": {
@@ -1909,7 +1917,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
             remote = str(cmd.remote or pull_remote_dir or "")
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
-            step_type=STEP_MESSAGE_CHECK, channel=cmd.channel,
+            category=CATEGORY_TRANSFER, type=cmd.kind, channel=cmd.channel,
             timeout_s=float(cmd.send_timeout),
             retries=int(cmd.retries),
             params={"fct_console": True, "kind": cmd.kind,
@@ -1924,7 +1932,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind == KIND_FLASH_GUI:
         steps.append(FctStep(
             name=cmd.name or "Flash_GUI",
-            step_type=STEP_GUI_CONFIRM, channel="",
+            category=CATEGORY_EXTERNAL_GUI, type="flash", channel="",
             timeout_s=float(cmd.timeout or 30.0),
             retries=0,
             params={"style": DIALOG_GOSTOP,
@@ -1937,7 +1945,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind == KIND_DELAY:
         steps.append(FctStep(
             name=cmd.name or "Delay",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_OPERATION, type="delay", channel="",
             timeout_s=float(cmd.timeout or 0.0),
             retries=int(cmd.retries),
             params={"fct_delay_ms": max(0, int(cmd.wait_ms))}))
@@ -1948,7 +1956,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind in (KIND_SERIAL_PUT, KIND_SERIAL_PULL):
         steps.append(FctStep(
             name=cmd.name or cmd.kind,
-            step_type=STEP_EXTERNAL_TOOL, channel=cmd.channel,
+            category=CATEGORY_TRANSFER,
+            type=("serial_put" if cmd.kind == KIND_SERIAL_PUT
+                  else "serial_pull"),
+            channel=cmd.channel,
             timeout_s=float(cmd.timeout or 600.0),
             retries=int(cmd.retries),
             params={"fct_serial_transfer": {
@@ -1968,9 +1979,13 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if cmd.kind == KIND_MESSAGE:
         message_kind = message_kind_for(cmd.dialog_style,
                                         bool(cmd.wait_enabled))
+        style = str(cmd.dialog_style or DIALOG_YESNO)
         steps.append(FctStep(
             name=cmd.name or "Operator message",
-            step_type=STEP_GUI_CONFIRM, channel=cmd.channel,
+            category=CATEGORY_MESSAGE,
+            # these rows are Console-domain dialogs (console_dialog=True)
+            type=style + "_console",
+            channel=cmd.channel,
             timeout_s=float(cmd.wait_timeout or 10.0),
             retries=int(cmd.retries),
             params={"style": cmd.dialog_style or DIALOG_YESNO,
@@ -2054,7 +2069,10 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
                         else (float(cmd.timeout) or 30.0))
     steps.append(FctStep(
         name=base_name,
-        step_type=STEP_MESSAGE_CHECK, channel=cmd.channel,
+        category=CATEGORY_CONSOLE,
+        type=("ssh" if str(getattr(cmd, "transport", "serial")) == "ssh"
+              else "serial"),
+        channel=cmd.channel,
         timeout_s=step_timeout, retries=int(cmd.retries),
         params=params))
     # An operator confirmation is an EXPLICIT dialog step placed right
@@ -2062,7 +2080,7 @@ def _console_row_steps(cmd: ConsoleCommand, channel_key: str,
     if confirm:
         steps.append(FctStep(
             name=f"Confirm: {base_name}",
-            step_type=STEP_GUI_CONFIRM, channel="",
+            category=CATEGORY_MESSAGE, type="yesno_console", channel="",
             timeout_s=0.0,
             params={"style": DIALOG_YESNO, "console_dialog": True,
                     "message": str(cmd.confirm_message or base_name),
@@ -2086,8 +2104,8 @@ def _serial_deploy_step(c: "ConsoleCfg", channel_key: str) -> "FctStep":
         files.append(entry)
     return FctStep(
         name="Deploy test assets to DUT",
-        step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-        timeout_s=300.0,
+        category=CATEGORY_TRANSFER, type="serial_put",
+        channel=channel_key, timeout_s=300.0,
         params={"fct_serial_push": {"files": files}})
 
 
@@ -2095,7 +2113,7 @@ def _rf_driver_step(cfg: FctTestConfig, channel_key: str) -> "FctStep":
     """The one-time Wi-Fi/BT driver load (Linux only, editable command)."""
     return FctStep(
         name="Load RF drivers",
-        step_type=STEP_MESSAGE_CHECK, channel=channel_key,
+        category=CATEGORY_CONSOLE, type="serial", channel=channel_key,
         timeout_s=15.0,
         params={"fct_console": True,
                 "send": cfg.wifi.driver_load_cmd.strip()})
@@ -2131,13 +2149,13 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
         if cfg.dut_type == "linux" and w.scan_via == "dut_console":
             return [FctStep(
                 name="Wi-Fi Scan / RSSI (DUT console)",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+                category=CATEGORY_WIFI, type="scan", channel=channel_key,
                 timeout_s=float(w.scan_timeout),
                 params={"tool_family": "wifi",
                         "rssi_via": "dut_console", "fct_rf": rf})]
         return [FctStep(
             name="Wi-Fi Scan / RSSI",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_WIFI, type="scan", channel="",
             timeout_s=float(w.scan_timeout),
             params={"tool_family": "wifi", "fct_rf": rf})]
     if subtest == "ping":
@@ -2147,7 +2165,7 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
         # DUT->AP, DUT->Host as independent verdicts
         return [FctStep(
             name="Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host)",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_WIFI, type="ping", channel="",
             timeout_s=float(w.ping_timeout),
             params={"tool_family": "wifi", "fct_rf": {
                 "mode": "full_stack", "ssid": w.ap_ssid,
@@ -2164,7 +2182,7 @@ def _wifi_subtest_steps(cfg: FctTestConfig, subtest: str,
             return []
         return [FctStep(
             name=f"Wi-Fi iPerf Throughput ({w.iperf_tool})",
-            step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
+            category=CATEGORY_WIFI, type="iperf", channel=channel_key,
             timeout_s=float(w.iperf_timeout),
             params={"tool_family": "wifi",
                     "fct_wifi_iperf": {
@@ -2200,7 +2218,7 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
             return []
         return [FctStep(
             name="Bluetooth RSSI",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_BLUETOOTH, type="rssi", channel="",
             timeout_s=float(b.rssi_timeout),
             params={"tool_family": "bluetooth", "fct_rf": {
                 "mode": "rssi_only",
@@ -2218,15 +2236,15 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
             host_name, host_addr = host_platform.host_bt_identity()
             steps = [FctStep(
                 name="Bluetooth Pair & Connect (DUT console)",
-                step_type=STEP_MESSAGE_CHECK, channel=channel_key,
-                timeout_s=float(b.pair_timeout),
+                category=CATEGORY_CONSOLE, type="serial",
+                channel=channel_key, timeout_s=float(b.pair_timeout),
                 params={"fct_console": True,
                         "send": pair_command_text(
                             b.pair_command, host_name, host_addr)})]
         else:
             steps = [FctStep(
                 name="Bluetooth Pair & Connect",
-                step_type=STEP_EXTERNAL_TOOL, channel="",
+                category=CATEGORY_BLUETOOTH, type="pair", channel="",
                 timeout_s=float(b.pair_timeout),
                 params={"tool_family": "bluetooth", "fct_rf": {
                     "mode": "pair_connect",
@@ -2236,8 +2254,8 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
         if b.l2ping_count > 0:
             steps.append(FctStep(
                 name=f"BT L2CAP ping ({b.l2ping_count})",
-                step_type=STEP_EXTERNAL_TOOL, channel=channel_key,
-                timeout_s=float(b.pair_timeout),
+                category=CATEGORY_BLUETOOTH, type="pair",
+                channel=channel_key, timeout_s=float(b.pair_timeout),
                 params={"tool_family": "bluetooth",
                         "fct_bt_l2ping": {
                             "count": int(b.l2ping_count)}}))
@@ -2250,7 +2268,7 @@ def _bt_subtest_steps(cfg: FctTestConfig, subtest: str,
         # GUI_CONFIRM - the step publishes ONLY its playback config.
         return [FctStep(
             name="Bluetooth Tone / Music (A2DP)",
-            step_type=STEP_EXTERNAL_TOOL, channel="",
+            category=CATEGORY_BLUETOOTH, type="tone", channel="",
             timeout_s=0.0,
             params={"tool_family": "bluetooth", "fct_rf": {
                 "mode": "a2dp_sink",

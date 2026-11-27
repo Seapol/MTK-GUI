@@ -22,14 +22,14 @@ from mtkgui.engine.fct_exec import (
 from mtkgui.engine.report import DutReport
 from mtkgui.engine.runner import TestRunner
 from mtkgui.engine.sequence import load_sequence, resolve_step_budget
-from mtkgui.gui.yamlbuild.fct_build import STEP_MESSAGE_CHECK
+
 
 
 def _wait_step(timeout_s: float, **params) -> FctStep:
     base = {"fct_console": True, "kind": "wait",
             "expect_pass_re": "ready"}
     base.update(params)
-    return FctStep(name="Console - wait", step_type=STEP_MESSAGE_CHECK,
+    return FctStep(name="Console - wait", category="Console", type="serial",
                    channel="ser1", timeout_s=timeout_s, params=base)
 
 
@@ -348,7 +348,11 @@ _BENCH_STEPS = [
 
 
 def test_m78_backward_compat_project_yaml():
-    """The 17-step bench YAML keeps every name, order, kind AND budget."""
+    """The 17-step bench YAML keeps every name, order AND budget.
+
+    M160: the engine kind is no longer read from the top-level case
+    ``kind`` (it comes from the step marker), so this test asserts the
+    order/budget truth only."""
     cfg = {"test_workflow": {
         "overall_flow": [{"stage": "FCT", "enable": True}],
         "fct_test_cases": [
@@ -357,7 +361,6 @@ def test_m78_backward_compat_project_yaml():
     steps = load_sequence(cfg)[0].steps
     assert len(steps) == 17
     assert [s.name for s in steps] == [n for n, _k, _ms in _BENCH_STEPS]
-    assert [s.kind for s in steps] == [k for _n, k, _ms in _BENCH_STEPS]
     assert [s.timeout_ms for s in steps] == [ms for _n, _k, ms in
                                              _BENCH_STEPS]
     # D1 sanity signal: step 6 is 600000, not the old 99999 clamp

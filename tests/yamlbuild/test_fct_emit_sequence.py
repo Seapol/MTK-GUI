@@ -128,7 +128,7 @@ def test_message_row_becomes_standard_op_case(page):
     by_name = {c["name"]: c["kind"] for c in cases}
     # unified model: the visible name IS the step name (no keyword
     # artifact suffix) - ONE row per Console row
-    assert by_name["Kernel check"] == "CapturefromConsole"
+    assert by_name["Kernel check"] == "Console_serial"
     assert by_name["Swap DUT fixture"] == "MessageYesNotoConsole"
     assert by_name["Ready check"] == "MessageOKtoConsole"
     # console message rows wait on the console channel first, then prompt

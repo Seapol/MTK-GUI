@@ -69,7 +69,7 @@ def _ctx(channel, watchdog_s=None):
 
 def _wait_step(wait_timeout: float, row_timeout: float) -> FctStep:
     return FctStep(
-        name="wait", step_type="MESSAGE_CHECK", channel="ser1",
+        name="wait", category="Console", type="serial", channel="ser1",
         timeout_s=row_timeout,
         params={"fct_console": True, "kind": "wait",
                 "expect_pass_re": "late", "capture_is_expected": True,
@@ -91,7 +91,7 @@ def test_m83_wait_window_is_not_clamped_by_row_budget():
 
     channel = _DelayedChannel(0.5, "late")
     step = FctStep(
-        name="stage", step_type="MESSAGE_CHECK", channel="ser1",
+        name="stage", category="Console", type="serial", channel="ser1",
         timeout_s=0.2,
         params={"fct_console": True, "kind": "send",
                 "wait_enabled": True, "wait_pattern": "late",
@@ -108,7 +108,7 @@ def test_m83_send_window_counts_from_send_start():
     # arrive later than both to prove the send window owns it.
     channel = _SendWindowChannel("OK", "late", 1.0)
     step = FctStep(
-        name="send", step_type="MESSAGE_CHECK", channel="ser1",
+        name="send", category="Console", type="serial", channel="ser1",
         timeout_s=2.0,
         params={"fct_console": True, "kind": "send",
                 "send_enabled": True, "send": "run",

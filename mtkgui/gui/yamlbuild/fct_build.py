@@ -28,41 +28,30 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from mtkgui.engine.step_types import (
+    CATEGORY_CONSOLE,
+    CATEGORY_EXTERNAL_GUI,
+    CATEGORY_MESSAGE,
+    CATEGORY_OPERATION,
+    CATEGORY_ORDER,
+    CATEGORY_TRANSFER,
+    STEP_CATEGORIES,
+    STEP_TYPE_TO_KIND,
+    valid_type,
+)
+
 # ---------------------------------------------------------------------------
-# vocabulary (spec §5.1)
+# vocabulary (M160 unified category + type taxonomy)
 # ---------------------------------------------------------------------------
-
-#: the five FCT step types
-STEP_MESSAGE_CHECK = "MESSAGE_CHECK"
-STEP_GUI_CONFIRM = "GUI_CONFIRM"
-STEP_CLI_RUN = "CLI_RUN"
-STEP_EXTERNAL_TOOL = "EXTERNAL_TOOL"
-STEP_FLASH = "FLASH"
-STEP_OPERATION = "OPERATION"
-STEP_TYPES = (STEP_MESSAGE_CHECK, STEP_GUI_CONFIRM, STEP_CLI_RUN,
-              STEP_EXTERNAL_TOOL, STEP_FLASH, STEP_OPERATION)
-
-#: flash path modes (spec §3)
-FLASH_GUI = "gui"      # third-party flash GUI + human confirm
-FLASH_CLI = "cli"      # CLI flash + automatic keyword parse
-FLASH_MODES = (FLASH_GUI, FLASH_CLI)
-
 #: failure handling after the final retry
 ON_FAIL_ABORT = "abort"
 ON_FAIL_CONTINUE = "continue"
 ON_FAIL_POLICIES = (ON_FAIL_ABORT, ON_FAIL_CONTINUE)
 
-# ---------------------------------------------------------------------------
-# unified step model (owner-approved 2026-10-28)
-# ---------------------------------------------------------------------------
-#: every step carries ONE explicit kind:
-#:   interact = serial/ssh Wait -> Send -> Capture step
-#:   action   = built-in action with per-step configurable args
-#:   dialog   = explicit operator dialog (only these pop a dialog)
-TYPE_INTERACT = "interact"
-TYPE_ACTION = "action"
-TYPE_DIALOG = "dialog"
-STEP_KINDS = (TYPE_INTERACT, TYPE_ACTION, TYPE_DIALOG)
+#: legacy sequence marker kept on FctSequence only (the document header);
+#: a step no longer carries a flash mode - ``ExternalGui.flash`` and
+#: ``Console.cli`` replace the old FLASH step.
+SEQUENCE_FLASH_MODES = ("gui", "cli")
 
 #: built-in actions and their DEFAULT args.  A step overrides any subset
 #: in ``params["args"]``; a missing arg keeps the historic behaviour, so
@@ -92,18 +81,20 @@ DEFAULT_KEYWORD_PASS = ("pass", "passed", "success", "succeed", "ok",
 DEFAULT_KEYWORD_FAIL = ("fail", "failed", "failure", "error", "timeout",
                         "abort", "exception", "refused")
 
-#: module param key -> existing FCT_METHOD kind (project YAML `kind`)
-_KIND_MAP = {
-    STEP_MESSAGE_CHECK: "MessageOK",       # refined per channel below
-    STEP_GUI_CONFIRM: "MessageGoStop",
-    STEP_CLI_RUN: "SendtoCLI",
-    STEP_EXTERNAL_TOOL: "MessageOK",       # refined per tool_family below
-    STEP_OPERATION: "MessageGoStop",
-}
-
 #: op step names reused from the engine catalog (spine anchors)
 OP_POWER_OFF = "Power Off DUT"
 OP_RESET_INSTRUMENTS = "Reset Instruments"
+
+#: Operation sub-type -> the OP_STEPS name the executor routes on
+OP_TYPE_NAMES = {
+    "init_instruments": "Init Instruments",
+    "reset_instruments": "Reset Instruments",
+    "fixture_ready": "Fixture Ready",
+    "power_on": "Power On DUT",
+    "power_off": "Power Off DUT",
+    "daq_ai_start": "DAQ AI Start",
+    "daq_ai_end": "DAQ AI End",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +105,10 @@ class FctStep:
     """One FCT sequence step (spec §5.2).  Pure data — no behavior."""
 
     name: str
-    step_type: str
+    category: str = CATEGORY_MESSAGE
+    type: str = "ok"
     channel: str = ""                 # console channel key ("" = dialog/host)
-    command: str = ""                 # CLI_RUN / EXTERNAL_TOOL payload
+    command: str = ""                 # Console.cli / host payload
     expect_pass: list = field(default_factory=list)
     expect_fail: list = field(default_factory=list)
     timeout_s: float = 30.0           # 0 = wait forever
@@ -134,15 +126,14 @@ class FctStep:
     def to_dict(self) -> dict:
         """YAML-safe plain dict (full field set, stable order).
 
-        Carries the EXPLICIT unified ``type`` (interact / action /
-        dialog) plus the action name and its resolved args for action
-        steps.  ``step_type`` stays for backward compatibility with
-        markers published before the unified model.
+        The step is published as ``category`` + ``type`` only: the
+        legacy ``step_type`` / ``interact|action|dialog`` vocabulary is
+        gone (M160).
         """
-        kind = step_kind(self)
         out = {
-            "name": self.name, "step_type": self.step_type,
-            "type": kind, "channel": self.channel,
+            "name": self.name,
+            "category": self.category, "type": self.type,
+            "channel": self.channel,
             "command": self.command,
             "expect_pass": list(self.expect_pass),
             "expect_fail": list(self.expect_fail),
@@ -154,41 +145,22 @@ class FctStep:
             out["ref"] = dict(self.ref)
         if self.override:
             out["override"] = dict(self.override)
-        if kind == TYPE_ACTION:
-            out["action"] = action_name(self)
-            out["args"] = action_args(self)
         return out
 
     @classmethod
     def from_dict(cls, data: dict) -> "FctStep":
-        """Restore a step (tolerant: missing keys keep defaults).
+        """Restore a step (tolerant: missing keys keep the defaults).
 
-        Accepts both the legacy dicts (``step_type`` only) and the
-        unified ones (``type`` + ``action`` + ``args``); the unified
-        values are folded back into the legacy ``step_type`` the
-        executor routes on, and the args into ``params['args']``.
+        Only ``category`` / ``type`` are read; a legacy ``step_type``
+        key is ignored (the loader rejects such documents instead of
+        silently migrating them).
         """
         data = dict(data or {})
-        kind = str(data.get("type", "") or "")
         params = dict(data.get("params") or {})
-        if kind == TYPE_ACTION and data.get("action"):
-            params.setdefault("action", str(data["action"]))
-            args = data.get("args")
-            if isinstance(args, dict) and args:
-                params["args"] = dict(args)
-        step_type = str(data.get("step_type", ""))
-        if kind:
-            step_type = _legacy_type_for(kind, step_type, params)
-        # v2-13 A: a legacy flash step was emitted as GUI_CONFIRM / CLI_RUN
-        # with params.slot — fold it into the one-class STEP_FLASH type.
-        if "slot" in params and step_type in (STEP_GUI_CONFIRM, STEP_CLI_RUN):
-            params.setdefault("flash_mode",
-                              FLASH_GUI if step_type == STEP_GUI_CONFIRM
-                              else FLASH_CLI)
-            step_type = STEP_FLASH
         return cls(
             name=str(data.get("name", "")),
-            step_type=step_type,
+            category=str(data.get("category", "") or ""),
+            type=str(data.get("type", "") or ""),
             channel=str(data.get("channel", "")),
             command=str(data.get("command", "")),
             expect_pass=[str(k) for k in (data.get("expect_pass") or [])],
@@ -208,9 +180,12 @@ class FctStep:
         errors: list = []
         if not self.name.strip():
             errors.append("step name must not be empty")
-        if self.step_type not in STEP_TYPES:
-            errors.append(f"step {self.name!r}: unknown step_type "
-                          f"{self.step_type!r}")
+        if self.category not in CATEGORY_ORDER:
+            errors.append(f"step {self.name!r}: unknown category "
+                          f"{self.category!r}")
+        elif not valid_type(self.category, self.type):
+            errors.append(f"step {self.name!r}: type {self.type!r} is not "
+                          f"valid for category {self.category!r}")
         if self.timeout_s < 0:
             errors.append(f"step {self.name!r}: timeout_s must be >= 0")
         if self.retries < 0:
@@ -218,20 +193,16 @@ class FctStep:
         if self.on_fail not in ON_FAIL_POLICIES:
             errors.append(f"step {self.name!r}: on_fail must be one of "
                           f"{ON_FAIL_POLICIES}")
-        if self.step_type == STEP_CLI_RUN and not self.command.strip():
-            errors.append(f"step {self.name!r}: {self.step_type} requires "
-                          "a command")
-        if self.step_type == STEP_FLASH:
+        if (self.category == CATEGORY_CONSOLE and self.type == "cli"
+                and not self.command.strip()):
+            errors.append(f"step {self.name!r}: Console.cli requires a "
+                          "command")
+        if (self.category == CATEGORY_EXTERNAL_GUI
+                and self.type == "flash"):
             slot = str((self.params or {}).get("slot", ""))
             if slot not in ("fat", "oobe"):
-                errors.append(f"step {self.name!r}: FLASH requires params.slot "
-                              f"in ('fat', 'oobe')")
-            mode = str((self.params or {}).get("flash_mode", ""))
-            if mode not in FLASH_MODES:
-                errors.append(f"step {self.name!r}: FLASH requires params.flash_mode "
-                              f"in {FLASH_MODES}")
-            if mode == FLASH_CLI and not self.command.strip():
-                errors.append(f"step {self.name!r}: FLASH cli mode requires a command")
+                errors.append(f"step {self.name!r}: ExternalGui.flash "
+                              "requires params.slot in ('fat', 'oobe')")
         known = sibling_names or set()
         for dep in self.depends:
             if dep not in known:
@@ -258,33 +229,6 @@ class FctStep:
 # ---------------------------------------------------------------------------
 # unified model helpers (type / action / args / legacy normalization)
 # ---------------------------------------------------------------------------
-def step_kind(step) -> str:
-    """The explicit unified kind of one step: interact / action / dialog.
-
-    `dialog` wins first (an operator popup), then any built-in action
-    payload, then the legacy GUI-confirm type; everything else is a
-    normal serial/ssh ``interact`` step."""
-    p = dict(getattr(step, "params", None) or {})
-    if p.get("console_dialog") or p.get("style") is not None:
-        return TYPE_DIALOG
-    if (p.get("action") in ("sftp_get", "sftp_put")
-            or p.get("kind") in ("sftp_get", "sftp_put")
-            or p.get("fct_host_cmd") is not None
-            or p.get("fct_serial_push") is not None
-            or p.get("fct_serial_transfer") is not None
-            or p.get("fct_rf") is not None
-            or p.get("fct_wifi_iperf") is not None
-            or p.get("fct_bt_l2ping") is not None
-            or p.get("op")):
-        return TYPE_ACTION
-    if getattr(step, "step_type", "") == STEP_FLASH:
-        mode = str(p.get("flash_mode", "")).lower()
-        return TYPE_DIALOG if mode == FLASH_GUI else TYPE_INTERACT
-    if getattr(step, "step_type", "") == STEP_GUI_CONFIRM:
-        return TYPE_DIALOG
-    return TYPE_INTERACT
-
-
 def action_name(step) -> str:
     """The registry name of an action step (''-free fallback: 'op')."""
     p = dict(getattr(step, "params", None) or {})
@@ -336,23 +280,6 @@ def action_args(step) -> dict:
     if args.get("retries") in (None, 0):
         args["retries"] = int(getattr(step, "retries", 0) or 0)
     return args
-
-
-def _legacy_type_for(kind: str, step_type: str, params: dict) -> str:
-    """Fold a unified ``type`` back into the executor's step_type.
-
-    A marker that already carries a valid legacy ``step_type`` keeps it
-    (that is the executor's routing key), so re-loading a unified dict
-    never changes execution."""
-    if step_type in STEP_TYPES:
-        return step_type
-    if kind == TYPE_DIALOG:
-        return STEP_GUI_CONFIRM
-    if kind == TYPE_ACTION:
-        if params.get("action") in ("sftp_get", "sftp_put"):
-            return STEP_MESSAGE_CHECK
-        return STEP_EXTERNAL_TOOL
-    return STEP_MESSAGE_CHECK
 
 
 #: the legacy emitter baked ``": '<pattern>' (expected)"`` into step
@@ -412,7 +339,7 @@ def normalize_fct_steps(steps: list) -> list:
             out.append(step)
             out.append(FctStep(
                 name=f"Confirm: {step.name}",
-                step_type=STEP_GUI_CONFIRM,
+                category=CATEGORY_MESSAGE, type="yesno_console",
                 timeout_s=0.0,
                 params={"style": "yesno", "console_dialog": True,
                         "message": str(p.get("confirm_message") or step.name),
@@ -424,11 +351,13 @@ def normalize_fct_steps(steps: list) -> list:
 
 
 def dedupe_steps(steps: list) -> list:
-    """Drop EXACT duplicates (name + type + params), first one wins."""
+    """Drop EXACT duplicates (name + category/type + params), first
+    one wins."""
     seen: set = set()
     out: list = []
     for step in steps or []:
-        key = (getattr(step, "name", ""), step_kind(step),
+        key = (getattr(step, "name", ""), getattr(step, "category", ""),
+               getattr(step, "type", ""),
                repr(sorted((getattr(step, "params", None) or {}).items())))
         if key in seen:
             continue
@@ -490,7 +419,8 @@ def normalize_fct_cases(cases: list) -> list:
         if p.pop("confirm_enabled", False):
             step.params = p
             dlg = FctStep(
-                name=f"Confirm: {step.name}", step_type=STEP_GUI_CONFIRM,
+                name=f"Confirm: {step.name}",
+                category=CATEGORY_MESSAGE, type="yesno_console",
                 timeout_s=0.0,
                 params={"style": "yesno", "console_dialog": True,
                         "message": str(p.get("confirm_message") or step.name),
@@ -498,7 +428,7 @@ def normalize_fct_cases(cases: list) -> list:
                         "message_timeout_s": 4.0})
         rows = [step] + ([dlg] if dlg is not None else [])
         for s in rows:
-            key = (s.name, step_kind(s),
+            key = (s.name, s.category, s.type,
                    repr(sorted((s.params or {}).items())))
             if key in seen:
                 continue
@@ -536,7 +466,7 @@ class FctSequence:
     """One FCT sequence (spec §5.3): keyword tables + ordered steps."""
 
     name: str
-    flash_mode: str = FLASH_GUI
+    flash_mode: str = "gui"
     #: M159: main DUT (default) or a slave / daughter board probe
     board_role: str = BOARD_ROLE_MAIN
     keyword_pass: list = field(
@@ -557,8 +487,9 @@ class FctSequence:
         errors: list = []
         if not self.name.strip():
             errors.append("sequence name must not be empty")
-        if self.flash_mode not in FLASH_MODES:
-            errors.append(f"flash_mode must be one of {FLASH_MODES}")
+        if self.flash_mode not in SEQUENCE_FLASH_MODES:
+            errors.append("flash_mode must be one of "
+                          f"{SEQUENCE_FLASH_MODES}")
         if self.board_role not in BOARD_ROLES:
             errors.append(f"board_role must be one of {BOARD_ROLES}")
         names = {s.name for s in self.steps if s.name.strip()}
@@ -592,7 +523,7 @@ class FctSequence:
         """Restore from the `fct_sequence` body (tolerant)."""
         return cls(
             name=str((data or {}).get("name", "")),
-            flash_mode=str((data or {}).get("flash_mode", FLASH_GUI)),
+            flash_mode=str((data or {}).get("flash_mode", "gui")),
             board_role=str((data or {}).get("board_role",
                                             BOARD_ROLE_MAIN)),
             keyword_pass=[str(k) for k in
@@ -619,22 +550,25 @@ class FctSequence:
 # ---------------------------------------------------------------------------
 def _flash_step(slot: str, flash_mode: str, channel: str,
                 command: str, done_kw: str) -> FctStep:
-    """The flash stage step for one path (spec §3.1 / §3.2)."""
+    """The flash stage step for one path.
+
+    ``gui`` is the third-party flash GUI (ExternalGui.flash); ``cli`` is
+    the CLI burn path (Console.cli, e.g. uuu.exe).
+    """
     name = f"Flash {slot.upper()} Firmware"
-    if flash_mode == FLASH_GUI:
+    if flash_mode == "gui":
         return FctStep(
-            name=name, step_type=STEP_FLASH, channel="",
-            timeout_s=0.0,            # wait for the operator forever
-            resource="operator",
-            params={"slot": slot, "flash_mode": FLASH_GUI})
+            name=name, category=CATEGORY_EXTERNAL_GUI, type="flash",
+            channel="", timeout_s=0.0,   # wait for the operator forever
+            resource="operator", params={"slot": slot})
     return FctStep(
-        name=name, step_type=STEP_FLASH, channel=channel,
+        name=name, category=CATEGORY_CONSOLE, type="cli", channel=channel,
         command=command, expect_pass=[done_kw],
         expect_fail=list(DEFAULT_KEYWORD_FAIL), resource="operator",
-        params={"slot": slot, "flash_mode": FLASH_CLI})
+        params={"slot": slot})
 
 
-def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
+def build_fct_sequence(name: str, flash_mode: str = "gui",
                        channel: str = "", cli_command: str = "",
                        cli_done_keyword: str = "done",
                        body_steps: list | None = None) -> FctSequence:
@@ -654,8 +588,8 @@ def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
                           stages (default: one MESSAGE_CHECK).
     """
     body = list(body_steps) if body_steps else [
-        FctStep(name="All Tests done.", step_type=STEP_MESSAGE_CHECK,
-                expect_pass=["done"], timeout_s=0.0),
+        FctStep(name="All Tests done.", category=CATEGORY_MESSAGE, type="ok",
+                timeout_s=0.0, params={"message": "All Tests done."}),
     ]
     steps = [
         _flash_step("fat", flash_mode, channel, cli_command,
@@ -663,10 +597,12 @@ def build_fct_sequence(name: str, flash_mode: str = FLASH_GUI,
         *body,
         _flash_step("oobe", flash_mode, channel, cli_command,
                     cli_done_keyword),
-        FctStep(name=OP_POWER_OFF, step_type=STEP_OPERATION,
-                timeout_s=0.0, params={"op": OP_POWER_OFF}),
-        FctStep(name=OP_RESET_INSTRUMENTS, step_type=STEP_OPERATION,
-                timeout_s=0.0, params={"op": OP_RESET_INSTRUMENTS}),
+        FctStep(name=OP_POWER_OFF, category=CATEGORY_OPERATION,
+                type="power_off", timeout_s=0.0,
+                params={"op": OP_POWER_OFF}),
+        FctStep(name=OP_RESET_INSTRUMENTS, category=CATEGORY_OPERATION,
+                type="reset_instruments", timeout_s=0.0,
+                params={"op": OP_RESET_INSTRUMENTS}),
     ]
     return FctSequence(name=name, flash_mode=flash_mode, steps=steps)
 
@@ -680,52 +616,22 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
     loads through `project_config._fct_step_from_yaml` unchanged."""
     cases: list = []
     for s in sequence.steps:
-        kind = _KIND_MAP.get(s.step_type, "MessageOK")
+        kind = STEP_TYPE_TO_KIND.get((s.category, s.type), "MessageOK")
+        if s.category == CATEGORY_OPERATION and s.type == "delay":
+            kind = "Delay"
+        elif (s.category == CATEGORY_CONSOLE and s.type == "cli"
+              and (s.params or {}).get("fct_host_cmd") is not None):
+            # host CLI row (test PC shell): keep the historic SendtoCLI
+            # kind so the console round-trip keeps it in post-RF commands
+            kind = "SendtoCLI"
         # the row name IS the step name (unified model): the keywords
         # travel in the step marker, never in the visible name
         name = s.name
         op_params = None
-        if s.step_type == STEP_MESSAGE_CHECK:
-            if s.channel:
-                kind = "CapturefromConsole"
-            else:
-                kind = "MessageOK"
-        elif s.step_type == STEP_GUI_CONFIRM:
-            # dialog style travels in params ("style"): ok -> MessageOK,
-            # yesno -> MessageYesNo, everything else -> MessageGoStop.
-            # A Console-domain operator dialog (params.console_dialog,
-            # user direction 2026-10-18) keeps the "*toConsole" kind so
-            # the row waits the expected console message first.
-            style = str(s.params.get("style") or "")
-            if s.params.get("console_dialog"):
-                kind = {"ok": "MessageOKtoConsole",
-                        "yesno": "MessageYesNotoConsole"}.get(
-                    style, "MessageGoStoptoConsole")
-            else:
-                kind = {"ok": "MessageOK", "yesno": "MessageYesNo"}.get(
-                    style, "MessageGoStop")
-        elif s.step_type == STEP_CLI_RUN:
-            kind = "SendtoCLI"
-        elif s.step_type == STEP_FLASH:
-            mode = str(s.params.get("flash_mode", "")).lower()
-            kind = "MessageGoStop" if mode == FLASH_GUI else "SendtoCLI"
-        elif s.step_type == STEP_EXTERNAL_TOOL:
-            family = str(s.params.get("tool_family", "")).lower()
-            if s.params.get("fct_host_cmd") is not None:
-                kind = "SendtoCLI"          # host CLI row (test PC shell)
-            else:
-                # W3-3: a serial transfer row gets its OWN kind - it is
-                # not a message acknowledge
-                transfer = s.params.get("fct_serial_transfer")
-                if isinstance(transfer, dict):
-                    kind = ("SerialPull"
-                            if str(transfer.get("direction") or "") == "pull"
-                            else "SerialPush")
-                else:
-                    kind = {"wifi": "WIFI", "bluetooth": "Bluetooth"}.get(
-                        family, "MessageOK")
-        if s.params.get("op"):
-            op_params = {"type": "op", "op": s.params["op"]}
+        if s.category == CATEGORY_OPERATION and s.type != "delay":
+            op_name = (str((s.params or {}).get("op") or "")
+                       or OP_TYPE_NAMES.get(s.type, s.name))
+            op_params = {"type": "op", "op": op_name}
         # B4: the full step travels with the case (op_params.fct_step)
         # so the runner routes the row to the fct_exec executor
         marker = dict(op_params or {})
@@ -740,31 +646,31 @@ def to_project_fct_cases(sequence: FctSequence) -> list:
 
 
 def from_project_fct_cases(cases: list, name: str = "",
-                           flash_mode: str = FLASH_GUI) -> FctSequence:
-    """Reverse mapping (round-trip support): the legacy fct_test_cases
-    list -> FctSequence.  Lossless for the fields the legacy shape
-    carries; `wait_ms` granularity is preserved in params.legacy."""
+                           flash_mode: str = "gui") -> FctSequence:
+    """Reverse mapping: ``fct_test_cases`` -> FctSequence.
+
+    Only the ``op_params.fct_step`` marker is read (M160).  A row
+    without a marker, or with an unknown category/type, is REJECTED -
+    a legacy document is never silently migrated; the caller turns the
+    ``ValueError`` into a load error.
+    """
     steps: list = []
-    for c in (cases or []):
-        kind = str(c.get("kind", "MessageOK"))
-        timeout_s = max(int(c.get("timeout_ms", 5000)) / 1000.0, 0.0)
-        params = {"legacy": True,
-                  "legacy_wait_ms": c.get("wait_ms", 100)}
-        step_type = kind
-        if kind in ("SerialPush", "SerialPull"):
-            # W3-3: a transfer row must come back as the executor's
-            # EXTERNAL_TOOL step with its transfer parameters intact;
-            # without a marker an EMPTY transfer reaches the executor's
-            # own "no DUT path configured" ERROR (never a PASS).
-            step_type = STEP_EXTERNAL_TOOL
-            marker = ((c.get("op_params") or {}).get("fct_step") or {})
-            marker_params = marker.get("params")
-            if isinstance(marker_params, dict):
-                params = dict(marker_params)
-                params.update({"legacy": True,
-                               "legacy_wait_ms": c.get("wait_ms", 100)})
-            params.setdefault("fct_serial_transfer", {})
-        step = FctStep(name=str(c.get("name", "")), step_type=step_type,
-                       timeout_s=timeout_s, params=params)
-        steps.append(step)
+    for index, case in enumerate(cases or []):
+        marker = (case.get("op_params") or {}).get("fct_step") \
+            if isinstance(case, dict) else None
+        label = str(case.get("name", "")) if isinstance(case, dict) else ""
+        if not isinstance(marker, dict) or not marker:
+            raise ValueError(
+                f"FCT case {index} ({label!r}) carries no "
+                "op_params.fct_step marker — rebuild the sequence in the "
+                "FCT builder")
+        category = str(marker.get("category") or "")
+        sub_type = str(marker.get("type") or "")
+        if category not in CATEGORY_ORDER or not valid_type(category,
+                                                           sub_type):
+            raise ValueError(
+                f"FCT case {index} ({label!r}) carries the unknown "
+                f"category/type {category!r}/{sub_type!r} — rebuild the "
+                "sequence in the FCT builder")
+        steps.append(FctStep.from_dict(marker))
     return FctSequence(name=name, flash_mode=flash_mode, steps=steps)

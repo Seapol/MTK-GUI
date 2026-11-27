@@ -17,9 +17,11 @@ from mtkgui.gui.yamlbuild.fct_authoring import (  # noqa: E402
     annotations_to_steps,
     detect_yesno_points,
 )
+from mtkgui.engine.step_types import (  # noqa: E402
+    CATEGORY_CONSOLE,
+    CATEGORY_MESSAGE,
+)
 from mtkgui.gui.yamlbuild.fct_build import (  # noqa: E402
-    STEP_GUI_CONFIRM,
-    STEP_MESSAGE_CHECK,
     FctSequence,
     to_project_fct_cases,
 )
@@ -50,8 +52,9 @@ def test_tagged_yesno_splits_two_listen_segments():
         _ann("AFTER", ANNOTATION_EXPECT_PASS, 30),
     ]
     steps = annotations_to_steps(annotations, "dut")
-    assert [step.step_type for step in steps] == [
-        STEP_MESSAGE_CHECK, STEP_GUI_CONFIRM, STEP_MESSAGE_CHECK]
+    assert [(step.category, step.type) for step in steps] == [
+        (CATEGORY_CONSOLE, "serial"), (CATEGORY_MESSAGE, "yesno_console"),
+        (CATEGORY_CONSOLE, "serial")]
     assert steps[0].expect_pass == ["READY"]
     assert steps[2].expect_pass == ["AFTER"]
     assert steps[1].params["style"] == "yesno"
@@ -61,8 +64,7 @@ def test_tagged_yesno_splits_two_listen_segments():
     sequence = FctSequence(name="FCT", steps=steps)
     assert sequence.validate() == []
     assert [case["kind"] for case in to_project_fct_cases(sequence)] == [
-        "CapturefromConsole", "MessageYesNotoConsole",
-        "CapturefromConsole"]
+        "Console_serial", "MessageYesNotoConsole", "Console_serial"]
 
 
 def test_auto_detection_keeps_the_surrounding_rx():
@@ -89,8 +91,10 @@ def test_auto_detection_keeps_the_surrounding_rx():
         console.btn_generate.click()
         steps = buffer.steps()
         # log order wins: BEFORE -> confirm -> AFTER
-        assert [step.step_type for step in steps] == [
-            STEP_MESSAGE_CHECK, STEP_GUI_CONFIRM, STEP_MESSAGE_CHECK]
+        assert [(step.category, step.type) for step in steps] == [
+            (CATEGORY_CONSOLE, "serial"),
+            (CATEGORY_MESSAGE, "yesno_console"),
+            (CATEGORY_CONSOLE, "serial")]
         assert steps[0].expect_pass == ["BEFORE"]
         assert steps[2].expect_pass == ["AFTER"]
     finally:

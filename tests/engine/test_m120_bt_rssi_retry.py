@@ -6,12 +6,13 @@ from __future__ import annotations
 import pytest
 
 from mtkgui.engine.fct_exec import FctContext, _bt_rssi_host
-from mtkgui.gui.yamlbuild.fct_build import STEP_EXTERNAL_TOOL, FctStep
+from mtkgui.gui.yamlbuild.fct_build import FctStep
 
 
 def _rssi_step(rf_timeout_s=10.0, attempts=2, row_timeout=35.0):
     return FctStep(
-        name="Bluetooth RSSI", step_type=STEP_EXTERNAL_TOOL, channel="",
+        name="Bluetooth RSSI", category="Bluetooth", type="rssi",
+        channel="",
         timeout_s=row_timeout,
         params={"tool_family": "bluetooth",
                 "fct_rf": {"mode": "rssi_only",

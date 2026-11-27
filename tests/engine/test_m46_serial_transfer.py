@@ -28,7 +28,6 @@ from mtkgui.engine import serial_transport as stp
 from mtkgui.engine.fct_test_config import (
     KIND_SERIAL_PULL,
     KIND_SERIAL_PUT,
-    STEP_EXTERNAL_TOOL,
     STEP_TYPE_SERIAL_PULL,
     STEP_TYPE_SERIAL_PUT,
     ConsoleCommand,
@@ -126,7 +125,7 @@ def test_serial_rows_map_to_external_tool_steps():
         steps = _console_row_steps(cmd, "console_serial")
         assert len(steps) == 1
         step = steps[0]
-        assert step.step_type == STEP_EXTERNAL_TOOL
+        assert step.category == "Transfer"
         assert step.channel == "ser2"
         spec = step.params["fct_serial_transfer"]
         assert spec["direction"] == ("push"

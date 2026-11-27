@@ -15,8 +15,8 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QGroupBox,  # noqa: E402
                                QSplitter)
 
+from mtkgui.engine.step_types import CATEGORY_CONSOLE  # noqa: E402
 from mtkgui.gui.yamlbuild.fct_build import (  # noqa: E402
-    STEP_MESSAGE_CHECK,
     FctSequence,
     FctStep,
 )
@@ -32,8 +32,10 @@ def qapp():
 
 def _sequence() -> FctSequence:
     return FctSequence(name="FCT", steps=[
-        FctStep(name="first", step_type=STEP_MESSAGE_CHECK, channel="ser1"),
-        FctStep(name="second", step_type=STEP_MESSAGE_CHECK, channel="ser1"),
+        FctStep(name="first", category=CATEGORY_CONSOLE, type="serial",
+                channel="ser1"),
+        FctStep(name="second", category=CATEGORY_CONSOLE, type="serial",
+                channel="ser1"),
     ])
 
 

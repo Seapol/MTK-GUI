@@ -1017,11 +1017,12 @@ class TestRunner(QObject):
         types run through the fct_exec executor with the keyword
         tables; GUI_CONFIRM answers via the operator dialog
         (interactive) or a simulated GO (run_demo / smoke)."""
-        from ..gui.yamlbuild.fct_build import (
-            STEP_FLASH,
-            STEP_GUI_CONFIRM,
-            STEP_MESSAGE_CHECK,
-            FctStep,
+        from ..gui.yamlbuild.fct_build import FctStep
+        from .step_types import (
+            CATEGORY_CONSOLE,
+            CATEGORY_EXTERNAL_GUI,
+            CATEGORY_MESSAGE,
+            CATEGORY_TRANSFER,
         )
         from .fct_channels import ConsoleBufferChannel, VirtualFctChannel
         from .fct_exec import (
@@ -1052,9 +1053,10 @@ class TestRunner(QObject):
                     if r < len(getattr(env, "fct_timeouts", [])) else None)
         _p = step.params or {}
         _human_gate = (
-            (step.step_type == STEP_GUI_CONFIRM and not _p.get("op"))
-            or (step.step_type == STEP_MESSAGE_CHECK and not step.channel
-                and not _p.get("fct_console")))
+            (step.category in (CATEGORY_MESSAGE, CATEGORY_EXTERNAL_GUI)
+             and not _p.get("op"))
+            or (step.category in (CATEGORY_CONSOLE, CATEGORY_TRANSFER)
+                and not step.channel and not _p.get("fct_console")))
         if _human_gate:
             budget_s, budget_source = 0.0, "human gate (wait forever)"
         elif float(step.timeout_s or 0.0) <= 0 \
@@ -1184,7 +1186,7 @@ class TestRunner(QObject):
                                     {}).get(ch_key, []):
                     ch.inject_output(line)
                 ctx.channels[ch_key] = ch
-        if (step.step_type == "GUI_CONFIRM"
+        if (step.category == CATEGORY_MESSAGE
                 and step.params.get("console_dialog")):
             # Console-domain operator dialog: fct_exec waits the expected
             # console message first (fct_exec._console_dialog), then
@@ -1227,7 +1229,8 @@ class TestRunner(QObject):
                     _stop_flag["stop"] = True
                 return verdict == "PASS"
             ctx.human_confirm = _ask
-        elif step.step_type == "GUI_CONFIRM" or step.params.get("confirm"):
+        elif step.category in (CATEGORY_MESSAGE, CATEGORY_EXTERNAL_GUI) \
+                or step.params.get("confirm"):
             if interactive:
                 # plain operator dialog: the M83/C8 invariant - a plain
                 # Message kind NEVER writes to any console
@@ -1264,8 +1267,8 @@ class TestRunner(QObject):
                     env._log("human answer GO (simulated)")
                     return True
             ctx.human_confirm = _ask
-        elif (step.step_type == STEP_FLASH
-              and str(step.params.get("flash_mode") or "").lower() == "gui"):
+        elif (step.category == CATEGORY_EXTERNAL_GUI
+              and step.type == "flash"):
             # v2-15 D: a GUI flash step takes the operator Go / Stop
             # answer (the tool launch lives in fct_exec._flash_gui_once).
             if interactive:
@@ -1281,7 +1284,8 @@ class TestRunner(QObject):
                     env._log("human answer GO (simulated)")
                     return True
             ctx.human_confirm = _ask
-        elif step.step_type == "MESSAGE_CHECK" and not step.channel:
+        elif (step.category in (CATEGORY_CONSOLE, CATEGORY_TRANSFER)
+              and not step.channel):
             if interactive:
                 def _ask(s):
                     return env._fct_message_dialog(
@@ -1291,7 +1295,8 @@ class TestRunner(QObject):
                     env._log("human answer OK (simulated)")
                     return True
             ctx.human_confirm = _ask
-        elif (step.step_type == "MESSAGE_CHECK" and step.channel
+        elif (step.category in (CATEGORY_CONSOLE, CATEGORY_TRANSFER)
+                and step.channel
                 and step.params.get("fct_console")
                 and step.params.get("confirm_enabled")):
             # LEGACY marker: implicit popups are gone (unified model

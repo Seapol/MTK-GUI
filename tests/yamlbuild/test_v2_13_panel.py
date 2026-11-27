@@ -6,11 +6,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from mtkgui.engine.step_types import CATEGORY_CONSOLE  # noqa: E402
 from mtkgui.gui.yamlbuild.fct_build import (  # noqa: E402
-    FLASH_GUI,
     FctSequence,
     FctStep,
-    STEP_MESSAGE_CHECK,
     build_fct_sequence,
 )
 from mtkgui.gui.yamlbuild.fct_sequence_v2_panel import (  # noqa: E402
@@ -20,13 +19,14 @@ from mtkgui.gui.yamlbuild.fct_sequence_v2_panel import (  # noqa: E402
 def test_panel_renders_sequence():
     panel = BuildFctSequencePanel()
     try:
-        panel.set_sequence(build_fct_sequence("x", flash_mode=FLASH_GUI))
+        panel.set_sequence(build_fct_sequence("x", flash_mode="gui"))
         # fat flash + default body + oobe flash + power off + reset
         assert panel.table.rowCount() == 5
         types = [panel.table.item(r, 2).text()
                  for r in range(panel.table.rowCount())]
-        assert types == ["FLASH (gui)", "MESSAGE_CHECK", "FLASH (gui)",
-                         "OPERATION", "OPERATION"]
+        assert types == ["ExternalGui.flash", "Message.ok",
+                         "ExternalGui.flash", "Operation.power_off",
+                         "Operation.reset_instruments"]
     finally:
         panel.deleteLater()
 
@@ -34,7 +34,7 @@ def test_panel_renders_sequence():
 def test_panel_edit_emits_changed():
     panel = BuildFctSequencePanel()
     try:
-        panel.set_sequence(build_fct_sequence("x", flash_mode=FLASH_GUI))
+        panel.set_sequence(build_fct_sequence("x", flash_mode="gui"))
         panel.table.setCurrentCell(0, 0)
         changed = []
         panel.content_changed.connect(lambda: changed.append(True))
@@ -48,11 +48,11 @@ def test_panel_edit_emits_changed():
 def test_panel_validate():
     panel = BuildFctSequencePanel()
     try:
-        panel.set_sequence(build_fct_sequence("x", flash_mode=FLASH_GUI))
+        panel.set_sequence(build_fct_sequence("x", flash_mode="gui"))
         assert panel.validate() == (True, "")
         dup = FctSequence(name="dup", steps=[
-            FctStep(name="a", step_type=STEP_MESSAGE_CHECK),
-            FctStep(name="a", step_type=STEP_MESSAGE_CHECK),
+            FctStep(name="a", category=CATEGORY_CONSOLE, type="serial"),
+            FctStep(name="a", category=CATEGORY_CONSOLE, type="serial"),
         ])
         panel.set_sequence(dup)
         ok, msg = panel.validate()

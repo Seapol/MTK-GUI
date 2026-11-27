@@ -232,12 +232,26 @@ def _ict_steps(config: dict, stage: str) -> list[TestStep]:
 
 
 def _fct_steps(config: dict, stage: str) -> list[TestStep]:
-    """fct_test_cases -> TestStep list (kind derived for legacy rows)."""
+    """fct_test_cases -> TestStep list.
+
+    M160: the engine kind is derived from the step marker
+    (``op_params.fct_step`` category + type) through
+    ``STEP_TYPE_TO_KIND``; the top-level case ``kind`` is never read.
+    """
+    from .step_types import STEP_TYPE_TO_KIND
     wf = config.get("test_workflow") or {}
     steps: list[TestStep] = []
     for case in wf.get("fct_test_cases") or []:
         name = str(case.get("name", ""))
-        kind = str(case.get("kind") or fct_kind_from_name(name))
+        marker = ((case.get("op_params") or {}).get("fct_step")
+                  if isinstance(case, dict) else None)
+        kind = ""
+        if isinstance(marker, dict):
+            kind = STEP_TYPE_TO_KIND.get(
+                (str(marker.get("category") or ""),
+                 str(marker.get("type") or "")), "")
+        if not kind:
+            kind = fct_kind_from_name(name)
         params = (dict(case.get("op_params"))
                   if case.get("op_params") else None)
         steps.append(TestStep(

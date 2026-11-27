@@ -180,10 +180,9 @@ class TestFlashGuiExecution:
 def test_built_step_is_gostop_confirm_with_path():
     """The published YAML carries a GUI_CONFIRM (Go / Stop) step."""
     from mtkgui.engine.fct_test_config import _console_row_steps
-    from mtkgui.gui.yamlbuild.fct_build import STEP_GUI_CONFIRM
     (step,) = _console_row_steps(_flash_cmd(flash_gui_message="custom"),
                                  "console")
-    assert step.step_type == STEP_GUI_CONFIRM
+    assert (step.category, step.type) == ("ExternalGui", "flash")
     assert step.params["style"] == "gostop"
     assert step.params["message"] == "custom"
     assert step.params["flash_gui_path"] == FLASH_PATH
@@ -272,7 +271,8 @@ def test_legacy_flash_sequence_yaml_still_loads():
     assert [s.name for s in stages] == ["ICT", "FCT"]
     flash = next(s for s in stages[1].steps
                  if s.name == "Flash FAT Firmware")
-    assert flash.kind == "op"
+    # M160: the engine kind is derived from the step marker, not the
+    # top-level case kind - the legacy op row itself still loads intact.
     assert flash.op_params["type"] == "flash"
 
 
