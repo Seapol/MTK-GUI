@@ -10,8 +10,13 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# The smoke runs many demo runs; the automatic PDF render spawns a
+# ~10 s child process per run and its application-modal dialog would
+# collide with later sections. The render path has dedicated pytest
+# coverage, so disable it for the smoke only.
+os.environ["MTK_SMOKE_NO_REPORT"] = "1"
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -25,36 +30,50 @@ app.setStyleSheet(QSS)
 w = MainWindow()
 w.show()
 
+
+def dispose_window(win):
+    """Close a window and release its widget tree immediately.
+
+    A closed window stays alive while Python references it, and every
+    app-wide setStyleSheet then re-polishes the accumulated widget
+    trees (minutes of 100 % CPU in the theme section); delete each
+    window once it is no longer needed."""
+    win.close()
+    win.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
 # 1. Multi-console: no YAML loaded -> 0 channels; 1-4 serial + 0-1 SSH.
 from serial.tools import list_ports
 list(list_ports.comports())  # enumeration must not crash
 
 mc = w.workflow_page.multi_console
-assert len(mc.channels) == 0  # no YAML loaded -> console starts empty
+# MainWindow starts in the no-project state: no channels, no waveform
+assert list(mc.channels) == [], list(mc.channels)
 assert w.workflow_page.rail_samples is None  # waveform starts empty
 mc.add_serial()
 assert mc.current_key() == "ser1"
-assert list(mc.channels)[0] == "ser1"
 mc.add_serial()
 mc.add_serial()
 mc.add_serial()
 keys = list(mc.channels)
 assert keys == ["ser1", "ser2", "ser3", "ser4"], keys
-assert mc.btn_add_serial.isEnabled() is False  # 4-serial cap
+# 4-serial cap: a fifth add returns None and adds nothing
 assert mc.add_serial() is None
+assert list(mc.channels) == ["ser1", "ser2", "ser3", "ser4"]
 ssh_key = mc.add_ssh()
 assert ssh_key == "ssh1"
-assert mc.btn_add_ssh.isEnabled() is False     # single SSH channel
+# single SSH channel: the second add returns None
 assert mc.add_ssh() is None
 # each channel keeps its own identifying accent color
 accent_colors = {ch["accent"].lower() for ch in mc.channels.values()}
 assert len(accent_colors) == 5
 # remove SSH, then SER4; SER1..SER3 remain
 mc.remove_channel("ssh1")
-assert "ssh1" not in mc.channels and mc.btn_add_ssh.isEnabled()
+assert "ssh1" not in mc.channels
+assert mc.add_ssh() == "ssh1"   # the slot is available again
+mc.remove_channel("ssh1")
 mc.remove_channel("ser4")
 assert list(mc.channels) == ["ser1", "ser2", "ser3"]
-assert mc.btn_remove.isEnabled()  # can still remove
 print("channel add/remove limits ok")
 
 # 1b. Double-click the console opens the config dialog (auto-cancelled).
@@ -202,21 +221,30 @@ assert w.tabs.tabText(1) == "Equipment"
 assert w.tabs.tabText(2) == "Yaml Build"
 print("tabs ok")
 
-# 12b. FCT keeps a 12-row viewport and shares its row 60/40 with console.
+# 12b. FCT and the console share one 3-pane splitter: FCT pane |
+# collapse chevron | console. The chevron collapses and restores the
+# console pane (exact pixel ratios follow the widgets' size hints).
 fct = w.workflow_page.fct
-assert fct.minimumHeight() >= 300
-fct_split = mc.parent()
-from PySide6.QtWidgets import QSplitter as _QS
+fct_split = w.workflow_page._fct_splitter
+from PySide6.QtWidgets import QSplitter as _QS, QToolButton as _QTB
 assert isinstance(fct_split, _QS)
 assert fct_split.orientation() == Qt.Orientation.Horizontal
+widgets = [fct_split.widget(i) for i in range(fct_split.count())]
+assert len(widgets) == 3
+assert isinstance(widgets[1], _QTB)          # chevron in the middle
+assert widgets[2] is mc                      # console on the right
+assert fct.parent() is widgets[0]            # FCT table inside the left pane
+chevron = w.workflow_page._fct_chevron
+assert mc.isVisible()
+QTest.mouseClick(chevron, Qt.LeftButton)    # collapse
 QApplication.processEvents()
-sizes = fct_split.sizes()
-assert sizes[0] > 0 and sizes[1] > 0
-ratio = sizes[0] / sizes[1]
-assert 0.8 < ratio < 1.25, (sizes, ratio)  # FCT 50% vs console 50%
-print("fct/console 50:50 layout ok")
+assert not mc.isVisible()
+QTest.mouseClick(chevron, Qt.LeftButton)    # restore
+QApplication.processEvents()
+assert mc.isVisible()
+print("fct/console splitter collapse ok")
 
-# 13. Equipment page: 25 blocks; a real mouse click on a block opens
+# 13. Equipment page: 23 blocks; a real mouse click on a block opens
 # the configuration dialog (hit-testing through the view).
 ep = w.equipment_page
 expected_keys = {
@@ -226,8 +254,8 @@ expected_keys = {
     "daq973a", "u2355a", "psu",
     "m908a_1", "m908a_2", "m907a",
     "u_ai", "u_ctr", "psu_detail",
-    # layer 3
-    "fixture", "control_board",
+    # layer 3 (control board + its four signal cells; no plain band block)
+    "control_board",
     "cell_press", "cell_inpos", "cell_presence", "cell_estop",
     # layer 4
     "dut", "grp_power", "grp_clocks", "grp_adc",
@@ -273,47 +301,50 @@ assert wf.btn_run.isEnabled()          # Run stays available
 assert wf.btn_stop.isEnabled() is False
 print("run gate (no yaml) ok")
 
+# Headless runs cannot connect real instruments: switch the supervisor
+# window to Virtual mode, the Mac-side runnable path (the Virtual rack
+# mirrors the Real instrument gateway one-to-one).
+w.mode = "Virtual"
+wf.set_mode("Virtual")
+wf.set_virtual_fault(w.fault_config)
+wf.multi_console.set_virtual_mode(True)
+
 from mtkgui.project_config import load_config, apply_config
-# KNOWN ISSUE - IGNORED (user direction 2026-10-14): the 96317 demo
-# project reference below is NOT VALID and projects/96317/... does
-# not exist (every plan now lives in a product folder under projects/;
-# config/plans/ and the old yaml_plan/ workspace are retired).
-# Everything from here to the end of the file depends on it, so smoke
-# stops at this point by design until the demo plan provisioning is
-# re-pointed.  The verification gate is the pytest suite (tests/).
-cfg = load_config(str(Path(
-    "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
+# Dedicated smoke fixture: 32 ICT rows + 1 FCT message row, 10 power
+# rails (tests/fixtures/smoke_project.yaml). Stable test artifact, not a
+# shipped product plan.
+cfg = load_config("tests/fixtures/smoke_project.yaml")
 apply_config(cfg, wf, w.equipment_page)
 assert wf.overall.rowCount() == 2
 # the project YAML drives the tables: standard ops around the per-net
-# tests (96317: 32 ICT rows, Power On DUT = 14, DAQ AI = 15)
+# tests (32 ICT rows; DAQ AI Start = 14, Power On DUT = 15, End = 16)
 assert wf.ict.rowCount() == 32
 assert wf.fct.rowCount() == 1
 assert wf.ict_steps[0][1] == "Init Instruments"
-assert wf.ict_steps[14][1] == "Power On DUT"
-daq = 15
-# the YAML stores kind="test"; the engine dispatches the DAQ AI row by
-# its name (DAQ_AI_STEP_NAME)
-assert wf.ict_steps[daq][1] == "DAQ AI - Power rails"
+assert wf.ict_steps[14][1] == "DAQ AI Start"
+assert wf.ict_steps[15][1] == "Power On DUT"
+daq_end = 16
+assert wf.ict_steps[daq_end][1] == "DAQ AI End"
 wf.run_demo()
-assert wf.overall.item(0, 3).text() == "PASS"
-assert wf.ict.item(0, 7).text() == "Done"          # Init Instruments op
-assert wf.ict.item(4, 7).text() in ("PASS", "Done")  # first R-GND test
+assert wf.overall.item(0, 3).text() in ("PASS", "Virtual PASS")
+assert wf.ict.item(0, 7).text() in ("Done", "Virtual Done")
+assert wf.ict.item(4, 7).text() in ("PASS", "Virtual PASS")  # first R-GND
 assert wf.ict_steps[4][1].startswith("R-GND")
 assert wf.fct.item(0, 4).text() in ("PASS", "Done")
-# DAQ AI (row 15, right after Power On DUT): samples + CSV captured
+# DAQ AI End closes the capture: samples + CSV recorded
 assert wf.rail_csv_path is not None and wf.rail_csv_path.exists()
 with open(wf.rail_csv_path) as fh:
     header = fh.readline().strip()
 assert header.startswith("time_ms") and "5V_SDA_PSW" in header
 assert "DCDC_3V3" in header
 assert wf.rail_samples is not None and len(wf.rail_samples) == 10
-# disable the DAQ AI row -> skipped as Ignore, no capture
-daq_wait, wf.ict_enables[daq] = wf.ict_enables[daq], False
+# disable the DAQ AI End row -> skipped as Ignore, nothing recorded
+daq_wait, wf.ict_enables[daq_end] = wf.ict_enables[daq_end], False
 wf.clear_results()
 wf.run_demo()
-assert wf.ict.item(daq, 7).text() == "Ignore"
-wf.ict_enables[daq] = daq_wait
+assert wf.ict.item(daq_end, 7).text() in ("Ignore", "Virtual Ignore")
+assert wf.rail_csv_path is None
+wf.ict_enables[daq_end] = daq_wait
 wf.clear_results()
 assert wf.overall.item(0, 3).text() == "Pending"
 assert wf.overall.item(0, 4).text() == "--"
@@ -346,13 +377,13 @@ print("overall flow EN ok")
 # 15. Overall Flow stop policies: defaults + abort decisions.
 assert wf.stop_if_fail_cb.isChecked() is False
 assert wf.stop_if_short_cb.isChecked() is True
-# row 4 = R-GND (Ω unit), row 16 = power voltage (V unit)
+# row 4 = R-GND (Ω unit), row 17 = power voltage (V unit)
 assert wf._is_impedance_short_row(4)
-assert not wf._is_impedance_short_row(16)
+assert not wf._is_impedance_short_row(17)
 # simulated short at the impedance row
 wf.ict_sim_fail.add(4)
 wf._exec_ict_row(4)
-assert wf.ict.item(4, 7).text() == "FAIL"
+assert wf.ict.item(4, 7).text() == "Virtual FAIL"
 assert wf._policy_abort_reason("ict", (4,))  # stop-on-short default ON
 wf.stop_if_short_cb.setChecked(False)
 assert wf._policy_abort_reason("ict", (4,)) is None  # stop-on-fail OFF
@@ -360,18 +391,19 @@ wf.stop_if_fail_cb.setChecked(True)
 assert wf._policy_abort_reason("ict", (4,))
 # non-short ICT failure only reacts to stop-on-fail
 wf.ict_sim_fail.discard(4)
-wf.ict_sim_fail.add(16)  # Power Voltage
-wf._exec_ict_row(16)
-assert wf.ict.item(16, 7).text() == "FAIL"
-assert wf._policy_abort_reason("ict", (16,))
+wf.ict_sim_fail.add(17)  # Power Voltage
+wf._exec_ict_row(17)
+assert wf.ict.item(17, 7).text() == "Virtual FAIL"
+assert wf._policy_abort_reason("ict", (17,))
 wf.stop_if_fail_cb.setChecked(False)
-assert wf._policy_abort_reason("ict", (16,)) is None
-# FCT failure follows stop-on-fail only (row 0 = the "All Tests done."
-# message test)
+assert wf._policy_abort_reason("ict", (17,)) is None
+# FCT failure: a manual marker-less row carries the per-step default
+# on_fail=abort, so the run aborts even with the global Stop-if-failure
+# checkbox off (the global checkbox only forces an on_fail=continue step).
 wf.fct_sim_fail.add(0)
 wf._exec_fct_row(0)
 assert wf.fct.item(0, 4).text() == "FAIL"
-assert wf._policy_abort_reason("fct", (0,)) is None
+assert wf._policy_abort_reason("fct", (0,))
 wf.stop_if_fail_cb.setChecked(True)
 assert wf._policy_abort_reason("fct", (0,))
 # restore defaults
@@ -403,7 +435,7 @@ def answer_popup():
 
 msg_timer.timeout.connect(answer_popup)
 msg_timer.start()
-# the 96317 project has ONE FCT message row ("All Tests done." ->
+# the smoke fixture has ONE FCT message row ("All Tests done." ->
 # MessageOK): OK -> PASS (MessageOK pops a single-button dialog, the
 # reject path is covered by the MessageYesNo/GoStop rows' unit tests)
 msg_timer.stop()
@@ -441,16 +473,24 @@ assert wf2.interval_spin.isEnabled() is False
 assert not (wf2.overall.item(0, 2).flags() & Qt.ItemFlag.ItemIsEnabled)
 assert (w.workflow_page.overall.item(0, 2).flags()
         & Qt.ItemFlag.ItemIsEnabled)
-# Serial console: no channel add/remove, no parameter config dialogs
+# Serial console: channel management moved to inline channel rows; the
+# operator cannot add/remove or configure them (Open/Close stays allowed).
 mc2 = wf2.multi_console
-assert mc2.btn_add_serial.isEnabled() is False
-assert mc2.btn_add_ssh.isEnabled() is False
+assert mc2._can_manage_channels() is False
+assert mc2._can_configure() is False
+for ch in mc2.channels.values():
+    row = ch["row"]
+    assert row.btn_remove.isEnabled() is False
+    assert row.btn_config.isEnabled() is False
+    assert row.btn_open.isEnabled() is True
+# the supervisor window keeps channel management
+assert wf.multi_console._can_manage_channels() is True
 # Equipment page: block-configuration windows are denied
 assert w2.equipment_page._config_allowed is False
 # the original supervisor window keeps everything enabled
 assert w.act_save_yaml.isEnabled()
 assert w.act_permissions.isVisible()
-w2.close()
+dispose_window(w2)
 print("operator permission limits ok")
 
 # 15. Virtual mode: supervisor-only, simulated HW + fault injection.
@@ -462,8 +502,7 @@ wf3 = w3.workflow_page
 assert wf3.virtual_mode is True
 assert wf3.multi_console.virtual_mode is True
 # load YAML so tables are populated for the virtual demo run
-cfg3 = load_config(str(Path(
-    "projects/96317/A-96317_96317_EVT-(Proto-1)_rev1.1.yaml")))
+cfg3 = load_config("tests/fixtures/smoke_project.yaml")
 apply_config(cfg3, wf3, w3.equipment_page)
 # fault injection ratios support 0.01 % precision (dialog + roundtrip)
 from mtkgui.virtual_mode import VirtualFaultDialog, load_fault_config, \
@@ -494,9 +533,14 @@ assert wf3.ict.item(4, 7).text() == "Virtual PASS"
 assert wf3.result_label.text() == "Virtual PASS"
 # DAQ waveform: virtual badge, virtual CSV name, realistic overshoot
 assert wf3.rail_widget.virtual is True
-assert wf3.rail_csv_path.name.startswith("power_rails_virtual_")
+assert wf3.rail_csv_path.name.startswith("power_rails_")
+assert "_virtual_" in wf3.rail_csv_path.name
 assert max(max(s) for s in wf3.rail_samples) > 1.0  # post-ramp overshoot
-assert w.workflow_page.rail_widget.virtual is False  # Real mode unchanged
+# Real mode keeps the rail widget unmarked (fresh Real window for the
+# contrast check, since the first window runs Virtual headless).
+w_real = MainWindow(role=ROLE_SUPERVISOR, mode="Real")
+assert w_real.workflow_page.rail_widget.virtual is False
+dispose_window(w_real)
 # AI waveform review: written next to the CSV, every rail graded
 rpath = wf3.rail_csv_path.with_name(
     wf3.rail_csv_path.stem + "_ai_review.txt")
@@ -517,14 +561,15 @@ _noms = [_r[2] for _r in wf3.rails]
 assert len(_tail) == len(_noms)
 for _v, _nom in zip(_tail, _noms):
     assert abs(_v - _nom) < 0.10 * _nom + 0.02, (_v, _nom)
-w3.close()
+# w3 stays alive for the 15e error run and section 18c; it is
+# disposed after 18c finishes.
 # operator account is always forced back to Real mode
 w4 = MainWindow(role=ROLE_OPERATOR, mode="Virtual")
 w4.show()
 assert w4.mode == "Real"
 assert w4.act_fault_inject.isEnabled() is False
 assert w4.workflow_page.virtual_mode is False
-w4.close()
+dispose_window(w4)
 print("virtual mode ok")
 
 # 15b. Virtual hardware rack: single-draw fault policy statistics.
@@ -695,7 +740,7 @@ print("virtual DUT one-shot fault ok")
 
 # 16. Virtual console connection works without real hardware.
 mc3 = w3.workflow_page.multi_console
-mc3.add_serial()  # the 96317 YAML carries console: [] -> one default
+mc3.add_serial()  # the smoke fixture carries console: [] -> one default
 key = sorted(mc3.channels)[-1]      # the channel just added
 mc3.open_channel(key)  # fake port: real mode would fail, virtual connects
 for _ in range(20):  # queued thread signals may need a few loop passes
@@ -758,14 +803,22 @@ assert mc5.channels["ser2"]["params"]["baudrate"] == 115200
 assert mc5.channels["ssh1"]["params"]["host"] == "10.1.2.3"
 cfg_rt = build_config(w5.workflow_page, w5.equipment_page)
 assert cfg_rt["console"][1]["params"]["port"] == "/dev/ttySMOKE2"
-w5.close()
+dispose_window(w5)
 print("console YAML round-trip ok")
 
 # 18b. Pre-FCT auto connect, failure path (Real mode): the run stops,
 # a popup reports the error, Overall Result FAIL, first FCT row Error.
-mcw.apply_yaml_channels(
+# Uses a dedicated Real-mode window: the first window runs Virtual
+# headless, where console channels always connect and cannot fail.
+w6 = MainWindow(role=ROLE_SUPERVISOR, mode="Real")
+w6.show()
+wf6 = w6.workflow_page
+mc6 = wf6.multi_console
+apply_config(load_config("tests/fixtures/smoke_project.yaml"),
+             wf6, w6.equipment_page)
+mc6.apply_yaml_channels(
     [{"kind": "serial", "params": {"port": "/dev/ttySMOKE_MISSING"}}])
-assert mcw.yaml_channel_keys() == ["ser1"]
+assert mc6.yaml_channel_keys() == ["ser1"]
 
 def close_modal_18():
     dlg = app.activeModalWidget()
@@ -774,33 +827,30 @@ def close_modal_18():
     else:
         QTimer.singleShot(50, close_modal_18)
 
-wf.fct_connect_timeout = 0.5
-wf.clear_results()
-steps18 = wf._steps_template(len(wf.ict_steps), wf.fct.rowCount())
+wf6.fct_connect_timeout = 0.5
+wf6.clear_results()
+steps18 = wf6._steps_template(len(wf6.ict_steps), wf6.fct.rowCount())
 idx18 = [i for i, s in enumerate(steps18) if s[0] == "fctconn"][0]
-wf._run_steps = steps18
-wf._run_index = idx18
-wf._run_start = time.monotonic()
-wf._stage_start = wf._run_start
-wf.run_state = "running"
-wf.btn_run.setEnabled(False)
-wf.btn_stop.setEnabled(True)
-wf.product_group.setEnabled(False)
+wf6._run_steps = steps18
+wf6._run_index = idx18
+wf6._run_start = time.monotonic()
+wf6._stage_start = wf6._run_start
+wf6.run_state = "running"
+wf6.btn_run.setEnabled(False)
+wf6.btn_stop.setEnabled(True)
+wf6.product_group.setEnabled(False)
 QTimer.singleShot(150, close_modal_18)
-wf._run_step()  # enters the fctconn step -> background connect + polling
+wf6._run_step()  # enters the fctconn step -> background connect + polling
 for _ in range(60):  # up to ~6 s for the abort to finish
     QTest.qWait(100)
-    if wf.run_state == "idle":
+    if wf6.run_state == "idle":
         break
-assert wf.run_state == "idle"
-assert wf.fct.item(0, 4).text() == "Error"
+assert wf6.run_state == "idle"
+assert wf6.fct.item(0, 4).text() == "Error"
 # single FCT row -> no remaining rows; the failed connect aborts FAIL
-assert wf.result_label.text() == "FAIL"
-assert wf._judge_verdict() == "FAIL"
-wf.fct_connect_timeout = 10.0
-mcw.set_channel_params("ser1", {"port": None})
-mcw._yaml_channel_keys = None
-mcw.close_channel(ssh18)
+assert wf6.result_label.text() == "FAIL"
+assert wf6._judge_verdict() == "FAIL"
+dispose_window(w6)
 print("pre-FCT connect failure ok")
 
 # 18c. Pre-FCT auto connect, success path (Virtual mode): the missing
@@ -852,6 +902,7 @@ mc3.close_channel("ser1")
 wf3.fct_connect_timeout = 10.0
 mc3._yaml_channel_keys = None
 print("pre-FCT connect success (virtual) ok")
+dispose_window(w3)
 
 # 19. GUI Theme switching: View > GUI Theme applies a new stylesheet and
 # persists the choice in <config>/settings.json (v2/C3).

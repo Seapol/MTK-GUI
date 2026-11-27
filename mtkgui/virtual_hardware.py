@@ -807,9 +807,9 @@ class VirtualRack:
                                    [f"{name}: no limits - recorded as TBD"],
                                    value=value)
             # CLK1 (RTC, 32.768 kHz) -> DAQM907A totalizer;
-            # CLK2/CLK3 (4/6 MHz) -> U2355A counters
+            # CLK2/CLK3 (4/6 MHz) -> U2355A CTR0/CTR1
             if tp and tp[0] == "C" and tp[1] >= 2:
-                counter = 1 if tp[1] == 2 else 2
+                counter = tp[1] - 2
                 return self.daq.measure_counter(
                     counter, name, lo, hi, powered, fault)
             return self.daqm.measure_totalizer(

@@ -1106,6 +1106,10 @@ class MultiConsoleWidget(QGroupBox):
         self._float_btn.pop(key, None)
         del self.channels[key]
         self._refresh_actions()
+        # invalidate cached size hints: with fewer tabs the container's
+        # minimum width shrinks, otherwise the splitter keeps the old
+        # (large) minimum and can never return to 50:50
+        self.updateGeometry()
         self.connection_changed.emit()
         self.channels_changed.emit()
 

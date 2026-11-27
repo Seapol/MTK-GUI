@@ -1,0 +1,372 @@
+project:
+  software: mtk-gui v1.0.0.0
+  revision: 1.0.0
+  created: '2026-09-28T00:00:00'
+product:
+  part_number: SMOKE-001
+  core_id: '00000'
+  batch: EVT (Proto-1)
+equipment:
+  psu:
+    title: N5747A DC Power Supply
+    params:
+      Voltage set (V): 12.0
+      Current limit (A): 3.0
+console: []
+test_workflow:
+  overall_flow:
+  - stage: ICT
+    description: Smoke ICT stage
+    enable: true
+  - stage: FCT
+    description: Smoke FCT stage
+    enable: true
+  stop_if_failure: false
+  stop_if_any_short: true
+  auto_sn: false
+  retry: 0
+  ict_test_cases:
+  - name: Init Instruments
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: instruments
+      instruments:
+      - daq973a
+      - u2355a
+      - psu
+  - name: Fixture Ready
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: fixture_ready
+      debounce_ms: 200
+  - name: R-GND - NET1
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET2
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET3
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET4
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET5
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET6
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET7
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET8
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET9
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET10
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET11
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: R-GND - NET12
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Ω
+    threshold_min: —
+    threshold_max: —
+  - name: DAQ AI Start
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: daq_ai_start
+      rate_hz: 20000
+      window_ms: 1000
+      arm_lead_ms: 100
+  - name: Power On DUT
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: power
+      state: 'on'
+  - name: DAQ AI End
+    kind: op
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: —
+    threshold_min: —
+    threshold_max: —
+    op_params:
+      type: daq_ai_end
+      window_ms: 1000
+  - name: Power Voltage - NET1
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET2
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET3
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET4
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET5
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET6
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET7
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET8
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET9
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET10
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET11
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Power Voltage - NET12
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: V
+    threshold_min: 3.2
+    threshold_max: 3.4
+  - name: Clock Hz - RTC_CLK (TP_C01)
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: 32766
+    threshold_max: 32770
+  - name: Clock Hz - CLKOUT1 (TP_C02)
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: 3999600
+    threshold_max: 4000400
+  - name: Clock Hz - CLKOUT2 (TP_C03)
+    kind: test
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+    unit: Hz
+    threshold_min: 5999400
+    threshold_max: 6000600
+  power_rails_up_sequence:
+    instrument: Keysight U2355A analog input
+    channels: 10
+    duration_s: 6.5
+    pre_trigger_s: -0.5
+    post_trigger_s: 6.0
+    sample_rate_hz: 200
+    judgment: record only - no pass/fail
+    rails:
+    - name: 5V_SDA_PSW
+      nominal_v: 5.0
+      ramp_offset_s: 0.0
+      color: '#ef4444'
+    - name: DCDC_3V3
+      nominal_v: 3.3
+      ramp_offset_s: 0.002
+      color: '#22c55e'
+    - name: 1V8
+      nominal_v: 1.8
+      ramp_offset_s: 0.005
+      color: '#3b82f6'
+    - name: 1V2
+      nominal_v: 1.2
+      ramp_offset_s: 0.008
+      color: '#f59e0b'
+    - name: 12V
+      nominal_v: 12.0
+      ramp_offset_s: 0.01
+      color: '#a855f7'
+    - name: 3V3_A
+      nominal_v: 3.3
+      ramp_offset_s: 0.012
+      color: '#06b6d4'
+    - name: 1V8_A
+      nominal_v: 1.8
+      ramp_offset_s: 0.015
+      color: '#84cc16'
+    - name: 5V_A
+      nominal_v: 5.0
+      ramp_offset_s: 0.018
+      color: '#f97316'
+    - name: 2V5
+      nominal_v: 2.5
+      ramp_offset_s: 0.02
+      color: '#6366f1'
+    - name: 1V1
+      nominal_v: 1.1
+      ramp_offset_s: 0.022
+      color: '#14b8a6'
+  fct_test_cases:
+  - name: All Tests done.
+    kind: MessageOK
+    enable: true
+    wait_ms: 100
+    timeout_ms: 5000
+  fct_keywords:
+    pass:
+    - pass
+    - passed
+    - ok
+    - done
+    - complete
+    fail:
+    - fail
+    - failed
+    - error
+    - timeout
+    - abort
