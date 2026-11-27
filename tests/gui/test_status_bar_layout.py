@@ -24,9 +24,15 @@ def qapp():
 
 @pytest.fixture()
 def window(qapp, monkeypatch):
+    from mtkgui.version_info import VersionInfo
     monkeypatch.setattr(
         "mtkgui.gui_version.load_gui_version",
         lambda path=None: ("v4.1.1.1287", None))
+    monkeypatch.setattr(
+        "mtkgui.main_window.get_version_info",
+        lambda force=False: VersionInfo(
+            tag="v4.1.1.1287", branch="develop", commit="abc1234",
+            dirty=False, source="git"))
     w = MainWindow(role=ROLE_SUPERVISOR)
     yield w
     w.close()
@@ -97,7 +103,8 @@ def test_running_run_cancels_pending_reset(window):
 
 # ----------------------------------------------------- preserved widgets
 def test_version_label_and_neighbors_intact(window):
-    assert window.status_version.text() == "GUI version: v4.1.1.1287"
+    assert window.status_version.text() == \
+        "GUI version: v4.1.1.1287 (develop @ abc1234)"
     for attr in ("status_role", "status_mode", "status_user",
                  "status_date"):
         assert getattr(window, attr) is not None, attr

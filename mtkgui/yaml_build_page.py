@@ -394,12 +394,6 @@ class YamlBuildPage(QWidget):
         success (cases may be empty for an ICT-only project); on a parse
         or validation failure it carries the messages and cases is None.
         """
-        if str((params or {}).get("fct_steps_yaml") or "").strip():
-            cases, errors = self._emit_fct_steps(params)
-        else:
-            cases, errors = self._emit_fct_sequence_legacy(params)
-        if errors or cases is None:
-            return cases, errors
         # m118 (the m114 defect): the model's stored FCT list wins over
         # the config-derived rebuild - the shipped project files store
         # 45 rows while the config derives 38.  ``get_fct_test_cases``
@@ -410,6 +404,22 @@ class YamlBuildPage(QWidget):
         # that placeholder when its params are set, and letting it win
         # replaced every derived row with "A_Fct". A real stored plan
         # has at least two rows.
+        # M160: when block 07 carries no new-step edits (fct_steps_yaml
+        # is empty), the stored list is the single source of truth.
+        # Skipping the legacy rebuild avoids the spurious "stored N rows
+        # vs config yields M rows" warning for a shipped project whose
+        # test_workflow list and legacy config already diverged during
+        # the category+type migration.
+        if (stored and len(stored) > 1
+                and not str((params or {}).get("fct_steps_yaml")
+                            or "").strip()):
+            return list(stored), []
+        if str((params or {}).get("fct_steps_yaml") or "").strip():
+            cases, errors = self._emit_fct_steps(params)
+        else:
+            cases, errors = self._emit_fct_sequence_legacy(params)
+        if errors or cases is None:
+            return cases, errors
         if stored and len(stored) > 1:
             if len(stored) != len(cases):
                 self._tlog(

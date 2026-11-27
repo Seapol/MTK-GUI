@@ -47,6 +47,33 @@ STEP_TYPES_ALL = tuple(
     for category in CATEGORY_ORDER
     for sub_type in STEP_CATEGORIES[category])
 
+#: (category, type) pairs that belong to ICT only and must never appear
+#: in the FCT sequence builder (node 06).  Measurement is the ICT numeric
+#: block; the four Operation sub-types drive the fixture / DAQ, not the
+#: DUT, so they are out of scope for an FCT flow too.
+FCT_EXCLUDED_TYPES = frozenset({
+    (CATEGORY_MEASUREMENT, "r_gnd"),
+    (CATEGORY_MEASUREMENT, "voltage"),
+    (CATEGORY_MEASUREMENT, "clock"),
+    (CATEGORY_OPERATION, "init_instruments"),
+    (CATEGORY_OPERATION, "fixture_ready"),
+    (CATEGORY_OPERATION, "daq_ai_start"),
+    (CATEGORY_OPERATION, "daq_ai_end"),
+})
+
+#: the 7 FCT categories in display order (Measurement excluded)
+FCT_CATEGORY_ORDER = tuple(
+    category for category in CATEGORY_ORDER
+    if category != CATEGORY_MEASUREMENT)
+
+#: FCT-only category -> sub-types (7 categories, 25 sub-types)
+FCT_STEP_CATEGORIES = {
+    category: tuple(
+        sub_type for sub_type in STEP_CATEGORIES[category]
+        if (category, sub_type) not in FCT_EXCLUDED_TYPES)
+    for category in FCT_CATEGORY_ORDER
+}
+
 
 def valid_type(category: str, sub_type: str) -> bool:
     """True when ``(category, sub_type)`` is one declared pair."""

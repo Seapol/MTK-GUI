@@ -142,24 +142,23 @@ buffer. The FCT console methods use it as follows:
   `Connecting console...` (10 s timeout). If any channel cannot be
   connected, an error popup appears, the run stops and the Overall
   Result becomes FAIL.
-- `SendtoConsole` - sends the first quoted segment of the step name
-  as a command line; the step passes once the payload is written.
-- `WaitforConsole` - polls the channel read buffer for the quoted
-  keyword(s); any match passes. On timeout: no reply at all -> `Error`,
+- `Console.serial` / `Console.ssh` - the row's `Send` field is written
+  as a command line; `Wait for` polls the channel read buffer for the
+  keyword(s) (any match passes), and `Expect pass` / `Expect fail`
+  search the **whole accumulated buffer** (the boot log may already
+  contain the expected keyword). On timeout: no reply at all -> `Error`,
   a reply without the expected keyword -> `FAIL`.
-- `CapturefromConsole` - searches the **whole accumulated buffer**
-  instantly (the boot log may already contain the expected keyword).
-- `MessageOKtoConsole` / `MessageYesNotoConsole` / `MessageGoStoptoConsole`
-  - console operator dialogs: first wait for the expected message on
-  the channel (same wait semantics as `WaitforConsole`), then prompt the
-  operator. `MessageOKtoConsole` shows a non-modal OK notice and writes
-  nothing; `MessageYesNotoConsole` sends `y` / `n` and always continues;
-  `MessageGoStoptoConsole` sends `y` (continue) or `n` (stop the run)
-  and its timeout is judged FAIL. The expected message comes from the
-  quoted segment of the step name; an empty expected message skips the
-  wait and prompts straight away.
-- `SendtoCLI` / `WaitforCLI` / `CapturefromCLI` - the same three
-  behaviors for CLI-style steps.
+- `Message.ok_console` / `Message.yesno_console` /
+  `Message.gostop_console` - console operator dialogs: first wait for
+  the expected message on the channel (same wait semantics as a
+  `Console.serial` wait), then prompt the operator. `ok_console` shows a
+  non-modal OK notice and writes nothing; `yesno_console` sends `y` /
+  `n` and always continues; `gostop_console` sends `y` (continue) or `n`
+  (stop the run) and its timeout is judged FAIL. The expected message
+  comes from the row's `Wait for` field; an empty expected message skips
+  the wait and prompts straight away.
+- `Console.cli` - the same write / wait / capture behaviour for
+  Host-PC command-line steps.
 - Keywords are parsed from quoted segments (`'Pass'` or `"OK"`) of the
   step name; without quotes the text after the last comma (minus the
   `(expected)` marker) is used.

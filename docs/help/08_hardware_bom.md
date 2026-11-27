@@ -26,11 +26,11 @@ All five are mandatory for the reference plan: the ICT stage
 
 | Item | Qty | Role | Used by | Status |
 |---|---|---|---|---|
-| Test AP / Wi-Fi router | 1 | known SSID + credentials for the DUT WLAN | FCT `WIFI` method (`wifi_test`, `iperf3`) | **Must** for products with Wi-Fi, else - |
-| Bluetooth reference device | 1 | headset / peer the DUT must discover | FCT `Bluetooth` method (`bt_test`) | **Must** for products with BT, else - |
-| USB-to-serial adapter(s) | per DUT | DUT debug console for the operator / scripts | FCT console methods (`SendtoConsole` ...) | **Must** |
+| Test AP / Wi-Fi router | 1 | known SSID + credentials for the DUT WLAN | FCT `Wifi` rows (`scan` / `ping` / `iperf`) | **Must** for products with Wi-Fi, else - |
+| Bluetooth reference device | 1 | headset / peer the DUT must discover | FCT `Bluetooth` rows (`rssi` / `pair` / `tone`) | **Must** for products with BT, else - |
+| USB-to-serial adapter(s) | per DUT | DUT debug console for the operator / scripts | FCT console rows (`Console.serial` ...) | **Must** |
 | Ethernet router / switch | 1 | DUT LAN + iperf throughput | SSH console, throughput tests | Optional |
-| HDMI display | 1 | visual output check (operator confirms) | FCT `MessageYesNo` display checks | Optional |
+| HDMI display | 1 | visual output check (operator confirms) | FCT `Message.yesno` display checks | Optional |
 | Camera module | 1 | CSI-MIPI camera check | FCT visual checks | Optional |
 | Microphone / earphone | 1 | audio path check | FCT audio checks | Optional |
 | Speaker | 1 | audio output check | FCT audio checks | Optional |
@@ -92,7 +92,7 @@ for a reduced plan:
 | Clock Hz | DAQ973A (slow) and/or U2355A (fast) | clock taps at the fixture | per-net resource from the channel allocation |
 | Power rails (DAQ AI) | U2355A + N5747A | AI sense harness | CSV + AI review |
 | FCT console tests | - | USB-to-serial adapter(s) | serial or SSH console channel |
-| Flash FAT / OOBE | third-party flash GUI (HOST PC ▸ Flash Tool Path) | - | operator-driven Flash_GUI step |
-| FCT Wi-Fi | - | test AP | `WIFI` method |
-| FCT Bluetooth | - | BT reference device | `Bluetooth` method |
+| Flash FAT / OOBE *(optional)* | third-party flash GUI or CLI (HOST PC ▸ Tool Path) | - | `ExternalGui.flash` / `Console.cli` row, only when the board is not pre-flashed |
+| FCT Wi-Fi | - | test AP | `Wifi` rows (`scan` / `ping` / `iperf`) |
+| FCT Bluetooth | - | BT reference device | `Bluetooth` rows (`rssi` / `pair` / `tone`) |
 | Reports / logs | - | - | HOST PC local files |

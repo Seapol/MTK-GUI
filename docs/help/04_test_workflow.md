@@ -174,7 +174,8 @@ the two test stages.
   - Row 1 - **ICT**: In-Circuit Test, 80 power nets R-GND ->
     voltage -> RTC / CLKOUT1 / CLKOUT2 clocks (shown as a tooltip).
   - Row 2 - **FCT**: Functional Test, LED -> Serial Console (Linux) ->
-    Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE (tooltip).
+    Wi-Fi -> Bluetooth -> optional FAT / OOBE flash when the board is
+    not pre-flashed (tooltip).
 - The `EN` checkbox enables / disables a stage. A disabled stage is
   reported as `Skip` when the run reaches it, and every toggle is
   logged (`Overall Flow ICT enabled` / `disabled`).
@@ -413,12 +414,14 @@ The FCT table lists the functional / message test cases. Columns:
 `#`, `Test`, `EN`, `Duration (s)` (filled after execution) and
 `Result` (`PASS` / `FAIL` / `Error`).
 
-The factory sequence (7 steps): `MessageYesNo: LED Test`, 
-`CapturefromConsole: COM1, 'Linux version' (expected)`,
-`WaitforConsole: COM1, 'Pass' or 'OK' (expected)`,
-`SendtoCLI: "wifi_test --scan"`, `SendtoCLI: "bt_test --scan"`,
-`MessageGoStop: Flash FAT Firmware`, `MessageGoStop: Flash OOBE
-Firmware`.
+The factory sequence (7 example rows): `Message.yesno: LED Test`,
+`Console.serial: 'Linux version' (expected)`,
+`Console.serial: 'Pass' or 'OK' (expected)`,
+`Console.cli (host): "wifi_test --scan"`, `Console.cli (host): "bt_test
+--scan"`, and — only when the board is not pre-flashed —
+`ExternalGui.flash: FAT firmware`, `ExternalGui.flash: OOBE firmware`.
+A board that ships with the FAT firmware already burned (the FRDM-IMX93
+example) simply has no flash rows.
 
 ### PASS, FAIL and Error - who owns the row
 
@@ -473,15 +476,16 @@ any `Fail` / `Error` keyword in the captured batch beats a later
 
 #### Operator dialogs
 
-- **MessageOK** - information dialog with an OK button; acknowledging
+- **Message.ok** - information dialog with an OK button; acknowledging
   it passes the step. *Use for*: instructions the operator must
   confirm, e.g. `Attach the antenna before the Wi-Fi test`.
-- **MessageYesNo** - Yes / No question; answering No - or just
+- **Message.yesno** - Yes / No question; answering No - or just
   closing the dialog - fails the step. *Use for*: subjective checks
   only a human can make, e.g. `LED Test - all four LEDs lit?`.
-- **MessageGoStop** - a GO / STOP gate used before long or
-  intrusive actions such as firmware flashing; STOP (or closing)
-  fails the step, GO continues. *Example*: `Flash FAT Firmware`.
+- **Message.gostop** - a GO / STOP gate used before long or
+  intrusive actions such as an optional firmware flash; STOP (or
+  closing) fails the step, GO continues. *Example*: a flash row only
+  when the board is not pre-flashed.
 
 #### Console operator dialogs
 
@@ -489,24 +493,24 @@ These three are the **Console-domain** counterparts of the dialogs
 above. Each one first **waits for the expected message on the active
 serial Console channel**, then prompts the operator - so they combine
 the Wait / Capture behaviour with an operator confirmation. They are
-distinct from the plain `MessageOK` / `MessageYesNo` / `MessageGoStop`
-rows and are the presets the FCT `Console` page builds.
+distinct from the plain `Message.ok` / `Message.yesno` /
+`Message.gostop` rows and are the presets the FCT `Console` page builds.
 
-- **MessageOKtoConsole** - wait for the expected Console message, then
+- **Message.ok_console** - wait for the expected Console message, then
   show a **non-modal** OK notice. Acknowledging it passes the step;
   nothing is written to the Console and the run is not blocked by the
   notice. *Use for*: an informational milestone the Console announces,
-  e.g. `MessageOKtoConsole: 'ready' (expected)`.
-- **MessageYesNotoConsole** - wait for the expected Console message,
+  e.g. `ok_console: 'ready' (expected)`.
+- **Message.yesno_console** - wait for the expected Console message,
   then a modal Yes / No question. Yes sends `y`, No sends `n`, and the
   run **always continues** afterwards. *Use for*: an optional check the
-  Console asks for, e.g. `MessageYesNotoConsole: 'tone?' (expected)`.
-- **MessageGoStoptoConsole** - wait for the expected Console message,
+  Console asks for, e.g. `yesno_console: 'tone?' (expected)`.
+- **Message.gostop_console** - wait for the expected Console message,
   then a modal GO / STOP gate. GO sends `y` and continues; STOP sends
   `n` and stops the run. While the modal dialog is open the Console
   channel is held; a timeout is judged FAIL and stops the run. *Use
   for*: a Console prompt before a long or intrusive action, e.g.
-  `MessageGoStoptoConsole: 'flash now?' (expected)`.
+  `gostop_console: 'flash now?' (expected)`.
 
 The expected message comes from the quoted segment of the step name
 (or the `Expected message` field of the Console row); the wait is
@@ -515,28 +519,31 @@ wait - the step prompts straight away.
 
 #### Console and CLI keyword tests
 
-- **SendtoConsole** / **WaitforConsole** / **CapturefromConsole** -
-  write to, wait for, or capture a keyword from a serial / SSH
-  console channel (channel behaviour in `10_console.md`).
-  *Use for*: boot banners, kernel messages, interactive Linux
-  prompts, e.g. `WaitforConsole: COM1, 'Pass' or 'OK'`.
-- **SendtoCLI** / **WaitforCLI** / **CapturefromCLI** - the same
-  trio against the Host PC command line: station-side processes and
-  RF tool outputs, e.g. `SendtoCLI: "wifi_test --scan"`.
-- **Delay** - plain wait in milliseconds. *Use for*: settling time
-  between actions, e.g. 2000 ms before reading a sensor that just
+- **Console.serial** / **Console.ssh** — write to, wait for, or capture
+  a keyword from a serial / SSH console channel (channel behaviour in
+  `10_console.md`). The row's `Send`, `Wait for` and `Expect pass /
+  fail` fields carry the payload. *Use for*: boot banners, kernel
+  messages, interactive Linux prompts, e.g. a serial row waiting for
+  `'Pass' or 'OK'`.
+- **Console.cli** — the same exchange against the Host PC command line
+  (station-side processes and RF tool outputs), e.g. `"wifi_test
+  --scan"`; a CLI row can also burn firmware when the board is not
+  pre-flashed.
+- **Operation.delay** — plain wait in milliseconds. *Use for*: settling
+  time between actions, e.g. 2000 ms before reading a sensor that just
   powered up.
 
 #### RF connectivity
 
-- **WIFI** - Wi-Fi connectivity exercised through the CLI tools
-  (`wifi_test`, `iperf3` throughput runs) or the vendor utility.
-  *Use when* the DUT's WLAN must associate with the test AP and pass
-  traffic; the scan listing the reference SSID is a typical
+- **Wifi** (`scan` / `ping` / `iperf`) — Wi-Fi connectivity exercised
+  through the CLI tools (`wifi_test`, `iperf3` throughput runs) or the
+  vendor utility. *Use when* the DUT's WLAN must associate with the test
+  AP and pass traffic; the scan listing the reference SSID is a typical
   criterion.
-- **Bluetooth** - BT connectivity via `bt_test` / the vendor tool.
-  *Use when* the DUT must discover or pair with the reference
-  device, e.g. an inquiry must list the reference headset.
+- **Bluetooth** (`rssi` / `pair` / `tone`) — BT connectivity via
+  `bt_test` / the vendor tool. *Use when* the DUT must discover or pair
+  with the reference device, e.g. an inquiry must list the reference
+  headset.
 
 The quoted segments of the step name are the command / keyword
 payload the method uses at run time - edit them in the FCT Step
@@ -556,11 +563,10 @@ the changes back and refills the table.
   inserted after the current row and its edit dialog opens immediately.
   - ICT: every standard `Operation:` (with its default parameters),
     `Operation: Custom` and `Test (measurement)`.
-  - FCT: standard operations first, then one entry per test method
-    (`MessageOK`, `MessageYesNo`, `MessageGoStop`, `MessageOKtoConsole`,
-    `MessageYesNotoConsole`, `MessageGoStoptoConsole`, `SendtoConsole`,
-    `WaitforConsole`, `CapturefromConsole`, `Delay`, `SendtoCLI`,
-    `WaitforCLI`, `CapturefromCLI`, `WIFI`, `Bluetooth`).
+  - FCT: the seven FCT categories with their sub-types (`Operation`,
+    `Console`, `Message`, `Transfer`, `ExternalGui`, `Wifi`,
+    `Bluetooth`); the ICT Measurement block and ICT-only operations are
+    not offered in the FCT editor.
 - `Remove` - delete the selected step (disabled when only one step
   remains).
 - `Edit` - open the edit dialog for the selected step (double-click a

@@ -103,7 +103,7 @@ class _Slot(QWidget):
         # written back untouched (no silent data loss).
         self.edit_command = QLineEdit()
         self.edit_command.setPlaceholderText(
-            "fat_flash.bat --port COM4 --image fat_1.2.3.bin")
+            "Command to flash this firmware image (optional)")
         form.addRow("Command:", with_snippets(self.edit_command,
                                               PAGE_WINDOWS))
         # M130: one keyword per verdict - three slots plus an and/or
@@ -128,13 +128,13 @@ class _Slot(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         self.edit_tool_path = QLineEdit()
         self.edit_tool_path.setPlaceholderText(
-            r"C:\Tools\OobeFlasher\OobeFlasher.exe")
+            "Path to the third-party flash tool (optional)")
         form.addRow("Tool path:", self.edit_tool_path)
         self.edit_arguments = QLineEdit()
         form.addRow("Arguments:", self.edit_arguments)
         self.edit_prompt = QLineEdit()
         self.edit_prompt.setPlaceholderText(
-            "Flash with the tool, then answer below")
+            "Prompt shown before the manual verdict (optional)")
         form.addRow("Prompt:", self.edit_prompt)
         self.edit_tool_path.textChanged.connect(self._on_changed)
         self.edit_arguments.textChanged.connect(self._on_changed)

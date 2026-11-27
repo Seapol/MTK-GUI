@@ -32,10 +32,6 @@ quietly.
 
 ## How the nodes behave
 
-- **Every node window carries two helpers.** `← Back: <previous>` closes this
-  node and re-opens the one before it without writing anything, and the `?`
-  button opens that node's own step-by-step page (the same page the `?` in
-  every node opens, one per node, outside the User Guide chapter order).
 - **Left-click a node** to open its dialog. Each dialog validates its own
   fields: invalid input keeps the dialog open with the reason, and a node
   is never half-saved.
@@ -232,7 +228,7 @@ from the file on each parse, so a colleague's build is comparable straight
 away.
 
 Node 02 is review only (M139): locking node 01 already parses the Route A
-netlist, so opening 02 shows the result. `Parse nets` re-reads the
+netlist, so opening 02 shows the result. `Re-parse nets…` re-reads the
 netlist and refills both tables - use it only after the NET file changed
 outside the tool. Two behaviours worth knowing:
 
@@ -267,8 +263,10 @@ checkbox and picks one method:
 - A disabled slot collapses to `{enabled: false}` in the YAML, so the
   engine skips it instead of flashing defaults.
 
-The FCT run's two flashing rows (`STEP_FLASH`, see node 06) read this
-configuration; changing a terminal or a path here changes the run.
+The FCT run's firmware rows (`ExternalGui.flash`, see node 06) read this
+configuration; changing a terminal or a path here changes the run. With
+both slots disabled, the sequence has no flashing stage at all (this is
+the FRDM-IMX93 example's state).
 
 ## Node 04 - Equipment Config
 
@@ -320,17 +318,18 @@ place to change a step.
 
 ## Node 06 - Build FCT Test Sequence
 
-Same editor shape, FCT content: `Init Instruments`, `Fixture Clamp Down`,
-`Power On/Off DUT`, `Delay`, console rows (`Console_serial` / `_ssh` /
-`_cli`, `Message`), file transfer rows (`Serial: Push file to DUT`,
-`SSH SFTP: Push/Pull`), RF rows (`Wifi_Scan`, `Wifi_Ping`, `Wifi_Iperf`,
-`BT_RSSI`, `BT_Pair`, `BT_Tone`) and `STEP_FLASH` for the two firmware
-stages. `Load Template` writes a starter sequence in place for
-`Bare Metal DUT`, `Linux DUT` or `Wifi_Scan (Host<->DUT)`.
+Same editor shape, FCT content: Operation rows (`power_on`, `power_off`,
+`reset_instruments`, `delay`), console rows (`Console.serial` / `ssh` /
+`cli`), Message dialogs, Transfer rows (`sftp_put` / `sftp_get` /
+`serial_put` / `serial_pull`), ExternalGui rows (`flash` / `test`), and RF
+rows (`Wifi.scan` / `ping` / `iperf`, `Bluetooth.rssi` / `pair` / `tone`).
+The **Add Step** menu lists the seven FCT categories; Measurement (R-GND /
+voltage / clock) and the ICT-only operations are offered in node 05, not
+here.
 
-Every console row must name what it expects (`Expected must be found`,
-`Unexpected must not be found`); a row without a judge cannot pass, and the
-save is blocked with that reason.
+Every console row must name what it expects (`Expect pass`, `Expect
+fail`); a row without a judge cannot pass, and the save is blocked with
+that reason.
 
 
 ## Node 07 - Apply & Save Yaml

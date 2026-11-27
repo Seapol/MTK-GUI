@@ -42,30 +42,30 @@ equipment:
         port: ''
         baud: '115200'
         data: '8'
-        parity: null
+        parity:
         stop: '1'
-        flow: null
+        flow:
       ser2:
         port: ''
         baud: '115200'
         data: '8'
-        parity: null
+        parity:
         stop: '1'
-        flow: null
+        flow:
       ser3:
         port: ''
         baud: '115200'
         data: '8'
-        parity: null
+        parity:
         stop: '1'
-        flow: null
+        flow:
       ser4:
         port: ''
         baud: '115200'
         data: '8'
-        parity: null
+        parity:
         stop: '1'
-        flow: null
+        flow:
     ssh:
       ssh1:
         host: ''
@@ -397,6 +397,7 @@ test_workflow:
           expect_fail_is_regex: false
           parse_summary: false
           send: root
+          setup_only: true
   - name: Kernel check
     enable: true
     wait_ms: 100
@@ -427,10 +428,10 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 5.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
+          expect_pass_re: 'Linux'
           expect_fail_re: ''
           expect_pass_is_regex: false
           expect_fail_is_regex: false
@@ -474,7 +475,9 @@ test_workflow:
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: rm -rf /root/fct_assets && mkdir -p /root/fct_assets && rm -f /root/fat.log
+          send: rm -rf /root/fct_assets && mkdir -p /root/fct_assets && rm -f 
+            /root/fat.log
+          setup_only: true
   - name: Deploy test assets to DUT
     enable: true
     wait_ms: 100
@@ -498,6 +501,8 @@ test_workflow:
             files:
             - local: assets_FRDM-IMX93/drivers/load_rf_drivers.sh
               remote: /root/fct_assets/drivers/load_rf_drivers.sh
+            - local: assets_FRDM-IMX93/scripts/connect_wifi.sh
+              remote: /root/fct_assets/scripts/connect_wifi.sh
             - local: assets_FRDM-IMX93/frdm_imx93_board_test.zip
               remote: /root/fct_assets/frdm_imx93_board_test.zip
               unzip: /root/fct_assets
@@ -535,11 +540,11 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 40.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'RF drivers loaded OK'
+          expect_fail_re: 'No such file or directory'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
@@ -574,15 +579,15 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 45.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'WIFI_CONNECTED_OK'
+          expect_fail_re: 'WIFI_CONNECT_FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh
+          send: sh /root/fct_assets/scripts/connect_wifi.sh router
   - name: Wi-Fi Scan / RSSI (DUT console)
     enable: true
     wait_ms: 100
@@ -714,15 +719,22 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 5.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'BT_DISCOVERABLE_OK'
+          expect_fail_re: 'BT_DISCOVERABLE_FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: hciconfig hci0 piscan
+          send: '[ -f /tmp/btadv.pid ] && kill $(cat /tmp/btadv.pid) 2>/dev/null;
+            hciconfig hci0 reset 2>/dev/null; sleep 2; btmgmt --index 0 power off
+            >/dev/null 2>&1; sleep 2; btmgmt --index 0 power on >/dev/null 2>&1; sleep
+            2; hciconfig hci0 up 2>/dev/null; sleep 1; hciconfig hci0 piscan; (nohup
+            python3 /root/fct_assets/scripts/bt_adv.py 150 >/tmp/btadv.log 2>&1 &
+            echo $! > /tmp/btadv.pid); sleep 5; hciconfig hci0 | grep -q PSCAN &&
+            grep -q ADV_REGISTERED /tmp/btadv.log && printf "BT_DISCOVERABLE_%s\n"
+            OK || printf "BT_DISCOVERABLE_%s\n" FAIL'
   - name: Bluetooth RSSI
     enable: true
     wait_ms: 100
@@ -782,15 +794,17 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 30.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'BT_L2CAP_OK'
+          expect_fail_re: 'BT_L2CAP_FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: l2ping -c 10 {{host_bt_addr}}
+          send: sh -c 'P="{{host_bt_addr}}"; if echo "$P" | grep -q "{"; then 
+            echo BT_L2CAP_UNCONFIGURED; elif l2ping -c 10 "$P" 2>&1 | grep -q 
+            "bytes from"; then echo BT_L2CAP_OK; else echo BT_L2CAP_FAIL; fi'
   - name: 'FAT: Root privilege'
     enable: true
     wait_ms: 100
@@ -821,16 +835,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            root --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests root --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Board/SoC detection'
     enable: true
     wait_ms: 100
@@ -861,16 +875,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            basic_system --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests basic_system --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Memory'
     enable: true
     wait_ms: 100
@@ -901,16 +915,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            memory --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests memory --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: memtester DDR'
     enable: true
     wait_ms: 100
@@ -941,16 +955,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 20.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            memtester --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests memtester --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Storage (MMC/SD)'
     enable: true
     wait_ms: 100
@@ -981,16 +995,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 20.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            storage --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests storage --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Network interfaces'
     enable: true
     wait_ms: 100
@@ -1021,16 +1035,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            network --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests network --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Ethernet ports'
     enable: true
     wait_ms: 100
@@ -1061,16 +1075,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            ethernet --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests ethernet --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Ethernet throughput'
     enable: true
     wait_ms: 100
@@ -1101,16 +1115,17 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 35.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            ethernet_throughput --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests ethernet_throughput --no-progress 2>&1 | tee -a 
+            /root/fat.log
   - name: 'FAT: USB sysfs'
     enable: true
     wait_ms: 100
@@ -1141,16 +1156,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            usb --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests usb --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: USB U-disk presence'
     enable: true
     wait_ms: 100
@@ -1181,16 +1196,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            usb_port --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests usb_port --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: USB U-disk speed'
     enable: true
     wait_ms: 100
@@ -1221,16 +1236,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 20.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            usb_speed --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests usb_speed --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: ALSA devices'
     enable: true
     wait_ms: 100
@@ -1261,16 +1276,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            audio_devices --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests audio_devices --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: MQS playback'
     enable: true
     wait_ms: 100
@@ -1301,16 +1316,17 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 30.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            mqs_playback --no-progress --mqs-no-user-confirm 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests mqs_playback --no-progress --mqs-no-user-confirm 2>&1 |
+            tee -a /root/fat.log
   - name: 'FAT: PDM capture'
     enable: true
     wait_ms: 100
@@ -1341,16 +1357,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            pdm_capture --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests pdm_capture --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: HDMI connector'
     enable: true
     wait_ms: 100
@@ -1381,16 +1397,17 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            hdmi_connector --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests hdmi_connector --no-progress 2>&1 | tee -a 
+            /root/fat.log
   - name: 'FAT: HDMI visual'
     enable: true
     wait_ms: 100
@@ -1421,16 +1438,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            hdmi_visual --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests hdmi_visual --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Wi-Fi'
     enable: true
     wait_ms: 100
@@ -1461,16 +1478,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 25.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            wifi --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests wifi --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Bluetooth'
     enable: true
     wait_ms: 100
@@ -1501,16 +1518,18 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 30.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            bluetooth --no-progress 2>&1 | tee -a /root/fat.log
+          send: '[ -f /tmp/btadv.pid ] && kill $(cat /tmp/btadv.pid) 2>/dev/null;
+            hciconfig hci0 reset 2>/dev/null; sleep 2; cd /root/fct_assets/frdm_imx93_board_test
+            && python3 -u fat.py --only-tests bluetooth --no-progress 2>&1 | tee -a
+            /root/fat.log'
   - name: 'FAT: I2C bus'
     enable: true
     wait_ms: 100
@@ -1541,16 +1560,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            i2c --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests i2c --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: GPIO chips'
     enable: true
     wait_ms: 100
@@ -1581,16 +1600,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            gpio --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests gpio --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: CAN'
     enable: true
     wait_ms: 100
@@ -1621,16 +1640,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            can --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests can --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: UART'
     enable: true
     wait_ms: 100
@@ -1661,16 +1680,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            uart --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests uart --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: Thermal'
     enable: true
     wait_ms: 100
@@ -1701,16 +1720,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            thermal --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests thermal --no-progress 2>&1 | tee -a /root/fat.log
   - name: 'FAT: LEDs'
     enable: true
     wait_ms: 100
@@ -1741,16 +1760,16 @@ test_workflow:
           send_timeout: 4.0
           capture_timeout: 10.0
           capture_end_line: ''
-          capture_is_expected: false
+          capture_is_expected: true
           case_sensitive: true
           confirm_message: ''
-          expect_pass_re: ''
-          expect_fail_re: ''
+          expect_pass_re: 'Overall result: PASS'
+          expect_fail_re: 'Overall result: FAIL'
           expect_pass_is_regex: false
           expect_fail_is_regex: false
           parse_summary: false
-          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-            leds --no-progress 2>&1 | tee -a /root/fat.log
+          send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+            --only-tests leds --no-progress 2>&1 | tee -a /root/fat.log
   - name: Pull FAT log
     enable: true
     wait_ms: 100
@@ -1819,6 +1838,7 @@ test_workflow:
           expect_fail_is_regex: false
           parse_summary: false
           send: rm -rf /root/fct_assets
+          setup_only: true
   - name: Power Off DUT
     enable: true
     wait_ms: 100
@@ -1902,7 +1922,7 @@ yaml_build_state:
   - name: Init Instruments
     kind: op
     enable: true
-    timeout_ms: null
+    timeout_ms:
     op_params:
       instruments:
       - daq973a
@@ -1915,27 +1935,27 @@ yaml_build_state:
   - name: Fixture Ready
     kind: op
     enable: true
-    timeout_ms: null
+    timeout_ms:
     op_params:
       type: fixture_ready
   - name: Power On DUT
     kind: op
     enable: true
-    timeout_ms: null
+    timeout_ms:
     op_params:
       type: power
       state: 'on'
   - name: Power Off DUT
     kind: op
     enable: true
-    timeout_ms: null
+    timeout_ms:
     op_params:
       type: power
       state: 'off'
   - name: Reset Instruments
     kind: op
     enable: true
-    timeout_ms: null
+    timeout_ms:
     op_params:
       instruments:
       - daq973a
@@ -2027,7 +2047,7 @@ yaml_build_state:
       port1: '301'
       port2: '302'
       probe_pins: 96
-      relay_channel: null
+      relay_channel:
       signals:
         relay:
           used: true
@@ -2140,618 +2160,615 @@ yaml_build_state:
         case_link: ''
         fct_steps_yaml: ''
         fct_test_config_yaml: "fct_test_config:\n  dut_type: linux\n  console:\n \
-          \   port: COM4\n    baudrate: 115200\n    newline: lf\n    inter_cmd_delay_ms:\
-          \ 100\n    ssh_host: ''\n    ssh_username: root\n    scripts_local_dir:\
-          \ ''\n    scripts_remote_dir: /root\n    pull_remote_dir: ''\n    pull_local_dir:\
-          \ ''\n    serial_deploy: true\n    serial_deploy_files:\n    - local: assets_FRDM-IMX93/drivers/load_rf_drivers.sh\n\
-          \      remote: /root/fct_assets/drivers/load_rf_drivers.sh\n    - local:\
-          \ assets_FRDM-IMX93/frdm_imx93_board_test.zip\n      remote: /root/fct_assets/frdm_imx93_board_test.zip\n\
+          \   port: COM4\n    baudrate: 115200\n    newline: lf\n    inter_cmd_delay_ms:
+          100\n    ssh_host: ''\n    ssh_username: root\n    scripts_local_dir: ''\n\
+          \    scripts_remote_dir: /root\n    pull_remote_dir: ''\n    pull_local_dir:
+          ''\n    serial_deploy: true\n    serial_deploy_files:\n    - local: assets_FRDM-IMX93/drivers/load_rf_drivers.sh\n\
+          \      remote: /root/fct_assets/drivers/load_rf_drivers.sh\n    - local:
+          assets_FRDM-IMX93/frdm_imx93_board_test.zip\n      remote: /root/fct_assets/frdm_imx93_board_test.zip\n\
           \      unzip: /root/fct_assets\n    test_commands:\n    - kind: wait\n \
-          \     name: Boot wait for prompt\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:\
-          \ false\n      capture_enabled: false\n      send: ''\n      expect_pass:\
-          \ 'imx93frdm login:'\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 6.0\n      wait_timeout: 60.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:\
-          \ ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
-          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
-          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: send\n      name: Acquire root shell\n  \
-          \    channel: ser1\n      transport: serial\n      enabled: true\n     \
-          \ wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
-          \ true\n      send: root\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ root@imx93frdm\n      capture_unexpected: ''\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: Kernel check\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: uname -a\n      expect_pass:\
-          \ ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 5.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: Linux imx93frdm\n      capture_unexpected:\
-          \ ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
-          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
-          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: send\n      name: Prepare asset dir\n   \
-          \   channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: true\n      capture_enabled: false\n      send:\
-          \ rm -rf /root/fct_assets && mkdir -p /root/fct_assets && rm -f /root/fat.log\n\
-          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:\
-          \ ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
-          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
-          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: send\n      name: Load RF drivers\n     \
-          \ channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: true\n      capture_enabled: true\n      send:\
-          \ sh /root/fct_assets/drivers/load_rf_drivers.sh\n      expect_pass: ''\n\
-          \      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 40.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: RF drivers loaded OK\n      capture_unexpected:\
-          \ ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
-          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
-          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: send\n      name: Wi-Fi connect\n      channel:\
-          \ ser1\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: true\n      capture_enabled: true\n      send:\
-          \ WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh\n\
-          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 45.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: WIFI_CONNECTED_OK\n\
-          \      capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:\
-          \ ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
-          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
-          \      send_yes: y\n      send_no: n\n    - kind: wifi_test\n      name:\
-          \ Wi-Fi scan (RSSI)\n      channel: ser1\n      transport: serial\n    \
-          \  enabled: true\n      wait_enabled: false\n      send_enabled: false\n\
-          \      capture_enabled: false\n      send: ''\n      expect_pass: ''\n \
-          \     expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 6.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:\
-          \ scan\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:\
-          \ 0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: wifi_test\n      name: Wi-Fi ping gateway\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: false\n      capture_enabled: false\n      send: ''\n\
-          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 6.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:\
-          \ ''\n      rf_subtest: ping\n      flash_gui_prompt: ''\n      wait_ms:\
-          \ 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:\
-          \ root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:\
-          \ y\n      send_no: n\n    - kind: wifi_test\n      name: Wi-Fi iperf\n\
-          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
-          \   wait_enabled: false\n      send_enabled: false\n      capture_enabled:\
-          \ false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 6.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ ''\n      capture_unexpected: ''\n      rf_subtest: iperf\n      flash_gui_prompt:\
-          \ ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
-          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
-          \      send_yes: y\n      send_no: n\n    - kind: send\n      name: BT discoverable\n\
-          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
-          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
-          \ true\n      send: hciconfig hci0 piscan\n      expect_pass: ''\n     \
-          \ expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 5.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: PSCAN\n      capture_unexpected: ''\n    \
-          \  rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n   \
-          \   serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
-          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: bt_test\n      name: BT host RSSI\n     \
-          \ channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: false\n      capture_enabled: false\n     \
-          \ send: ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 6.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:\
-          \ ''\n      rf_subtest: rssi\n      flash_gui_prompt: ''\n      wait_ms:\
-          \ 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:\
-          \ root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:\
-          \ y\n      send_no: n\n    - kind: send\n      name: BT L2CAP ping\n   \
-          \   channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:\
-          \ false\n      send_enabled: true\n      capture_enabled: true\n      send:\
-          \ l2ping -c 10 {{host_bt_addr}}\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 30.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ 10 received\n      capture_unexpected: ''\n      rf_subtest: ''\n    \
-          \  flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n   \
-          \   login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Root privilege'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        root --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Board/SoC detection'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        basic_system --no-progress\
-          \ 2>&1 | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Memory'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        memory --no-progress 2>&1 |\
-          \ tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n \
-          \     expect_pass_is_regex: false\n      expect_fail_is_regex: false\n \
-          \     case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: memtester DDR'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        memtester --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 20.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Storage (MMC/SD)'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        storage --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 20.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Network interfaces'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        network --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Ethernet ports'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        ethernet --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Ethernet throughput'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        ethernet_throughput --no-progress\
-          \ 2>&1 | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 35.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: USB sysfs'\n      channel: ser1\n    \
-          \  transport: serial\n      enabled: true\n      wait_enabled: false\n \
-          \     send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        usb --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: USB U-disk presence'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        usb_port --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: USB U-disk speed'\n      channel: ser1\n\
-          \      transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        usb_speed --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 20.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: ALSA devices'\n      channel: ser1\n \
-          \     transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        audio_devices --no-progress\
-          \ 2>&1 | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail:\
-          \ ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: MQS playback'\n      channel: ser1\n \
-          \     transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        mqs_playback --no-progress\
-          \ --mqs-no-user-confirm 2>&1 | tee -a /root/fat.log\n      expect_pass:\
-          \ ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 30.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \     name: Boot wait for prompt\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: true\n      send_enabled:
+          false\n      capture_enabled: false\n      send: ''\n      expect_pass:
+          'imx93frdm login:'\n      expect_fail: ''\n      expect_pass_is_regex: false\n\
+          \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:
+          false\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          6.0\n      wait_timeout: 60.0\n      send_timeout: 4.0\n      retries: 0\n\
+          \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:
+          ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:
+          0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: Acquire root shell\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: true\n      send: root\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: root@imx93frdm\n      capture_unexpected: ''\n\
           \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
           \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
           \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
-          \      send_no: n\n    - kind: send\n      name: 'FAT: PDM capture'\n  \
-          \    channel: ser1\n      transport: serial\n      enabled: true\n     \
-          \ wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
-          \ true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3\
-          \ -u fat.py --only-tests\n        pdm_capture --no-progress 2>&1 | tee -a\
-          \ /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n\
-          \      host_cmd_windows: ''\n      capture_expected: '[SKIP]'\n      capture_unexpected:\
-          \ '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:\
-          \ 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:\
-          \ root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:\
-          \ y\n      send_no: n\n    - kind: send\n      name: 'FAT: HDMI connector'\n\
-          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
-          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
-          \ true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3\
-          \ -u fat.py --only-tests\n        hdmi_connector --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: HDMI visual'\n      channel: ser1\n  \
-          \    transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        hdmi_visual --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Wi-Fi'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        wifi --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 25.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Bluetooth'\n      channel: ser1\n    \
-          \  transport: serial\n      enabled: true\n      wait_enabled: false\n \
-          \     send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        bluetooth --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 30.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: I2C bus'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        i2c --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: GPIO chips'\n      channel: ser1\n   \
-          \   transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        gpio --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: CAN'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        can --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: UART'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        uart --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: Thermal'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        thermal --no-progress 2>&1\
-          \ | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
-          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
-          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: send\n      name: 'FAT: LEDs'\n      channel: ser1\n      transport:\
-          \ serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:\
-          \ true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test\
-          \ && python3 -u fat.py --only-tests\n        leds --no-progress 2>&1 | tee\
-          \ -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n     \
-          \ expect_pass_is_regex: false\n      expect_fail_is_regex: false\n     \
-          \ case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:\
-          \ ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:\
-          \ ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:\
-          \ 10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n \
-          \     action: ''\n      local: ''\n      remote: ''\n      parse_summary:\
-          \ false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n \
-          \     flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n\
-          \      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ - kind: serial_pull\n      name: Pull FAT log\n      channel: ser1\n \
-          \     transport: serial\n      enabled: true\n      wait_enabled: false\n\
-          \      send_enabled: false\n      capture_enabled: false\n      send: ''\n\
-          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:\
-          \ false\n      expect_fail_is_regex: false\n      case_sensitive: true\n\
-          \      capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:\
-          \ ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:\
-          \ yesno\n      timeout: 600.0\n      wait_timeout: 10.0\n      send_timeout:\
-          \ 4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:\
-          \ '{{dut_report}}'\n      remote: /root/fat.log\n      parse_summary: false\n\
-          \      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:\
-          \ ''\n      capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:\
-          \ ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
+          \      send_no: n\n    - kind: send\n      name: Kernel check\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          uname -a\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 5.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: Linux imx93frdm\n  \
+          \    capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:
+          ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
           \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
-          \      send_yes: y\n      send_no: n\n    - kind: send\n      name: Cleanup\
-          \ assets\n      channel: ser1\n      transport: serial\n      enabled: true\n\
-          \      wait_enabled: false\n      send_enabled: true\n      capture_enabled:\
-          \ false\n      send: rm -rf /root/fct_assets\n      expect_pass: ''\n  \
-          \    expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:\
-          \ false\n      case_sensitive: true\n      capture_is_expected: false\n\
-          \      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:\
-          \ false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:\
-          \ 10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:\
-          \ 0\n      extract: ''\n      action: ''\n      local: ''\n      remote:\
-          \ ''\n      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:\
-          \ ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:\
-          \ ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:\
-          \ 0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:\
-          \ ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n   \
-          \ post_rf_commands: []\n  wifi:\n    interface: mlan0\n    driver_load_cmd:\
-          \ ''\n    scan_enabled: true\n    ap_ssid: ChinaNet-4zEc-5G\n    ap_password:\
-          \ dgu3vcgs\n    ap_ip: 192.168.71.1\n    host_ip: 192.168.71.8\n    rssi_min:\
-          \ -70\n    scan_timeout: 15.0\n    scan_via: dut_console\n    dut_ip: ''\n\
-          \    dut_ssid: ''\n    dut_rssi_min: -60\n    ping_enabled: true\n    ping_count:\
-          \ 20\n    ping_timeout: 30.0\n    iperf_enabled: true\n    iperf_tool: iperf3\n\
-          \    iperf_min_mbps: 100.0\n    iperf_server_ip: 192.168.71.8\n    iperf_duration:\
-          \ 10\n    iperf_timeout: 30.0\n  bluetooth:\n    rssi_enabled: true\n  \
-          \  expected_name: FRDM-IMX93-DUT\n    scan_retries: 3\n    rssi_min: -70\n\
-          \    rssi_timeout: 15.0\n    pair_enabled: false\n    pair_timeout: 15.0\n\
-          \    l2ping_count: 10\n    pair_command: ''\n    tone_enabled: false\n \
-          \   test_tone: resources/tones/tone_1khz_6s.wav\n    tone_start_s: 0.0\n\
-          \    tone_end_s: 0.0\n  setup:\n    power_mode: none\n    use_fixture: false\n\
-          \    manual_on_message: Connect the power adapter / USB cable to the DUT,\
-          \ then press\n      GO to start FCT.\n    manual_off_message: FCT finished.\
-          \ Disconnect the power adapter / USB cable, then\n      press GO.\n"
+          \      send_yes: y\n      send_no: n\n    - kind: send\n      name: Prepare
+          asset dir\n      channel: ser1\n      transport: serial\n      enabled:
+          true\n      wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          false\n      send: rm -rf /root/fct_assets && mkdir -p /root/fct_assets
+          && rm -f /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n \
+          \     expect_pass_is_regex: false\n      expect_fail_is_regex: false\n \
+          \     case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          ''\n      capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:
+          ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
+          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
+          \      send_yes: y\n      send_no: n\n    - kind: send\n      name: Load
+          RF drivers\n      channel: ser1\n      transport: serial\n      enabled:
+          true\n      wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: sh /root/fct_assets/drivers/load_rf_drivers.sh\n     \
+          \ expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n\
+          \      expect_fail_is_regex: false\n      case_sensitive: true\n      capture_is_expected:
+          false\n      capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          40.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: RF drivers loaded OK\n      capture_unexpected:
+          ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: Wi-Fi connect\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 45.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: WIFI_CONNECTED_OK\n\
+          \      capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:
+          ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
+          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
+          \      send_yes: y\n      send_no: n\n    - kind: wifi_test\n      name:
+          Wi-Fi scan (RSSI)\n      channel: ser1\n      transport: serial\n      enabled:
+          true\n      wait_enabled: false\n      send_enabled: false\n      capture_enabled:
+          false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n  \
+          \    expect_pass_is_regex: false\n      expect_fail_is_regex: false\n  \
+          \    case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 6.0\n      wait_timeout: 10.0\n\
+          \      send_timeout: 4.0\n      retries: 0\n      extract: ''\n      action:
+          ''\n      local: ''\n      remote: ''\n      parse_summary: false\n    \
+          \  host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected: ''\n\
+          \      capture_unexpected: ''\n      rf_subtest: scan\n      flash_gui_prompt:
+          ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
+          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
+          \      send_yes: y\n      send_no: n\n    - kind: wifi_test\n      name:
+          Wi-Fi ping gateway\n      channel: ser1\n      transport: serial\n     \
+          \ enabled: true\n      wait_enabled: false\n      send_enabled: false\n\
+          \      capture_enabled: false\n      send: ''\n      expect_pass: ''\n \
+          \     expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          6.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n\
+          \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:
+          ping\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:
+          0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: wifi_test\n      name: Wi-Fi iperf\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          false\n      capture_enabled: false\n      send: ''\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          6.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries: 0\n\
+          \      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:
+          iperf\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:
+          0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: BT discoverable\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: true\n      send: hciconfig hci0 piscan\n \
+          \     expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 5.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: PSCAN\n      capture_unexpected:
+          ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: bt_test\n      name: BT host RSSI\n     \
+          \ channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: false\n      capture_enabled: false\n      send:
+          ''\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 6.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:
+          ''\n      rf_subtest: rssi\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: BT L2CAP ping\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          l2ping -c 10 {{host_bt_addr}}\n      expect_pass: ''\n      expect_fail:
+          ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 30.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          10 received\n      capture_unexpected: ''\n      rf_subtest: ''\n      flash_gui_prompt:
+          ''\n      wait_ms: 1000\n      serial_baud: 0\n      login_prompt: 'login:'\n\
+          \      login_user: root\n      login_password: ''\n      shell_prompt: '#'\n\
+          \      send_yes: y\n      send_no: n\n    - kind: send\n      name: 'FAT:
+          Root privilege'\n      channel: ser1\n      transport: serial\n      enabled:
+          true\n      wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        root --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Board/SoC detection'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        basic_system --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Memory'\n     \
+          \ channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        memory --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: memtester DDR'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        memtester --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 20.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Storage (MMC/SD)'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        storage --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 20.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Network interfaces'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        network --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Ethernet ports'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        ethernet --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Ethernet throughput'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        ethernet_throughput --no-progress 2>&1 | tee
+          -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 35.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: USB sysfs'\n  \
+          \    channel: ser1\n      transport: serial\n      enabled: true\n     \
+          \ wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        usb --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: USB U-disk presence'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        usb_port --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: USB U-disk speed'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        usb_speed --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 20.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: ALSA devices'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        audio_devices --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: MQS playback'\n\
+          \      channel: ser1\n      transport: serial\n      enabled: true\n   \
+          \   wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        mqs_playback --no-progress --mqs-no-user-confirm
+          2>&1 | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 30.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n   \
+          \   flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n  \
+          \    login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: 'FAT: PDM capture'\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test
+          && python3 -u fat.py --only-tests\n        pdm_capture --no-progress 2>&1
+          | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n \
+          \     expect_pass_is_regex: false\n      expect_fail_is_regex: false\n \
+          \     case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          '[SKIP]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n   \
+          \   flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n  \
+          \    login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: 'FAT: HDMI connector'\n      channel: ser1\n   \
+          \   transport: serial\n      enabled: true\n      wait_enabled: false\n\
+          \      send_enabled: true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test
+          && python3 -u fat.py --only-tests\n        hdmi_connector --no-progress
+          2>&1 | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n\
+          \      expect_pass_is_regex: false\n      expect_fail_is_regex: false\n\
+          \      case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n   \
+          \   flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n  \
+          \    login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: 'FAT: HDMI visual'\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test
+          && python3 -u fat.py --only-tests\n        hdmi_visual --no-progress 2>&1
+          | tee -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n \
+          \     expect_pass_is_regex: false\n      expect_fail_is_regex: false\n \
+          \     case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 10.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: ''\n      remote: ''\n      parse_summary:
+          false\n      host_cmd: ''\n      host_cmd_windows: ''\n      capture_expected:
+          '[PASS]'\n      capture_unexpected: '[FAIL]'\n      rf_subtest: ''\n   \
+          \   flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud: 0\n  \
+          \    login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: 'FAT: Wi-Fi'\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: true\n      send: cd /root/fct_assets/frdm_imx93_board_test
+          && python3 -u fat.py --only-tests\n        wifi --no-progress 2>&1 | tee
+          -a /root/fat.log\n      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 25.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: Bluetooth'\n  \
+          \    channel: ser1\n      transport: serial\n      enabled: true\n     \
+          \ wait_enabled: false\n      send_enabled: true\n      capture_enabled:
+          true\n      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u
+          fat.py --only-tests\n        bluetooth --no-progress 2>&1 | tee -a /root/fat.log\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 30.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: '[PASS]'\n      capture_unexpected:
+          '[FAIL]'\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms:
+          1000\n      serial_baud: 0\n      login_prompt: 'login:'\n      login_user:
+          root\n      login_password: ''\n      shell_prompt: '#'\n      send_yes:
+          y\n      send_no: n\n    - kind: send\n      name: 'FAT: I2C bus'\n    \
+          \  channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        i2c --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: GPIO chips'\n   \
+          \   channel: ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        gpio --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: CAN'\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        can --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: UART'\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        uart --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: Thermal'\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        thermal --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: send\n      name: 'FAT: LEDs'\n      channel:
+          ser1\n      transport: serial\n      enabled: true\n      wait_enabled:
+          false\n      send_enabled: true\n      capture_enabled: true\n      send:
+          cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests\n\
+          \        leds --no-progress 2>&1 | tee -a /root/fat.log\n      expect_pass:
+          ''\n      expect_fail: ''\n      expect_pass_is_regex: false\n      expect_fail_is_regex:
+          false\n      case_sensitive: true\n      capture_is_expected: false\n  \
+          \    capture_end_line: ''\n      capture_forbid: ''\n      confirm_enabled:
+          false\n      confirm_message: ''\n      dialog_style: yesno\n      timeout:
+          10.0\n      wait_timeout: 10.0\n      send_timeout: 4.0\n      retries:
+          0\n      extract: ''\n      action: ''\n      local: ''\n      remote: ''\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: '[PASS]'\n      capture_unexpected: '[FAIL]'\n\
+          \      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    - kind: serial_pull\n      name: Pull FAT log\n \
+          \     channel: ser1\n      transport: serial\n      enabled: true\n    \
+          \  wait_enabled: false\n      send_enabled: false\n      capture_enabled:
+          false\n      send: ''\n      expect_pass: ''\n      expect_fail: ''\n  \
+          \    expect_pass_is_regex: false\n      expect_fail_is_regex: false\n  \
+          \    case_sensitive: true\n      capture_is_expected: false\n      capture_end_line:
+          ''\n      capture_forbid: ''\n      confirm_enabled: false\n      confirm_message:
+          ''\n      dialog_style: yesno\n      timeout: 600.0\n      wait_timeout:
+          10.0\n      send_timeout: 4.0\n      retries: 0\n      extract: ''\n   \
+          \   action: ''\n      local: '{{dut_report}}'\n      remote: /root/fat.log\n\
+          \      parse_summary: false\n      host_cmd: ''\n      host_cmd_windows:
+          ''\n      capture_expected: ''\n      capture_unexpected: ''\n      rf_subtest:
+          ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n      serial_baud:
+          0\n      login_prompt: 'login:'\n      login_user: root\n      login_password:
+          ''\n      shell_prompt: '#'\n      send_yes: y\n      send_no: n\n    -
+          kind: send\n      name: Cleanup assets\n      channel: ser1\n      transport:
+          serial\n      enabled: true\n      wait_enabled: false\n      send_enabled:
+          true\n      capture_enabled: false\n      send: rm -rf /root/fct_assets\n\
+          \      expect_pass: ''\n      expect_fail: ''\n      expect_pass_is_regex:
+          false\n      expect_fail_is_regex: false\n      case_sensitive: true\n \
+          \     capture_is_expected: false\n      capture_end_line: ''\n      capture_forbid:
+          ''\n      confirm_enabled: false\n      confirm_message: ''\n      dialog_style:
+          yesno\n      timeout: 10.0\n      wait_timeout: 10.0\n      send_timeout:
+          4.0\n      retries: 0\n      extract: ''\n      action: ''\n      local:
+          ''\n      remote: ''\n      parse_summary: false\n      host_cmd: ''\n \
+          \     host_cmd_windows: ''\n      capture_expected: ''\n      capture_unexpected:
+          ''\n      rf_subtest: ''\n      flash_gui_prompt: ''\n      wait_ms: 1000\n\
+          \      serial_baud: 0\n      login_prompt: 'login:'\n      login_user: root\n\
+          \      login_password: ''\n      shell_prompt: '#'\n      send_yes: y\n\
+          \      send_no: n\n    post_rf_commands: []\n  wifi:\n    interface: mlan0\n\
+          \    driver_load_cmd: ''\n    scan_enabled: true\n    ap_ssid: ChinaNet-4zEc-5G\n\
+          \    ap_password: dgu3vcgs\n    ap_ip: 192.168.71.1\n    host_ip: 192.168.71.8\n\
+          \    rssi_min: -70\n    scan_timeout: 15.0\n    scan_via: dut_console\n\
+          \    dut_ip: ''\n    dut_ssid: ''\n    dut_rssi_min: -60\n    ping_enabled:
+          true\n    ping_count: 20\n    ping_timeout: 30.0\n    iperf_enabled: true\n\
+          \    iperf_tool: iperf3\n    iperf_min_mbps: 100.0\n    iperf_server_ip:
+          192.168.71.8\n    iperf_duration: 10\n    iperf_timeout: 30.0\n  bluetooth:\n\
+          \    rssi_enabled: true\n    expected_name: FRDM-IMX93-DUT\n    scan_retries:
+          3\n    rssi_min: -70\n    rssi_timeout: 15.0\n    pair_enabled: false\n\
+          \    pair_timeout: 15.0\n    l2ping_count: 10\n    pair_command: ''\n  \
+          \  tone_enabled: false\n    test_tone: resources/tones/tone_1khz_6s.wav\n\
+          \    tone_start_s: 0.0\n    tone_end_s: 0.0\n  setup:\n    power_mode: none\n\
+          \    use_fixture: false\n    manual_on_message: Connect the power adapter
+          / USB cable to the DUT, then press\n      GO to start FCT.\n    manual_off_message:
+          FCT finished. Disconnect the power adapter / USB cable, then\n      press
+          GO.\n"
         fct_sequence_cases_yaml: ''
   locks:
     design_input: true
@@ -2917,7 +2934,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: false
-      send: rm -rf /root/fct_assets && mkdir -p /root/fct_assets && rm -f /root/fat.log
+      send: rm -rf /root/fct_assets && mkdir -p /root/fct_assets && rm -f 
+        /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3003,7 +3021,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh /root/connect_wifi.sh
+      send: WIFI_SSID='{{ssid}}' WIFI_PASSWORD='{{password}}' sh 
+        /root/connect_wifi.sh
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3304,8 +3323,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        root --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests root --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3348,8 +3367,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        basic_system --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests basic_system --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3392,8 +3411,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        memory --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests memory --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3436,8 +3455,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        memtester --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests memtester --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3480,8 +3499,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        storage --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests storage --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3524,8 +3543,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        network --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests network --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3568,8 +3587,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        ethernet --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests ethernet --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3612,8 +3631,9 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        ethernet_throughput --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests ethernet_throughput --no-progress 2>&1 | tee -a 
+        /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3656,8 +3676,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        usb --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests usb --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3700,8 +3720,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        usb_port --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests usb_port --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3744,8 +3764,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        usb_speed --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests usb_speed --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3788,8 +3808,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        audio_devices --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests audio_devices --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3832,8 +3852,9 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        mqs_playback --no-progress --mqs-no-user-confirm 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests mqs_playback --no-progress --mqs-no-user-confirm 2>&1 | tee
+        -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3876,8 +3897,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        pdm_capture --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests pdm_capture --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3920,8 +3941,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        hdmi_connector --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests hdmi_connector --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -3964,8 +3985,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        hdmi_visual --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests hdmi_visual --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4008,8 +4029,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        wifi --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests wifi --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4052,8 +4073,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        bluetooth --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests bluetooth --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4096,8 +4117,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        i2c --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests i2c --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4140,8 +4161,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        gpio --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests gpio --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4184,8 +4205,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        can --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests can --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4228,8 +4249,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        uart --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests uart --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4272,8 +4293,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        thermal --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests thermal --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4316,8 +4337,8 @@ fct_test_config:
       wait_enabled: false
       send_enabled: true
       capture_enabled: true
-      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py --only-tests
-        leds --no-progress 2>&1 | tee -a /root/fat.log
+      send: cd /root/fct_assets/frdm_imx93_board_test && python3 -u fat.py 
+        --only-tests leds --no-progress 2>&1 | tee -a /root/fat.log
       expect_pass: ''
       expect_fail: ''
       expect_pass_is_regex: false
@@ -4479,7 +4500,7 @@ fct_test_config:
   setup:
     power_mode: none
     use_fixture: false
-    manual_on_message: Connect the power adapter / USB cable to the DUT, then press
-      GO to start FCT.
-    manual_off_message: FCT finished. Disconnect the power adapter / USB cable, then
-      press GO.
+    manual_on_message: Connect the power adapter / USB cable to the DUT, then 
+      press GO to start FCT.
+    manual_off_message: FCT finished. Disconnect the power adapter / USB cable, 
+      then press GO.

@@ -3,17 +3,19 @@
 MTK GUI (Manufacturing Test Kit) is a cross-platform manufacturing test
 tool covering the complete production flow:
 
-    ICT -> Flash FAT firmware -> FCT -> Flash OOBE firmware
+    ICT -> [Flash FAT firmware] -> FCT -> [Flash OOBE firmware]
 
 - **ICT** (In-Circuit Test): fixture interlocks, R-GND shorts,
   power-on, power-rails capture, DC voltage, clocks, control IO
   (U2355A DIO Read / Write operations).
-- **Flash FAT**: factory acceptance firmware, flashed by a third-party
-  GUI (operator confirm) or a CLI (automatic keyword parse).
+- **Flash FAT** *(optional - skipped when the board ships pre-flashed)*:
+  factory acceptance firmware, flashed by a third-party GUI (operator
+  confirm) or a CLI (automatic keyword parse).
 - **FCT** (Functional Test): message testing - the verdict comes from
   Pass/Success vs Fail/Error keywords in the channel output, an
   operator dialog, or a CLI result.
-- **Flash OOBE**: out-of-box-experience firmware, same dual path.
+- **Flash OOBE** *(optional - skipped when the board ships
+  pre-flashed)*: out-of-box-experience firmware, same dual path.
 
 The Test Work Flow page renders the whole flow as one table; the
 Yaml Build page (seven nodes: 01 design input to 07 apply & save) authors
@@ -89,8 +91,9 @@ above the tabs on every page:
   enabled, Stop disabled; running: swapped), plus `Long Run`
   (repeat the whole cycle 1..999 times) and `Interval`
   (pause between cycles, 0.5..99 s in 0.5 s steps).
-- **Overall Flow**: the whole ICT -> Flash FAT -> FCT -> Flash OOBE
-  sequence as one table; each stage has an `EN` checkbox to
+- **Overall Flow**: the whole ICT -> [Flash FAT] -> FCT -> [Flash
+  OOBE] sequence as one table (the flash stages appear only when the
+  board is not pre-flashed); each stage has an `EN` checkbox to
   enable / disable it.
 
 ![Overall Flow](images/10_overall_flow.png)

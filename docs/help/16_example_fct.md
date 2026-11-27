@@ -1,366 +1,210 @@
-# Example Build of FCT Test Case
+# Example Build of an FCT Test Case — FRDM-IMX93 (rev 1.3.2)
 
-This chapter walks you end-to-end through building an **FCT**
-(Functional Test) test case with a real example product:
-**FRDM-IMX93** (NXP i.MX93 evaluation board). FCT is a *message test*:
-the GUI drives the DUT through its serial console, Wi-Fi / Bluetooth
-interfaces and operator dialogs, and every step passes when the
-expected message appears (e.g. `PREFLIGHT_PASS`, `WIFI_CONNECTED_OK`)
-or fails when an error message shows up. The same flow applies to
-production products.
+This chapter walks you end-to-end through the shipped **FCT** example
+product: **FRDM-IMX93** (NXP i.MX93 evaluation board). FCT is a *message
+test* — the GUI drives the DUT through its serial console, Wi-Fi /
+Bluetooth interfaces and operator dialogs, and every step passes when the
+expected message appears (for example `RF drivers loaded OK`,
+`WIFI_CONNECTED_OK`, `Overall result: PASS`) or fails when an error
+message shows up.
+
+This project is **FCT-only**: the ICT stage is disabled and the board
+ships with the FAT firmware already flashed, so the plan carries **no
+firmware-flash rows**. Every FCT row is a serial / transfer / RF exchange
+whose verdict comes from the DUT's own reply.
 
 **Goal of this tutorial**
 
-- Load the FRDM-IMX93 demo FCT project.
-- Walk through the FCT sequence editor (Console / Wi-Fi / Bluetooth /
-  Sequence tabs).
-- Understand the DUT-side Linux scripts the sequence calls into.
-- Copy the scripts from the host PC to the DUT Linux rootfs.
-- Save the YAML and export the plan for review.
+- Load the shipped FRDM-IMX93 FCT plan (rev 1.3.2).
+- Walk through the 7 nodes of the **Yaml Build** wizard.
+- Understand the 41-row FCT sequence and the DUT-side scripts it calls.
+- Run it on the bench and export the plan / report for review.
 
 ## Prerequisites
 
 - The FRDM-IMX93 board is powered on and connected:
-  - USB serial (CDC) to the host PC - the console appears as a COM
-    port on Windows (e.g. `COM4`) or `/dev/cu.usbmodem...` on macOS.
-  - Optional: Ethernet / Wi-Fi link between the DUT and the host for
-    the file copy and the throughput tests.
-- A project YAML to work on. The screenshots below use the shipped FRDM-IMX93
-  reference plan, `examples\fct_frdm_imx93\`; the same steps apply to your
-  own product once you have built its plan in chapter `09_yaml_build.md`.
+  - USB serial (CDC) to the host PC — the console appears as a COM port
+    on Windows (for example `COM4`) or `/dev/cu.usbmodem...` on macOS.
+  - Optional: Ethernet / Wi-Fi link between the DUT and the host for the
+    file copy and the throughput tests.
+- Supervisor login (the Operator role cannot edit the Yaml Build wizard).
+- A station whose instruments and peripherals are configured on the
+  **Equipment** page before the first run.
 
-## Step 1 - Load the project YAML
+## Step 1 — Load the project YAML
 
-Open **File → Load Yaml…** in the File menu and pick the plan:
+Open **File → Load Yaml…** and pick the shipped reference plan:
 
 ```text
-examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml
+examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.2.yaml
 ```
 
-The loader fills the model, the product metadata and the Overall Flow band in
-one pass; nothing is parsed twice. Forty-five rows appear in **Test Work
-Flow**, the ICT stage stays empty because this plan is FCT-only
-(`overall_flow = ICT, FCT`), and every row sits at **Pending** until you run.
+The loader fills the model, the product metadata and the Overall Flow band
+in one pass. Forty-one rows appear in **Test Work Flow**; the ICT stage
+stays empty because this plan is FCT-only, and every row sits at
+**Pending** until you run.
 
-![The shipped FCT plan loaded in Test Work Flow](images/32_example_fct_plan.png)
-
-## Step 2 - Open the FCT sequence editor (node 05)
-
-Go to **Yaml Build** and open the last node, **07 - Build FCT Test Work Flow
-Sequence**. The editor is one page: the ordered step table plus the buttons
-underneath it (`Add` / `Load Template` / `Clean up` / `Remove` / `Duplicate` /
-`Edit` / `Move Up` / `Move Down` / `Undo` / `Redo`).
-
-![The FRDM-IMX93 sequence editor - one row per step](images/16_01_fct_sequence.png)
-
-Every step is one row, whatever its kind: a standard operation
-(`Init Instruments`, `Fixture Clamp Down`, `Power On/Off DUT`, `Delay`), a
-console exchange (`Console_serial`, `Console_ssh`, `Console_cli`, `Message`),
-a file transfer (`Serial: Push file to DUT`, `SSH SFTP: Push/Pull file`), or a
-radio test (`Wifi_Scan`, `Wifi_Ping`, `Wifi_Iperf`, `BT_RSSI`, `BT_Pair`,
-`BT_Tone`). Double-click a row to open its editor. `WaitFor` is the prompt the
-console must show before the text is sent, `SendTo` is the text itself and
-`Capture` is the pattern that must appear for the step to pass; every row
-carries its own timeout.
-
-The demo chain for FRDM-IMX93:
-
-| # | Step | Send | Capture (pass marker) |
-|---|------|------|------------------------|
-| 1 | Power on DUT | (dialog) | Go-Stop dialog, 100 s |
-| 2 | Console login | `root` | `root@imx93frdm` |
-| 3 | Preflight: kernel version | `uname -r` | `6.6.36-lts-next` |
-| 4 | Preflight (fat.py / ALSA / ...) | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
-| 5 | Load RF drivers | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
-| 6 | Start fat.py (interactive) | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 \| tee /root/fat.log` | `FRDM-i.MX93 DUT` |
-| 7 | fat.py: setup confirm | `y` | `Running as root` |
-| 8 | fat.py: MQS earphone tone | `y` | operator confirmed tone |
-| 9 | fat.py: HDMI visual | `y` | operator confirmed HDMI |
-| 10 | fat.py: RGB LED start | `y` | `[RGB LED] Display RED` |
-| 11 | fat.py: RGB LED colors | `y` | operator confirmed all RGB |
-| 12 | fat.py summary | - | `Overall result:` |
-| 13 | Start sshd | `mkdir -p /var/run/sshd; /usr/sbin/sshd` | `SSHD_STARTED` |
-| 14 | Wi-Fi connect (router or hotspot) | `bash /root/fct_assets/connect_wifi.sh router` | `WIFI_CONNECTED_OK` |
-| 15 | DUT Wi-Fi IP check | `ip -4 addr show mlan0` | `inet` |
-| 16 | Ping Host (pre-SFTP) | `ping -I mlan0 -c 4 {{host_ip}}` | `0% packet loss` |
-| 17 | Retrieve fat_result.json (SFTP) | (ssh) | fetched into `DUT Report` |
-| 18 | Retrieve fat.log (SFTP) | (ssh) | fetched into `DUT Report` |
-| 19 | Start iperf3 server (Host CLI) | (host) | server up |
-| 20 | FCT done. | (dialog) | OK dialog |
-
-Rows 8-11 are **operator dialogs**: the GUI asks you to confirm what you hear
-or see (tone, HDMI picture, RGB colours) and the row waits up to 300 s for
-that answer. Row 19 runs on the host, so it is a `Console_cli` row pointed at
-the host shell rather than at the DUT console.
-
-### Load a template
-
-`Load Template` fills the table from a bundled sequence instead of building it
-row by row. Pick one of three:
-
-| Template | What it sets up |
+| Fact | Value |
 |---|---|
-| `Bare Metal DUT` | bare-metal DUT: operations only, plus serial console, `Wifi_Scan`, `BT_RSSI` - no Linux shell, no file transfer |
-| `Linux DUT` | Linux BSP DUT, full chain: operations, console login, asset folder, `Serial Push`, `SSH SFTP`, Wi-Fi and Bluetooth tests |
-| `Wifi_Scan (Host<->DUT)` | short Wi-Fi radio run: driver load, asset folder, `Serial Push`, Wi-Fi connect, address check, `Wifi_Scan` |
+| FCT rows | 41 (all enabled) |
+| Step taxonomy | M160 `category` + `type` |
+| Firmware flash rows | 0 (board ships pre-flashed) |
+| ICT stage | disabled |
+| FCT stage | enabled |
 
-`Load Template` writes the template's rows into the table in place; the shot
-above is what a loaded template looks like before you edit it.
+## Step 2 — Open the 7-node Yaml Build wizard
 
-A template is a starting point, not a finished sequence: after it loads,
-`Remove` the rows your product does not need and `Edit` the ones it does. The
-templates ship with the settings a standard board needs - the `wifi_scan` one
-already contains the `mkdir -p /root/fct_assets` row and the `Serial Push` row
-that put `connect_wifi.sh` on the DUT before the row that runs it, so the
-sequence works on a clean DUT straight from the template. Chapter "Step 5"
-below describes the same push for a sequence you build by hand.
+Go to **Yaml Build**. The flow shows seven nodes; for this plan five are
+**Completed** and two are **Unused**:
 
-### Standard operations come first
-
-The standard operations sit at the top of the same table, before any console
-row: `Init Instruments`, `Fixture Clamp Down` / `Fixture Release`, `Power On
-DUT` / `Power Off DUT` and `Delay`. Add them with the `Add` menu and order
-them with `Move Up` / `Move Down`; the GUI never inserts a row on its own.
-
-Flashing the FAT / OOBE firmware is part of FCT: the flashing step starts the
-third-party GUI tool named by the Equipment `Flash Tool Path` (then an operator
-Pass/Fail dialog, or a CLI flash whose return message is parsed) and the result
-feeds the FCT verdict.
-
-## Step 3 - Configure the Wi-Fi rows (optional)
-
-Wi-Fi FCT is four ordinary rows, each with its own editor - there is no
-Wi-Fi enable switch and no separate Wi-Fi page:
-
-| Row type | What it does | Parameters you set on the row |
+| Node | State | Why |
 |---|---|---|
-| `Console_serial` / `Console_ssh` | load the driver and join the AP by running the project script | nothing Wi-Fi specific: the `SendTo` text is `bash /root/fct_assets/connect_wifi.sh router` (or `hotspot`), and that argument picks the credentials inside the script |
-| `Wifi_Scan` | scan the AP from the DUT and check the RSSI | RSSI min (e.g. `-70` dBm), scan via `dut_console`, timeout |
-| `Wifi_Ping` | ping the host over the DUT Wi-Fi link | ping count (e.g. `20`), timeout |
-| `Wifi_Iperf` | throughput against the host `iperf3` server | tool `iperf3`, min throughput, duration, timeout |
+| 01 Design Input | Completed | product info + FCT test types |
+| 02 Parse nets for ICT | Unused | ICT is disabled |
+| 03 Firmware Config | Completed | FAT / OOBE both disabled (no flash) |
+| 04 Equipment Config | Completed | instruments + peripherals |
+| 05 Build ICT Test Sequence | Unused | ICT is disabled |
+| 06 Build FCT Test Sequence | Completed | the 41-row sequence |
+| 07 Apply & Save Yaml | Completed | validation OK, draft/final files |
 
-The AP SSID and password are **not** typed on the row: they live in the
-project script (`resources/scripts/connect_wifi.sh`) and in the Equipment
-page, and the build compares the two (chapter `07_station_equipment.md`). The
-host IP comes from the Equipment `DUT Wi-Fi` / `Host PC` fields, so change the
-station there, not in the sequence.
+Clicking an **Unused** node does not open a dialog — the step is out of
+scope for an FCT-only plan, and that is the expected behaviour.
 
-Bluetooth rows (`BT_RSSI`, `BT_Pair`, `BT_Tone`) are configured the same way
-- one row, one editor.
+## Step 3 — Review the FCT sequence (node 06)
 
-## Step 4 - The DUT-side Linux scripts
+Open **06 Build FCT Test Sequence**. The left table shows the 41 rows as
+`# / Name / Type / Channel / Timeout / Retries`; the right editor edits the
+selected row. The `Type` column uses the M160 two-level vocabulary
+(`category.type`), so a serial exchange is `Console.serial`, a file copy is
+`Transfer.serial_put`, and a radio check is `Wifi.scan`.
 
-The FCT chain calls into a small set of files that must exist on the DUT
+The 41 rows in order:
+
+| # | category.type | Name |
+|---|---|---|
+| 1 | Operation.power_on | Power On DUT |
+| 2 | Console.serial | Boot wait for prompt |
+| 3 | Console.serial | Acquire root shell |
+| 4 | Console.serial | Kernel check |
+| 5 | Console.serial | Prepare asset dir |
+| 6 | Transfer.serial_put | Deploy test assets to DUT |
+| 7 | Console.serial | Load RF drivers |
+| 8 | Console.serial | Wi-Fi connect |
+| 9 | Wifi.scan | Wi-Fi Scan / RSSI (DUT console) |
+| 10 | Wifi.ping | Wi-Fi Ping (Host->AP / DUT->AP / DUT->Host) |
+| 11 | Wifi.iperf | Wi-Fi iPerf Throughput (iperf3) |
+| 12 | Console.serial | BT discoverable |
+| 13 | Bluetooth.rssi | Bluetooth RSSI |
+| 14 | Console.serial | BT L2CAP ping |
+| 15–38 | Console.serial | FAT functional block (24 rows, `Overall result: PASS`) |
+| 39 | Transfer.serial_pull | Pull FAT log |
+| 40 | Console.serial | Cleanup assets |
+| 41 | Operation.power_off | Power Off DUT |
+
+The **Add Step** menu lists the seven FCT categories — Operation, Console,
+Message, Transfer, ExternalGui, Wifi, Bluetooth — each with its FCT
+sub-types. Measurement (R-GND / voltage / clock) and the ICT-only
+operations are not offered here because they belong to the ICT builder.
+
+## Step 4 — The DUT-side assets
+
+The FCT chain calls a small set of files that must exist on the DUT
 rootfs. They are **project assets**: they live in the project's
-`assets/` folder and ordinary `Serial Push` / SFTP steps copy them
-onto the DUT before the row that runs them. Nothing is pre-installed on a
-production DUT.
+`assets_FRDM-IMX93/` folder and the `Transfer.serial_put` row (row 6)
+copies them onto the DUT before the row that runs them. Nothing is
+pre-installed on a production DUT.
 
-Create the folder by copying the read-only built-in template (`assets/`)
-into `<work>/<PROJECT>/assets/`, then edit the files in place with
-any text editor. The application does not create, edit or sync assets: the
-template itself is never modified, every project owns its own copy, and the
-four `AP_PROFILE_*` values in `connect_wifi.sh` are filled by hand (chapter
-`07_station_equipment.md`, "Writing the script by hand").
+The shipped deploy list:
 
+| Host asset | DUT path |
+|---|---|
+| `assets_FRDM-IMX93/drivers/load_rf_drivers.sh` | `/root/fct_assets/drivers/load_rf_drivers.sh` |
+| `assets_FRDM-IMX93/scripts/connect_wifi.sh` | `/root/fct_assets/scripts/connect_wifi.sh` |
+| `assets_FRDM-IMX93/frdm_imx93_board_test.zip` | unzip `/root/fct_assets` |
 
-The FRDM-IMX93 project asset tree:
+Success markers the rows look for:
 
-```text
-<work>/FRDM-IMX93/assets/
-  precheck/01_system_check.sh      fat.py / ALSA / memory / Wi-Fi / BT presence
-  drivers/load_drivers.sh          probe-first Wi-Fi / BT module loader
-  resources/scripts/connect_wifi.sh   station Wi-Fi join (router | hotspot)
-  resources/scripts/bt_conn.sh        BT pairing helper used by BT_Pair
-  resources/audio/                 BT Tone / music wav files
-  resources/config/                static configs (wpa_supplicant, ...)
-```
+| Script / command | Pass marker |
+|---|---|
+| `load_rf_drivers.sh` | `RF drivers loaded OK` (with `BT_AUDIO_READY`) |
+| `connect_wifi.sh router` | `WIFI_CONNECTED_OK` / `WIFI_CONNECT_FAIL` |
+| FAT block (`fat.py`) | `Overall result: PASS` / `Overall result: FAIL` |
 
-| Asset (in `assets/`) | Purpose | Invoked by the row as | Pass marker |
-|---|---|---|---|
-| `precheck/01_system_check.sh` | Pre-flight: kernel, ALSA mixer, memory, filesystems, Wi-Fi / BT interface presence | `sh /root/fct_assets/01_system_check.sh` | `PRECHECK_OK` |
-| `drivers/load_drivers.sh` | Loads the Wi-Fi / Bluetooth modules - probes first, so an already-autoloaded interface is left alone | `sh /root/fct_assets/load_drivers.sh` | `DRIVERS_OK` |
-| `resources/scripts/connect_wifi.sh` | Joins `mlan0` to the station AP; the first argument selects the profile (`router` or `hotspot`), the credentials are inside the script | `bash /root/fct_assets/connect_wifi.sh router` | `WIFI_CONNECTED_OK` |
-| `resources/scripts/bt_conn.sh` | Pairs the DUT with the host BT adapter and runs the L2CAP ping | `sh /root/fct_assets/bt_conn.sh` | `BT_CONN_OK` |
-| `/root/frdm_imx93_board_test/` | BSP board-test package - contains `fat.py` (the interactive FAT menu); not an asset, it ships with the BSP image | `cd /root/frdm_imx93_board_test && python3 -u fat.py --json /root/fat_result.json 2>&1 \| tee /root/fat.log` | menu prompt `FRDM-i.MX93 DUT`, then `Overall result:` |
-| `/root/fat_result.json` | JSON result written by `fat.py` (re-created on every run) | fetched into `DUT Report` via SFTP (step 17), then **removed on the DUT** | file fetched |
-| `/root/fat.log` | Log written by `fat.py` via `tee` (re-created on every run) | fetched into `DUT Report` via SFTP (step 18), then **removed on the DUT** | file fetched |
-| `iperf3` | Throughput server/client (system tool on the DUT rootfs) | used by the Wi-Fi throughput test | - |
-
-The `send` strings above come from the project YAML - keep each script's
-final marker in sync with that row's `Capture` pattern. Every script
-prints exactly one *OK* line on success and one *FAIL* line (with the
-offending item) on failure, so the capture pattern is unambiguous.
-
-### Why no `chmod`
+The `send` strings above come from the project YAML — keep each script's
+final marker in sync with that row's capture pattern. Every script prints
+exactly one OK line on success and one FAIL line on failure, so the capture
+pattern is unambiguous.
 
 The rows call the interpreter explicitly (`sh …` / `bash …`), which only
-needs **read** permission on the file: no execute bit is required, and a
-`Serial Push` therefore never has to preserve file modes. `bash` rather
-than `sh` is used where the script may need bash semantics; both scripts
-in the tree stay POSIX `sh` so either interpreter works.
+needs **read** permission on the file: no execute bit is required, so a
+serial push never has to preserve file modes. Do **not** add `chmod +x`
+rows — they cost a serial round-trip and hide the real question (whether
+the file arrived intact).
 
-Do **not** add `chmod +x` rows: they cost a serial round-trip and hide
-the real question (whether the file arrived intact).
+## Step 5 — Save and export for review
 
-## Step 5 - Copy the files from the host to the DUT
-
-In the sequence this is one ordinary row per file: `Serial Push file to
-DUT` (or `SFTP_put` once SSH is up), whose **Local** path is the asset
-inside `<work>/<PROJECT>/assets/` and whose **Remote** path
-is the folder the console row will name. The GUI copies nothing behind
-your back - when the push row is missing, the console row fails and says
-so.
-
-The demo chain pushes them to `/root/fct_assets/`; the folder has to
-exist before the first push:
-
-```
-Console_serial:  mkdir -p /root/fct_assets
-```
-
-Where a file ends up is decided by the push row, not by this chapter:
-a **single-file** push lands directly in the Remote folder
-(`/root/fct_assets/connect_wifi.sh`), while pushing a **whole folder**
-lands one level deeper under that folder's own name (`local:
-assets/resources/scripts` + `remote: /root/fct_assets` ->
-`/root/fct_assets/scripts/`). The console row must name the path the
-push row actually creates - a mismatch shows up as a run-time "not
-found" on the first step that runs the script.
-
-For a fresh board you can do the same by hand once `sshd` is up (the
-chain starts it in step 13; for the very first copy, start it by hand
-over the serial console):
-
-```sh
-# host shell; <DUT_IP> is the address the DUT got on the station AP
-scp <work>/FRDM-IMX93/assets/precheck/01_system_check.sh \
-    root@<DUT_IP>:/root/fct_assets/
-scp <work>/FRDM-IMX93/assets/drivers/load_drivers.sh \
-    root@<DUT_IP>:/root/fct_assets/
-scp <work>/FRDM-IMX93/assets/resources/scripts/*.sh \
-    root@<DUT_IP>:/root/fct_assets/
-```
-
-`scp` is only a convenience for the very first bring-up: it needs the
-network that the Wi-Fi step is meant to establish, so a cold board is
-normally provisioned over the serial console instead. No `chmod` is
-needed either way - see "Why no `chmod`" above.
-
-Keep the host copies inside the project's `assets/` folder so
-the YAML, the scripts and the credentials travel together with the
-project - one copy, no separate `scripts/` folder.
-
-## Step 6 - Save the project and export for review
-
-1. **File > Save as Yaml...** - save the updated project (the demo
-   draft, or a new file name for your product).
-2. **File > Export Config Workbook...** - export the full plan
-   (Console / Wi-Fi / Bluetooth / Sequence rows) and hand the workbook
-   to the design engineer with the DUT script list for review.
-3. Iterate on the captured patterns / limits and re-export until the
-   plan is approved, then publish `Draft` -> `Final`.
+1. **File → Save Yaml As…** — save the project under your own name.
+2. **Yaml Build node 07 → Export MTK ICT Excel Sheet…** is for ICT
+   plans; for this FCT-only plan, export the full sequence from
+   **File → Export Config Workbook…** and hand it to the design engineer
+   with the DUT script list for review.
+3. Iterate on the captured patterns / limits and re-export until the plan
+   is approved, then publish `Draft` → `Final`.
 
 ## Windows real-hardware runbook
 
-### 1. DUT power-cycle timing (the first FCT row)
+### 1. DUT power-cycle timing (row 1)
 
-The first FCT row is a `MessageOKtoConsole` operator gate with the
-`gostop` style.  Press **Run**, the GO / STOP dialog appears, then:
+Row 1 is `Operation.power_on` with a Go/Stop gate. Press **Run**; the
+GO / STOP dialog appears, then:
 
 1. **Power the DUT on.**
 2. **Wait for the `login:` prompt (~25 s on the FRDM-IMX93 BSP).**
 3. **Press GO.**
 
 Pressing GO before the prompt is up leaves the carriage return in the
-U-Boot window and can abort autoboot.  For this project use a
-`MessageGoStoptoConsole` row with `send_yes: "\r"` - only the
-`*toConsole` kinds write to the console.
+U-Boot window and can abort autoboot. Row 2 (`Boot wait for prompt`)
+guards the exact moment the console is ready.
 
-### 2. `Console_cli` step that starts the Host iperf3 server
+### 2. Host iperf3 server (row 11)
 
-The throughput test needs an iperf3 server on the Host PC.  Author a
-`SendtoCLI` / `Console_cli` row with `host_cmd: "iperf3 -s -D"`
-(Windows: the bundled `iperf3.exe`, e.g.
-`"<MTK-GUI>\dist\MTK_GUI\_internal\iperf3.exe -s -D"`).
-
-- The host runner **kills the process after `timeout_s`** (default
-  30 s), so a long-running server **must** be detached (`-D`, or
-  `start /b`) - never foreground, otherwise the server dies with the
-  step.
-- The server port (5201) must be allowed inbound by Windows Defender
-  Firewall (see `14_faq.md`, Q17).
-
-### 3. SSH pull of `fat.log` over Wi-Fi
-
-The SFTP row uses the SSH channel.  When no SSH console is bound, the
-engine auto-binds it to the DUT's **Wi-Fi** address (`fct_dut_ip`,
-produced by the Wi-Fi connect step) with the `equipment.dut.ssh`
-credentials, pulls `/root/fat.log` into `{{dut_report}}` and deletes
-the remote copy afterwards.
-
-DUT-side preconditions: `sshd` listening on `:22`, root login allowed
-(an empty root password is supported), and `/root/fat.log` present
-(for example `dmesg > /root/fat.log`).  Without a Wi-Fi IP the row is
-an ERROR (`no DUT Wi-Fi IP; run the Wi-Fi connect step before SFTP`) -
-it never falls back to the serial console.
-
-## Summary - the FCT build loop
-
-- Load the YAML -> configure the Console message chain -> (optional)
-  Wi-Fi / Bluetooth tests -> add standard operations (power, flash,
-  delays) in the Sequence tab -> copy the DUT scripts -> save ->
-  export Excel for review.
-- FCT passes on **message evidence**: every step needs its capture
-  pattern (`PREFLIGHT_PASS`, `WIFI_CONNECTED_OK`, `0% packet loss`,
-  operator confirmations). Keep the DUT scripts and their output
-  markers in sync with the YAML captures.
-- Serial console steps need the correct COM port for the host - the
-  demo YAML was authored on macOS (`/dev/cu.usbmodem...`); on Windows
-  set the COM port of your board.
-
-## The plan that passed on the bench: FRDM-IMX93
+The throughput test needs an iperf3 server on the Host PC. The plan uses
+the host address from the station configuration (`192.168.71.8` in the
+shipped file); start the server before the run:
 
 ```text
-examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml
+iperf3.exe -s -D
 ```
 
-45 rows, three of them disabled, and this is the file that produced
-`Overall Flow: ICT -> FCT all PASS` on the real bench on 2026-11-24: 34 PASS,
-11 Ignore, 0 FAIL, 0 ERROR, 4:52 per unit including the two human gates.
+- The server port (5201) must be allowed inbound by Windows Defender
+  Firewall (see `14_faq.md`, Q17).
+- The host runner kills the process after its timeout, so a long-running
+  server must be detached (`-D`) — never foreground.
 
-![The FCT plan loaded in Test Work Flow](images/32_example_fct_plan.png)
+### 3. Serial pull of the FAT log (row 39)
 
-Load it and read the first twenty rows as a checklist of what a production FCT
-stage actually does: power on, enter download mode, burn the FAT image, boot
-wait, shell, kernel check, deploy assets, load RF drivers, then the FAT
-functional block, then the RF and firmware rows, then power off.
+`Transfer.serial_pull` pulls `/root/fat.log` into the DUT report over the
+serial channel, then deletes the remote copy. Without the DUT serial
+console bound, the row is an ERROR — it never falls back to Wi-Fi.
 
-### The three disabled rows, and how to re-open them
+## Summary — the FCT build loop
 
-- `Wi-Fi iPerf Throughput (iperf3)` - the lab AP isolates clients, so the DUT
-  never reaches the host iperf3 server although ARP resolves both ways.
-  Re-enable once host and DUT share a non-isolating segment, then confirm
-  `0% packet loss` appears in the row's capture.
-- `BT L2CAP ping` - there is no paired peer; the DUT answers
-  `BT_L2CAP_UNCONFIGURED`. Pair a peer, re-enable, and expect
-  `BT_L2CAP_OK`.
-- `Pull FAT log` - the serial pull protocol is structurally broken on this
-  firmware, so the run falls back to the console transcript. Re-enable only
-  after the pull command returns a complete file.
+- Load the YAML → review the 7 wizard nodes → check the 41-row FCT
+  sequence → copy the DUT assets → run → export the report.
+- FCT passes on **message evidence**: every row needs its capture pattern
+  (`RF drivers loaded OK`, `WIFI_CONNECTED_OK`, `Overall result: PASS`).
+  Keep the DUT scripts and their output markers in sync with the YAML
+  captures.
+- This FRDM-IMX93 plan has **no firmware-flash stage** — the board ships
+  pre-flashed, so node 03 keeps FAT / OOBE disabled and the sequence has
+  no ExternalGui.flash row.
 
-Each row carries the date and the reason above it in the YAML. That is the
-house rule: a closed item stays readable so the next engineer can re-open it
-after one look.
+## The plan that runs on the bench
 
-### What the bench run changed in the tool
+```text
+examples\fct_frdm_imx93\FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.2.yaml
+```
 
-Two defects surfaced only on hardware, and both are fixed:
-
-- a Bluetooth RSSI row declared a 15 s budget while declaring three 35 s
-  sub-timeouts; it now retries the scan twice and declares 35 s everywhere;
-- `run_step` now warns `WARNING budget ... <= declared sub-timeout ...`
-  before the row starts instead of failing 15 s into it.
-
-Use that pattern: a row whose declared budget cannot hold its sub-timeouts is
-a plan bug, not a DUT failure.
+Forty-one rows, all enabled. Bench results are recorded after the
+three-run verification pass and appended here with the date, the PASS /
+FAIL / ERROR split and the per-unit cycle time.

@@ -193,9 +193,9 @@ def test_load_syncs_product_information(window):
 
 
 def test_zero_test_items_block_run(window, monkeypatch):
-    """User direction 2026-10-14: each stage may legally run empty,
-    but a run with NO test items at all (ICT and FCT both empty) is
-    blocked with a warning.  Placeholder / op-only rows never count."""
+    """No YAML -> both stages disabled -> run blocked ("No Available
+    Tests").  With stages enabled but no test items the run is blocked
+    with "No Test Items".  Placeholder / op-only rows never count."""
     page = window.workflow_page
     assert page.test_item_counts() == (0, 0)   # fresh placeholders
     page.project_path = "dummy.yaml"           # pass the project gate
@@ -204,6 +204,17 @@ def test_zero_test_items_block_run(window, monkeypatch):
         "mtkgui.test_workflow_page.QMessageBox.warning",
         lambda *a, **k: warnings.append(k[0] if len(k) > 0 else a[1]))
     page.log_line.connect(logs.append)
+
+    # no YAML loaded -> ICT + FCT both disabled (read-only EN = False)
+    page.start_run()
+    assert warnings == ["No Available Tests"]
+    assert page.run_state != "running"
+    assert any("no available tests" in ln for ln in logs)
+
+    # YAML enables both stages but defines no test items -> blocked
+    page.set_overall_en([True, True])
+    warnings.clear()
+    logs.clear()
     page.start_run()
     assert warnings == ["No Test Items"]
     assert page.run_state != "running"
@@ -228,6 +239,8 @@ def test_save_without_test_items_asks(window, monkeypatch, tmp_path):
     real test is a blocking validation error."""
     page = window.workflow_page
     assert page.test_item_counts() == (0, 0)
+    # YAML enables both stages but defines no test items -> M79 blocks
+    page.set_overall_en([True, True])
     out = tmp_path / "empty.yaml"
     warned: list = []
     monkeypatch.setattr(

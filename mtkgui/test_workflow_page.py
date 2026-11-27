@@ -740,6 +740,9 @@ class TestWorkFlowPage(QWidget):
         # currently executing row (highlighted + auto-scrolled into view)
         self._active_table = None
         self._active_row = -1
+        # (id(table), row, col) -> (text, colour-or-None, bold) for the
+        # status cells; lets _set_status skip redundant font/foreground work
+        self._status_cache = {}
         # M12: detachable Test Case Viewer (created on first open)
         self._case_viewer = None
         # M101-C: floated ICT / FCT table windows + their placeholders
@@ -754,8 +757,9 @@ class TestWorkFlowPage(QWidget):
         self._perm = {}
         self._can_edit_ict = True
         self._can_edit_fct = True
-        self._can_toggle_stages = True
-        self._overall_en = [True, True]
+        # Overall Flow EN is read-only: YAML is the only source, so with
+        # no YAML loaded both stages start disabled (False).
+        self._overall_en = [False, False]
         self._overall_edit_guard = False
         # power rails are fully YAML-defined (project file): empty until
         # a project is loaded (see set_rails)
@@ -1028,8 +1032,6 @@ class TestWorkFlowPage(QWidget):
         self._perm = dict(perm)
         self._can_edit_ict = supervisor or bool(perm.get("edit_ict"))
         self._can_edit_fct = supervisor or bool(perm.get("edit_fct"))
-        self._can_toggle_stages = supervisor or bool(
-            perm.get("toggle_stages"))
         self._apply_overall_en_flags()
         # Item 15: part / core / batch are 100% YAML-driven - read-only
         # for every role (the YAML file is the only editing entrance).
@@ -1084,15 +1086,13 @@ class TestWorkFlowPage(QWidget):
         self._overall_edit_guard = False
 
     def _apply_overall_en_flags(self):
-        """Operator without the toggle_stages right: the EN checkbox
-        stays visible but grayed out (not clickable)."""
+        """Overall Flow EN is read-only for every role: the value comes
+        from the YAML (test_workflow.overall_flow) only. The checkbox
+        stays visible as a state indicator but is never clickable."""
         for r in range(self.overall.rowCount()):
             item = self.overall.item(r, 2)
             flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            if self._can_toggle_stages:
-                flags |= Qt.ItemFlag.ItemIsEnabled
-            else:
-                flags &= ~Qt.ItemFlag.ItemIsEnabled
+            flags &= ~Qt.ItemFlag.ItemIsEnabled
             item.setFlags(flags)
 
     def _deny_edit(self, what):
@@ -1523,7 +1523,7 @@ class TestWorkFlowPage(QWidget):
              "-> RTC/CLKOUT1/CLKOUT2 clocks"),
             ("2", "FCT",
              "Functional Test: LED -> Serial Console (Linux) "
-             "-> Wi-Fi -> Bluetooth -> Flash FAT -> Flash OOBE"),
+             "-> Wi-Fi -> Bluetooth -> optional FAT / OOBE flash"),
         ]
         self._overall_edit_guard = True
         for r, (num, stage, desc) in enumerate(rows):
@@ -1534,8 +1534,8 @@ class TestWorkFlowPage(QWidget):
             en = self.overall.item(r, 2)
             en.setFlags(en.flags() | Qt.ItemFlag.ItemIsUserCheckable
                         | Qt.ItemFlag.ItemIsEnabled)
-            en.setCheckState(Qt.CheckState.Checked)
-        self._overall_en = [True, True]
+            en.setCheckState(Qt.CheckState.Unchecked)
+        self._overall_en = [False, False]
         self._overall_edit_guard = False
         self.overall.itemChanged.connect(self._overall_item_changed)
         # column layout (item 20): automatic width adaptation - every
@@ -1644,6 +1644,7 @@ class TestWorkFlowPage(QWidget):
             self.ict_enables[row] = item.checkState() == Qt.CheckState.Checked
 
     def _fill_ict(self, placeholder=False):
+        self._status_cache.clear()   # rows are (re)built -> stale cache
         for r in range(len(self.ict_steps)):
             self._fill_ict_row(r, placeholder)
 
@@ -2338,6 +2339,7 @@ class TestWorkFlowPage(QWidget):
         self.fct.setItem(r, 4, res_item)
 
     def _fill_fct_all(self):
+        self._status_cache.clear()   # rows are (re)built -> stale cache
         for r in range(len(self.fct_rows)):
             self._fill_fct_row(r)
 
@@ -2560,13 +2562,17 @@ class TestWorkFlowPage(QWidget):
             item = QTableWidgetItem()
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, col, item)
-        if item.text() != text:
-            item.setText(text)   # skip unchanged: avoids column re-layout
         colour, bold = self._status_style(status, virtual)
-        item.setForeground(QColor(colour) if colour else QBrush())
-        font = QFont()
-        font.setBold(bold)
-        item.setFont(font)
+        cache_key = (id(table), row, col)
+        cached = self._status_cache.get(cache_key)
+        if cached != (text, colour or None, bold):
+            if item.text() != text:
+                item.setText(text)   # skip unchanged: avoids column re-layout
+            item.setForeground(QColor(colour) if colour else QBrush())
+            font = QFont()
+            font.setBold(bold)
+            item.setFont(font)
+            self._status_cache[cache_key] = (text, colour or None, bold)
 
     def _log(self, line):
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -3324,7 +3330,10 @@ class TestWorkFlowPage(QWidget):
         end("testflow: run")
 
     def clear_results(self, keep_log: bool = False):
-        """Blank the last run: statuses / durations / verdict / stats.
+        """Blank the last run: measured values / statuses / verdict / stats.
+        Only the run-output cells are touched; the YAML-backed columns
+        (name, EN, unit, min, max, tooltips) are reused as-is, so a reset
+        no longer rebuilds the whole table.
         keep_log=True skips the Event-Log clear signal (Close Yaml
         resets the run state but keeps the session log history)."""
         self._interrupted = False
@@ -3340,21 +3349,49 @@ class TestWorkFlowPage(QWidget):
         self.rail_csv_path = None
         self._ai_review_text = None
         self._apply_rail_filter()
-        self._fill_ict(placeholder=True)
+        # batch the cell updates so the view never repaints mid-loop
+        for table in (self.ict, self.fct, self.overall):
+            table.setUpdatesEnabled(False)
+        try:
+            self._reset_ict_results()
+            self._reset_fct_results()
+            self._reset_overall_results()
+        finally:
+            for table in (self.ict, self.fct, self.overall):
+                table.setUpdatesEnabled(True)
+        if not keep_log:
+            self.log_cleared.emit()
+        self._update_result()
+
+    def _reset_ict_results(self):
+        """Clear only the ICT run-output cells: Measured (col 4) and
+        Result (col 7). Name / EN / unit / limits stay untouched."""
+        for r in range(self.ict.rowCount()):
+            measured = self.ict.item(r, 4)
+            if measured is not None and measured.text():
+                measured.setText("")
+            self._set_status(self.ict, r, 7, "Pending")
+
+    def _reset_fct_results(self):
+        """Clear FCT run artifacts: the per-item cell widget, Duration
+        (col 3) and Result (col 4)."""
+        default_h = self.fct.verticalHeader().defaultSectionSize()
         for r in range(self.fct.rowCount()):
             if self.fct.cellWidget(r, 1) is not None:
                 # M107b: a cleared run drops the fat.py per-item block
                 self.fct.removeCellWidget(r, 1)
-                self.fct.setRowHeight(
-                    r, self.fct.verticalHeader().defaultSectionSize())
+                self.fct.setRowHeight(r, default_h)
             self._set_status(self.fct, r, 3, "--")
             self._set_status(self.fct, r, 4, "Pending")
+
+    def _reset_overall_results(self):
+        """Clear the Overall Flow run-output cells: stage status (col 3)
+        and duration (col 4)."""
         for r in range(self.overall.rowCount()):
             self._set_status(self.overall, r, 3, "Pending")
-            self.overall.item(r, 4).setText("--")
-        if not keep_log:
-            self.log_cleared.emit()
-        self._update_result()
+            dur = self.overall.item(r, 4)
+            if dur is not None and dur.text() != "--":
+                dur.setText("--")
 
 
 def _bold():

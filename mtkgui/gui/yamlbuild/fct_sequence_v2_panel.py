@@ -46,10 +46,10 @@ from mtkgui.engine.step_types import (
     CATEGORY_MEASUREMENT,
     CATEGORY_MESSAGE,
     CATEGORY_OPERATION,
-    CATEGORY_ORDER,
     CATEGORY_TRANSFER,
     CATEGORY_WIFI,
-    STEP_CATEGORIES,
+    FCT_CATEGORY_ORDER,
+    FCT_STEP_CATEGORIES,
 )
 from mtkgui.gui.yamlbuild.command_snippet_helper import (
     PAGE_WINDOWS,
@@ -59,6 +59,7 @@ from mtkgui.gui.yamlbuild.fct_build import (
     DEFAULT_KEYWORD_FAIL,
     DEFAULT_KEYWORD_PASS,
     ON_FAIL_POLICIES,
+    OP_TYPE_NAMES,
     FctSequence,
     FctStep,
 )
@@ -66,7 +67,8 @@ from mtkgui.gui.yamlbuild.fct_build import (
 #: step table columns, in order (M160)
 COLUMNS = ("#", "Name", "Type", "Channel", "Timeout (s)", "Retries")
 
-_SPINE_TEXT = "ICT → Flash FAT → FCT body → Flash OOBE → Teardown"
+_SPINE_TEXT = "Flash FAT → FCT body → Flash OOBE → Teardown"
+_SPINE_TEXT_NO_FLASH = "FCT body → Teardown"
 
 
 def _split_csv(text: str) -> list:
@@ -100,7 +102,7 @@ class BuildFctSequencePanel(QWidget):
         self.setMinimumWidth(900)
 
         # --------------------------------------------------- spine label
-        self.lbl_spine = QLabel(_SPINE_TEXT)
+        self.lbl_spine = QLabel(_SPINE_TEXT_NO_FLASH)
         self.lbl_spine.setObjectName("strong")
         root.addWidget(self.lbl_spine)
 
@@ -160,9 +162,9 @@ class BuildFctSequencePanel(QWidget):
         self._build_keywords(right_lay)
         right_lay.addStretch(1)
         split.addWidget(right)
-        split.setStretchFactor(0, 45)
-        split.setStretchFactor(1, 55)
-        split.setSizes([450, 550])
+        split.setStretchFactor(0, 58)
+        split.setStretchFactor(1, 42)
+        split.setSizes([620, 480])
         root.addWidget(split, 1)
 
         # M159: one-line authoring hint (never a block)
@@ -175,9 +177,9 @@ class BuildFctSequencePanel(QWidget):
     # ------------------------------------------------------------- UI
     def _build_add_menu(self) -> QMenu:
         menu = QMenu(self.btn_add)
-        for category in CATEGORY_ORDER:
+        for category in FCT_CATEGORY_ORDER:
             sub = menu.addMenu(category)
-            for sub_type in STEP_CATEGORIES[category]:
+            for sub_type in FCT_STEP_CATEGORIES[category]:
                 sub.addAction(
                     sub_type,
                     lambda c=category, t=sub_type: self._add_step(c, t))
@@ -191,7 +193,7 @@ class BuildFctSequencePanel(QWidget):
         self.edit_name = QLineEdit()
         self.edit_category = QComboBox()
         self.edit_category.setInsertPolicy(QComboBox.NoInsert)
-        self.edit_category.addItems(list(CATEGORY_ORDER))
+        self.edit_category.addItems(list(FCT_CATEGORY_ORDER))
         self.edit_type = QComboBox()
         self.edit_type.setInsertPolicy(QComboBox.NoInsert)
         self.edit_timeout = QDoubleSpinBox()
@@ -214,7 +216,7 @@ class BuildFctSequencePanel(QWidget):
 
         self.stack = QStackedWidget()
         self._pages = {}
-        for category in CATEGORY_ORDER:
+        for category in FCT_CATEGORY_ORDER:
             page = QWidget()
             page.setLayout(self._build_category_page(category))
             self._pages[category] = page
@@ -242,10 +244,12 @@ class BuildFctSequencePanel(QWidget):
             form.addRow("Max", self.edit_max)
             self._wire(self.edit_unit, self.edit_min, self.edit_max)
         elif category == CATEGORY_OPERATION:
-            from mtkgui.engine.steps import OP_STEPS
             self.edit_op = QComboBox()
             self.edit_op.setInsertPolicy(QComboBox.NoInsert)
-            self.edit_op.addItems(list(OP_STEPS))
+            self.edit_op.addItems([
+                OP_TYPE_NAMES[sub_type]
+                for sub_type in FCT_STEP_CATEGORIES[CATEGORY_OPERATION]
+            ])
             self.edit_args = QLineEdit()
             self.edit_args.setPlaceholderText(
                 'Operation args JSON, e.g. {"rate_hz": 20000}')
@@ -407,9 +411,23 @@ class BuildFctSequencePanel(QWidget):
         return True, ""
 
     # ----------------------------------------------------------- render
+    def _update_spine(self) -> None:
+        """Show the flow spine that matches the edited sequence.
+
+        A flash step (ExternalGui.flash) keeps the FAT / OOBE legs; a
+        flash-free project (this FRDM-IMX93 flow) drops them instead of
+        advertising a firmware burn the operator will never run.
+        """
+        has_flash = any(
+            step.category == CATEGORY_EXTERNAL_GUI and step.type == "flash"
+            for step in self._sequence.steps)
+        self.lbl_spine.setText(
+            _SPINE_TEXT if has_flash else _SPINE_TEXT_NO_FLASH)
+
     def _render(self) -> None:
         self._loading = True
         try:
+            self._update_spine()
             self._render_table()
             self._render_keywords()
             self._refresh_editor()
@@ -441,7 +459,7 @@ class BuildFctSequencePanel(QWidget):
         step = self._selected_step()
         if step is None:
             self.edit_name.clear()
-            self.edit_category.setCurrentText(CATEGORY_ORDER[0])
+            self.edit_category.setCurrentText(FCT_CATEGORY_ORDER[0])
             self.edit_type.clear()
             return
         self._loading = True
@@ -452,7 +470,8 @@ class BuildFctSequencePanel(QWidget):
             self._repopulate_types(step.category)
             self.edit_type.setCurrentText(step.type)
             self.stack.setCurrentWidget(
-                self._pages.get(step.category, self._pages[CATEGORY_ORDER[0]]))
+                self._pages.get(step.category,
+                                self._pages[FCT_CATEGORY_ORDER[0]]))
             self.edit_timeout.setValue(float(step.timeout_s or 0.0))
             self.edit_retries.setValue(int(step.retries or 0))
             self.edit_on_fail.setCurrentText(step.on_fail)
@@ -461,7 +480,7 @@ class BuildFctSequencePanel(QWidget):
             self._loading = False
 
     def _repopulate_types(self, category: str) -> None:
-        types = list(STEP_CATEGORIES.get(category, ()))
+        types = list(FCT_STEP_CATEGORIES.get(category, ()))
         current = self.edit_type.currentText()
         self.edit_type.blockSignals(True)
         self.edit_type.clear()
@@ -479,7 +498,7 @@ class BuildFctSequencePanel(QWidget):
             self.edit_max.setText(str(p.get("max", "")))
         elif category == CATEGORY_OPERATION:
             self.edit_op.setCurrentText(
-                str(p.get("op", "") or (step.name if step.name else "")))
+                OP_TYPE_NAMES.get(step.type, step.name))
             args = p.get("args")
             self.edit_args.setText(
                 json.dumps(args) if isinstance(args, dict) and args else "")
@@ -539,11 +558,11 @@ class BuildFctSequencePanel(QWidget):
         try:
             step.category = category
             self._repopulate_types(category)
-            if step.type not in STEP_CATEGORIES.get(category, ()):
-                step.type = STEP_CATEGORIES[category][0]
+            if step.type not in FCT_STEP_CATEGORIES.get(category, ()):
+                step.type = FCT_STEP_CATEGORIES[category][0]
                 self.edit_type.setCurrentText(step.type)
             self.stack.setCurrentWidget(
-                self._pages.get(category, self._pages[CATEGORY_ORDER[0]]))
+                self._pages.get(category, self._pages[FCT_CATEGORY_ORDER[0]]))
             self._load_category_fields(step)
         finally:
             self._loading = False

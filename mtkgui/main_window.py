@@ -811,7 +811,8 @@ class MainWindow(QMainWindow):
         self.version_info = get_version_info()
         from .gui_version import load_gui_version
         self.gui_version, self.gui_version_warning = load_gui_version()
-        self.status_version = QLabel(f"GUI version: {self.gui_version}")
+        self.status_version = QLabel(
+            f"GUI version: {self.version_info.display(include_dirty=False)}")
         self.status_version.setObjectName("muted")
         self.status_version.setStyleSheet("padding: 0 6px;")
         # display-only: not selectable / not editable
@@ -1675,6 +1676,20 @@ class MainWindow(QMainWindow):
         # keep the latest batch on hand for Report > Batch Summary
         self._last_batch = BatchSummary(reports=list(self._session_reports))
         if report.items:
+            import os
+            if os.environ.get("MTK_SMOKE_NO_REPORT") == "1":
+                # Headless smoke only: no user can acknowledge the render
+                # dialog and each PDF render takes ~10 s, which would
+                # strand application-modal dialogs across later sections.
+                # The PDF/render path itself has dedicated pytest
+                # coverage (tests/gui/test_dut_report_pdf,
+                # test_m81_report_render_proc, test_report_menu_folders);
+                # keep only an Event Log line.
+                self._append_event_log(
+                    f"[{datetime.now():%H:%M:%S}] DUT report render "
+                    f"skipped in smoke mode ({len(report.items)} items, "
+                    f"serial {report.serial_no or 'n/a'})")
+                return
             self._append_event_log(
                 f"[{datetime.now():%H:%M:%S}] DUT report generating "
                 f"({len(report.items)} items, serial "
@@ -2361,7 +2376,8 @@ class MainWindow(QMainWindow):
         page.cycle_times = []
         page.clear_results(keep_log=True)   # keep the session log
         # overall flow EN + tables / rails / consoles -> no-yaml state
-        page.set_overall_en([True, True])
+        # (no YAML -> both stages disabled, EN is read-only from YAML)
+        page.set_overall_en([False, False])
         page.clear_tables()
         page.set_project_file(None)
         # equipment defaults (same shape apply_config restores into)

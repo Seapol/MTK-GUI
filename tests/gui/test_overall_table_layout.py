@@ -127,13 +127,15 @@ def test_stop_policy_yaml_round_trip(page, qapp, tmp_path):
 
 
 def test_row_content_unchanged(page):
-    """EN checkmark + '--' placeholder + row count keep the original
-    design (no business/visual change beyond widths)."""
+    """EN checkbox starts read-only + unchecked (YAML is the only
+    source; no YAML -> disabled), '--' placeholder + row count keep
+    the original design (no business/visual change beyond widths)."""
     t = page.overall
     assert t.rowCount() == 2
     assert t.columnCount() == 5
     for r in range(2):
-        assert t.item(r, 2).checkState() == Qt.CheckState.Checked
+        assert t.item(r, 2).checkState() == Qt.CheckState.Unchecked
+        assert not (t.item(r, 2).flags() & Qt.ItemFlag.ItemIsEnabled)
         assert t.item(r, 4).text() == "--"
         assert t.item(r, 3).text() == "Pending"
     assert [t.horizontalHeaderItem(c).text()

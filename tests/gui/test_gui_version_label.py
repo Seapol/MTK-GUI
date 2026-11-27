@@ -34,12 +34,21 @@ def test_load_without_any_source():
 
 
 # ------------------------------------------------------------- status bar
-def test_status_bar_shows_release_version(qapp):
-    """The status bar label renders `GUI version: v1.0.0.0` - never a
-    git tag or a random CI build number."""
+def test_status_bar_shows_release_version_with_build(qapp, monkeypatch):
+    """The status bar label renders the release version followed by the
+    branch@commit build facts, e.g.
+    `GUI version: v1.0.0.0 (develop @ 1a2b3c4)` - the release number
+    stays THE version, git only appends the build facts."""
+    from mtkgui.version_info import VersionInfo
+    monkeypatch.setattr(
+        "mtkgui.main_window.get_version_info",
+        lambda force=False: VersionInfo(
+            tag=__version__, branch="develop", commit="1a2b3c4",
+            dirty=False, source="git"))
     window = MainWindow(role="Supervisor", mode="Virtual")
     try:
-        assert window.status_version.text() == f"GUI version: {__version__}"
+        assert window.status_version.text() == \
+            f"GUI version: {__version__} (develop @ 1a2b3c4)"
         assert window.gui_version_warning is None
     finally:
         window.deleteLater()

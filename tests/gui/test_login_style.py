@@ -127,12 +127,21 @@ def test_background_matches_theme(dlg):
 
 
 # ------------------------------------------------ item 12 additions
-def test_version_bound_to_global_gui_version(dlg):
-    """The login version label is bound to the ONE global GUI version
-    variable (the status bar source) - no duplicate static version."""
-    from mtkgui.gui_version import load_gui_version
-    version = dlg.findChild(QLabel, "login_version")
-    assert version.text() == f"Version {load_gui_version()[0]}"
+def test_version_bound_to_global_gui_version(qapp, monkeypatch):
+    """The login version label shows the release version followed by
+    the branch@commit build facts - single source, no duplicate."""
+    from mtkgui.version_info import VersionInfo
+    monkeypatch.setattr(
+        "mtkgui.permissions.get_version_info",
+        lambda force=False: VersionInfo(
+            tag="v1.0.0.0", branch="develop", commit="1a2b3c4",
+            dirty=False, source="git"))
+    d = LoginDialog()
+    try:
+        version = d.findChild(QLabel, "login_version")
+        assert version.text() == "Version v1.0.0.0 (develop @ 1a2b3c4)"
+    finally:
+        d.deleteLater()
 
 
 def test_title_larger_and_bolder(dlg):

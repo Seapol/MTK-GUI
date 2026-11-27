@@ -94,6 +94,7 @@ OP_TYPE_NAMES = {
     "power_off": "Power Off DUT",
     "daq_ai_start": "DAQ AI Start",
     "daq_ai_end": "DAQ AI End",
+    "delay": "Delay",
 }
 
 

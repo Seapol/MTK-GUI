@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtkgui.gui import identity
-from .gui_version import load_gui_version
+from .version_info import get_version_info
 from mtkgui.gui.dialog_sizing import enable_dialog_controls, fit_dialog
 from .style import GUI_THEMES, saved_theme
 
@@ -283,8 +283,7 @@ class LoginDialog(QDialog):
         welcome.setObjectName("login_title")
         welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
         outer.addWidget(welcome)
-        gui_version, _warning = load_gui_version()
-        version = QLabel(f"Version {gui_version}")
+        version = QLabel(f"Version {get_version_info().display(include_dirty=False)}")
         version.setObjectName("login_version")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         outer.addWidget(version)

@@ -74,8 +74,13 @@ class VersionInfo:
     dirty: bool
     source: str
 
-    def display(self) -> str:
+    def display(self, include_dirty: bool = True) -> str:
         """Human readable version line for the UI.
+
+        Args:
+            include_dirty: True appends the ``[dirty]`` marker (default);
+                False keeps the label compact for the login / status-bar
+                version lines (release version + branch@commit only).
 
         Returns:
             e.g. ``"v3.0.0 (develop @ 1a2b3c4) [dirty]"``; without a
@@ -96,7 +101,7 @@ class VersionInfo:
         else:
             base = " @ ".join(
                 part for part in (self.branch, self.commit) if part)
-        if self.dirty:
+        if include_dirty and self.dirty:
             base = f"{base} [dirty]"
         return base or "unknown"
 
