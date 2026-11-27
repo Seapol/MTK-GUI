@@ -583,8 +583,8 @@ def host_bt_identity() -> tuple:
     windows: ``$env:COMPUTERNAME`` + the LOCAL adapter's BD address via
              ``BluetoothAdapter.GetDefaultAsync().BluetoothAddress``
              (WinRT).  The 12-hex value is rendered ``AA:BB:CC:DD:EE:FF``
-             to match the mac branch (same ``ToString('X12')`` convention
-             as ``mtkgui.drivers.bluetooth_rf``)."""
+             to match the mac branch (same ``ToString('X12')``
+             convention)."""
     import re
     key = platform_key()
     if key == "mac":

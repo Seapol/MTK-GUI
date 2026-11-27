@@ -32,11 +32,21 @@ def _doc(ict=None, fct=None, flow=None) -> dict:
     return {"test_workflow": wf}
 
 
+def _fct(name, category, sub_type, **extra):
+    """M160: an FCT case carries its category/type in the step marker."""
+    row = {"name": name,
+           "op_params": {"fct_step": {"name": name,
+                                      "category": category,
+                                      "type": sub_type}}}
+    row.update(extra)
+    return row
+
+
 _REAL_ICT = {"name": "R-GND - TP_P01", "kind": "R-GND"}
-_REAL_FCT = {"name": "Wi-Fi Scan", "kind": "WIFI"}
-_OP = {"name": "Power On DUT", "kind": "op"}
-_DELAY = {"name": "Delay - system boot wait", "kind": "Delay"}
-_NOTICE = {"name": "Operator notice", "kind": "MessageOK"}
+_REAL_FCT = _fct("Wi-Fi Scan", "Wifi", "scan")
+_OP = _fct("Power On DUT", "Operation", "power_on")
+_DELAY = _fct("Delay - system boot wait", "Operation", "delay")
+_NOTICE = _fct("Operator notice", "Message", "ok")
 
 
 def _errors(doc: dict) -> list:
@@ -59,11 +69,12 @@ def test_m79_fct_all_op_rows_is_error():
 def test_m79_fct_all_skipped_rows_is_error():
     """Every row skip / disabled -> ERROR (they run as Ignore)."""
     rows = [
-        {"name": "Console - kernel version", "kind": "SendtoCLI",
-         "skip": True},
-        {"name": "Wi-Fi scan", "kind": "WIFI", "enable": False},
-        {"name": "Marker skip", "kind": "SendtoCLI",
-         "op_params": {"fct_step": {"params": {"skip": True}}}},
+        _fct("Console - kernel version", "Console", "serial", skip=True),
+        _fct("Wi-Fi scan", "Wifi", "scan", enable=False),
+        {"name": "Marker skip",
+         "op_params": {"fct_step": {"name": "Marker skip",
+                                    "category": "Console", "type": "serial",
+                                    "params": {"skip": True}}}},
     ]
     issues = _errors(_doc(ict=[_REAL_ICT], fct=rows))
     assert len(issues) == 1
@@ -110,18 +121,19 @@ def test_m79_disabled_stage_is_exempt():
 
 def test_m79_one_real_test_is_enough():
     """A single Console / WIFI row makes the sequence legal."""
-    rows = [_OP, _DELAY,
-            {"name": "Wi-Fi scan", "kind": "WIFI"},
-            {"name": "Kernel check", "kind": "CapturefromConsole"}]
+    kernel = _fct("Kernel check", "Console", "serial")
+    kernel["op_params"]["fct_step"]["params"] = {"expect_pass_re": "Linux"}
+    rows = [_OP, _DELAY, _fct("Wi-Fi scan", "Wifi", "scan"), kernel]
     assert _errors(_doc(ict=[_REAL_ICT], fct=rows)) == []
 
 
 def test_m79_delay_and_notice_do_not_count():
     """Delay + MessageOK only -> ERROR (they never judge the DUT)."""
     rows = [_DELAY, _NOTICE,
-            {"name": "Delay via marker", "kind": "MessageOK",
+            {"name": "Delay via marker",
              "op_params": {"fct_step": {
-                 "step_type": "EXTERNAL_TOOL",
+                 "name": "Delay via marker",
+                 "category": "Operation", "type": "delay",
                  "params": {"fct_delay_ms": 5000}}}}]
     issues = _errors(_doc(ict=[_REAL_ICT], fct=rows))
     assert len(issues) == 1

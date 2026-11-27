@@ -1348,7 +1348,7 @@ def test_build_steps_message_row_is_console_dialog_gui_confirm():
     assert steps[0].category == "Console"            # console neighbour
     msg = steps[1]
     assert msg.name == "Swap DUT fixture"
-    assert (msg.category, msg.type) == ("Message", "yesno")
+    assert (msg.category, msg.type) == ("Message", "yesno_console")
     assert msg.channel == "ser1"                     # waits the console
     assert msg.params["console_dialog"] is True
     assert msg.params["style"] == DIALOG_YESNO

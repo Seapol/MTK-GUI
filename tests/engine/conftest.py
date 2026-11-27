@@ -260,33 +260,6 @@ def scripted_drivers():
             self.results = []
             self.summary = "stub RF report"
 
-    class WiFiRFTestDriver:
-        def __init__(self, executor=None, transport=None):
-            pass
-
-        def open(self, address, options):
-            pass
-
-        def close(self):
-            pass
-
-        def identify(self):
-            return "STUB WIFI"
-
-        def run_test(self, config):
-            missing = {"ssid", "target_ip"} - set(config or {})
-            if missing:
-                raise InstrumentConfigError(f"missing {missing}")
-            rec.calls.append(("wifi", config.get("ssid")))
-            ok = config.get("limits", {}).get("min_rssi_dbm") is not None
-            return RFTestReport(Status.OK if ok else Status.FAIL)
-
-    class BluetoothRFTestDriver(WiFiRFTestDriver):
-        def run_test(self, config):
-            if not config.get("mac"):
-                raise InstrumentConfigError("missing mac")
-            return RFTestReport(Status.OK)
-
     for name, obj in (
             ("Status", Status), ("InstrumentError", InstrumentError),
             ("InstrumentConfigError", InstrumentConfigError),
@@ -298,9 +271,7 @@ def scripted_drivers():
             ("U2355ADriver", U2355ADriver),
             ("N5747ADriver", N5747ADriver),
             ("SubprocessExecutor", SubprocessExecutor),
-            ("RFTestReport", RFTestReport),
-            ("WiFiRFTestDriver", WiFiRFTestDriver),
-            ("BluetoothRFTestDriver", BluetoothRFTestDriver)):
+            ("RFTestReport", RFTestReport)):
         setattr(mod, name, obj)
     mod._record = rec
 

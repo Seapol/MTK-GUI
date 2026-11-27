@@ -209,7 +209,7 @@ def test_budget_overrun_is_error(monkeypatch):
         return fct_exec.FctOutcome(VERDICT_FAIL, "not executed")
 
     monkeypatch.setattr(fct_exec, "_execute_once", slow_exec)
-    step = FctStep(name="slow", step_type="MESSAGE_CHECK", channel="ser1",
+    step = FctStep(name="slow", category="Console", type="serial", channel="ser1",
                    timeout_s=0.2)
     out = execute_fct_step(step, ctx)
     assert out.verdict == VERDICT_ERROR
@@ -219,7 +219,7 @@ def test_budget_overrun_is_error(monkeypatch):
 def test_silent_console_timeout_is_error():
     ctx, _ = make_virtual_context({"ser1": []})
     step = FctStep(
-        name="no report", step_type="MESSAGE_CHECK", channel="ser1",
+        name="no report", category="Console", type="serial", channel="ser1",
         timeout_s=0.4,
         params={"fct_console": True, "kind": "send", "send_enabled": False,
                 "capture_enabled": True, "expect_pass_re": "NEVER_THERE",
@@ -232,7 +232,7 @@ def test_silent_console_timeout_is_error():
 def test_output_without_the_pattern_is_still_a_dut_fail():
     ctx, _ = make_virtual_context({"ser1": ["boot: something else"]})
     step = FctStep(
-        name="wrong output", step_type="MESSAGE_CHECK", channel="ser1",
+        name="wrong output", category="Console", type="serial", channel="ser1",
         timeout_s=0.4,
         params={"fct_console": True, "kind": "send", "send_enabled": False,
                 "capture_enabled": True, "expect_pass_re": "NEVER_THERE",

@@ -160,6 +160,7 @@ def test_m83_send_console_answer_absent_from_model():
 
 
 def _doc_with_row(params: dict, kind: str = "MessageYesNo") -> dict:
+    sub_type = _MESSAGE_TYPES.get(kind, "yesno")
     return {
         "test_workflow": {
             "overall_flow": [{"stage": "FCT", "enable": True}],
@@ -167,9 +168,10 @@ def _doc_with_row(params: dict, kind: str = "MessageYesNo") -> dict:
                 "name": "Ready?", "kind": kind,
                 "op_params": {"fct_step": {
                     "name": "Ready?", "category": "Message",
-                    "type": "yesno_console",
+                    "type": sub_type,
                     "channel": "ser1", "timeout_s": 5.0,
-                    "params": {"style": "yesno", "console_dialog": True,
+                    "params": {"style": "yesno",
+                               "console_dialog": sub_type.endswith("_console"),
                                **params}}}}],
         },
     }

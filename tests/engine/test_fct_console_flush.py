@@ -54,7 +54,7 @@ def _send_step(**params) -> FctStep:
             "send": "uname -a", "expect_pass_re": "Linux imx93",
             "capture_is_expected": True}
     base.update(params)
-    return FctStep(name="Kernel check", step_type="MESSAGE_CHECK",
+    return FctStep(name="Kernel check", category="Console", type="serial",
                    channel="ser1", timeout_s=1.0, params=base)
 
 
@@ -87,7 +87,7 @@ def test_wait_only_row_does_not_flush():
     """Wait-only rows keep their bytes: no send, no flush."""
     channel = _Channel(["login:"])
     logs: list = []
-    step = FctStep(name="Boot wait", step_type="MESSAGE_CHECK",
+    step = FctStep(name="Boot wait", category="Console", type="serial",
                    channel="ser1", timeout_s=1.0,
                    params={"fct_console": True, "kind": "wait",
                            "wait_pattern": "login:",

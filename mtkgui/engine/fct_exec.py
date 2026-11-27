@@ -48,7 +48,8 @@ def _route(step) -> str:
     category = str(getattr(step, "category", "") or "")
     sub_type = str(getattr(step, "type", "") or "")
     if category == CATEGORY_OPERATION:
-        return _ROUTE_OPERATION
+        return (_ROUTE_EXTERNAL_TOOL if sub_type == "delay"
+                else _ROUTE_OPERATION)
     if category == CATEGORY_EXTERNAL_GUI:
         return _ROUTE_FLASH if sub_type == "flash" else _ROUTE_GUI_CONFIRM
     if category == CATEGORY_MESSAGE:
@@ -247,6 +248,9 @@ class FctContext:
     #: v2-15 D: node 03 firmware config (``firmware.<slot>``) — the single
     #: source for a FLASH step's method + CLI/GUI fields.
     firmware: dict = field(default_factory=dict)
+    #: M160: headless demo only — the RF ENVIRONMENT is simulated when
+    #: no real access point exists.  The GUI runner never sets this.
+    rf_demo: bool = False
 
     def log(self, message: str) -> None:
         line = f"[{self.station_id}] [{self.user}] {message}"
@@ -853,6 +857,12 @@ def _run_rf_tool(step: FctStep, family: str, ctx: FctContext) -> FctOutcome:
     (lswifi / CoreWLAN / bleak) - the old Windows percentage
     approximation is gone.  full_stack / pair_connect / a2dp_sink keep
     the existing rf_adapters path."""
+    if ctx.rf_demo:
+        # headless demo: the SAME fct_rf routing, with the RF
+        # environment simulated (no real access points in CI)
+        summary = (f"{family} RF (demo) -> PASS")
+        ctx.log(summary)
+        return FctOutcome(VERDICT_PASS, summary, [summary])
     from .host_platform import (platform_key, wifi_backend_cmds,
                                 bt_backend_cmds)
     from .rf_adapters import BluetoothAdapter, WifiAdapter, PlatformBackendMissing

@@ -13,7 +13,6 @@ The engine never talks to hardware directly (interface_spec.md §4.3):
         execute_op(name, params)                 -> GatewayOutcome
         measure_row(kind, name, unit, lo, hi)    -> GatewayOutcome
         capture_rails(rails, start_s, end_s, hz) -> (frac, volts, anomaly)
-        rf_test(kind, name, config)              -> GatewayOutcome
 
     The driver reports measurement facts only; limit decisions
     (PASS/FAIL) are made HERE in the engine from the YAML limits.
@@ -751,47 +750,3 @@ class RealGateway:
             self.last_error = f"rail capture: {exc}"
             return None, None, "error"
 
-    # ---------------------------------------------------------- RF tests
-    def rf_test(self, kind: str, name: str,
-                config: dict | None) -> GatewayOutcome:
-        """FCT WIFI / Bluetooth step against the RF test drivers.
-
-        config carries the RF test parameters from the project YAML
-        (ssid / password / mac / target_ip / limits); missing keys are
-        an engine-side config error, never a guessed default."""
-        mod = None
-        try:
-            mod = self._require_module()
-            cfg = dict(config or {})
-            if kind == "WIFI":
-                drv = self._rf_driver(mod, "wifi")
-                report = drv.run_test(cfg)
-            elif kind == "Bluetooth":
-                drv = self._rf_driver(mod, "bluetooth")
-                report = drv.run_test(cfg)
-            else:
-                raise mod.InstrumentConfigError(
-                    f"RF test kind '{kind}' not supported")
-        except DriverUnavailable as exc:
-            return GatewayOutcome("Error", lines=[str(exc)])
-        except self._err_base() as exc:
-            return GatewayOutcome("Error", lines=[f"{name}: {exc}"])
-        verdict = {mod.Status.OK: "PASS",
-                   mod.Status.FAIL: "FAIL"}.get(report.verdict, "Error")
-        lines = [f"{name}: {report.summary}"]
-        lines += [f"  {r.source}: {r.value} {r.unit}".rstrip()
-                  for r in report.results]
-        return GatewayOutcome(verdict,
-                              value=report.summary, text=report.summary,
-                              lines=lines)
-
-    def _rf_driver(self, mod, which: str):
-        """Build the RF test driver with a subprocess executor."""
-        executor = mod.SubprocessExecutor()
-        if which == "wifi":
-            drv = mod.WiFiRFTestDriver(executor=executor)
-        else:
-            drv = mod.BluetoothRFTestDriver(executor=executor)
-        # RF drivers need no open() round (CLI based); register for close
-        self._drivers[which.upper()] = drv
-        return drv

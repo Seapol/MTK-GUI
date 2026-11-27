@@ -208,32 +208,35 @@ class TestVirtualConsoleSteps:
         runner._poll_fct_console()   # scripted DUT replies instantly
         assert env.rows[("fct", 0)] == "PASS"
 
-    def test_wifi_row_requires_real_gateway(self, env):
-        # FCT Wi-Fi/BT always run against the REAL host RF adapters -
-        # Virtual mode never simulates them: without a configured
-        # gateway the row is an honest FAIL (user rule)
-        env.gateway = None
-        self._connect(env)
+    def test_wifi_row_without_any_rf_config_is_an_honest_error(self, env):
+        # M160: a WIFI row with neither fct_rf nor legacy ssid/target_ip
+        # reports an explicit ERROR (the reversed drivers are gone).
+        env.fct_op_params[1] = None
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner
         runner._exec_fct_row(1, interactive=True)  # WIFI row
-        assert env.rows[("fct", 1)] == "FAIL"
-        assert any("no RF gateway" in line
+        assert env.rows[("fct", 1)] == "Error"
+        assert any("carries no fct_rf config" in line
                    for line in env._log_lines())
 
-    def test_wifi_row_uses_real_gateway(self, env):
-        # with a gateway present the row runs the real RF adapter path
-        class FakeOut:
-            verdict = "PASS"
-            text = "rssi -42 dBm"
-            lines: list = []
+    def test_wifi_row_routes_through_rf_adapters(self, env, monkeypatch):
+        # the legacy WIFI row config (ssid / target_ip) maps onto the
+        # fct_rf shape and uses the SAME rf_adapters path as an
+        # authored Wifi step.
+        from mtkgui.engine import rf_adapters
 
-        class FakeGw:
-            def rf_test(self, kind, name, cfg):
-                return FakeOut()
+        class FakeWifi:
+            def __init__(self, cfg, runner):
+                self.cfg = cfg
 
-        env.gateway = FakeGw()
+            def run_test(self):
+                return {"verdict": "Pass",
+                        "items": {"loss_pct": 0.0, "rssi_dbm": -42},
+                        "lines": ["wifi associated"]}
+
+        monkeypatch.setattr(rf_adapters, "WifiAdapter", FakeWifi)
+        env.rf_demo = False                  # exercise the real adapter
         runner = TestRunner(env)
         runner.state = "running"
         env.runner = runner

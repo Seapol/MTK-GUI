@@ -191,34 +191,6 @@ class TestRailCapture:
         assert frac is None and volts is None
 
 
-class TestRFTests:
-    def test_wifi_pass(self, gw, scripted_drivers):
-        cfg = {"ssid": "NET", "password": "pw", "target_ip": "1.2.3.4",
-               "limits": {"min_rssi_dbm": -70}}
-        out = gw.rf_test("WIFI", "WIFI: scan", cfg)
-        assert out.verdict == "PASS"
-        assert ("wifi", "NET") in scripted_drivers._record.calls
-
-    def test_wifi_fail_verdict(self, gw):
-        cfg = {"ssid": "NET", "password": "pw", "target_ip": "1.2.3.4",
-               "limits": {}}   # min_rssi missing -> stub FAILs
-        out = gw.rf_test("WIFI", "WIFI: scan", cfg)
-        assert out.verdict == "FAIL"
-
-    def test_wifi_missing_config_is_engine_error(self, gw):
-        out = gw.rf_test("WIFI", "WIFI: scan", None)
-        assert out.verdict == "Error"
-        assert "missing" in out.lines[0]
-
-    def test_bluetooth(self, gw):
-        out = gw.rf_test("Bluetooth", "BT: pair", {"mac": "AA:BB"})
-        assert out.verdict == "PASS"
-
-    def test_unknown_rf_kind(self, gw):
-        out = gw.rf_test("NFC", "NFC", {})
-        assert out.verdict == "Error"
-
-
 class TestOutcome:
     def test_gateway_outcome_defaults(self):
         out = GatewayOutcome("Done")

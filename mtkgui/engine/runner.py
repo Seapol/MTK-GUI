@@ -743,28 +743,50 @@ class TestRunner(QObject):
             verdict = "FAIL"
             env._log(f"FCT {name}: expected pass marker not found -> FAIL")
         elif interactive and kind in ("WIFI", "Bluetooth"):
-            # Wi-Fi / BT ALWAYS run against the real host RF adapters
-            # (the access points and Bluetooth are real peripherals,
-            # never virtualised - user rule): no gateway configured is
-            # an honest FAIL, not a simulated pass
-            gw = getattr(env, "gateway", None)
-            if gw is None:
-                verdict = "FAIL"
-                env._log(f"FCT {name}: no RF gateway (host Wi-Fi/BT "
-                         f"adapters not configured) -> FAIL")
+            # M160: legacy marker-less RF rows route through the SAME
+            # EXTERNAL_TOOL + fct_rf path as every authored Wifi /
+            # Bluetooth step (rf_adapters: Host-as-iperf-server,
+            # DUT-as-client).  The old reversed drivers are gone.
+            family = "wifi" if kind == "WIFI" else "bluetooth"
+            cfg = dict((env.fct_op_params[r]
+                        if r < len(env.fct_op_params) else None) or {})
+            rf = cfg.get("fct_rf") or {}
+            if not isinstance(rf, dict) or not rf:
+                # legacy row config (ssid / target_ip / limits) -> the
+                # fct_rf shape the adapters understand
+                limits = dict(cfg.get("limits") or {})
+                if family == "wifi" and (cfg.get("ssid")
+                                         or cfg.get("target_ip")):
+                    rf = {
+                        "mode": ("full_stack" if cfg.get("target_ip")
+                                 else "rssi_only"),
+                        "ssid": str(cfg.get("ssid") or ""),
+                        "expected_ssid": str(cfg.get("ssid") or ""),
+                        "password": str(cfg.get("password") or ""),
+                        "ssid_password": str(cfg.get("password") or ""),
+                        "ap_ip": str(cfg.get("target_ip") or ""),
+                        "rssi_min": int(limits.get("min_rssi_dbm", -70)),
+                        "ping_count": 4, "iperf3": False,
+                        "any_reply": True}
+                elif family == "bluetooth" and cfg.get("mac"):
+                    rf = {"mode": "rssi_only",
+                          "expected_name": str(cfg.get("mac")),
+                          "rssi_min": int(limits.get("min_rssi_dbm", -70))}
+            if not isinstance(rf, dict) or not rf:
+                verdict = "ERROR"
+                env._log(
+                    f"FCT {name}: '{kind}' row carries no fct_rf config — "
+                    "rebuild the row in the FCT builder (Wifi / Bluetooth)")
             else:
-                cfg = (env.fct_op_params[r]
-                       if r < len(env.fct_op_params) else None)
-                out = gw.rf_test(kind, name, cfg)
-                for line in out.lines:
-                    env._log(line)
-                if out.verdict == "Error":
-                    env._instrument_error("DAQ")
-                self._put("fct", r,
-                          StepStatus.PASS if out.verdict == "PASS"
-                          else StepStatus.FAIL if out.verdict == "FAIL"
-                          else StepStatus.ERROR,
-                          out.text, time.monotonic() - t0)
+                from ..gui.yamlbuild.fct_build import FctStep
+                step = FctStep(
+                    name=name,
+                    category=("Wifi" if family == "wifi" else "Bluetooth"),
+                    type=("scan" if family == "wifi" else "rssi"),
+                    channel=str(cfg.get("channel") or ""),
+                    timeout_s=float(cfg.get("timeout_s") or 30.0),
+                    params={"tool_family": family, "fct_rf": dict(rf)})
+                self._exec_fct_b3(r, name, step.to_dict(), t0, interactive)
                 return
         elif interactive and kind in CONSOLE_KINDS:
             # console methods run against the connected serial channel
@@ -1112,7 +1134,8 @@ class TestRunner(QObject):
                          pulled_files=self.run_pulled_files,
                          watchdog_s=self._watchdog_s,
                          firmware=dict(getattr(env, "firmware_config",
-                                              None) or {}))
+                                              None) or {}),
+                         rf_demo=bool(getattr(env, "rf_demo", False)))
         ch_key = step.channel
         if str(step.params.get("kind") or "") in ("sftp_put", "sftp_get"):
             # M41: a network setup step that emitted a DIFFERENT DUT IP
@@ -2144,7 +2167,8 @@ class TestRunner(QObject):
                          pulled_files=self.run_pulled_files,
                          watchdog_s=self._watchdog_s,
                          firmware=dict(getattr(env, "firmware_config",
-                                              None) or {}))
+                                              None) or {}),
+                         rf_demo=bool(getattr(env, "rf_demo", False)))
         # bind console channel (if any teardown needs it)
         needs_console = any(
             FctStep.from_dict(

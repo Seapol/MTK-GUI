@@ -260,7 +260,8 @@ class _FakeSshChannel:
 
 def _sftp_step() -> FctStep:
     return FctStep(
-        name="SFTP download", step_type="MESSAGE_CHECK", channel="ssh",
+        name="SFTP download", category="Transfer", type="sftp_get",
+        channel="ssh",
         timeout_s=30.0,
         params={"fct_console": True, "kind": "sftp_get",
                 "action": "sftp_get",

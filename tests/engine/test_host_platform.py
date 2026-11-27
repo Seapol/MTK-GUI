@@ -196,7 +196,7 @@ def test_run_rf_tool_wifi_rssi_only_uses_host_scan(monkeypatch):
     monkeypatch.setattr(host_rf, "wifi_scan",
                         lambda ssids, **kw: {s: -48 for s in ssids})
     step = fe.FctStep(
-        name="w", step_type="EXTERNAL_TOOL", params={
+        name="w", category="Wifi", type="scan", params={
             "tool_family": "wifi",
             "fct_rf": {"mode": "rssi_only", "ssid": "dut-ap",
                        "rssi_min": -60}})
@@ -218,7 +218,7 @@ def test_run_rf_tool_bt_bleak_unavailable_is_error(monkeypatch):
 
     monkeypatch.setattr(host_rf, "_bleak_discover", _no_bleak)
     step = fe.FctStep(
-        name="bt", step_type="EXTERNAL_TOOL", params={
+        name="bt", category="Bluetooth", type="rssi", params={
             "tool_family": "bluetooth",
             "fct_rf": {"mode": "rssi_only", "expected_name": "DUT"}})
     out = fe._run_rf_tool(step, "bluetooth", fe.FctContext())

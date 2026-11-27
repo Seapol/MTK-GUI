@@ -34,7 +34,7 @@ CONTRADICTION_MSG = ("capture_is_expected=false ignores expect_pass_re - "
 def _console_step(**params) -> FctStep:
     base = {"fct_console": True, "kind": "send", "send": "uname -a"}
     base.update(params)
-    return FctStep(name="Kernel check", step_type="MESSAGE_CHECK",
+    return FctStep(name="Kernel check", category="Console", type="serial",
                    channel="ser1", timeout_s=0.2, params=base)
 
 
@@ -44,7 +44,7 @@ def _row(**params) -> dict:
         "kind": "CapturefromConsole",
         "op_params": {"fct_step": {
             "name": "Kernel check",
-            "step_type": "MESSAGE_CHECK",
+            "category": "Console", "type": "serial",
             "channel": "ser1",
             "params": dict(params),
         }},

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""v2-15 F: FCT panel editor — drop common Retries/Timeout, wire BT_Tone."""
+"""v2-15 F / M160 C: FCT panel editor — common Timeout/Retries block,
+BT_Tone range slider."""
 from __future__ import annotations
 
 import pytest
@@ -17,11 +18,27 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_panel_editor_drops_common_retries_and_timeout(qapp):
+def test_panel_editor_has_the_common_timeout_and_retries(qapp):
+    """M160 C: Timeout / Retries live in the common editor block."""
+    from mtkgui.gui.yamlbuild.fct_build import FctStep
+
     panel = BuildFctSequencePanel()
-    assert not hasattr(panel, "edit_retries")
-    assert not hasattr(panel, "edit_timeout")
-    panel.deleteLater()
+    try:
+        assert hasattr(panel, "edit_retries")
+        assert hasattr(panel, "edit_timeout")
+        panel.set_sequence(_sequence_with(
+            FctStep(name="step", category="Console", type="serial",
+                    timeout_s=12.5, retries=2)))
+        panel.table.setCurrentCell(0, 0)
+        assert panel.edit_timeout.value() == 12.5
+        assert panel.edit_retries.value() == 2
+    finally:
+        panel.deleteLater()
+
+
+def _sequence_with(*steps):
+    from mtkgui.gui.yamlbuild.fct_build import FctSequence
+    return FctSequence(name="FCT", steps=list(steps))
 
 
 def test_tone_slider_set_total_resets_segment(qapp):

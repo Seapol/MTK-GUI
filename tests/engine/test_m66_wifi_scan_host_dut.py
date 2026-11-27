@@ -43,7 +43,7 @@ class _Channel:
 
 def _rf_step(cfg, timeout_s=0.5, channel="console"):
     return fe.FctStep(
-        name="Wi-Fi Scan", step_type="EXTERNAL_TOOL", channel=channel,
+        name="Wi-Fi Scan", category="Wifi", type="scan", channel=channel,
         timeout_s=timeout_s,
         params={"tool_family": "wifi", "rssi_via": "dut_console",
                 "fct_rf": dict(cfg)})

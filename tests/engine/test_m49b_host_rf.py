@@ -96,7 +96,8 @@ class _Device:
 
 def _rf_step(family, cfg, timeout_s=15.0):
     return fe.FctStep(
-        name="rf", step_type="EXTERNAL_TOOL", channel="", timeout_s=timeout_s,
+        name="rf", category="Wifi", type="scan", channel="",
+        timeout_s=timeout_s,
         params={"tool_family": family, "fct_rf": dict(cfg)})
 
 

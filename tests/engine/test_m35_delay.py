@@ -66,7 +66,7 @@ class TestDelayModel:
             ConsoleCommand(kind=KIND_DELAY, name="Wait", wait_ms=750,
                            timeout=2.0), "console")
         assert step.params["fct_delay_ms"] == 750
-        assert step.step_type == "EXTERNAL_TOOL"
+        assert (step.category, step.type) == ("Operation", "delay")
 
 
 # ------------------------------------------------------------- execution

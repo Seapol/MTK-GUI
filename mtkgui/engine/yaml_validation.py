@@ -122,10 +122,12 @@ def rule_fct_row_without_judge(doc: dict) -> list[YamlIssue]:
         if not isinstance(row, dict):
             continue
         marker = _fct_row_marker(row)
-        step_type = str(marker.get("step_type") or marker.get("type") or "")
-        if step_type != "MESSAGE_CHECK":
-            # only the console capture executor can fake a PASS; op /
-            # dialog / CLI / RF rows judge through their own evidence
+        # M160: only Console.serial / Console.ssh are capture rows; op /
+        # dialog / CLI / transfer / RF rows judge through their own
+        # evidence (the legacy step_type is gone).
+        category = str(marker.get("category") or "")
+        sub_type = str(marker.get("type") or "")
+        if category != "Console" or sub_type not in ("serial", "ssh"):
             continue
         if row.get("enable") is False or row.get("skip") is True:
             continue
@@ -563,23 +565,22 @@ def _legacy_message_rows(doc: dict):
     """Every stored Message-row mapping the document carries (yielded as
     ``(location, name, mapping)``).  Reads existing keys only."""
     import yaml as _yaml
+    from .step_types import STEP_TYPE_TO_KIND
     workflow = (doc or {}).get("test_workflow") or {}
     for index, row in enumerate(workflow.get("fct_test_cases") or []):
         if not isinstance(row, dict):
             continue
         marker = dict((row.get("op_params") or {}).get("fct_step") or {})
         params = dict(marker.get("params") or {})
-        # the published case carries the six-kind label - expose it to
-        # the plain-row check without adding a new YAML field
-        params.setdefault("kind", str(row.get("kind") or marker.get("type")
-                                      or ""))
-        if str(marker.get("step_type") or "") == "GUI_CONFIRM" \
-                or str(row.get("kind") or "") in (
-                    "MessageOK", "MessageYesNo", "MessageGoStop",
-                    "MessageOKtoConsole", "MessageYesNotoConsole",
-                    "MessageGoStoptoConsole"):
+        # M160: the six-kind label derives from the step marker
+        # (category + type) - the top-level case kind is never read.
+        category = str(marker.get("category") or "")
+        sub_type = str(marker.get("type") or "")
+        params.setdefault(
+            "kind", STEP_TYPE_TO_KIND.get((category, sub_type), ""))
+        if category == "Message":
             yield (f"fct_test_cases[{index}]",
-                   str(row.get("name") or marker.get("name") or ""), params)
+                   str(marker.get("name") or row.get("name") or ""), params)
     state = (doc or {}).get("yaml_build_state") or {}
     params = (((state.get("modules") or {}).get("fct_build") or {})
               .get("params")) or {}
@@ -922,8 +923,10 @@ def _row_is_real_test(row: dict) -> bool:
         return False
     if params.get("fct_delay_ms") is not None:
         return False
-    kind = str(row.get("kind") or marker.get("step_type")
-               or marker.get("type") or "").strip().lower()
+    from .step_types import STEP_TYPE_TO_KIND
+    kind = str(STEP_TYPE_TO_KIND.get(
+        (str(marker.get("category") or ""),
+         str(marker.get("type") or "")), "")).strip().lower()
     return kind not in _NON_TEST_KINDS
 
 

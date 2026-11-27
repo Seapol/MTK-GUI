@@ -255,23 +255,6 @@ def _install_scripted_drivers(force: bool = True):
         def reset(self):
             pass
 
-    class RFResult(MeasurementResult):
-        pass
-
-    class RFTestReport:
-        def __init__(self):
-            self.verdict = Status.OK
-            self.results = []
-            self.summary = "scripted RF pass"
-
-    class WiFiRFTestDriver(_ScriptedDriver):
-        def run_test(self, config):
-            return RFTestReport()
-
-    class BluetoothRFTestDriver(_ScriptedDriver):
-        def run_test(self, config):
-            return RFTestReport()
-
     module = ModuleType("mtkgui.drivers")
     for name, obj in (
             ("Status", Status), ("InstrumentError", InstrumentError),
@@ -283,8 +266,6 @@ def _install_scripted_drivers(force: bool = True):
             ("DAQ973ADriver", DAQ973ADriver), ("U2355ADriver",
                                                U2355ADriver),
             ("N5747ADriver", N5747ADriver),
-            ("WiFiRFTestDriver", WiFiRFTestDriver),
-            ("BluetoothRFTestDriver", BluetoothRFTestDriver),
             ("SubprocessExecutor", _ScriptedDriver)):
         setattr(module, name, obj)
     import mtkgui as _pkg
@@ -301,21 +282,6 @@ def _install_scripted_drivers(force: bool = True):
 
 
 # ------------------------------------------------------------ headless env
-class _ScriptedRFGateway:
-    """Deterministic RF back-end for the headless demo: FCT Wi-Fi/BT
-    rows always run the real gateway.rf_test() path (never virtualised),
-    so the demo - which has no real access points - simulates the RF
-    ENVIRONMENT with fixed PASS outcomes (the run itself is unchanged)."""
-
-    def rf_test(self, kind: str, name: str,
-                config: dict | None) -> "GatewayOutcome":
-        from .instruments import GatewayOutcome
-        summary = ("wifi associated (demo)" if kind == "WIFI"
-                   else "bluetooth connected (demo)")
-        return GatewayOutcome("PASS", value=summary, text=summary,
-                              lines=[f"{name}: {summary}"])
-
-
 class HeadlessEnv:
     """RunnerEnv bridge for headless runs: stdout log, in-memory result
     rows, scripted console / rails - the same interface the Qt workflow
@@ -363,6 +329,9 @@ class HeadlessEnv:
         self.cap_rate = int(rails_cfg.get("sample_rate_hz", 200))
         self.csv_export = True
         self.logs_dir = Path(logs_dir or "logs")
+        # M160: the headless demo has no real access point / BT peer -
+        # the fct_rf path is kept, its RF ENVIRONMENT is simulated.
+        self.rf_demo = True
         # instrument backends
         self.rack = None
         self.gateway = None
@@ -384,11 +353,6 @@ class HeadlessEnv:
                     "current": float(psu_params.get("Current limit (A)"))}
             except (TypeError, ValueError):
                 self.rack.psu_setpoints = None
-            # FCT Wi-Fi/BT always run the real RF adapter path (never
-            # virtualised) - the headless demo has no real access
-            # points, so the demo ENVIRONMENT is simulated with a
-            # deterministic scripted RF gateway
-            self.gateway = _ScriptedRFGateway()
         else:
             from .instruments import RealGateway
 
