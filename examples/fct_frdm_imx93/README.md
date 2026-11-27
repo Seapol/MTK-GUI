@@ -1,53 +1,42 @@
-# FCT example — FRDM-IMX93, i.MX93 EVT (Proto-1), rev 1.3.1
+# FCT example — FRDM-IMX93, i.MX93 EVT (Proto-1), rev 1.3.2
 
-The FCT plan that reached `Overall Flow: ICT -> FCT all PASS` on the real
-bench on 2026-11-24 (Run #27). It is the reference for a message-based FCT
-stage: every row is a serial / CLI / dialog exchange whose verdict comes from
-the DUT's own reply, not from a numeric measurement.
+The FCT plan for the FRDM-IMX93 board in the M160 step-type taxonomy
+(`category` + `type`, 8 categories). ICT is disabled and the DUT ships with
+FAT firmware already flashed, so this plan carries **no firmware-flash
+stage**: every FCT row is a serial / transfer / RF exchange whose verdict
+comes from the DUT's own reply.
 
 ## What is in the file
 
-| Item | Count |
+| Item | Value |
 |---|---|
-| FCT rows | 45 |
-| Enabled at the last real run | 42 |
-| Verdicts in Run #27 | 34 PASS / 11 Ignore / 0 FAIL / 0 ERROR |
-| Cycle time | 4:52 total, ~2:50 automated, the rest the two human gates |
+| FCT rows | 41 |
+| Step taxonomy | M160 `category` + `type` |
+| Firmware flash rows | 0 (board ships pre-flashed) |
+| ICT stage | disabled |
+| FCT stage | enabled |
+| Yaml Build locks | 01 / 03 / 04 / 06 / 07 completed, 02 / 05 unused |
 
-## Why three rows are disabled
+FCT row breakdown:
 
-They stay in the file, disabled, with the date and the reason written above
-each one. That is deliberate: a closed item must remain readable so the next
-engineer can re-open it after one look.
-
-- `Wi-Fi iPerf Throughput (iperf3)` — the lab AP isolates clients, so the DUT
-  (`192.168.71.12`) never reaches the host iperf3 server (`192.168.71.8:5201`)
-  although ARP resolves both ways.
-- `BT L2CAP ping` — no paired peer exists; the DUT answers
-  `BT_L2CAP_UNCONFIGURED`.
-- `Pull FAT log` — the serial pull protocol is structurally broken on this
-  firmware, so the run falls back to the console transcript.
-
-Re-enable each row only after its precondition is met; the full condition list
-is in `docs/fct/FCT_coverage_closeout_2026-11-24.md`.
-
-## Two defects this bench run found, and both are fixed
-
-- `Bluetooth RSSI` budget: a 15 s budget was declared while the row also
-  declared three 35 s sub-timeouts. The row now retries the scan twice and
-  declares 35 s in all three places.
-- `run_step` warns `WARNING budget ... <= declared sub-timeout ...` before a
-  row starts, instead of failing 15 s into it.
+| Category | Count |
+|---|---|
+| Console.serial | 33 |
+| Operation (power on / off) | 2 |
+| Transfer (serial put / pull) | 2 |
+| Wifi (scan / ping / iperf) | 3 |
+| Bluetooth.rssi | 1 |
 
 ## How to load it
 
 1. Log in as **Supervisor** on the real bench.
 2. `File → Load Project` and pick
-   `FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.1.yaml`.
-3. Open **Test Work Flow**, check that the ICT stage is disabled and FCT is
-   enabled, then press **Run**. The two `MessageGoStop` rows stop for a human
-   PASS/FAIL.
+   `FRDM-IMX93_i.MX93_EVT-(Proto-1)_rev_1.3.2.yaml`.
+3. Open **Yaml Build** and check the 7 nodes: 02 Parse nets and 05 Build ICT
+   are `Unused` (ICT disabled), the rest are `Completed`.
+4. Open **Test Work Flow**, confirm ICT is disabled and FCT is enabled, then
+   press **Run**.
 
 Slot numbers, IP addresses and serial ports in this file are the ones of the
-2026-11-24 bench; change them on the **Equipment** page for your own station
-before running.
+bench it was authored on; change them on the **Equipment** page for your own
+station before running.
