@@ -243,9 +243,16 @@ def push_file(channel, local_path: str, remote_path: str, *,
                         delay_s=_stream_delay_s(scale))
         size_out = _send_wait(channel, f"wc -c < {STAGING}", prompt_re,
                               command_timeout_s, "staging size")
-        # the computed completion marker is the second standalone number
-        sizes = [int(line) for line in size_out.splitlines()
-                 if line.strip().isdigit()]
+        # m118-fix: with `stty -echo` the shell prompt is still printed and
+        # it has no trailing newline, so `wc -c` output lands glued to the
+        # prompt (e.g. "root@imx93frdm:~# 3005").  A bare `line.isdigit()`
+        # rejects that line and the parser would then pick the computed
+        # marker as the size.  Extract the LAST number on each line instead.
+        sizes = []
+        for line in size_out.splitlines():
+            m = re.search(r"(\d+)\s*$", line)
+            if m:
+                sizes.append(int(m.group(1)))
         got = sizes[0] if sizes else -1
         if got == expected:
             break

@@ -31,12 +31,16 @@ class _WireChannel:
     """
 
     def __init__(self, md5: str = "", replies: dict | None = None,
-                 size_replies: list | None = None) -> None:
+                 size_replies: list | None = None,
+                 glue_size_to_prompt: bool = False) -> None:
         self.md5 = md5
         #: command prefix -> stderr lines emitted before the marker
         self.replies = dict(replies or {})
         #: scripted `wc -c` answers (consumed first, then the real size)
         self.size_replies = list(size_replies or [])
+        #: m118: emulate `stty -echo` where the shell prompt is still
+        #: printed without a newline, so `wc -c` output lands glued to it
+        self.glue_size_to_prompt = glue_size_to_prompt
         self.writes: list[str] = []
         self.pending: list[str] = []
         self.stale_prompts_seen = 0
@@ -78,7 +82,11 @@ class _WireChannel:
         if command.startswith("wc -c"):
             size = (self.size_replies.pop(0) if self.size_replies
                     else self.staged_size)
-            self.pending.append(str(size))
+            if self.glue_size_to_prompt:
+                # `stty -echo`: prompt has no newline, size output glues on
+                self.pending.append(f"root@done:~# {size}")
+            else:
+                self.pending.append(str(size))
             self.pending.append(marker)
             self.pending.append("root@done:~# ")
             return
@@ -240,6 +248,18 @@ def test_push_file_checks_staging_size_before_decode(tmp_path):
     decode_at = next(i for i, write in enumerate(channel.writes)
                      if write.startswith("base64 -d"))
     assert wc_at < decode_at
+
+
+def test_push_file_parses_size_glued_to_prompt(tmp_path):
+    # m118: `stty -echo` still prints the prompt without a newline, so the
+    # `wc -c` number lands on the same line as the prompt.  The size parser
+    # must extract that trailing number instead of the computed marker.
+    source, data = _source(tmp_path)
+    channel = _WireChannel(hashlib.md5(data).hexdigest(),
+                           glue_size_to_prompt=True)
+    result = push_file(channel, str(source), "/fat.log")
+    assert result["md5"] == hashlib.md5(data).hexdigest()
+    assert sum(1 for w in channel.writes if w.startswith("cat > ")) == 1
 
 
 def test_push_file_restreams_when_staging_size_short(tmp_path):
